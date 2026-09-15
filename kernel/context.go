@@ -70,22 +70,20 @@ type TaskContext struct {
 	IrreversibleSideEffect bool
 
 	// BeforeIrreversibleEffect, when the runtime arms it for a task attempt, runs
-	// once, immediately before the first builtin that would set
-	// IrreversibleSideEffect. It returns true when the attempt must stop right
-	// there and be re-run instead of performing the effect (its reads are already
-	// stale, so it could never commit); the builtin then yields without acting.
+	// once, immediately before the attempt's first act that a whole-task re-run
+	// could not undo: an irreversible external effect (IrreversibleSideEffect) or
+	// a direct mutation of the live store (LiveStoreMutated). It returns true when
+	// the attempt must stop right there and be re-run instead of acting (its
+	// reads are already stale, so it could never commit); the builtin then
+	// returns FlowAbortAttempt without acting.
 	BeforeIrreversibleEffect func() bool
 
 	// ConflictRetryRequested is set by BeforeIrreversibleEffect when it stopped
-	// the attempt. The runtime consumes it when the VM yields and re-runs the
-	// task from the top.
+	// the attempt. Every later irreversible act in the attempt is refused, the
+	// VM unwinds at its next builtin boundary (including from inside a nested
+	// verb-call VM, whose result the calling builtin cannot act on), and the
+	// runtime re-runs the task from the top.
 	ConflictRetryRequested bool
-
-	// NestedVMDepth counts synchronous nested VMs (CallVerbInContext) running on
-	// this context. A yield from inside one is returned to the calling builtin,
-	// not to the runtime, so BeforeIrreversibleEffect never stops an attempt
-	// while this is nonzero.
-	NestedVMDepth int
 
 	// DeferredGC marks a recycle activation owned by the runtime's deferred
 	// collector. Lifecycle requests from it must not wait on that same collector.

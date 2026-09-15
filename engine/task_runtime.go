@@ -144,7 +144,6 @@ retryAttempt:
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
 	ctx.ConflictRetryRequested = false
-	ctx.NestedVMDepth = 0
 	// An irreversible external effect (builtinHasIrreversibleSideEffect) makes the
 	// rest of the attempt un-retryable: a commit conflict after it can no longer be
 	// answered by re-running the task and would surface as an uncatchable E_INVARG
@@ -159,9 +158,10 @@ retryAttempt:
 	// so nothing it reads from here on can be stale either. If the validation
 	// fails the effect has not happened yet, so the task is re-run from the top.
 	// Once the renew succeeds no ordinary commit can interleave until this
-	// attempt's own commit, so it cannot lose (direct live-store mutations bypass
-	// the gate and remain the documented residual, still detected at the final
-	// commit). Publishing at the boundary exposes the slice's first half to
+	// attempt's own commit, so it cannot lose. Coarse builtins that mutate the
+	// live store directly cross the same boundary first (beforeCoarse), so a
+	// live-mutated attempt cannot lose either. Publishing at the boundary
+	// exposes the slice's first half to
 	// concurrent readers before its second half exists; none of them can commit
 	// on that view until this attempt has.
 	ctx.BeforeIrreversibleEffect = func() bool {
@@ -171,7 +171,7 @@ retryAttempt:
 		s.store.EscalationLock()
 		escalated = true
 		ctx.StoreTxn.ExemptFromCommitGate()
-		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && ctx.NestedVMDepth == 0 && attempt < maxConflictRetryAttempts
+		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
 		slog.Debug("irreversible-effect boundary",
 			slog.Int64("task_id", t.ID), slog.String("verb", t.VerbName),

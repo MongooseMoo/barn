@@ -141,14 +141,10 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
 	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 
-	// A yield from this VM is handed back to the calling builtin, so the
-	// irreversible-effect hook must not use one to stop the task while nested.
-	parentCtx.NestedVMDepth++
 	result := bcVM.ExecuteLoop()
 	if parentTask != nil {
 		result = s.drainForks(parentTask, bcVM, result)
 	}
-	parentCtx.NestedVMDepth--
 	vm.ReleaseVM(bcVM)
 	if result.Flow == types.FlowException {
 		trace.Exception(objID, verbName, result.Error)

@@ -243,9 +243,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		// earlier decentralized create in this same task must be flushed to live first —
 		// otherwise an anonymous child of a just-created numbered object inherits from a
 		// parent the coarse store cannot see yet (E_INVIND on later property access).
-		if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-			return types.Err(errCode)
+		if res, ok := beforeCoarse(ctx); !ok {
+			return res
 		}
+		tx = readTxn(ctx) // the boundary may have renewed the transaction
 		var ec types.ErrorCode
 		if anonymous {
 			newID, ec = tx.CreateObject(parents, owner, true)
@@ -471,9 +472,10 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
+	tx = readTxn(ctx) // the boundary (here or in a cascaded recycle above) may have renewed the transaction
 	for _, contentID := range oldContents {
 		content := moveObjectReferenceForRead(ctx, contentID)
 		if ec := applyRecycleMove(ctx, contentID, objID); ec != types.E_NONE {
@@ -505,6 +507,7 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	isPlayer, _ := hasObjectFlagForRead(ctx, objID, dbstore.FlagUser)
 	isAnon, _ := objectIsAnonymousForRead(ctx, objID)
 	decentralized := false
+	tx = readTxn(ctx) // an exitfunc hook above may have crossed the boundary and renewed the transaction
 	if !ctx.LiveStoreMutated && !isPlayer && !isAnon {
 		// Anonymous objects live out-of-band with no numbered slot, so the decentralized
 		// committer (which publishes into numbered slots) can't tombstone one — they stay
@@ -525,9 +528,10 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 		// Coarse recycle reads/reparents through the LIVE store, so flush any topology this
 		// task staged decentrally first (e.g. a just-created child of the object being
 		// recycled) — otherwise store.Recycle cannot see it. Mirrors the coarse create path.
-		if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-			return types.Err(errCode)
+		if res, ok := beforeCoarse(ctx); !ok {
+			return res
 		}
+		tx = readTxn(ctx)
 		if err := store.Recycle(objID); err != nil {
 			return types.Err(types.E_INVARG)
 		}

@@ -8,8 +8,8 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
