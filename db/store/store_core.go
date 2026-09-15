@@ -390,6 +390,7 @@ func stampObjectRelationship(obj *Object, ts uint64) {
 func stampObjectProperties(obj *Object, ts uint64) {
 	if obj != nil {
 		obj.propertyVersion = ts
+		obj.propertyShapeVersion = ts
 	}
 }
 

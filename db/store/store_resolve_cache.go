@@ -256,7 +256,7 @@ func (tx *StoreTxn) replayPropSteps(steps []propWalkStep) {
 		if st.found {
 			tx.markPropertyRead(st.id, st.actualName, st.prop)
 		} else {
-			tx.markPropertyScan(st.id, st.obj)
+			tx.markPropertyShapeScan(st.id, st.obj)
 		}
 	}
 }

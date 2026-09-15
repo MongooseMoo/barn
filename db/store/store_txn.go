@@ -36,6 +36,7 @@ type StoreTxn struct {
 	relationshipWrites        map[types.ObjID]objectRelationshipWrite
 	propertyReads             map[propertyReadKey]uint64
 	propertyScans             map[types.ObjID]uint64
+	propertyShapeScans        map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
 	propertyWrites            map[propertyWriteKey]propertyWrite
@@ -247,15 +248,16 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	// deregistration is StoreTxn.Release (called by the runtime), with a finalizer
 	// backstop so a dropped-without-Release txn cannot leak its registration forever.
 	tx := &StoreTxn{
-		readTS:            readTS,
-		store:             s,
-		objects:           make(map[types.ObjID]*Object),
-		scalarReads:       make(map[types.ObjID]uint64),
-		relationshipReads: make(map[types.ObjID]uint64),
-		propertyReads:     make(map[propertyReadKey]uint64),
-		propertyScans:     make(map[types.ObjID]uint64),
-		verbReads:         make(map[verbReadKey]uint64),
-		verbScans:         make(map[types.ObjID]uint64),
+		readTS:             readTS,
+		store:              s,
+		objects:            make(map[types.ObjID]*Object),
+		scalarReads:        make(map[types.ObjID]uint64),
+		relationshipReads:  make(map[types.ObjID]uint64),
+		propertyReads:      make(map[propertyReadKey]uint64),
+		propertyScans:      make(map[types.ObjID]uint64),
+		propertyShapeScans: make(map[types.ObjID]uint64),
+		verbReads:          make(map[verbReadKey]uint64),
+		verbScans:          make(map[types.ObjID]uint64),
 		// scalarWrites, relationshipWrites, propertyDefines,
 		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
 		// are left nil and lazily allocated on first stage (see lazySet).
@@ -572,6 +574,16 @@ func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 	tx.propertyScans[objID] = obj.propertyVersion
 }
 
+// markPropertyShapeScan records that this txn's result depends on which slots
+// obj HAS (an ancestry walk fell through it), not on any slot's value. It is
+// validated against propertyShapeVersion, which value writes do not move.
+func (tx *StoreTxn) markPropertyShapeScan(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	tx.propertyShapeScans[objID] = obj.propertyShapeVersion
+}
+
 func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value) {
 	prop.value = value
 	prop.clear = false
@@ -714,6 +726,7 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	delete(tx.relationshipReads, objID)
 	delete(tx.relationshipWrites, objID)
 	delete(tx.propertyScans, objID)
+	delete(tx.propertyShapeScans, objID)
 	delete(tx.verbScans, objID)
 	for key := range tx.propertyReads {
 		if key.objID == objID {
@@ -1610,7 +1623,7 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			}
 		} else {
 			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current, valid: true})
-			tx.markPropertyScan(currentID, current)
+			tx.markPropertyShapeScan(currentID, current)
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -1887,10 +1900,13 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 		return types.E_INVIND
 	}
 	obj.propertyVersion = live.propertyVersion
+	obj.propertyShapeVersion = live.propertyShapeVersion
 	liveVersion := live.propertyVersion
+	liveShapeVersion := live.propertyShapeVersion
 	tx.store.mu.RUnlock()
 
 	tx.propertyScans[objID] = liveVersion
+	tx.propertyShapeScans[objID] = liveShapeVersion
 	for key := range tx.propertyReads {
 		if key.objID == objID {
 			delete(tx.propertyReads, key)
@@ -1966,7 +1982,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 	}
 	actualName, prop, exists := propertyByName(obj.properties, name)
 	if !exists {
-		tx.markPropertyScan(objID, obj)
+		tx.markPropertyShapeScan(objID, obj)
 		return true, types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
@@ -2816,6 +2832,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.relationshipReads = make(map[types.ObjID]uint64)
 	tx.propertyReads = make(map[propertyReadKey]uint64)
 	tx.propertyScans = make(map[types.ObjID]uint64)
+	tx.propertyShapeScans = make(map[types.ObjID]uint64)
 	tx.verbReads = make(map[verbReadKey]uint64)
 	tx.verbScans = make(map[types.ObjID]uint64)
 
@@ -2927,6 +2944,19 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 		}
 		if live.propertyVersion != version {
 			debugConflict("property-scan", objID, "", version, live.propertyVersion)
+			return types.E_INVARG
+		}
+	}
+	for objID, version := range tx.propertyShapeScans {
+		if tx.createdObjects[objID] != nil {
+			continue
+		}
+		live := tx.store.liveObjectLocked(objID)
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.propertyShapeVersion != version {
+			debugConflict("property-shape", objID, "", version, live.propertyShapeVersion)
 			return types.E_INVARG
 		}
 	}

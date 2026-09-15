@@ -68,6 +68,8 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		np.value = w.value
 		np.version = ts
 		newProps[propertyNameKey(w.name)] = np
+		// A new slot changes which ancestry walks fall through this object.
+		img.propertyShapeVersion = ts
 	}
 
 	img.properties = newProps
@@ -159,6 +161,7 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 
 	img.properties = newProps
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -209,6 +212,7 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 	img.propOrder = newOrder
 	img.propDefsCount = old.propDefsCount + 1
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -241,6 +245,7 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 		img.propDefsCount = old.propDefsCount - 1
 	}
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -420,6 +425,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		addLockID(key.objID)
 	}
 	for id := range tx.propertyScans {
+		addLockID(id)
+	}
+	for id := range tx.propertyShapeScans {
 		addLockID(id)
 	}
 	for key := range tx.verbReads {

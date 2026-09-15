@@ -56,7 +56,14 @@ type Object struct {
 	scalarVersion       uint64
 	relationshipVersion uint64
 	propertyVersion     uint64
-	verbVersion         uint64
+	// propertyShapeVersion moves only when the SET of slots on this object
+	// changes (define, delete, a first override of an inherited property).
+	// A plain value write to an existing slot leaves it alone. Ancestry walks
+	// that fall through this object (no slot for the name) depend on it, not
+	// on propertyVersion, so hot value writes stop invalidating them.
+	// Invariant: stamped only when propertyVersion is stamped too.
+	propertyShapeVersion uint64
+	verbVersion          uint64
 }
 
 // ObjectView is a flat, read-only snapshot of an Object's scalar fields plus
