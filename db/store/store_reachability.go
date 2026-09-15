@@ -282,26 +282,83 @@ func collectWaifsInto(value types.Value, set *types.WaifSet) {
 	}
 }
 
+// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch.
+type persistentWaifRootsEntry struct {
+	epoch uint64
+	top   []types.Value // waifs held directly in property values (through lists/maps), no closure expansion
+}
+
+// propertyValueMayHoldFinalizable reports whether obj's slot for name currently
+// holds a value that may reference a WAIF or anonymous object.
+func propertyValueMayHoldFinalizable(obj *Object, name string) bool {
+	_, prop, ok := propertyByName(obj.properties, name)
+	return ok && prop.value.MayHoldFinalizable()
+}
+
+// collectTopLevelWaifsInto records the waifs directly inside value (descending
+// through lists and maps) without expanding the waifs' own properties.
+func collectTopLevelWaifsInto(value types.Value, set *types.WaifSet) {
+	switch value.Type() {
+	case types.TYPE_WAIF:
+		set.Add(value)
+	case types.TYPE_LIST:
+		if !value.MayHoldFinalizable() {
+			return
+		}
+		for _, elem := range value.Elements() {
+			collectTopLevelWaifsInto(elem, set)
+		}
+	case types.TYPE_MAP:
+		if !value.MayHoldFinalizable() {
+			return
+		}
+		for _, pair := range value.Pairs() {
+			collectTopLevelWaifsInto(pair[0], set)
+			collectTopLevelWaifsInto(pair[1], set)
+		}
+	}
+}
+
 // PersistentWaifRoots returns every waif reachable from a live object's
-// property values, deduplicated by identity. One shared set keeps the whole
-// walk linear in the number of waif references in the database.
+// property values, deduplicated by identity.
+//
+// The walk over every property of every object is memoized per waifRootsEpoch
+// (the finalizer asks after every task that let a WAIF leave scope, and on a
+// large database the scan dominated that task's cost). Only the TOP-LEVEL
+// roots are memoized: a WAIF's own properties are mutated in place by
+// Value.SetProperty with no store write, so the closure is expanded fresh on
+// every call. Property values are immutable, so a change to the top-level set
+// always goes through a store write, and every such write bumps the epoch
+// (noteWaifRootsChanged).
 func (s *Store) PersistentWaifRoots() []types.Value {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	epoch := s.waifRootsEpoch.Load()
+	var top []types.Value
+	if entry := s.waifRootsCache.Load(); entry != nil && entry.epoch == epoch {
+		top = entry.top
+	} else {
+		set := types.NewWaifSet(nil)
+		s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
+			obj := slot.ptr.Load()
+			if obj == nil || !validLiveObject(obj) {
+				return true
+			}
+			for _, prop := range obj.properties {
+				if prop.value.MayHoldFinalizable() {
+					collectTopLevelWaifsInto(prop.value, set)
+				}
+			}
+			return true
+		})
+		top = set.Values
+		s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top})
+	}
+	s.mu.RUnlock()
 
 	roots := types.NewWaifSet(nil)
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) {
-			return true
-		}
-		for _, prop := range obj.properties {
-			if prop.value.MayHoldFinalizable() {
-				collectWaifsInto(prop.value, roots)
-			}
-		}
-		return true
-	})
+	for _, waif := range top {
+		collectWaifsInto(waif, roots)
+	}
 	if roots.Values == nil {
 		return []types.Value{}
 	}

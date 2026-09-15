@@ -11,6 +11,7 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	newID := s.allocateID()
 	if owner == types.ObjNothing {
 		owner = newID
@@ -121,6 +122,7 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 	visited := make(map[types.ObjID]bool)
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
@@ -179,6 +181,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
 		child := s.load(childID)
@@ -279,6 +282,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	// Reset object to fresh state
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
 		parentObj := s.load(parent)
@@ -415,6 +419,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	}
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	tombstone := NewObject(oldID, obj.owner)
 	tombstone.recycled = true
 	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)

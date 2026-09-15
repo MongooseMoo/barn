@@ -2617,6 +2617,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 // intentionally performs only operation preflight. Caller holds store.mu.Lock.
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
+	tx.store.noteWaifRootsChanged()
 	remembered := make(map[types.ObjID]bool)
 
 	// Publish staged creates FIRST (under the exclusive lock) so they are live before

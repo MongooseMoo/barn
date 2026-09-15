@@ -253,11 +253,24 @@ func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []ty
 	return roots
 }
 
+// collectPendingFinalizationsFromFrame records, for a frame about to be
+// popped, the waifs leaving scope (vm.PendingWaifs) and the direct
+// finalization roots it held (vm.PendingFinalizations) in one pass. Frames
+// that hold no finalizable value — the overwhelming majority — cost one
+// MayHoldFinalizable check per slot and allocate nothing.
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
-	refs := make(map[types.ObjID]struct{})
+	var refs map[types.ObjID]struct{}
 	var waifs []types.Value
-	frame.visitValues(func(value types.Value, _ valueRootKind) { collectDirectFinalizationRoots(value, refs, &waifs) })
-	vm.appendPendingFinalizationRoots(refs, waifs)
+	frame.visitFinalizableCandidates(func(value types.Value) {
+		collectDirectWaifsForGC(value, &vm.PendingWaifs)
+		if refs == nil {
+			refs = make(map[types.ObjID]struct{})
+		}
+		collectDirectFinalizationRoots(value, refs, &waifs)
+	})
+	if refs != nil {
+		vm.appendPendingFinalizationRoots(refs, waifs)
+	}
 }
 
 func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {

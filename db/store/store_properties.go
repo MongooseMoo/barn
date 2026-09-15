@@ -446,6 +446,7 @@ func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if owner != nil {
 		prop.owner = *owner
 	}
@@ -471,6 +472,7 @@ func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Val
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
@@ -517,6 +519,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 	}
 	prop.defined = true
 	prop.clear = false
@@ -560,6 +563,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 	}
 
 	delete(obj.properties, actualName)
@@ -589,6 +593,7 @@ func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.Erro
 	if ok {
 		obj = s.republishForMutation(obj)
 		ts := s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 		delete(obj.properties, actualName)
 		stampObjectProperties(obj, ts)
 	}
@@ -653,6 +658,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 			}
 		}
 		stampObjectProperties(obj, s.bumpClockLocked())
+		s.noteWaifRootsChanged()
 	}
 	return types.E_NONE
 }

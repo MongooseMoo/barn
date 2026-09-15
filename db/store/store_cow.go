@@ -526,9 +526,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// even an untouched map or slice here would let them corrupt the old image kept in
 	// history. Builders may safely share untouched collections with this unpublished
 	// detached image while composing the final replacement.
+	waifRootsDirty := false
 	for _, id := range writeIDs {
 		created := tx.createdObjects[id]
 		old := s.load(id) // nil for a created id
+		if tx.recycleWrites[id] || len(propDefinesByObj[id])+len(propDefDeletesByObj[id])+len(propDeletesByObj[id]) > 0 {
+			waifRootsDirty = true
+		}
 		var img *Object
 		if created != nil {
 			// Brand-new object: build from the PRISTINE creation-time base and stamp
@@ -555,6 +559,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			img = buildImageWithPropertyDefine(img, def, ts)
 		}
 		for _, w := range propWritesByObj[id] {
+			if !waifRootsDirty && (w.value.MayHoldFinalizable() || propertyValueMayHoldFinalizable(img, w.name)) {
+				waifRootsDirty = true
+			}
 			img = buildImageWithPropertyValue(img, w, ts)
 		}
 		for _, actualName := range propDeletesByObj[id] {
@@ -597,6 +604,11 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	floor := s.historyFloor()
 	for _, id := range writeIDs {
 		s.pruneObjectHistory(id, floor)
+	}
+	if waifRootsDirty {
+		// After the publishes, so a scan that read the old epoch before they
+		// landed can never memoize a root set missing these values.
+		s.noteWaifRootsChanged()
 	}
 
 	tx.scalarWrites = nil

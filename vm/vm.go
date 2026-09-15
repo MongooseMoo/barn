@@ -61,7 +61,6 @@ func (vm *VM) pushFrame(f *StackFrame) {
 // pointer to the new top (nil when the call stack is empty).
 func (vm *VM) popFrame() {
 	frame := vm.Frames[len(vm.Frames)-1]
-	vm.collectPendingWaifsFromFrame(frame)
 	vm.collectPendingFinalizationsFromFrame(frame)
 	stackEnd := min(vm.SP, len(vm.Stack))
 	for i := max(0, frame.BasePointer); i < stackEnd; i++ {

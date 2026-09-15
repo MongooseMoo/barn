@@ -101,8 +101,13 @@ type Store struct {
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
-	commitConflicts       atomic.Uint64
-	commitRetries         atomic.Uint64
+	// waifRootsEpoch advances whenever the set of WAIFs held directly by live
+	// objects' property values may have changed; waifRootsCache memoizes the
+	// PersistentWaifRoots top-level scan for one epoch. See noteWaifRootsChanged.
+	waifRootsEpoch  atomic.Uint64
+	waifRootsCache  atomic.Pointer[persistentWaifRootsEntry]
+	commitConflicts atomic.Uint64
+	commitRetries   atomic.Uint64
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
@@ -284,6 +289,15 @@ func (s *Store) readTimestamp() uint64 {
 func (s *Store) bumpClockLocked() uint64 {
 	return s.bumpClock()
 }
+
+// noteWaifRootsChanged invalidates the PersistentWaifRoots memo. Every path
+// that can change which WAIFs live directly in a persistent property value
+// must call it AFTER the change is visible: the coarse and direct writers
+// (under store.mu.Lock, where the scan cannot interleave) and the
+// decentralized committer after its publishes. A value write whose old and
+// new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
+// epoch alone, which is what keeps the memo hot on ordinary workloads.
+func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
 
 type objectHistory struct {
 	ts  uint64
@@ -477,6 +491,7 @@ func (s *Store) Add(obj *Object) error {
 	}
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 	return nil
@@ -501,6 +516,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 		obj.anonymous = true
 	}
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
 	casMaxID(&s.highWaterID, obj.id)
@@ -528,6 +544,7 @@ func (s *Store) setObjectName(objID types.ObjID, name string) types.ErrorCode {
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	obj.setName(name)
 	stampObjectScalar(obj, ts)
 	return types.E_NONE
@@ -543,6 +560,7 @@ func (s *Store) setObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	obj.owner = owner
 	stampObjectScalar(obj, ts)
 	return types.E_NONE
@@ -558,6 +576,7 @@ func (s *Store) setObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	obj.location = location
 	stampObjectRelationship(obj, ts)
 	return types.E_NONE
@@ -573,6 +592,7 @@ func (s *Store) setObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if enabled {
 		obj.flags = obj.flags.Set(flag)
 	} else {
