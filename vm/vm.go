@@ -39,7 +39,13 @@ type VM struct {
 	builtinExec                 *builtins.Execution
 	builtinPendingFinalizations func() []types.Value
 
-	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
+	frame *StackFrame // Cached top of Frames; kept in sync by pushFrame/popFrame
+	// localStack is the contiguous backing store for verb-frame Locals: each
+	// pushed frame takes the next NumLocals slots and popFrame releases them
+	// LIFO, so a verb call no longer allocates its locals. framePool recycles
+	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
+	localStack  []types.Value
+	framePool   []*StackFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
 	resumeError types.ErrorCode
@@ -67,6 +73,70 @@ func (vm *VM) popFrame() {
 		vm.frame = vm.Frames[n-1]
 	} else {
 		vm.frame = nil
+	}
+	vm.recycleFrame(frame)
+}
+
+// maxFramePool bounds the recycled-frame list kept per VM.
+const maxFramePool = 64
+
+// allocLocals hands out n slots from the VM's contiguous locals stack, all
+// Unbound. Frames pop LIFO, so recycleFrame releases exactly the top
+// len(Locals) slots. Growth reallocates the backing array; outer frames keep
+// their slices into the old array, which stays valid for them because every
+// access goes through frame.Locals, never through vm.localStack by index.
+func (vm *VM) allocLocals(n int) []types.Value {
+	base := len(vm.localStack)
+	if cap(vm.localStack)-base < n {
+		grown := make([]types.Value, base, max(2*cap(vm.localStack), base+n, initialStackCap))
+		copy(grown, vm.localStack)
+		vm.localStack = grown
+	}
+	vm.localStack = vm.localStack[:base+n]
+	locals := vm.localStack[base : base+n : base+n]
+	for i := range locals {
+		locals[i] = types.Unbound
+	}
+	return locals
+}
+
+// frameFrom returns a frame initialized to init, reusing a pooled StackFrame
+// and its LoopStack/ExceptStack backing arrays when one is available. init's
+// Locals must come from allocLocals with localsOnStack set, or be owned.
+func (vm *VM) frameFrom(init StackFrame) *StackFrame {
+	if n := len(vm.framePool); n > 0 {
+		f := vm.framePool[n-1]
+		vm.framePool = vm.framePool[:n-1]
+		if init.LoopStack == nil {
+			init.LoopStack = f.LoopStack[:0]
+		}
+		if init.ExceptStack == nil {
+			init.ExceptStack = f.ExceptStack[:0]
+		}
+		*f = init
+		return f
+	}
+	f := new(StackFrame)
+	*f = init
+	return f
+}
+
+// recycleFrame returns a popped frame's resources to the VM: its locals slots
+// (the top of localStack) and the struct itself. Nothing may read a frame
+// after popFrame — Return and HandleError copy what they need first.
+func (vm *VM) recycleFrame(f *StackFrame) {
+	if f.localsOnStack {
+		clear(f.Locals)
+		if n := len(vm.localStack) - len(f.Locals); n >= 0 {
+			vm.localStack = vm.localStack[:n]
+		}
+	}
+	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
+	clear(f.LoopStack[:cap(f.LoopStack)])
+	clear(f.ExceptStack[:cap(f.ExceptStack)])
+	*f = StackFrame{LoopStack: loops, ExceptStack: handlers}
+	if len(vm.framePool) < maxFramePool {
+		vm.framePool = append(vm.framePool, f)
 	}
 }
 
@@ -104,6 +174,11 @@ type StackFrame struct {
 	SavedIsWizard       bool                           // ctx.IsWizard before verb call
 	MoveContinuation    *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
 	RecycleContinuation *recycleContinuation           // recycle() state owned by this verb frame
+
+	// localsOnStack is true when Locals is a segment of vm.localStack (set by
+	// allocLocals) and must be released on pop; frames restored from a
+	// snapshot own their Locals slice.
+	localsOnStack bool
 }
 
 // NewVM creates a new virtual machine
@@ -143,23 +218,19 @@ func (vm *VM) beginProgram(prog *bytecode.Program) {
 	vm.ensureContextDependencies()
 
 	// Create initial frame
-	frame := &StackFrame{
-		Program:     prog,
-		IP:          0,
-		BasePointer: vm.SP,
-		Locals:      make([]types.Value, prog.NumLocals),
-		This:        types.ObjNothing,
-		ThisValue:   types.None,
-		Player:      types.ObjNothing,
-		Verb:        "",
-		Caller:      types.ObjNothing,
-		VerbDebug:   true, // Default: errors propagate as exceptions
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	frame := vm.frameFrom(StackFrame{
+		Program:       prog,
+		IP:            0,
+		BasePointer:   vm.SP,
+		Locals:        vm.allocLocals(prog.NumLocals),
+		localsOnStack: true,
+		This:          types.ObjNothing,
+		ThisValue:     types.None,
+		Player:        types.ObjNothing,
+		Verb:          "",
+		Caller:        types.ObjNothing,
+		VerbDebug:     true, // Default: errors propagate as exceptions
+	})
 
 	vm.pushFrame(frame)
 	vm.FP = 0
@@ -386,25 +457,21 @@ func (vm *VM) ensureContextDependencies() {
 // execution. Returns the frame so the caller can set additional local variables
 // (e.g. argstr, dobjstr, etc.) before calling ExecuteLoop().
 func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) *StackFrame {
-	frame := &StackFrame{
-		Program:     prog,
-		IP:          0,
-		BasePointer: vm.SP,
-		Locals:      make([]types.Value, prog.NumLocals),
-		This:        thisObj,
-		ThisValue:   types.None,
-		Player:      player,
-		Verb:        verbName,
-		Caller:      caller,
-		VerbLoc:     verbLoc,
-		Args:        args,
-		VerbDebug:   true, // Default: errors propagate as exceptions
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	frame := vm.frameFrom(StackFrame{
+		Program:       prog,
+		IP:            0,
+		BasePointer:   vm.SP,
+		Locals:        vm.allocLocals(prog.NumLocals),
+		localsOnStack: true,
+		This:          thisObj,
+		ThisValue:     types.None,
+		Player:        player,
+		Verb:          verbName,
+		Caller:        caller,
+		VerbLoc:       verbLoc,
+		Args:          args,
+		VerbDebug:     true, // Default: errors propagate as exceptions
+	})
 
 	vm.pushFrame(frame)
 	vm.FP = 0
@@ -1239,8 +1306,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			if vm.Task != nil {
 				vm.Task.PopFrame()
 			}
-			vm.popFrame()
-			vm.SP = frame.BasePointer
+			base := frame.BasePointer
+			vm.popFrame() // frame is recycled here; nothing below may read it
+			vm.SP = base
 			continue
 		}
 
@@ -1260,8 +1328,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.Task.PopFrame()
 			}
 		}
-		vm.popFrame()
-		vm.SP = frame.BasePointer
+		base := frame.BasePointer
+		vm.popFrame() // frame is recycled here; nothing below may read it
+		vm.SP = base
 		if recycleContinuation != nil {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
 				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
