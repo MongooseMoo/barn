@@ -150,6 +150,60 @@ retryAttempt:
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
 	ctx.DeferredCheckpoint = false
+	ctx.ConflictRetryRequested = false
+	ctx.NestedVMDepth = 0
+	// An irreversible external effect (builtinHasIrreversibleSideEffect) makes the
+	// rest of the attempt un-retryable: a commit conflict after it can no longer be
+	// answered by re-running the task and would surface as an uncatchable E_INVARG
+	// no serial execution produces, with the attempt's pending output discarded (a
+	// Mongoose login task lost exactly this way at its read() after
+	// set_connection_option, to a $logger commit that landed between its snapshot
+	// and that call). So the effect is where the attempt stops gambling. Take the
+	// exclusive commit gate, then commit-and-renew: the reads made so far are
+	// validated against the now-frozen store, the writes made so far are
+	// published, and the attempt continues on a read view taken under the gate
+	// (still carrying the validated reads, so the final commit checks them too),
+	// so nothing it reads from here on can be stale either. If the validation
+	// fails the effect has not happened yet, so the task is re-run from the top.
+	// Once the renew succeeds no ordinary commit can interleave until this
+	// attempt's own commit, so it cannot lose (direct live-store mutations bypass
+	// the gate and remain the documented residual, still detected at the final
+	// commit). Publishing at the boundary exposes the slice's first half to
+	// concurrent readers before its second half exists; none of them can commit
+	// on that view until this attempt has.
+	ctx.BeforeIrreversibleEffect = func() bool {
+		if escalated {
+			return false
+		}
+		s.store.EscalationLock()
+		escalated = true
+		ctx.StoreTxn.ExemptFromCommitGate()
+		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && ctx.NestedVMDepth == 0 && attempt < maxConflictRetryAttempts
+		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
+		slog.Debug("irreversible-effect boundary",
+			slog.Int64("task_id", t.ID), slog.String("verb", t.VerbName),
+			slog.String("renew", types.NewErr(errCode).String()),
+			slog.Bool("published_writes", publishedWrites),
+			slog.Bool("can_rerun", canRerun), slog.Int("attempt", attempt))
+		if errCode != types.E_NONE {
+			// A validation loss with the effect still ahead is answered by re-running;
+			// any other failure (a terminal preflight error, or a loss this task cannot
+			// re-run) is left for the final commit to surface exactly as before.
+			if ctx.StoreTxn.ValidationFailed() && canRerun {
+				ctx.ConflictRetryRequested = true
+				return true
+			}
+			return false
+		}
+		ctx.StoreTxn = next
+		if publishedWrites {
+			// Mirrors the suspend-time commit: the forks and effects recorded so far
+			// are now durable, so a later discard must not touch them.
+			t.CreatedForks = nil
+			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		}
+		return false
+	}
 	ctx.RuntimeOptions = s.options
 
 	// releaseEscalation hands the commit gate back once this attempt's commits
@@ -315,6 +369,25 @@ retryAttempt:
 	result = s.drainForks(t, bcVM, result)
 	t.Result = result
 
+	if ctx.ConflictRetryRequested {
+		// The attempt stopped itself at its first irreversible effect because its
+		// reads were already stale (BeforeIrreversibleEffect above). Nothing
+		// external has happened and nothing was committed, so re-run it from the
+		// top. The gate the hook took is released first: the retry gambles
+		// optimistically again and re-checks at its own boundary, so the gate is
+		// only ever held from a passed boundary to that attempt's commit. Holding
+		// it across the re-execution would deadlock any ordinary commit the task
+		// body issues before reaching the boundary. The bounded escalation above
+		// remains the backstop against a writer that keeps winning.
+		ctx.ConflictRetryRequested = false
+		releaseEscalation()
+		s.discardCreatedForks(t)
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+		s.store.NoteCommitRetry()
+		attempt++
+		goto retryAttempt
+	}
+
 	committed := true
 	committedWrites := false
 	if ctx.StoreTxn.HasWrites() {
@@ -342,6 +415,20 @@ retryAttempt:
 				}
 				attempt++
 				goto retryAttempt
+			}
+			if ctx.StoreTxn.ValidationFailed() {
+				// A conflict this attempt cannot answer by re-running: the error
+				// reaches the task as an uncatchable exception no serial execution
+				// would produce, so leave a trail for whoever reads the traceback.
+				slog.Warn("commit conflict not retryable; surfacing as task error",
+					slog.Int64("task_id", t.ID),
+					slog.Int64("this", int64(t.This)),
+					slog.String("verb", t.VerbName),
+					slog.String("error", types.NewErr(errCode).String()),
+					slog.Bool("retryable_task", retryState.canRetry),
+					slog.Bool("live_store_mutated", ctx.LiveStoreMutated),
+					slog.Bool("irreversible_side_effect", ctx.IrreversibleSideEffect),
+					slog.Int("attempt", attempt))
 			}
 			result = types.Err(errCode)
 			t.Result = result
