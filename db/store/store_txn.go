@@ -2967,6 +2967,10 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	// A failure must leave the task's complete private view available to its
 	// builtin error handler.
 	tx.invalidateResolveCaches()
+	recycledByFlush := make(map[types.ObjID]bool, len(tx.recycleWrites))
+	for id := range tx.recycleWrites {
+		recycledByFlush[id] = true
+	}
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
 	if ec != types.E_NONE {
@@ -3017,10 +3021,23 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 		if cached != nil && cached.anonymous {
 			continue
 		}
-		if live := tx.store.load(id); validLiveObject(live) {
+		if live := tx.store.load(id); live != nil {
+			// A recycled tombstone is cached as such on purpose: dropping the entry
+			// would let the next read re-resolve through the readTS gate, which
+			// still sees the object as it was before this flush recycled it, and a
+			// coarse builtin that then treats the resurrected object as valid dies
+			// with E_INVIND deep inside its own reads instead of returning E_INVARG.
 			tx.objects[id] = cloneObjectForReadTxn(live)
 		} else {
 			delete(tx.objects, id)
+		}
+	}
+	for id := range recycledByFlush {
+		if _, cached := tx.objects[id]; cached {
+			continue
+		}
+		if live := tx.store.load(id); live != nil {
+			tx.objects[id] = cloneObjectForReadTxn(live)
 		}
 	}
 	tx.store.mu.RUnlock()
