@@ -27,11 +27,14 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 // drop later calls. The task has already committed, so failures are logged instead
 // of being converted into an uncatchable MOO error after successful completion.
 func FlushPendingEffects(ctx *Execution) {
-	if ctx == nil || len(ctx.PendingEffects) == 0 {
+	if ctx == nil || ctx.TaskContext == nil || len(ctx.PendingEffects) == 0 {
 		return
 	}
 	pending := ctx.PendingEffects
 	ctx.PendingEffects = nil
+	// The committed flags are published session-wide below; the task-local
+	// view that bridged the gap is no longer needed.
+	ctx.ProtectedBuiltins = nil
 	firstErr := types.E_NONE
 	setErr := func(errCode types.ErrorCode) {
 		if firstErr == types.E_NONE {
@@ -95,7 +98,8 @@ func FlushPendingEffects(ctx *Execution) {
 }
 
 func DiscardPendingEffects(ctx *Execution) {
-	if ctx != nil {
+	if ctx != nil && ctx.TaskContext != nil {
 		ctx.PendingEffects = nil
+		ctx.ProtectedBuiltins = nil
 	}
 }
