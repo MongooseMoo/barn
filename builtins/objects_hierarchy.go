@@ -131,8 +131,8 @@ func authorizeParentChange(ctx *Execution, objID types.ObjID, parentIDs []types.
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
@@ -249,8 +249,8 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
 func builtinChparents(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
@@ -590,8 +590,8 @@ func builtinOwnedObjects(ctx *Execution, args []types.Value) types.Result {
 	}
 	// Scans committed live state; flush staged decentralized creates so an object this task
 	// just created is attributed to its owner. Rare introspection builtin, not a hot path.
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	ownedIDs := store.ObjectsOwnedBy(owner.ID())
 	out := make([]types.Value, 0, len(ownedIDs))
@@ -613,8 +613,8 @@ func builtinRecycledObjects(ctx *Execution, args []types.Value) types.Result {
 	// This scans committed live state; flush any staged decentralized recycle/create so a
 	// recycle this task just performed is reflected. Rare introspection builtin — the flush
 	// (which makes the task coarse) is not on any hot path.
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	out := make([]types.Value, 0)
 	upper := store.NextID()
@@ -652,8 +652,8 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 	}
 
 	// Scans committed live state; flush any staged decentralized recycle first. Rare.
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	upper := store.NextID()
 	scanStart := start + 1
@@ -669,8 +669,8 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 }
 
 func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 	session := ctx.Session

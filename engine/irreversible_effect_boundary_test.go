@@ -184,3 +184,88 @@ return before;
 	}
 	assertCommitGateReleased(t, store)
 }
+
+// A coarse builtin mutates the live store directly, which a whole-task re-run
+// could not undo either, so it crosses the same boundary before touching
+// anything: stale reads are answered by re-running, the verb is added exactly
+// once, and no E_INVARG reaches the task.
+func TestRunTaskRetriesStaleReadsBeforeFirstCoarseBuiltin(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	defer s.Stop()
+	registerBumpReadValueLiveOnce(t, s, store)
+
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	queued := task.NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
+before = #0.read_value;
+bump_read_value_live_once();
+add_verb(#0, {#0, "rxd", "coarse_probe"}, {"this", "none", "this"});
+#0.write_value = before + 10;
+return {before, verbs(#0)};
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.String() != `{1, {"coarse_probe"}}` {
+		t.Fatalf("result = flow %v val %v err %v, want return {1, {\"coarse_probe\"}} (re-read value; verb added once)", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
+	}
+	if got := store.CommitRetries(); got != 1 {
+		t.Fatalf("commit retries = %d, want 1", got)
+	}
+	if got := store.CommitEscalations(); got == 0 {
+		t.Fatal("commit escalations = 0, want the boundary to have taken the gate")
+	}
+	written, errCode := store.DirectTxn().PropertyValue(0, "write_value")
+	if errCode != types.E_NONE || written.Int() != 11 {
+		t.Fatalf("write_value = %v (%v), want 11 committed from the re-run", written, errCode)
+	}
+	assertCommitGateReleased(t, store)
+}
+
+// The boundary also stops an attempt from inside a nested verb-call VM (a
+// create() running :initialize here): the nested VM's result goes back to the
+// builtin that ran it, so the stop is carried by the context flag and the
+// outer VM unwinds at its next builtin boundary. The effect runs exactly once.
+func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	initialize := dbstore.NewVerb("initialize", []string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{`server_log("nested-once");`, "return 1;"})
+	if _, ec := store.AddVerb(0, initialize); ec != types.E_NONE {
+		t.Fatalf("AddVerb initialize: %v", ec)
+	}
+	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	defer s.Stop()
+	registerBumpReadValueLiveOnce(t, s, store)
+
+	var logs bytes.Buffer
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	queued := task.NewTaskFull(3105, 0, compileTestProgram(t, s.registry, `
+before = #0.read_value;
+bump_read_value_live_once();
+c = create(#0);
+#0.write_value = before + 10;
+return {before, valid(c)};
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	queued.Context.Log = slog.New(slog.NewTextHandler(&logs, nil))
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.String() != "{1, 1}" {
+		t.Fatalf("result = flow %v val %v err %v, want return {1, 1}", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
+	}
+	if got := strings.Count(logs.String(), "nested-once"); got != 1 {
+		t.Fatalf("server_log executions = %d, want exactly 1 (none on the aborted attempt)", got)
+	}
+	if got := store.CommitRetries(); got != 1 {
+		t.Fatalf("commit retries = %d, want 1", got)
+	}
+	written, errCode := store.DirectTxn().PropertyValue(0, "write_value")
+	if errCode != types.E_NONE || written.Int() != 11 {
+		t.Fatalf("write_value = %v (%v), want 11 committed from the re-run", written, errCode)
+	}
+	assertCommitGateReleased(t, store)
+}

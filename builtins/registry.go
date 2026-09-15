@@ -398,9 +398,10 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 				// The first irreversible effect of an attempt is the runtime's last
 				// chance to re-run the task instead of letting a later commit
 				// conflict surface as an uncatchable error. If it asks to stop,
-				// yield without performing the effect; runTask re-runs the task.
-				if guarded && !ctx.IrreversibleSideEffect && ctx.BeforeIrreversibleEffect != nil && ctx.BeforeIrreversibleEffect() {
-					return types.Result{Flow: types.FlowSuspend}
+				// return without performing the effect; the VM unwinds and runTask
+				// re-runs the task.
+				if guarded && !beginIrreversible(ctx) {
+					return abortedAttempt()
 				}
 				ctx.IrreversibleSideEffect = true
 			}

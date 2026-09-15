@@ -8,16 +8,17 @@ import (
 type ControlFlow int
 
 const (
-	FlowNormal      ControlFlow = iota // Normal execution
-	FlowReturn                         // Return statement
-	FlowBreak                          // Break statement
-	FlowContinue                       // Continue statement
-	FlowException                      // MOO error being raised
-	FlowFork                           // Fork statement executed
-	FlowSuspend                        // Suspend statement executed
-	FlowParseError                     // Parse/syntax error (Val contains error message list)
-	FlowEvalPush                       // eval() pushed a frame on the calling VM
-	FlowBuiltinPush                    // a builtin pushed a resumable verb frame on the calling VM
+	FlowNormal       ControlFlow = iota // Normal execution
+	FlowReturn                          // Return statement
+	FlowBreak                           // Break statement
+	FlowContinue                        // Continue statement
+	FlowException                       // MOO error being raised
+	FlowFork                            // Fork statement executed
+	FlowSuspend                         // Suspend statement executed
+	FlowParseError                      // Parse/syntax error (Val contains error message list)
+	FlowEvalPush                        // eval() pushed a frame on the calling VM
+	FlowBuiltinPush                     // a builtin pushed a resumable verb frame on the calling VM
+	FlowAbortAttempt                    // the runtime abandons this attempt at its irreversible-effect boundary and re-runs the task
 )
 
 // ForkInfo contains information needed to create a forked task.
