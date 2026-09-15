@@ -25,7 +25,7 @@ func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.V
 			return types.None, types.E_RANGE
 		}
 		result := coll.Set(i, value)
-		if err := session.CheckListLimit(result); err != types.E_NONE {
+		if err := session.CheckListLimitForTask(ctx, result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE
@@ -43,7 +43,7 @@ func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.V
 			return types.None, types.E_INVARG
 		}
 		newStr := s[:i-1] + value.Str() + s[i:]
-		if err := session.CheckStringLimit(newStr); err != types.E_NONE {
+		if err := session.CheckStringLimitForTask(ctx, newStr); err != types.E_NONE {
 			return types.None, err
 		}
 		return types.NewStr(newStr), types.E_NONE

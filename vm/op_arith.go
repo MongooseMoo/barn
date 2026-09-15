@@ -66,7 +66,7 @@ func (vm *VM) executeAdd() error {
 	// Handle string concatenation
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
-			if errCode := vm.Builtins.CheckStringLength(a.Len() + b.Len()); errCode != types.E_NONE {
+			if errCode := vm.Builtins.CheckStringLengthForTask(vm.Context, a.Len()+b.Len()); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
 			// StrAppend reuses the accumulator's uncommitted capacity when this

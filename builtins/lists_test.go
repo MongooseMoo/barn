@@ -116,7 +116,7 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.Append(value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -134,7 +134,7 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.InsertAt(1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -152,7 +152,7 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.InsertAt(list.Len()+1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -170,7 +170,7 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.Set(1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
