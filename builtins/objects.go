@@ -475,7 +475,6 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	if res, ok := beforeCoarse(ctx); !ok {
 		return res
 	}
-	tx = readTxn(ctx) // the boundary (here or in a cascaded recycle above) may have renewed the transaction
 	for _, contentID := range oldContents {
 		content := moveObjectReferenceForRead(ctx, contentID)
 		if ec := applyRecycleMove(ctx, contentID, objID); ec != types.E_NONE {
