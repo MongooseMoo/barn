@@ -2380,6 +2380,14 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 	}
 }
 
+// IsCommitGateExempt reports whether this txn belongs to an attempt whose
+// runtime holds the commit gate exclusively. Anything that would re-enter the
+// gate from inside that attempt (a checkpoint, or a hook task committing an
+// ordinary txn) must wait until the runtime releases it.
+func (tx *StoreTxn) IsCommitGateExempt() bool {
+	return tx != nil && !tx.direct && tx.gateExempt
+}
+
 // CommitAndRenew publishes this transaction's staged writes through the ordinary
 // validated commit path, then replaces it with a fresh transaction at the store's
 // current clock. It is used at coarse runtime boundaries that must expose all prior
