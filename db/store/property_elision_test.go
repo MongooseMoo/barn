@@ -197,3 +197,48 @@ func TestSetPropertyValueNotElidedWhenObservable(t *testing.T) {
 		t.Fatalf("stored value = %v, want case preserved", got)
 	}
 }
+
+// title's `setadd(x, "The")` then `setremove(x, "the")` stages an intermediate
+// value and then restores the original: the net write must be dropped.
+func TestRoundTripWriteIsElided(t *testing.T) {
+	s, parent, _ := elisionFixture(t)
+	v0 := liveSlotVersion(t, s, parent, "aliases")
+
+	tx := s.BeginReadOnly(0)
+	defer tx.Release()
+	if ec := tx.SetPropertyValue(parent, "aliases", strList("a", "b", "The")); ec != types.E_NONE {
+		t.Fatalf("first write: %v", ec)
+	}
+	if len(tx.propertyWrites) != 1 {
+		t.Fatalf("intermediate write not staged")
+	}
+	if ec := tx.SetPropertyValue(parent, "aliases", strList("a", "b")); ec != types.E_NONE {
+		t.Fatalf("restoring write: %v", ec)
+	}
+	if len(tx.propertyWrites) != 0 {
+		t.Fatalf("round trip left a staged write: %v", tx.propertyWrites)
+	}
+	got, _ := tx.PropertyValue(parent, "aliases")
+	if !got.Identical(strList("a", "b")) {
+		t.Fatalf("read-your-writes after round trip = %v", got)
+	}
+	if ec := tx.Commit(); ec != types.E_NONE {
+		t.Fatalf("Commit: %v", ec)
+	}
+	if v1 := liveSlotVersion(t, s, parent, "aliases"); v1 != v0 {
+		t.Fatalf("slot version moved %d -> %d on a round-trip write", v0, v1)
+	}
+
+	// A round trip that lands on a DIFFERENT value still publishes.
+	tx2 := s.BeginReadOnly(0)
+	defer tx2.Release()
+	if ec := tx2.SetPropertyValue(parent, "aliases", strList("a", "b", "c")); ec != types.E_NONE {
+		t.Fatalf("tx2 first write: %v", ec)
+	}
+	if ec := tx2.SetPropertyValue(parent, "aliases", strList("a", "c")); ec != types.E_NONE {
+		t.Fatalf("tx2 second write: %v", ec)
+	}
+	if len(tx2.propertyWrites) != 1 {
+		t.Fatalf("real change was elided")
+	}
+}

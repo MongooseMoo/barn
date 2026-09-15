@@ -201,6 +201,14 @@ type propertyWrite struct {
 	name  string
 	value types.Value
 	prop  Property
+	// orig is the slot as this txn first saw it before staging any write to
+	// it (hasOrig=false when the slot did not exist on this object, i.e. the
+	// write creates an override of an inherited property). A later write
+	// that restores an Identical value to a non-clear orig is dropped again:
+	// e.g. `x = setadd(x, "The"); x = setremove(x, "the")` nets to no change
+	// and must not publish a version bump (see SetPropertyValue).
+	orig    Property
+	hasOrig bool
 }
 
 // propertyDefine is a staged property DEFINITION carrying the original-case name
@@ -584,7 +592,12 @@ func (tx *StoreTxn) markPropertyShapeScan(objID types.ObjID, obj *Object) {
 	tx.propertyShapeScans[objID] = obj.propertyShapeVersion
 }
 
-func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value) {
+// stagePropertyValue stages value for objID.name. before is the slot as it was
+// on the txn's object view immediately before this write (hasBefore=false when
+// the write creates a new override slot). The first staging of a key remembers
+// before as the write's orig; if the staged value is Identical to a non-clear
+// orig the net effect of the txn on that slot is nil and the write is dropped.
+func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value, before Property, hasBefore bool) {
 	prop.value = value
 	prop.clear = false
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
@@ -593,10 +606,25 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Prop
 		lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
 		return
 	}
+	orig, hasOrig := before, hasBefore
+	if existing, staged := tx.propertyWrites[key]; staged {
+		orig, hasOrig = existing.orig, existing.hasOrig
+	}
+	if hasOrig && !orig.clear && orig.value.Identical(value) {
+		// Net no-op for this slot: the read mark recorded by the caller keeps
+		// the dependency on orig; nothing to publish.
+		delete(tx.propertyWrites, key)
+		if tx.store != nil {
+			tx.store.propertyWriteElisions.Add(1)
+		}
+		return
+	}
 	lazySet(&tx.propertyWrites, key, propertyWrite{
-		name:  name,
-		value: value,
-		prop:  prop,
+		name:    name,
+		value:   value,
+		prop:    prop,
+		orig:    orig,
+		hasOrig: hasOrig,
 	})
 }
 
@@ -2023,12 +2051,13 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 
 	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		tx.markPropertyRead(objID, actualName, prop)
+		before := prop
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
 		// within this txn (e.g. PropertyValues) see the staged change.
 		obj.properties[actualName] = prop
-		tx.stagePropertyValue(objID, actualName, prop, value)
+		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
 	}
 
@@ -2045,7 +2074,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		version: inherited.version,
 	}
 	obj.properties[inheritedName] = override
-	tx.stagePropertyValue(objID, inheritedName, override, value)
+	tx.stagePropertyValue(objID, inheritedName, override, value, Property{}, false)
 	return types.E_NONE
 }
 
