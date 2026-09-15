@@ -306,19 +306,24 @@ func runSQLiteAsync(ctx *Execution, operation func() types.Result) types.Result 
 	}
 	mgr.SuspendTask(t, -1)
 	gen := t.SuspendGeneration()
-	enqueuePendingEffect(ctx, kernel.PendingEffect{
-		Kind: kernel.PendingEffectAsyncStart,
-		Start: func() {
-			go func() {
-				result := operation()
-				if result.IsError() {
-					_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
-					return
-				}
-				_ = t.ResumeGeneration(gen, result.Val)
-			}()
-		},
-	})
+	start := func() {
+		go func() {
+			result := operation()
+			if result.IsError() {
+				_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
+				return
+			}
+			_ = t.ResumeGeneration(gen, result.Val)
+		}()
+	}
+	if readTxn(ctx).IsDirect() {
+		// A direct transaction (EvalCommandOutput, the dbtool) has no commit
+		// boundary and no conflict retry, so there is nothing to defer to:
+		// start now, exactly as notify() sends immediately on this path.
+		start()
+	} else {
+		enqueuePendingEffect(ctx, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: start})
+	}
 	return types.Suspend(-1)
 }
 
