@@ -370,10 +370,13 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		}
 	}
 
-	if p.deliverToReadingTask(player, line) {
-		return
-	}
-
+	// Toast's bf_force_input calls enqueue_input_task: the line joins the
+	// connection's input queue and is processed by the server loop like a line
+	// that arrived over the network, after the calling task's slice. It is never
+	// delivered on the caller's goroutine. Doing so here ran a read()-suspended
+	// task inline inside the calling task's builtin; once the caller held the
+	// commit gate (its irreversible-effect boundary) and the resumed slice took
+	// the gate too, the server deadlocked and no connection could log in again.
 	connID := int64(0)
 	if p.connManager != nil {
 		if conn := p.connManager.GetConnection(player); conn != nil {
@@ -386,17 +389,11 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		p.forcePhantomLogin(player, line)
 		return
 	}
-
-	evt := command.InputEvent{
+	p.inputQueue <- command.InputEvent{
 		ConnID: connID,
 		Player: player,
 		Line:   line,
 	}
-	if player < 0 && connID != 0 {
-		p.processInput(evt)
-		return
-	}
-	p.inputQueue <- evt
 }
 
 func (p *InputProcessor) forcePhantomLogin(player types.ObjID, line string) {
