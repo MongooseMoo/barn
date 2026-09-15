@@ -145,12 +145,14 @@ func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			return flags, true
 		},
 	)
-	if ctx.StoreTxn.HasWrites() {
+	pending := pendingServerOptions(ctx.TaskContext)
+	if ctx.StoreTxn.HasWrites() || pending != nil {
 		// Toast's reload takes effect at once. The session-wide swap waits for
 		// this task's commit (the flags came from uncommitted writes), so the
 		// loading task keeps its own view until then: the pending snapshot is
-		// also TaskContext.ServerOptions, which dispatch consults first.
-		pending := pendingServerOptions(ctx.TaskContext)
+		// also TaskContext.ServerOptions, which dispatch consults first. A
+		// later reload in the same task stays deferred even after the task has
+		// undone its writes, so the flush order decides (see LoadServerOptionsForTask).
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
 			pending = &snapshot

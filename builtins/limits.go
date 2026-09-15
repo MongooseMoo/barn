@@ -290,9 +290,13 @@ func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 			return prop, true
 		},
 	)
-	if ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() || pendingServerOptions(ctx.TaskContext) != nil {
 		// The new limits came from uncommitted writes, so other tasks must not
 		// see them yet; the loading task does, at once, through its own view.
+		// Once a reload has been deferred, every later reload in the task is
+		// deferred too, even if the task has since undone all its writes
+		// (deleting a property it added leaves no staged write): applying it
+		// at once would be overwritten when the earlier snapshot flushes.
 		deferServerOptions(ctx, &snapshot)
 		return snapshot.Loaded
 	}
