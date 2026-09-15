@@ -282,7 +282,9 @@ type verbDispatchMemoEntry struct {
 // definer so a concurrent code edit is seen exactly as it would be by a walk.
 func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, definer types.ObjID, found, hit bool) {
 	s := tx.store
-	if s == nil {
+	if s == nil || tx.verbMemoDisabled || tx.liveMutated {
+		// A live-mutated txn commits through the coarse path, which validates
+		// scan marks, not the clock; it must never hold mark-less resolutions.
 		return nil, types.ObjNothing, false, false
 	}
 	last := s.verbShapeChangeTS.Load()
@@ -298,7 +300,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 		return nil, types.ObjNothing, false, false
 	}
 	if !entry.found {
-		tx.usedVerbMemo = true
+		tx.noteVerbMemoHit(key)
 		return nil, types.ObjNothing, false, true
 	}
 	obj := tx.object(entry.definer)
@@ -309,9 +311,42 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if verb == nil {
 		return nil, types.ObjNothing, false, false
 	}
-	tx.usedVerbMemo = true
+	tx.noteVerbMemoHit(key)
 	tx.markVerbRead(entry.definer, verb)
 	return verb, entry.definer, true, true
+}
+
+func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
+	tx.usedVerbMemo = true
+	tx.verbMemoHits = append(tx.verbMemoHits, key)
+}
+
+// PrepareLiveMutation must run before a task's first direct mutation of the
+// live store (a staged-topology flush or a coarse builtin). Those mutations
+// move verbShapeChangeTS themselves, after which the memo's single clock check
+// cannot distinguish the task's own change from a concurrent one and a
+// live-mutated task cannot retry. So every resolution taken from the memo is
+// re-walked here, on the snapshot the memo hit was equivalent to, into the
+// ordinary per-ancestor scan marks that the coarse commit validates under the
+// store lock; the memo is then off for the rest of the txn.
+func (tx *StoreTxn) PrepareLiveMutation() {
+	if tx == nil || tx.direct {
+		return
+	}
+	tx.materializeVerbMemoMarks()
+}
+
+func (tx *StoreTxn) materializeVerbMemoMarks() {
+	tx.verbMemoDisabled = true
+	if !tx.usedVerbMemo {
+		return
+	}
+	hits := tx.verbMemoHits
+	tx.verbMemoHits = nil
+	tx.usedVerbMemo = false
+	for _, key := range hits {
+		tx.walkVerb(key.objID, key.name, key.requireExecute)
+	}
 }
 
 // storeVerbDispatchMemo publishes a walk's result for other transactions.
@@ -320,7 +355,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 // the live store has no clean snapshot to tag the entry with.
 func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID) {
 	s := tx.store
-	if s == nil || tx.liveMutated {
+	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
 		return
 	}
 	if obj := tx.object(key.objID); obj == nil || obj.anonymous {
