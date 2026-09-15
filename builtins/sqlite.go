@@ -9,9 +9,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 type sqliteHandle struct {
@@ -177,7 +178,28 @@ func sqliteErrorResult(err error) types.Result {
 	if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "interrupt") {
 		return types.Ok(types.NewStr("interrupt"))
 	}
-	return types.Ok(types.NewStr(err.Error()))
+	return types.Ok(types.NewStr(sqliteErrorMessage(err)))
+}
+
+// sqliteErrorMessage reduces a driver error to the sqlite3_errmsg() text Toast
+// returns from its thread callbacks (sqlite.cc sqlite_query_thread_callback /
+// sqlite_execute_thread_callback): "no such table: t", not the driver's
+// decorated form. modernc formats every error as
+// "<sqlite3_errstr>: <sqlite3_errmsg> (<code>)", or "<sqlite3_errstr> (<code>)"
+// when the two texts coincide, with an extra " (SQLITE_BUSY)" for busy errors.
+func sqliteErrorMessage(err error) string {
+	var driverErr *sqlite.Error
+	if !errors.As(err, &driverErr) {
+		return err.Error()
+	}
+	msg := strings.TrimSuffix(driverErr.Error(), " (SQLITE_BUSY)")
+	msg = strings.TrimSuffix(msg, fmt.Sprintf(" (%d)", driverErr.Code()))
+	// sqlite3_errstr() texts never contain ": ", so the first occurrence
+	// separates the errstr prefix from the errmsg (which may itself contain it).
+	if i := strings.Index(msg, ": "); i >= 0 {
+		msg = msg[i+2:]
+	}
+	return msg
 }
 
 func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
@@ -241,6 +263,13 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 }
 
 func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	if ctx.Task != nil && !ctx.ThreadMode && !sqliteReturnsRows(sqlText) {
+		// The inline form executes the statement during this attempt, so a write
+		// has already happened by the time a commit conflict could re-run the
+		// task. Reads are replayed harmlessly. The threaded form needs no flag:
+		// runSQLiteAsync starts nothing until the slice commits.
+		ctx.IrreversibleSideEffect = true
+	}
 	return runSQLiteAsync(ctx, func() types.Result {
 		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
 	})
@@ -249,9 +278,25 @@ func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string
 // runSQLiteAsync keeps waits on a handle's serialized operation queue off the
 // scheduler's task goroutines. Every completion, including an error, resumes
 // the suspended task exactly once.
+//
+// With threading disabled for the current activation (set_thread_mode(0)) the
+// operation runs inline and the task never suspends, mirroring Toast's
+// background_thread(), which invokes the callback directly and returns its value
+// (background.cc).
+//
+// The threaded operation is an external effect, so it must not start until this
+// slice's transaction has been published. The suspend commits the transaction;
+// if that commit loses validation the runtime discards the slice and re-executes
+// the task from the top, and an operation already in flight would both leak its
+// effect (a BEGIN or INSERT executed once per attempt) and deliver its completion
+// into the retried attempt's own suspension. Launching through the commit-gated
+// effect log runs the statement at most once per published slice, and because
+// nothing ran, the attempt stays eligible for conflict retry. The generation
+// check makes any completion that no longer belongs to the suspension it was
+// started for a no-op.
 func runSQLiteAsync(ctx *Execution, operation func() types.Result) types.Result {
 	t := ctx.Task
-	if t == nil {
+	if t == nil || !ctx.ThreadMode {
 		return operation()
 	}
 
@@ -260,14 +305,20 @@ func runSQLiteAsync(ctx *Execution, operation func() types.Result) types.Result 
 		return types.Err(types.E_INVARG)
 	}
 	mgr.SuspendTask(t, -1)
-	go func() {
-		result := operation()
-		if result.IsError() {
-			_ = t.Resume(types.NewErr(result.Error))
-			return
-		}
-		_ = t.Resume(result.Val)
-	}()
+	gen := t.SuspendGeneration()
+	enqueuePendingEffect(ctx, kernel.PendingEffect{
+		Kind: kernel.PendingEffectAsyncStart,
+		Start: func() {
+			go func() {
+				result := operation()
+				if result.IsError() {
+					_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
+					return
+				}
+				_ = t.ResumeGeneration(gen, result.Val)
+			}()
+		},
+	})
 	return types.Suspend(-1)
 }
 

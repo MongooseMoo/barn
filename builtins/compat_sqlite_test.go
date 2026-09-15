@@ -121,6 +121,7 @@ func TestSqliteAsyncErrorAlwaysResumesTask(t *testing.T) {
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("result flow = %v, want suspend", result.Flow)
 	}
+	FlushPendingEffects(ctx)
 	waitForSQLiteResume(t, taskValue)
 	if taskValue.WakeValue.Type() != types.TYPE_ERR || taskValue.WakeValue.ErrCode() != types.E_INVARG {
 		t.Fatalf("wake value = %v, want E_INVARG", taskValue.WakeValue)
@@ -154,6 +155,7 @@ func TestSqliteCloseWaitsOffTaskGoroutine(t *testing.T) {
 	if got := taskValue.GetState(); got != task.TaskSuspended {
 		t.Fatalf("task state = %v, want suspended while close waits", got)
 	}
+	FlushPendingEffects(ctx)
 	handle.mu.Lock()
 	handle.activeOps = 0
 	handle.cond.Broadcast()
