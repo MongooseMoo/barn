@@ -476,6 +476,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		}
 		verb.setCodeCopy(write.code)
 	}
+	obj.verbIdx = live.verbIdx // same aliases in the same order as live
 	obj.verbVersion = live.verbVersion
 	tx.verbScans[objID] = live.verbVersion
 	for key := range tx.verbReads {
@@ -3225,15 +3226,9 @@ walk:
 		}
 		sc.steps = append(sc.steps, verbWalkStep{id: current, obj: obj, scanned: true})
 		tx.markVerbScan(current, obj)
-		for _, verb := range obj.verbList {
-			for _, alias := range verb.lowerNames {
-				if matchVerbNameLowered(alias, searchLower) {
-					if !requireExecute || verb.perms.Has(VerbExecute) {
-						found, definer = verb, current
-						break walk
-					}
-				}
-			}
+		if verb := obj.findVerbByAlias(searchLower, requireExecute); verb != nil {
+			found, definer = verb, current
+			break walk
 		}
 		if !hasWildcard {
 			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {

@@ -405,6 +405,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 		obj.verbs[verbPtr.mapKey()] = verbPtr
 	}
 	obj.verbList = append(obj.verbList, verbPtr)
+	obj.rebuildVerbIndex()
 	stampObjectVerbs(obj, ts)
 	return len(obj.verbList), types.E_NONE
 }
@@ -519,6 +520,7 @@ func deleteVerbAtIndex(obj *Object, index int) {
 	}
 
 	obj.verbList = append(obj.verbList[:index], obj.verbList[index+1:]...)
+	obj.rebuildVerbIndex()
 
 	for _, key := range keysToRefresh {
 		for i := len(obj.verbList) - 1; i >= 0; i-- {
@@ -564,6 +566,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	if len(verb.names) > 0 {
 		verb.name = verb.names[0]
 	}
+	obj.rebuildVerbIndex()
 	stampVerb(verb, ts)
 
 	if newKey := verb.mapKey(); oldKey != newKey {

@@ -286,6 +286,7 @@ func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) 
 
 	img.verbs = newVerbs
 	img.verbList = newVerbList
+	img.rebuildVerbIndex()
 	img.verbVersion = ts
 	return &img
 }
