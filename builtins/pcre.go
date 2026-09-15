@@ -166,7 +166,7 @@ func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
 	if ctx == nil || ctx.Session == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if errCode := ctx.Session.CheckStringLimit(out); errCode != types.E_NONE {
+	if errCode := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, out); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	return types.Ok(types.NewStr(out))

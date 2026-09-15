@@ -218,7 +218,7 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultList),
 		},
 	}}
@@ -232,7 +232,7 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -247,7 +247,7 @@ func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
 		},
 	}}
@@ -262,7 +262,7 @@ func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},

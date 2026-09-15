@@ -291,14 +291,35 @@ func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 		},
 	)
 	if ctx.StoreTxn.HasWrites() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind:          kernel.PendingEffectServerOptions,
-			ServerOptions: snapshot,
-		})
+		// The new limits came from uncommitted writes, so other tasks must not
+		// see them yet; the loading task does, at once, through its own view.
+		deferServerOptions(ctx, &snapshot)
 		return snapshot.Loaded
 	}
 	r.applyServerOptionsSnapshot(&snapshot)
+	ctx.MaxStringConcat = snapshot.MaxStringConcat
 	return snapshot.Loaded
+}
+
+// TaskLimitsFor is GetTaskLimits as seen by the task running ctx: a task that
+// reloaded $server_options before committing sees its own fg/bg limits, the
+// way Toast's yin() reads the live fg_ticks and fg_seconds.
+func (r *Session) TaskLimitsFor(ctx *kernel.TaskContext, background bool) (int64, float64) {
+	if view := pendingServerOptions(ctx); view != nil {
+		if background {
+			return view.BgTicks, view.BgSeconds
+		}
+		return view.FgTicks, view.FgSeconds
+	}
+	return r.GetTaskLimits(background)
+}
+
+// maxStringConcatFor is GetMaxStringConcat as seen by the task running ctx.
+func (r *Session) maxStringConcatFor(ctx *kernel.TaskContext) int {
+	if view := pendingServerOptions(ctx); view != nil {
+		return view.MaxStringConcat
+	}
+	return r.GetMaxStringConcat()
 }
 
 func numericSeconds(value types.Value) (float64, bool) {
@@ -326,7 +347,7 @@ func canonicalizeLimit(value, min, max int) int {
 // This should be called by string-producing builtins before creating output.
 // If no cached limit is set, the context's default limit is used.
 func (r *Session) UpdateContextLimits(ctx *kernel.TaskContext) {
-	cachedLimit := r.GetMaxStringConcat()
+	cachedLimit := r.maxStringConcatFor(ctx)
 	if cachedLimit > 0 {
 		ctx.MaxStringConcat = cachedLimit
 	}
@@ -433,4 +454,20 @@ func (r *Session) CheckStringLength(length int) types.ErrorCode {
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 func (r *Session) CheckStringLimit(s string) types.ErrorCode {
 	return r.CheckStringLength(len(s))
+}
+
+// CheckStringLengthForTask is CheckStringLength against the limit the task
+// running ctx sees: its own reloaded max_string_concat before commit, else
+// the session-wide cache.
+func (r *Session) CheckStringLengthForTask(ctx *kernel.TaskContext, length int) types.ErrorCode {
+	limit := r.maxStringConcatFor(ctx)
+	if limit > 0 && length > limit {
+		return types.E_QUOTA
+	}
+	return types.E_NONE
+}
+
+// CheckStringLimitForTask is CheckStringLimit against the task's own limit.
+func (r *Session) CheckStringLimitForTask(ctx *kernel.TaskContext, s string) types.ErrorCode {
+	return r.CheckStringLengthForTask(ctx, len(s))
 }

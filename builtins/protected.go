@@ -2,7 +2,6 @@ package builtins
 
 import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -77,16 +76,20 @@ func (r *Session) isProtectedEntry(e *builtinEntry) bool {
 // task that reloaded the flags before committing its $server_options writes
 // sees its own set (TaskContext.ProtectedBuiltins) until commit publishes it.
 func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
-	if ctx != nil && ctx.TaskContext != nil && ctx.ProtectedBuiltins != nil {
-		return ctx.ProtectedBuiltins[e.name]
+	if ctx != nil && ctx.TaskContext != nil {
+		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
+			return view.ProtectedBuiltins[e.name]
+		}
 	}
 	return r.isProtectedEntry(e)
 }
 
 // isProtectedNameFor is IsProtectedBuiltin as seen by the task running ctx.
 func (r *Session) isProtectedNameFor(ctx *Execution, name string) bool {
-	if ctx != nil && ctx.TaskContext != nil && ctx.ProtectedBuiltins != nil {
-		return ctx.ProtectedBuiltins[name]
+	if ctx != nil && ctx.TaskContext != nil {
+		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
+			return view.ProtectedBuiltins[name]
+		}
 	}
 	return r.IsProtectedBuiltin(name)
 }
@@ -143,20 +146,17 @@ func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 		},
 	)
 	if ctx.StoreTxn.HasWrites() {
+		// Toast's reload takes effect at once. The session-wide swap waits for
+		// this task's commit (the flags came from uncommitted writes), so the
+		// loading task keeps its own view until then: the pending snapshot is
+		// also TaskContext.ServerOptions, which dispatch consults first.
 		pending := pendingServerOptions(ctx.TaskContext)
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
-			enqueuePendingEffect(ctx, kernel.PendingEffect{
-				Kind:          kernel.PendingEffectServerOptions,
-				ServerOptions: snapshot,
-			})
-			pending = pendingServerOptions(ctx.TaskContext)
+			pending = &snapshot
+			deferServerOptions(ctx, pending)
 		}
 		pending.ProtectedBuiltins = flags
-		// Toast's reload takes effect at once. The session-wide swap waits for
-		// this task's commit (the flags came from uncommitted writes), so the
-		// loading task keeps its own view until then.
-		ctx.ProtectedBuiltins = flags
 		return
 	}
 	r.applyProtectedBuiltins(flags)

@@ -61,7 +61,7 @@ func TestCryptUsesPendingServerOptions(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind:          kernel.PendingEffectServerOptions,
-		ServerOptions: snapshot,
+		ServerOptions: &snapshot,
 	}}
 	result := builtinCrypt(ctx, []types.Value{
 		types.NewStr("password"),

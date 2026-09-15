@@ -120,7 +120,7 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	result := list.DeleteAt(index)
 
 	// Check size limit (even for deletions, to be thorough)
-	if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 

@@ -22,13 +22,14 @@ type TaskContext struct {
 	ThisValue            types.Value // Actual value of 'this' (primitive value, or nil for objects)
 	Verb                 string      // Current verb name
 
-	// ProtectedBuiltins is the protected-builtin set this task loaded with
-	// load_server_options() while it still had uncommitted writes; nil means
-	// the session-wide set applies. Toast applies the reload at once, but Barn
-	// publishes it session-wide only when the task commits, so until then the
-	// loading task reads its own view here. Cleared when the task's pending
-	// effects are flushed or discarded.
-	ProtectedBuiltins map[string]bool
+	// ServerOptions is the $server_options snapshot (limits and protected
+	// builtins) this task loaded with load_server_options() while it still had
+	// uncommitted writes; nil means the session-wide cache applies. Toast
+	// applies the reload at once, but Barn publishes it session-wide only when
+	// the task commits, so until then the loading task reads its own view
+	// here. It is the same object the commit-time PendingEffect carries, and
+	// it is cleared when the task's pending effects are flushed or discarded.
+	ServerOptions *PendingServerOptions
 
 	// IndexContext is the length of the collection currently being indexed
 	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
@@ -144,8 +145,8 @@ type PendingEffect struct {
 	Notification     PendingNotification
 	ConnectionSwitch PendingConnectionSwitch
 	BootPlayer       types.ObjID
-	ServerOptions    PendingServerOptions
-	Start            func() // PendingEffectAsyncStart: launches the operation
+	ServerOptions    *PendingServerOptions // shared with TaskContext.ServerOptions until flushed
+	Start            func()                // PendingEffectAsyncStart: launches the operation
 }
 
 type PendingServerOptions struct {
