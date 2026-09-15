@@ -25,6 +25,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -186,12 +187,15 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 	for i, w := range words {
 		args[i] = types.NewStr(w)
 	}
-	// Mirror server/input_login.go callDoCommand: a do_command exception is
-	// logged and treated as "not handled" — the server falls through to the
-	// native parser. (On this DB do_command currently raises E_INVARG under
-	// Barn; see notes/mongoose-perf-hunt-2026-07-27.md, conformance lead.)
-	res := s.CallVerbWithArgstr(0, "do_command", args, player, line)
-	if res.Flow == types.FlowReturn && res.Val.Truthy() {
+	// Mirror server/input_login.go callDoCommand (Toast do_command_task): the
+	// hook is a real task; a truthy return, an uncaught error, or a suspend
+	// (Mongoose's `home` reaches suspend(0) inside a room enterfunc) all mean
+	// the hook handled the command and the native parser must not rerun it.
+	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, nil)
+	if err != nil && !errors.Is(err, ErrServerVerbNotFound) {
+		return false, "do_command:" + err.Error()
+	}
+	if err == nil && (res.Flow == types.FlowSuspend || res.Flow == types.FlowException || res.Val.Truthy()) {
 		return true, ""
 	}
 	match := command.FindVerb(st, player, loc, cmd)
