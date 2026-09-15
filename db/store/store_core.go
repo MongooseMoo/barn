@@ -98,8 +98,11 @@ type Store struct {
 	// observation-only and never affect control flow.
 	commitAttempts  atomic.Uint64
 	commitSuccesses atomic.Uint64
-	commitConflicts atomic.Uint64
-	commitRetries   atomic.Uint64
+	// propertyWriteElisions counts SetPropertyValue calls dropped because the
+	// slot already held an Identical value (see SetPropertyValue).
+	propertyWriteElisions atomic.Uint64
+	commitConflicts       atomic.Uint64
+	commitRetries         atomic.Uint64
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
@@ -227,8 +230,12 @@ func (s *Store) AnonCreationCount() uint64 {
 // MVCC commit observability accessors (Phase A). All lock-free.
 func (s *Store) CommitAttempts() uint64  { return s.commitAttempts.Load() }
 func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
-func (s *Store) CommitConflicts() uint64 { return s.commitConflicts.Load() }
-func (s *Store) CommitRetries() uint64   { return s.commitRetries.Load() }
+
+// PropertyWriteElisions is the number of property writes dropped as no-ops
+// because the target slot already held an Identical value.
+func (s *Store) PropertyWriteElisions() uint64 { return s.propertyWriteElisions.Load() }
+func (s *Store) CommitConflicts() uint64       { return s.commitConflicts.Load() }
+func (s *Store) CommitRetries() uint64         { return s.commitRetries.Load() }
 
 // ActiveReadTransactions returns the number of StoreTxn read timestamps currently
 // registered with history GC, including multiple transactions at the same timestamp.

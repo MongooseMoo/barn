@@ -1980,7 +1980,27 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 	if tx.direct {
 		return tx.store.setPropertyValue(objID, name, value)
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if actualName, prop, ok := propertyByName(obj.properties, name); ok && !prop.clear && prop.value.Identical(value) {
+		// Same-value elision. The slot already holds this exact value and is
+		// not clear, so the write changes nothing MOO code can observe (value,
+		// clear state, owner and perms are all unchanged). Staging it anyway
+		// would clone the object, bump the slot version at commit, and turn
+		// every concurrent reader of the slot into a validation conflict —
+		// Mongoose's #6:title rewrites `.aliases` on every call, so under
+		// optimistic MVCC that turned `look`/`@who` into a retry storm. The
+		// read mark stays: the decision to elide depends on the current value,
+		// so a concurrent change to the slot must still invalidate this txn.
+		tx.markPropertyRead(objID, actualName, prop)
+		if tx.store != nil {
+			tx.store.propertyWriteElisions.Add(1)
+		}
+		return types.E_NONE
+	}
+	obj = tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
