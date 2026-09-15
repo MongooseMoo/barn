@@ -99,6 +99,7 @@ func TestVerbResolveCacheHitPreservesReadSetAndResult(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
 	want := referenceVerbReadSet(t, s, 2, "look")
+	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
 	tx := s.BeginReadOnly(0)
 	defer tx.Release()
@@ -130,6 +131,7 @@ func TestVerbResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
 	want := referenceVerbReadSet(t, s, 2, "nosuchverb")
+	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
 	tx := s.BeginReadOnly(0)
 	defer tx.Release()

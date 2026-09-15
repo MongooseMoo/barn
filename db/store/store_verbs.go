@@ -407,6 +407,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	obj.verbList = append(obj.verbList, verbPtr)
 	obj.rebuildVerbIndex()
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return len(obj.verbList), types.E_NONE
 }
 
@@ -503,6 +504,7 @@ func (s *Store) deleteResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode 
 	ts := s.bumpClockLocked()
 	deleteVerbAtIndex(obj, resolved.index)
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -576,6 +578,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		obj.verbs[newKey] = verb
 	}
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -602,6 +605,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	verb.argSpec = argSpec
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -634,6 +638,7 @@ func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) type
 	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -656,6 +661,7 @@ func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 

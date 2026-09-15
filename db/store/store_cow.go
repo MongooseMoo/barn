@@ -527,9 +527,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// history. Builders may safely share untouched collections with this unpublished
 	// detached image while composing the final replacement.
 	waifRootsDirty := false
+	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
 	for _, id := range writeIDs {
 		created := tx.createdObjects[id]
 		old := s.load(id) // nil for a created id
+		if tx.recycleWrites[id] && old != nil && !old.anonymous {
+			verbShapeDirty = true // anonymous ids are never memoized, so their churn leaves the memo alone
+		}
 		if tx.recycleWrites[id] || len(propDefinesByObj[id])+len(propDefDeletesByObj[id])+len(propDeletesByObj[id]) > 0 {
 			waifRootsDirty = true
 		}
@@ -609,6 +613,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		// After the publishes, so a scan that read the old epoch before they
 		// landed can never memoize a root set missing these values.
 		s.noteWaifRootsChanged()
+	}
+	if verbShapeDirty {
+		s.noteVerbShapeChanged()
 	}
 
 	tx.scalarWrites = nil

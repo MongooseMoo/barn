@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"sync"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 // store_resolve_cache.go — allocation-free ancestry walks (Part A) and a
 // per-transaction memo of verb/property resolution (Part B).
@@ -258,6 +262,82 @@ func (tx *StoreTxn) replayPropSteps(steps []propWalkStep) {
 		} else {
 			tx.markPropertyShapeScan(st.id, st.obj)
 		}
+	}
+}
+
+// verbDispatchMemoEntry is one store-level memoized resolution. readTS is the
+// snapshot of the txn that computed it; the entry is usable by a txn whose
+// snapshot, like this one, postdates the store's last verb-shape change.
+type verbDispatchMemoEntry struct {
+	readTS  uint64
+	found   bool
+	definer types.ObjID
+	mapKey  string
+}
+
+// lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
+// replaces the per-ancestor verb-scan marks with a single txn-level
+// dependency on verbShapeChangeTS (validated at commit) plus the usual read
+// mark on the resolved verb, which is re-fetched from this txn's view of the
+// definer so a concurrent code edit is seen exactly as it would be by a walk.
+func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, definer types.ObjID, found, hit bool) {
+	s := tx.store
+	if s == nil {
+		return nil, types.ObjNothing, false, false
+	}
+	last := s.verbShapeChangeTS.Load()
+	if tx.readTS < last {
+		return nil, types.ObjNothing, false, false
+	}
+	raw, ok := s.verbMemo().Load(key)
+	if !ok {
+		return nil, types.ObjNothing, false, false
+	}
+	entry := raw.(*verbDispatchMemoEntry)
+	if entry.readTS < last {
+		return nil, types.ObjNothing, false, false
+	}
+	if !entry.found {
+		tx.usedVerbMemo = true
+		return nil, types.ObjNothing, false, true
+	}
+	obj := tx.object(entry.definer)
+	if !validLiveObject(obj) {
+		return nil, types.ObjNothing, false, false
+	}
+	verb = obj.verbs[entry.mapKey]
+	if verb == nil {
+		return nil, types.ObjNothing, false, false
+	}
+	tx.usedVerbMemo = true
+	tx.markVerbRead(entry.definer, verb)
+	return verb, entry.definer, true, true
+}
+
+// storeVerbDispatchMemo publishes a walk's result for other transactions.
+// Anonymous objects are never memoized: their ids are recycled constantly and
+// invalidating the memo on each would make it useless. A txn that has mutated
+// the live store has no clean snapshot to tag the entry with.
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID) {
+	s := tx.store
+	if s == nil || tx.liveMutated {
+		return
+	}
+	if obj := tx.object(key.objID); obj == nil || obj.anonymous {
+		return
+	}
+	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	if verb != nil {
+		entry.mapKey = verb.mapKey()
+	}
+	memo := s.verbMemo()
+	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
+		if s.verbDispatchMemoSize.Add(1) > verbDispatchMemoCap {
+			s.verbDispatchMemo.Store(&sync.Map{})
+			s.verbDispatchMemoSize.Store(0)
+		}
+	} else {
+		memo.Store(key, entry)
 	}
 }
 

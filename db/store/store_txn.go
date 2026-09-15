@@ -46,8 +46,15 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
-	terminalErr               types.ErrorCode
-	liveMutated               bool
+	// usedVerbMemo: this txn resolved at least one verb through the store-level
+	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
+	// resolution and must instead fail validation if verbShapeChangeTS moved
+	// past its snapshot. verbMemoConflict freezes that verdict at the moment a
+	// live mutation makes the clock comparison ambiguous.
+	usedVerbMemo     bool
+	verbMemoConflict bool
+	terminalErr      types.ErrorCode
+	liveMutated      bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
 	// than aliases of a shared immutable published image. Reads (tx.object) may cache
 	// an alias; the first staged write to an object must materialize a private copy
@@ -101,6 +108,10 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
+		if tx.usedVerbMemo && !tx.liveMutated && tx.store != nil && tx.store.verbShapeChangeTS.Load() > tx.readTS {
+			// Decide now, before this txn's own mutations move the clock.
+			tx.verbMemoConflict = true
+		}
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -2633,6 +2644,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	tx.store.noteWaifRootsChanged()
+	tx.store.noteVerbShapeChanged() // coarse commits are rare; any of them may reshape dispatch
 	remembered := make(map[types.ObjID]bool)
 
 	// Publish staged creates FIRST (under the exclusive lock) so they are live before
@@ -3010,6 +3022,10 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 }
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
+	if tx.verbMemoConflict || (tx.usedVerbMemo && !tx.liveMutated && tx.store.verbShapeChangeTS.Load() > tx.readTS) {
+		debugConflict("verb-shape", types.ObjNothing, "", tx.readTS, tx.store.verbShapeChangeTS.Load())
+		return types.E_INVARG
+	}
 	for key, version := range tx.verbReads {
 		if tx.createdObjects[key.objID] != nil {
 			continue
@@ -3197,6 +3213,15 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 		}
 	}
 
+	if cacheable {
+		if verb, definer, found, hit := tx.lookupVerbDispatchMemo(key); hit {
+			if !found {
+				return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+			}
+			return verb, definer, nil
+		}
+	}
+
 	verb, definer, steps := tx.walkVerb(objID, verbName, requireExecute)
 	var err error
 	if verb == nil {
@@ -3205,6 +3230,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 	if cacheable {
 		tx.storeVerbResolve(key, steps, verb, definer, err)
+		tx.storeVerbDispatchMemo(key, verb, definer)
 	}
 	return verb, definer, err
 }

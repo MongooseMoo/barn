@@ -182,6 +182,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
 		child := s.load(childID)
@@ -283,6 +284,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
 		parentObj := s.load(parent)
@@ -420,6 +422,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	tombstone := NewObject(oldID, obj.owner)
 	tombstone.recycled = true
 	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)
