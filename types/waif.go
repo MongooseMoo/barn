@@ -99,8 +99,13 @@ func (v Value) SetProperty(name string, value Value) Value {
 	if w.properties == nil {
 		w.properties = make(map[string]Value)
 	}
+	// Only a write that adds or removes a reference to a WAIF or anonymous
+	// object can change waif-to-waif reachability; scalar and string writes
+	// (the overwhelming majority) leave the memoized closure valid.
+	if old, ok := w.properties[name]; (ok && old.MayHoldFinalizable()) || value.MayHoldFinalizable() {
+		waifGraphEpoch.Add(1)
+	}
 	w.properties[name] = value
-	waifGraphEpoch.Add(1)
 	return v
 }
 

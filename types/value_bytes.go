@@ -34,11 +34,7 @@ func ValueBytes(v Value) int {
 	case TYPE_LIST:
 		return v.ByteSize()
 	case TYPE_MAP:
-		size := listVarOverhead // map Var + overhead
-		for _, pair := range v.Pairs() {
-			size += ValueBytes(pair[0]) + ValueBytes(pair[1])
-		}
-		return size
+		return v.goMap().mapBytes()
 	case TYPE_WAIF:
 		// Waif Var + class ref (waif properties not included, matches Toast).
 		return listVarOverhead
