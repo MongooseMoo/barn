@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -54,12 +55,32 @@ func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Pro
 	return s.QueueTask(t)
 }
 
+// ErrServerVerbNotFound reports that a server hook verb does not exist on its
+// handler object (Toast: run_server_task_setting_id "simulates an empty verb").
+var ErrServerVerbNotFound = errors.New("server verb not found")
+
 // RunServerVerbTask runs a server-initiated hook verb through the normal
 // engine/task machinery until it completes or reaches its first suspend.
 func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
+	return s.RunServerVerbTaskWithArgstr(objID, verbName, args, player, "", nil)
+}
+
+// RunServerVerbTaskWithArgstr is RunServerVerbTask for the command-line hooks
+// (#0:do_command and friends), which also see the typed line as argstr. It is
+// Barn's run_server_task_setting_id (Toast tasks.cc): the hook is a real,
+// registered task run synchronously on the caller's goroutine until it returns
+// or first suspends. A suspended hook stays registered and resumes through the
+// scheduler like any other task, so a suspend() reached from inside the hook —
+// for example a room's enterfunc under a move() the hook dispatched — is
+// honored rather than dropped with the throwaway CallVerbWithArgstr VM. The
+// returned Result carries Flow == FlowSuspend in that case; callers that mirror
+// Toast's do_command_task treat any outcome other than a normal return as
+// "handled". onStart, if non-nil, receives the task ID before the task runs.
+// A missing verb is reported as ErrServerVerbNotFound.
+func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64)) (types.Result, error) {
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
-		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
 	}
 
 	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
@@ -83,11 +104,15 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 	t.VerbLoc = defObjID
 	t.This = objID
 	t.Caller = types.ObjNothing
+	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
+	if onStart != nil {
+		onStart(t.ID)
+	}
 
 	if err := s.runTask(t); err != nil {
 		return t.Result, err
