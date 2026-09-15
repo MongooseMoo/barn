@@ -8,6 +8,7 @@ import (
 	"io"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -99,8 +100,20 @@ func (v Value) SetProperty(name string, value Value) Value {
 		w.properties = make(map[string]Value)
 	}
 	w.properties[name] = value
+	waifGraphEpoch.Add(1)
 	return v
 }
+
+// waifGraphEpoch advances on every in-place WAIF property write. WAIF
+// properties are the one part of the value graph that mutates without a
+// store write, so any memo of "which waifs are reachable from these roots"
+// must be keyed on it. See WaifGraphEpoch.
+var waifGraphEpoch atomic.Uint64
+
+// WaifGraphEpoch returns a counter that changes whenever any WAIF's property
+// was assigned in place. Equal values mean the waif-to-waif reachability graph
+// is unchanged.
+func WaifGraphEpoch() uint64 { return waifGraphEpoch.Load() }
 
 // WaifIdentity is an opaque, comparable, process-independent identity token for
 // a waif. Its 128-bit swiss number is unguessable and can be persisted without

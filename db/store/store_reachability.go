@@ -282,10 +282,14 @@ func collectWaifsInto(value types.Value, set *types.WaifSet) {
 	}
 }
 
-// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch.
+// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch
+// and, for one (waifRootsEpoch, types.WaifGraphEpoch) pair, the expanded
+// closure as an immutable set shared by every caller.
 type persistentWaifRootsEntry struct {
-	epoch uint64
-	top   []types.Value // waifs held directly in property values (through lists/maps), no closure expansion
+	epoch      uint64
+	top        []types.Value // waifs held directly in property values (through lists/maps), no closure expansion
+	graphEpoch uint64
+	closure    *types.WaifSet // top expanded through waif properties; read-only once published
 }
 
 // propertyValueMayHoldFinalizable reports whether obj's slot for name currently
@@ -320,21 +324,39 @@ func collectTopLevelWaifsInto(value types.Value, set *types.WaifSet) {
 }
 
 // PersistentWaifRoots returns every waif reachable from a live object's
-// property values, deduplicated by identity.
-//
-// The walk over every property of every object is memoized per waifRootsEpoch
-// (the finalizer asks after every task that let a WAIF leave scope, and on a
-// large database the scan dominated that task's cost). Only the TOP-LEVEL
-// roots are memoized: a WAIF's own properties are mutated in place by
-// Value.SetProperty with no store write, so the closure is expanded fresh on
-// every call. Property values are immutable, so a change to the top-level set
-// always goes through a store write, and every such write bumps the epoch
-// (noteWaifRootsChanged).
+// property values, deduplicated by identity. The slice is shared and must be
+// treated as read-only; PersistentWaifRootSet is the O(1)-membership form.
 func (s *Store) PersistentWaifRoots() []types.Value {
+	set := s.PersistentWaifRootSet()
+	if set.Values == nil {
+		return []types.Value{}
+	}
+	return set.Values
+}
+
+// PersistentWaifRootSet returns the identity set of every waif reachable from
+// a live object's property values. The set is immutable and shared: layer
+// additions on it with types.NewWaifSetOver.
+//
+// Two memos, because the two inputs change at different rates. The walk over
+// every property of every object (the finalizer asks after every task that let
+// a WAIF leave scope, and on a large database that scan dominated the task) is
+// memoized per waifRootsEpoch, which every store write that can add or remove
+// a waif from a property value bumps (noteWaifRootsChanged). The expansion of
+// those roots through waif properties — thousands of waifs on Mongoose, mutated
+// in place by Value.SetProperty with no store write — is memoized per
+// (waifRootsEpoch, types.WaifGraphEpoch).
+func (s *Store) PersistentWaifRootSet() *types.WaifSet {
 	s.mu.RLock()
 	epoch := s.waifRootsEpoch.Load()
+	graphEpoch := types.WaifGraphEpoch()
+	entry := s.waifRootsCache.Load()
+	if entry != nil && entry.epoch == epoch && entry.graphEpoch == graphEpoch {
+		s.mu.RUnlock()
+		return entry.closure
+	}
 	var top []types.Value
-	if entry := s.waifRootsCache.Load(); entry != nil && entry.epoch == epoch {
+	if entry != nil && entry.epoch == epoch {
 		top = entry.top
 	} else {
 		set := types.NewWaifSet(nil)
@@ -351,18 +373,18 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 			return true
 		})
 		top = set.Values
-		s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top})
 	}
 	s.mu.RUnlock()
 
-	roots := types.NewWaifSet(nil)
+	// Expand outside the store lock: waif properties are not store state. A
+	// concurrent in-place write during the expansion moves the graph epoch, so
+	// the entry stored below is already stale and the next call recomputes.
+	closure := types.NewWaifSet(nil)
 	for _, waif := range top {
-		collectWaifsInto(waif, roots)
+		collectWaifsInto(waif, closure)
 	}
-	if roots.Values == nil {
-		return []types.Value{}
-	}
-	return roots.Values
+	s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
+	return closure
 }
 
 // LocalProperty returns a copy of the property slot defined on the object

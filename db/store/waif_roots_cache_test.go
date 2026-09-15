@@ -32,7 +32,7 @@ func requireRoots(t *testing.T, s *Store, want ...types.Value) {
 func requireCacheHit(t *testing.T, s *Store, hit bool) {
 	t.Helper()
 	entry := s.waifRootsCache.Load()
-	if (entry != nil && entry.epoch == s.waifRootsEpoch.Load()) != hit {
+	if (entry != nil && entry.epoch == s.waifRootsEpoch.Load() && entry.graphEpoch == types.WaifGraphEpoch()) != hit {
 		t.Fatalf("cache hit = %v, want %v", !hit, hit)
 	}
 }
@@ -99,9 +99,10 @@ func TestPersistentWaifRootsExpandsClosuresFresh(t *testing.T) {
 	requireCacheHit(t, s, true)
 
 	inner2 := types.NewWaif(a, 0)
-	outer.SetProperty("child", inner2) // in place, no store write
-	requireCacheHit(t, s, true)
+	outer.SetProperty("child", inner2) // in place, no store write: moves the graph epoch only
+	requireCacheHit(t, s, false)
 	requireRoots(t, s, outer, inner2)
+	requireCacheHit(t, s, true)
 }
 
 // Recycling an object that holds a waif drops it from the roots.

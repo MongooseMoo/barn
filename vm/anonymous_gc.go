@@ -201,7 +201,7 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	})
 
 	covered := buildPersistentAnonymousReachability(store)
-	roots := canonicalWaifRoots(waifs, store.PersistentWaifRoots())
+	roots := canonicalWaifRoots(waifs, store.PersistentWaifRootSet())
 	for _, candidate := range ordered {
 		if _, seen := covered[candidate.value.ID()]; seen {
 			continue
@@ -214,12 +214,10 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	return roots
 }
 
-func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []types.Value {
-	// covered starts as the persistent closure and grows as roots are chosen.
-	covered := types.NewWaifSet(nil)
-	for _, root := range persistent {
-		collectWaifsInto(root, covered)
-	}
+func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []types.Value {
+	// covered starts as the persistent closure (already expanded through waif
+	// properties by the store) and grows as roots are chosen.
+	covered := types.NewWaifSetOver(persistent)
 	type candidateRoot struct {
 		value   types.Value
 		closure []types.Value
