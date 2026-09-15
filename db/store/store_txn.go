@@ -566,14 +566,24 @@ func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Proper
 	if tx == nil {
 		return
 	}
-	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-	if _, staged := tx.propertyDefines[key]; staged {
+	tx.markPropertyReadKey(objID, propertyNameKey(name), prop)
+}
+
+// markPropertyReadKey is markPropertyRead for a name already in canonical
+// (lowercase) key form — the map key returned by a properties lookup — so the
+// hot read path lowers a name once per resolution instead of once per mark.
+func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Property) {
+	if tx == nil {
 		return
 	}
-	if _, staged := tx.propertyWrites[key]; staged {
+	wkey := propertyWriteKey{objID: objID, name: key}
+	if _, staged := tx.propertyDefines[wkey]; staged {
 		return
 	}
-	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(name)}] = prop.version
+	if _, staged := tx.propertyWrites[wkey]; staged {
+		return
+	}
+	tx.propertyReads[propertyReadKey{objID: objID, name: key}] = prop.version
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
@@ -1614,6 +1624,10 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 	resultProp := Property{}
 	resultName := ""
 	resultErr := types.E_PROPNF
+	// Object.properties is keyed by the canonical lowercase name, so lower the
+	// lookup once here rather than once per ancestor (an E_PROPNF walk on a
+	// deep chain otherwise re-lowers the same name at every level).
+	key := propertyNameKey(name)
 
 	for head := 0; head < len(queue); head++ {
 		currentID := queue[head]
@@ -1627,12 +1641,13 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			continue
 		}
 
-		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+		if prop, ok := current.properties[key]; ok {
+			actualName := key
 			sc.steps = append(sc.steps, propWalkStep{
 				id: currentID, obj: current, valid: true,
 				found: true, actualName: actualName, prop: prop,
 			})
-			tx.markPropertyRead(currentID, actualName, prop)
+			tx.markPropertyReadKey(currentID, actualName, prop)
 			firstFound := !haveTarget
 			if !haveTarget {
 				targetProp = prop
