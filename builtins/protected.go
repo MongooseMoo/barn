@@ -73,6 +73,24 @@ func (r *Session) isProtectedEntry(e *builtinEntry) bool {
 	return set.byName[e.name]
 }
 
+// isProtectedEntryFor is isProtectedEntry as seen by the task running ctx: a
+// task that reloaded the flags before committing its $server_options writes
+// sees its own set (TaskContext.ProtectedBuiltins) until commit publishes it.
+func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
+	if ctx != nil && ctx.TaskContext != nil && ctx.ProtectedBuiltins != nil {
+		return ctx.ProtectedBuiltins[e.name]
+	}
+	return r.isProtectedEntry(e)
+}
+
+// isProtectedNameFor is IsProtectedBuiltin as seen by the task running ctx.
+func (r *Session) isProtectedNameFor(ctx *Execution, name string) bool {
+	if ctx != nil && ctx.TaskContext != nil && ctx.ProtectedBuiltins != nil {
+		return ctx.ProtectedBuiltins[name]
+	}
+	return r.IsProtectedBuiltin(name)
+}
+
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
 // flags and replaces the protected-builtin set. Called from
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.
@@ -135,6 +153,10 @@ func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			pending = pendingServerOptions(ctx.TaskContext)
 		}
 		pending.ProtectedBuiltins = flags
+		// Toast's reload takes effect at once. The session-wide swap waits for
+		// this task's commit (the flags came from uncommitted writes), so the
+		// loading task keeps its own view until then.
+		ctx.ProtectedBuiltins = flags
 		return
 	}
 	r.applyProtectedBuiltins(flags)

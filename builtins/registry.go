@@ -544,7 +544,7 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 	// Cheap pre-check (nil ctx, #0 caller, unprotected entry) before the
 	// redirect helper so the common case never builds and copies its 88-byte
 	// Result. The helper repeats these checks; they are the same predicate.
-	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntry(e) {
+	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e) {
 		if redirect, ok := s.maybeProtectedRedirect(e.name, ctx, args); ok {
 			return redirect
 		}
@@ -574,7 +574,7 @@ func (s *Session) maybeProtectedRedirect(name string, ctx *Execution, args []typ
 	if ctx.ThisObj == types.ObjID(0) {
 		return types.Result{}, false
 	}
-	if !s.IsProtectedBuiltin(name) {
+	if !s.isProtectedNameFor(ctx, name) {
 		return types.Result{}, false
 	}
 	store := ctx.Store
