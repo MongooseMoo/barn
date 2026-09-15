@@ -197,3 +197,104 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 		t.Fatalf("after add, nosuch = %v definer=#%d", err, d)
 	}
 }
+
+// A task that dispatched through the memo and then mutates the live store
+// itself (a coarse builtin) must not be condemned by its own clock bump.
+// PrepareLiveMutation re-walks the memoized resolutions into ordinary scan
+// marks on the snapshot, after which the coarse commit validates those marks.
+func TestVerbDispatchMemoSurvivesOwnLiveMutation(t *testing.T) {
+	s := testChainStore(t)
+	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
+	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	warm := s.BeginReadOnly(0)
+	warm.findVerb(2, "look", false)
+	warm.Release()
+
+	user := s.BeginReadOnly(0)
+	defer user.Release()
+	if _, _, err := user.findVerb(2, "look", false); err != nil {
+		t.Fatalf("findVerb: %v", err)
+	}
+	if !user.usedVerbMemo || len(user.verbScans) != 0 {
+		t.Fatalf("expected a mark-less memo hit, got used=%v scans=%v", user.usedVerbMemo, user.verbScans)
+	}
+
+	// What flushStagedBeforeCoarse does before add_verb touches the live store.
+	user.PrepareLiveMutation()
+	if user.usedVerbMemo {
+		t.Fatalf("PrepareLiveMutation left the txn on the memo")
+	}
+	for _, id := range []types.ObjID{2, 1, 0} {
+		if _, ok := user.verbScans[id]; !ok {
+			t.Fatalf("PrepareLiveMutation did not materialize the scan mark on #%d: %v", id, user.verbScans)
+		}
+	}
+	// Later resolutions in this txn walk and mark; they never re-enter the memo.
+	if _, _, err := user.findVerb(2, "look", true); err != nil || user.usedVerbMemo {
+		t.Fatalf("post-prepare resolution: err=%v used=%v", err, user.usedVerbMemo)
+	}
+
+	// The task's own coarse mutation moves the shape clock, then the builtin
+	// marks the txn live-mutated and adopts the changed facet.
+	addVerbT(t, s, 0, []string{"own_new_verb"}, VerbRead|VerbExecute)
+	user.MarkLiveMutated()
+	if ec := user.AdoptLiveVerbs(0); ec != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs: %v", ec)
+	}
+	if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue: %v", ec)
+	}
+	if ec := user.Commit(); ec != types.E_NONE {
+		t.Fatalf("coarse commit after own verb-shape change = %v, want E_NONE", ec)
+	}
+}
+
+// The materialized marks still catch a concurrent shape change that lands
+// between the memo hit and the coarse commit.
+func TestVerbDispatchMemoMaterializedMarksCatchConcurrentChange(t *testing.T) {
+	s := testChainStore(t)
+	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
+	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	warm := s.BeginReadOnly(0)
+	warm.findVerb(2, "look", false)
+	warm.Release()
+
+	user := s.BeginReadOnly(0)
+	defer user.Release()
+	if _, _, err := user.findVerb(2, "look", false); err != nil || !user.usedVerbMemo {
+		t.Fatalf("expected a memo hit, err=%v", err)
+	}
+	user.PrepareLiveMutation()
+	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute) // another task shadows the verb
+	user.MarkLiveMutated()
+	if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue: %v", ec)
+	}
+	if ec := user.Commit(); ec == types.E_NONE {
+		t.Fatalf("coarse commit ignored a concurrent verb-shape change on a scanned ancestor")
+	}
+}
+
+// A live-mutated txn never resolves through the memo: the coarse path
+// validates scan marks, not the clock.
+func TestVerbDispatchMemoSkippedAfterLiveMutation(t *testing.T) {
+	s := testChainStore(t)
+	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
+	warm := s.BeginReadOnly(0)
+	warm.findVerb(2, "look", false)
+	warm.Release()
+
+	user := s.BeginReadOnly(0)
+	defer user.Release()
+	user.MarkLiveMutated()
+	if _, _, err := user.findVerb(2, "look", false); err != nil {
+		t.Fatalf("findVerb: %v", err)
+	}
+	if user.usedVerbMemo || len(user.verbScans) == 0 {
+		t.Fatalf("live-mutated txn used the memo (used=%v scans=%v)", user.usedVerbMemo, user.verbScans)
+	}
+}

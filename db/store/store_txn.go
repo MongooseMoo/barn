@@ -49,10 +49,14 @@ type StoreTxn struct {
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
 	// resolution and must instead fail validation if verbShapeChangeTS moved
-	// past its snapshot. verbMemoConflict freezes that verdict at the moment a
-	// live mutation makes the clock comparison ambiguous.
+	// past its snapshot. verbMemoHits lists those resolutions so that, before
+	// the txn's first live mutation moves the clock itself, they can be
+	// re-walked on the still-pristine snapshot into ordinary scan marks
+	// (materializeVerbMemoMarks). verbMemoDisabled then keeps the rest of the
+	// txn off the memo.
 	usedVerbMemo     bool
-	verbMemoConflict bool
+	verbMemoDisabled bool
+	verbMemoHits     []verbResolveKey
 	terminalErr      types.ErrorCode
 	liveMutated      bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
@@ -108,10 +112,10 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
-		if tx.usedVerbMemo && !tx.liveMutated && tx.store != nil && tx.store.verbShapeChangeTS.Load() > tx.readTS {
-			// Decide now, before this txn's own mutations move the clock.
-			tx.verbMemoConflict = true
-		}
+		// The live op has already moved verbShapeChangeTS, so the memo's clock
+		// check can no longer tell this txn's own change from a concurrent one.
+		// Callers reach PrepareLiveMutation first; this is the safety net.
+		tx.materializeVerbMemoMarks()
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -3022,7 +3026,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 }
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
-	if tx.verbMemoConflict || (tx.usedVerbMemo && !tx.liveMutated && tx.store.verbShapeChangeTS.Load() > tx.readTS) {
+	if tx.usedVerbMemo && !tx.liveMutated && tx.store.verbShapeChangeTS.Load() > tx.readTS {
 		debugConflict("verb-shape", types.ObjNothing, "", tx.readTS, tx.store.verbShapeChangeTS.Load())
 		return types.E_INVARG
 	}
