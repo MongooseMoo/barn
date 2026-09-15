@@ -21,6 +21,8 @@ func TestVerifyProgramRejectsMalformedBytecode(t *testing.T) {
 		{"jump into operand", Program{Code: []byte{byte(OP_LOOP), 0, 2, byte(OP_RETURN_NONE)}}, "instruction boundary"},
 		{"falls off end", Program{Code: []byte{byte(OP_POP)}}, "terminal"},
 		{"dead opcode", Program{Code: []byte{byte(OP_BREAK), byte(OP_RETURN_NONE)}}, "dead opcode"},
+		{"fewer locals than names", Program{Code: []byte{byte(OP_RETURN_NONE)}, VarNames: []string{"x"}, NumLocals: 0}, "invalid local metadata"},
+		{"more locals than addressable", Program{Code: []byte{byte(OP_RETURN_NONE)}, VarNames: []string{"x"}, NumLocals: MaxLocals + 1}, "invalid local metadata"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +44,24 @@ func TestVerifyProgramAcceptsValidControlFlow(t *testing.T) {
 	}
 	if !program.IsInstructionBoundary(0) || !program.IsInstructionBoundary(3) || program.IsInstructionBoundary(1) {
 		t.Fatal("IsInstructionBoundary reported incorrect boundaries")
+	}
+}
+
+// The compiler allocates unnamed temporaries from slot 255 downward, so any
+// program using one carries NumLocals == MaxLocals alongside a handful of
+// VarNames. Such programs must verify, or suspended tasks cannot be restored.
+func TestVerifyProgramAcceptsCompilerTemporarySlots(t *testing.T) {
+	program := &Program{
+		Code: []byte{
+			byte(OP_GET_VAR), 2,
+			byte(OP_SET_VAR), 255,
+			byte(OP_RETURN_NONE),
+		},
+		VarNames:  []string{"a", "b", "c"},
+		NumLocals: MaxLocals,
+	}
+	if err := VerifyProgram(program); err != nil {
+		t.Fatalf("VerifyProgram() error = %v, want temporaries above VarNames accepted", err)
 	}
 }
 
