@@ -201,7 +201,7 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	})
 
 	covered := buildPersistentAnonymousReachability(store)
-	roots := canonicalWaifRoots(waifs, store.PersistentWaifRoots())
+	roots := canonicalWaifRoots(waifs, store.PersistentWaifRootSet())
 	for _, candidate := range ordered {
 		if _, seen := covered[candidate.value.ID()]; seen {
 			continue
@@ -214,12 +214,10 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	return roots
 }
 
-func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []types.Value {
-	// covered starts as the persistent closure and grows as roots are chosen.
-	covered := types.NewWaifSet(nil)
-	for _, root := range persistent {
-		collectWaifsInto(root, covered)
-	}
+func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []types.Value {
+	// covered starts as the persistent closure (already expanded through waif
+	// properties by the store) and grows as roots are chosen.
+	covered := types.NewWaifSetOver(persistent)
 	type candidateRoot struct {
 		value   types.Value
 		closure []types.Value
@@ -253,11 +251,24 @@ func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []ty
 	return roots
 }
 
+// collectPendingFinalizationsFromFrame records, for a frame about to be
+// popped, the waifs leaving scope (vm.PendingWaifs) and the direct
+// finalization roots it held (vm.PendingFinalizations) in one pass. Frames
+// that hold no finalizable value — the overwhelming majority — cost one
+// MayHoldFinalizable check per slot and allocate nothing.
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
-	refs := make(map[types.ObjID]struct{})
+	var refs map[types.ObjID]struct{}
 	var waifs []types.Value
-	frame.visitValues(func(value types.Value, _ valueRootKind) { collectDirectFinalizationRoots(value, refs, &waifs) })
-	vm.appendPendingFinalizationRoots(refs, waifs)
+	frame.visitFinalizableCandidates(func(value types.Value) {
+		collectDirectWaifsForGC(value, &vm.PendingWaifs)
+		if refs == nil {
+			refs = make(map[types.ObjID]struct{})
+		}
+		collectDirectFinalizationRoots(value, refs, &waifs)
+	})
+	if refs != nil {
+		vm.appendPendingFinalizationRoots(refs, waifs)
+	}
 }
 
 func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {

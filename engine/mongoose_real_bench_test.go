@@ -509,8 +509,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			allocsPerOp = float64(m1.Mallocs-m0.Mallocs) / float64(committed)
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
-		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
-			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate,
+		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
+			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
 			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
 		for j, sh := range realShapes {

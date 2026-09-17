@@ -290,7 +290,9 @@ func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 			return prop, true
 		},
 	)
-	if ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() || pendingServerOptions(ctx.TaskContext) != nil {
+		// Later reloads must stay ordered after an already deferred snapshot,
+		// even when restoring committed values has elided every staged write.
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
 			Kind:          kernel.PendingEffectServerOptions,
 			ServerOptions: snapshot,

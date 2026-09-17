@@ -36,6 +36,7 @@ type StoreTxn struct {
 	relationshipWrites        map[types.ObjID]objectRelationshipWrite
 	propertyReads             map[propertyReadKey]uint64
 	propertyScans             map[types.ObjID]uint64
+	propertyShapeScans        map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
 	propertyWrites            map[propertyWriteKey]propertyWrite
@@ -45,8 +46,19 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
-	terminalErr               types.ErrorCode
-	liveMutated               bool
+	// usedVerbMemo: this txn resolved at least one verb through the store-level
+	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
+	// resolution and must instead fail validation if verbShapeChangeTS moved
+	// past its snapshot. verbMemoHits lists those resolutions so that, before
+	// the txn's first live mutation moves the clock itself, they can be
+	// re-walked on the still-pristine snapshot into ordinary scan marks
+	// (materializeVerbMemoMarks). verbMemoDisabled then keeps the rest of the
+	// txn off the memo.
+	usedVerbMemo     bool
+	verbMemoDisabled bool
+	verbMemoHits     []verbResolveKey
+	terminalErr      types.ErrorCode
+	liveMutated      bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
 	// than aliases of a shared immutable published image. Reads (tx.object) may cache
 	// an alias; the first staged write to an object must materialize a private copy
@@ -100,6 +112,10 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
+		// The live op has already moved verbShapeChangeTS, so the memo's clock
+		// check can no longer tell this txn's own change from a concurrent one.
+		// Callers reach PrepareLiveMutation first; this is the safety net.
+		tx.materializeVerbMemoMarks()
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -200,6 +216,14 @@ type propertyWrite struct {
 	name  string
 	value types.Value
 	prop  Property
+	// orig is the slot as this txn first saw it before staging any write to
+	// it (hasOrig=false when the slot did not exist on this object, i.e. the
+	// write creates an override of an inherited property). A later write
+	// that restores an Identical value to a non-clear orig is dropped again:
+	// e.g. `x = setadd(x, "The"); x = setremove(x, "the")` nets to no change
+	// and must not publish a version bump (see SetPropertyValue).
+	orig    Property
+	hasOrig bool
 }
 
 // propertyDefine is a staged property DEFINITION carrying the original-case name
@@ -247,15 +271,16 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	// deregistration is StoreTxn.Release (called by the runtime), with a finalizer
 	// backstop so a dropped-without-Release txn cannot leak its registration forever.
 	tx := &StoreTxn{
-		readTS:            readTS,
-		store:             s,
-		objects:           make(map[types.ObjID]*Object),
-		scalarReads:       make(map[types.ObjID]uint64),
-		relationshipReads: make(map[types.ObjID]uint64),
-		propertyReads:     make(map[propertyReadKey]uint64),
-		propertyScans:     make(map[types.ObjID]uint64),
-		verbReads:         make(map[verbReadKey]uint64),
-		verbScans:         make(map[types.ObjID]uint64),
+		readTS:             readTS,
+		store:              s,
+		objects:            make(map[types.ObjID]*Object),
+		scalarReads:        make(map[types.ObjID]uint64),
+		relationshipReads:  make(map[types.ObjID]uint64),
+		propertyReads:      make(map[propertyReadKey]uint64),
+		propertyScans:      make(map[types.ObjID]uint64),
+		propertyShapeScans: make(map[types.ObjID]uint64),
+		verbReads:          make(map[verbReadKey]uint64),
+		verbScans:          make(map[types.ObjID]uint64),
 		// scalarWrites, relationshipWrites, propertyDefines,
 		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
 		// are left nil and lazily allocated on first stage (see lazySet).
@@ -466,6 +491,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		}
 		verb.setCodeCopy(write.code)
 	}
+	obj.verbIdx = live.verbIdx // same aliases in the same order as live
 	obj.verbVersion = live.verbVersion
 	tx.verbScans[objID] = live.verbVersion
 	for key := range tx.verbReads {
@@ -555,14 +581,24 @@ func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Proper
 	if tx == nil {
 		return
 	}
-	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-	if _, staged := tx.propertyDefines[key]; staged {
+	tx.markPropertyReadKey(objID, propertyNameKey(name), prop)
+}
+
+// markPropertyReadKey is markPropertyRead for a name already in canonical
+// (lowercase) key form — the map key returned by a properties lookup — so the
+// hot read path lowers a name once per resolution instead of once per mark.
+func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Property) {
+	if tx == nil {
 		return
 	}
-	if _, staged := tx.propertyWrites[key]; staged {
+	wkey := propertyWriteKey{objID: objID, name: key}
+	if _, staged := tx.propertyDefines[wkey]; staged {
 		return
 	}
-	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(name)}] = prop.version
+	if _, staged := tx.propertyWrites[wkey]; staged {
+		return
+	}
+	tx.propertyReads[propertyReadKey{objID: objID, name: key}] = prop.version
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
@@ -572,7 +608,22 @@ func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 	tx.propertyScans[objID] = obj.propertyVersion
 }
 
-func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value) {
+// markPropertyShapeScan records that this txn's result depends on which slots
+// obj HAS (an ancestry walk fell through it), not on any slot's value. It is
+// validated against propertyShapeVersion, which value writes do not move.
+func (tx *StoreTxn) markPropertyShapeScan(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	tx.propertyShapeScans[objID] = obj.propertyShapeVersion
+}
+
+// stagePropertyValue stages value for objID.name. before is the slot as it was
+// on the txn's object view immediately before this write (hasBefore=false when
+// the write creates a new override slot). The first staging of a key remembers
+// before as the write's orig; if the staged value is Identical to a non-clear
+// orig the net effect of the txn on that slot is nil and the write is dropped.
+func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value, before Property, hasBefore bool) {
 	prop.value = value
 	prop.clear = false
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
@@ -581,10 +632,25 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Prop
 		lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
 		return
 	}
+	orig, hasOrig := before, hasBefore
+	if existing, staged := tx.propertyWrites[key]; staged {
+		orig, hasOrig = existing.orig, existing.hasOrig
+	}
+	if hasOrig && !orig.clear && orig.value.Identical(value) {
+		// Net no-op for this slot: the read mark recorded by the caller keeps
+		// the dependency on orig; nothing to publish.
+		delete(tx.propertyWrites, key)
+		if tx.store != nil {
+			tx.store.propertyWriteElisions.Add(1)
+		}
+		return
+	}
 	lazySet(&tx.propertyWrites, key, propertyWrite{
-		name:  name,
-		value: value,
-		prop:  prop,
+		name:    name,
+		value:   value,
+		prop:    prop,
+		orig:    orig,
+		hasOrig: hasOrig,
 	})
 }
 
@@ -714,6 +780,7 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	delete(tx.relationshipReads, objID)
 	delete(tx.relationshipWrites, objID)
 	delete(tx.propertyScans, objID)
+	delete(tx.propertyShapeScans, objID)
 	delete(tx.verbScans, objID)
 	for key := range tx.propertyReads {
 		if key.objID == objID {
@@ -1572,6 +1639,10 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 	resultProp := Property{}
 	resultName := ""
 	resultErr := types.E_PROPNF
+	// Object.properties is keyed by the canonical lowercase name, so lower the
+	// lookup once here rather than once per ancestor (an E_PROPNF walk on a
+	// deep chain otherwise re-lowers the same name at every level).
+	key := propertyNameKey(name)
 
 	for head := 0; head < len(queue); head++ {
 		currentID := queue[head]
@@ -1585,12 +1656,13 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			continue
 		}
 
-		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+		if prop, ok := current.properties[key]; ok {
+			actualName := key
 			sc.steps = append(sc.steps, propWalkStep{
 				id: currentID, obj: current, valid: true,
 				found: true, actualName: actualName, prop: prop,
 			})
-			tx.markPropertyRead(currentID, actualName, prop)
+			tx.markPropertyReadKey(currentID, actualName, prop)
 			firstFound := !haveTarget
 			if !haveTarget {
 				targetProp = prop
@@ -1610,7 +1682,7 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			}
 		} else {
 			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current, valid: true})
-			tx.markPropertyScan(currentID, current)
+			tx.markPropertyShapeScan(currentID, current)
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -1887,10 +1959,13 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 		return types.E_INVIND
 	}
 	obj.propertyVersion = live.propertyVersion
+	obj.propertyShapeVersion = live.propertyShapeVersion
 	liveVersion := live.propertyVersion
+	liveShapeVersion := live.propertyShapeVersion
 	tx.store.mu.RUnlock()
 
 	tx.propertyScans[objID] = liveVersion
+	tx.propertyShapeScans[objID] = liveShapeVersion
 	for key := range tx.propertyReads {
 		if key.objID == objID {
 			delete(tx.propertyReads, key)
@@ -1966,7 +2041,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 	}
 	actualName, prop, exists := propertyByName(obj.properties, name)
 	if !exists {
-		tx.markPropertyScan(objID, obj)
+		tx.markPropertyShapeScan(objID, obj)
 		return true, types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
@@ -1980,19 +2055,40 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 	if tx.direct {
 		return tx.store.setPropertyValue(objID, name, value)
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if actualName, prop, ok := propertyByName(obj.properties, name); ok && !prop.clear && prop.value.Identical(value) {
+		// Same-value elision. The slot already holds this exact value and is
+		// not clear, so the write changes nothing MOO code can observe (value,
+		// clear state, owner and perms are all unchanged). Staging it anyway
+		// would clone the object, bump the slot version at commit, and turn
+		// every concurrent reader of the slot into a validation conflict —
+		// Mongoose's #6:title rewrites `.aliases` on every call, so under
+		// optimistic MVCC that turned `look`/`@who` into a retry storm. The
+		// read mark stays: the decision to elide depends on the current value,
+		// so a concurrent change to the slot must still invalidate this txn.
+		tx.markPropertyRead(objID, actualName, prop)
+		if tx.store != nil {
+			tx.store.propertyWriteElisions.Add(1)
+		}
+		return types.E_NONE
+	}
+	obj = tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
 
 	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		tx.markPropertyRead(objID, actualName, prop)
+		before := prop
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
 		// within this txn (e.g. PropertyValues) see the staged change.
 		obj.properties[actualName] = prop
-		tx.stagePropertyValue(objID, actualName, prop, value)
+		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
 	}
 
@@ -2009,7 +2105,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		version: inherited.version,
 	}
 	obj.properties[inheritedName] = override
-	tx.stagePropertyValue(objID, inheritedName, override, value)
+	tx.stagePropertyValue(objID, inheritedName, override, value, Property{}, false)
 	return types.E_NONE
 }
 
@@ -2551,6 +2647,8 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 // intentionally performs only operation preflight. Caller holds store.mu.Lock.
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
+	tx.store.noteWaifRootsChanged()
+	tx.store.noteVerbShapeChanged() // coarse commits are rare; any of them may reshape dispatch
 	remembered := make(map[types.ObjID]bool)
 
 	// Publish staged creates FIRST (under the exclusive lock) so they are live before
@@ -2796,6 +2894,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.relationshipReads = make(map[types.ObjID]uint64)
 	tx.propertyReads = make(map[propertyReadKey]uint64)
 	tx.propertyScans = make(map[types.ObjID]uint64)
+	tx.propertyShapeScans = make(map[types.ObjID]uint64)
 	tx.verbReads = make(map[verbReadKey]uint64)
 	tx.verbScans = make(map[types.ObjID]uint64)
 
@@ -2910,10 +3009,27 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 			return types.E_INVARG
 		}
 	}
+	for objID, version := range tx.propertyShapeScans {
+		if tx.createdObjects[objID] != nil {
+			continue
+		}
+		live := tx.store.liveObjectLocked(objID)
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.propertyShapeVersion != version {
+			debugConflict("property-shape", objID, "", version, live.propertyShapeVersion)
+			return types.E_INVARG
+		}
+	}
 	return types.E_NONE
 }
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
+	if tx.usedVerbMemo && !tx.liveMutated && tx.store.verbShapeChangeTS.Load() > tx.readTS {
+		debugConflict("verb-shape", types.ObjNothing, "", tx.readTS, tx.store.verbShapeChangeTS.Load())
+		return types.E_INVARG
+	}
 	for key, version := range tx.verbReads {
 		if tx.createdObjects[key.objID] != nil {
 			continue
@@ -3101,6 +3217,15 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 		}
 	}
 
+	if cacheable {
+		if verb, definer, found, hit := tx.lookupVerbDispatchMemo(key); hit {
+			if !found {
+				return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+			}
+			return verb, definer, nil
+		}
+	}
+
 	verb, definer, steps := tx.walkVerb(objID, verbName, requireExecute)
 	var err error
 	if verb == nil {
@@ -3109,6 +3234,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 	if cacheable {
 		tx.storeVerbResolve(key, steps, verb, definer, err)
+		tx.storeVerbDispatchMemo(key, verb, definer)
 	}
 	return verb, definer, err
 }
@@ -3146,15 +3272,9 @@ walk:
 		}
 		sc.steps = append(sc.steps, verbWalkStep{id: current, obj: obj, scanned: true})
 		tx.markVerbScan(current, obj)
-		for _, verb := range obj.verbList {
-			for _, alias := range verb.lowerNames {
-				if matchVerbNameLowered(alias, searchLower) {
-					if !requireExecute || verb.perms.Has(VerbExecute) {
-						found, definer = verb, current
-						break walk
-					}
-				}
-			}
+		if verb := obj.findVerbByAlias(searchLower, requireExecute); verb != nil {
+			found, definer = verb, current
+			break walk
 		}
 		if !hasWildcard {
 			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {

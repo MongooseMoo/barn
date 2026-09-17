@@ -34,6 +34,25 @@ type goMap struct {
 	// finalizable caches whether any key or value (transitively) is an
 	// anonymous object or WAIF; see finalizableUnknown/None/Maybe.
 	finalizable int8
+	// byteSize caches ValueBytes(map) (always > 0 when known; 0 = not
+	// computed). set/delete derive the new map's size from the old one, so
+	// the per-write quota check is O(1) instead of a walk of every pair —
+	// and never through the ordered lookup tree, which a size sum does not
+	// need. Never written after the map is shared.
+	byteSize int
+}
+
+// mapBytes returns the Toast-equivalent byte size of the map, from the cache
+// when set/delete/NewMap computed it, else by summing the pairs in hash order.
+func (m *goMap) mapBytes() int {
+	if m.byteSize > 0 {
+		return m.byteSize
+	}
+	size := listVarOverhead
+	for _, e := range m.pairs {
+		size += ValueBytes(e.key) + ValueBytes(e.val)
+	}
+	return size
 }
 
 // finalizableState returns the cached tri-state, resolving finalizableUnknown
@@ -291,7 +310,11 @@ func (m *goMap) set(k, v Value) *goMap {
 	}
 
 	fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
-	return &goMap{order: newOrder, pairs: newPairs, finalizable: fin}
+	bytes := m.mapBytes() + ValueBytes(k) + ValueBytes(v)
+	if old, exists := m.pairs[hash]; exists {
+		bytes -= ValueBytes(old.key) + ValueBytes(old.val)
+	}
+	return &goMap{order: newOrder, pairs: newPairs, finalizable: fin, byteSize: bytes}
 }
 
 func (m *goMap) delete(k Value) *goMap {
@@ -314,7 +337,11 @@ func (m *goMap) delete(k Value) *goMap {
 		}
 	}
 
-	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizableState())}
+	bytes := m.mapBytes()
+	if old, exists := m.pairs[hash]; exists {
+		bytes -= ValueBytes(old.key) + ValueBytes(old.val)
+	}
+	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
 }
 
 func (m *goMap) keys() []Value {
