@@ -39,6 +39,7 @@ func (s *Store) moveObject(whatID types.ObjID, whereID types.ObjID, position int
 	}
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	oldLocation := what.location
 	if oldLocation != types.ObjNothing {
 		if oldLoc := s.load(oldLocation); validLiveObject(oldLoc) {
@@ -303,6 +304,8 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 	}
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	for _, oldParentID := range obj.parents {
 		oldParent := s.load(oldParentID)
 		if !validLiveObject(oldParent) {

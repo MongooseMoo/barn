@@ -40,18 +40,20 @@ func addVerbT(t *testing.T, s *Store, objID types.ObjID, names []string, perms V
 }
 
 type readSetSnapshot struct {
-	propertyReads map[propertyReadKey]uint64
-	propertyScans map[types.ObjID]uint64
-	verbReads     map[verbReadKey]uint64
-	verbScans     map[types.ObjID]uint64
+	propertyReads      map[propertyReadKey]uint64
+	propertyScans      map[types.ObjID]uint64
+	propertyShapeScans map[types.ObjID]uint64
+	verbReads          map[verbReadKey]uint64
+	verbScans          map[types.ObjID]uint64
 }
 
 func snapshotReadSet(tx *StoreTxn) readSetSnapshot {
 	return readSetSnapshot{
-		propertyReads: maps.Clone(tx.propertyReads),
-		propertyScans: maps.Clone(tx.propertyScans),
-		verbReads:     maps.Clone(tx.verbReads),
-		verbScans:     maps.Clone(tx.verbScans),
+		propertyReads:      maps.Clone(tx.propertyReads),
+		propertyScans:      maps.Clone(tx.propertyScans),
+		propertyShapeScans: maps.Clone(tx.propertyShapeScans),
+		verbReads:          maps.Clone(tx.verbReads),
+		verbScans:          maps.Clone(tx.verbScans),
 	}
 }
 
@@ -62,6 +64,9 @@ func requireSameReadSet(t *testing.T, what string, want, got readSetSnapshot) {
 	}
 	if !maps.Equal(want.propertyScans, got.propertyScans) {
 		t.Fatalf("%s: propertyScans = %v, want %v", what, got.propertyScans, want.propertyScans)
+	}
+	if !maps.Equal(want.propertyShapeScans, got.propertyShapeScans) {
+		t.Fatalf("%s: propertyShapeScans = %v, want %v", what, got.propertyShapeScans, want.propertyShapeScans)
 	}
 	if !maps.Equal(want.verbReads, got.verbReads) {
 		t.Fatalf("%s: verbReads = %v, want %v", what, got.verbReads, want.verbReads)
@@ -94,6 +99,7 @@ func TestVerbResolveCacheHitPreservesReadSetAndResult(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
 	want := referenceVerbReadSet(t, s, 2, "look")
+	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
 	tx := s.BeginReadOnly(0)
 	defer tx.Release()
@@ -125,6 +131,7 @@ func TestVerbResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
 	want := referenceVerbReadSet(t, s, 2, "nosuchverb")
+	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
 	tx := s.BeginReadOnly(0)
 	defer tx.Release()
@@ -332,8 +339,8 @@ func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 	}
 	got := snapshotReadSet(tx)
 	requireSameReadSet(t, "property negative cache hit", want, got)
-	if len(got.propertyScans) != 3 {
-		t.Fatalf("propertyScans = %v, want all three chain objects", got.propertyScans)
+	if len(got.propertyShapeScans) != 3 {
+		t.Fatalf("propertyShapeScans = %v, want all three chain objects", got.propertyShapeScans)
 	}
 }
 

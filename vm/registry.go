@@ -85,11 +85,12 @@ func BuildVMRegistry() *builtins.Registry {
 
 func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 	ctx := vm.Context
-	frame := &StackFrame{
+	frame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            types.ObjNothing,
 		ThisValue:       types.None,
 		Player:          ctx.Player,
@@ -104,11 +105,7 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 		SavedVerb:       ctx.Verb,
 		SavedProgrammer: ctx.Programmer,
 		SavedIsWizard:   ctx.IsWizard,
-	}
-
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	})
 
 	SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))

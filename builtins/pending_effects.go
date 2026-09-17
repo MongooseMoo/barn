@@ -106,6 +106,10 @@ func FlushPendingEffects(ctx *Execution) {
 			if snapshot != nil && snapshot.ProtectedBuiltins != nil {
 				ctx.Session.applyProtectedBuiltins(snapshot.ProtectedBuiltins)
 			}
+		case kernel.PendingEffectAsyncStart:
+			if effect.Start != nil {
+				effect.Start()
+			}
 		}
 	}
 	if firstErr != types.E_NONE {

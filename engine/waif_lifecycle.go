@@ -28,7 +28,7 @@ func waifInList(needle types.Value, haystack []types.Value) bool {
 // liveWaifs returns the identity set of every waif reachable from persistent
 // state, the supplied sibling references, and the given VMs.
 func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) *types.WaifSet {
-	live := types.NewWaifSet(s.store.PersistentWaifRoots())
+	live := types.NewWaifSetOver(s.store.PersistentWaifRootSet())
 	for _, waif := range siblingWaifs {
 		live.Add(waif)
 	}

@@ -405,7 +405,9 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 		obj.verbs[verbPtr.mapKey()] = verbPtr
 	}
 	obj.verbList = append(obj.verbList, verbPtr)
+	obj.rebuildVerbIndex()
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return len(obj.verbList), types.E_NONE
 }
 
@@ -502,6 +504,7 @@ func (s *Store) deleteResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode 
 	ts := s.bumpClockLocked()
 	deleteVerbAtIndex(obj, resolved.index)
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -519,6 +522,7 @@ func deleteVerbAtIndex(obj *Object, index int) {
 	}
 
 	obj.verbList = append(obj.verbList[:index], obj.verbList[index+1:]...)
+	obj.rebuildVerbIndex()
 
 	for _, key := range keysToRefresh {
 		for i := len(obj.verbList) - 1; i >= 0; i-- {
@@ -564,6 +568,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	if len(verb.names) > 0 {
 		verb.name = verb.names[0]
 	}
+	obj.rebuildVerbIndex()
 	stampVerb(verb, ts)
 
 	if newKey := verb.mapKey(); oldKey != newKey {
@@ -573,6 +578,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		obj.verbs[newKey] = verb
 	}
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -599,6 +605,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	verb.argSpec = argSpec
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -631,6 +638,7 @@ func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) type
 	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
@@ -653,6 +661,7 @@ func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(obj, ts)
+	s.noteVerbShapeChanged()
 	return types.E_NONE
 }
 
