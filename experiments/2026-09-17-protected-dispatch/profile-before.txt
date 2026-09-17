@@ -1,0 +1,193 @@
+File: engine.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build181148550\b001\engine.test.exe2026-09-17 00:38:23.5775724 -0600 MDT
+Type: cpu
+Time: 2026-09-17 00:38:23 MDT
+Duration: 5.78s, Total samples = 8.07s (139.66%)
+Showing nodes accounting for 5.97s, 73.98% of 8.07s total
+Dropped 241 nodes (cum <= 0.04s)
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      5.13s 63.57%  github.com/MongooseMoo/barn/engine.(*Runtime).EvalCommandOutput
+         0     0%     0%      5.13s 63.57%  github.com/MongooseMoo/barn/engine.BenchmarkProtectedBuiltinDispatch.func1
+         0     0%     0%      5.13s 63.57%  testing.(*B).launch
+         0     0%     0%      5.13s 63.57%  testing.(*B).runN
+         0     0%     0%      5.12s 63.44%  github.com/MongooseMoo/barn/engine.(*Runtime).Eval
+     0.01s  0.12%  0.12%      5.09s 63.07%  github.com/MongooseMoo/barn/vm.(*VM).ExecuteLoop
+     0.22s  2.73%  2.85%      5.09s 63.07%  github.com/MongooseMoo/barn/vm.(*VM).executeLoop
+     0.05s  0.62%  3.47%      4.81s 59.60%  github.com/MongooseMoo/barn/vm.(*VM).Execute
+     0.04s   0.5%  3.97%      2.86s 35.44%  github.com/MongooseMoo/barn/vm.(*VM).executeCallBuiltin
+     0.05s  0.62%  4.58%      2.79s 34.57%  github.com/MongooseMoo/barn/builtins.(*Session).CallByIDWithExecution
+     0.09s  1.12%  5.70%      2.75s 34.08%  github.com/MongooseMoo/barn/builtins.(*Session).dispatch
+     0.01s  0.12%  5.82%      2.59s 32.09%  github.com/MongooseMoo/barn/builtins.(*Session).maybeProtectedRedirect
+     0.01s  0.12%  5.95%      2.36s 29.24%  github.com/MongooseMoo/barn/builtins.(*Session).CallVerb
+     0.01s  0.12%  6.07%      2.35s 29.12%  github.com/MongooseMoo/barn/engine.newRuntimeWithWorkerCount.func1
+     0.09s  1.12%  7.19%      2.26s 28.00%  github.com/MongooseMoo/barn/engine.(*Runtime).callVerbWithArgstr
+     0.05s  0.62%  7.81%      1.93s 23.92%  runtime.systemstack
+     0.01s  0.12%  7.93%      1.53s 18.96%  github.com/MongooseMoo/barn/vm.(*VM).executeCallVerb
+         0     0%  7.93%      1.51s 18.71%  github.com/MongooseMoo/barn/vm.(*VM).executeCallVerbNamed
+     0.25s  3.10% 11.03%      1.48s 18.34%  runtime.mallocgc
+     0.16s  1.98% 13.01%      1.41s 17.47%  runtime.newobject
+     0.11s  1.36% 14.37%      1.36s 16.85%  github.com/MongooseMoo/barn/vm.(*VM).startVerbCall
+         0     0% 14.37%      1.04s 12.89%  runtime.gcBgMarkWorker.func2
+     0.02s  0.25% 14.62%      1.03s 12.76%  runtime.gcDrain
+         0     0% 14.62%      0.96s 11.90%  runtime.gcDrainMarkWorkerDedicated (inline)
+         0     0% 14.62%      0.92s 11.40%  runtime.gcBgMarkWorker
+     0.27s  3.35% 17.97%      0.92s 11.40%  runtime.mallocgcSmallScanNoHeader
+     0.01s  0.12% 18.09%      0.82s 10.16%  runtime.bgsweep
+     0.05s  0.62% 18.71%      0.58s  7.19%  github.com/MongooseMoo/barn/db/store.(*Store).BeginReadOnly
+     0.01s  0.12% 18.84%      0.58s  7.19%  github.com/MongooseMoo/barn/types.NewStr (inline)
+     0.05s  0.62% 19.45%      0.45s  5.58%  github.com/MongooseMoo/barn/vm.(*VM).Return
+     0.11s  1.36% 20.82%      0.43s  5.33%  runtime.scanObject
+         0     0% 20.82%      0.42s  5.20%  runtime.lock (inline)
+     0.01s  0.12% 20.94%      0.42s  5.20%  runtime.lockWithRank (inline)
+     0.11s  1.36% 22.30%      0.41s  5.08%  runtime.lock2
+     0.06s  0.74% 23.05%      0.37s  4.58%  github.com/MongooseMoo/barn/vm.(*VM).popFrame
+         0     0% 23.05%      0.34s  4.21%  runtime.markroot
+     0.07s  0.87% 23.92%      0.32s  3.97%  github.com/MongooseMoo/barn/db/store.(*Store).findVerbWalkFromQueueLocked
+         0     0% 23.92%      0.32s  3.97%  github.com/MongooseMoo/barn/db/store.(*Store).findVerbWalkLocked (inline)
+     0.01s  0.12% 24.04%      0.32s  3.97%  github.com/MongooseMoo/barn/vm.findCallableVerbForRead (inline)
+     0.02s  0.25% 24.29%      0.31s  3.84%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).FindCallableVerb
+     0.01s  0.12% 24.41%      0.31s  3.84%  internal/runtime/maps.NewEmptyMap (inline)
+     0.07s  0.87% 25.28%      0.31s  3.84%  runtime.freeDeadSpanSPMCs
+         0     0% 25.28%      0.31s  3.84%  runtime.makemap_small
+         0     0% 25.28%      0.31s  3.84%  runtime.schedule
+     0.03s  0.37% 25.65%      0.29s  3.59%  github.com/MongooseMoo/barn/db/store.(*Store).findCallableVerb
+     0.04s   0.5% 26.15%      0.29s  3.59%  runtime.sweepone
+     0.28s  3.47% 29.62%      0.28s  3.47%  runtime.semasleep
+     0.02s  0.25% 29.86%      0.27s  3.35%  runtime.scanSpan
+         0     0% 29.86%      0.26s  3.22%  runtime.mcall
+         0     0% 29.86%      0.25s  3.10%  runtime.(*pageAlloc).scavenge.func1
+         0     0% 29.86%      0.25s  3.10%  runtime.(*pageAlloc).scavengeOne
+         0     0% 29.86%      0.25s  3.10%  runtime.sysUnused (inline)
+     0.25s  3.10% 32.96%      0.25s  3.10%  runtime.sysUnusedOS
+     0.16s  1.98% 34.94%      0.25s  3.10%  runtime.typePointers.next
+         0     0% 34.94%      0.24s  2.97%  runtime.findRunnable
+     0.05s  0.62% 35.56%      0.23s  2.85%  runtime.bulkBarrierPreWrite
+     0.04s   0.5% 36.06%      0.23s  2.85%  runtime.mallocgcSmallScanHeader
+         0     0% 36.06%      0.23s  2.85%  runtime.park_m
+     0.16s  1.98% 38.04%      0.23s  2.85%  runtime.preemptM
+     0.01s  0.12% 38.17%      0.22s  2.73%  github.com/MongooseMoo/barn/db/store.(*Store).findCallableVerbLocked
+         0     0% 38.17%      0.22s  2.73%  runtime.goschedImpl
+     0.12s  1.49% 39.65%      0.22s  2.73%  runtime.scanObjectsSmall
+     0.14s  1.73% 41.39%      0.22s  2.73%  runtime.tryDeferToSpanScan
+     0.04s   0.5% 41.88%      0.21s  2.60%  runtime.memclrHasPointers
+     0.01s  0.12% 42.01%      0.21s  2.60%  runtime.newstack
+         0     0% 42.01%      0.21s  2.60%  runtime.preemptone
+     0.06s  0.74% 42.75%      0.20s  2.48%  github.com/MongooseMoo/barn/vm.(*VM).recycleFrame (inline)
+     0.03s  0.37% 43.12%      0.20s  2.48%  runtime.mapassign_fast64
+         0     0% 43.12%      0.19s  2.35%  github.com/MongooseMoo/barn/builtins.(*Session).GetMaxStackDepth
+     0.03s  0.37% 43.49%      0.19s  2.35%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).FindProperty
+         0     0% 43.49%      0.19s  2.35%  github.com/MongooseMoo/barn/engine.configureVMStackLimit (inline)
+         0     0% 43.49%      0.19s  2.35%  runtime.gopreempt_m (inline)
+     0.03s  0.37% 43.87%      0.19s  2.35%  runtime.markrootSpans
+     0.19s  2.35% 46.22%      0.19s  2.35%  runtime.memclrNoHeapPointers
+         0     0% 46.22%      0.19s  2.35%  runtime.morestack
+         0     0% 46.22%      0.19s  2.35%  runtime.unlock (inline)
+     0.01s  0.12% 46.34%      0.19s  2.35%  runtime.unlockWithRank (inline)
+     0.13s  1.61% 47.96%      0.18s  2.23%  runtime.unlock2
+     0.01s  0.12% 48.08%      0.17s  2.11%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).Valid
+         0     0% 48.08%      0.17s  2.11%  github.com/MongooseMoo/barn/types.NewList (inline)
+     0.01s  0.12% 48.20%      0.17s  2.11%  github.com/MongooseMoo/barn/types.newSliceList (inline)
+     0.01s  0.12% 48.33%      0.17s  2.11%  runtime.(*sweepLocked).sweep
+     0.02s  0.25% 48.57%      0.16s  1.98%  github.com/MongooseMoo/barn/compiler.(*Compiler).CompileMOOWithKey
+     0.03s  0.37% 48.95%      0.16s  1.98%  github.com/MongooseMoo/barn/db/store.(*Store).findProperty
+     0.03s  0.37% 49.32%      0.16s  1.98%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).FindVerb
+     0.09s  1.12% 50.43%      0.16s  1.98%  internal/runtime/atomic.(*Bool).Load (inline)
+     0.01s  0.12% 50.56%      0.16s  1.98%  runtime.gcScanFinalizer
+     0.16s  1.98% 52.54%      0.16s  1.98%  runtime.nextFreeFast (inline)
+     0.02s  0.25% 52.79%      0.15s  1.86%  github.com/MongooseMoo/barn/vm.(*VM).builtinExecution
+         0     0% 52.79%      0.15s  1.86%  runtime.(*gcControllerState).enlistWorker
+     0.01s  0.12% 52.91%      0.15s  1.86%  runtime.(*mcache).nextFree
+     0.01s  0.12% 53.04%      0.14s  1.73%  github.com/MongooseMoo/barn/builtins.builtinValid
+         0     0% 53.04%      0.14s  1.73%  github.com/MongooseMoo/barn/compiler.(*programCache).get
+     0.02s  0.25% 53.28%      0.14s  1.73%  github.com/MongooseMoo/barn/vm.(*VM).PopN (inline)
+     0.01s  0.12% 53.41%      0.14s  1.73%  runtime.(*mcache).refill
+     0.14s  1.73% 55.14%      0.14s  1.73%  runtime.(*mspan).writeHeapBitsSmall
+         0     0% 55.14%      0.14s  1.73%  runtime.SetFinalizer
+         0     0% 55.14%      0.14s  1.73%  runtime.heapSetTypeNoHeader (inline)
+         0     0% 55.14%      0.14s  1.73%  runtime.makeslice
+     0.03s  0.37% 55.51%      0.14s  1.73%  runtime.wbBufFlush1
+         0     0% 55.51%      0.13s  1.61%  github.com/MongooseMoo/barn/db/store.(*Store).findVerb
+     0.06s  0.74% 56.26%      0.13s  1.61%  runtime.rand
+         0     0% 56.26%      0.13s  1.61%  runtime.wbBufFlush
+         0     0% 56.26%      0.13s  1.61%  runtime.wbBufFlush.func1
+         0     0% 56.26%      0.12s  1.49%  github.com/MongooseMoo/barn/builtins.validForRead
+     0.03s  0.37% 56.63%      0.12s  1.49%  github.com/MongooseMoo/barn/db/store.(*Store).findPropertyLocked
+     0.01s  0.12% 56.75%      0.12s  1.49%  github.com/MongooseMoo/barn/db/store.(*Store).liveObjectLocked
+     0.05s  0.62% 57.37%      0.12s  1.49%  github.com/MongooseMoo/barn/task.(*Task).PushFrame
+         0     0% 57.37%      0.12s  1.49%  github.com/MongooseMoo/barn/vm.(*VM).reset (inline)
+         0     0% 57.37%      0.12s  1.49%  github.com/MongooseMoo/barn/vm.ReleaseVM
+         0     0% 57.37%      0.12s  1.49%  runtime.SetFinalizer.func2
+         0     0% 57.37%      0.12s  1.49%  runtime.addfinalizer
+     0.03s  0.37% 57.74%      0.12s  1.49%  runtime.freeSomeWbufs
+         0     0% 57.74%      0.12s  1.49%  runtime.markroot.func1
+     0.04s   0.5% 58.24%      0.12s  1.49%  runtime.runFinalizers
+         0     0% 58.24%      0.12s  1.49%  runtime.wakep
+     0.01s  0.12% 58.36%      0.11s  1.36%  github.com/MongooseMoo/barn/builtins.findVerbForRead
+         0     0% 58.36%      0.11s  1.36%  github.com/MongooseMoo/barn/db/store.(*Store).findVerbLocked
+     0.07s  0.87% 59.23%      0.11s  1.36%  github.com/MongooseMoo/barn/db/store.(*Store).load
+     0.01s  0.12% 59.36%      0.11s  1.36%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame
+         0     0% 59.36%      0.11s  1.36%  runtime.(*mheap).allocSpan
+     0.01s  0.12% 59.48%      0.11s  1.36%  runtime.mapaccess2
+     0.11s  1.36% 60.84%      0.11s  1.36%  runtime.typePointers.nextFast (inline)
+     0.03s  0.37% 61.21%      0.10s  1.24%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).object
+     0.06s  0.74% 61.96%      0.10s  1.24%  github.com/MongooseMoo/barn/vm.(*StackFrame).visitFinalizableCandidates
+         0     0% 61.96%      0.10s  1.24%  runtime.(*mheap).alloc.func1
+         0     0% 61.96%      0.10s  1.24%  runtime.notewakeup
+     0.09s  1.12% 63.07%      0.10s  1.24%  runtime.semawakeup
+         0     0% 63.07%      0.10s  1.24%  runtime.startm
+         0     0% 63.07%      0.10s  1.24%  runtime.sysUsed (inline)
+     0.10s  1.24% 64.31%      0.10s  1.24%  runtime.sysUsedOS
+         0     0% 64.31%      0.09s  1.12%  github.com/MongooseMoo/barn/engine.(*Runtime).acquireExecutionContext
+     0.04s   0.5% 64.81%      0.09s  1.12%  internal/runtime/maps.(*Map).putSlotSmallFast64
+     0.01s  0.12% 64.93%      0.09s  1.12%  runtime.scanstack
+     0.02s  0.25% 65.18%      0.08s  0.99%  github.com/MongooseMoo/barn/kernel.NewTaskContext (inline)
+     0.01s  0.12% 65.30%      0.08s  0.99%  runtime.(*mcentral).cacheSpan
+         0     0% 65.30%      0.08s  0.99%  runtime.forEachPInternal
+     0.01s  0.12% 65.43%      0.07s  0.87%  gcWriteBarrier
+     0.02s  0.25% 65.68%      0.07s  0.87%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).HasObjectFlag
+     0.01s  0.12% 65.80%      0.07s  0.87%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).release
+         0     0% 65.80%      0.07s  0.87%  github.com/MongooseMoo/barn/db/store.finalizeStoreTxnRelease
+         0     0% 65.80%      0.07s  0.87%  github.com/MongooseMoo/barn/db/store.propertyByName
+         0     0% 65.80%      0.07s  0.87%  github.com/MongooseMoo/barn/engine.(*Runtime).executionContextClaim
+     0.07s  0.87% 66.67%      0.07s  0.87%  internal/runtime/atomic.(*Uint8).Load (inline)
+     0.04s   0.5% 67.16%      0.07s  0.87%  internal/runtime/maps.(*Map).getWithoutKeySmallFastStr
+         0     0% 67.16%      0.07s  0.87%  internal/runtime/maps.(*Map).growToSmall
+         0     0% 67.16%      0.07s  0.87%  runtime.freeSpecial
+         0     0% 67.16%      0.07s  0.87%  runtime.gcDrainMarkWorkerIdle (inline)
+     0.01s  0.12% 67.29%      0.07s  0.87%  runtime.mapIterStart
+     0.04s   0.5% 67.78%      0.07s  0.87%  runtime.stealWork
+     0.03s  0.37% 68.15%      0.06s  0.74%  github.com/MongooseMoo/barn/db/store.(*Store).valid
+     0.02s  0.25% 68.40%      0.06s  0.74%  github.com/MongooseMoo/barn/engine.(*Runtime).callVerbWithArgstr.func1
+         0     0% 68.40%      0.06s  0.74%  github.com/MongooseMoo/barn/types.NewEmptyMap (inline)
+         0     0% 68.40%      0.06s  0.74%  internal/chacha8rand.(*State).Refill
+     0.06s  0.74% 69.14%      0.06s  0.74%  internal/chacha8rand.block
+     0.02s  0.25% 69.39%      0.06s  0.74%  internal/runtime/maps.(*Map).getWithKeySmall
+         0     0% 69.39%      0.06s  0.74%  internal/runtime/maps.newGroups (inline)
+     0.01s  0.12% 69.52%      0.06s  0.74%  internal/runtime/maps.newarray
+         0     0% 69.52%      0.06s  0.74%  internal/runtime/maps.rand
+         0     0% 69.52%      0.06s  0.74%  runtime.(*mheap).nextSpanForSweep
+     0.01s  0.12% 69.64%      0.06s  0.74%  runtime.(*spanSet).pop
+     0.05s  0.62% 70.26%      0.06s  0.74%  runtime.findObject
+     0.06s  0.74% 71.00%      0.06s  0.74%  runtime.getMCache (inline)
+     0.02s  0.25% 71.25%      0.06s  0.74%  runtime.growslice
+     0.01s  0.12% 71.38%      0.06s  0.74%  runtime.mapaccess2_faststr
+         0     0% 71.38%      0.06s  0.74%  runtime.preemptall
+         0     0% 71.38%      0.06s  0.74%  runtime.resetspinning
+     0.01s  0.12% 71.50%      0.06s  0.74%  runtime.runSafePointFn
+         0     0% 71.50%      0.06s  0.74%  runtime.wbMove
+     0.01s  0.12% 71.62%      0.05s  0.62%  github.com/MongooseMoo/barn/db/store.(*Store).hasObjectFlag
+     0.04s   0.5% 72.12%      0.05s  0.62%  github.com/MongooseMoo/barn/types.Value.MayHoldFinalizable
+     0.01s  0.12% 72.24%      0.05s  0.62%  github.com/MongooseMoo/barn/vm.(*VM).frameFrom (inline)
+         0     0% 72.24%      0.05s  0.62%  github.com/MongooseMoo/barn/vm.hasObjectFlagForRead (inline)
+         0     0% 72.24%      0.05s  0.62%  github.com/MongooseMoo/barn/vm.validForRead (inline)
+     0.01s  0.12% 72.37%      0.05s  0.62%  runtime.(*mheap).freeSpan (inline)
+     0.01s  0.12% 72.49%      0.05s  0.62%  runtime.addspecial
+     0.01s  0.12% 72.61%      0.05s  0.62%  runtime.concatstring2
+     0.01s  0.12% 72.74%      0.05s  0.62%  runtime.deductAssistCredit
+         0     0% 72.74%      0.05s  0.62%  runtime.gcMarkDone
+     0.01s  0.12% 72.86%      0.05s  0.62%  runtime.newarray
+         0     0% 72.86%      0.05s  0.62%  runtime.procyield (inline)
+     0.05s  0.62% 73.48%      0.05s  0.62%  runtime.procyieldAsm
+     0.03s  0.37% 73.85%      0.05s  0.62%  runtime.scanblock
+         0     0% 73.85%      0.05s  0.62%  runtime.scanframeworker
+     0.01s  0.12% 73.98%      0.05s  0.62%  runtime.wbZero

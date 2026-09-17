@@ -279,6 +279,15 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	return nil
 }
 
+// pushProtectedVerb shares ordinary verb activation, return, unwind, and
+// suspension with the calling VM. args is owned by the builtin dispatcher.
+func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
+		return types.Err(extractErrorCode(err))
+	}
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
 // Bytecode format: OP_PASS <argc:byte>
