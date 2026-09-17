@@ -140,6 +140,11 @@ const (
 	PendingEffectConnectionSwitch
 	PendingEffectBootPlayer
 	PendingEffectServerOptions
+	// PendingEffectAsyncStart launches an external operation (for example a
+	// threaded SQLite statement) that completes by resuming the suspended task.
+	// Deferring the launch to the commit keeps the operation from running for a
+	// task attempt whose transaction is then discarded and re-executed.
+	PendingEffectAsyncStart
 )
 
 type PendingEffect struct {
@@ -148,6 +153,7 @@ type PendingEffect struct {
 	ConnectionSwitch PendingConnectionSwitch
 	BootPlayer       types.ObjID
 	ServerOptions    PendingServerOptions
+	Start            func() // PendingEffectAsyncStart: launches the operation
 }
 
 type PendingServerOptions struct {

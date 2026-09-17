@@ -486,7 +486,11 @@ func builtinHasIrreversibleSideEffect(name string) bool {
 	case "reseed_random",
 		"listen", "unlisten", "set_connection_option", "open_network_connection", "read_http", "flush_input", "force_input", "curl",
 		"file_open", "file_close", "file_read", "file_readline", "file_readlines", "file_write", "file_writeline", "file_flush", "file_seek", "file_remove", "file_rename", "file_mkdir", "file_rmdir", "file_chmod",
-		"sqlite_open", "sqlite_close", "sqlite_query", "sqlite_execute", "sqlite_limit", "sqlite_interrupt",
+		// sqlite_query/sqlite_execute are absent on purpose: their threaded form
+		// starts the statement only when the slice commits (runSQLiteAsync), so an
+		// attempt that loses validation has performed no effect and may re-run.
+		// The inline form crosses the effect boundary for every statement.
+		"sqlite_open", "sqlite_close", "sqlite_limit", "sqlite_interrupt",
 		"dump_database", "read_stdin", "shutdown", "exec", "server_log", "run_gc", "reset_max_object",
 		"kill_task", "resume":
 		return true
