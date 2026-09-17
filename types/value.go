@@ -285,6 +285,56 @@ func (v Value) Equal(other Value) bool {
 	}
 }
 
+// Identical reports whether v and other are indistinguishable to MOO code: the
+// same type and, recursively, the same contents with case-SENSITIVE string
+// comparison, bitwise float comparison, and waif identity. Equal is MOO `==`
+// (case-insensitive strings, -0.0 == 0.0); Identical is stricter, so a store may
+// treat a write of an Identical value as a no-op without changing anything a
+// program could observe.
+func (v Value) Identical(other Value) bool {
+	if v.tag != other.tag {
+		return false
+	}
+	switch v.tag {
+	case TYPE_INT, TYPE_OBJ, TYPE_ANON, TYPE_ERR, TYPE_BOOL, TYPE_FLOAT:
+		return v.n == other.n
+	case TYPE_STR:
+		return v.strRep().str() == other.strRep().str()
+	case TYPE_LIST:
+		a, b := v.sliceList().elements, other.sliceList().elements
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if !a[i].Identical(b[i]) {
+				return false
+			}
+		}
+		return true
+	case TYPE_MAP:
+		a, b := v.goMap(), other.goMap()
+		if len(a.order) != len(b.order) {
+			return false
+		}
+		for i := range a.order {
+			if a.order[i] != b.order[i] {
+				return false
+			}
+			ae, be := a.pairs[a.order[i]], b.pairs[b.order[i]]
+			if !ae.key.Identical(be.key) || !ae.val.Identical(be.val) {
+				return false
+			}
+		}
+		return true
+	case TYPE_WAIF:
+		return v.waifRep().equal(other.waifRep())
+	case tagNone, tagUnbound:
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeBinaryString(s string) string {
 	var result strings.Builder
 	for i := 0; i < len(s); i++ {

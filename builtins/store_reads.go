@@ -73,6 +73,9 @@ func beforeCoarse(ctx *Execution) (res types.Result, ok bool) {
 // when nothing is staged.
 func flushStagedBeforeCoarse(ctx *Execution) types.ErrorCode {
 	tx := readTxn(ctx)
+	// Before the live store moves under this task, convert its memoized verb
+	// resolutions into ordinary scan marks (see StoreTxn.PrepareLiveMutation).
+	tx.PrepareLiveMutation()
 	if !tx.HasStagedTopology() {
 		return types.E_NONE
 	}
