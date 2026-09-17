@@ -2472,6 +2472,9 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 		tx.validationFail = true
 		return tx, false, errCode
 	}
+	// Preserve memoized ancestry dependencies as ordinary scan marks before
+	// renewal drops the memo and before any coarse mutation changes its clock.
+	tx.materializeVerbMemoMarks()
 
 	footprint := tx.writeFootprintObjects()
 	scalarReads := make(map[types.ObjID]uint64, len(tx.scalarReads))
@@ -2489,6 +2492,10 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	propertyScans := make(map[types.ObjID]uint64, len(tx.propertyScans))
 	for id, version := range tx.propertyScans {
 		propertyScans[id] = version
+	}
+	propertyShapeScans := make(map[types.ObjID]uint64, len(tx.propertyShapeScans))
+	for id, version := range tx.propertyShapeScans {
+		propertyShapeScans[id] = version
 	}
 	verbReads := make(map[verbReadKey]uint64, len(tx.verbReads))
 	for key, version := range tx.verbReads {
@@ -2518,6 +2525,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 				delete(scalarReads, id)
 				delete(relationshipReads, id)
 				delete(propertyScans, id)
+				delete(propertyShapeScans, id)
 				delete(verbScans, id)
 				for key := range propertyReads {
 					if key.objID == id {
@@ -2539,6 +2547,9 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 			}
 			if _, ok := propertyScans[id]; ok {
 				propertyScans[id] = live.propertyVersion
+			}
+			if _, ok := propertyShapeScans[id]; ok {
+				propertyShapeScans[id] = live.propertyShapeVersion
 			}
 			if _, ok := verbScans[id]; ok {
 				verbScans[id] = live.verbVersion
@@ -2571,6 +2582,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.relationshipReads = relationshipReads
 	next.propertyReads = propertyReads
 	next.propertyScans = propertyScans
+	next.propertyShapeScans = propertyShapeScans
 	next.verbReads = verbReads
 	next.verbScans = verbScans
 	return next, publishedWrites, types.E_NONE

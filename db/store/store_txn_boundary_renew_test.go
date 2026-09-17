@@ -6,6 +6,49 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestBoundaryRenewPreservesResolutionDependencies(t *testing.T) {
+	for _, kind := range []string{"property-shape", "verb-memo"} {
+		t.Run(kind, func(t *testing.T) {
+			s := newBoundaryRenewStore(t)
+			tx := s.BeginReadOnly(0)
+			if kind == "property-shape" {
+				if _, ec := tx.PropertyValue(0, "missing"); ec != types.E_PROPNF {
+					t.Fatalf("missing property: %v", ec)
+				}
+			} else {
+				warm := s.BeginReadOnly(0)
+				warm.findVerb(0, "missing", true)
+				warm.Release()
+				tx.findVerb(0, "missing", true)
+				if !tx.usedVerbMemo {
+					t.Fatal("expected memoized missing verb")
+				}
+			}
+			if ec := tx.SetPropertyValue(0, "written", types.NewInt(5)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			next, _, ec := tx.CommitAndRenewCarryingReads()
+			if ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			defer next.Release()
+			if kind == "property-shape" {
+				if ec := s.DirectTxn().DefineProperty(0, "missing", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			} else {
+				addVerbT(t, s, 0, []string{"missing"}, VerbRead|VerbExecute)
+			}
+			if ec := next.SetPropertyValue(0, "later", types.NewInt(7)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			if ec := next.Commit(); ec != types.E_INVARG || !next.ValidationFailed() {
+				t.Fatalf("commit after changed resolution = %v, validation failure=%v", ec, next.ValidationFailed())
+			}
+		})
+	}
+}
+
 func newBoundaryRenewStore(t *testing.T) *Store {
 	t.Helper()
 	store := NewStore()
