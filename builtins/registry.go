@@ -392,8 +392,17 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 
 	invoke := fn
 	if builtinHasIrreversibleSideEffect(name) {
+		guarded := !builtinReentersCommitGate(name)
 		invoke = func(ctx *Execution, args []types.Value) types.Result {
 			if ctx != nil && ctx.TaskContext != nil {
+				// The first irreversible effect of an attempt is the runtime's last
+				// chance to re-run the task instead of letting a later commit
+				// conflict surface as an uncatchable error. If it asks to stop,
+				// return without performing the effect; the VM unwinds and runTask
+				// re-runs the task.
+				if guarded && !beginIrreversible(ctx) {
+					return abortedAttempt()
+				}
 				ctx.IrreversibleSideEffect = true
 			}
 			return fn(ctx, args)
@@ -484,6 +493,21 @@ func builtinHasIrreversibleSideEffect(name string) bool {
 		"sqlite_open", "sqlite_close", "sqlite_limit", "sqlite_interrupt",
 		"dump_database", "read_stdin", "shutdown", "exec", "server_log", "run_gc", "reset_max_object",
 		"kill_task", "resume":
+		return true
+	default:
+		return false
+	}
+}
+
+// builtinReentersCommitGate names the irreversible builtins whose own work takes
+// the store's commit gate on the calling goroutine (a checkpoint's snapshot walk
+// and its #0:checkpoint_started call; shutdown's drain and final checkpoint).
+// The runtime's irreversible-effect boundary holds that gate exclusively until
+// the task commits, so for these it must stay out of the way: they keep the
+// plain optimistic behavior instead of escalating.
+func builtinReentersCommitGate(name string) bool {
+	switch name {
+	case "dump_database", "shutdown":
 		return true
 	default:
 		return false

@@ -17,6 +17,7 @@ type commitCounterDelta struct {
 	successes uint64
 	conflicts uint64
 	retries   uint64
+	elided    uint64
 }
 
 // sampleCommitCounters reads all four commit counters off the store atomically.
@@ -26,6 +27,7 @@ func sampleCommitCounters(s *dbstore.Store) commitCounterDelta {
 		successes: s.CommitSuccesses(),
 		conflicts: s.CommitConflicts(),
 		retries:   s.CommitRetries(),
+		elided:    s.PropertyWriteElisions(),
 	}
 }
 
@@ -36,6 +38,7 @@ func (a commitCounterDelta) sub(b commitCounterDelta) commitCounterDelta {
 		successes: a.successes - b.successes,
 		conflicts: a.conflicts - b.conflicts,
 		retries:   a.retries - b.retries,
+		elided:    a.elided - b.elided,
 	}
 }
 

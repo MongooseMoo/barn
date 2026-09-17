@@ -82,6 +82,17 @@ func (vm *VM) executeCallBuiltin() error {
 		return VMException{Code: result.Error, Value: result.Val}
 	}
 
+	// The runtime is abandoning this attempt at its irreversible-effect boundary
+	// (see TaskContext.BeforeIrreversibleEffect): unwind without running any
+	// handler. Nothing the attempt did is kept. The flag also catches a stop
+	// that happened inside a nested verb-call VM, whose result went back to the
+	// builtin that ran it rather than to the runtime.
+	if result.Flow == types.FlowAbortAttempt || (vm.Context != nil && vm.Context.ConflictRetryRequested) {
+		vm.yielded = true
+		vm.yieldResult = types.Result{Flow: types.FlowAbortAttempt}
+		return nil
+	}
+
 	// Handle FlowEvalPush: eval() pushed a frame on this VM.
 	// The new frame is already on vm.Frames — just continue execution.
 	if result.Flow == types.FlowEvalPush {

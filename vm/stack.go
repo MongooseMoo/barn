@@ -132,8 +132,9 @@ func (vm *VM) Return(value types.Value) error {
 		if vm.Task != nil {
 			vm.Task.PopFrame()
 		}
-		vm.popFrame()
-		vm.SP = frame.BasePointer
+		base := frame.BasePointer
+		vm.popFrame() // frame is recycled here; nothing below may read it
+		vm.SP = base
 		vm.Push(wrapped)
 		return nil
 	}
@@ -155,8 +156,10 @@ func (vm *VM) Return(value types.Value) error {
 
 	continuation := frame.MoveContinuation
 	recycleContinuation := frame.RecycleContinuation
-	vm.popFrame()
-	vm.SP = frame.BasePointer
+	base := frame.BasePointer
+	discardReturn := frame.DiscardReturn
+	vm.popFrame() // frame is recycled here; nothing below may read it
+	vm.SP = base
 	if continuation != nil {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {
@@ -185,7 +188,7 @@ func (vm *VM) Return(value types.Value) error {
 			return fmt.Errorf("unexpected recycle continuation flow %d", result.Flow)
 		}
 	}
-	if !frame.DiscardReturn {
+	if !discardReturn {
 		vm.Push(value)
 	}
 	return nil

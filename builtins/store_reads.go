@@ -23,6 +23,45 @@ func markLiveStoreMutated(ctx *Execution) {
 	readTxn(ctx).MarkLiveMutated()
 }
 
+// beginIrreversible must precede a builtin's first act that a whole-task re-run
+// could not undo: an irreversible external effect or a direct live-store
+// mutation. It reports whether the act may proceed. False means the runtime is
+// abandoning this attempt at its irreversible-effect boundary (see
+// kernel.TaskContext.BeforeIrreversibleEffect) and the builtin returns
+// abortedAttempt() having done nothing.
+func beginIrreversible(ctx *Execution) bool {
+	if ctx == nil || ctx.TaskContext == nil {
+		return true
+	}
+	tc := ctx.TaskContext
+	if tc.ConflictRetryRequested {
+		return false
+	}
+	if tc.IrreversibleSideEffect || tc.LiveStoreMutated || tc.BeforeIrreversibleEffect == nil {
+		return true // the boundary is behind us, or this context has no retry to protect
+	}
+	return !tc.BeforeIrreversibleEffect()
+}
+
+// abortedAttempt is the result a builtin returns when beginIrreversible
+// refused; the VM unwinds on it and the runtime re-runs the task.
+func abortedAttempt() types.Result {
+	return types.Result{Flow: types.FlowAbortAttempt}
+}
+
+// beforeCoarse is the prologue of every coarse builtin: cross the
+// irreversible-effect boundary, then flush staged topology to live. When ok is
+// false the builtin returns res as is.
+func beforeCoarse(ctx *Execution) (res types.Result, ok bool) {
+	if !beginIrreversible(ctx) {
+		return abortedAttempt(), false
+	}
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode), false
+	}
+	return types.Result{}, true
+}
+
 // flushStagedBeforeCoarse ensures the live store reflects this task's staged
 // decentralized writes (a prior create/move/recycle) before a COARSE builtin
 // (renumber/chparent/add_verb/...) reads or mutates the live store mid-task, so the
@@ -34,6 +73,9 @@ func markLiveStoreMutated(ctx *Execution) {
 // when nothing is staged.
 func flushStagedBeforeCoarse(ctx *Execution) types.ErrorCode {
 	tx := readTxn(ctx)
+	// Before the live store moves under this task, convert its memoized verb
+	// resolutions into ordinary scan marks (see StoreTxn.PrepareLiveMutation).
+	tx.PrepareLiveMutation()
 	if !tx.HasStagedTopology() {
 		return types.E_NONE
 	}
