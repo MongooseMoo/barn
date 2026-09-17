@@ -82,7 +82,7 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 		}
 	}()
 
-	retryState := captureTaskRetryState(t)
+	retryState := s.captureTaskRetryState(t)
 	defer func() {
 		if ctx := t.ContextValue(); ctx != nil {
 			ctx.StoreTxn.Release()
@@ -100,7 +100,13 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 	}()
 
 retryAttempt:
-	if attempt >= escalateAfterAttempts && !escalated {
+	// Two reasons to run this attempt under the exclusive commit gate: the
+	// optimistic-loss budget is spent, or the slice cannot be re-executed at all
+	// (a resumed task's VM carries mid-flight state no retry can rebuild). A
+	// slice that cannot retry has exactly one defence against a lost commit —
+	// making the loss impossible — because the alternative is handing MOO code
+	// a frameless E_INVARG no serial execution produces (issue #296).
+	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !escalated {
 		s.store.EscalationLock()
 		escalated = true
 	}
@@ -143,7 +149,77 @@ retryAttempt:
 	}
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
+	ctx.ConflictRetryRequested = false
+	// An irreversible external effect (builtinHasIrreversibleSideEffect) makes the
+	// rest of the attempt un-retryable: a commit conflict after it can no longer be
+	// answered by re-running the task and would surface as an uncatchable E_INVARG
+	// no serial execution produces, with the attempt's pending output discarded (a
+	// Mongoose login task lost exactly this way at its read() after
+	// set_connection_option, to a $logger commit that landed between its snapshot
+	// and that call). So the effect is where the attempt stops gambling. Take the
+	// exclusive commit gate, then commit-and-renew: the reads made so far are
+	// validated against the now-frozen store, the writes made so far are
+	// published, and the attempt continues on a read view taken under the gate
+	// (still carrying the validated reads, so the final commit checks them too),
+	// so nothing it reads from here on can be stale either. If the validation
+	// fails the effect has not happened yet, so the task is re-run from the top.
+	// Once the renew succeeds no ordinary commit can interleave until this
+	// attempt's own commit, so it cannot lose. Coarse builtins that mutate the
+	// live store directly cross the same boundary first (beforeCoarse), so a
+	// live-mutated attempt cannot lose either. Publishing at the boundary
+	// exposes the slice's first half to
+	// concurrent readers before its second half exists; none of them can commit
+	// on that view until this attempt has.
+	ctx.BeforeIrreversibleEffect = func() bool {
+		if escalated {
+			return false
+		}
+		s.store.EscalationLock()
+		escalated = true
+		ctx.StoreTxn.ExemptFromCommitGate()
+		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
+		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
+		slog.Debug("irreversible-effect boundary",
+			slog.Int64("task_id", t.ID), slog.String("verb", t.VerbName),
+			slog.String("renew", types.NewErr(errCode).String()),
+			slog.Bool("published_writes", publishedWrites),
+			slog.Bool("can_rerun", canRerun), slog.Int("attempt", attempt))
+		if errCode != types.E_NONE {
+			// A validation loss with the effect still ahead is answered by re-running;
+			// any other failure (a terminal preflight error, or a loss this task cannot
+			// re-run) is left for the final commit to surface exactly as before.
+			if ctx.StoreTxn.ValidationFailed() && canRerun {
+				ctx.ConflictRetryRequested = true
+				return true
+			}
+			return false
+		}
+		ctx.StoreTxn = next
+		if publishedWrites {
+			// Mirrors the suspend-time commit: the forks and effects recorded so far
+			// are now durable, so a later discard must not touch them.
+			t.CreatedForks = nil
+			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		}
+		return false
+	}
+	ctx.DeferredCheckpoint = false
 	ctx.RuntimeOptions = s.options
+
+	// releaseEscalation hands the commit gate back once this attempt's commits
+	// are decided. Everything after it — completion hooks, the suspend hand-off,
+	// a failure-path txn that lives on — takes the gate normally. A checkpoint
+	// the attempt had to postpone (dump_database under the gate) runs here, now
+	// that it can take the gate and run its hook tasks without deadlocking.
+	releaseEscalation := func() {
+		if !escalated {
+			return
+		}
+		ctx.StoreTxn.ClearCommitGateExemption()
+		s.store.EscalationUnlock()
+		escalated = false
+		s.runDeferredCheckpoint(ctx)
+	}
 
 	// A task resuming after suspend runs under background limits: Toast treats
 	// resumed tasks as background tasks, and time spent suspended does not count
@@ -293,6 +369,29 @@ retryAttempt:
 	result = s.drainForks(t, bcVM, result)
 	t.Result = result
 
+	if ctx.ConflictRetryRequested {
+		// The attempt stopped itself at its first irreversible effect because its
+		// reads were already stale (BeforeIrreversibleEffect above). Nothing
+		// external has happened and nothing was committed, so re-run it from the
+		// top. The gate the hook took is released first: the retry gambles
+		// optimistically again and re-checks at its own boundary, so the gate is
+		// only ever held from a passed boundary to that attempt's commit. Holding
+		// it across the re-execution would deadlock any ordinary commit the task
+		// body issues before reaching the boundary. The bounded escalation above
+		// remains the backstop against a writer that keeps winning.
+		ctx.ConflictRetryRequested = false
+		if escalated {
+			ctx.StoreTxn.ClearCommitGateExemption()
+			s.store.EscalationUnlock()
+			escalated = false
+		}
+		s.discardCreatedForks(t)
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+		s.store.NoteCommitRetry()
+		attempt++
+		goto retryAttempt
+	}
+
 	committed := true
 	committedWrites := false
 	if ctx.StoreTxn.HasWrites() {
@@ -321,6 +420,20 @@ retryAttempt:
 				attempt++
 				goto retryAttempt
 			}
+			if ctx.StoreTxn.ValidationFailed() {
+				// A conflict this attempt cannot answer by re-running: the error
+				// reaches the task as an uncatchable exception no serial execution
+				// would produce, so leave a trail for whoever reads the traceback.
+				slog.Warn("commit conflict not retryable; surfacing as task error",
+					slog.Int64("task_id", t.ID),
+					slog.Int64("this", int64(t.This)),
+					slog.String("verb", t.VerbName),
+					slog.String("error", types.NewErr(errCode).String()),
+					slog.Bool("retryable_task", retryState.canRetry),
+					slog.Bool("live_store_mutated", ctx.LiveStoreMutated),
+					slog.Bool("irreversible_side_effect", ctx.IrreversibleSideEffect),
+					slog.Int("attempt", attempt))
+			}
 			result = types.Err(errCode)
 			t.Result = result
 			committed = false
@@ -335,18 +448,29 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
-	if committed && committedWrites {
+	// A forked task's suspend(0) resumes inline below. Those slices cannot be
+	// re-executed — the VM is mid-flight and this slice may already be published
+	// — so, like a resumed task, they run under the exclusive gate.
+	willInlineResume := committed && result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued
+	if willInlineResume && !escalated {
+		s.store.EscalationLock()
+		escalated = true
+	}
+	// A suspend is a snapshot boundary whether or not this slice wrote anything:
+	// the next slice sees the world as of its own start, exactly as a task
+	// resumed by the scheduler does. A gated slice must take that snapshot under
+	// the gate, or it could still lose to a commit that landed before the lock.
+	if committed && (committedWrites || willInlineResume) {
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginReadOnly(0)
+		if escalated {
+			ctx.StoreTxn.ExemptFromCommitGate()
+		}
 	}
-	// The escalated attempt's outcome is decided (committed or failed without a
-	// retry); everything past here — zero-delay yields, suspend hand-off — must
-	// take the gate normally, including a failure-path txn that lives on.
-	// Release promptly so the world resumes.
-	if escalated {
-		ctx.StoreTxn.ClearCommitGateExemption()
-		s.store.EscalationUnlock()
-		escalated = false
+	if !willInlineResume {
+		// This attempt's outcome is decided (committed or failed without a
+		// retry). Release promptly so the world resumes.
+		releaseEscalation()
 	}
 
 	// Check context deadline
@@ -390,6 +514,11 @@ retryAttempt:
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 	}
+	if result.Flow != types.FlowSuspend {
+		// The inline yields are over and their commit is decided; a slice that
+		// still suspends releases after the hand-off commit below instead.
+		releaseEscalation()
+	}
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
@@ -418,6 +547,7 @@ retryAttempt:
 				t.SetBytecodeVM(nil)
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+				releaseEscalation()
 				return nil
 			}
 			// The commit published this slice's forks; the runtime owns them now.
@@ -428,6 +558,9 @@ retryAttempt:
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
+		// Only an exhausted inline-yield run still holds the gate here; the
+		// suspended task must not carry it into the hand-off.
+		releaseEscalation()
 
 		// Save VM state for later Resume() via the thread-safe setter, so a
 		// concurrently running sibling scanning saved VMs for orphan GC never races
@@ -599,7 +732,12 @@ retryAttempt:
 }
 
 type taskRetryState struct {
-	canRetry     bool
+	canRetry bool
+	// rebuildVM is set for a forked task's first run: it rebuilds the
+	// pre-configured child VM so the attempt can start over from the fork
+	// statement. Nil for a fresh task, whose retry recompiles nothing and simply
+	// re-runs t.Program.
+	rebuildVM    func() *vm.VM
 	context      *kernel.TaskContext
 	callStack    []types.ActivationFrame
 	taskLocal    types.Value
@@ -615,11 +753,43 @@ type taskRetryState struct {
 // body, so it is also the predicate for whether a task is safe to co-schedule
 // optimistically with other tasks: if two such tasks happen to conflict at commit,
 // the loser simply retries against the winner's committed writes.
+//
+// The runtime's own retry decision is wider than this scheduling predicate: a
+// forked task that has not yet run is also re-executable (forkFirstRunRebuilder),
+// but it keeps its solo batch here so co-scheduling behaviour is unchanged.
 func taskIsConflictRetryable(t *task.Task) bool {
 	return t != nil && t.BytecodeVMValue() == nil && !t.IsForked && t.ForkInfo == nil && t.Program != nil
 }
 
-func captureTaskRetryState(t *task.Task) taskRetryState {
+// forkFirstRunRebuilder returns a constructor for the pre-configured VM of a
+// forked task that has not yet run, or nil when t is not such a task. A forked
+// first run is as re-executable as a fresh task: its VM is a pure function of
+// t.ForkInfo, and nothing it does before a lost commit is published. Only a
+// slice whose VM has yielded (a resumed task) carries mid-flight state that
+// cannot be rebuilt. Without this, every `fork (0) ... endfork` body that lost a
+// commit surfaced a frameless E_INVARG to MOO code (issue #296).
+func (s *Runtime) forkFirstRunRebuilder(t *task.Task, ticks int64) func() *vm.VM {
+	if t == nil || !t.IsForked || t.ForkInfo == nil {
+		return nil
+	}
+	saved, ok := t.BytecodeVMValue().(*vm.VM)
+	if !ok || saved == nil || saved.IsYielded() {
+		return nil
+	}
+	forkProg := forkBodyProgram(t.ForkInfo)
+	if forkProg == nil {
+		return nil
+	}
+	forkInfo := t.ForkInfo
+	taskID := t.ID
+	return func() *vm.VM {
+		child := s.newForkVM(taskID, forkInfo, forkProg, ticks)
+		child.Task = t
+		return child
+	}
+}
+
+func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
@@ -633,14 +803,41 @@ func captureTaskRetryState(t *task.Task) taskRetryState {
 		ticksLimit:   ticks,
 		secondsLimit: seconds,
 	}
+	if rebuild := s.forkFirstRunRebuilder(t, ticks); rebuild != nil {
+		state.canRetry = true
+		state.rebuildVM = rebuild
+	}
 	return state
+}
+
+// runDeferredCheckpoint performs a dump_database() that a gate-holding attempt
+// had to postpone (see builtinDumpDatabase). It runs only after the gate is
+// released, so the checkpoint can take the gate itself and run its hook tasks.
+func (s *Runtime) runDeferredCheckpoint(ctx *kernel.TaskContext) {
+	if ctx == nil || !ctx.DeferredCheckpoint {
+		return
+	}
+	ctx.DeferredCheckpoint = false
+	dump := s.session.Host().Checkpoint
+	if dump == nil {
+		return
+	}
+	if err := dump(); err != nil {
+		slog.Error("deferred dump_database() failed",
+			slog.Int64("task_id", ctx.TaskID),
+			slog.Any("err", err))
+	}
 }
 
 func (state taskRetryState) restore(t *task.Task) {
 	if t == nil || !state.canRetry {
 		return
 	}
-	t.SetBytecodeVM(nil)
+	if state.rebuildVM != nil {
+		t.SetBytecodeVM(state.rebuildVM())
+	} else {
+		t.SetBytecodeVM(nil)
+	}
 	ctx := cloneTaskContextForRetry(state.context)
 	if ctx != nil {
 		ctx.TaskID = t.ID

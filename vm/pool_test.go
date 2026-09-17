@@ -31,6 +31,8 @@ func dirtyVM(machine *VM) {
 	machine.builtinPendingFinalizations = func() []types.Value { return nil }
 	machine.frame = machine.Frames[0]
 	machine.yielded = true
+	machine.localStack = machine.allocLocals(2)
+	machine.framePool = []*StackFrame{{}}
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
 	machine.resumeError = types.E_INTRPT
 }
@@ -103,6 +105,14 @@ func TestResetClearsUnexportedFields(t *testing.T) {
 	}
 	if machine.resumeError != types.E_NONE {
 		t.Errorf("resumeError not cleared: %v", machine.resumeError)
+	}
+	if len(machine.localStack) != 0 {
+		t.Errorf("localStack not released: len %d", len(machine.localStack))
+	}
+	for i, f := range machine.framePool {
+		if f.Program != nil || len(f.Locals) != 0 || len(f.LoopStack) != 0 || len(f.ExceptStack) != 0 || f.Verb != "" {
+			t.Errorf("framePool[%d] not zeroed: %+v", i, *f)
+		}
 	}
 }
 

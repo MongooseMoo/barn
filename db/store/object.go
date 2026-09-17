@@ -40,6 +40,11 @@ type Object struct {
 	propOrder     []string // Property names in order they were read (for name resolution)
 	verbs         map[string]*Verb
 	verbList      []*Verb // Ordered list for verb code indexing
+	// verbIdx accelerates dispatch-time alias lookup over verbList. It is an
+	// immutable value shared by every image and clone whose verbList carries
+	// the same aliases in the same order; each site that changes verbList or a
+	// verb's names on an image calls rebuildVerbIndex. nil means "scan".
+	verbIdx *verbIndex
 
 	// Object lifecycle
 	recycled  bool
@@ -56,7 +61,14 @@ type Object struct {
 	scalarVersion       uint64
 	relationshipVersion uint64
 	propertyVersion     uint64
-	verbVersion         uint64
+	// propertyShapeVersion moves only when the SET of slots on this object
+	// changes (define, delete, a first override of an inherited property).
+	// A plain value write to an existing slot leaves it alone. Ancestry walks
+	// that fall through this object (no slot for the name) depend on it, not
+	// on propertyVersion, so hot value writes stop invalidating them.
+	// Invariant: stamped only when propertyVersion is stamped too.
+	propertyShapeVersion uint64
+	verbVersion          uint64
 }
 
 // ObjectView is a flat, read-only snapshot of an Object's scalar fields plus
@@ -220,6 +232,96 @@ type VerbView struct {
 	// the verb-code section (even if its source is empty). The DB writer emits a
 	// verb-program entry for exactly the verbs with HasProgram set.
 	HasProgram bool
+}
+
+// verbIndex is the dispatch index over one verbList: exact (wildcard-free)
+// lowered aliases map to their ascending verbList indices, and wildcard holds
+// the ascending indices of verbs with at least one "*" alias. lookup reproduces
+// scanVerbList exactly — the earliest verb in definition order with any
+// matching alias wins, skipping non-executable verbs when requireExecute —
+// in O(1 + wildcards) instead of O(verbs × aliases) string compares.
+type verbIndex struct {
+	n        int
+	exact    map[string][]int32
+	wildcard []int32
+}
+
+func buildVerbIndex(list []*Verb) *verbIndex {
+	idx := &verbIndex{n: len(list), exact: make(map[string][]int32, len(list))}
+	for i, verb := range list {
+		wild := false
+		for _, alias := range verb.lowerNames {
+			if strings.Contains(alias, "*") {
+				wild = true
+				continue
+			}
+			idx.exact[alias] = append(idx.exact[alias], int32(i))
+		}
+		if wild {
+			idx.wildcard = append(idx.wildcard, int32(i))
+		}
+	}
+	return idx
+}
+
+// rebuildVerbIndex must be called by every site that changes o.verbList or a
+// verb's names on an image it exclusively owns (builder, COW image builders,
+// coarse live mutation under the store lock, txn-private clones).
+func (o *Object) rebuildVerbIndex() { o.verbIdx = buildVerbIndex(o.verbList) }
+
+// lookup returns what scanVerbList(list, searchLower, requireExecute) would.
+// list must be the verbList the index was built from (len checked by caller).
+func (idx *verbIndex) lookup(list []*Verb, searchLower string, requireExecute bool) *Verb {
+	best := int32(-1)
+	for _, i := range idx.exact[searchLower] {
+		if !requireExecute || list[i].perms.Has(VerbExecute) {
+			best = i
+			break
+		}
+	}
+wild:
+	for _, i := range idx.wildcard {
+		if best >= 0 && i >= best {
+			break
+		}
+		verb := list[i]
+		if requireExecute && !verb.perms.Has(VerbExecute) {
+			continue
+		}
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
+				best = i
+				break wild
+			}
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	return list[best]
+}
+
+// scanVerbList is the reference definition-order alias scan the index mirrors.
+func scanVerbList(list []*Verb, searchLower string, requireExecute bool) *Verb {
+	for _, verb := range list {
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
+				if !requireExecute || verb.perms.Has(VerbExecute) {
+					return verb
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// findVerbByAlias dispatches through the index when it is current for this
+// image's verbList and falls back to the scan otherwise.
+func (o *Object) findVerbByAlias(searchLower string, requireExecute bool) *Verb {
+	if idx := o.verbIdx; idx != nil && idx.n == len(o.verbList) {
+		return idx.lookup(o.verbList, searchLower, requireExecute)
+	}
+	return scanVerbList(o.verbList, searchLower, requireExecute)
 }
 
 // mapKey returns the key this verb occupies in Object.verbs: the first alias
