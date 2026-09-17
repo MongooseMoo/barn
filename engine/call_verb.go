@@ -113,6 +113,16 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	// returned to the caller and the VM dropped, and ReleaseVM itself declines to
 	// pool a still-yielded VM. Release happens after drainForks, which resumes on
 	// this same VM.
+	//
+	// Consequently a suspend() inside a hook that reaches this path is NOT
+	// honored. The move() hooks (accept/exitfunc/enterfunc) and recycle() no
+	// longer come here from a VM: they run as continuations on the calling task's
+	// own VM (vm/move_lifecycle.go, vm/recycle_lifecycle.go), matching Toast's
+	// do_move/bf_recycle call packs. The hooks that still take this path, and so
+	// remain non-suspendable, are create()'s :initialize and the :exitfunc calls
+	// recycle() makes for the recycled object's contents and location
+	// (builtins/objects.go FinishRecycleLifecycle); Toast runs the latter as
+	// bf_recycle continuations via move_to_nothing.
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
