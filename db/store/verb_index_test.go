@@ -77,6 +77,30 @@ func TestVerbIndexMatchesScan(t *testing.T) {
 	}
 }
 
+func TestVerbIndexExactAliasKeepsEarliestMatchByExecutionMode(t *testing.T) {
+	list := []*Verb{
+		verbForIndexTest("first", []string{"look"}, VerbRead),
+		verbForIndexTest("second", []string{"look"}, VerbRead|VerbExecute),
+		verbForIndexTest("third", []string{"look"}, VerbRead|VerbExecute),
+	}
+	idx := buildVerbIndex(list)
+
+	if got := idx.lookup(list, "look", false); got != list[0] {
+		t.Fatalf("ordinary lookup = %s, want first definition", verbName(got))
+	}
+	if got := idx.lookup(list, "look", true); got != list[1] {
+		t.Fatalf("executable lookup = %s, want first executable definition", verbName(got))
+	}
+	if got := idx.lookup(list, "missing", false); got != nil {
+		t.Fatalf("missing lookup = %s, want nil", verbName(got))
+	}
+}
+
+func verbForIndexTest(name string, aliases []string, perms VerbPerms) *Verb {
+	verb := NewVerb(name, aliases, 0, perms, VerbArgs{}, nil)
+	return &verb
+}
+
 func verbName(v *Verb) string {
 	if v == nil {
 		return "<nil>"
