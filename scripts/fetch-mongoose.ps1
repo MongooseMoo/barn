@@ -37,3 +37,7 @@ Copy-Item -LiteralPath "$run/sound-$stamp.sqlite" -Destination "$run/sound.sqlit
 Copy-Item -LiteralPath "$run/sound-$stamp.sqlite" -Destination files/sqlite/sound.sqlite -Force
 Get-FileHash -LiteralPath "$run/mongoose.db.new", "$run/sound.sqlite" | Format-List Path,Hash
 Write-Output "Remote SQLite backup retained at $remoteBackup"
+& scp mongoose@mongoose.world:~/mongoose/executables/tz "$run/tz"
+$code = $LASTEXITCODE
+if ($code -ne 0) { throw "Timezone helper download failed: $code" }
+Get-FileHash -LiteralPath "$run/tz"
