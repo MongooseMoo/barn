@@ -135,7 +135,7 @@ func TestMapdeleteUsesPendingMapValueByteLimit(t *testing.T) {
 			ctx := newTestExecution()
 			ctx.PendingEffects = []kernel.PendingEffect{{
 				Kind: kernel.PendingEffectServerOptions,
-				ServerOptions: kernel.PendingServerOptions{
+				ServerOptions: &kernel.PendingServerOptions{
 					MaxListValueBytes: ValueBytes(resultMap),
 					MaxMapValueBytes:  test.mapLimit,
 				},
