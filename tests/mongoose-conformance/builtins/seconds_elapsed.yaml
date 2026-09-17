@@ -1,0 +1,58 @@
+name: seconds_elapsed
+description: The execution seconds budget decreases while a task runs.
+requires:
+  builtins: [add_property, delete_property, load_server_options, seconds_left, ftime]
+  features: [fork]
+setup:
+  permission: wizard
+  code: |
+    add_property($server_options, "fg_ticks", 1000000000, {player, "r"});
+    add_property($server_options, "fg_seconds", 10, {player, "r"});
+    add_property($server_options, "bg_ticks", 1000000000, {player, "r"});
+    add_property($server_options, "bg_seconds", 1, {player, "r"});
+    load_server_options();
+teardown:
+  permission: wizard
+  code: |
+    delete_property($server_options, "fg_ticks");
+    delete_property($server_options, "fg_seconds");
+    delete_property($server_options, "bg_ticks");
+    delete_property($server_options, "bg_seconds");
+    load_server_options();
+tests:
+  - name: seconds_left_decreases_during_execution
+    steps:
+      - run: |
+          before = seconds_left();
+          start = ftime();
+          while (ftime() - start < 1.2)
+          endwhile
+          return seconds_left() < before;
+        as: wizard
+        expect:
+          value: 1
+  - name: seconds_budget_stops_background_execution
+    steps:
+      - run: |
+          add_property(#0, "seconds_progress", "queued", {player, "rw"});
+          fork (0)
+            #0.seconds_progress = "started";
+            start = ftime();
+            while (ftime() - start < 2.2)
+            endwhile
+            #0.seconds_progress = "overran";
+          endfork
+          return 1;
+        as: wizard
+      - wait: 2500
+      - run: |
+          progress = #0.seconds_progress;
+          return progress;
+        as: wizard
+        expect:
+          value: started
+    cleanup:
+      - run: |
+          delete_property(#0, "seconds_progress");
+          return 1;
+        as: wizard

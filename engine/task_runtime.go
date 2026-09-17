@@ -174,13 +174,17 @@ retryAttempt:
 		if escalated {
 			return false
 		}
+		waitStart := time.Now()
 		s.store.EscalationLock()
+		gateWait := time.Since(waitStart)
+		t.ExcludeExecutionWait(gateWait)
 		escalated = true
 		ctx.StoreTxn.ExemptFromCommitGate()
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
 		slog.Debug("irreversible-effect boundary",
 			slog.Int64("task_id", t.ID), slog.String("verb", t.VerbName),
+			slog.Duration("gate_wait", gateWait),
 			slog.String("renew", types.NewErr(errCode).String()),
 			slog.Bool("published_writes", publishedWrites),
 			slog.Bool("can_rerun", canRerun), slog.Int("attempt", attempt))
@@ -233,7 +237,7 @@ retryAttempt:
 		savedVM.Ticks = 0
 	}
 
-	// Set up cancellation with deadline. The budget deadline must be anchored
+	// Set up the VM execution deadline. The budget deadline must be anchored
 	// to when the task actually starts running, not its (possibly long-past)
 	// scheduled start time — otherwise a fork-delayed or checkpoint-restored
 	// task whose StartTime has already elapsed (e.g. the server was down for
@@ -247,7 +251,10 @@ retryAttempt:
 		budgetAnchor = now
 	}
 	deadline := budgetAnchor.Add(time.Duration(secondsLimit * float64(time.Second)))
-	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
+	t.SetExecutionDeadline(deadline)
+	// The VM owns the seconds deadline so commit-gate waits can extend it.
+	// Cancellation separately handles shutdown and explicit task kills.
+	taskCtx, cancel := context.WithCancel(s.ctx)
 	t.SetCancelFunc(cancel)
 	defer cancel()
 
@@ -448,30 +455,14 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
-	// A forked task's suspend(0) resumes inline below. Those slices cannot be
-	// re-executed — the VM is mid-flight and this slice may already be published
-	// — so, like a resumed task, they run under the exclusive gate.
-	willInlineResume := committed && result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued
-	if willInlineResume && !escalated {
-		s.store.EscalationLock()
-		escalated = true
-	}
-	// A suspend is a snapshot boundary whether or not this slice wrote anything:
-	// the next slice sees the world as of its own start, exactly as a task
-	// resumed by the scheduler does. A gated slice must take that snapshot under
-	// the gate, or it could still lose to a commit that landed before the lock.
-	if committed && (committedWrites || willInlineResume) {
+	// Refresh the committed view for lifecycle cleanup. Suspended tasks take
+	// their next execution snapshot when the scheduler resumes them.
+	if committed && committedWrites {
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
-		if escalated {
-			ctx.StoreTxn.ExemptFromCommitGate()
-		}
 	}
-	if !willInlineResume {
-		// This attempt's outcome is decided (committed or failed without a
-		// retry). Release promptly so the world resumes.
-		releaseEscalation()
-	}
+	// Every suspension yields the commit gate along with execution.
+	releaseEscalation()
 
 	// Check context deadline
 	select {
@@ -481,43 +472,6 @@ retryAttempt:
 		t.SetBytecodeVM(nil)
 		return taskCtx.Err()
 	default:
-	}
-
-	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
-		t.SetBytecodeVM(bcVM)
-		if !t.WakeValue.IsNone() {
-			bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
-			t.WakeValue = types.None
-			t.WakeErrorAsValue = false
-		}
-		result = bcVM.Resume()
-		t.Result = result
-		if result.Flow == types.FlowFork {
-			result = s.drainForks(t, bcVM, result)
-			t.Result = result
-			break
-		}
-	}
-	// HasWrites also gates terminal transactions: a failed non-validation
-	// preflight retains its private maps for error handling but must never be
-	// recommitted at a later lifecycle boundary.
-	if result.Flow != types.FlowSuspend && ctx.StoreTxn.HasWrites() {
-		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-			result = types.Err(errCode)
-			t.Result = result
-			s.discardCreatedForks(t)
-			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
-		} else {
-			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
-			ctx.StoreTxn.Release()
-			ctx.StoreTxn = s.store.BeginSnapshot(0)
-		}
-	}
-	if result.Flow != types.FlowSuspend {
-		// The inline yields are over and their commit is decided; a slice that
-		// still suspends releases after the hand-off commit below instead.
-		releaseEscalation()
 	}
 
 	// Handle suspend
@@ -558,10 +512,6 @@ retryAttempt:
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginSnapshot(0)
 		}
-		// Only an exhausted inline-yield run still holds the gate here; the
-		// suspended task must not carry it into the hand-off.
-		releaseEscalation()
-
 		// Save VM state for later Resume() via the thread-safe setter, so a
 		// concurrently running sibling scanning saved VMs for orphan GC never races
 		// the write. The s.mu critical section additionally guards the suspend(0)-
@@ -589,6 +539,8 @@ retryAttempt:
 		handled := false
 		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
+		} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
+			handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
 		}
 		// Prefer the activation stack snapshotted at raise time (carried on the
 		// result): the live call stack has already unwound, so it would report the
@@ -877,7 +829,7 @@ func (s *Runtime) callTaskTimeoutHook(t *task.Task, resource string, message typ
 	traceValues := make([]types.Value, 0, len(traceLines))
 	for i, line := range traceLines {
 		if i == 0 {
-			line = "Task ran out of ticks"
+			line = "Task ran out of " + resource
 		}
 		traceValues = append(traceValues, types.NewStr(line))
 	}

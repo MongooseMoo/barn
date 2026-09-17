@@ -132,9 +132,10 @@ func (ctx *TaskContext) Logger() *slog.Logger {
 }
 
 type PendingNotification struct {
-	Player  types.ObjID
-	Message string
-	NoFlush bool
+	Player    types.ObjID
+	Message   string
+	NoFlush   bool
+	NoNewline bool
 }
 
 type PendingConnectionSwitch struct {

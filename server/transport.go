@@ -36,7 +36,7 @@ const (
 // Transport is the interface for connection I/O
 type Transport interface {
 	ReadLine() (string, error)
-	WriteLine(string) error
+	WriteOutput(message string, newline bool) error
 	Close() error
 	RemoteAddr() string
 }
@@ -213,12 +213,15 @@ func (t *TCPTransport) ReadChunk() (string, error) {
 	return chunk.String(), nil
 }
 
-// WriteLine writes a line to the connection with newline
-func (t *TCPTransport) WriteLine(msg string) error {
+// WriteOutput sends bytes with optional CRLF framing.
+func (t *TCPTransport) WriteOutput(msg string, newline bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	_, err := t.writer.WriteString(msg + "\r\n")
+	if newline {
+		msg += "\r\n"
+	}
+	_, err := t.writer.WriteString(msg)
 	if err != nil {
 		return err
 	}
@@ -272,8 +275,8 @@ func (t *PipeTransport) ReadLine() (string, error) {
 	}
 }
 
-// WriteLine writes a line to the output channel
-func (t *PipeTransport) WriteLine(msg string) error {
+// WriteOutput writes a message to the in-memory output channel.
+func (t *PipeTransport) WriteOutput(msg string, newline bool) error {
 	select {
 	case <-t.done:
 		return net.ErrClosed

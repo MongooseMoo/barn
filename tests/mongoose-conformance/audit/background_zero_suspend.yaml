@@ -1,0 +1,32 @@
+name: background_zero_suspend
+description: A background suspend(0) returns control to other ready tasks.
+requires:
+  builtins: [add_property, delete_property, suspend]
+  features: [fork]
+tests:
+  - name: background_suspend_zero_yields_to_its_ready_child
+    steps:
+      - run: |
+          add_property(#0, "background_yield_order", {}, {player, "rw"});
+          fork (0)
+            #0.background_yield_order = {"parent-before"};
+            fork (0)
+              #0.background_yield_order = {@#0.background_yield_order, "child"};
+            endfork
+            suspend(0);
+            #0.background_yield_order = {@#0.background_yield_order, "parent-after"};
+          endfork
+          return 1;
+        as: wizard
+      - wait: 500
+      - run: |
+          result = #0.background_yield_order;
+          return result;
+        as: wizard
+        expect:
+          value: [parent-before, child, parent-after]
+    cleanup:
+      - run: |
+          delete_property(#0, "background_yield_order");
+          return 1;
+        as: wizard

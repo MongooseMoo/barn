@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 	"net"
 	"sync"
@@ -20,7 +21,7 @@ type Connection struct {
 	transport    Transport
 	player       types.ObjID
 	loggedIn     bool
-	outputBuffer []string
+	outputBuffer []kernel.PendingNotification
 	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
 	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
 	resolvedName string
@@ -64,7 +65,7 @@ func NewConnection(id int64, transport Transport) *Connection {
 		transport:      transport,
 		player:         types.ObjID(-1), // Not logged in yet
 		loggedIn:       false,
-		outputBuffer:   make([]string, 0),
+		outputBuffer:   make([]kernel.PendingNotification, 0),
 		listenerObject: 0,
 		connectedAt:    time.Now(),
 		lastInput:      time.Now(),
@@ -75,23 +76,39 @@ func NewConnection(id int64, transport Transport) *Connection {
 
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
-	return c.transport.WriteLine(message)
+	return c.transport.WriteOutput(message, true)
+}
+
+func (c *Connection) SendNotification(note kernel.PendingNotification) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if note.NoFlush {
+		c.outputBuffer = append(c.outputBuffer, note)
+		return nil
+	}
+	if err := c.flushLocked(); err != nil {
+		return err
+	}
+	return c.transport.WriteOutput(note.Message, !note.NoNewline)
 }
 
 // Buffer adds a message to the output buffer (flushed later)
 func (c *Connection) Buffer(message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.outputBuffer = append(c.outputBuffer, message)
+	c.outputBuffer = append(c.outputBuffer, kernel.PendingNotification{Message: message})
 }
 
 // Flush flushes the output buffer
 func (c *Connection) Flush() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.flushLocked()
+}
 
+func (c *Connection) flushLocked() error {
 	for i, msg := range c.outputBuffer {
-		if err := c.transport.WriteLine(msg); err != nil {
+		if err := c.transport.WriteOutput(msg.Message, !msg.NoNewline); err != nil {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}

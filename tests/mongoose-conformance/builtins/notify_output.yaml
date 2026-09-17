@@ -1,0 +1,45 @@
+name: notify_output
+description: Notification framing and binary decoding are determined at the notify call.
+requires:
+  builtins: [create, recycle, add_property, add_verb, set_verb_code, listen, unlisten, notify, set_connection_option]
+tests:
+  - name: notify_preserves_binary_and_no_newline_across_option_changes
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          h = create($nothing);
+          add_property(h, "port", {port}, {player, "rw"});
+          add_verb(h, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(h, "do_login_command", {
+            "if (!length(args)) return 0; endif",
+            "notify(player, \"part\", 0, 1);",
+            "notify(player, \"ial\");",
+            "set_connection_option(player, \"binary\", 1);",
+            "notify(player, \"raw~0A\");",
+            "try notify(player, \"bad~GG\"); except (E_INVARG) notify(player, \"invalid~0A\"); endtry",
+            "set_connection_option(player, \"binary\", 0);",
+            "notify(player, \"done\");",
+            "notify(player, \"buf\", 1, 1);",
+            "notify(player, \"fer\");",
+            "return 0;"
+          });
+          listen(h, {port}, ["print-messages" -> 0]);
+          return h;
+        as: wizard
+        capture: handler
+      - new_connection:
+          capture: conn
+          port: "{port}"
+      - send:
+          connection: conn
+          text: go
+        expect:
+          output: [partial, raw, invalid, done, buffer]
+      - close_connection: conn
+    cleanup:
+      - run: |
+          h = {handler};
+          try unlisten(h.port); except (ANY) endtry
+          try recycle(h); except (ANY) endtry
+        as: wizard

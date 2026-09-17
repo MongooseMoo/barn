@@ -70,7 +70,7 @@ func (t *WebSocketTransport) ReadLine() (string, error) {
 	return string(payload), nil
 }
 
-func (t *WebSocketTransport) WriteLine(message string) error {
+func (t *WebSocketTransport) WriteOutput(message string, newline bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.conn.Write(context.Background(), websocket.MessageText, []byte(message))

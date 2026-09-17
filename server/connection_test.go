@@ -11,10 +11,10 @@ import (
 
 type stubTransport struct{}
 
-func (stubTransport) ReadLine() (string, error) { return "", io.EOF }
-func (stubTransport) WriteLine(string) error    { return nil }
-func (stubTransport) Close() error              { return nil }
-func (stubTransport) RemoteAddr() string        { return "127.0.0.1:7777" }
+func (stubTransport) ReadLine() (string, error)      { return "", io.EOF }
+func (stubTransport) WriteOutput(string, bool) error { return nil }
+func (stubTransport) Close() error                   { return nil }
+func (stubTransport) RemoteAddr() string             { return "127.0.0.1:7777" }
 
 type failOnceTransport struct {
 	failAt int
@@ -22,7 +22,7 @@ type failOnceTransport struct {
 }
 
 func (t *failOnceTransport) ReadLine() (string, error) { return "", io.EOF }
-func (t *failOnceTransport) WriteLine(line string) error {
+func (t *failOnceTransport) WriteOutput(line string, newline bool) error {
 	t.writes = append(t.writes, line)
 	if len(t.writes) == t.failAt {
 		return errors.New("transient write failure")

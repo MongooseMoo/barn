@@ -33,6 +33,7 @@ type ConnectionManager interface {
 // Connection interface to avoid import cycle.
 type Connection interface {
 	Send(message string) error
+	SendNotification(kernel.PendingNotification) error
 	Buffer(message string)
 	Flush() error
 	RemoteAddr() string
@@ -797,24 +798,28 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 
+	noNewline := len(args) >= 4 && args[3].Truthy()
+	if ctx.Session.ConnectionOptionTruthy(player, "binary") {
+		decoded, invalid := decodeBinaryString(message)
+		if invalid {
+			return types.Err(types.E_INVARG)
+		}
+		message = string(decoded)
+		noNewline = true
+	}
+	// Capture framing now: connection options may change before the task's
+	// deferred output is published.
+	note := kernel.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind: kernel.PendingEffectNotification,
-			Notification: kernel.PendingNotification{
-				Player:  player,
-				Message: message,
-				NoFlush: noFlush,
-			},
+			Kind:         kernel.PendingEffectNotification,
+			Notification: note,
 		})
 		return types.Ok(types.NewInt(0))
 	}
 
 	trace.Notify(player, message)
-	if noFlush {
-		conn.Buffer(message)
-		return types.Ok(types.NewInt(0))
-	}
-	if err := conn.Send(message); err != nil {
+	if err := conn.SendNotification(note); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))

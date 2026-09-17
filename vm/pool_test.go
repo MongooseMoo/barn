@@ -27,6 +27,9 @@ func dirtyVM(machine *VM) {
 	machine.Ticks = 789
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
 	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
+	machine.pendingWaifIDs = map[types.WaifIdentity]struct{}{}
+	machine.pendingFinalizationWaifIDs = map[types.WaifIdentity]struct{}{}
+	machine.pendingFinalizationAnonIDs = map[types.ObjID]struct{}{}
 	machine.builtinExec = machine.Builtins.NewExecution(machine.Context, machine.Task)
 	machine.builtinPendingFinalizations = func() []types.Value { return nil }
 	machine.frame = machine.Frames[0]

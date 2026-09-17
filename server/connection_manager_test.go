@@ -299,7 +299,7 @@ func (t *recordingTransport) ReadLine() (string, error) {
 	return line, nil
 }
 
-func (t *recordingTransport) WriteLine(line string) error {
+func (t *recordingTransport) WriteOutput(line string, newline bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.lines = append(t.lines, line)

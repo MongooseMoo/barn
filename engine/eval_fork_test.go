@@ -12,6 +12,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -23,6 +24,12 @@ type evalCommandStubConn struct {
 func (c *evalCommandStubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
 	return c.sendErr
+}
+func (c *evalCommandStubConn) SendNotification(note kernel.PendingNotification) error {
+	if note.NoFlush {
+		return nil
+	}
+	return c.Send(note.Message)
 }
 func (c *evalCommandStubConn) Buffer(message string)     {}
 func (c *evalCommandStubConn) Flush() error              { return nil }

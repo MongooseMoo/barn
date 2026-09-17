@@ -157,9 +157,7 @@ func builtinSecondsLeft(ctx *Execution, args []types.Value) types.Result {
 	// Get from task if available
 	if t := ctx.Task; t != nil {
 		left := int64(t.SecondsLeft())
-		if left > 0 {
-			return types.Ok(types.NewInt(left))
-		}
+		return types.Ok(types.NewInt(max(0, left)))
 	}
 
 	// Default fallback (assume infinite time if no task)

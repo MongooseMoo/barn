@@ -44,6 +44,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -59,13 +60,14 @@ type benchConnection struct {
 	lastActive  atomic.Int64 // unix seconds
 }
 
-func (c *benchConnection) Send(string) error         { return nil }
-func (c *benchConnection) Buffer(string)             {}
-func (c *benchConnection) Flush() error              { return nil }
-func (c *benchConnection) RemoteAddr() string        { return "bench-harness" }
-func (c *benchConnection) GetOutputPrefix() string   { return "" }
-func (c *benchConnection) GetOutputSuffix() string   { return "" }
-func (c *benchConnection) BufferedOutputLength() int { return 0 }
+func (c *benchConnection) Send(string) error                                 { return nil }
+func (c *benchConnection) SendNotification(kernel.PendingNotification) error { return nil }
+func (c *benchConnection) Buffer(string)                                     {}
+func (c *benchConnection) Flush() error                                      { return nil }
+func (c *benchConnection) RemoteAddr() string                                { return "bench-harness" }
+func (c *benchConnection) GetOutputPrefix() string                           { return "" }
+func (c *benchConnection) GetOutputSuffix() string                           { return "" }
+func (c *benchConnection) BufferedOutputLength() int                         { return 0 }
 func (c *benchConnection) ConnectedSeconds() int64 {
 	return int64(time.Since(c.connectedAt).Seconds())
 }
