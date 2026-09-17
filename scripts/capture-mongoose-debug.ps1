@@ -16,6 +16,9 @@ Invoke-WebRequest "$DebugUrl/debug/pprof/profile?seconds=$Seconds" -OutFile "$pr
 & go tool pprof -top -nodecount=20 "$run/barn.exe" "$prefix.cpu" 2>&1 | Tee-Object "$prefix-profile.txt"
 $code = $LASTEXITCODE
 if ($code -ne 0) { throw "Profile report failed: $code" }
+& go tool pprof -tags "$run/barn.exe" "$prefix.cpu" 2>&1 | Tee-Object "$prefix-tasks.txt"
+$code = $LASTEXITCODE
+if ($code -ne 0) { throw "Task profile report failed: $code" }
 & go run ./cmd/barn_logs -dir "$run/barn/logs" -level warn -n 20 2>&1 | Tee-Object "$prefix-logs.txt"
 $code = $LASTEXITCODE
 # barn_logs returns 1 when it finds errors; retain that evidence rather than
