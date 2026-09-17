@@ -355,8 +355,8 @@ func (tx *StoreTxn) mutableObject(objID types.ObjID) *Object {
 func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 	// The txn's binding for objID changes and becomes in-place mutable; every
 	// memoized resolution that walked it is now unsafe to replay. (This also
-	// permanently disables the memo, since `owned` never shrinks — see
-	// resolveCacheActive.)
+	// disables property and store-global memos, since `owned` never shrinks.
+	// Transaction-local verb entries may still describe entirely unowned paths.)
 	tx.invalidateResolveCaches()
 	clone := cloneObjectForReadTxn(base)
 	tx.objects[objID] = clone
@@ -3425,17 +3425,15 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	cacheable := tx.resolveCacheActive()
 	key := verbResolveKey{objID: objID, name: verbName, requireExecute: requireExecute}
-	if cacheable {
-		if entry, ok := tx.verbResolve[key]; ok && tx.verbStepsCurrent(entry.steps) {
-			tx.replayVerbSteps(entry.steps)
-			if entry.verb == nil {
-				return nil, types.ObjNothing, entry.err
-			}
-			// The read mark on the resolved verb is part of the read set the
-			// original walk produced and must be re-registered on every hit.
-			tx.markVerbRead(entry.definer, entry.verb)
-			return entry.verb, entry.definer, nil
+	if entry, ok := tx.verbResolve[key]; ok && tx.verbStepsCurrent(entry.steps) {
+		tx.replayVerbSteps(entry.steps)
+		if entry.verb == nil {
+			return nil, types.ObjNothing, entry.err
 		}
+		// The read mark on the resolved verb is part of the read set the
+		// original walk produced and must be re-registered on every hit.
+		tx.markVerbRead(entry.definer, entry.verb)
+		return entry.verb, entry.definer, nil
 	}
 
 	if cacheable {
@@ -3453,8 +3451,8 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 		definer = types.ObjNothing
 		err = fmt.Errorf("verb not found: %s", verbName)
 	}
+	tx.storeVerbResolve(key, steps, verb, definer, err)
 	if cacheable {
-		tx.storeVerbResolve(key, steps, verb, definer, err)
 		tx.storeVerbDispatchMemo(key, verb, definer)
 	}
 	return verb, definer, err
