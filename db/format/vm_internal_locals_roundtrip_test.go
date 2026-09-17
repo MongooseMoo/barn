@@ -51,11 +51,12 @@ func TestSuspendedFrameRoundTripsCompilerTemporarySlots(t *testing.T) {
 			MaxStackDepth: 50,
 			Frames: []task.VMFrameSnapshot{{
 				Program: bytecode.Program{
-					Code:      []byte{byte(bytecode.OP_RETURN_NONE)},
-					Source:    []string{"return;"},
-					VarNames:  []string{"a", "b", "c"},
-					NumLocals: bytecode.MaxLocals,
-					LineInfo:  []bytecode.LineEntry{{StartIP: 0, Line: 1}},
+					Code:          []byte{byte(bytecode.OP_RETURN_NONE)},
+					Source:        []string{"return;"},
+					VarNames:      []string{"a", "b", "c"},
+					NumLocals:     bytecode.MaxLocals,
+					LineInfo:      []bytecode.LineEntry{{StartIP: 0, Line: 1}},
+					BuiltinLayout: [32]byte{1, 2, 3},
 				},
 				Locals:    locals,
 				This:      0,
@@ -77,6 +78,9 @@ func TestSuspendedFrameRoundTripsCompilerTemporarySlots(t *testing.T) {
 		t.Fatalf("suspended tasks = %d, want 1", got)
 	}
 	frame := reloaded.SuspendedTasks[0].Snapshot.VM.Frames[0]
+	if frame.Program.BuiltinLayout != [32]byte{1, 2, 3} {
+		t.Fatal("checkpoint lost builtin layout")
+	}
 	if frame.Program.NumLocals != bytecode.MaxLocals {
 		t.Fatalf("NumLocals = %d, want %d", frame.Program.NumLocals, bytecode.MaxLocals)
 	}

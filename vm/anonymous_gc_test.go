@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -203,10 +204,9 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 		}
 	}
 
-	registry := builtins.NewRegistry()
 	var createdByHook types.ObjID
 	recycleCalls := 0
-	registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
+	recycle := func(_ *builtins.Execution, args []types.Value) types.Result {
 		recycleCalls++
 		if len(args) != 1 || args[0].Type() != types.TYPE_ANON {
 			return types.Err(types.E_INVARG)
@@ -225,7 +225,17 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 			}
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
+	descriptors := builtins.BaseDescriptors()
+	for i := range descriptors {
+		if descriptors[i].Name == "recycle" {
+			descriptors[i].Implementation = recycle
+		}
+	}
+	registry, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), descriptors)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store

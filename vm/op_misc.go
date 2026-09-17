@@ -39,6 +39,9 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 }
 
 func (vm *VM) executeCallBuiltin() error {
+	if !vm.Builtins.Registry().Compiler().Accepts(vm.CurrentFrame().Program) {
+		return VMException{Code: types.E_INVARG}
+	}
 	funcID := vm.FetchByte()
 	argc := vm.FetchByte()
 

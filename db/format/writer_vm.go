@@ -1,6 +1,7 @@
 package format
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -259,6 +260,7 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
 		recycleContinuationValue(frame.RecycleContinuation),
 		internalLocalsValue(frame),
+		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
 	})
 }
 

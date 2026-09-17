@@ -154,7 +154,8 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 		t.Fatalf("add sweep probe verb: %v", errCode)
 	}
 
-	rt := NewRuntime(store)
+	var recycleBuiltin, gcTaskStartedBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle", 1, 1, []int64{-1}, &recycleBuiltin), testBuiltinSlot("gc_task_started", 1, 1, []int64{-1}, &gcTaskStartedBuiltin))
 	defer rt.Stop()
 	defer removeTasksForOwner(rt, 0)
 
@@ -166,7 +167,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
 	var sweepOnce sync.Once
-	rt.registry.Register("recycle", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	recycleBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		sweepOnce.Do(func() {
 			nestedSweepVerb <- rt.session.CallVerb(0, "sweep_probe", nil, ctx)
 			runGC, ok := rt.registry.Get("run_gc")
@@ -185,16 +186,16 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	taskEntered := make(chan types.ObjID, 1)
-	rt.registry.Register("gc_task_started", func(_ *builtins.Execution, args []types.Value) types.Result {
+	gcTaskStartedBuiltin = func(_ *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 1 || args[0].Type() != types.TYPE_ANON {
 			return types.Err(types.E_INVARG)
 		}
 		taskEntered <- args[0].Obj()
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	firstCandidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
@@ -298,7 +299,8 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 
-	rt := NewRuntime(store)
+	var recycleBuiltin, gcEvalStartedBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle", 1, 1, []int64{-1}, &recycleBuiltin), testBuiltinSlot("gc_eval_started", 0, 0, []int64{}, &gcEvalStartedBuiltin))
 	defer rt.Stop()
 	candidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
@@ -310,14 +312,14 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
-	rt.registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
+	recycleBuiltin = func(_ *builtins.Execution, args []types.Value) types.Result {
 		close(sweepEntered)
 		<-releaseSweep
 		if err := store.Recycle(args[0].Obj()); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	gcCtx := kernel.NewTaskContext()
 	gcCtx.Player = 0
@@ -337,10 +339,10 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	}
 
 	evalEntered := make(chan struct{})
-	rt.registry.Register("gc_eval_started", func(_ *builtins.Execution, _ []types.Value) types.Result {
+	gcEvalStartedBuiltin = func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(evalEntered)
 		return types.Ok(types.NewInt(0))
-	})
+	}
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
 	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
@@ -401,7 +403,8 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 		t.Fatalf("add server probe verb: %v", errCode)
 	}
 
-	rt := NewRuntime(store)
+	var recycleBuiltin, gcServerHookStartedBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle", 1, 1, []int64{-1}, &recycleBuiltin), testBuiltinSlot("gc_server_hook_started", 0, 0, []int64{}, &gcServerHookStartedBuiltin))
 	defer rt.Stop()
 	candidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
@@ -412,19 +415,19 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
-	rt.registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
+	recycleBuiltin = func(_ *builtins.Execution, args []types.Value) types.Result {
 		close(sweepEntered)
 		<-releaseSweep
 		if err := store.Recycle(args[0].Obj()); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 	hookEntered := make(chan struct{})
-	rt.registry.Register("gc_server_hook_started", func(_ *builtins.Execution, _ []types.Value) types.Result {
+	gcServerHookStartedBuiltin = func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(hookEntered)
 		return types.Ok(types.NewInt(0))
-	})
+	}
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
 	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }

@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -296,6 +297,17 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	}
 
 	code := value.Get(2)
+	if value.Len() >= 20 {
+		encoded := value.Get(20)
+		if encoded.Type() != types.TYPE_STR {
+			return frame, fmt.Errorf("invalid builtin layout fingerprint")
+		}
+		layout, err := hex.DecodeString(encoded.Str())
+		if err != nil || len(layout) != len(frame.Program.BuiltinLayout) {
+			return frame, fmt.Errorf("invalid builtin layout fingerprint")
+		}
+		copy(frame.Program.BuiltinLayout[:], layout)
+	}
 	frame.Program.Code = make([]byte, code.Len())
 	for i := 1; i <= code.Len(); i++ {
 		frame.Program.Code[i-1] = byte(code.Get(i).Int())

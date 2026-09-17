@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 
 	"strings"
 	"time"
@@ -528,6 +529,12 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
 	options := ctx.RuntimeOptions
 	featureNames := options.FeatureNames()
+	if ctx.Registry != nil {
+		for feature := range ctx.Registry.Presence() {
+			featureNames = append(featureNames, feature)
+		}
+		sort.Strings(featureNames)
+	}
 	featureValues := make([]types.Value, 0, len(featureNames))
 	for _, feature := range featureNames {
 		featureValues = append(featureValues, types.NewStr(feature))

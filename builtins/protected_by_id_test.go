@@ -3,14 +3,16 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/config"
 )
 
 // The dispatch hot path answers "is this builtin protected?" from a by-ID
-// projection of the by-name snapshot. Both views must agree, including for a
-// builtin registered after the snapshot was taken (outside byID's range).
+// projection of the by-name snapshot. Both views must agree across refreshes.
 func TestProtectedByIDMatchesByName(t *testing.T) {
-	registry := NewRegistry()
+	registry, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), append(BaseDescriptors(), testDescriptor("late_test_builtin")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := NewSession(registry, NoHost())
 
 	s.applyProtectedBuiltins(map[string]bool{"create": true, "no_such_builtin": true})
@@ -28,10 +30,7 @@ func TestProtectedByIDMatchesByName(t *testing.T) {
 		t.Fatal("create should be protected by ID")
 	}
 
-	// Late registration: byID does not cover it; byName must still answer.
-	registry.Register("late_test_builtin", func(*Execution, []types.Value) types.Result {
-		return types.Ok(types.NewInt(1))
-	})
+	// A previously unprotected builtin becomes protected on refresh.
 	lateID, _ := registry.GetID("late_test_builtin")
 	late := registry.entries[lateID]
 	if s.isProtectedEntry(late) {

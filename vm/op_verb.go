@@ -305,6 +305,9 @@ func (vm *VM) executePass() error {
 	if frame == nil {
 		return fmt.Errorf("E_INVIND: no active frame for pass()")
 	}
+	if !vm.Builtins.Registry().Compiler().Accepts(frame.Program) {
+		return VMException{Code: types.E_INVARG}
+	}
 
 	verbName := frame.Verb
 	if verbName == "" {

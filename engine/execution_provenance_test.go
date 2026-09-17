@@ -21,10 +21,11 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 
-	rt := NewRuntime(store)
+	var forceRetryConflictBuiltin, observeRetryProvenanceBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("force_retry_conflict", 0, 0, []int64{}, &forceRetryConflictBuiltin), testBuiltinSlot("observe_retry_provenance", 0, 0, []int64{}, &observeRetryProvenanceBuiltin))
 	defer rt.Stop()
 	forceCalls := 0
-	rt.registry.Register("force_retry_conflict", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+	forceRetryConflictBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		forceCalls++
 		if forceCalls == 1 {
 			// Simulate a concurrent commit after this attempt read retry_value. Do
@@ -34,14 +35,14 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 			}
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	var firstCtx, replacementCtx *kernel.TaskContext
 	firstAttributed := false
 	replacementAttributed := false
 	firstRemovedDuringRetry := false
 	observeCalls := 0
-	rt.registry.Register("observe_retry_provenance", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+	observeRetryProvenanceBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		observeCalls++
 		ownerID, ok := rt.executionContextOwner(ctx.TaskContext)
 		holder := ctx.Task
@@ -56,7 +57,7 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 			firstRemovedDuringRetry = !claimed
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	running := task.NewTaskFull(94001, 0, compileTestProgram(t, rt.registry, `
