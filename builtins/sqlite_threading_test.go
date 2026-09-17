@@ -65,8 +65,8 @@ func TestSqliteUnthreadedModeRunsInlineWithoutSuspending(t *testing.T) {
 	if len(ctx.PendingEffects) != 0 {
 		t.Fatalf("unthreaded query queued %d pending effects, want none", len(ctx.PendingEffects))
 	}
-	if ctx.IrreversibleSideEffect {
-		t.Fatal("an inline SELECT flagged an irreversible side effect; a retry replays it harmlessly")
+	if !ctx.IrreversibleSideEffect {
+		t.Fatal("inline statements must conservatively cross the irreversible-effect boundary")
 	}
 
 	create := builtinSqliteQuery(ctx, []types.Value{h, types.NewStr("CREATE TABLE t(x INTEGER)")})

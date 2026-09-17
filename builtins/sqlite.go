@@ -263,11 +263,14 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 }
 
 func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
-	if ctx.Task != nil && !ctx.ThreadMode && !sqliteReturnsRows(sqlText) {
-		// The inline form executes the statement during this attempt, so a write
-		// has already happened by the time a commit conflict could re-run the
-		// task. Reads are replayed harmlessly. The threaded form needs no flag:
-		// runSQLiteAsync starts nothing until the slice commits.
+	if ctx.Task != nil && !ctx.ThreadMode {
+		// Row-returning statements can write (WITH, PRAGMA), so protect every
+		// inline statement before entering SQLite or waiting on its handle.
+		// A stale attempt must stop before executing any external operation.
+		// Threaded operations instead start only after the slice commits.
+		if !beginIrreversible(ctx) {
+			return abortedAttempt()
+		}
 		ctx.IrreversibleSideEffect = true
 	}
 	return runSQLiteAsync(ctx, func() types.Result {

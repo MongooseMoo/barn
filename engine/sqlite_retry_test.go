@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,65 @@ import (
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
+	for _, tc := range []struct {
+		name, statement, readback, want string
+	}{
+		{"query_cte", `sqlite_query(#0.h, "WITH v(x) AS (SELECT 7) INSERT INTO t SELECT x FROM v");`, "SELECT x FROM t", "{{7}}"},
+		{"execute_cte", `sqlite_execute(#0.h, "WITH v(x) AS (SELECT ?) INSERT INTO t SELECT x FROM v", {7});`, "SELECT x FROM t", "{{7}}"},
+		{"pragma", `sqlite_query(#0.h, "PRAGMA user_version = 17");`, "PRAGMA user_version", "{{17}}"},
+		{"select", `sqlite_query(#0.h, "SELECT 7");`, "SELECT 7", "{{7}}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newBoundaryTestStore(t)
+			if ec := store.DirectTxn().DefineProperty(0, "h", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			rt := NewRuntime(store)
+			defer rt.Stop()
+			calls := registerBumpReadValueLiveOnce(t, rt, store)
+			rt.registry.Register("inline_gate_held", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+				if ctx.StoreTxn.IsCommitGateExempt() {
+					return types.Ok(types.NewInt(1))
+				}
+				return types.Ok(types.NewInt(0))
+			})
+			ticks, seconds := foregroundTaskLimits(newTestRegistry())
+			setup := task.NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
+#0.h = sqlite_open(":memory:");
+sqlite_query(#0.h, "CREATE TABLE t(x INTEGER)");
+return 1;
+`), ticks, seconds)
+			setup.Context.IsWizard = true
+			runSQLiteTaskToCompletion(t, rt, setup)
+			if setup.Result.Flow != types.FlowReturn {
+				t.Fatalf("setup: %+v", setup.Result)
+			}
+			defer rt.EvalCommandOutput(0, "return sqlite_close(#0.h);")
+			running := task.NewTaskFull(95011, 0, compileTestProgram(t, rt.registry, fmt.Sprintf(`
+set_thread_mode(0);
+before = #0.read_value;
+bump_read_value_live_once();
+%s
+held = inline_gate_held();
+#0.write_value = before + 10;
+return {before, sqlite_query(#0.h, %q), held};
+`, tc.statement, tc.readback)), ticks, seconds)
+			running.Context.IsWizard = true
+			retries := store.CommitRetries()
+			runSQLiteTaskToCompletion(t, rt, running)
+			want := "{1, " + tc.want + ", 1}"
+			if running.Result.Flow != types.FlowReturn || running.Result.Val.String() != want {
+				t.Fatalf("result = %+v, want %s (one SQL effect under the gate)", running.Result, want)
+			}
+			if *calls != 2 || store.CommitRetries()-retries != 1 {
+				t.Fatalf("attempts=%d retries=%d, want 2 and 1", *calls, store.CommitRetries()-retries)
+			}
+			assertCommitGateReleased(t, store)
+		})
+	}
+}
 
 // runSQLiteTaskToCompletion drives a task through its threaded SQLite suspends:
 // each completion re-queues the task and the scheduler pass resumes it.
