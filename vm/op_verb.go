@@ -305,20 +305,6 @@ func (vm *VM) executePass() error {
 	if frame == nil {
 		return fmt.Errorf("E_INVIND: no active frame for pass()")
 	}
-	if !vm.Builtins.Registry().Compiler().Accepts(frame.Program) {
-		return VMException{Code: types.E_INVARG}
-	}
-
-	verbName := frame.Verb
-	if verbName == "" {
-		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
-	}
-
-	verbLoc := frame.VerbLoc
-	if verbLoc == types.ObjNothing {
-		return fmt.Errorf("E_INVIND: pass() has no defining object")
-	}
-
 	// Get pass-through args
 	var passArgs []types.Value
 	if argc == 0xFF {
@@ -340,6 +326,21 @@ func (vm *VM) executePass() error {
 		} else {
 			passArgs = []types.Value{}
 		}
+	}
+
+	// Non-debug frames resume after errors, so consume operands and args first.
+	if !vm.Builtins.Registry().Compiler().Accepts(frame.Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
+	verbName := frame.Verb
+	if verbName == "" {
+		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+	}
+
+	verbLoc := frame.VerbLoc
+	if verbLoc == types.ObjNothing {
+		return fmt.Errorf("E_INVIND: pass() has no defining object")
 	}
 
 	if vm.Store == nil {

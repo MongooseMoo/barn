@@ -98,6 +98,33 @@ func TestVMRejectsForeignBuiltinLayout(t *testing.T) {
 	}
 }
 
+func TestVMForeignLayoutNonDebugConsumesCall(t *testing.T) {
+	full := BuildVMRegistry()
+	core, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range []string{"typeof(1)", "typeof(@{1})", "pass()", "pass(1, 2)", "pass(@{1, 2})"} {
+		t.Run(call, func(t *testing.T) {
+			program, diagnostics := full.Compiler().CompileMOO([]string{"return {99, " + call + ", 77};"})
+			if len(diagnostics) != 0 {
+				t.Fatal(diagnostics)
+			}
+			machine := NewVM(dbstore.NewStore(), builtins.NewSession(core, builtins.NoHost()))
+			frame := machine.PrepareVerbFrame(program, 0, 0, 0, "test", 0, nil)
+			frame.VerbDebug = false
+			if machine.CurrentFrame() != frame {
+				t.Fatal("test frame is not active")
+			}
+			result := machine.ExecuteLoop()
+			want := types.NewList([]types.Value{types.NewInt(99), types.NewErr(types.E_INVARG), types.NewInt(77)})
+			if result.Flow != types.FlowReturn || !result.Val.Equal(want) {
+				t.Fatalf("call corrupted continuation: %+v, want %v", result, want)
+			}
+		})
+	}
+}
+
 func TestVMOwnedDescriptorAdmissionParity(t *testing.T) {
 	descriptors := Descriptors()
 	for i := range descriptors {
