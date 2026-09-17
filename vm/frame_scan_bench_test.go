@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -16,5 +17,19 @@ func BenchmarkPlainFrameFinalization(b *testing.B) {
 	machine := &VM{}
 	for b.Loop() {
 		machine.collectPendingFinalizationsFromFrame(frame)
+	}
+}
+
+func BenchmarkTemporaryFrameLifecycle(b *testing.B) {
+	program, _ := compileBench(b, "{a, ?b = 2, @rest} = {1, 2, 3}; return rest;")
+	for _, slots := range []int{256, program.NumLocals} {
+		b.Run(fmt.Sprint(slots), func(b *testing.B) {
+			machine := &VM{}
+			for b.Loop() {
+				frame := machine.frameFrom(StackFrame{Locals: machine.allocLocals(slots), localsOnStack: true})
+				machine.collectPendingFinalizationsFromFrame(frame)
+				machine.recycleFrame(frame)
+			}
+		})
 	}
 }

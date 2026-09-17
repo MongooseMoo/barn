@@ -140,6 +140,11 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 	// The compiler's declareVariable already appends to program.VarNames in order,
 	// so program.VarNames[idx] == name for all entries in c.variables.
 	// No extra work needed here — VarNames is populated incrementally.
+	if len(c.internalVariables) != 0 {
+		if err := c.program.CompactInternalLocals(256 - len(c.internalVariables)); err != nil {
+			return nil, err
+		}
+	}
 
 	return c.program, nil
 }
