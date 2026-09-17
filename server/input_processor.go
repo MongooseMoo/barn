@@ -621,7 +621,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	if len(commandWords) == 0 {
 		commandWords = append([]string{cmd.Verb}, cmd.Args...)
 	}
-	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line)
+	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line, conn.SetLastInputTaskID)
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)

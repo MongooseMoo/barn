@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -149,26 +151,36 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 	return result.Val.Truthy(), nil
 }
 
-// callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string) (bool, error) {
+// callDoCommand runs #handler:do_command(@words) as a real task and reports
+// whether the command was handled. Mirrors Toast tasks.cc do_command_task: the
+// hook runs through run_server_task_setting_id, and any outcome other than a
+// normal false return — a truthy value, an uncaught error (the task machinery
+// has already delivered the traceback), or a suspend (the task stays registered
+// and resumes through the scheduler) — means the hook owns the command and the
+// native parser must not run it again. onStart receives the hook's task ID so
+// the connection can record it as the last input task, as Toast does.
+func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string, onStart func(int64)) (bool, error) {
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := s.runtime.CallVerbWithArgstr(handler, "do_command", args, player, argstr)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
+	result, err := s.runtime.RunServerVerbTaskWithArgstr(handler, "do_command", args, player, argstr, onStart)
+	if err != nil {
+		if errors.Is(err, engine.ErrServerVerbNotFound) {
 			return false, nil
 		}
-
-		// A MOO error code is an int; render it by name, as the traceback records do.
-		slog.Warn("do_command error",
+		// Only a hook that could not start (e.g. failed to compile) reaches
+		// here; a MOO error inside the hook is a normal task outcome below.
+		slog.Warn("do_command could not run",
 			slog.Int64("player", int64(player)),
-			slog.String("error", types.NewErr(result.Error).String()))
-		s.runtime.SendTracebackToPlayer(player, result.Error, result.CallStack)
-		return true, nil
+			slog.Any("err", err))
+		return false, nil
 	}
 
+	switch result.Flow {
+	case types.FlowSuspend, types.FlowException:
+		return true, nil
+	}
 	if result.Val.IsNone() {
 		return false, nil
 	}
