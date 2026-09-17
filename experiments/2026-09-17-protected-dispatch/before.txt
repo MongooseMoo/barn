@@ -1,0 +1,26 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	      60	   8599352 ns/op	 3040235 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      79	   8202205 ns/op	 3040241 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      72	   8581467 ns/op	 3040230 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      66	   8615739 ns/op	 3040236 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      61	   8753367 ns/op	 3040237 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      67	  10920401 ns/op	 3040253 B/op	   28033 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      57	   9685918 ns/op	 3040232 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      72	   8897324 ns/op	 3040242 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      70	   8861704 ns/op	 3040249 B/op	   28033 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	      63	   8391851 ns/op	 3040238 B/op	   28032 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     376	   1522235 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     379	   1646985 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     348	   1748584 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     288	   1888798 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     339	   1753129 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     352	   1647536 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     382	   1537769 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     378	   1506959 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     410	   1574607 ns/op	  342521 B/op	    7035 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     392	   1486137 ns/op	  342521 B/op	    7035 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	14.568s

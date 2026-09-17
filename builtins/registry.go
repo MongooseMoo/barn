@@ -16,10 +16,12 @@ import (
 // with a nil Task and callbacks.
 type Execution struct {
 	*kernel.TaskContext
-	Task                 *task.Task
-	Registry             *Registry
-	Session              *Session
-	PushEval             func(*bytecode.Program) types.Result
+	Task     *task.Task
+	Registry *Registry
+	Session  *Session
+	PushEval func(*bytecode.Program) types.Result
+	// PushProtectedVerb runs an executable #0 wrapper on the calling VM.
+	PushProtectedVerb    func(string, []types.Value) types.Result
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
@@ -610,10 +612,13 @@ func (s *Session) maybeProtectedRedirect(name string, ctx *Execution, args []typ
 		return types.Result{}, false
 	}
 	bfName := "bf_" + name
-	_, _, err := findVerbForRead(ctx, types.ObjID(0), bfName)
+	_, _, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
 		verbArgs := append([]types.Value(nil), args...)
+		if ctx.PushProtectedVerb != nil {
+			return ctx.PushProtectedVerb(bfName, verbArgs), true
+		}
 		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
 	}
 	// No wrapper verb: wizards fall through to the real builtin, others denied.

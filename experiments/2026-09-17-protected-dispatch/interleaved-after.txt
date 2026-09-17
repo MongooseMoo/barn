@@ -1,0 +1,70 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     230	   2681136 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     213	   2406388 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     295	   2759030 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     328	   2076795 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     195	   2680297 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     288	   1891625 ns/op	  342536 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     224	   2399250 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     274	   1912473 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     216	   2930623 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     295	   2174891 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     244	   2535664 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     290	   2256300 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     237	   3208300 ns/op	  350521 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     301	   2106766 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     250	   2340506 ns/op	  350523 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     327	   1965879 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     267	   2468986 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     283	   2152107 ns/op	  342537 B/op	    7036 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     255	   2179368 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     332	   1848155 ns/op	  342537 B/op	    7036 allocs/op
+PASS
