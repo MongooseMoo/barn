@@ -139,23 +139,25 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	rt := NewRuntime(store)
 	t.Cleanup(rt.Stop)
 	t.Cleanup(func() { removeTasksForOwner(rt, 0) })
-	rt.registry.Register("commit_subject_b", func(_ *builtins.Execution, args []types.Value) types.Result {
+	// The competing writer is a direct live-store mutation, the one kind of
+	// interleaving that bypasses the commit gate. The task passes its
+	// irreversible-effect boundary first (server_log below, which publishes
+	// nothing yet) and holds that gate exclusively from there, so an ordinary
+	// commit could not interleave; only a live mutation can still move the read
+	// set between the staged write and run_gc's renew, which is exactly the
+	// validation conflict this test is about.
+	rt.registry.Register("mutate_subject_b_live", func(_ *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 0 {
 			return types.Err(types.E_ARGS)
 		}
-		tx := store.BeginReadOnly(0)
-		defer tx.Release()
-		if errCode := tx.SetPropertyValue(class, "subject", types.NewAnon(rootB)); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		if errCode := tx.Commit(); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetPropertyValue(class, "subject", types.NewAnon(rootB)); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
 	})
 
 	program := compileTestProgram(t, rt.registry, fmt.Sprintf(
-		"#%d.subject = 0; commit_subject_b(); run_gc(); return 1;",
+		"server_log(\"run_gc conflict\"); #%d.subject = 0; mutate_subject_b_live(); run_gc(); return 1;",
 		class,
 	))
 	taskID := rt.CreateBackgroundTask(0, program, 0)

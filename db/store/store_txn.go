@@ -2392,6 +2392,202 @@ func (tx *StoreTxn) IsCommitGateExempt() bool {
 	return tx != nil && !tx.direct && tx.gateExempt
 }
 
+// validateReads runs the coarse Commit path's read-set validators without applying
+// anything or marking the transaction terminal.
+func (tx *StoreTxn) validateReads() types.ErrorCode {
+	tx.store.mu.Lock()
+	defer tx.store.mu.Unlock()
+	for _, validate := range []func() types.ErrorCode{
+		tx.validateObjectScalarReadsLocked,
+		tx.validateObjectRelationshipReadsLocked,
+		tx.validatePropertyReadsLocked,
+		tx.validateVerbReadsLocked,
+	} {
+		if errCode := validate(); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	return types.E_NONE
+}
+
+// writeFootprintObjects lists every numbered object this transaction's staged
+// writes would publish a new image for.
+func (tx *StoreTxn) writeFootprintObjects() map[types.ObjID]bool {
+	footprint := make(map[types.ObjID]bool)
+	for id := range tx.scalarWrites {
+		footprint[id] = true
+	}
+	for id := range tx.relationshipWrites {
+		footprint[id] = true
+	}
+	for key := range tx.propertyDefines {
+		footprint[key.objID] = true
+	}
+	for key := range tx.propertyDefinitionDeletes {
+		footprint[key.objID] = true
+	}
+	for key := range tx.propertyWrites {
+		footprint[key.objID] = true
+	}
+	for key := range tx.propertyDeletes {
+		footprint[key.objID] = true
+	}
+	for key := range tx.verbWrites {
+		footprint[key.objID] = true
+	}
+	for _, deletion := range tx.verbDeletes {
+		footprint[deletion.objID] = true
+	}
+	for id := range tx.createdObjects {
+		footprint[id] = true
+	}
+	for id := range tx.recycleWrites {
+		footprint[id] = true
+	}
+	return footprint
+}
+
+// CommitAndRenewCarryingReads is the boundary operation for a task slice that
+// continues after it: the runtime's irreversible-effect boundary, taken while
+// the runtime holds the escalation gate exclusively. It first validates every
+// read recorded so far (a plain CommitAndRenew validates only when there are
+// writes to publish), then publishes the staged writes and replaces the
+// transaction with one at the current clock, so later reads cannot be served a
+// version that a commit before the gate already superseded. The reads recorded
+// so far stay on the renewed transaction (those on objects this commit itself
+// republished at the versions it just gave them), so the slice's final commit
+// still validates everything the slice read. A validation loss returns E_INVARG
+// with ValidationFailed() set and leaves this transaction intact.
+func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
+	if tx == nil || tx.store == nil {
+		return tx, false, types.E_INVARG
+	}
+	if tx.direct {
+		return tx, false, types.E_NONE
+	}
+	if tx.terminalErr != types.E_NONE {
+		return tx, false, tx.terminalErr
+	}
+	if errCode := tx.validateReads(); errCode != types.E_NONE {
+		tx.validationFail = true
+		return tx, false, errCode
+	}
+	// Preserve memoized ancestry dependencies as ordinary scan marks before
+	// renewal drops the memo and before any coarse mutation changes its clock.
+	tx.materializeVerbMemoMarks()
+
+	footprint := tx.writeFootprintObjects()
+	scalarReads := make(map[types.ObjID]uint64, len(tx.scalarReads))
+	for id, version := range tx.scalarReads {
+		scalarReads[id] = version
+	}
+	relationshipReads := make(map[types.ObjID]uint64, len(tx.relationshipReads))
+	for id, version := range tx.relationshipReads {
+		relationshipReads[id] = version
+	}
+	propertyReads := make(map[propertyReadKey]uint64, len(tx.propertyReads))
+	for key, version := range tx.propertyReads {
+		propertyReads[key] = version
+	}
+	propertyScans := make(map[types.ObjID]uint64, len(tx.propertyScans))
+	for id, version := range tx.propertyScans {
+		propertyScans[id] = version
+	}
+	propertyShapeScans := make(map[types.ObjID]uint64, len(tx.propertyShapeScans))
+	for id, version := range tx.propertyShapeScans {
+		propertyShapeScans[id] = version
+	}
+	verbReads := make(map[verbReadKey]uint64, len(tx.verbReads))
+	for key, version := range tx.verbReads {
+		verbReads[key] = version
+	}
+	verbScans := make(map[types.ObjID]uint64, len(tx.verbScans))
+	for id, version := range tx.verbScans {
+		verbScans[id] = version
+	}
+
+	next, publishedWrites, errCode = tx.CommitAndRenew()
+	if errCode != types.E_NONE {
+		return next, publishedWrites, errCode
+	}
+
+	// The objects just republished carry the versions this commit gave them, so
+	// the renewed transaction validates them against its own publication rather
+	// than conflicting with it, while a later live mutation still shows up. A
+	// property or verb this commit removed, or an object it recycled, no longer
+	// has a version to check and drops out of the read set.
+	if len(footprint) > 0 {
+		store := next.store
+		store.mu.RLock()
+		for id := range footprint {
+			live := store.liveObjectLocked(id)
+			if !validLiveObject(live) {
+				delete(scalarReads, id)
+				delete(relationshipReads, id)
+				delete(propertyScans, id)
+				delete(propertyShapeScans, id)
+				delete(verbScans, id)
+				for key := range propertyReads {
+					if key.objID == id {
+						delete(propertyReads, key)
+					}
+				}
+				for key := range verbReads {
+					if key.objID == id {
+						delete(verbReads, key)
+					}
+				}
+				continue
+			}
+			if _, ok := scalarReads[id]; ok {
+				scalarReads[id] = live.scalarVersion
+			}
+			if _, ok := relationshipReads[id]; ok {
+				relationshipReads[id] = live.relationshipVersion
+			}
+			if _, ok := propertyScans[id]; ok {
+				propertyScans[id] = live.propertyVersion
+			}
+			if _, ok := propertyShapeScans[id]; ok {
+				propertyShapeScans[id] = live.propertyShapeVersion
+			}
+			if _, ok := verbScans[id]; ok {
+				verbScans[id] = live.verbVersion
+			}
+			for key := range propertyReads {
+				if key.objID != id {
+					continue
+				}
+				if _, prop, ok := propertyByName(live.properties, key.name); ok {
+					propertyReads[key] = prop.version
+				} else {
+					delete(propertyReads, key)
+				}
+			}
+			for key := range verbReads {
+				if key.objID != id {
+					continue
+				}
+				if verb := live.verbs[key.name]; verb != nil {
+					verbReads[key] = verb.version
+				} else {
+					delete(verbReads, key)
+				}
+			}
+		}
+		store.mu.RUnlock()
+	}
+
+	next.scalarReads = scalarReads
+	next.relationshipReads = relationshipReads
+	next.propertyReads = propertyReads
+	next.propertyScans = propertyScans
+	next.propertyShapeScans = propertyShapeScans
+	next.verbReads = verbReads
+	next.verbScans = verbScans
+	return next, publishedWrites, types.E_NONE
+}
+
 // CommitAndRenew publishes this transaction's staged writes through the ordinary
 // validated commit path, then replaces it with a fresh transaction at the store's
 // current clock. It is used at coarse runtime boundaries that must expose all prior
@@ -2889,6 +3085,10 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	// A failure must leave the task's complete private view available to its
 	// builtin error handler.
 	tx.invalidateResolveCaches()
+	recycledByFlush := make(map[types.ObjID]bool, len(tx.recycleWrites))
+	for id := range tx.recycleWrites {
+		recycledByFlush[id] = true
+	}
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
 	if ec != types.E_NONE {
@@ -2940,10 +3140,23 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 		if cached != nil && cached.anonymous {
 			continue
 		}
-		if live := tx.store.load(id); validLiveObject(live) {
+		if live := tx.store.load(id); live != nil {
+			// A recycled tombstone is cached as such on purpose: dropping the entry
+			// would let the next read re-resolve through the readTS gate, which
+			// still sees the object as it was before this flush recycled it, and a
+			// coarse builtin that then treats the resurrected object as valid dies
+			// with E_INVIND deep inside its own reads instead of returning E_INVARG.
 			tx.objects[id] = cloneObjectForReadTxn(live)
 		} else {
 			delete(tx.objects, id)
+		}
+	}
+	for id := range recycledByFlush {
+		if _, cached := tx.objects[id]; cached {
+			continue
+		}
+		if live := tx.store.load(id); live != nil {
+			tx.objects[id] = cloneObjectForReadTxn(live)
 		}
 	}
 	tx.store.mu.RUnlock()

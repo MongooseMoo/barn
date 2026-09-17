@@ -69,6 +69,22 @@ type TaskContext struct {
 	// conflicts after this point must not retry the whole task body.
 	IrreversibleSideEffect bool
 
+	// BeforeIrreversibleEffect, when the runtime arms it for a task attempt, runs
+	// once, immediately before the attempt's first act that a whole-task re-run
+	// could not undo: an irreversible external effect (IrreversibleSideEffect) or
+	// a direct mutation of the live store (LiveStoreMutated). It returns true when
+	// the attempt must stop right there and be re-run instead of acting (its
+	// reads are already stale, so it could never commit); the builtin then
+	// returns FlowAbortAttempt without acting.
+	BeforeIrreversibleEffect func() bool
+
+	// ConflictRetryRequested is set by BeforeIrreversibleEffect when it stopped
+	// the attempt. Every later irreversible act in the attempt is refused, the
+	// VM unwinds at its next builtin boundary (including from inside a nested
+	// verb-call VM, whose result the calling builtin cannot act on), and the
+	// runtime re-runs the task from the top.
+	ConflictRetryRequested bool
+
 	// DeferredCheckpoint is set when dump_database() runs while this task's
 	// attempt holds the store's commit gate exclusively. The checkpoint takes
 	// that gate itself and runs hook tasks that commit through it, so the
