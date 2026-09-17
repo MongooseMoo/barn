@@ -1,0 +1,189 @@
+{
+  "db": "C:\\Users\\Q\\code\\moo-conformance-tests\\src\\moo_conformance\\_db\\Test.db",
+  "db_sha256": "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+  "barn_sha256": "f66ef68646c134e1c864581e977af6e97bec1f398b1f25b52bbdccf7bce11f30",
+  "git_head": "968a3d0",
+  "repeats": 5,
+  "rows": [
+    {
+      "name": "noop",
+      "code": "return 0;",
+      "toast_ms_median": 0.0037499703466892242,
+      "toast_ms_min": 0.003470107913017273,
+      "barn_ms_median": 0.008475999999646433,
+      "barn_ms_min": 0.007775000000043164,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 0}"
+      ],
+      "barn_value": [
+        "{1, 0}"
+      ],
+      "values_match": true,
+      "ratio": 2.2602845398843563
+    },
+    {
+      "name": "list_index_1M",
+      "code": "l = {}; for i in [1..1000]; l = {@l, i}; endfor; x = 0; for i in [1..1000000]; x = l[1 + (i % 1000)]; endfor; return x;",
+      "toast_ms_median": 56.19731009937823,
+      "toast_ms_min": 54.75519015453756,
+      "barn_ms_median": 113.00856900000022,
+      "barn_ms_min": 111.98161300000004,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 1}"
+      ],
+      "barn_value": [
+        "{1, 1}"
+      ],
+      "values_match": true,
+      "ratio": 2.010924878791495
+    },
+    {
+      "name": "prop_access_1M",
+      "code": "n = #0; x = 0; for i in [1..1000000]; x = typeof(n.name); endfor; return x;",
+      "toast_ms_median": 117.47585004195571,
+      "toast_ms_min": 113.1706100422889,
+      "barn_ms_median": 195.02493099999984,
+      "barn_ms_min": 192.0640019999995,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 2}"
+      ],
+      "barn_value": [
+        "{1, 2}"
+      ],
+      "values_match": true,
+      "ratio": 1.6601278554728311
+    },
+    {
+      "name": "nested_loop_2500x2500",
+      "code": "c = 0; for i in [1..2500]; for j in [1..2500]; c = c + 1; endfor; endfor; return c;",
+      "toast_ms_median": 154.76538985967636,
+      "toast_ms_min": 152.46015996672213,
+      "barn_ms_median": 246.51171799999983,
+      "barn_ms_min": 243.2552269999999,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 6250000}"
+      ],
+      "barn_value": [
+        "{1, 6250000}"
+      ],
+      "values_match": true,
+      "ratio": 1.5928090784606856
+    },
+    {
+      "name": "float_arith_5M",
+      "code": "x = 0.0; for i in [1..5000000]; x = x + 1.5; endfor; return x > 0.0;",
+      "toast_ms_median": 143.03320995531976,
+      "toast_ms_min": 142.19778985716403,
+      "barn_ms_median": 217.093282,
+      "barn_ms_min": 216.18755099999998,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 1}"
+      ],
+      "barn_value": [
+        "{1, 1}"
+      ],
+      "values_match": true,
+      "ratio": 1.5177823532577843
+    },
+    {
+      "name": "int_arith_5M",
+      "code": "x = 0; for i in [1..5000000]; x = x + i; endfor; return x;",
+      "toast_ms_median": 130.46117988415062,
+      "toast_ms_min": 128.31450998783112,
+      "barn_ms_median": 196.395785,
+      "barn_ms_min": 194.71592000000015,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 12500002500000}"
+      ],
+      "barn_value": [
+        "{1, 12500002500000}"
+      ],
+      "values_match": true,
+      "ratio": 1.505396357555552
+    },
+    {
+      "name": "builtin_abs_200k",
+      "code": "x = 0; for i in [1..200000]; x = x + abs(-i); endfor; return x;",
+      "toast_ms_median": 17.271110089495778,
+      "toast_ms_min": 16.933940118178725,
+      "barn_ms_median": 25.442795000000018,
+      "barn_ms_min": 24.69239599999984,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 20000100000}"
+      ],
+      "barn_value": [
+        "{1, 20000100000}"
+      ],
+      "values_match": true,
+      "ratio": 1.473141846016848
+    },
+    {
+      "name": "builtin_tostr_1M",
+      "code": "n = 0; for i in [1..1000000]; n = n + length(tostr(i)); endfor; return n;",
+      "toast_ms_median": 314.92496002465487,
+      "toast_ms_min": 310.2924998383969,
+      "barn_ms_median": 295.7879309999999,
+      "barn_ms_min": 291.92224499999986,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 5888896}"
+      ],
+      "barn_value": [
+        "{1, 5888896}"
+      ],
+      "values_match": true,
+      "ratio": 0.9392330508729547
+    },
+    {
+      "name": "string_concat_50k",
+      "code": "s = \"\"; for i in [1..50000]; s = s + \"x\"; endfor; return length(s);",
+      "toast_ms_median": 28.26609998010099,
+      "toast_ms_min": 27.438810095191002,
+      "barn_ms_median": 6.643347999999882,
+      "barn_ms_min": 6.354473000000027,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 50000}"
+      ],
+      "barn_value": [
+        "{1, 50000}"
+      ],
+      "values_match": true,
+      "ratio": 0.23502881560161193
+    },
+    {
+      "name": "list_append_30k",
+      "code": "l = {}; for i in [1..30000]; l = {@l, i}; endfor; return length(l);",
+      "toast_ms_median": 1475.290299858898,
+      "toast_ms_min": 1453.8481100462377,
+      "barn_ms_median": 6.058363000000178,
+      "barn_ms_min": 4.526149000000146,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 30000}"
+      ],
+      "barn_value": [
+        "{1, 30000}"
+      ],
+      "values_match": true,
+      "ratio": 0.004106556520150387
+    }
+  ]
+}

@@ -101,6 +101,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -560,7 +561,37 @@ def wait_port(host: str, port: int, timeout: float, proc: subprocess.Popen) -> f
 
 def wsl(*args: str, timeout: float = 60.0) -> str:
     cmd = ["wsl.exe", "-d", WSL_DISTRO, "-u", "root", "-e", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=True).stdout
+
+
+# Open a pidfd before inspecting /proc so PID reuse between verification and
+# signalling cannot target a replacement process. No port-based discovery.
+STOP_OWNED_TOAST = r'''
+import os, signal, sys
+from pathlib import Path
+pid, executable, database = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+try:
+    fd = os.pidfd_open(pid)
+except ProcessLookupError:
+    sys.exit(0)
+try:
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        actual_exe = os.readlink(f"/proc/{pid}/exe")
+    except (FileNotFoundError, ProcessLookupError):
+        sys.exit(0)
+    if (actual_exe == os.path.realpath(executable) and len(argv) >= 3
+            and os.fsdecode(argv[1]) == database
+            and os.fsdecode(argv[2]) == database + ".new"):
+        try:
+            signal.pidfd_send_signal(fd, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    else:
+        raise RuntimeError("recorded Toast PID no longer matches this run; refusing to signal")
+finally:
+    os.close(fd)
+'''
 
 
 class Server:
@@ -580,6 +611,8 @@ class ToastServer(Server):
 
     def __init__(self, run_dir: Path, db_copy: Path, port: int):
         self.run_dir, self.db_copy, self.port = run_dir, db_copy, port
+        self.pid_file = run_dir / f"toast-{uuid.uuid4().hex}.pid"
+        self.db_wsl = wsl("wslpath", "-u", db_copy.resolve().as_posix()).strip()
         self.proc: subprocess.Popen | None = None
         self.log_file = None
         self.host = wsl("hostname", "-I").strip().split()[0]
@@ -597,10 +630,13 @@ class ToastServer(Server):
     def start(self) -> float:
         self.log_file = open(self.run_dir / "server.log", "ab")
         db_win = str(self.db_copy).replace("\\", "/")
+        pid_wsl = wsl("wslpath", "-u", self.pid_file.resolve().as_posix()).strip()
         cmd = [
             "wsl.exe", "-d", WSL_DISTRO, "-u", "root", "-e",
             "env", f"TOAST_MOO={TOAST_MOO}",
-            "bash", TOAST_WRAPPER_WSL, db_win, str(self.port),
+            "bash", "-c",
+            'set -euo pipefail; printf "%s" "$$" > "$1"; shift; exec "$@"',
+            "bench-toast", pid_wsl, "bash", TOAST_WRAPPER_WSL, db_win, str(self.port),
         ]
         self.identity["command"] = cmd
         self.proc = subprocess.Popen(
@@ -609,31 +645,23 @@ class ToastServer(Server):
         )
         return wait_port(self.host, self.port, 180.0, self.proc)
 
-    def _listener_pid(self) -> str | None:
-        out = wsl("bash", "-c", f"ss -H -ltnp 'sport = :{self.port}'")
-        m = re.search(r"pid=(\d+)", out)
-        return m.group(1) if m else None
-
     def stop(self) -> None:
-        if self.proc is not None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        # The wsl.exe relay usually takes the foreground moo down with it. If a
-        # listener on OUR port survives, kill only that pid, only if its command
-        # line names our disposable database (other Toast servers may be running).
-        pid = self._listener_pid()
-        if pid:
-            args = wsl("bash", "-c", f"tr '\\0' ' ' < /proc/{pid}/cmdline").strip()
-            if self.db_copy.name in args:
-                wsl("kill", pid)
-                log(f"killed leftover Toast pid {pid} ({args})")
-            else:
-                log(f"WARNING: listener on port {self.port} (pid {pid}) is not ours: {args}")
-        if self.log_file:
-            self.log_file.close()
+        try:
+            if self.pid_file.is_file():
+                pid = self.pid_file.read_text(encoding="ascii").strip()
+                if not pid.isdecimal() or int(pid) <= 1:
+                    raise RuntimeError("invalid recorded Toast PID")
+                wsl("python3", "-c", STOP_OWNED_TOAST, pid, TOAST_MOO, self.db_wsl)
+        finally:
+            if self.proc is not None and self.proc.poll() is None:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait()
+            if self.log_file:
+                self.log_file.close()
 
 
 class BarnServer(Server):
@@ -1073,11 +1101,16 @@ def main() -> int:
     finally:
         for c in bench_conns:
             c.close()
-        server.stop()
+        try:
+            server.stop()
+        except Exception as exc:
+            record["cleanup_error"] = f"{type(exc).__name__}: {exc}"
+            log(f"CLEANUP ERROR {record['cleanup_error']}")
+            exit_code = 1
         record["finished_utc"] = utc_stamp()
         (run_dir / "run.json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
         write_report(run_dir / "report.md", record)
-        if not args.keep_db:
+        if not args.keep_db and "cleanup_error" not in record:
             for p in (db_copy, Path(str(db_copy) + ".new"), Path(str(db_copy) + ".new.PANIC")):
                 try:
                     p.unlink()

@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Benchmark driver tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
   conformance:
     name: MOO conformance suite
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
