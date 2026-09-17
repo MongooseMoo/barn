@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -46,6 +47,21 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Runtime) runTask(t *task.Task) (retErr error) {
+	pprof.Do(s.ctx, pprof.Labels("moo.task", fmt.Sprint(t.ID), "moo.verb", fmt.Sprintf("#%d:%s", t.This, t.VerbName)), func(context.Context) {
+		retErr = s.runTaskSlice(t)
+	})
+	return retErr
+}
+
+func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
+	started := time.Now()
+	defer func() {
+		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
+			slog.Debug("slow task slice", slog.Int64("task_id", t.ID),
+				slog.Int64("this", int64(t.This)), slog.String("verb", t.VerbName),
+				slog.Duration("elapsed", elapsed), slog.Any("err", retErr))
+		}
+	}()
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
 	// Logical TaskRunning ends as soon as a builtin records suspension, before

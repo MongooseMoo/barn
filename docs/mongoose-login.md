@@ -71,6 +71,10 @@ For a repeatable workload capture while a client is connected, run
 `./scripts/capture-mongoose-debug.ps1`. It saves expvar, goroutine stacks, a
 five-second CPU profile, its top functions, and recent warnings/errors through
 Barn's `barn_logs` tool. Override `-Seconds`, `-DebugUrl`, or `-RunDir` as needed.
+The `*-tasks.txt` report groups CPU samples by `moo.task` and `moo.verb`, so a
+busy scheduler callback can be distinguished from login work. Debug logs also
+record `slow task slice` entries for slices taking at least 100ms; their elapsed
+time includes execution, contention, and cleanup, not just CPU time.
 Use `-Commands @('look','inventory','who','north','look','south')` with the login
 script for a short exploration pass. An account already connected may show a
 character chooser: select the desired character before issuing room commands.
