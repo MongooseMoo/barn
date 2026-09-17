@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Barn','Toast')][string]$Engine = 'Barn',
-    [string[]]$Suites = @('builtins/notify_output.yaml','audit/background_zero_suspend.yaml','builtins/seconds_elapsed.yaml'),
+    [string[]]$Suites = @('builtins/notify_output.yaml','audit/background_zero_suspend.yaml','builtins/seconds_elapsed.yaml','builtins/nested_eval_ticks.yaml'),
     [string]$RunDir = '.tmp/mongoose-account-20260917',
     [string]$Distribution = 'Debian',
     [string]$OracleDir = '/root/src/toaststunt-mongoose-login-20260917'
