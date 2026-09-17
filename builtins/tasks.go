@@ -579,7 +579,9 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if len(args) >= 1 {
-		fgTicks, fgSeconds := ctx.Session.GetTaskLimits(false)
+		// Toast validates against the live fg_ticks/fg_seconds, so a reload
+		// earlier in this task counts even before the task commits.
+		fgTicks, fgSeconds := ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
 		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
 			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
 			return types.Err(types.E_INVARG)

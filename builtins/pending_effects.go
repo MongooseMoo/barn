@@ -10,16 +10,36 @@ func enqueuePendingEffect(ctx *Execution, effect kernel.PendingEffect) {
 	ctx.PendingEffects = append(ctx.PendingEffects, effect)
 }
 
+// pendingServerOptions returns the task-local view of $server_options a task
+// acquired by reloading before its writes committed, or nil when the
+// session-wide cache applies. Readers of any server option consult it first so
+// the reload takes effect for the loading task at once, as it does in Toast.
 func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions {
 	if ctx == nil {
 		return nil
 	}
+	if ctx.ServerOptions != nil {
+		return ctx.ServerOptions
+	}
+	// An effect queued without deferServerOptions (tests build the queue by
+	// hand) is still the task's view.
 	for i := len(ctx.PendingEffects) - 1; i >= 0; i-- {
 		if ctx.PendingEffects[i].Kind == kernel.PendingEffectServerOptions {
-			return &ctx.PendingEffects[i].ServerOptions
+			return ctx.PendingEffects[i].ServerOptions
 		}
 	}
 	return nil
+}
+
+// deferServerOptions records snapshot as the task's view and queues it for
+// session-wide publication when the task commits.
+func deferServerOptions(ctx *Execution, snapshot *kernel.PendingServerOptions) {
+	ctx.ServerOptions = snapshot
+	ctx.MaxStringConcat = snapshot.MaxStringConcat
+	enqueuePendingEffect(ctx, kernel.PendingEffect{
+		Kind:          kernel.PendingEffectServerOptions,
+		ServerOptions: snapshot,
+	})
 }
 
 // FlushPendingEffects replays commit-deferred effects in their original call order.
@@ -27,11 +47,14 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 // drop later calls. The task has already committed, so failures are logged instead
 // of being converted into an uncatchable MOO error after successful completion.
 func FlushPendingEffects(ctx *Execution) {
-	if ctx == nil || len(ctx.PendingEffects) == 0 {
+	if ctx == nil || ctx.TaskContext == nil || len(ctx.PendingEffects) == 0 {
 		return
 	}
 	pending := ctx.PendingEffects
 	ctx.PendingEffects = nil
+	// The committed options are published session-wide below; the task-local
+	// view that bridged the gap is no longer needed.
+	ctx.ServerOptions = nil
 	firstErr := types.E_NONE
 	setErr := func(errCode types.ErrorCode) {
 		if firstErr == types.E_NONE {
@@ -79,8 +102,8 @@ func FlushPendingEffects(ctx *Execution) {
 			}
 		case kernel.PendingEffectServerOptions:
 			snapshot := effect.ServerOptions
-			ctx.Session.applyServerOptionsSnapshot(&snapshot)
-			if snapshot.ProtectedBuiltins != nil {
+			ctx.Session.applyServerOptionsSnapshot(snapshot)
+			if snapshot != nil && snapshot.ProtectedBuiltins != nil {
 				ctx.Session.applyProtectedBuiltins(snapshot.ProtectedBuiltins)
 			}
 		case kernel.PendingEffectAsyncStart:
@@ -95,7 +118,8 @@ func FlushPendingEffects(ctx *Execution) {
 }
 
 func DiscardPendingEffects(ctx *Execution) {
-	if ctx != nil {
+	if ctx != nil && ctx.TaskContext != nil {
 		ctx.PendingEffects = nil
+		ctx.ServerOptions = nil
 	}
 }

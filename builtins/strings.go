@@ -405,7 +405,7 @@ func builtinImplode(ctx *Execution, args []types.Value) types.Result {
 	result := strings.Join(parts, delimiter)
 
 	// Check string limit
-	if err := ctx.Session.CheckStringLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -837,7 +837,7 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 	resultStr := result.String()
 
 	// Check string limit
-	if err := ctx.Session.CheckStringLimit(resultStr); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, resultStr); err != types.E_NONE {
 		return types.Err(err)
 	}
 

@@ -58,7 +58,7 @@ func TestTracebackRuntimeVariablesFollowServerOption(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		ctx := &kernel.TaskContext{PendingEffects: []kernel.PendingEffect{{
 			Kind:          kernel.PendingEffectServerOptions,
-			ServerOptions: kernel.PendingServerOptions{IncludeRTVars: enabled},
+			ServerOptions: &kernel.PendingServerOptions{IncludeRTVars: enabled},
 		}}}
 		taskValue := &task.Task{}
 		taskValue.PushFrame(types.ActivationFrame{Verb: "boom"})
@@ -120,7 +120,7 @@ func TestUncaughtStackCapturesOptionalRuntimeVariables(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		ctx := &kernel.TaskContext{PendingEffects: []kernel.PendingEffect{{
 			Kind:          kernel.PendingEffectServerOptions,
-			ServerOptions: kernel.PendingServerOptions{IncludeRTVars: enabled},
+			ServerOptions: &kernel.PendingServerOptions{IncludeRTVars: enabled},
 		}}}
 		machine := &VM{Context: ctx,
 			Builtins: newTestSessionWithTaskManager(BuildVMRegistry())}
