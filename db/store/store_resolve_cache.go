@@ -272,7 +272,8 @@ type verbDispatchMemoEntry struct {
 	readTS  uint64
 	found   bool
 	definer types.ObjID
-	mapKey  string
+	// The shape clock protects definition order; first aliases are not unique.
+	index int
 }
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
@@ -307,8 +308,11 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if !validLiveObject(obj) {
 		return nil, types.ObjNothing, false, false
 	}
-	verb = obj.verbs[entry.mapKey]
-	if verb == nil {
+	if entry.index < 0 || entry.index >= len(obj.verbList) {
+		return nil, types.ObjNothing, false, false
+	}
+	verb = obj.verbList[entry.index]
+	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
 		return nil, types.ObjNothing, false, false
 	}
 	tx.noteVerbMemoHit(key)
@@ -363,7 +367,16 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 	}
 	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
 	if verb != nil {
-		entry.mapKey = verb.mapKey()
+		entry.index = -1
+		for i, candidate := range tx.object(definer).verbList {
+			if candidate == verb {
+				entry.index = i
+				break
+			}
+		}
+		if entry.index < 0 {
+			return
+		}
 	}
 	memo := s.verbMemo()
 	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
