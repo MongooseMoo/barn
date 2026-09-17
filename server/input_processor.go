@@ -68,7 +68,7 @@ func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 }
 
 // HandleConnection reads transport input and serializes it onto the input queue.
-// All MOO verb execution remains on the runtime/input goroutine.
+// Each connection's worker executes its input in order.
 func (p *InputProcessor) HandleConnection(conn *Connection) {
 	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
 
@@ -185,6 +185,7 @@ func (p *InputProcessor) run() {
 	cleanupTicker := time.NewTicker(5 * time.Second)
 	defer cleanupTicker.Stop()
 
+	var runtimeDone <-chan struct{}
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -192,7 +193,11 @@ func (p *InputProcessor) run() {
 		case input := <-p.inputQueue:
 			p.dispatch(input)
 		case <-ticker.C:
-			p.processRuntimeTick()
+			if runtimeDone == nil {
+				runtimeDone = p.processRuntimeTick()
+			}
+		case <-runtimeDone:
+			runtimeDone = nil
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
@@ -201,16 +206,28 @@ func (p *InputProcessor) run() {
 	}
 }
 
-func (p *InputProcessor) processRuntimeTick() {
+func (p *InputProcessor) processRuntimeTick() <-chan struct{} {
 	// A select chooses randomly when both input and the runtime tick are
 	// ready. Recheck the input queue before running another task so a busy
 	// runtime cannot repeatedly win that tie and starve socket input.
 	select {
 	case input := <-p.inputQueue:
 		p.dispatch(input)
+		return nil
 	default:
-		p.runtime.ProcessReadyTasks()
 	}
+	// The scheduler already executes tasks on worker goroutines. Joining a
+	// background pass on the input dispatcher prevents even unrelated login
+	// events from reaching their connection lanes until that pass completes.
+	// Keep just one pass in flight, and join it during Stop via the wait group.
+	done := make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		defer close(done)
+		p.runtime.ProcessReadyTasks()
+	}()
+	return done
 }
 
 // dispatch routes an input event onto its connection's serial lane, creating the
