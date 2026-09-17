@@ -10,14 +10,13 @@ import (
 )
 
 // builtinGenerateJson converts MOO value to JSON string
-// Signature: generate_json(value [, options]) → STR
+// Signature: generate_json(value [, mode [, disable_binary_escapes]]) → STR
 func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
 	value := args[0]
-	pretty := false
 	embeddedTypes := false
 
 	// Parse options if provided
@@ -28,29 +27,24 @@ func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		opts := optsVal.Str()
-		// Validate mode string - must be one of the valid modes or empty
-		if opts != "" && opts != "common-subset" && opts != "embedded-types" &&
-			!strings.HasPrefix(opts, "pretty") && !strings.Contains(opts, "embedded") {
+		switch {
+		case strings.EqualFold(opts, "common-subset"):
+		case strings.EqualFold(opts, "embedded-types"):
+			embeddedTypes = true
+		default:
 			return types.Err(types.E_INVARG)
 		}
-		pretty = strings.Contains(opts, "pretty")
-		embeddedTypes = strings.Contains(opts, "embedded")
 	}
+	disableBinaryEscapes := len(args) == 3 && args[2].Truthy()
 
 	// Convert MOO value to Go value suitable for JSON marshaling
-	jsonValue, err := mooToJSON(value, embeddedTypes, false)
+	jsonValue, err := mooToJSON(value, embeddedTypes, false, disableBinaryEscapes)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
 	// Marshal to JSON
-	var data []byte
-	var jsonErr error
-	if pretty {
-		data, jsonErr = json.MarshalIndent(jsonValue, "", "  ")
-	} else {
-		data, jsonErr = json.Marshal(jsonValue)
-	}
+	data, jsonErr := json.Marshal(jsonValue)
 
 	if jsonErr != nil {
 		return types.Err(types.E_INVARG)
@@ -65,7 +59,7 @@ func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
 // mooToJSON converts a MOO value to a Go value suitable for JSON marshaling
 // embeddedTypes: when true, add type suffixes (|obj, |err, |int, |float)
 // isKey: when true, this value is being used as a map key
-func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, types.ErrorCode) {
+func mooToJSON(v types.Value, embeddedTypes bool, isKey bool, disableBinaryEscapes bool) (interface{}, types.ErrorCode) {
 	switch v.Type() {
 	case types.TYPE_INT:
 		if embeddedTypes && isKey {
@@ -100,7 +94,7 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		// Convert MOO binary escapes (~XX) to actual bytes
 		// JSON marshaler will then produce proper \n, \r, \t, \uXXXX escapes
 		s := v.Str()
-		result := decodeBinaryEscapes(s)
+		result := decodeBinaryEscapes(s, disableBinaryEscapes)
 		return result, types.E_NONE
 
 	case types.TYPE_BOOL:
@@ -126,7 +120,7 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		arr := make([]interface{}, v.Len())
 		for i := 1; i <= v.Len(); i++ {
 			elem := v.Get(i)
-			jsonElem, err := mooToJSON(elem, embeddedTypes, false)
+			jsonElem, err := mooToJSON(elem, embeddedTypes, false, disableBinaryEscapes)
 			if err != types.E_NONE {
 				return nil, err
 			}
@@ -153,7 +147,7 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 			var keyStr string
 			if embeddedTypes {
 				// In embedded mode, keys get type annotations
-				keyVal, err := mooToJSON(key, true, true)
+				keyVal, err := mooToJSON(key, true, true, disableBinaryEscapes)
 				if err != types.E_NONE {
 					return nil, err
 				}
@@ -161,14 +155,14 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 			} else {
 				// Default mode - use raw value for strings, String() for others
 				if key.Type() == types.TYPE_STR {
-					keyStr = key.Str()
+					keyStr = decodeBinaryEscapes(key.Str(), disableBinaryEscapes)
 				} else {
 					keyStr = key.String()
 				}
 			}
 
 			// Convert value
-			jsonValue, err := mooToJSON(value, embeddedTypes, false)
+			jsonValue, err := mooToJSON(value, embeddedTypes, false, disableBinaryEscapes)
 			if err != types.E_NONE {
 				return nil, err
 			}
@@ -550,11 +544,17 @@ func normalizeJSONEscapes(s string) string {
 // decodeBinaryEscapes converts MOO binary escapes (~XX) to actual bytes
 // Only decodes control characters (0x00-0x1F) so JSON can escape them as \uXXXX
 // Other escapes (~20-~7F, ~80-~FF) stay as literal text
-func decodeBinaryEscapes(s string) string {
+// A backslash before a tilde is removed in either mode, leaving a literal tilde.
+func decodeBinaryEscapes(s string, disabled bool) string {
 	var result strings.Builder
 	i := 0
 	for i < len(s) {
-		if i+2 < len(s) && s[i] == '~' {
+		if i+1 < len(s) && s[i] == '\\' && s[i+1] == '~' {
+			result.WriteByte('~')
+			i += 2
+			continue
+		}
+		if !disabled && i+2 < len(s) && s[i] == '~' {
 			// Check for hex escape ~XX
 			hex1, ok1 := hexDigit(s[i+1])
 			hex2, ok2 := hexDigit(s[i+2])
