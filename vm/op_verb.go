@@ -329,7 +329,9 @@ func (vm *VM) executePass() error {
 	}
 
 	// Non-debug frames resume after errors, so consume operands and args first.
-	if !vm.Builtins.Registry().Compiler().Accepts(frame.Program) {
+	// Legacy programs have no layout fingerprint, but still require pass enabled.
+	registry := vm.Builtins.Registry()
+	if !registry.Has("pass") || !registry.Compiler().Accepts(frame.Program) {
 		return VMException{Code: types.E_INVARG}
 	}
 

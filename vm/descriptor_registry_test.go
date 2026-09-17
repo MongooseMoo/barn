@@ -125,6 +125,61 @@ func TestVMForeignLayoutNonDebugConsumesCall(t *testing.T) {
 	}
 }
 
+func TestVMLegacyPassRespectsCapabilities(t *testing.T) {
+	full := BuildVMRegistry()
+	for _, caps := range []config.Capabilities{0, config.Core} {
+		for _, debug := range []bool{false, true} {
+			for _, call := range []string{"pass()", "pass(1, 2)", "pass(@{1, 2})"} {
+				t.Run(fmt.Sprintf("caps=%d/debug=%t/%s", caps, debug, call), func(t *testing.T) {
+					registry, err := builtins.NewRegistryFromDescriptors(caps, Descriptors())
+					if err != nil {
+						t.Fatal(err)
+					}
+					program, diagnostics := full.Compiler().CompileMOO([]string{"return {99, " + call + ", 77};"})
+					if len(diagnostics) != 0 {
+						t.Fatal(diagnostics)
+					}
+					// Old checkpoints predate the registry fingerprint.
+					program.BuiltinLayout = [32]byte{}
+					store := newBytecodeVerbStore()
+					child := dbstore.NewObjectBuilder(1)
+					child.SetParents([]types.ObjID{0})
+					if err := store.Add(child.Build()); err != nil {
+						t.Fatal(err)
+					}
+					snapshot := &task.VMSnapshot{MaxStackDepth: 50, Frames: []task.VMFrameSnapshot{{
+						Program: cloneProgram(program), Locals: make([]types.Value, program.NumLocals),
+						This: 1, Verb: "test_return", VerbLoc: 1, VerbDebug: debug,
+					}}}
+					machine, err := RestoreVMSnapshot(snapshot, store, builtins.NewSession(registry, builtins.NoHost()), kernel.NewTaskContext())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if machine.CurrentFrame() == nil || machine.CurrentFrame().Verb != "test_return" {
+						t.Fatal("restored frame is not active")
+					}
+					machine.ensureContextDependencies()
+					result := machine.Resume()
+					if caps == 0 && debug {
+						if result.Flow != types.FlowException || result.Error != types.E_INVARG {
+							t.Fatalf("disabled legacy pass executed: %+v", result)
+						}
+						return
+					}
+					value := types.NewInt(42)
+					if caps == 0 {
+						value = types.NewErr(types.E_INVARG)
+					}
+					want := types.NewList([]types.Value{types.NewInt(99), value, types.NewInt(77)})
+					if result.Flow != types.FlowReturn || !result.Val.Equal(want) {
+						t.Fatalf("legacy pass result: %+v, want %v", result, want)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestVMOwnedDescriptorAdmissionParity(t *testing.T) {
 	descriptors := Descriptors()
 	for i := range descriptors {
