@@ -19,6 +19,47 @@ func memoHas(s *Store, objID types.ObjID, name string) bool {
 	return ok
 }
 
+func TestVerbDispatchMemoPreservesDuplicateAliasWinner(t *testing.T) {
+	for _, callable := range []bool{false, true} {
+		t.Run(map[bool]string{false: "lookup", true: "callable"}[callable], func(t *testing.T) {
+			s := testChainStore(t)
+			addVerbT(t, s, 0, []string{"look", "first"}, VerbRead)
+			addVerbT(t, s, 0, []string{"look", "second"}, VerbRead|VerbExecute)
+
+			check := func(wantCode string) {
+				t.Helper()
+				var cold *Verb
+				for i := 0; i < 2; i++ {
+					tx := s.BeginReadOnly(0)
+					verb, definer, err := tx.findVerb(2, "second", callable)
+					usedMemo := tx.usedVerbMemo
+					tx.Release()
+					if err != nil || definer != 0 || verb == nil {
+						t.Fatalf("lookup %d: verb=%v definer=%d err=%v", i, verb, definer, err)
+					}
+					if !verb.perms.Has(VerbExecute) || len(verb.names) != 2 || verb.names[1] != "second" || verb.code[0] != wantCode {
+						t.Fatalf("lookup %d: names=%v perms=%v code=%v", i, verb.names, verb.perms, verb.code)
+					}
+					if i == 0 {
+						cold = verb
+					} else if !usedMemo || verb != cold {
+						t.Fatalf("warm lookup: memo=%v verb=%p, cold=%p", usedMemo, verb, cold)
+					}
+				}
+			}
+			check("return 1;")
+			if ec := s.setVerbCodeByIndex(0, 1, []string{"return 2;"}); ec != types.E_NONE {
+				t.Fatalf("edit second verb: %v", ec)
+			}
+			check("return 2;")
+			if ec := s.DeleteVerb(0, "first"); ec != types.E_NONE {
+				t.Fatalf("delete first verb: %v", ec)
+			}
+			check("return 2;")
+		})
+	}
+}
+
 // A second transaction resolves through the store memo: same verb and
 // definer, no per-ancestor scan marks, a read mark on the definer's verb, and
 // the txn-level dependency flag.
