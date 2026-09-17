@@ -1,0 +1,34 @@
+name: nested_eval_ticks
+description: Eval and builtin-invoked verbs consume the caller's tick budget.
+requires:
+  builtins: [eval, ticks_left, create, recycle, add_verb, set_verb_code, add_property]
+tests:
+  - name: nested_eval_does_not_refill_ticks
+    steps:
+      - run: |
+          before = ticks_left();
+          result = eval("return 1;");
+          after = ticks_left();
+          return before > after;
+        as: wizard
+        expect:
+          value: 1
+  - name: initialize_shares_callers_remaining_ticks
+    steps:
+      - run: |
+          base = create($nothing);
+          add_property(base, "seen_ticks", 0, {player, "rw"});
+          add_verb(base, {player, "rxd", "initialize"}, {"this", "none", "this"});
+          set_verb_code(base, "initialize", {"this.seen_ticks = ticks_left();", "for i in [1..100] endfor"});
+          for i in [1..100]
+          endfor
+          before = ticks_left();
+          child = create(base);
+          after = ticks_left();
+          result = {child.seen_ticks < before, before - after > 100};
+          recycle(child);
+          recycle(base);
+          return result;
+        as: wizard
+        expect:
+          value: [1, 1]

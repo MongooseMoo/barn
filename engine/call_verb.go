@@ -126,8 +126,13 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
-	ticks, _ := foregroundTaskLimits(s.session)
-	bcVM.TickLimit = ticks
+	// A builtin callback is part of the current execution slice. Preserve any
+	// earlier callback charges until the outer VM consumes them, and keep this
+	// child from consuming those charges a second time.
+	remaining := parentCtx.TicksRemaining
+	pendingTicks := parentCtx.BuiltinTicksConsumed
+	parentCtx.BuiltinTicksConsumed = 0
+	bcVM.TickLimit = remaining
 	configureVMStackLimit(bcVM, s.session)
 
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
@@ -155,6 +160,8 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	if parentTask != nil {
 		result = s.drainForks(parentTask, bcVM, result)
 	}
+	parentCtx.TicksRemaining = max(0, remaining-bcVM.Ticks)
+	parentCtx.BuiltinTicksConsumed = pendingTicks + bcVM.Ticks
 	vm.ReleaseVM(bcVM)
 	if result.Flow == types.FlowException {
 		trace.Exception(objID, verbName, result.Error)
