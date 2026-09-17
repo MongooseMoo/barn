@@ -73,6 +73,7 @@ type Task struct {
 
 	// For suspension/resumption
 	WakeTime            time.Time
+	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
@@ -509,11 +510,15 @@ func (t *Task) SetBytecodeVM(machine interface{}) {
 // zero so the runtime never auto-wakes it — only an explicit resume() does.
 var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 
-// Suspend suspends the task for a duration
+// Suspend suspends the task for a duration. A zero duration is a scheduler
+// yield with no wake deadline, so any WakeTime left over from an earlier timed
+// suspend is cleared rather than letting the scheduler treat the yield as due.
 func (t *Task) Suspend(duration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskSuspended
+	t.suspendGen++
+	t.WakeTime = time.Time{}
 	if duration > 0 {
 		t.WakeTime = time.Now().Add(duration)
 	}
@@ -521,14 +526,42 @@ func (t *Task) Suspend(duration time.Duration) {
 
 // SuspendIndefinite suspends the task with no wake deadline (suspend() with
 // no/negative seconds). The task waits for an explicit resume() and must never
-// auto-wake, so WakeTime stays zero. StartTime is stamped with the far-future
-// IndefiniteSuspendStartTime sentinel so the task sorts LAST in queued_tasks()
-// (ascending by start time), matching ToastStunt's INTNUM_MAX start_tv.
+// auto-wake, so WakeTime is cleared: a deadline left over from an earlier timed
+// suspend would otherwise make the scheduler wake this suspension with 0 before
+// the party it is waiting on delivers its value. StartTime is stamped with the
+// far-future IndefiniteSuspendStartTime sentinel so the task sorts LAST in
+// queued_tasks() (ascending by start time), matching ToastStunt's INTNUM_MAX
+// start_tv.
 func (t *Task) SuspendIndefinite() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskSuspended
+	t.suspendGen++
+	t.WakeTime = time.Time{}
 	t.StartTime = IndefiniteSuspendStartTime
+}
+
+// SuspendGeneration identifies the task's current suspension. Every Suspend and
+// SuspendIndefinite starts a new generation, so a completion that captured the
+// generation at suspend time can tell (via ResumeGeneration) whether the task is
+// still waiting on it or has since been retried, resumed by someone else, or
+// suspended again.
+func (t *Task) SuspendGeneration() uint64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.suspendGen
+}
+
+// ResumeGeneration resumes the task like Resume, but only while it is still in
+// the suspension identified by gen. A stale completion (one belonging to an
+// abandoned attempt or an earlier suspension) is ignored and returns false.
+func (t *Task) ResumeGeneration(gen uint64, value types.Value) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.suspendGen != gen {
+		return false
+	}
+	return t.resumeLocked(value)
 }
 
 // Resume resumes the task with a value
@@ -536,6 +569,10 @@ func (t *Task) SuspendIndefinite() {
 func (t *Task) Resume(value types.Value) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.resumeLocked(value)
+}
+
+func (t *Task) resumeLocked(value types.Value) bool {
 	if t.State != TaskSuspended {
 		return false
 	}

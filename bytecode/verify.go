@@ -12,7 +12,10 @@ func VerifyProgram(program *Program) error {
 	if program == nil || len(program.Code) == 0 {
 		return fmt.Errorf("empty bytecode program")
 	}
-	if program.NumLocals < 0 || program.NumLocals > len(program.VarNames) {
+	// Every named variable owns a slot, but the compiler also allocates unnamed
+	// temporaries from the top of the one-byte operand range, so a program may
+	// legitimately have far more slots than names (up to MaxLocals).
+	if program.NumLocals < len(program.VarNames) || program.NumLocals > MaxLocals {
 		return fmt.Errorf("invalid local metadata: %d locals, %d names", program.NumLocals, len(program.VarNames))
 	}
 	slots := program.BuiltinSlots

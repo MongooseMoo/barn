@@ -124,8 +124,8 @@ func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			return flags, true
 		},
 	)
-	if ctx.StoreTxn.HasWrites() {
-		pending := pendingServerOptions(ctx.TaskContext)
+	pending := pendingServerOptions(ctx.TaskContext)
+	if ctx.StoreTxn.HasWrites() || pending != nil {
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
 			enqueuePendingEffect(ctx, kernel.PendingEffect{

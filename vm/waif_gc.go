@@ -77,12 +77,6 @@ func CollectWaifsFromValue(v types.Value, out *[]types.Value) {
 	collectWaifsForGC(v, out)
 }
 
-func (vm *VM) collectPendingWaifsFromFrame(frame *StackFrame) {
-	frame.visitValues(func(value types.Value, _ valueRootKind) {
-		collectDirectWaifsForGC(value, &vm.PendingWaifs)
-	})
-}
-
 // TakePendingWaifs returns waifs whose frame references have gone out of scope.
 func (vm *VM) TakePendingWaifs() []types.Value {
 	if len(vm.PendingWaifs) == 0 {

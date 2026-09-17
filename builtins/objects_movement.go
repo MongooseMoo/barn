@@ -157,6 +157,7 @@ func ApplyMoveLifecycle(ctx *Execution, what, where types.Value, position int64,
 		return oldLocationValue, types.E_NONE
 	}
 
+	tx.PrepareLiveMutation()
 	if errCode := ctx.Store.DirectTxn().MoveObject(what.ID(), where.ID(), position); errCode != types.E_NONE {
 		return types.None, errCode
 	}

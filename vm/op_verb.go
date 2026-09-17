@@ -175,11 +175,12 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 
 	// Push new stack frame
-	frame := &StackFrame{
+	frame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            objID,
 		ThisValue:       thisValue,
 		Player:          player,
@@ -195,12 +196,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
@@ -393,11 +389,12 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := &StackFrame{
+	newFrame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            frame.This,
 		ThisValue:       passThisValue,
 		Player:          frame.Player,
@@ -413,12 +410,7 @@ func (vm *VM) executePass() error {
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)

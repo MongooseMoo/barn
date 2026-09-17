@@ -258,7 +258,27 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		moveContinuationValue(frame.MoveContinuation),
 		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
 		recycleContinuationValue(frame.RecycleContinuation),
+		internalLocalsValue(frame),
 	})
+}
+
+// internalLocalsValue captures the bound compiler-temporary slots, which sit
+// above the named variables and therefore never appear in the Toast-shaped
+// rt_env written by writeVMFrame. Loop cursors and other continuation state
+// live there, so a task suspended inside such a construct needs them back.
+// Encoded as {{slot, value}, ...} with zero-based slots.
+func internalLocalsValue(frame task.VMFrameSnapshot) types.Value {
+	entries := make([]types.Value, 0)
+	for slot := len(frame.Program.VarNames); slot < len(frame.Locals); slot++ {
+		if frame.Locals[slot].IsUnbound() || frame.Locals[slot].IsNone() {
+			continue
+		}
+		entries = append(entries, types.NewList([]types.Value{
+			types.NewInt(int64(slot)),
+			frame.Locals[slot],
+		}))
+	}
+	return types.NewList(entries)
 }
 
 func pendingReturnValue(value types.Value, present bool) types.Value {

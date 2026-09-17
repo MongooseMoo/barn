@@ -223,9 +223,13 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	frame.StoredVerb = storedVerb
 	frame.VerbLoc = verbLoc
 	frame.VerbDebug = debug != 0
-	frame.Locals = make([]types.Value, frame.Program.NumLocals)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
+	// A Barn frame arrives with its slots (and restored temporaries) already
+	// allocated by decodeVMFrameMetadata; a Toast-shaped frame only has names.
+	if len(frame.Locals) != frame.Program.NumLocals {
+		frame.Locals = make([]types.Value, frame.Program.NumLocals)
+		for i := range frame.Locals {
+			frame.Locals[i] = types.Unbound
+		}
 	}
 	for i, name := range envNames {
 		for localIndex, declared := range frame.Program.VarNames {
@@ -312,6 +316,33 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 		}
 	}
 	frame.Program.NumLocals = int(value.Get(6).Int())
+	if frame.Program.NumLocals < len(frame.Program.VarNames) || frame.Program.NumLocals > bytecode.MaxLocals {
+		return frame, fmt.Errorf("suspended activation has invalid local metadata: %d locals, %d names", frame.Program.NumLocals, len(frame.Program.VarNames))
+	}
+	// Compiler temporaries live above the named variables and are restored
+	// from element 19 (written by internalLocalsValue); checkpoints predating
+	// that element simply leave them unbound.
+	frame.Locals = make([]types.Value, frame.Program.NumLocals)
+	for i := range frame.Locals {
+		frame.Locals[i] = types.Unbound
+	}
+	if value.Len() >= 19 {
+		internal := value.Get(19)
+		if internal.Type() != types.TYPE_LIST {
+			return frame, fmt.Errorf("suspended activation internal locals must be a list")
+		}
+		for i := 1; i <= internal.Len(); i++ {
+			entry := internal.Get(i)
+			if entry.Type() != types.TYPE_LIST || entry.Len() != 2 || entry.Get(1).Type() != types.TYPE_INT {
+				return frame, fmt.Errorf("suspended activation internal local %d is malformed", i)
+			}
+			slot := int(entry.Get(1).Int())
+			if slot < len(frame.Program.VarNames) || slot >= frame.Program.NumLocals {
+				return frame, fmt.Errorf("suspended activation internal local slot %d outside [%d, %d)", slot, len(frame.Program.VarNames), frame.Program.NumLocals)
+			}
+			frame.Locals[slot] = entry.Get(2)
+		}
+	}
 
 	handlers := value.Get(7)
 	frame.ExceptStack = make([]bytecode.Handler, handlers.Len())

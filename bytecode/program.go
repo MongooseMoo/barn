@@ -4,6 +4,11 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// MaxLocals is the number of local slots addressable by a one-byte variable
+// operand. Named variables fill slots from the bottom and compiler temporaries
+// from the top, so NumLocals may reach MaxLocals with only a few VarNames.
+const MaxLocals = 256
+
 // Program represents compiled bytecode
 type Program struct {
 	Code         []byte        // Bytecode instructions

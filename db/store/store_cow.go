@@ -68,6 +68,8 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		np.value = w.value
 		np.version = ts
 		newProps[propertyNameKey(w.name)] = np
+		// A new slot changes which ancestry walks fall through this object.
+		img.propertyShapeVersion = ts
 	}
 
 	img.properties = newProps
@@ -159,6 +161,7 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 
 	img.properties = newProps
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -209,6 +212,7 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 	img.propOrder = newOrder
 	img.propDefsCount = old.propDefsCount + 1
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -241,6 +245,7 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 		img.propDefsCount = old.propDefsCount - 1
 	}
 	img.propertyVersion = ts
+	img.propertyShapeVersion = ts
 	return &img
 }
 
@@ -281,6 +286,7 @@ func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) 
 
 	img.verbs = newVerbs
 	img.verbList = newVerbList
+	img.rebuildVerbIndex()
 	img.verbVersion = ts
 	return &img
 }
@@ -422,6 +428,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.propertyScans {
 		addLockID(id)
 	}
+	for id := range tx.propertyShapeScans {
+		addLockID(id)
+	}
 	for key := range tx.verbReads {
 		addLockID(key.objID)
 	}
@@ -517,9 +526,17 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// even an untouched map or slice here would let them corrupt the old image kept in
 	// history. Builders may safely share untouched collections with this unpublished
 	// detached image while composing the final replacement.
+	waifRootsDirty := false
+	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
 	for _, id := range writeIDs {
 		created := tx.createdObjects[id]
 		old := s.load(id) // nil for a created id
+		if tx.recycleWrites[id] && old != nil && !old.anonymous {
+			verbShapeDirty = true // anonymous ids are never memoized, so their churn leaves the memo alone
+		}
+		if tx.recycleWrites[id] || len(propDefinesByObj[id])+len(propDefDeletesByObj[id])+len(propDeletesByObj[id]) > 0 {
+			waifRootsDirty = true
+		}
 		var img *Object
 		if created != nil {
 			// Brand-new object: build from the PRISTINE creation-time base and stamp
@@ -546,6 +563,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			img = buildImageWithPropertyDefine(img, def, ts)
 		}
 		for _, w := range propWritesByObj[id] {
+			if !waifRootsDirty && (w.value.MayHoldFinalizable() || propertyValueMayHoldFinalizable(img, w.name)) {
+				waifRootsDirty = true
+			}
 			img = buildImageWithPropertyValue(img, w, ts)
 		}
 		for _, actualName := range propDeletesByObj[id] {
@@ -588,6 +608,14 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	floor := s.historyFloor()
 	for _, id := range writeIDs {
 		s.pruneObjectHistory(id, floor)
+	}
+	if waifRootsDirty {
+		// After the publishes, so a scan that read the old epoch before they
+		// landed can never memoize a root set missing these values.
+		s.noteWaifRootsChanged()
+	}
+	if verbShapeDirty {
+		s.noteVerbShapeChanged()
 	}
 
 	tx.scalarWrites = nil
