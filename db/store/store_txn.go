@@ -2384,6 +2384,14 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 	}
 }
 
+// IsCommitGateExempt reports whether this txn belongs to an attempt whose
+// runtime holds the commit gate exclusively. Anything that would re-enter the
+// gate from inside that attempt (a checkpoint, or a hook task committing an
+// ordinary txn) must wait until the runtime releases it.
+func (tx *StoreTxn) IsCommitGateExempt() bool {
+	return tx != nil && !tx.direct && tx.gateExempt
+}
+
 // validateReads runs the coarse Commit path's read-set validators without applying
 // anything or marking the transaction terminal.
 func (tx *StoreTxn) validateReads() types.ErrorCode {

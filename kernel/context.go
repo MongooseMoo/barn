@@ -85,6 +85,12 @@ type TaskContext struct {
 	// runtime re-runs the task from the top.
 	ConflictRetryRequested bool
 
+	// DeferredCheckpoint is set when dump_database() runs while this task's
+	// attempt holds the store's commit gate exclusively. The checkpoint takes
+	// that gate itself and runs hook tasks that commit through it, so the
+	// runtime performs it as soon as the gate is released instead.
+	DeferredCheckpoint bool
+
 	// DeferredGC marks a recycle activation owned by the runtime's deferred
 	// collector. Lifecycle requests from it must not wait on that same collector.
 	DeferredGC bool
