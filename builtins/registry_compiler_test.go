@@ -4,41 +4,28 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/config"
 )
 
-func TestRegisterInvalidatesSourceCompiler(t *testing.T) {
-	registry := NewRegistry()
-	name := "issue_87_mutable_builtin"
-	registry.Register(name, func(_ *Execution, _ []types.Value) types.Result {
-		return types.Result{}
-	})
-	source := []string{"return " + name + "();"}
-
-	beforeCompiler := registry.Compiler()
-	before, diagnostics := beforeCompiler.CompileMOO(source)
+func TestRegistryRejectsDuplicateCompilerNames(t *testing.T) {
+	d := testDescriptor("issue_87_mutable_builtin")
+	if _, err := NewRegistryFromDescriptors(config.Core, []Descriptor{d, d}); err == nil {
+		t.Fatal("duplicate registration accepted")
+	}
+	r, err := NewRegistryFromDescriptors(config.Core, []Descriptor{d})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := r.Compiler()
+	program, diagnostics := compiler.CompileMOO([]string{"return issue_87_mutable_builtin();"})
 	if len(diagnostics) != 0 {
-		t.Fatalf("compile before re-registration diagnostics = %v", diagnostics)
+		t.Fatal(diagnostics)
 	}
-	beforeID := compiledRegistryBuiltinID(t, before)
-
-	registry.Register(name, func(_ *Execution, _ []types.Value) types.Result {
-		return types.Result{}
-	})
-	afterCompiler := registry.Compiler()
-	if afterCompiler == beforeCompiler {
-		t.Fatal("Register() did not invalidate the registry source compiler")
+	if compiledRegistryBuiltinID(t, program) != 0 {
+		t.Fatal("wrong builtin ID")
 	}
-	after, diagnostics := afterCompiler.CompileMOO(source)
-	if len(diagnostics) != 0 {
-		t.Fatalf("compile after re-registration diagnostics = %v", diagnostics)
-	}
-	afterID := compiledRegistryBuiltinID(t, after)
-	if afterID == beforeID {
-		t.Fatalf("builtin ID after re-registration = %d, want a new ID", afterID)
-	}
-	if want, ok := registry.GetID(name); !ok || int(afterID) != want {
-		t.Fatalf("compiled builtin ID = %d, registry ID = %d, found = %v", afterID, want, ok)
+	if r.Compiler() != compiler {
+		t.Fatal("immutable registry replaced compiler")
 	}
 }
 

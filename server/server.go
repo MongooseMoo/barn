@@ -21,12 +21,14 @@ import (
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
 	runtime            *engine.Runtime
+	registry           *builtins.Registry
 	input              *InputProcessor
 	connManager        *ConnectionManager
 	checkpointedConns  []dbformat.ActiveConnection
@@ -57,6 +59,9 @@ type LifecycleObserver interface {
 // SetLifecycleObserver installs a per-server lifecycle observer.
 func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle = observer }
 
+// BuiltinRegistry is the immutable registry used by this server's runtime.
+func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
+
 var ErrPanicShutdown = errors.New("panic shutdown")
 
 // NewServer creates a new MOO server with default runtime options.
@@ -72,6 +77,10 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 	if err := options.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime options: %w", err)
 	}
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		return nil, fmt.Errorf("construct builtin registry: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
@@ -79,6 +88,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 		listenerSpecs:      append([]listener.Spec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
+		registry:           registry,
 		checkpointChan:     make(chan struct{}, 1),
 		ctx:                ctx,
 		cancel:             cancel,
@@ -96,7 +106,7 @@ func (s *Server) LoadDatabase() error {
 	if err != nil {
 		return fmt.Errorf("construct store from database: %w", err)
 	}
-	s.runtime = engine.NewRuntimeWithOptions(s.store, s.options)
+	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)

@@ -136,7 +136,8 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 		t.Fatalf("persist anonymous root A: %v", errCode)
 	}
 
-	rt := NewRuntime(store)
+	var mutateSubjectBLiveBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("mutate_subject_b_live", 0, 0, []int64{}, &mutateSubjectBLiveBuiltin))
 	t.Cleanup(rt.Stop)
 	t.Cleanup(func() { removeTasksForOwner(rt, 0) })
 	// The competing writer is a direct live-store mutation, the one kind of
@@ -146,7 +147,7 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	// commit could not interleave; only a live mutation can still move the read
 	// set between the staged write and run_gc's renew, which is exactly the
 	// validation conflict this test is about.
-	rt.registry.Register("mutate_subject_b_live", func(_ *builtins.Execution, args []types.Value) types.Result {
+	mutateSubjectBLiveBuiltin = func(_ *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 0 {
 			return types.Err(types.E_ARGS)
 		}
@@ -154,7 +155,7 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	program := compileTestProgram(t, rt.registry, fmt.Sprintf(
 		"server_log(\"run_gc conflict\"); #%d.subject = 0; mutate_subject_b_live(); run_gc(); return 1;",
@@ -224,10 +225,11 @@ func TestRunGCCommitsStagedAnonymousEdgeBeforeLiveSweep(t *testing.T) {
 		t.Fatalf("persist anonymous anchor: %v", errCode)
 	}
 
-	rt := NewRuntime(store)
+	var stageCycleEdgeBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("stage_cycle_edge", 0, 0, []int64{}, &stageCycleEdgeBuiltin))
 	t.Cleanup(rt.Stop)
 	t.Cleanup(func() { removeTasksForOwner(rt, 0) })
-	rt.registry.Register("stage_cycle_edge", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	stageCycleEdgeBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 0 || ctx.StoreTxn == nil {
 			return types.Err(types.E_INVARG)
 		}
@@ -235,7 +237,7 @@ func TestRunGCCommitsStagedAnonymousEdgeBeforeLiveSweep(t *testing.T) {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	program := compileTestProgram(t, rt.registry, "stage_cycle_edge(); run_gc(); return 1;")
 	taskID := rt.CreateBackgroundTask(0, program, 0)

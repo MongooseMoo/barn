@@ -35,14 +35,14 @@ func newBoundaryTestStore(t *testing.T) *dbstore.Store {
 	return store
 }
 
-// registerBumpReadValueLiveOnce installs a builtin standing in for a concurrent
+// bumpReadValueLiveOnce describes a builtin standing in for a concurrent
 // writer: the first call moves #0.read_value in the live store (bypassing the
 // task's transaction, like another task's commit landing between this task's
 // snapshot and its irreversible effect); later calls do nothing.
-func registerBumpReadValueLiveOnce(t *testing.T, s *Runtime, store *dbstore.Store) *int {
+func bumpReadValueLiveOnce(t *testing.T, store *dbstore.Store) (builtins.Descriptor, *int) {
 	t.Helper()
 	calls := 0
-	s.registry.Register("bump_read_value_live_once", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	var callback builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		calls++
 		if calls > 1 {
 			return types.Ok(types.NewInt(0))
@@ -55,8 +55,8 @@ func registerBumpReadValueLiveOnce(t *testing.T, s *Runtime, store *dbstore.Stor
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
-	return &calls
+	}
+	return testBuiltinSlot("bump_read_value_live_once", 0, 0, []int64{}, &callback), &calls
 }
 
 func assertCommitGateReleased(t *testing.T, store *dbstore.Store) {
@@ -76,9 +76,9 @@ func assertCommitGateReleased(t *testing.T, store *dbstore.Store) {
 
 func TestRunTaskRetriesStaleReadsBeforeFirstIrreversibleEffect(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, _ := bumpReadValueLiveOnce(t, store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	registerBumpReadValueLiveOnce(t, s, store)
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -116,9 +116,9 @@ return before;
 
 func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, _ := bumpReadValueLiveOnce(t, store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	registerBumpReadValueLiveOnce(t, s, store)
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -191,9 +191,9 @@ return before;
 // once, and no E_INVARG reaches the task.
 func TestRunTaskRetriesStaleReadsBeforeFirstCoarseBuiltin(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, _ := bumpReadValueLiveOnce(t, store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	registerBumpReadValueLiveOnce(t, s, store)
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
@@ -235,9 +235,9 @@ func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T
 	if _, ec := store.AddVerb(0, initialize); ec != types.E_NONE {
 		t.Fatalf("AddVerb initialize: %v", ec)
 	}
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, _ := bumpReadValueLiveOnce(t, store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	registerBumpReadValueLiveOnce(t, s, store)
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())

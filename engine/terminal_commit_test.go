@@ -17,9 +17,10 @@ func TestRunTaskDoesNotRecommitAfterTerminalCommitFailure(t *testing.T) {
 		}
 	}
 
-	s := NewRuntime(store)
+	var forceTerminalCommitBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("force_terminal_commit", 0, 0, []int64{}, &forceTerminalCommitBuiltin))
 	defer s.Stop()
-	s.registry.Register("force_terminal_commit", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+	forceTerminalCommitBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		if errCode := ctx.StoreTxn.SetObjectName(0, "private"); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -34,7 +35,7 @@ func TestRunTaskDoesNotRecommitAfterTerminalCommitFailure(t *testing.T) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.None)
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	running := task.NewTaskFull(94002, 0, compileTestProgram(t, s.registry, `

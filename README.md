@@ -80,7 +80,6 @@ go build -o <tool>.exe ./cmd/<tool>/
 | `barn_logs` | Inspect Barn's structured run logs |
 | `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
 | `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
-| `gen_builtin_signatures` | Generate built-in function signature data |
 
 ## Conformance Workflow
 

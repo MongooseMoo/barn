@@ -64,6 +64,11 @@ func (vm *VM) executeCallBuiltin() error {
 		}
 	}
 
+	// Non-debug frames resume after errors, so consume operands and args first.
+	if !vm.Builtins.Registry().Compiler().Accepts(vm.CurrentFrame().Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
 	// Sync task call-stack line numbers only for builtins that expose them.
 	if vm.Builtins.Registry().NeedsLineSyncByID(int(funcID)) {
 		vm.syncTaskLineNumbers()

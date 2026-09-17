@@ -25,15 +25,16 @@ func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
 			if ec := store.DirectTxn().DefineProperty(0, "h", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
 				t.Fatal(ec)
 			}
-			rt := NewRuntime(store)
+			var inlineGateHeldBuiltin builtins.BuiltinFunc
+			descriptor, calls := bumpReadValueLiveOnce(t, store)
+			rt := newTestRuntimeWithBuiltins(t, store, descriptor, testBuiltinSlot("inline_gate_held", 0, 0, []int64{}, &inlineGateHeldBuiltin))
 			defer rt.Stop()
-			calls := registerBumpReadValueLiveOnce(t, rt, store)
-			rt.registry.Register("inline_gate_held", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+			inlineGateHeldBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 				if ctx.StoreTxn.IsCommitGateExempt() {
 					return types.Ok(types.NewInt(1))
 				}
 				return types.Ok(types.NewInt(0))
-			})
+			}
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
 			setup := task.NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
 #0.h = sqlite_open(":memory:");
@@ -111,10 +112,11 @@ func TestSqliteThreadedStatementRunsOnceAcrossSuspendCommitRetry(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 
-	rt := NewRuntime(store)
+	var forceRetryConflictBuiltin, attemptNoBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("force_retry_conflict", 0, 0, []int64{}, &forceRetryConflictBuiltin), testBuiltinSlot("attempt_no", 0, 0, []int64{}, &attemptNoBuiltin))
 	defer rt.Stop()
 	forceCalls := 0
-	rt.registry.Register("force_retry_conflict", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+	forceRetryConflictBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		forceCalls++
 		if forceCalls == 1 {
 			// A concurrent commit after this attempt read retry_value: a retryable
@@ -124,12 +126,12 @@ func TestSqliteThreadedStatementRunsOnceAcrossSuspendCommitRetry(t *testing.T) {
 			}
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 	attempts := 0
-	rt.registry.Register("attempt_no", func(_ *builtins.Execution, _ []types.Value) types.Result {
+	attemptNoBuiltin = func(_ *builtins.Execution, _ []types.Value) types.Result {
 		attempts++
 		return types.Ok(types.NewInt(int64(attempts)))
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	setup := task.NewTaskFull(94010, 0, compileTestProgram(t, rt.registry, `

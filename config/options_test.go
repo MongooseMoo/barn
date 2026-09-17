@@ -20,8 +20,8 @@ func TestFeatureMap(t *testing.T) {
 	if on[FeatureOutboundNetwork] != true {
 		t.Fatalf("enabled outbound feature = %v, want true", on[FeatureOutboundNetwork])
 	}
-	if on[FeatureOpenNetworkConnection] != "present" {
-		t.Fatalf("open_network_connection feature = %v, want present", on[FeatureOpenNetworkConnection])
+	if _, present := on[FeatureOpenNetworkConnection]; present {
+		t.Fatal("options must not claim builtin availability")
 	}
 	if on[FeaturePromoteNumbers] != true {
 		t.Fatalf("promote feature = %v, want true", on[FeaturePromoteNumbers])
@@ -31,8 +31,8 @@ func TestFeatureMap(t *testing.T) {
 	if off[FeatureOutboundNetwork] != false {
 		t.Fatalf("disabled outbound feature = %v, want false", off[FeatureOutboundNetwork])
 	}
-	if off[FeatureOpenNetworkConnection] != "present" {
-		t.Fatalf("open_network_connection feature = %v, want present", off[FeatureOpenNetworkConnection])
+	if _, present := off[FeatureOpenNetworkConnection]; present {
+		t.Fatal("options must not claim builtin availability")
 	}
 }
 
@@ -49,8 +49,8 @@ func TestFeatureNames(t *testing.T) {
 	if contains(off, FeatureOutboundNetwork) {
 		t.Fatalf("disabled feature names %v unexpectedly include %s", off, FeatureOutboundNetwork)
 	}
-	if !contains(off, FeatureOpenNetworkConnection) {
-		t.Fatalf("disabled feature names %v missing %s", off, FeatureOpenNetworkConnection)
+	if contains(off, FeatureOpenNetworkConnection) {
+		t.Fatal("options must not claim builtin availability")
 	}
 }
 

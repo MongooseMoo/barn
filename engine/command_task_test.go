@@ -18,10 +18,11 @@ func TestExecuteVerbTaskSyncReturnsRecoveredTaskPanic(t *testing.T) {
 		dbstore.VerbArgs{This: "none", Prep: "none", That: "none"},
 		[]string{"panic_for_command_test();"}))
 
-	runtime := NewRuntime(store)
-	runtime.Registry().Register("panic_for_command_test", func(_ *builtins.Execution, _ []types.Value) types.Result {
+	var panicForCommandTestBuiltin builtins.BuiltinFunc
+	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("panic_for_command_test", 0, 0, []int64{}, &panicForCommandTestBuiltin))
+	panicForCommandTestBuiltin = func(_ *builtins.Execution, _ []types.Value) types.Result {
 		panic("command task exploded")
-	})
+	}
 
 	cmd := command.ParseCommand("panic-command")
 	match := command.FindVerb(store, 2, 2, cmd)
