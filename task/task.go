@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -58,18 +59,19 @@ func (s TaskState) String() string {
 
 // Task represents a MOO task (unit of execution)
 type Task struct {
-	ID           int64
-	Owner        types.ObjID
-	Kind         TaskKind // Type of task (input, forked, suspended)
-	State        TaskState
-	StartTime    time.Time
-	QueueTime    time.Time // When task was queued
-	TicksUsed    int64
-	TicksLimit   int64
-	SecondsUsed  float64
-	SecondsLimit float64
-	CallStack    []types.ActivationFrame
-	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
+	ID                int64
+	Owner             types.ObjID
+	Kind              TaskKind // Type of task (input, forked, suspended)
+	State             TaskState
+	StartTime         time.Time
+	QueueTime         time.Time // When task was queued
+	TicksUsed         int64
+	TicksLimit        int64
+	SecondsUsed       float64
+	SecondsLimit      float64
+	executionDeadline time.Time
+	CallStack         []types.ActivationFrame
+	TaskLocal         types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
 	WakeTime            time.Time
@@ -454,7 +456,27 @@ func (t *Task) SchedulingSnapshot() (time.Time, time.Time, int64) {
 func (t *Task) SecondsLeft() float64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	if !t.executionDeadline.IsZero() {
+		return math.Max(0, math.Ceil(time.Until(t.executionDeadline).Seconds()))
+	}
 	return t.SecondsLimit - t.SecondsUsed
+}
+
+// SetExecutionDeadline starts the timer only once execution has acquired its
+// resources. Queueing and waiting for the commit gate do not consume it.
+func (t *Task) SetExecutionDeadline(deadline time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.executionDeadline = deadline
+}
+
+// ExcludeExecutionWait keeps server-side contention out of the MOO budget.
+func (t *Task) ExcludeExecutionWait(wait time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.executionDeadline.IsZero() {
+		t.executionDeadline = t.executionDeadline.Add(wait)
+	}
 }
 
 // ConsumeTick increments tick count and returns true if ticks remain

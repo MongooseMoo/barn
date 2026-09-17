@@ -1,0 +1,79 @@
+# Comparing Mongoose login on Barn and Toast
+
+Run these commands from the Barn checkout in PowerShell. Evidence and disposable
+database copies go under `.tmp/mongoose-account-20260917` by default; override
+`-RunDir` consistently to use another directory. These are live workload probes,
+not the generic conformance harness.
+
+## Refresh the inputs
+
+```powershell
+./scripts/fetch-mongoose.ps1
+```
+
+This fetches `mongoose@mongoose.world:~/mongoose/mongoose.db.new` and creates a
+consistent backup of `~/mongoose/files/sqlite/sound.sqlite` using SQLite's backup
+API, including data in its WAL. It replaces the local `mongoose.db.new` and
+`files/sqlite/sound.sqlite`, preserving their previous contents in the run
+directory. The server's sound file is singular, `sound.sqlite`. The script
+retains the remote `/tmp/barn-sound-<timestamp>.sqlite` backup and prints its path.
+
+A password change only appears in a downloaded MOO database after the live
+server checkpoints. An `Access Denied` result on both engines needs a refreshed
+checkpoint or corrected credentials before account equivalence can be claimed.
+
+## Start and probe
+
+The Toast source worktree must already be checked out at the intended revision.
+The current comparison uses `/root/src/toaststunt-mongoose-login-20260917`, created
+from `mongoosemoo/mongoose`. `-BuildOracle` rebuilds it from scratch and records
+the revision and binary hash. CMake runs **inside the build directory** because
+this branch generates `version_options.h` in its working directory.
+
+```powershell
+./scripts/mongoose-login.ps1 -Engine Toast -BuildOracle -Start -Proxy -Commands guest,look
+./scripts/mongoose-login.ps1 -Engine Barn -Start -Proxy -Commands guest,look -CaptureDebug
+```
+
+Defaults: WSL distribution `Debian`, Toast port 17880, Barn port 11485, Barn debug
+port 11486, operator port 11487. Stop an earlier instance on those ports before
+using `-Start`; PID files are in the run directory. `-Start` uses disposable
+database and SQLite copies. Barn enables numeric promotion and disables periodic
+checkpoints; Toast uses the Mongoose build's numeric-promotion configuration.
+
+Omit `-Start` to probe an existing instance. For an account, supply `-Username`
+and `-Password`; subsequent `-Commands` can select a character or issue `look`.
+The temporary command file is removed after the probe, and displayed password
+text is redacted. JSONL events record received bytes and send timestamps without
+sent command text. Treat transcripts as private account data.
+
+`-Proxy` sends a PROXY prelude because this MOO trusts localhost as a proxy and
+can suppress its initial banner until the real client address is supplied.
+Compare runs both with and without this switch when diagnosing the welcome flow.
+Use the same mode on both engines.
+
+The default probe waits 3 seconds before input, 2.5 seconds between commands,
+20 seconds of receive silence, and at most 60 seconds total. Override these with
+`-BannerWait`, `-InterCommand`, `-Timeout`, and `-MaxDuration`. Keep the idle timeout
+longer than the banner wait so the client does not stop reading before input.
+
+Each probe prints its evidence prefix. `-CaptureDebug` saves Barn's built-in
+expvar metrics and goroutine stacks after the probe. During a blocked probe,
+capture `http://127.0.0.1:11486/debug/pprof/goroutine?debug=2` or a CPU profile from
+`/debug/pprof/profile?seconds=5`. This distinguishes input dispatch, VM work,
+commit-gate waits, and socket problems.
+The probe also prints elapsed milliseconds to the banner, username prompt,
+guest welcome, room, and any authentication or connection-hook error.
+
+Run the focused generic regressions against both engines with
+`./scripts/test-mongoose-deltas.ps1 -Engine Toast` and then `-Engine Barn`.
+These use the managed conformance runner and include capability admission.
+The selected generic suites live in `tests/mongoose-conformance`; use `-Suites`
+to select paths under that directory. Rebuild Barn before testing changed code.
+The installed moo-conformance package supplies the managed runner and admission.
+
+This checkpoint's `#0:server_started` starts SQL services only when `#0:prod()`
+is true, which requires a listener on `$network.port` (7777). Use `-Port 7777`
+for that startup path and run the engines sequentially to avoid port conflicts.
+SQL initialization itself runs in a fork; a login before it finishes can report
+`This database is not open` even when `sound.sqlite` is installed correctly.

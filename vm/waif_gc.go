@@ -16,26 +16,32 @@ func collectWaifsForGC(v types.Value, out *[]types.Value) {
 	*out = set.Values
 }
 
-func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
+func (vm *VM) collectDirectWaifsForGC(v types.Value) {
 	if !v.MayHoldFinalizable() {
 		return
 	}
 	switch v.Type() {
 	case types.TYPE_WAIF:
-		for _, existing := range *out {
-			if existing.Equal(v) {
-				return
+		if vm.pendingWaifIDs == nil {
+			vm.pendingWaifIDs = make(map[types.WaifIdentity]struct{}, len(vm.PendingWaifs))
+			for _, existing := range vm.PendingWaifs {
+				vm.pendingWaifIDs[existing.WaifIdentity()] = struct{}{}
 			}
 		}
-		*out = append(*out, v)
+		id := v.WaifIdentity()
+		if _, exists := vm.pendingWaifIDs[id]; exists {
+			return
+		}
+		vm.pendingWaifIDs[id] = struct{}{}
+		vm.PendingWaifs = append(vm.PendingWaifs, v)
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
-			collectDirectWaifsForGC(elem, out)
+			vm.collectDirectWaifsForGC(elem)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.Pairs() {
-			collectDirectWaifsForGC(pair[0], out)
-			collectDirectWaifsForGC(pair[1], out)
+			vm.collectDirectWaifsForGC(pair[0])
+			vm.collectDirectWaifsForGC(pair[1])
 		}
 	}
 }
@@ -84,6 +90,7 @@ func (vm *VM) TakePendingWaifs() []types.Value {
 	}
 	pending := append([]types.Value(nil), vm.PendingWaifs...)
 	vm.PendingWaifs = nil
+	vm.pendingWaifIDs = nil
 	return pending
 }
 

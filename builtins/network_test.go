@@ -63,6 +63,13 @@ func (c *stubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
 	return nil
 }
+func (c *stubConn) SendNotification(note kernel.PendingNotification) error {
+	if note.NoFlush {
+		c.Buffer(note.Message)
+		return nil
+	}
+	return c.Send(note.Message)
+}
 func (c *stubConn) Buffer(message string) {
 	c.buffered = append(c.buffered, message)
 }

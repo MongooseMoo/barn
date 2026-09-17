@@ -260,7 +260,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	var refs map[types.ObjID]struct{}
 	var waifs []types.Value
 	frame.visitFinalizableCandidates(func(value types.Value) {
-		collectDirectWaifsForGC(value, &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(value)
 		if refs == nil {
 			refs = make(map[types.ObjID]struct{})
 		}
@@ -282,14 +282,33 @@ func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 }
 
 func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waifs []types.Value) {
+	if len(refs) > 0 && vm.pendingFinalizationAnonIDs == nil {
+		vm.pendingFinalizationAnonIDs = make(map[types.ObjID]struct{})
+		for _, value := range vm.PendingFinalizations {
+			if value.Type() == types.TYPE_ANON {
+				vm.pendingFinalizationAnonIDs[value.ID()] = struct{}{}
+			}
+		}
+	}
+	if len(waifs) > 0 && vm.pendingFinalizationWaifIDs == nil {
+		vm.pendingFinalizationWaifIDs = make(map[types.WaifIdentity]struct{})
+		for _, value := range vm.PendingFinalizations {
+			if value.Type() == types.TYPE_WAIF {
+				vm.pendingFinalizationWaifIDs[value.WaifIdentity()] = struct{}{}
+			}
+		}
+	}
 	for id := range refs {
 		value := types.NewAnon(id)
-		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+		if _, exists := vm.pendingFinalizationAnonIDs[id]; !exists {
+			vm.pendingFinalizationAnonIDs[id] = struct{}{}
 			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
 		}
 	}
 	for _, value := range waifs {
-		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+		id := value.WaifIdentity()
+		if _, exists := vm.pendingFinalizationWaifIDs[id]; !exists {
+			vm.pendingFinalizationWaifIDs[id] = struct{}{}
 			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
 		}
 	}
@@ -303,6 +322,8 @@ func (vm *VM) TakePendingFinalizationValues() []types.Value {
 	}
 	values := CollectPendingFinalizationValues(vm.Store, vm)
 	vm.PendingFinalizations = nil
+	vm.pendingFinalizationWaifIDs = nil
+	vm.pendingFinalizationAnonIDs = nil
 	return values
 }
 

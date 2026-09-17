@@ -71,11 +71,7 @@ func FlushPendingEffects(ctx *Execution) {
 				continue
 			}
 			trace.Notify(note.Player, note.Message)
-			if note.NoFlush {
-				conn.Buffer(note.Message)
-				continue
-			}
-			if err := conn.Send(note.Message); err != nil {
+			if err := conn.SendNotification(note); err != nil {
 				setErr(types.E_INVARG)
 			}
 		case kernel.PendingEffectConnectionSwitch:
