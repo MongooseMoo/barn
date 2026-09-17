@@ -63,7 +63,17 @@ capture `http://127.0.0.1:11486/debug/pprof/goroutine?debug=2` or a CPU profile 
 `/debug/pprof/profile?seconds=5`. This distinguishes input dispatch, VM work,
 commit-gate waits, and socket problems.
 The probe also prints elapsed milliseconds to the banner, username prompt,
-guest welcome, room, and any authentication or connection-hook error.
+guest/account welcome, character selection, guest room, and any authentication
+or connection-hook error. `-Timeout` (seconds) must exceed both `-BannerWait`
+and `-InterCommand` (milliseconds), or the client stops reading before sending.
+
+For a repeatable workload capture while a client is connected, run
+`./scripts/capture-mongoose-debug.ps1`. It saves expvar, goroutine stacks, a
+five-second CPU profile, its top functions, and recent warnings/errors through
+Barn's `barn_logs` tool. Override `-Seconds`, `-DebugUrl`, or `-RunDir` as needed.
+Use `-Commands @('look','inventory','who','north','look','south')` with the login
+script for a short exploration pass. An account already connected may show a
+character chooser: select the desired character before issuing room commands.
 
 Run the focused generic regressions against both engines with
 `./scripts/test-mongoose-deltas.ps1 -Engine Toast` and then `-Engine Barn`.
