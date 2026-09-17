@@ -48,20 +48,24 @@ import (
 // up identical to an uncached run and committed-write conflict detection is
 // unaffected.
 //
-// CORRECTNESS: staged writes bypass the memo. The memo is live only while
+// CORRECTNESS: staged writes bypass the property and store-global verb memos.
+// The transaction-local verb memo additionally accepts walks whose entire path
+// remains unowned: unrelated writes cannot mutate these immutable images. Paths
+// through any owned object are never cached, even after their first mutation.
+// The property and store-global memos are live only while
 // len(tx.owned) == 0 — i.e. while the transaction has not privatized a single
 // object. Every staging path (SetPropertyValue, DefineProperty, SetVerbCode,
 // CreateObject, MoveObject, RecycleObject, ...) goes through
 // mutableObject/privatizeCached first, which marks the object owned, and
 // `owned` only ever grows within a transaction. So the first staged write
-// disables the memo for the remainder of the transaction and its own writes are
+// disables those memos for the remainder of the transaction and its own writes are
 // always read back by a real walk. (The single exception is a successful
 // FlushStagedToLive, which publishes the staged writes, re-clones every cached
 // object from current live and resets tx.owned; it invalidates the memo
 // explicitly, and the fresh clones it installs are unowned, so nothing can be
 // mutated in place without a new privatizeCached. A failed flush preserves
 // owned and therefore keeps the memo disabled.) The gate also guarantees no
-// memoized entry can ever reference a
+// property or store-global memoized entry can ever reference a
 // txn-private object: with owned empty, every cached *Object is a shared
 // IMMUTABLE published image, whose properties/verbs/parents cannot change
 // under us.
@@ -201,10 +205,8 @@ type propResolveEntry struct {
 	ec    types.ErrorCode // E_PROPNF records a negative resolution
 }
 
-// resolveCacheActive reports whether the resolution memo may be read or
-// written. See the staged-write argument in this file's header: a transaction
-// that has privatized any object (i.e. staged any write) never uses the memo
-// again.
+// resolveCacheActive gates property and store-global verb memoization. Local
+// verb entries instead validate that every object on their path is unowned.
 func (tx *StoreTxn) resolveCacheActive() bool {
 	return len(tx.owned) == 0
 }
@@ -221,10 +223,10 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 }
 
 // verbStepsCurrent reports whether the txn's view of every object the recorded
-// walk visited is still the identical *Object pointer.
+// walk visited is still the identical immutable, unowned *Object pointer.
 func (tx *StoreTxn) verbStepsCurrent(steps []verbWalkStep) bool {
 	for i := range steps {
-		if tx.objects[steps[i].id] != steps[i].obj {
+		if tx.owned[steps[i].id] || tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
 	}
@@ -390,6 +392,11 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
+	for _, step := range steps {
+		if tx.owned[step.id] {
+			return
+		}
+	}
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
 	} else if len(tx.verbResolve) >= resolveCacheCap {
