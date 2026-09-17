@@ -8,6 +8,7 @@ param(
     [switch]$Start,
     [switch]$BuildOracle,
     [switch]$CaptureDebug,
+    [switch]$VerifyTimeOffset,
     [switch]$Proxy,
     [string]$Username = '',
     [string]$Password = '',
@@ -69,12 +70,19 @@ if ($Start) {
         Assert-NativeExit $code 'build Barn'
         $cwd = Join-Path $run 'barn'
         New-Item -ItemType Directory -Force "$cwd/files/sqlite" | Out-Null
+        New-Item -ItemType Directory -Force "$cwd/executables" | Out-Null
+        & go build -o "$cwd/executables/tz.exe" ./cmd/mongoose_tz
+        $code = $LASTEXITCODE
+        Assert-NativeExit $code 'build Mongoose timezone helper'
         Copy-Item -LiteralPath "$run/mongoose.db.new" -Destination "$cwd/mongoose.db.new" -Force
         Copy-Item -LiteralPath "$run/sound.sqlite" -Destination "$cwd/files/sqlite/sound.sqlite" -Force
         $proc = Start-Process -FilePath "$run/barn.exe" -ArgumentList "-db mongoose.db.new -promote-numbers -port $Port -debug-addr 127.0.0.1:11486 -operator-addr 127.0.0.1:11487 -checkpoint-interval 0 -log-level debug -log-dir logs" -WorkingDirectory $cwd -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
     } else {
         $toastRun = '/tmp/barn-mongoose-account-' + $stamp
+        if (-not (Test-Path -LiteralPath "$run/tz")) { throw 'Missing tz helper; run scripts/fetch-mongoose.ps1 first.' }
         $body = 'set -euo pipefail; mkdir -p ' + (Quote-Bash ($toastRun + '/files/sqlite')) + '; cp ' + (Quote-Bash ($linuxRun + '/mongoose.db.new')) + ' ' + (Quote-Bash ($toastRun + '/input.db')) + '; cp ' + (Quote-Bash ($linuxRun + '/sound.sqlite')) + ' ' + (Quote-Bash ($toastRun + '/files/sqlite/sound.sqlite')) + '; cd ' + (Quote-Bash $toastRun) + '; exec ' + (Quote-Bash ($OracleDir + '/build-release/moo')) + ' -o -i files input.db output.db ' + $Port
+        $install = 'mkdir -p ' + (Quote-Bash ($toastRun + '/executables')) + '; cp ' + (Quote-Bash ($linuxRun + '/tz')) + ' ' + (Quote-Bash ($toastRun + '/executables/tz')) + '; chmod +x ' + (Quote-Bash ($toastRun + '/executables/tz')) + '; '
+        $body = $body.Replace('set -euo pipefail; ', 'set -euo pipefail; ' + $install)
         $launch = "$run/toast-$stamp.sh"
         [IO.File]::WriteAllText($launch, $body + "`n", [Text.UTF8Encoding]::new($false))
         $proc = Start-Process -FilePath wsl.exe -ArgumentList "-d $Distribution --exec bash $linuxRun/toast-$stamp.sh" -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
@@ -108,6 +116,9 @@ if ($Engine -eq 'Barn') {
 $lines = @()
 if ($Proxy) { $lines += "PROXY TCP4 203.0.113.5 127.0.0.1 50000 $Port" }
 if ($Username) { $lines += $Username; $lines += $Password }
+if ($VerifyTimeOffset) {
+    $lines += ';return {"mongoose-time-offset", exec({"tz", "UTC"}, "", {}), #43:time_offset("America/Denver")};'
+}
 $lines += $Commands
 $inputFile = "$run/input-$stamp.txt"
 [IO.File]::WriteAllLines($inputFile, $lines, [Text.UTF8Encoding]::new($false))
@@ -156,4 +167,10 @@ foreach ($line in Get-Content -LiteralPath "$prefix-events.jsonl") {
             Write-Output "Milestone ${name}_ms=$($event.elapsed_ms)"
         }
     }
+}
+if ($VerifyTimeOffset) {
+    if ($received -notmatch '=> \{"mongoose-time-offset", \{0, "\+0000", ""\}, -(21600|25200)\}') {
+        throw "Time-offset smoke check failed; inspect $prefix-client.txt (requires a wizard character)."
+    }
+    Write-Output 'Time-offset smoke check passed: UTC=+0000 and Denver offset valid'
 }

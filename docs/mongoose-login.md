@@ -81,6 +81,28 @@ These use the managed conformance runner and include capability admission.
 The selected generic suites live in `tests/mongoose-conformance`; use `-Suites`
 to select paths under that directory. Rebuild Barn before testing changed code.
 The installed moo-conformance package supplies the managed runner and admission.
+Use `-Packaged -Suites @('server/exec.yaml','server/exec_recent_regressions.yaml','builtins/exec_call_shapes.yaml')`
+to audit the packaged exec assertions against either engine.
+Use `-ConformanceRoot <checkout>` to test a separate conformance worktree
+without changing the installed package or its working copy. For example,
+`-Packaged -ConformanceRoot .tmp/conformance-mongoose-workload -Suites server/exec_fixture_delay.yaml`
+runs the Windows sleep-fixture regression. This uses the managed runner and
+capability admission on both platforms.
+
+## Time-offset dependency
+
+Mongoose's `#43:time_offset` runs `executables/tz`; it is not implemented by
+the server's time builtin. The fetch script downloads the live Bash helper.
+Toast startup installs that helper; Barn startup builds `cmd/mongoose_tz` as
+`executables/tz.exe`, with embedded IANA timezone data for Windows. This helper
+supports IANA zone names used by Mongoose, rather than arbitrary POSIX TZ rules.
+
+Add `-VerifyTimeOffset` to a wizard account probe to require successful UTC
+subprocess output and the actual Denver MOO time-offset call. A missing helper
+or a timeout makes the probe fail. `UTC` itself is not accepted by this
+checkpoint's MOO timezone whitelist, so the smoke check uses it only for the
+external helper. Under heavy background load use `-Timeout 90 -MaxDuration 100`;
+a passing result does not imply acceptable latency.
 
 This checkpoint's `#0:server_started` starts SQL services only when `#0:prod()`
 is true, which requires a listener on `$network.port` (7777). Use `-Port 7777`
