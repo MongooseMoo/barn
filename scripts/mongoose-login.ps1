@@ -20,6 +20,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($Timeout * 1000 -le [Math]::Max($BannerWait, $InterCommand)) {
+    throw 'Timeout must exceed BannerWait and InterCommand so the socket reader stays active while commands are sent.'
+}
 $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo
 $run = (Resolve-Path -LiteralPath $RunDir).Path
@@ -135,6 +138,8 @@ $milestones = [ordered]@{
     banner = 'Welcome to...'
     username_prompt = 'Enter your username or email:'
     guest_welcome = '(***) WELCOME! (***)'
+    account_welcome = 'Welcome!'
+    character_selection = 'Please choose a character to log in as:'
     room = "[Georgie's Guesthouse; The Parlor]"
     access_denied = 'Access Denied'
     confunc_error = 'Confunc failed:'
