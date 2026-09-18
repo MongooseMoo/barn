@@ -1160,6 +1160,10 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	if c.registry == nil {
 		return fmt.Errorf("builtin call compilation requires a builtins registry")
 	}
+	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
+	if !ok {
+		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
+	}
 
 	// Special-case pass(): emit bytecode.OP_PASS instead of bytecode.OP_CALL_BUILTIN.
 	// bytecode.OP_PASS is handled natively by the VM — looks up the parent verb,
@@ -1204,11 +1208,6 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	}
 
 	// Resolve function name to numeric ID at compile time
-	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
-	if !ok {
-		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
-	}
-
 	// Check builtin function ID overflow (emitted as single byte)
 	if funcID > 255 {
 		return fmt.Errorf("too many builtin functions (id %d exceeds max 255)", funcID)

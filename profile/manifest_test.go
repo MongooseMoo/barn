@@ -3,6 +3,7 @@ package profile
 import (
 	"encoding/json"
 	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/vm"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,7 @@ func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	}
 
 	manifest, err := BuildManifest(BuildInput{
+		Registry:          vm.BuildVMRegistry(),
 		ProfileID:         "barn-linux-testdb-outbound-off",
 		ImplementationRef: "abc123 tracked_dirty=false",
 		DatabasePath:      dbPath,
@@ -62,6 +64,7 @@ func TestBuildManifestIncludesEnabledPromotion(t *testing.T) {
 	}
 
 	manifest, err := BuildManifest(BuildInput{
+		Registry:          vm.BuildVMRegistry(),
 		ProfileID:         "barn-linux-mongoose-outbound-on",
 		ImplementationRef: "abc123 tracked_dirty=false",
 		DatabasePath:      dbPath,
@@ -171,6 +174,7 @@ func TestManifestChecksumChangesWhenConfigChanges(t *testing.T) {
 	}
 
 	first, err := BuildManifest(BuildInput{
+		Registry:          vm.BuildVMRegistry(),
 		ProfileID:         "barn-linux-testdb-outbound-on",
 		ImplementationRef: "abc123 tracked_dirty=false",
 		DatabasePath:      dbPath,
@@ -184,6 +188,7 @@ func TestManifestChecksumChangesWhenConfigChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	second, err := BuildManifest(BuildInput{
+		Registry:          vm.BuildVMRegistry(),
 		ProfileID:         "barn-linux-testdb-outbound-off",
 		ImplementationRef: "abc123 tracked_dirty=false",
 		DatabasePath:      dbPath,

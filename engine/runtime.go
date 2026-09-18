@@ -55,12 +55,28 @@ func NewRuntimeWithOptions(store *dbstore.Store, options config.Options) *Runtim
 }
 
 func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, workerCount int) *Runtime {
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		panic(err)
+	}
+	return newRuntimeWithRegistry(store, options, workerCount, registry)
+}
+
+// NewRuntimeWithRegistry binds runtime execution to an already constructed
+// immutable registry. Embedders supply all descriptors before this boundary.
+func NewRuntimeWithRegistry(store *dbstore.Store, options config.Options, registry *builtins.Registry) *Runtime {
+	return newRuntimeWithRegistry(store, options, runtime.GOMAXPROCS(0), registry)
+}
+
+func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, workerCount int, registry *builtins.Registry) *Runtime {
+	if registry == nil {
+		panic("runtime requires a builtin registry")
+	}
 	if workerCount < 1 {
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := task.NewManager()
-	registry := vm.BuildVMRegistry()
 
 	s := &Runtime{
 		taskManager: manager,
@@ -514,6 +530,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		return nil, nil, false
 	}
 	anonRefs = make(map[types.ObjID]struct{})
+	waifSet := types.NewWaifSet(nil)
 	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
@@ -526,10 +543,10 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		}
 		if exec, isVM := t.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
-			vm.CollectWaifsFromVM(exec, &waifRefs)
+			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
 	}
-	return anonRefs, waifRefs, true
+	return anonRefs, waifSet.Values, true
 }
 
 // collectExplicitGlobalGCSiblingRefs snapshots the anonymous references held by
@@ -585,6 +602,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 		}
 	}
 	anonRefs = make(map[types.ObjID]struct{})
+	waifSet := types.NewWaifSet(nil)
 	for _, queued := range s.taskManager.Snapshot() {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
@@ -598,10 +616,10 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 		}
 		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
-			vm.CollectWaifsFromVM(exec, &waifRefs)
+			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
 	}
-	return anonRefs, waifRefs, true
+	return anonRefs, waifSet.Values, true
 }
 
 func (s *Runtime) isWizard(objID types.ObjID) bool {

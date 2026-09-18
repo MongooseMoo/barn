@@ -37,6 +37,32 @@ toast_out.db
 toast_output.db
 toaststunt_test.db
 
+# Agent scratch notes live in notes/ when they are worth keeping; the per-session
+# notes-*.md files that hooks ask agents to write at the root are scratch.
+/notes-*.md
+
+# Root-level scratch that accumulates from ad hoc runs (see scripts/clean-scratch.ps1)
+/nul.#*
+/NUL.#*
+/*.cpu
+/*.mem
+/*.stackdump
+/hs_err_pid*.log
+/main.py
+/hg.html
+/compare.sh
+/stateful_compare.sh
+/oracle.sh
+/*_divergence_test*.sh
+/*_divergence_tests.py
+/test_*.sh
+/test_*.py
+/test_*.moo
+/tmp_*.py
+/tmp_*.db
+/*.db.new
+/*.waifids
+
 # Python / tooling
 .python-version
 __pycache__/

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -38,5 +39,48 @@ func TestMoveLifecycleContinuationSurvivesVMSnapshot(t *testing.T) {
 	if state == nil || state.Stage != moveAwaitExit || state.What.ID() != 12 || state.Where.ID() != 11 ||
 		state.OldLocation.ID() != 10 || state.Position != 2 || !state.Decentralized {
 		t.Fatalf("restored move continuation = %#v", state)
+	}
+}
+
+func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
+	store := dbstore.NewStore()
+	session := builtins.NewSession(builtins.NewRegistry(), builtins.NoHost())
+	machine := NewVM(store, session)
+	machine.pushFrame(&StackFrame{
+		Program:          &bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}},
+		PendingReturn:    types.NewInt(73),
+		HasPendingReturn: true,
+		RecycleContinuation: &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+			Object:      types.NewObj(12),
+			OldParents:  []types.ObjID{1, 2},
+			OldChildren: []types.ObjID{3},
+			OldContents: []types.ObjID{4, 5},
+			OldLocation: 6,
+		}},
+	})
+	machine.yielded = true
+
+	snapshot := machine.PersistenceVMSnapshot()
+	machine.CurrentFrame().PendingReturn = types.NewInt(99)
+	machine.CurrentFrame().RecycleContinuation.request.OldParents[0] = 99
+	restored, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext())
+	if err != nil {
+		t.Fatalf("RestoreVMSnapshot: %v", err)
+	}
+	frame := restored.CurrentFrame()
+	if !frame.HasPendingReturn || !frame.PendingReturn.Equal(types.NewInt(73)) {
+		t.Fatalf("restored pending return = (%t, %v), want (true, 73)", frame.HasPendingReturn, frame.PendingReturn)
+	}
+	if frame.RecycleContinuation == nil {
+		t.Fatal("restored recycle continuation is nil")
+	}
+	request := frame.RecycleContinuation.request
+	if !request.Object.Equal(types.NewObj(12)) || !slices.Equal(request.OldParents, []types.ObjID{1, 2}) ||
+		!slices.Equal(request.OldChildren, []types.ObjID{3}) || !slices.Equal(request.OldContents, []types.ObjID{4, 5}) ||
+		request.OldLocation != 6 {
+		t.Fatalf("restored recycle request = %#v", request)
+	}
+	if _, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext()); err == nil {
+		t.Fatal("second restore of in-flight recycle succeeded, want recycle guard conflict")
 	}
 }

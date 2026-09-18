@@ -75,12 +75,15 @@ func (vm *VM) ReadShort() uint16 {
 // instruction stream.
 func (vm *VM) ReadWide() uint32 {
 	frame := vm.CurrentFrame()
-	value := uint32(frame.Program.Code[frame.IP])<<24 |
-		uint32(frame.Program.Code[frame.IP+1])<<16 |
-		uint32(frame.Program.Code[frame.IP+2])<<8 |
-		uint32(frame.Program.Code[frame.IP+3])
+	value := uint32(wideOperand(frame.Program.Code, frame.IP))
 	frame.IP += 4
 	return value
+}
+
+// wideOperand decodes the 4-byte big-endian operand at code[ip:ip+4]. Shared
+// by ReadWide and the dispatch fast path so the encoding lives in one place.
+func wideOperand(code []byte, ip int) int {
+	return int(uint32(code[ip])<<24 | uint32(code[ip+1])<<16 | uint32(code[ip+2])<<8 | uint32(code[ip+3]))
 }
 
 func (vm *VM) readControlFlowOperand(wide bool) int {
@@ -110,7 +113,6 @@ func (vm *VM) Return(value types.Value) error {
 		return nil
 	}
 	frame.HasPendingReturn = false
-	vm.collectPendingWaifsFromFrame(frame)
 
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
@@ -130,8 +132,9 @@ func (vm *VM) Return(value types.Value) error {
 		if vm.Task != nil {
 			vm.Task.PopFrame()
 		}
-		vm.SP = frame.BasePointer
-		vm.popFrame()
+		base := frame.BasePointer
+		vm.popFrame() // frame is recycled here; nothing below may read it
+		vm.SP = base
 		vm.Push(wrapped)
 		return nil
 	}
@@ -153,8 +156,10 @@ func (vm *VM) Return(value types.Value) error {
 
 	continuation := frame.MoveContinuation
 	recycleContinuation := frame.RecycleContinuation
-	vm.SP = frame.BasePointer
-	vm.popFrame()
+	base := frame.BasePointer
+	discardReturn := frame.DiscardReturn
+	vm.popFrame() // frame is recycled here; nothing below may read it
+	vm.SP = base
 	if continuation != nil {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {
@@ -183,7 +188,7 @@ func (vm *VM) Return(value types.Value) error {
 			return fmt.Errorf("unexpected recycle continuation flow %d", result.Flow)
 		}
 	}
-	if !frame.DiscardReturn {
+	if !discardReturn {
 		vm.Push(value)
 	}
 	return nil

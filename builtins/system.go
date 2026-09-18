@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 
 	"strings"
 	"time"
@@ -530,6 +531,12 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) types.Result {
 	options := ctx.RuntimeOptions
 	featureNames := options.FeatureNames()
+	if ctx.Registry != nil {
+		for feature := range ctx.Registry.Presence() {
+			featureNames = append(featureNames, feature)
+		}
+		sort.Strings(featureNames)
+	}
 	featureValues := make([]types.Value, 0, len(featureNames))
 	for _, feature := range featureNames {
 		featureValues = append(featureValues, types.NewStr(feature))
@@ -845,6 +852,15 @@ func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
 	slog.Info("CHECKPOINTING: dump_database() requested",
 		slog.Int64("programmer", int64(ctx.Programmer)))
 	if dump := hostOf(ctx).Checkpoint; dump != nil {
+		if ctx.StoreTxn.IsCommitGateExempt() {
+			// This attempt holds the store's commit gate exclusively (the engine's
+			// escalation for a slice that cannot be re-executed). The checkpoint
+			// takes that same gate and runs checkpoint_started/finished tasks that
+			// commit through it, so dumping here would self-deadlock. The runtime
+			// dumps the moment it releases the gate; the return value is the same.
+			ctx.DeferredCheckpoint = true
+			return types.Ok(types.NewInt(0))
+		}
 		if err := dump(); err != nil {
 			slog.Error("dump_database() failed", slog.Any("err", err))
 			// MOO spec: dump_database() returns 0 on success

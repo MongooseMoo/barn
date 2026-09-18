@@ -17,6 +17,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	if execution == nil {
 		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
 		execution.PushEval = vm.pushEval
+		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
 		execution.PushRecycleLifecycle = vm.startRecycleLifecycle
 		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
@@ -63,6 +64,11 @@ func (vm *VM) executeCallBuiltin() error {
 		}
 	}
 
+	// Non-debug frames resume after errors, so consume operands and args first.
+	if !vm.Builtins.Registry().Compiler().Accepts(vm.CurrentFrame().Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
 	// Sync task call-stack line numbers only for builtins that expose them.
 	if vm.Builtins.Registry().NeedsLineSyncByID(int(funcID)) {
 		vm.syncTaskLineNumbers()
@@ -80,6 +86,17 @@ func (vm *VM) executeCallBuiltin() error {
 		// Propagate builtin exceptions to executeLoop() so traceback capture
 		// happens before any stack unwinding.
 		return VMException{Code: result.Error, Value: result.Val}
+	}
+
+	// The runtime is abandoning this attempt at its irreversible-effect boundary
+	// (see TaskContext.BeforeIrreversibleEffect): unwind without running any
+	// handler. Nothing the attempt did is kept. The flag also catches a stop
+	// that happened inside a nested verb-call VM, whose result went back to the
+	// builtin that ran it rather than to the runtime.
+	if result.Flow == types.FlowAbortAttempt || (vm.Context != nil && vm.Context.ConflictRetryRequested) {
+		vm.yielded = true
+		vm.yieldResult = types.Result{Flow: types.FlowAbortAttempt}
+		return nil
 	}
 
 	// Handle FlowEvalPush: eval() pushed a frame on this VM.

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	"os"
 	"path/filepath"
@@ -36,11 +37,15 @@ type BuildInput struct {
 	DatabasePath      string
 	ConfigPath        string
 	Options           config.Options
+	Registry          *builtins.Registry
 }
 
 func BuildManifest(input BuildInput) (Manifest, error) {
 	if input.ProfileID == "" {
 		return Manifest{}, fmt.Errorf("profile_id is required")
+	}
+	if input.Registry == nil {
+		return Manifest{}, fmt.Errorf("constructed builtin registry is required")
 	}
 	if input.ConfigPath == "" {
 		return Manifest{}, fmt.Errorf("config_file is required")
@@ -68,6 +73,9 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 	configPath, _ := filepath.Abs(input.ConfigPath)
 
 	features := input.Options.FeatureMap()
+	for name, value := range input.Registry.Presence() {
+		features[name] = value
+	}
 	features["runtime.arch_bits"] = strconv.IntSize
 	features["platform.path_separator"] = string(os.PathSeparator)
 	features["platform.backslash_is_path_separator"] = os.PathSeparator == '\\'

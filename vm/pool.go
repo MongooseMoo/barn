@@ -65,7 +65,7 @@ func ReleaseVM(machine *VM) {
 	if machine == nil || machine.yielded {
 		return
 	}
-	if cap(machine.Stack) > maxPooledStackCap || cap(machine.Frames) > maxPooledFramesCap {
+	if cap(machine.Stack) > maxPooledStackCap || cap(machine.Frames) > maxPooledFramesCap || cap(machine.localStack) > maxPooledStackCap {
 		return
 	}
 	machine.reset()
@@ -88,11 +88,17 @@ func (vm *VM) reset() {
 		vm.Frames[i] = nil
 	}
 
+	clear(vm.localStack[:cap(vm.localStack)])
+
 	stack := vm.Stack[:0]
 	frames := vm.Frames[:0]
+	locals := vm.localStack[:0]
+	pool := vm.framePool // recycled frames are already zeroed
 	*vm = VM{
 		Stack:         stack,
 		Frames:        frames,
+		localStack:    locals,
+		framePool:     pool,
 		TickLimit:     defaultTickLimit,
 		MaxStackDepth: defaultMaxStackDepth,
 	}

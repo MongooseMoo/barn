@@ -36,10 +36,12 @@ const (
 )
 
 // finalizableAfterAdd combines a container's cached state with a value being
-// added to it. A clean container stays clean when the value is clean; any
-// finalizable value taints the result; otherwise the answer is unknown.
+// added to it. Adding can never remove a taint, so a tainted container stays
+// tainted and any finalizable value taints the result; a clean container
+// stays clean when the value is clean; otherwise the answer is unknown.
+// Callers pass a resolved state (finalizableState), never the raw field.
 func finalizableAfterAdd(container int8, v Value) int8 {
-	if v.MayHoldFinalizable() {
+	if container == finalizableMaybe || v.MayHoldFinalizable() {
 		return finalizableMaybe
 	}
 	if container == finalizableNone {
@@ -73,7 +75,14 @@ func (v Value) MayHoldFinalizable() bool {
 	return false
 }
 
-func (s *sliceList) mayHoldFinalizable() bool {
+// finalizableState returns the cached tri-state, resolving finalizableUnknown
+// with a single scan. Every derived header (append/set/slice/concat/...) must
+// start from this resolved state rather than the raw field: otherwise a chain
+// of derivations from an unscanned list inherits Unknown at every step, and a
+// later scan of the *source* header never helps the header already derived
+// from it. That made the `l = {@l, x}` build idiom O(n^2) again (each SET_VAR
+// re-scanned the whole list) despite the cache.
+func (s *sliceList) finalizableState() int8 {
 	if s.finalizable == finalizableUnknown {
 		state := finalizableNone
 		for _, e := range s.elements {
@@ -84,7 +93,11 @@ func (s *sliceList) mayHoldFinalizable() bool {
 		}
 		s.finalizable = state
 	}
-	return s.finalizable == finalizableMaybe
+	return s.finalizable
+}
+
+func (s *sliceList) mayHoldFinalizable() bool {
+	return s.finalizableState() == finalizableMaybe
 }
 
 // newSliceList wraps elements with an uncomputed size cache (filled lazily).
@@ -142,14 +155,14 @@ func (s *sliceList) set(i int, v Value) *sliceList {
 	} else {
 		out = newSliceList(newElems)
 	}
-	out.finalizable = finalizableAfterAdd(finalizableAfterRemove(s.finalizable), v)
+	out.finalizable = finalizableAfterAdd(finalizableAfterRemove(s.finalizableState()), v)
 	return out
 }
 
 func (s *sliceList) append(v Value) *sliceList {
 	n := len(s.elements)
 	bs := s.byteSizeOf() + ValueBytes(v)
-	fin := finalizableAfterAdd(s.finalizable, v)
+	fin := finalizableAfterAdd(s.finalizableState(), v)
 
 	// In-place fast path: this header owns the frontier of the backing array
 	// (its length equals the frontier) and there is spare capacity.
@@ -181,7 +194,7 @@ func (s *sliceList) slice(start, end int) *sliceList {
 	newElems := make([]Value, end-start+1)
 	copy(newElems, s.elements[start-1:end])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterRemove(s.finalizable)
+	out.finalizable = finalizableAfterRemove(s.finalizableState())
 	return out
 }
 
@@ -256,7 +269,7 @@ func (v Value) Concat(other Value) Value {
 	copy(newElems, a)
 	copy(newElems[len(a):], b)
 	out := newSliceListSized(newElems, v.ByteSize()+other.ByteSize()-listVarOverhead)
-	fa, fb := v.sliceList().finalizable, other.sliceList().finalizable
+	fa, fb := v.sliceList().finalizableState(), other.sliceList().finalizableState()
 	switch {
 	case fa == finalizableMaybe || fb == finalizableMaybe:
 		out.finalizable = finalizableMaybe
@@ -281,7 +294,7 @@ func (v Value) InsertAt(index int, value Value) Value {
 	newElems[idx0] = value
 	copy(newElems[idx0+1:], elements[idx0:])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterAdd(v.sliceList().finalizable, value)
+	out.finalizable = finalizableAfterAdd(v.sliceList().finalizableState(), value)
 	return listValue(out)
 }
 
@@ -296,7 +309,7 @@ func (v Value) DeleteAt(index int) Value {
 	copy(newElems[:idx0], elements[:idx0])
 	copy(newElems[idx0:], elements[idx0+1:])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterRemove(v.sliceList().finalizable)
+	out.finalizable = finalizableAfterRemove(v.sliceList().finalizableState())
 	return listValue(out)
 }
 

@@ -19,8 +19,13 @@ import (
 // construct/relink objects through ObjectBuilder. A direct field access to
 // Object from outside db/store is a compile error.
 type Object struct {
-	id       types.ObjID
-	name     string
+	id   types.ObjID
+	name string
+	// nameVal is name boxed as a TYPE_STR Value, built once per write by
+	// setName so `.name` reads hand out the same immutable box instead of
+	// allocating a strRep per read (Toast: str_ref on the object's name).
+	// Property values are shared the same way; string boxes are copy-on-write.
+	nameVal  types.Value
 	owner    types.ObjID   // NOT *Object
 	parents  []types.ObjID // NOT []*Object
 	children []types.ObjID // NOT []*Object
@@ -35,6 +40,11 @@ type Object struct {
 	propOrder     []string // Property names in order they were read (for name resolution)
 	verbs         map[string]*Verb
 	verbList      []*Verb // Ordered list for verb code indexing
+	// verbIdx accelerates dispatch-time alias lookup over verbList. It is an
+	// immutable value shared by every image and clone whose verbList carries
+	// the same aliases in the same order; each site that changes verbList or a
+	// verb's names on an image calls rebuildVerbIndex. nil means "scan".
+	verbIdx *verbIndex
 
 	// Object lifecycle
 	recycled  bool
@@ -51,7 +61,14 @@ type Object struct {
 	scalarVersion       uint64
 	relationshipVersion uint64
 	propertyVersion     uint64
-	verbVersion         uint64
+	// propertyShapeVersion moves only when the SET of slots on this object
+	// changes (define, delete, a first override of an inherited property).
+	// A plain value write to an existing slot leaves it alone. Ancestry walks
+	// that fall through this object (no slot for the name) depend on it, not
+	// on propertyVersion, so hot value writes stop invalidating them.
+	// Invariant: stamped only when propertyVersion is stamped too.
+	propertyShapeVersion uint64
+	verbVersion          uint64
 }
 
 // ObjectView is a flat, read-only snapshot of an Object's scalar fields plus
@@ -215,6 +232,112 @@ type VerbView struct {
 	// the verb-code section (even if its source is empty). The DB writer emits a
 	// verb-program entry for exactly the verbs with HasProgram set.
 	HasProgram bool
+}
+
+// verbIndex is the dispatch index over one verbList: exact (wildcard-free)
+// lowered aliases map to their earliest verbList index, executable maps to the
+// earliest executable one, and wildcard holds the ascending indices of verbs
+// with at least one "*" alias. lookup reproduces
+// scanVerbList exactly — the earliest verb in definition order with any
+// matching alias wins, skipping non-executable verbs when requireExecute —
+// in O(1 + wildcards) instead of O(verbs × aliases) string compares.
+type verbIndex struct {
+	n          int
+	exact      map[string]int32
+	executable map[string]int32
+	wildcard   []int32
+}
+
+func buildVerbIndex(list []*Verb) *verbIndex {
+	idx := &verbIndex{
+		n:          len(list),
+		exact:      make(map[string]int32, len(list)),
+		executable: make(map[string]int32, len(list)),
+	}
+	for i, verb := range list {
+		wild := false
+		for _, alias := range verb.lowerNames {
+			if strings.Contains(alias, "*") {
+				wild = true
+				continue
+			}
+			if _, exists := idx.exact[alias]; !exists {
+				idx.exact[alias] = int32(i)
+			}
+			if verb.perms.Has(VerbExecute) {
+				if _, exists := idx.executable[alias]; !exists {
+					idx.executable[alias] = int32(i)
+				}
+			}
+		}
+		if wild {
+			idx.wildcard = append(idx.wildcard, int32(i))
+		}
+	}
+	return idx
+}
+
+// rebuildVerbIndex must be called by every site that changes o.verbList or a
+// verb's names on an image it exclusively owns (builder, COW image builders,
+// coarse live mutation under the store lock, txn-private clones).
+func (o *Object) rebuildVerbIndex() { o.verbIdx = buildVerbIndex(o.verbList) }
+
+// lookup returns what scanVerbList(list, searchLower, requireExecute) would.
+// list must be the verbList the index was built from (len checked by caller).
+func (idx *verbIndex) lookup(list []*Verb, searchLower string, requireExecute bool) *Verb {
+	best := int32(-1)
+	var ok bool
+	if requireExecute {
+		best, ok = idx.executable[searchLower]
+	} else {
+		best, ok = idx.exact[searchLower]
+	}
+	if !ok {
+		best = -1
+	}
+wild:
+	for _, i := range idx.wildcard {
+		if best >= 0 && i >= best {
+			break
+		}
+		verb := list[i]
+		if requireExecute && !verb.perms.Has(VerbExecute) {
+			continue
+		}
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
+				best = i
+				break wild
+			}
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	return list[best]
+}
+
+// scanVerbList is the reference definition-order alias scan the index mirrors.
+func scanVerbList(list []*Verb, searchLower string, requireExecute bool) *Verb {
+	for _, verb := range list {
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
+				if !requireExecute || verb.perms.Has(VerbExecute) {
+					return verb
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// findVerbByAlias dispatches through the index when it is current for this
+// image's verbList and falls back to the scan otherwise.
+func (o *Object) findVerbByAlias(searchLower string, requireExecute bool) *Verb {
+	if idx := o.verbIdx; idx != nil && idx.n == len(o.verbList) {
+		return idx.lookup(o.verbList, searchLower, requireExecute)
+	}
+	return scanVerbList(o.verbList, searchLower, requireExecute)
 }
 
 // mapKey returns the key this verb occupies in Object.verbs: the first alias
@@ -408,10 +531,30 @@ type VerbArgs struct {
 	That string // "this", "none", "any"
 }
 
+// setName is the only way to change an object's name: it keeps the boxed
+// nameVal in step with name. Every write site (builder, direct store, COW
+// image, MVCC mutable copy and commit) must go through it.
+func (o *Object) setName(name string) {
+	o.name = name
+	o.nameVal = types.NewStr(name)
+}
+
+// nameValue returns the object's name as a shared TYPE_STR Value. The fallback
+// only fires for an Object whose name was written around setName (a zero-value
+// literal in a test, or a missed write site — the string compare is a pointer
+// check when the box is current, so the guard costs nothing on the hot path).
+func (o *Object) nameValue() types.Value {
+	if o.nameVal.Type() == types.TYPE_STR && o.nameVal.Str() == o.name {
+		return o.nameVal
+	}
+	return types.NewStr(o.name)
+}
+
 // NewObject creates a new object with defaults
 func NewObject(id types.ObjID, owner types.ObjID) *Object {
 	return &Object{
 		id:               id,
+		nameVal:          types.NewStr(""),
 		owner:            owner,
 		parents:          []types.ObjID{},
 		children:         []types.ObjID{},
