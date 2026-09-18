@@ -55,10 +55,14 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 
 func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 	started := time.Now()
+	var bcVM *vm.VM
+	var sliceTicks int64
+	gateHeld := false
 	defer func() {
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
 			slog.Debug("slow task slice", slog.Int64("task_id", t.ID),
 				slog.Int64("this", int64(t.This)), slog.String("verb", t.VerbName),
+				slog.Int64("ticks", sliceTicks), slog.Bool("gate_held", gateHeld),
 				slog.Duration("elapsed", elapsed), slog.Any("err", retErr))
 		}
 	}()
@@ -76,6 +80,9 @@ func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 		// then settle deferred GC while the just-finished VM is safe to inspect.
 		// If another task remains active the flush fails closed and that task's
 		// corresponding lifecycle boundary will retry it.
+		if bcVM != nil {
+			sliceTicks = bcVM.Ticks
+		}
 		if executionCtx != nil {
 			s.releaseExecutionContext(executionCtx, t.ID)
 		}
@@ -125,6 +132,7 @@ retryAttempt:
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !escalated {
 		s.store.EscalationLock()
 		escalated = true
+		gateHeld = true
 	}
 	if attempt > 0 {
 		retryState.restore(t)
@@ -195,6 +203,7 @@ retryAttempt:
 		gateWait := time.Since(waitStart)
 		t.ExcludeExecutionWait(gateWait)
 		escalated = true
+		gateHeld = true
 		ctx.StoreTxn.ExemptFromCommitGate()
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
@@ -275,7 +284,6 @@ retryAttempt:
 	defer cancel()
 
 	var result types.Result
-	var bcVM *vm.VM
 	anonGCFloor := s.store.NextID()
 	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
 	// the two are consistent. If it is unchanged at task end, no anonymous object

@@ -51,8 +51,8 @@ func (tx *StoreTxn) mutableObject(objID types.ObjID) *Object {
 func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 	// The txn's binding for objID changes and becomes in-place mutable; every
 	// memoized resolution that walked it is now unsafe to replay. (This also
-	// permanently disables the memo, since `owned` never shrinks — see
-	// resolveCacheActive.)
+	// disables property and store-global memos, since `owned` never shrinks.
+	// Transaction-local verb entries may still describe entirely unowned paths.)
 	tx.invalidateResolveCaches()
 	clone := cloneObjectForReadTxn(base)
 	tx.objects[objID] = clone

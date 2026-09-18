@@ -468,12 +468,10 @@ func (s *Runtime) flushTaskOutput(t *task.Task) {
 	}
 }
 
-// ProcessReadyTasks executes at most one task that is ready to run.
-//
-// The input processor owns the outer scheduling loop. Returning after each
-// task lets that loop service socket input between runnable tasks instead of
-// draining an arbitrarily large ready snapshot first. A single MOO task still
-// runs atomically until completion or suspension.
+// ProcessReadyTasks executes a snapshot of ready tasks in retry-compatible
+// batches. Each batch claims execution only at dispatch, so earlier tasks can
+// still observe or kill siblings that have not started. The pass visits every
+// selected batch; it does not abandon unclaimed siblings on an early return.
 func (s *Runtime) ProcessReadyTasks() int {
 	readyTasks := s.scheduler.Ready(time.Now(), s.taskManager.Snapshot())
 
@@ -490,7 +488,15 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) {
 		return
 	}
 	for _, batch := range s.scheduler.Plan(readyTasks) {
-		s.runTaskBatch(batch)
+		claimed := batch[:0]
+		for _, t := range batch {
+			if t.TryClaimQueued() {
+				claimed = append(claimed, t)
+			}
+		}
+		if len(claimed) != 0 {
+			s.runTaskBatch(claimed)
+		}
 	}
 }
 

@@ -28,6 +28,24 @@ func TestReadyUsesFIFOForEqualReadyTimes(t *testing.T) {
 	}
 }
 
+func TestReadyLeavesUnstartedSiblingsQueued(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	first, second := testTask(1, now), testTask(2, now)
+	s.Enqueue(first)
+	s.Enqueue(second)
+	ready := s.Ready(now.Add(time.Second), nil)
+	if len(ready) != 2 {
+		t.Fatalf("ready count = %d, want 2", len(ready))
+	}
+	for _, task := range ready {
+		if !task.TryClaimQueued() {
+			t.Fatalf("task %d was claimed before dispatch", task.ID)
+		}
+	}
+}
+
 func TestPlanIsolatesNonRetryableTasks(t *testing.T) {
 	s := New(2, func(t *task.Task) bool { return t.ID != 2 }, func(*task.Task) error { return nil })
 	t.Cleanup(s.Stop)
