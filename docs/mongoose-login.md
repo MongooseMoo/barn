@@ -52,10 +52,16 @@ can suppress its initial banner until the real client address is supplied.
 Compare runs both with and without this switch when diagnosing the welcome flow.
 Use the same mode on both engines.
 
-The default probe waits 3 seconds before input, 2.5 seconds between commands,
-20 seconds of receive silence, and at most 60 seconds total. Override these with
-`-BannerWait`, `-InterCommand`, `-Timeout`, and `-MaxDuration`. Keep the idle timeout
-longer than the banner wait so the client does not stop reading before input.
+Account probes send the PROXY prelude immediately, then wait for the username,
+password, and complete welcome prompts. They report password-to-welcome and
+password-to-MOTD latency separately from process startup. Prompts can span socket
+reads and need not end with a newline. A connection-hook failure also releases
+the prompt wait so diagnostic commands can still run.
+
+Use `-FixedDelays` to reproduce the old account probe. Guest probes also use that
+mode: 3 seconds before input and 2.5 seconds between commands. Commands after
+account login retain `-InterCommand` pacing. Both modes default to 20 seconds of
+receive silence and at most 60 seconds total (`-Timeout`, `-MaxDuration`).
 
 Each probe prints its evidence prefix. `-CaptureDebug` saves Barn's built-in
 expvar metrics and goroutine stacks after the probe. During a blocked probe,
@@ -79,9 +85,16 @@ time includes execution, contention, and cleanup, not just CPU time.
 worker; it does not identify the currently executing nested verb. Slow-slice
 records include `ticks` for the final execution attempt and `gate_held` when
 the slice acquired the exclusive commit gate at any point.
+`external command completed` records subprocess elapsed time without arguments
+or input. `external task resumed` records `queue_wait` (completion to dispatch)
+and `ready_to_vm` (completion to VM entry, including commit-gate contention).
+Run `./scripts/summarize-mongoose-exec.ps1 -LogPath <latest.jsonl>` to pair these
+records, including repeated external calls from the same task, in milliseconds.
 Use `-Commands @('look','inventory','who','north','look','south')` with the login
 script for a short exploration pass. An account already connected may show a
-character chooser: select the desired character before issuing room commands.
+character chooser: use `-FixedDelays` with the character selection as the first
+entry in `-Commands` before issuing room commands. Prompt login currently assumes
+the account's default character can connect without a chooser.
 
 Run the focused generic regressions against both engines with
 `./scripts/test-mongoose-deltas.ps1 -Engine Toast` and then `-Engine Barn`.
@@ -126,6 +139,10 @@ override `-CleanLoginMarker` for another checkpoint. Each attempt saves a
 build/copy), and excludes the client's trailing receive timeout. `-LoginDeadline`
 defaults to 300 seconds and is checked between attempts; each attempt remains
 bounded by `-MaxDuration`. Use identical client waits and marker on both engines.
+Prompt-driven clean-login-only attempts close immediately on the welcome marker.
+Connection-hook failures retain the receive timeout so retries do not flood a
+busy startup. `-RetryDelay` adds one second between failed attempts. These waits
+are separate from the reported password-to-welcome latency.
 
 `./scripts/summarize-mongoose-workload.ps1 -LogPath <latest.jsonl> -LastSeconds 600`
 summarizes root-verb slow slices and scheduler-reset boundary frequency. Its duty

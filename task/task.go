@@ -70,6 +70,7 @@ type Task struct {
 	SecondsUsed       float64
 	SecondsLimit      float64
 	executionDeadline time.Time
+	execReadyAt       time.Time // External completion, retained until its next execution slice.
 	CallStack         []types.ActivationFrame
 	TaskLocal         types.Value // Task-local storage (set_task_local/task_local)
 
@@ -648,11 +649,28 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	t.ExecCancelFunc = nil
 	t.ExecCommandName = ""
 	t.State = TaskQueued
+	t.execReadyAt = time.Now()
 	t.WakeValue = value
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}
 	return true
+}
+
+// ExecReadyTime returns when an external result made the task ready.
+func (t *Task) ExecReadyTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.execReadyAt
+}
+
+// TakeExecReadyTime consumes the observation timestamp once, under the task lock.
+func (t *Task) TakeExecReadyTime() time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ready := t.execReadyAt
+	t.execReadyAt = time.Time{}
+	return ready
 }
 
 // WakeDue reports whether a suspended task has a timed wake deadline due.

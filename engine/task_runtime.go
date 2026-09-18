@@ -55,6 +55,7 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 
 func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 	started := time.Now()
+	execReadyAt := t.TakeExecReadyTime()
 	var bcVM *vm.VM
 	var sliceTicks int64
 	gateHeld := false
@@ -291,6 +292,11 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
+		if !execReadyAt.IsZero() {
+			slog.Debug("external task resumed", slog.Int64("task_id", t.ID),
+				slog.Duration("queue_wait", started.Sub(execReadyAt)),
+				slog.Duration("ready_to_vm", time.Since(execReadyAt)))
+		}
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
 		var ok bool
 		bcVM, ok = savedVM.(*vm.VM)

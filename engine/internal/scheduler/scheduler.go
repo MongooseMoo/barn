@@ -5,6 +5,7 @@ package scheduler
 import (
 	"container/heap"
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -119,6 +120,28 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 			ready = append(ready, t)
 		}
+	}
+	// Toast admits completed external tasks at time zero, ahead of waiting
+	// forks. Preserve the existing order of all other work; re-sorting ordinary
+	// resumptions by their old StartTime can repeatedly overtake fresh forks.
+	var completions map[*task.Task]time.Time
+	for _, t := range ready {
+		if at := t.ExecReadyTime(); !at.IsZero() {
+			if completions == nil {
+				completions = make(map[*task.Task]time.Time)
+			}
+			completions[t] = at
+		}
+	}
+	if len(completions) != 0 {
+		sort.SliceStable(ready, func(i, j int) bool {
+			a, aok := completions[ready[i]]
+			b, bok := completions[ready[j]]
+			if !aok {
+				return false
+			}
+			return !bok || a.Before(b)
+		})
 	}
 	return ready
 }
