@@ -9,6 +9,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
@@ -113,4 +114,32 @@ func TestRuntimeTickRoutesDisconnectThroughConnectionLane(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("ticker-processed disconnect left the connection lane registered")
+}
+
+func TestRuntimeTickAdmitsBackgroundWorkWithQueuedInput(t *testing.T) {
+	store := dbstore.NewStore()
+	rt := engine.NewRuntime(store)
+	defer rt.Stop()
+	processor := NewInputProcessor(store, rt)
+	defer processor.Stop()
+	program, diagnostics := rt.Registry().Compiler().CompileMOO([]string{"return 1;"})
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	id := rt.CreateBackgroundTask(types.ObjNothing, program, 0)
+	done := make(chan struct{})
+	processor.inputQueue <- command.InputEvent{ConnID: 42, Player: -42, Done: done}
+	runtimeDone := processor.processRuntimeTick()
+	if runtimeDone == nil {
+		t.Fatal("queued input suppressed background admission")
+	}
+	select {
+	case <-runtimeDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background dispatch did not finish")
+	}
+	if state := rt.GetTask(id).GetState(); state != task.TaskCompleted {
+		t.Fatalf("background task state = %v", state)
+	}
+	<-done
 }

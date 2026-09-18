@@ -658,3 +658,39 @@ Research method: the plugin's `research` workflow, primary full-paper text for
 the core STM papers, targeted algorithm/source inspection for adjacent systems,
 and explicit source/proposal/measurement separation. This is not a claim to
 have run the plugin's separate image-based `paper-reader` ingestion pipeline.
+
+## First runtime increment: bounded background dispatch
+
+The server now uses `ProcessReadyBatch`: at most one retry-compatible worker
+batch per selection. Undispatched tasks remain queued and retain their
+admission order. The existing `ProcessReadyTasks` API still drains a snapshot,
+including retained tasks, for explicit runtime callers. Claims still happen
+at dispatch, so a task may observe or kill a sibling before it starts.
+
+The input loop revisits selection when a nonempty batch completes. An empty
+selection returns to the existing 10 ms timer. Dispatching queued input no
+longer skips background admission. New helper completions are discovered at
+selection; direct completion notifications are not implemented in this slice.
+
+This is one global background queue, not the proposed per-principal service
+ledger. It preserves FIFO admission but does not establish fairness across
+principals, foreground gate contention, or elapsed-time latency bounds.
+Selections still scan the task catalog, and a parallel batch still joins all
+its workers. Gate ownership, weighted admission, event notifications, and the
+live 1-client/16-client performance matrix remain outstanding.
+
+Reproduce the focused checks with existing scripts from the repository root:
+
+```powershell
+go test ./engine/... ./server/...
+go test -race ./engine/internal/scheduler ./engine ./server -run 'TestReady|TestProcessReady|TestRuntimeTick|TestInputDispatchContinues|TestRunTaskBatch|TestRuntimeWorker' -count=1
+./scripts/test-mongoose-deltas.ps1 -Engine Toast -OracleDir /root/src/toaststunt -Suites audit/background_zero_suspend.yaml
+go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
+go build -o .tmp/mongoose-account-20260917/barn.exe ./cmd/barn
+./scripts/test-mongoose-deltas.ps1 -Engine Barn -Suites audit/background_zero_suspend.yaml
+```
+
+The managed runs each included capability admission and the unchanged
+background zero-suspend scenario: Toast `2 passed in 8.28s`, Barn
+`2 passed in 1.86s`. Go engine/server tests and the focused race checks passed.
+These are correctness checks for this increment, not Mongoose latency evidence.

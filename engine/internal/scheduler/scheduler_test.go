@@ -16,6 +16,59 @@ func testTask(id int64, at time.Time) *task.Task {
 	return t
 }
 
+func TestReadyBatchRetainsAdmittedTasksAheadOfNewCompletions(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	first, second := testTask(1, now), testTask(2, now)
+	s.Enqueue(first)
+	s.Enqueue(second)
+	batch := s.ReadyBatch(now, nil)
+	if len(batch) != 1 || batch[0] != first {
+		t.Fatalf("first batch = %v", batch)
+	}
+	if second.GetState() != task.TaskQueued {
+		t.Fatal("undispatched sibling was claimed")
+	}
+	completed := testTask(3, now)
+	completed.SetBytecodeVM(struct{}{}) // Readiness marker, never executed.
+	completed.SuspendIndefinite()
+	if !completed.CompleteExec(types.NewInt(0)) {
+		t.Fatal("completion failed")
+	}
+	catalog := []*task.Task{second, completed}
+	batch = s.ReadyBatch(time.Now(), catalog)
+	if len(batch) != 1 || batch[0] != second {
+		t.Fatalf("admitted sibling lost its place: %v", batch)
+	}
+	batch = s.ReadyBatch(time.Now(), []*task.Task{completed})
+	if len(batch) != 1 || batch[0] != completed {
+		t.Fatalf("completion lost or duplicated: %v", batch)
+	}
+	if batch = s.ReadyBatch(time.Now(), nil); len(batch) != 0 {
+		t.Fatalf("duplicate pending tasks: %v", batch)
+	}
+}
+
+func TestReadyBatchSkipsKilledPendingTasksAndPreservesBatchBoundaries(t *testing.T) {
+	s := New(2, func(t *task.Task) bool { return t.ID != 3 }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	tasks := []*task.Task{testTask(1, now), testTask(2, now), testTask(3, now), testTask(4, now)}
+	for _, task := range tasks {
+		s.Enqueue(task)
+	}
+	batch := s.ReadyBatch(now, nil)
+	if len(batch) != 2 || batch[0] != tasks[0] || batch[1] != tasks[1] {
+		t.Fatalf("optimistic batch = %v", batch)
+	}
+	tasks[2].SetState(task.TaskKilled)
+	batch = s.ReadyBatch(now, nil)
+	if len(batch) != 1 || batch[0] != tasks[3] {
+		t.Fatalf("batch after sibling kill = %v", batch)
+	}
+}
+
 func TestReadyUsesFIFOForEqualReadyTimes(t *testing.T) {
 	s := New(1, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
 	t.Cleanup(s.Stop)

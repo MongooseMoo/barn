@@ -185,7 +185,7 @@ func (p *InputProcessor) run() {
 	cleanupTicker := time.NewTicker(5 * time.Second)
 	defer cleanupTicker.Stop()
 
-	var runtimeDone <-chan struct{}
+	var runtimeDone <-chan int
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -196,8 +196,13 @@ func (p *InputProcessor) run() {
 			if runtimeDone == nil {
 				runtimeDone = p.processRuntimeTick()
 			}
-		case <-runtimeDone:
+		case count := <-runtimeDone:
 			runtimeDone = nil
+			// Drain runnable work without a timer delay between bounded batches.
+			// An empty selection returns to timer polling instead of spinning.
+			if count != 0 && p.ctx.Err() == nil {
+				runtimeDone = p.processRuntimeTick()
+			}
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
@@ -206,26 +211,25 @@ func (p *InputProcessor) run() {
 	}
 }
 
-func (p *InputProcessor) processRuntimeTick() <-chan struct{} {
+func (p *InputProcessor) processRuntimeTick() <-chan int {
 	// A select chooses randomly when both input and the runtime tick are
 	// ready. Recheck the input queue before running another task so a busy
 	// runtime cannot repeatedly win that tie and starve socket input.
+	// Dispatching input must not suppress the background selection itself.
 	select {
 	case input := <-p.inputQueue:
 		p.dispatch(input)
-		return nil
 	default:
 	}
 	// The scheduler already executes tasks on worker goroutines. Joining a
 	// background pass on the input dispatcher prevents even unrelated login
 	// events from reaching their connection lanes until that pass completes.
-	// Keep just one pass in flight, and join it during Stop via the wait group.
-	done := make(chan struct{})
+	// Keep just one batch in flight, and join it during Stop via the wait group.
+	done := make(chan int, 1)
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		defer close(done)
-		p.runtime.ProcessReadyTasks()
+		done <- p.runtime.ProcessReadyBatch()
 	}()
 	return done
 }
