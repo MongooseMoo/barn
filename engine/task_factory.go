@@ -38,6 +38,9 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
 	s.scheduler.Enqueue(t)
+	// Registration can wake a selector before the heap insertion is visible.
+	// Publish another hint after insertion to close that lost-wakeup window.
+	s.taskManager.NotifyScheduleChange()
 
 	return t.ID
 }

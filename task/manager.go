@@ -9,13 +9,26 @@ import (
 
 // Manager tracks the tasks owned by one execution engine.
 type Manager struct {
-	tasks map[int64]*Task
-	mu    sync.RWMutex
+	tasks           map[int64]*Task
+	mu              sync.RWMutex
+	scheduleChanged chan struct{}
 }
 
 // NewManager creates an empty task manager for one execution engine.
 func NewManager() *Manager {
-	return &Manager{tasks: make(map[int64]*Task)}
+	return &Manager{tasks: make(map[int64]*Task), scheduleChanged: make(chan struct{}, 1)}
+}
+
+// ScheduleChanged requests a fresh readiness scan. Notifications coalesce; the
+// catalog is the source of truth. This channel is never closed, so late external
+// completions remain safe after the runtime stops listening.
+func (m *Manager) ScheduleChanged() <-chan struct{} { return m.scheduleChanged }
+
+func (m *Manager) NotifyScheduleChange() {
+	select {
+	case m.scheduleChanged <- struct{}{}:
+	default:
+	}
 }
 
 // GetTask retrieves a task by ID
@@ -31,6 +44,10 @@ func (m *Manager) RegisterTask(t *Task) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tasks[t.ID] = t
+	t.mu.Lock()
+	t.scheduleChanged = m.scheduleChanged
+	t.mu.Unlock()
+	m.NotifyScheduleChange()
 }
 
 // RemoveTask removes a task from the manager

@@ -126,7 +126,9 @@ type Task struct {
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
-	doneClosed bool // guards Done against double-close
+	doneClosed      bool // guards Done against double-close
+	scheduleChanged chan<- struct{}
+	executionActive bool // runtime-owned physical execution lease
 
 	mu sync.RWMutex
 }
@@ -266,6 +268,53 @@ func (t *Task) SetState(state TaskState) {
 		metrics.TasksKilled.Add(1)
 	}
 	t.State = state
+	if state != TaskRunning {
+		t.notifyScheduleLocked()
+	}
+}
+
+// Only a nonblocking channel send runs under the task lock; no scheduler or
+// runtime callback may acquire locks in the reverse direction.
+func (t *Task) notifyScheduleLocked() {
+	select {
+	case t.scheduleChanged <- struct{}{}:
+	default:
+	}
+}
+
+// ReadyDeadline reports the next time this task could be selected. Zero means
+// no scheduled wake, including VMs whose physical execution has not ended.
+func (t *Task) ReadyDeadline(now time.Time) time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.executionActive {
+		return time.Time{}
+	}
+	if t.State == TaskSuspended {
+		return t.WakeTime
+	}
+	if t.State != TaskQueued {
+		return time.Time{}
+	}
+	at := t.StartTime
+	if t.WakeTime.After(at) {
+		at = t.WakeTime
+	}
+	if at.Before(now) {
+		return now
+	}
+	return at
+}
+
+// SetExecutionActive brackets physical VM execution, which can outlast its
+// logical running state. Publishing the handoff must wake a sleeping selector.
+func (t *Task) SetExecutionActive(active bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.executionActive = active
+	if !active {
+		t.notifyScheduleLocked()
+	}
 }
 
 // TryClaimQueued atomically takes the execution claim for a queued task.
@@ -274,7 +323,7 @@ func (t *Task) SetState(state TaskState) {
 func (t *Task) TryClaimQueued() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.State != TaskQueued {
+	if t.State != TaskQueued || t.executionActive {
 		return false
 	}
 	t.State = TaskRunning
@@ -545,6 +594,7 @@ func (t *Task) Suspend(duration time.Duration) {
 	if duration > 0 {
 		t.WakeTime = time.Now().Add(duration)
 	}
+	t.notifyScheduleLocked()
 }
 
 // SuspendIndefinite suspends the task with no wake deadline (suspend() with
@@ -562,6 +612,7 @@ func (t *Task) SuspendIndefinite() {
 	t.suspendGen++
 	t.WakeTime = time.Time{}
 	t.StartTime = IndefiniteSuspendStartTime
+	t.notifyScheduleLocked()
 }
 
 // SuspendGeneration identifies the task's current suspension. Every Suspend and
@@ -604,6 +655,7 @@ func (t *Task) resumeLocked(value types.Value) bool {
 		return false
 	}
 	t.State = TaskQueued
+	t.notifyScheduleLocked()
 	t.WakeValue = value
 	t.IsHTTPReadSuspended = false
 	// An indefinitely-suspended task carries the far-future
@@ -649,6 +701,7 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	t.ExecCancelFunc = nil
 	t.ExecCommandName = ""
 	t.State = TaskQueued
+	t.notifyScheduleLocked()
 	t.execReadyAt = time.Now()
 	t.WakeValue = value
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
@@ -685,6 +738,7 @@ func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskKilled
+	t.notifyScheduleLocked()
 	// If the task is exec-suspended, cancel the subprocess
 	if t.ExecCancelFunc != nil {
 		t.ExecCancelFunc()
