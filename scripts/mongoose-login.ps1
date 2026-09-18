@@ -11,8 +11,10 @@ param(
     [switch]$VerifyTimeOffset,
     [switch]$UntilCleanLogin,
     [int]$LoginDeadline = 300,
+    [ValidateRange(100, 60000)][int]$RetryDelay = 1000,
     [string]$CleanLoginMarker = 'MESSAGE OF THE DAY:',
     [switch]$Proxy,
+    [switch]$FixedDelays,
     [string]$Username = '',
     [string]$Password = '',
     [string[]]$Commands = @(),
@@ -141,6 +143,10 @@ do {
     [IO.File]::WriteAllLines($inputFile, $lines, [Text.UTF8Encoding]::new($false))
     try {
         $args = @('-host', '127.0.0.1', '-port', $Port, '-banner-wait', $BannerWait, '-inter-cmd', $InterCommand, '-timeout', $Timeout, '-max-duration', $MaxDuration)
+        if ($Username -and -not $FixedDelays) {
+            $args += @('-login-prompts', '-login-ready', $CleanLoginMarker)
+            if ($UntilCleanLogin -and -not $VerifyTimeOffset -and $Commands.Count -eq 0) { $args += '-stop-after-login' }
+        }
         if ($Engine -eq 'Barn') {
             & $client @args -file $inputFile -event-log "$prefix-events.jsonl" 2>&1 |
                 ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
@@ -175,8 +181,11 @@ do {
     }
     $seen = @{}
     $received = ''
+    $passwordSent = $null
     foreach ($line in Get-Content -LiteralPath "$prefix-events.jsonl") {
         $event = $line | ConvertFrom-Json
+        $passwordIndex = if ($Proxy) { 3 } else { 2 }
+        if ($Username -and $event.event -eq 'send' -and $event.command_index -eq $passwordIndex) { $passwordSent = $event.elapsed_ms }
         if ($event.event -ne 'receive') { continue }
         $received += $event.text
         foreach ($name in $milestones.Keys) {
@@ -184,6 +193,11 @@ do {
                 $seen[$name] = $event.elapsed_ms
                 Write-Output "Milestone ${name}_ms=$($event.elapsed_ms)"
             }
+        }
+    }
+    if ($null -ne $passwordSent) {
+        foreach ($name in @('account_welcome', 'clean_login')) {
+            if ($seen.ContainsKey($name)) { Write-Output "Latency password_to_${name}_ms=$($seen[$name] - $passwordSent)" }
         }
     }
     if ($VerifyTimeOffset) {
@@ -209,4 +223,5 @@ do {
     if (([DateTime]::UtcNow - $processStarted).TotalSeconds -ge $LoginDeadline) {
         throw "No clean login observed within $LoginDeadline seconds; inspect the attempt evidence."
     }
+    Start-Sleep -Milliseconds $RetryDelay
 } while ($true)

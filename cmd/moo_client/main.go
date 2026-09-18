@@ -19,6 +19,7 @@ type clientEvent struct {
 	Event        string `json:"event"`
 	ElapsedMS    int64  `json:"elapsed_ms"`
 	CommandIndex int    `json:"command_index,omitempty"`
+	Phase        string `json:"phase,omitempty"`
 	Bytes        int    `json:"bytes,omitempty"`
 	Text         string `json:"text,omitempty"`
 }
@@ -89,6 +90,8 @@ func main() {
 	var interCmd int
 	var eventLogPath string
 	var maxDuration int
+	var promptLogin, stopAfterLogin bool
+	var loginReady string
 
 	flag.Var(&commands, "cmd", "Command to send (can be specified multiple times)")
 	flag.IntVar(&port, "port", 7777, "MOO server port")
@@ -99,6 +102,9 @@ func main() {
 	flag.IntVar(&interCmd, "inter-cmd", 300, "Milliseconds to wait between commands")
 	flag.StringVar(&eventLogPath, "event-log", "", "Write timestamped client events as JSONL without command text")
 	flag.IntVar(&maxDuration, "max-duration", 0, "Maximum connection duration in seconds (0 waits for idle timeout)")
+	flag.BoolVar(&promptLogin, "login-prompts", false, "Respond to account prompts instead of fixed login delays")
+	flag.BoolVar(&stopAfterLogin, "stop-after-login", false, "Close after the welcome marker; failed hooks retain the receive timeout")
+	flag.StringVar(&loginReady, "login-ready", "MESSAGE OF THE DAY:", "Marker indicating completion of the welcome hook")
 	flag.Parse()
 
 	started := time.Now()
@@ -142,23 +148,42 @@ func main() {
 	// Reader runs in the background, printing raw bytes as they arrive so that
 	// partial lines (e.g. a banner with no trailing newline, or a bare prompt)
 	// are never lost. It signals done when the connection idles out or closes.
-	done := make(chan bool)
-	go readOutput(conn, done, time.Duration(timeout)*time.Second, events)
+	done := make(chan struct{})
+	prompts := newPromptBuffer()
+	go readOutput(conn, done, time.Duration(timeout)*time.Second, events, prompts)
 
 	// Optionally let the connect banner arrive before we start typing.
-	if bannerWait > 0 {
+	if bannerWait > 0 && !promptLogin {
 		time.Sleep(time.Duration(bannerWait) * time.Millisecond)
 	}
 
 	writer := bufio.NewWriter(conn)
-	for i, cmd := range commands {
+	send := func(i int, cmd string) error {
 		fmt.Fprintf(os.Stderr, ">> %s\n", cmd)
 		events.record(clientEvent{Event: "send", CommandIndex: i + 1}, time.Now())
 		if _, err := writer.WriteString(cmd + "\r\n"); err != nil {
+			return err
+		}
+		return writer.Flush()
+	}
+	firstCommand := 0
+	var loginErr error
+	if promptLogin {
+		loginReadyObserved := false
+		firstCommand, loginErr = loginCommands(commands, loginReady, prompts, done, send, func(phase string) {
+			loginReadyObserved = phase == "login_ready"
+			events.record(clientEvent{Event: "prompt", Phase: phase}, time.Now())
+		})
+		if loginErr != nil || (stopAfterLogin && loginReadyObserved) {
+			_ = conn.Close()
+			firstCommand = len(commands)
+		}
+	}
+	for i := firstCommand; i < len(commands); i++ {
+		if err := send(i, commands[i]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error sending command: %v\n", err)
 			break
 		}
-		writer.Flush()
 		if i < len(commands)-1 {
 			time.Sleep(time.Duration(interCmd) * time.Millisecond)
 		}
@@ -170,6 +195,11 @@ func main() {
 	<-done
 	events.record(clientEvent{Event: "done"}, time.Now())
 	fmt.Fprintf(os.Stderr, "Done.\n")
+	if loginErr != nil {
+		fmt.Fprintf(os.Stderr, "Login probe failed: %v\n", loginErr)
+		_ = events.close()
+		os.Exit(1)
+	}
 }
 
 func loadCommandsFromFile(filename string) ([]string, error) {
@@ -195,8 +225,8 @@ func loadCommandsFromFile(filename string) ([]string, error) {
 	return commands, nil
 }
 
-func readOutput(conn net.Conn, done chan bool, idle time.Duration, events *eventLog) {
-	defer func() { done <- true }()
+func readOutput(conn net.Conn, done chan struct{}, idle time.Duration, events *eventLog, prompts *promptBuffer) {
+	defer close(done)
 
 	buf := make([]byte, 4096)
 	for {
@@ -205,6 +235,7 @@ func readOutput(conn net.Conn, done chan bool, idle time.Duration, events *event
 		if n > 0 {
 			events.record(clientEvent{Event: "receive", Bytes: n, Text: string(buf[:n])}, time.Now())
 			os.Stdout.Write(buf[:n])
+			prompts.feed(string(buf[:n]))
 		}
 		if err != nil {
 			// Idle timeout or EOF/close: we are done. Any bytes already read

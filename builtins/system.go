@@ -260,7 +260,10 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	// Launch subprocess in background goroutine
 	go func() {
 		defer execCancel()
+		started := time.Now()
 		result := execCommandWithContext(execCtx, resolvedPath, cmdArgs, input, environment)
+		slog.Debug("external command completed", slog.Int64("task_id", t.ID),
+			slog.String("command", program), slog.Duration("elapsed", time.Since(started)))
 
 		// Deliver result to the task and transition it to Queued
 		if result.IsNormal() {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func testTask(id int64, at time.Time) *task.Task {
@@ -43,6 +44,27 @@ func TestReadyLeavesUnstartedSiblingsQueued(t *testing.T) {
 		if !task.TryClaimQueued() {
 			t.Fatalf("task %d was claimed before dispatch", task.ID)
 		}
+	}
+}
+
+func TestReadyMergesCompletedExecBeforeLaterFork(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	completed := testTask(1, time.Now())
+	completed.SetBytecodeVM(struct{}{}) // Readiness marker only; no VM is executed.
+	completed.SuspendIndefinite()
+	if !completed.CompleteExec(types.NewInt(0)) {
+		t.Fatal("completion failed")
+	}
+	later := testTask(2, time.Now().Add(time.Millisecond))
+	earlier := testTask(3, time.Now().Add(-time.Second))
+	s.Enqueue(later)
+	s.Enqueue(earlier)
+	ordinary := testTask(4, time.Now().Add(-time.Hour))
+	ordinary.SetBytecodeVM(struct{}{})
+	ready := s.Ready(time.Now().Add(time.Second), []*task.Task{completed, later, earlier, ordinary})
+	if len(ready) != 4 || ready[0] != completed || ready[1] != earlier || ready[2] != later || ready[3] != ordinary {
+		t.Fatalf("ready = %v; completed external task must precede waiting forks", ready)
 	}
 }
 
