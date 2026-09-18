@@ -11,9 +11,10 @@ import (
 // shutdown). Named so the signatures are written once, not at every field,
 // setter, and use site.
 type (
-	GCHook         func(ctx *Execution) error
-	CheckpointHook func() error
-	ShutdownHook   func(ctx *Execution, message string, unclean bool) error
+	GCHook               func(ctx *Execution) error
+	CheckpointHook       func() error
+	DatabaseDiskSizeHook func() (int64, error)
+	ShutdownHook         func(ctx *Execution, message string, unclean bool) error
 )
 
 // TaskLister supplies the task collections inspected by task builtins.
@@ -51,15 +52,16 @@ type TaskManager interface {
 // every field nil, and each builtin turns a nil capability into its usual MOO
 // error. Ownership lives on the session instance, not in package-global state.
 type Host struct {
-	ConnManager  ConnectionManager
-	InputForcer  InputForcer
-	TaskYielder  TaskYielder
-	TaskManager  TaskManager
-	ProcessStdin *ProcessStdin
-	RunGC        GCHook
-	Checkpoint   CheckpointHook
-	Shutdown     ShutdownHook
-	VerbCaller   VerbCallerFunc
+	ConnManager      ConnectionManager
+	InputForcer      InputForcer
+	TaskYielder      TaskYielder
+	TaskManager      TaskManager
+	ProcessStdin     *ProcessStdin
+	RunGC            GCHook
+	Checkpoint       CheckpointHook
+	DatabaseDiskSize DatabaseDiskSizeHook
+	Shutdown         ShutdownHook
+	VerbCaller       VerbCallerFunc
 }
 
 // NoHost explicitly selects a session with no server-provided capabilities.
@@ -80,6 +82,7 @@ func (h Host) Validate() error {
 		{"process stdin", h.ProcessStdin != nil},
 		{"GC hook", h.RunGC != nil},
 		{"checkpoint hook", h.Checkpoint != nil},
+		{"database disk size hook", h.DatabaseDiskSize != nil},
 		{"shutdown hook", h.Shutdown != nil},
 		{"verb caller", h.VerbCaller != nil},
 	}

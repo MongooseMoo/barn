@@ -84,6 +84,29 @@ func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
 	}
 }
 
+func TestBuiltinDbDiskSizeUsesHostCapability(t *testing.T) {
+	session := NewSession(NewRegistry(), NoHost())
+	ctx := newTestExecutionForSession(session)
+	configureTestHost(session, func(host *Host) {
+		host.DatabaseDiskSize = func() (int64, error) { return 4242, nil }
+	})
+
+	result := builtinDbDiskSize(ctx, nil)
+	if !result.IsNormal() || result.Val.Int() != 4242 {
+		t.Fatalf("db_disk_size result = %+v, want 4242", result)
+	}
+}
+
+func TestBuiltinDbDiskSizeReportsUnavailableDatabase(t *testing.T) {
+	session := NewSession(NewRegistry(), NoHost())
+	ctx := newTestExecutionForSession(session)
+
+	result := builtinDbDiskSize(ctx, nil)
+	if !result.IsError() || result.Error != types.E_QUOTA {
+		t.Fatalf("db_disk_size result = %+v, want E_QUOTA", result)
+	}
+}
+
 func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
 	tests := []struct {
 		name      string
