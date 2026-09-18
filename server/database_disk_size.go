@@ -5,22 +5,18 @@ import (
 	"os"
 )
 
-// databaseDiskSize reports the storage occupied by the server's loaded input
-// database and its latest ordinary checkpoint. Both remain active restart
-// candidates until an operator adopts the checkpoint.
+// databaseDiskSize reports the latest ordinary checkpoint once this process
+// has attempted a dump, falling back to the input database if it is unavailable.
+// Before the first dump, a checkpoint left by an earlier process is ignored.
 func (s *Server) databaseDiskSize() (int64, error) {
-	var total int64
-	found := false
-	for _, path := range []string{s.dbPath, s.dbPath + ".new"} {
-		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
+	if s.ordinaryDumpStarted.Load() {
+		if info, err := os.Stat(s.dbPath + ".new"); err == nil {
+			return info.Size(), nil
 		}
-		total += info.Size()
-		found = true
 	}
-	if !found {
-		return 0, fmt.Errorf("no database file(s) available")
+	info, err := os.Stat(s.dbPath)
+	if err != nil {
+		return 0, fmt.Errorf("no database file available: %w", err)
 	}
-	return total, nil
+	return info.Size(), nil
 }

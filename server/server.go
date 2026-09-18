@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -27,25 +28,26 @@ import (
 
 // Server represents the MOO server
 type Server struct {
-	store              *dbstore.Store
-	runtime            *engine.Runtime
-	registry           *builtins.Registry
-	input              *InputProcessor
-	connManager        *ConnectionManager
-	checkpointedConns  []dbformat.ActiveConnection
-	dbPath             string
-	listenerSpecs      []listener.Spec
-	checkpointInterval time.Duration
-	options            config.Options
-	running            bool
-	mu                 sync.Mutex
-	shutdownMessage    string
-	terminalErr        error
-	backgroundWG       sync.WaitGroup
-	checkpointChan     chan struct{}
-	ctx                context.Context
-	cancel             context.CancelFunc
-	lifecycle          LifecycleObserver
+	store               *dbstore.Store
+	runtime             *engine.Runtime
+	registry            *builtins.Registry
+	input               *InputProcessor
+	connManager         *ConnectionManager
+	checkpointedConns   []dbformat.ActiveConnection
+	dbPath              string
+	listenerSpecs       []listener.Spec
+	checkpointInterval  time.Duration
+	ordinaryDumpStarted atomic.Bool
+	options             config.Options
+	running             bool
+	mu                  sync.Mutex
+	shutdownMessage     string
+	terminalErr         error
+	backgroundWG        sync.WaitGroup
+	checkpointChan      chan struct{}
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	lifecycle           LifecycleObserver
 }
 
 // LifecycleObserver reports application lifecycle boundaries to passive
@@ -354,7 +356,7 @@ func (s *Server) requestCheckpoint() error {
 
 // checkpoint saves the database to disk
 func (s *Server) checkpoint() error {
-	return s.checkpointWith(dbformat.WriteCheckpoint)
+	return s.checkpointWith(dbformat.WriteCheckpoint, true)
 }
 
 type checkpointWriter func(
@@ -365,7 +367,7 @@ type checkpointWriter func(
 	[]dbformat.ActiveConnection,
 ) error
 
-func (s *Server) checkpointWith(writeCheckpoint checkpointWriter) error {
+func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool) error {
 	slog.Info("checkpoint started")
 
 	// Call #0:checkpoint_started()
@@ -377,6 +379,11 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter) error {
 
 	queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 	activeConnections := s.connManager.CheckpointConnections()
+	if ordinary {
+		// A dump attempt makes the ordinary output eligible even if writing
+		// fails. Panic dumps use a different output and do not change this.
+		s.ordinaryDumpStarted.Store(true)
+	}
 	if err := writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
 		return err
@@ -471,7 +478,7 @@ func (s *Server) Panic(message string) error {
 		slog.String("go_stack", string(debug.Stack())))
 
 	// Attempt emergency database dump
-	if err := s.checkpointWith(dbformat.WritePanicCheckpoint); err != nil {
+	if err := s.checkpointWith(dbformat.WritePanicCheckpoint, false); err != nil {
 		slog.Error("emergency dump failed", slog.Any("err", err))
 	} else {
 		slog.Info("emergency dump written", slog.String("path", s.dbPath+".new.PANIC"))
