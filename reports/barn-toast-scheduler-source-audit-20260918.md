@@ -87,6 +87,20 @@ behind the runtime pass. But after a welcome hook suspends in `exec()`,
 `Task.CompleteExec` makes it queued and it returns through the global scheduler.
 It loses the connection lane's immediate execution path.
 
+The subsequent gate review adds a second independent ordering boundary:
+`engine/task_runtime.go:133` takes exclusive gate access before every
+nonretryable resumed slice executes, including a slice that ultimately performs
+no writes. Connection lanes bypass the ready scheduler but do not bypass this
+gate. Ordinary writing commits acquire its shared side; checkpoints acquire its
+exclusive side. Gate admission therefore belongs in the scheduling design.
+
+Also distinguish snapshot length from batch width: current fork/saved-VM work
+is put in solo batches by `taskIsConflictRetryable` and `Scheduler.Plan`.
+Reconsidering between dispatches is useful; merely reducing worker batch size
+would not change these already-single-task batches. See the Fable review and
+follow-up for gate/worker/GC interactions. Neither source finding establishes a
+hard latency bound or the dominant delay on every login stage.
+
 The existing internal test `engine/scheduler_fairness_test.go` explicitly
 requires all ready tasks to complete in one pass. That is an implementation
 contract, not proof of MOO fairness or a Toast conformance requirement. Any
