@@ -46,6 +46,14 @@ func Parse(r io.Reader, source string) (Options, error) {
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("duplicate option %s", key))
 		}
 		seen[key] = true
+		if key == "BUILTIN_CAPABILITIES" {
+			capabilities, err := ParseCapabilities(value)
+			if err != nil {
+				return Options{}, parseError(source, lineNumber, err.Error())
+			}
+			options.BuiltinCapabilities = &capabilities
+			continue
+		}
 
 		parsed, err := parseBool01(value)
 		if err != nil {

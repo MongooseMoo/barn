@@ -105,6 +105,9 @@ func RestoreVMSnapshot(
 	recycleIDs := make([]types.ObjID, 0)
 
 	for _, saved := range snapshot.Frames {
+		if saved.Program.BuiltinLayout != [32]byte{} && (session == nil || !session.Registry().Compiler().Accepts(&saved.Program)) {
+			return nil, fmt.Errorf("saved builtin registry layout differs from runtime")
+		}
 		program := cloneProgram(&saved.Program)
 		base := len(machine.Stack)
 		machine.Stack = append(machine.Stack, saved.Stack...)
@@ -249,13 +252,14 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		return bytecode.Program{}
 	}
 	return bytecode.Program{
-		Code:         append([]byte(nil), program.Code...),
-		Constants:    append([]types.Value(nil), program.Constants...),
-		VarNames:     append([]string(nil), program.VarNames...),
-		LineInfo:     append([]bytecode.LineEntry(nil), program.LineInfo...),
-		NumLocals:    program.NumLocals,
-		Source:       append([]string(nil), program.Source...),
-		BuiltinSlots: program.BuiltinSlots,
+		Code:          append([]byte(nil), program.Code...),
+		Constants:     append([]types.Value(nil), program.Constants...),
+		VarNames:      append([]string(nil), program.VarNames...),
+		LineInfo:      append([]bytecode.LineEntry(nil), program.LineInfo...),
+		NumLocals:     program.NumLocals,
+		Source:        append([]string(nil), program.Source...),
+		BuiltinSlots:  program.BuiltinSlots,
+		BuiltinLayout: program.BuiltinLayout,
 	}
 }
 

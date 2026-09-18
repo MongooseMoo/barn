@@ -279,6 +279,15 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	return nil
 }
 
+// pushProtectedVerb shares ordinary verb activation, return, unwind, and
+// suspension with the calling VM. args is owned by the builtin dispatcher.
+func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
+		return types.Err(extractErrorCode(err))
+	}
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
 // Bytecode format: OP_PASS <argc:byte>
@@ -296,17 +305,6 @@ func (vm *VM) executePass() error {
 	if frame == nil {
 		return fmt.Errorf("E_INVIND: no active frame for pass()")
 	}
-
-	verbName := frame.Verb
-	if verbName == "" {
-		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
-	}
-
-	verbLoc := frame.VerbLoc
-	if verbLoc == types.ObjNothing {
-		return fmt.Errorf("E_INVIND: pass() has no defining object")
-	}
-
 	// Get pass-through args
 	var passArgs []types.Value
 	if argc == 0xFF {
@@ -328,6 +326,23 @@ func (vm *VM) executePass() error {
 		} else {
 			passArgs = []types.Value{}
 		}
+	}
+
+	// Non-debug frames resume after errors, so consume operands and args first.
+	// Legacy programs have no layout fingerprint, but still require pass enabled.
+	registry := vm.Builtins.Registry()
+	if !registry.Has("pass") || !registry.Compiler().Accepts(frame.Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
+	verbName := frame.Verb
+	if verbName == "" {
+		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+	}
+
+	verbLoc := frame.VerbLoc
+	if verbLoc == types.ObjNothing {
+		return fmt.Errorf("E_INVIND: pass() has no defining object")
 	}
 
 	if vm.Store == nil {

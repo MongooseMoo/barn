@@ -5,6 +5,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -14,73 +15,80 @@ import (
 // handled natively by OP_PASS in the VM, but is still registered so the
 // compiler can resolve its function ID.
 func BuildVMRegistry() *builtins.Registry {
-	registry := builtins.NewRegistry()
-
-	registry.Register("eval", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		if len(args) < 1 {
-			return types.Err(types.E_ARGS)
-		}
-		store := ctx.Store
-
-		hasProgrammer, errCode := ctx.StoreTxn.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
-		if errCode != types.E_NONE || !hasProgrammer {
-			return types.Err(types.E_PERM)
-		}
-
-		var lines []string
-		for _, arg := range args {
-			if arg.Type() != types.TYPE_STR {
-				return types.Err(types.E_TYPE)
-			}
-			lines = append(lines, arg.Str())
-		}
-
-		code := joinLines(lines)
-		prog, diagnostics := registry.Compiler().CompileMOO(strings.Split(code, "\n"))
-		if len(diagnostics) > 0 {
-			return types.Ok(types.NewList([]types.Value{
-				types.NewInt(0),
-				types.NewList([]types.Value{types.NewStr(diagnostics[0].Error())}),
-			}))
-		}
-
-		if ctx.PushEval == nil {
-			evalVM := NewVM(store, ctx.Session)
-			evalVM.Context = ctx.TaskContext
-			evalVM.Task = ctx.Task
-			// No scheduler is running (inspection tools); honor the session's
-			// foreground tick budget the way the engine path does.
-			evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
-			frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
-			SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Caller, types.NewObj(ctx.ThisObj))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(""))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList([]types.Value{}))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
-			result := evalVM.ExecuteLoop()
-			if result.Flow == types.FlowException {
-				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
-			}
-			if result.Val.IsNone() {
-				result.Val = types.NewInt(0)
-			}
-			return types.Ok(types.NewList([]types.Value{types.NewInt(1), result.Val}))
-		}
-
-		return ctx.PushEval(prog)
-	})
-
-	registry.Register("pass", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		return types.Err(types.E_INVIND)
-	})
-
+	registry, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), Descriptors())
+	if err != nil {
+		panic(err)
+	}
 	return registry
+}
+
+// Descriptors contributes complete VM-owned descriptors before construction.
+func Descriptors() []builtins.Descriptor {
+	return append(builtins.BaseDescriptors(),
+		builtins.Descriptor{Name: "eval", Signature: &builtins.Signature{MinArgs: 1, MaxArgs: -1, ArgTypes: []int64{2}}, Visibility: builtins.Public, Effect: builtins.Transactional, Capability: config.Core, Implementation: func(ctx *builtins.Execution, args []types.Value) types.Result {
+			if len(args) < 1 {
+				return types.Err(types.E_ARGS)
+			}
+			store := ctx.Store
+
+			hasProgrammer, errCode := ctx.StoreTxn.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
+			if errCode != types.E_NONE || !hasProgrammer {
+				return types.Err(types.E_PERM)
+			}
+
+			var lines []string
+			for _, arg := range args {
+				if arg.Type() != types.TYPE_STR {
+					return types.Err(types.E_TYPE)
+				}
+				lines = append(lines, arg.Str())
+			}
+
+			code := joinLines(lines)
+			prog, diagnostics := ctx.Registry.Compiler().CompileMOO(strings.Split(code, "\n"))
+			if len(diagnostics) > 0 {
+				return types.Ok(types.NewList([]types.Value{
+					types.NewInt(0),
+					types.NewList([]types.Value{types.NewStr(diagnostics[0].Error())}),
+				}))
+			}
+
+			if ctx.PushEval == nil {
+				evalVM := NewVM(store, ctx.Session)
+				evalVM.Context = ctx.TaskContext
+				evalVM.Task = ctx.Task
+				// No scheduler is running (inspection tools); honor the session's
+				// foreground tick budget the way the engine path does.
+				evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
+				frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
+				SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Caller, types.NewObj(ctx.ThisObj))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(""))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList([]types.Value{}))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
+				SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
+				result := evalVM.ExecuteLoop()
+				if result.Flow == types.FlowException {
+					return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
+				}
+				if result.Val.IsNone() {
+					result.Val = types.NewInt(0)
+				}
+				return types.Ok(types.NewList([]types.Value{types.NewInt(1), result.Val}))
+			}
+
+			return ctx.PushEval(prog)
+		}},
+
+		builtins.Descriptor{Name: "pass", Signature: &builtins.Signature{MinArgs: 0, MaxArgs: -1, ArgTypes: []int64{}}, Visibility: builtins.Public, Effect: builtins.Transactional, Capability: config.Core, Implementation: func(ctx *builtins.Execution, args []types.Value) types.Result {
+			return types.Err(types.E_INVIND)
+		}},
+	)
 }
 
 func (vm *VM) pushEval(prog *bytecode.Program) types.Result {

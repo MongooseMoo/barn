@@ -80,7 +80,6 @@ go build -o <tool>.exe ./cmd/<tool>/
 | `barn_logs` | Inspect Barn's structured run logs |
 | `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
 | `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
-| `gen_builtin_signatures` | Generate built-in function signature data |
 
 ## Conformance Workflow
 
@@ -161,6 +160,29 @@ See [`spec/`](spec/) for local behavior documentation:
   [Network](spec/builtins/network.md), [Crypto](spec/builtins/crypto.md),
   [Regex](spec/builtins/regex.md), [SQLite](spec/builtins/sqlite.md),
   [Exec](spec/builtins/exec.md), [Server](spec/builtins/server.md)
+
+## Performance Builds
+
+Go automatically applies the checked-in `cmd/barn/default.pgo` when building
+the Barn command. The profile combines representative real-Mongoose workloads
+at low and high concurrency with the `BenchmarkVM`/bench_differ hot loops. Keep
+a profile-free baseline available with `go build -pgo=off ./cmd/barn`.
+
+Refresh the profile only after collecting current CPU profiles for all three
+workload shapes, then merge them and re-run the performance gate:
+
+```bash
+go tool pprof -proto mongoose-1p.cpu mongoose-16p.cpu bench-differ.cpu > cmd/barn/default.pgo
+go test -pgo=off ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > before.txt
+go test ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > after.txt
+benchstat before.txt after.txt
+```
+
+Commit a refreshed profile only when the geomean improves with p < 0.05 and no
+benchmark regresses by more than 3%. `make build-linux-amd64` produces the
+BMI2/AVX2 `GOAMD64=v3` binary used for deployment, and bench_differ uses the
+same architecture level. Generic release builds retain Go's `GOAMD64=v1`
+default.
 
 ## Resources
 

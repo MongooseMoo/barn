@@ -115,7 +115,7 @@ def load_corpus(path: Path) -> list[tuple[str, str]]:
 
 
 def build_barn_linux(dest: Path) -> None:
-    env = dict(os.environ, GOOS="linux", GOARCH="amd64", CGO_ENABLED="0")
+    env = dict(os.environ, GOOS="linux", GOARCH="amd64", GOAMD64="v3", CGO_ENABLED="0")
     subprocess.run(["go", "build", "-o", str(dest), "./cmd/barn"], cwd=REPO, env=env, check=True)
 
 
@@ -247,7 +247,7 @@ def main() -> int:
         "",
         f"- db: `{args.db}` sha256 `{db_sha}`",
         f"- toast: `{TOAST}` (WSL Debian)",
-        f"- barn: linux/amd64 cross-build sha256 `{barn_sha}` from `{REPO}` @ {head}",
+        f"- barn: linux/amd64 GOAMD64=v3 cross-build sha256 `{barn_sha}` from `{REPO}` @ {head}",
         f"- repeats: {args.repeats} (interleaved); timing = in-MOO ftime(1) bookends around eval()",
         f"- lane wall clock: toast {wall['toast']:.1f}s, barn {wall['barn']:.1f}s",
         "",

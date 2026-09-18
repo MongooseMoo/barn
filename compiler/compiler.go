@@ -2,8 +2,10 @@
 package compiler
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -39,6 +41,7 @@ func (d Diagnostic) Error() string {
 type Compiler struct {
 	builtinIDs map[string]int
 	cache      *programCache
+	layout     [32]byte
 }
 
 // New constructs a compiler for one builtin registry layout.
@@ -47,10 +50,25 @@ func New(builtinIDs map[string]int) *Compiler {
 	for name, id := range builtinIDs {
 		snapshot[canonicalIdentifier(name)] = id
 	}
+	names := make([]string, 0, len(snapshot))
+	for name := range snapshot {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var layout strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&layout, "%s:%d\n", name, snapshot[name])
+	}
 	return &Compiler{
 		builtinIDs: snapshot,
 		cache:      newProgramCache(mooCacheCapacity),
+		layout:     sha256.Sum256([]byte(layout.String())),
 	}
+}
+
+// Accepts rejects compiled bytecode whose builtin IDs belong to another layout.
+func (c *Compiler) Accepts(program *bytecode.Program) bool {
+	return program != nil && (program.BuiltinLayout == [32]byte{} || program.BuiltinLayout == c.layout)
 }
 
 // CompileMOO parses, lowers, source-attaches, and caches one MOO verb body.
@@ -86,6 +104,7 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 		return nil, []Diagnostic{compileDiagnostic(err)}
 	}
 	compiled.Source = append([]string(nil), sourceLines...)
+	compiled.BuiltinLayout = c.layout
 	c.cache.put(key, compiled)
 	return compiled, nil
 }

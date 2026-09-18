@@ -55,12 +55,28 @@ func NewRuntimeWithOptions(store *dbstore.Store, options config.Options) *Runtim
 }
 
 func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, workerCount int) *Runtime {
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		panic(err)
+	}
+	return newRuntimeWithRegistry(store, options, workerCount, registry)
+}
+
+// NewRuntimeWithRegistry binds runtime execution to an already constructed
+// immutable registry. Embedders supply all descriptors before this boundary.
+func NewRuntimeWithRegistry(store *dbstore.Store, options config.Options, registry *builtins.Registry) *Runtime {
+	return newRuntimeWithRegistry(store, options, runtime.GOMAXPROCS(0), registry)
+}
+
+func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, workerCount int, registry *builtins.Registry) *Runtime {
+	if registry == nil {
+		panic("runtime requires a builtin registry")
+	}
 	if workerCount < 1 {
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := task.NewManager()
-	registry := vm.BuildVMRegistry()
 
 	s := &Runtime{
 		taskManager: manager,

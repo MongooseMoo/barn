@@ -9,7 +9,7 @@ import (
 
 // protectedRedirectStore builds #0 (system object, $server_options -> #1),
 // #1 (the server options object) and #2 (a wizard player).
-func protectedRedirectStore(t *testing.T) *dbstore.Store {
+func protectedRedirectStore(t testing.TB) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
 	for id, flags := range map[types.ObjID]dbstore.ObjectFlags{

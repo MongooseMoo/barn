@@ -53,9 +53,9 @@ type competingWriter struct {
 	result types.ErrorCode
 }
 
-func registerCompetingWriter(s *Runtime, store *dbstore.Store) *competingWriter {
+func competingWriterDescriptor(store *dbstore.Store) (builtins.Descriptor, *competingWriter) {
 	c := &competingWriter{done: make(chan struct{})}
-	s.registry.Register("start_competitor", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	var callback builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		tx := store.BeginReadOnly(0)
 		cur, errCode := tx.PropertyValue(0, "v")
 		if errCode != types.E_NONE {
@@ -73,8 +73,8 @@ func registerCompetingWriter(s *Runtime, store *dbstore.Store) *competingWriter 
 		case <-time.After(200 * time.Millisecond):
 		}
 		return types.Ok(types.NewInt(0))
-	})
-	return c
+	}
+	return testBuiltinSlot("start_competitor", 0, 0, []int64{}, &callback), c
 }
 
 func (c *competingWriter) wait(t *testing.T) types.ErrorCode {
@@ -114,11 +114,12 @@ func runUntilTerminal(t *testing.T, s *Runtime, target *task.Task) {
 // fork record, so nothing distinguishes it from a fresh task.
 func TestForkedFirstRunRetriesLostCommit(t *testing.T) {
 	store := newConflictTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var conflictOnce builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("conflict_once", 0, 0, []int64{}, &conflictOnce))
 	defer s.Stop()
 
 	conflictCalls := 0
-	s.registry.Register("conflict_once", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	conflictOnce = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		conflictCalls++
 		if conflictCalls == 1 {
 			// Another task's commit lands after this slice's snapshot. Deliberately
@@ -128,7 +129,7 @@ func TestForkedFirstRunRetriesLostCommit(t *testing.T) {
 			}
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	owner := types.ObjID(7801)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -171,9 +172,9 @@ return 0;
 // loses validation afterwards, never the slice.
 func TestResumedSliceCannotLoseCommitToConcurrentWriter(t *testing.T) {
 	store := newConflictTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, competitor := competingWriterDescriptor(store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	competitor := registerCompetingWriter(s, store)
 
 	owner := types.ObjID(7802)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -213,9 +214,9 @@ return #0.v;
 // gate too.
 func TestForkedInlineYieldCannotLoseCommitToConcurrentWriter(t *testing.T) {
 	store := newConflictTestStore(t)
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	descriptor, competitor := competingWriterDescriptor(store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
 	defer s.Stop()
-	competitor := registerCompetingWriter(s, store)
 
 	owner := types.ObjID(7803)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())

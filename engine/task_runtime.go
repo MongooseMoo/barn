@@ -150,7 +150,7 @@ retryAttempt:
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
 	ctx.ConflictRetryRequested = false
-	// An irreversible external effect (builtinHasIrreversibleSideEffect) makes the
+	// An irreversible external effect selected by a builtin descriptor makes the
 	// rest of the attempt un-retryable: a commit conflict after it can no longer be
 	// answered by re-running the task and would surface as an uncatchable E_INVARG
 	// no serial execution produces, with the attempt's pending output discarded (a

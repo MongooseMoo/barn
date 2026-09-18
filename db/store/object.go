@@ -235,19 +235,25 @@ type VerbView struct {
 }
 
 // verbIndex is the dispatch index over one verbList: exact (wildcard-free)
-// lowered aliases map to their ascending verbList indices, and wildcard holds
-// the ascending indices of verbs with at least one "*" alias. lookup reproduces
+// lowered aliases map to their earliest verbList index, executable maps to the
+// earliest executable one, and wildcard holds the ascending indices of verbs
+// with at least one "*" alias. lookup reproduces
 // scanVerbList exactly — the earliest verb in definition order with any
 // matching alias wins, skipping non-executable verbs when requireExecute —
 // in O(1 + wildcards) instead of O(verbs × aliases) string compares.
 type verbIndex struct {
-	n        int
-	exact    map[string][]int32
-	wildcard []int32
+	n          int
+	exact      map[string]int32
+	executable map[string]int32
+	wildcard   []int32
 }
 
 func buildVerbIndex(list []*Verb) *verbIndex {
-	idx := &verbIndex{n: len(list), exact: make(map[string][]int32, len(list))}
+	idx := &verbIndex{
+		n:          len(list),
+		exact:      make(map[string]int32, len(list)),
+		executable: make(map[string]int32, len(list)),
+	}
 	for i, verb := range list {
 		wild := false
 		for _, alias := range verb.lowerNames {
@@ -255,7 +261,14 @@ func buildVerbIndex(list []*Verb) *verbIndex {
 				wild = true
 				continue
 			}
-			idx.exact[alias] = append(idx.exact[alias], int32(i))
+			if _, exists := idx.exact[alias]; !exists {
+				idx.exact[alias] = int32(i)
+			}
+			if verb.perms.Has(VerbExecute) {
+				if _, exists := idx.executable[alias]; !exists {
+					idx.executable[alias] = int32(i)
+				}
+			}
 		}
 		if wild {
 			idx.wildcard = append(idx.wildcard, int32(i))
@@ -273,11 +286,14 @@ func (o *Object) rebuildVerbIndex() { o.verbIdx = buildVerbIndex(o.verbList) }
 // list must be the verbList the index was built from (len checked by caller).
 func (idx *verbIndex) lookup(list []*Verb, searchLower string, requireExecute bool) *Verb {
 	best := int32(-1)
-	for _, i := range idx.exact[searchLower] {
-		if !requireExecute || list[i].perms.Has(VerbExecute) {
-			best = i
-			break
-		}
+	var ok bool
+	if requireExecute {
+		best, ok = idx.executable[searchLower]
+	} else {
+		best, ok = idx.exact[searchLower]
+	}
+	if !ok {
+		best = -1
 	}
 wild:
 	for _, i := range idx.wildcard {

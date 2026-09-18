@@ -1,0 +1,21 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                 │ .tmp/protected-before.txt │      .tmp/protected-after.txt       │
+                                 │          sec/op           │   sec/op     vs base                │
+ProtectedBuiltinDispatch/Builtin                8.685m ± 12%   2.107m ± 3%  -75.74% (p=0.000 n=10)
+ProtectedBuiltinDispatch/Verb                   1.611m ±  9%   1.511m ± 3%   -6.18% (p=0.023 n=10)
+geomean                                         3.740m         1.784m       -52.29%
+
+                                 │ .tmp/protected-before.txt │       .tmp/protected-after.txt       │
+                                 │           B/op            │     B/op      vs base                │
+ProtectedBuiltinDispatch/Builtin               2969.0Ki ± 0%   342.3Ki ± 0%  -88.47% (p=0.000 n=10)
+ProtectedBuiltinDispatch/Verb                   334.5Ki ± 0%   334.5Ki ± 0%   +0.00% (p=0.000 n=10)
+geomean                                         996.5Ki        338.4Ki       -66.04%
+
+                                 │ .tmp/protected-before.txt │      .tmp/protected-after.txt       │
+                                 │         allocs/op         │  allocs/op   vs base                │
+ProtectedBuiltinDispatch/Builtin                28.032k ± 0%   8.036k ± 0%  -71.33% (p=0.000 n=10)
+ProtectedBuiltinDispatch/Verb                    7.035k ± 0%   7.036k ± 0%   +0.01% (p=0.000 n=10)
+geomean                                          14.04k        7.519k       -46.45%

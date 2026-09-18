@@ -17,6 +17,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	if execution == nil {
 		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
 		execution.PushEval = vm.pushEval
+		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
 		execution.PushRecycleLifecycle = vm.startRecycleLifecycle
 		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
@@ -61,6 +62,11 @@ func (vm *VM) executeCallBuiltin() error {
 			args = vm.Stack[vm.SP-n : vm.SP]
 			vm.SP -= n
 		}
+	}
+
+	// Non-debug frames resume after errors, so consume operands and args first.
+	if !vm.Builtins.Registry().Compiler().Accepts(vm.CurrentFrame().Program) {
+		return VMException{Code: types.E_INVARG}
 	}
 
 	// Sync task call-stack line numbers only for builtins that expose them.

@@ -298,7 +298,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	srv.SetLifecycleObserver(state)
 	if cfg.ProfileManifest != "" {
-		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options})
+		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry()})
 		if err != nil {
 			return fmt.Errorf("build profile manifest: %w", err)
 		}
