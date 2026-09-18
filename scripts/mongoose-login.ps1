@@ -9,6 +9,9 @@ param(
     [switch]$BuildOracle,
     [switch]$CaptureDebug,
     [switch]$VerifyTimeOffset,
+    [switch]$UntilCleanLogin,
+    [int]$LoginDeadline = 300,
+    [string]$CleanLoginMarker = 'MESSAGE OF THE DAY:',
     [switch]$Proxy,
     [string]$Username = '',
     [string]$Password = '',
@@ -21,6 +24,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($UntilCleanLogin -and (-not $Start -or -not $Username -or -not $CleanLoginMarker)) {
+    throw 'UntilCleanLogin requires Start, Username and a nonempty CleanLoginMarker.'
+}
+$processStarted = $null
 if ($Timeout * 1000 -le [Math]::Max($BannerWait, $InterCommand)) {
     throw 'Timeout must exceed BannerWait and InterCommand so the socket reader stays active while commands are sent.'
 }
@@ -76,6 +83,7 @@ if ($Start) {
         Assert-NativeExit $code 'build Mongoose timezone helper'
         Copy-Item -LiteralPath "$run/mongoose.db.new" -Destination "$cwd/mongoose.db.new" -Force
         Copy-Item -LiteralPath "$run/sound.sqlite" -Destination "$cwd/files/sqlite/sound.sqlite" -Force
+        $processStarted = [DateTime]::UtcNow
         $proc = Start-Process -FilePath "$run/barn.exe" -ArgumentList "-db mongoose.db.new -promote-numbers -port $Port -debug-addr 127.0.0.1:11486 -operator-addr 127.0.0.1:11487 -checkpoint-interval 0 -log-level debug -log-dir logs" -WorkingDirectory $cwd -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
     } else {
         $toastRun = '/tmp/barn-mongoose-account-' + $stamp
@@ -85,6 +93,7 @@ if ($Start) {
         $body = $body.Replace('set -euo pipefail; ', 'set -euo pipefail; ' + $install)
         $launch = "$run/toast-$stamp.sh"
         [IO.File]::WriteAllText($launch, $body + "`n", [Text.UTF8Encoding]::new($false))
+        $processStarted = [DateTime]::UtcNow
         $proc = Start-Process -FilePath wsl.exe -ArgumentList "-d $Distribution --exec bash $linuxRun/toast-$stamp.sh" -WindowStyle Hidden -PassThru -RedirectStandardOutput "$prefix-server-out.txt" -RedirectStandardError "$prefix-server-err.txt"
     }
     $proc.Id | Set-Content "$run/$($Engine.ToLower())-pid.txt"
@@ -113,64 +122,91 @@ if ($Engine -eq 'Barn') {
         Assert-NativeExit $code 'build Linux socket client'
     } finally { $env:GOOS = $savedGOOS; $env:CGO_ENABLED = $savedCGO }
 }
-$lines = @()
-if ($Proxy) { $lines += "PROXY TCP4 203.0.113.5 127.0.0.1 50000 $Port" }
-if ($Username) { $lines += $Username; $lines += $Password }
-if ($VerifyTimeOffset) {
-    $lines += ';return {"mongoose-time-offset", exec({"tz", "UTC"}, "", {}), #43:time_offset("America/Denver")};'
-}
-$lines += $Commands
-$inputFile = "$run/input-$stamp.txt"
-[IO.File]::WriteAllLines($inputFile, $lines, [Text.UTF8Encoding]::new($false))
-try {
-    $args = @('-host', '127.0.0.1', '-port', $Port, '-banner-wait', $BannerWait, '-inter-cmd', $InterCommand, '-timeout', $Timeout, '-max-duration', $MaxDuration)
-    if ($Engine -eq 'Barn') {
-        & $client @args -file $inputFile -event-log "$prefix-events.jsonl" 2>&1 |
-            ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
-            Tee-Object "$prefix-client.txt"
-    } else {
-        & wsl -d $Distribution --exec "$linuxRun/moo_client" @args -file "$linuxRun/input-$stamp.txt" -event-log "$linuxRun/$(Split-Path $prefix -Leaf)-events.jsonl" 2>&1 |
-            ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
-            Tee-Object "$prefix-client.txt"
+$attempt = 0
+do {
+    $attempt++
+    if ($attempt -gt 1) {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+        $prefix = Join-Path $run "$($Engine.ToLower())-$stamp"
     }
-    $code = $LASTEXITCODE
-    Assert-NativeExit $code 'socket probe'
-} finally {
-    Remove-Item -LiteralPath $inputFile
-    if ($CaptureDebug -and $Engine -eq 'Barn') {
-        foreach ($endpoint in @('vars', 'pprof/goroutine?debug=2')) {
-            $name = if ($endpoint -eq 'vars') { 'vars.json' } else { 'goroutines.txt' }
-            (Invoke-WebRequest "http://127.0.0.1:11486/debug/$endpoint").Content | Set-Content "$prefix-$name"
+    $probeStarted = [DateTime]::UtcNow
+    $lines = @()
+    if ($Proxy) { $lines += "PROXY TCP4 203.0.113.5 127.0.0.1 50000 $Port" }
+    if ($Username) { $lines += $Username; $lines += $Password }
+    if ($VerifyTimeOffset) {
+        $lines += ';return {"mongoose-time-offset", exec({"tz", "UTC"}, "", {}), #43:time_offset("America/Denver")};'
+    }
+    $lines += $Commands
+    $inputFile = "$run/input-$stamp.txt"
+    [IO.File]::WriteAllLines($inputFile, $lines, [Text.UTF8Encoding]::new($false))
+    try {
+        $args = @('-host', '127.0.0.1', '-port', $Port, '-banner-wait', $BannerWait, '-inter-cmd', $InterCommand, '-timeout', $Timeout, '-max-duration', $MaxDuration)
+        if ($Engine -eq 'Barn') {
+            & $client @args -file $inputFile -event-log "$prefix-events.jsonl" 2>&1 |
+                ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
+                Tee-Object "$prefix-client.txt"
+        } else {
+            & wsl -d $Distribution --exec "$linuxRun/moo_client" @args -file "$linuxRun/input-$stamp.txt" -event-log "$linuxRun/$(Split-Path $prefix -Leaf)-events.jsonl" 2>&1 |
+                ForEach-Object { if ($Password) { $_.ToString().Replace($Password, '[redacted]') } else { $_.ToString() } } |
+                Tee-Object "$prefix-client.txt"
+        }
+        $code = $LASTEXITCODE
+        Assert-NativeExit $code 'socket probe'
+    } finally {
+        Remove-Item -LiteralPath $inputFile
+        if ($CaptureDebug -and $Engine -eq 'Barn') {
+            foreach ($endpoint in @('vars', 'pprof/goroutine?debug=2')) {
+                $name = if ($endpoint -eq 'vars') { 'vars.json' } else { 'goroutines.txt' }
+                (Invoke-WebRequest "http://127.0.0.1:11486/debug/$endpoint").Content | Set-Content "$prefix-$name"
+            }
         }
     }
-}
-Write-Output "Evidence prefix: $prefix"
-$milestones = [ordered]@{
-    banner = 'Welcome to...'
-    username_prompt = 'Enter your username or email:'
-    guest_welcome = '(***) WELCOME! (***)'
-    account_welcome = 'Welcome!'
-    character_selection = 'Please choose a character to log in as:'
-    room = "[Georgie's Guesthouse; The Parlor]"
-    access_denied = 'Access Denied'
-    confunc_error = 'Confunc failed:'
-}
-$seen = @{}
-$received = ''
-foreach ($line in Get-Content -LiteralPath "$prefix-events.jsonl") {
-    $event = $line | ConvertFrom-Json
-    if ($event.event -ne 'receive') { continue }
-    $received += $event.text
-    foreach ($name in $milestones.Keys) {
-        if (-not $seen.ContainsKey($name) -and $received.Contains($milestones[$name])) {
-            $seen[$name] = $event.elapsed_ms
-            Write-Output "Milestone ${name}_ms=$($event.elapsed_ms)"
+    Write-Output "Evidence prefix: $prefix"
+    $milestones = [ordered]@{
+        banner = 'Welcome to...'
+        username_prompt = 'Enter your username or email:'
+        guest_welcome = '(***) WELCOME! (***)'
+        account_welcome = 'Welcome!'
+        character_selection = 'Please choose a character to log in as:'
+        room = "[Georgie's Guesthouse; The Parlor]"
+        access_denied = 'Access Denied'
+        confunc_error = 'Confunc failed:'
+        clean_login = $CleanLoginMarker
+    }
+    $seen = @{}
+    $received = ''
+    foreach ($line in Get-Content -LiteralPath "$prefix-events.jsonl") {
+        $event = $line | ConvertFrom-Json
+        if ($event.event -ne 'receive') { continue }
+        $received += $event.text
+        foreach ($name in $milestones.Keys) {
+            if (-not $seen.ContainsKey($name) -and $received.Contains($milestones[$name])) {
+                $seen[$name] = $event.elapsed_ms
+                Write-Output "Milestone ${name}_ms=$($event.elapsed_ms)"
+            }
         }
     }
-}
-if ($VerifyTimeOffset) {
-    if ($received -notmatch '=> \{"mongoose-time-offset", \{0, "\+0000", ""\}, -(21600|25200)\}') {
-        throw "Time-offset smoke check failed; inspect $prefix-client.txt (requires a wizard character)."
+    if ($VerifyTimeOffset) {
+        if ($received -notmatch '=> \{"mongoose-time-offset", \{0, "\+0000", ""\}, -(21600|25200)\}') {
+            throw "Time-offset smoke check failed; inspect $prefix-client.txt (requires a wizard character)."
+        }
+        Write-Output 'Time-offset smoke check passed: UTC=+0000 and Denver offset valid'
     }
-    Write-Output 'Time-offset smoke check passed: UTC=+0000 and Denver offset valid'
-}
+    if (-not $UntilCleanLogin) { break }
+    $clean = $seen.ContainsKey('clean_login') -and -not $seen.ContainsKey('confunc_error') -and -not $seen.ContainsKey('access_denied')
+    $timing = [ordered]@{
+        engine = $Engine
+        attempt = $attempt
+        clean = $clean
+        process_started_utc = $processStarted.ToString('o')
+        observed_at_ms = [Math]::Round(([DateTime]::UtcNow - $processStarted).TotalMilliseconds)
+        clean_login_ms = if ($clean) { [Math]::Round(($probeStarted - $processStarted).TotalMilliseconds + $seen['clean_login']) } else { $null }
+        evidence_prefix = $prefix
+    }
+    $timing | ConvertTo-Json | Tee-Object "$prefix-login-timing.json"
+    if ($clean) { break }
+    if ($seen.ContainsKey('access_denied')) { throw 'Clean-login probe was denied; check the account and checkpoint.' }
+    if (([DateTime]::UtcNow - $processStarted).TotalSeconds -ge $LoginDeadline) {
+        throw "No clean login observed within $LoginDeadline seconds; inspect the attempt evidence."
+    }
+} while ($true)

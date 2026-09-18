@@ -75,6 +75,10 @@ The `*-tasks.txt` report groups CPU samples by `moo.task` and `moo.verb`, so a
 busy scheduler callback can be distinguished from login work. Debug logs also
 record `slow task slice` entries for slices taking at least 100ms; their elapsed
 time includes execution, contention, and cleanup, not just CPU time.
+`moo.verb` identifies the task's root verb, including jobs called by a forked
+worker; it does not identify the currently executing nested verb. Slow-slice
+records include `ticks` for the final execution attempt and `gate_held` when
+the slice acquired the exclusive commit gate at any point.
 Use `-Commands @('look','inventory','who','north','look','south')` with the login
 script for a short exploration pass. An account already connected may show a
 character chooser: select the desired character before issuing room commands.
@@ -113,3 +117,25 @@ is true, which requires a listener on `$network.port` (7777). Use `-Port 7777`
 for that startup path and run the engines sequentially to avoid port conflicts.
 SQL initialization itself runs in a fork; a login before it finishes can report
 `This database is not open` even when `sound.sqlite` is installed correctly.
+
+Use `-Start -UntilCleanLogin -Username <account> -Password <password>` to retry
+account connections until the complete welcome hook is observed without a
+connection-hook error. The default completion marker is `MESSAGE OF THE DAY:`;
+override `-CleanLoginMarker` for another checkpoint. Each attempt saves a
+`*-login-timing.json` record. `clean_login_ms` starts at process launch (after
+build/copy), and excludes the client's trailing receive timeout. `-LoginDeadline`
+defaults to 300 seconds and is checked between attempts; each attempt remains
+bounded by `-MaxDuration`. Use identical client waits and marker on both engines.
+
+`./scripts/summarize-mongoose-workload.ps1 -LogPath <latest.jsonl> -LastSeconds 600`
+summarizes root-verb slow slices and scheduler-reset boundary frequency. Its duty
+value includes only slices above the 100ms logging threshold and can include a
+slice that began before the selected window; it is not a CPU utilization metric.
+Retain the JSON output beside the CPU capture when comparing builds.
+
+`./scripts/measure-mongoose-cycles.ps1 -Engine Barn -Username <account> -Password <password>`
+measures ticks and elapsed time for the first three simulation objects on a local
+disposable server. Use `-Engine Toast` for the same probe on the oracle. These
+calls advance object state: compare identical snapshots and record server age.
+Different tick counts on different live world states do not alone prove a
+server regression. The script requires a successful result marker.
