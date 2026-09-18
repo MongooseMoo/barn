@@ -992,8 +992,6 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 	}
 
 	// Flush output buffer for the player
-	if s.taskOutputFlusher != nil {
-		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-	}
+	s.flushTaskOutput(t)
 	return err
 }

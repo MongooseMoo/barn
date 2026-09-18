@@ -1,0 +1,315 @@
+{
+  "db": "C:\\Users\\Q\\code\\moo-conformance-tests\\src\\moo_conformance\\_db\\Test.db",
+  "db_sha256": "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+  "barn_sha256": "f66ef68646c134e1c864581e977af6e97bec1f398b1f25b52bbdccf7bce11f30",
+  "git_head": "968a3d0",
+  "repeats": 5,
+  "rows": [
+    {
+      "name": "protected_valid_wrapper",
+      "code": "o = create($nothing); add_property($server_options, \"protect_valid\", 1, {player, \"r\"}); add_verb(#0, {player, \"rxd\", \"bf_valid\"}, {\"this\", \"none\", \"this\"}); set_verb_code(#0, \"bf_valid\", {\"return valid(args[1]) + 10;\"}); load_server_options(); n = 0; try for i in [1..70000]; n = n + valid(o) + valid(#-1); endfor; finally delete_verb(#0, \"bf_valid\"); delete_property($server_options, \"protect_valid\"); load_server_options(); recycle(o); endtry; return n;",
+      "toast_ms_median": 60.16162014566362,
+      "toast_ms_min": 58.951779967173934,
+      "barn_ms_median": 911.1496450000001,
+      "barn_ms_min": 864.0907640000001,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 1470000}"
+      ],
+      "barn_value": [
+        "{1, 1470000}"
+      ],
+      "values_match": true,
+      "ratio": 15.145031712808265
+    },
+    {
+      "name": "map_get_put_100",
+      "code": "m = []; for i in [1..100]; m[\"k\" + tostr(i)] = i; endfor; for r in [1..200]; for i in [1..100]; k = \"k\" + tostr(i); m[k] = m[k] + 1; endfor; endfor; s = 0; for v, k in (m); s = s + v + length(k); endfor; return {length(m), s};",
+      "toast_ms_median": 36.939079873263836,
+      "toast_ms_min": 35.25111987255514,
+      "barn_ms_median": 293.6651520000009,
+      "barn_ms_min": 258.538805,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, {100, 25342}}"
+      ],
+      "barn_value": [
+        "{1, {100, 25342}}"
+      ],
+      "values_match": true,
+      "ratio": 7.949985571041606
+    },
+    {
+      "name": "map_small_get_put",
+      "code": "m = [\"hp\" -> 10, \"mp\" -> 5, \"str\" -> 3, \"dex\" -> 4, \"gold\" -> 0]; for i in [1..100000]; m[\"gold\"] = m[\"gold\"] + 1; m[\"hp\"] = m[\"hp\"] + (i % 2); if (m[\"mp\"] < 100) m[\"mp\"] = m[\"mp\"] + 1; endif; endfor; return {m[\"gold\"], m[\"hp\"], m[\"mp\"], length(m)};",
+      "toast_ms_median": 60.39739982225001,
+      "toast_ms_min": 57.27850995026529,
+      "barn_ms_median": 274.35434900000024,
+      "barn_ms_min": 262.98631000000006,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, {100000, 50010, 100, 5}}"
+      ],
+      "barn_value": [
+        "{1, {100000, 50010, 100, 5}}"
+      ],
+      "values_match": true,
+      "ratio": 4.54248609720662
+    },
+    {
+      "name": "callers_chain",
+      "code": "o = create($nothing); for v in ({\"a\", \"b\", \"c\"}); add_verb(o, {player, \"rxd\", v}, {\"this\", \"none\", \"this\"}); endfor; set_verb_code(o, \"a\", {\"return this:b(args[1]);\"}); set_verb_code(o, \"b\", {\"return this:c(args[1]);\"}); set_verb_code(o, \"c\", {\"cs = callers(); return args[1] + length(cs);\"}); n = 0; for i in [1..25000]; n = n + o:a(i); endfor; recycle(o); return n;",
+      "toast_ms_median": 39.18039985001087,
+      "toast_ms_min": 37.392100086435676,
+      "barn_ms_median": 144.24082100000035,
+      "barn_ms_min": 140.5927000000009,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 312637500}"
+      ],
+      "barn_value": [
+        "{1, 312637500}"
+      ],
+      "values_match": true,
+      "ratio": 3.681453521459157
+    },
+    {
+      "name": "prop_write_growing_list",
+      "code": "o = create($nothing); add_property(o, \"log\", {}, {player, \"rw\"}); for i in [1..5000]; o.log = {@o.log, i}; endfor; n = length(o.log); recycle(o); return n;",
+      "toast_ms_median": 69.6004000492394,
+      "toast_ms_min": 66.63043005391955,
+      "barn_ms_median": 252.80180100000038,
+      "barn_ms_min": 217.35630399999994,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 5000}"
+      ],
+      "barn_value": [
+        "{1, 5000}"
+      ],
+      "values_match": true,
+      "ratio": 3.632188907264234
+    },
+    {
+      "name": "list_member_setadd",
+      "code": "l = {}; for i in [1..500]; l = {@l, i * 3}; endfor; n = 0; s = {}; for i in [1..20000]; if (i in l) n = n + 1; endif; s = setadd(s, i % 50); s = setremove(s, (i + 25) % 50); endfor; l2 = listappend(l, 7); return {n, length(s), length(l2)};",
+      "toast_ms_median": 53.569599986076355,
+      "toast_ms_min": 52.212700014933944,
+      "barn_ms_median": 184.05414100000073,
+      "barn_ms_min": 173.30688699999897,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, {500, 25, 501}}"
+      ],
+      "barn_value": [
+        "{1, {500, 25, 501}}"
+      ],
+      "values_match": true,
+      "ratio": 3.4357945746811533
+    },
+    {
+      "name": "raise_through_verb",
+      "code": "o = create($nothing); add_verb(o, {player, \"rxd\", \"boom\"}, {\"this\", \"none\", \"this\"}); set_verb_code(o, \"boom\", {\"if (args[1] % 3) raise(E_INVARG, \\\"bad\\\", args[1]); endif; return args[1];\"}); c = 0; for i in [1..80000]; try c = c + o:boom(i); except e (E_INVARG) c = c + e[3]; endtry; endfor; recycle(o); return c;",
+      "toast_ms_median": 72.10156018845737,
+      "toast_ms_min": 68.68286989629269,
+      "barn_ms_median": 205.92307599999947,
+      "barn_ms_min": 188.8942250000003,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 3200040000}"
+      ],
+      "barn_value": [
+        "{1, 3200040000}"
+      ],
+      "values_match": true,
+      "ratio": 2.8560141481233217
+    },
+    {
+      "name": "string_mix",
+      "code": "n = 0; for i in [1..20000]; s = \"The quick brown fox \" + tostr(i) + \" jumps over\"; n = n + index(s, \"fox\") + length(strsub(s, \"quick\", \"slow\")) + toint(s[21..20 + length(tostr(i))]); if (match(s, \"[0-9]+\")) n = n + 1; endif; if (rmatch(s, \"over$\")) n = n + 1; endif; endfor; return n;",
+      "toast_ms_median": 66.73478009179235,
+      "toast_ms_min": 65.47863013111055,
+      "barn_ms_median": 182.14197200000015,
+      "barn_ms_min": 169.58179899999993,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 201078894}"
+      ],
+      "barn_value": [
+        "{1, 201078894}"
+      ],
+      "values_match": true,
+      "ratio": 2.7293410085335945
+    },
+    {
+      "name": "recursion_40",
+      "code": "o = create($nothing); add_verb(o, {player, \"rxd\", \"r\"}, {\"this\", \"none\", \"this\"}); set_verb_code(o, \"r\", {\"if (args[1] >= 40) return args[1]; endif; return this:r(args[1] + 1);\"}); n = 0; for i in [1..3000]; n = n + o:r(0); endfor; recycle(o); return n;",
+      "toast_ms_median": 48.19553019478917,
+      "toast_ms_min": 46.37925000861287,
+      "barn_ms_median": 119.39704200000101,
+      "barn_ms_min": 114.78986299999994,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 120000}"
+      ],
+      "barn_value": [
+        "{1, 120000}"
+      ],
+      "values_match": true,
+      "ratio": 2.4773467895765577
+    },
+    {
+      "name": "verb_chain_6deep",
+      "code": "o = create($nothing); for i in [1..6]; add_verb(o, {player, \"rxd\", \"f\" + tostr(i)}, {\"this\", \"none\", \"this\"}); endfor; for i in [1..5]; set_verb_code(o, \"f\" + tostr(i), {\"return this:f\" + tostr(i + 1) + \"(args[1] + 1, args[2], args[3]);\"}); endfor; set_verb_code(o, \"f6\", {\"return args[1] + length(args[2]) + args[3];\"}); n = 0; for i in [1..20000]; n = n + o:f1(i, {1, 2, 3}, 7); endfor; recycle(o); return n;",
+      "toast_ms_median": 75.72049996815622,
+      "toast_ms_min": 68.5849201399833,
+      "barn_ms_median": 164.29823,
+      "barn_ms_min": 160.78755999999998,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 200310000}"
+      ],
+      "barn_value": [
+        "{1, 200310000}"
+      ],
+      "values_match": true,
+      "ratio": 2.1697985363157213
+    },
+    {
+      "name": "for_in_list_1000",
+      "code": "l = {}; for i in [1..1000]; l = {@l, i}; endfor; c = 0; s = 0; for r in [1..1000]; for x in (l); s = s + x % 7; if (x > 500) c = c + 1; endif; endfor; endfor; return {c, s};",
+      "toast_ms_median": 71.9751799479127,
+      "toast_ms_min": 71.60746003501117,
+      "barn_ms_median": 146.6627279999999,
+      "barn_ms_min": 143.63641299999998,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, {500000, 3003000}}"
+      ],
+      "barn_value": [
+        "{1, {500000, 3003000}}"
+      ],
+      "values_match": true,
+      "ratio": 2.037684770029577
+    },
+    {
+      "name": "sysobj_verb_calls",
+      "code": "o = create($nothing); add_verb(o, {player, \"rxd\", \"util\"}, {\"this\", \"none\", \"this\"}); set_verb_code(o, \"util\", {\"return args[1] * 2 + length(args[2]);\"}); add_property(#0, \"bd_util\", o, {player, \"r\"}); n = 0; try for i in [1..80000]; n = n + $bd_util:util(i, \"abc\"); endfor; finally delete_property(#0, \"bd_util\"); recycle(o); endtry; return n;",
+      "toast_ms_median": 60.33049989491701,
+      "toast_ms_min": 57.90317989885807,
+      "barn_ms_median": 119.19437999999971,
+      "barn_ms_min": 115.39404299999933,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 6400320000}"
+      ],
+      "barn_value": [
+        "{1, 6400320000}"
+      ],
+      "values_match": true,
+      "ratio": 1.9756902430381176
+    },
+    {
+      "name": "sysprop_reads",
+      "code": "n = 0; for i in [1..150000]; if ($nothing == #-1 && valid($server_options)) n = n + 1; endif; x = $object; y = $waif; z = $anonymous; endfor; return n;",
+      "toast_ms_median": 75.4066901281476,
+      "toast_ms_min": 72.83351011574268,
+      "barn_ms_median": 146.63657699999976,
+      "barn_ms_min": 141.01096700000147,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 150000}"
+      ],
+      "barn_value": [
+        "{1, 150000}"
+      ],
+      "values_match": true,
+      "ratio": 1.9446096460513345
+    },
+    {
+      "name": "valid_typeof_loop",
+      "code": "o = create($nothing); vals = {1, 1.5, \"s\", {1}, o, #-1, E_PERM, [1 -> 2]}; n = 0; for i in [1..60000]; for v in (vals); n = n + typeof(v); if (typeof(v) == OBJ && valid(v)) n = n + 100; endif; endfor; endfor; recycle(o); return n;",
+      "toast_ms_median": 95.94972990453243,
+      "toast_ms_min": 91.61571017466486,
+      "barn_ms_median": 152.121489,
+      "barn_ms_min": 145.28005599999892,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 7800000}"
+      ],
+      "barn_value": [
+        "{1, 7800000}"
+      ],
+      "values_match": true,
+      "ratio": 1.585429048642003
+    },
+    {
+      "name": "inherited_prop_6anc",
+      "code": "root = create($nothing); add_property(root, \"depth\", 3, {player, \"r\"}); add_property(root, \"label\", \"ancestor\", {player, \"r\"}); objs = {root}; p = root; for i in [1..6]; c = create(p); objs = {@objs, c}; p = c; endfor; leaf = p; n = 0; for i in [1..100000]; n = n + leaf.depth + length(leaf.label); endfor; while (objs); recycle(objs[$]); objs = objs[1..$ - 1]; endwhile; return n;",
+      "toast_ms_median": 134.35423001646996,
+      "toast_ms_min": 131.60455995239317,
+      "barn_ms_median": 174.25100200000008,
+      "barn_ms_min": 164.90720500000003,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 1100000}"
+      ],
+      "barn_value": [
+        "{1, 1100000}"
+      ],
+      "values_match": true,
+      "ratio": 1.2969521092014695
+    },
+    {
+      "name": "try_except_raise",
+      "code": "c = 0; for i in [1..45000]; try if (i % 2) raise(E_INVARG); else raise(E_PERM, \"nope\"); endif; except e (E_INVARG) c = c + 1; except e (ANY) c = c + 2; endtry; endfor; return c;",
+      "toast_ms_median": 128.46919987350702,
+      "toast_ms_min": 122.0925198867917,
+      "barn_ms_median": 68.58314799999987,
+      "barn_ms_min": 63.72492999999935,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 67500}"
+      ],
+      "barn_value": [
+        "{1, 67500}"
+      ],
+      "values_match": true,
+      "ratio": 0.5338489542048056
+    },
+    {
+      "name": "catch_propnf_loop",
+      "code": "o = create($nothing); add_property(o, \"cache\", 5, {player, \"r\"}); n = 0; for i in [1..12000]; n = n + `o.cache ! E_PROPNF => 0' + `o.help_msg ! E_PROPNF => 0' + `o.aliases ! E_PROPNF => 1'; endfor; recycle(o); return n;",
+      "toast_ms_median": 111.6549801081419,
+      "toast_ms_min": 107.77599015273154,
+      "barn_ms_median": 28.82544100000001,
+      "barn_ms_min": 26.0675069999996,
+      "toast_n": 5,
+      "barn_n": 5,
+      "toast_value": [
+        "{1, 72000}"
+      ],
+      "barn_value": [
+        "{1, 72000}"
+      ],
+      "values_match": true,
+      "ratio": 0.2581652960941064
+    }
+  ]
+}

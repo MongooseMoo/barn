@@ -117,9 +117,7 @@ func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string
 	if err := s.runTask(t); err != nil {
 		return t.Result, err
 	}
-	if s.taskOutputFlusher != nil {
-		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-	}
+	s.flushTaskOutput(t)
 	return t.Result, nil
 }
 
@@ -409,9 +407,7 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 			slog.String("verb", t.VerbName),
 			slog.Any("err", err))
 	}
-	if s.taskOutputFlusher != nil {
-		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-	}
+	s.flushTaskOutput(t)
 	return true
 }
 
