@@ -1,5 +1,9 @@
 # Decision after gaming out scheduling with Fable
 
+Superseded for policy selection by the
+[research-backed transaction scheduling design](../plans/barn-transaction-scheduling-design.md).
+Retained as the historical review and source-evidence record.
+
 Status: design recommendation, not an implemented policy or a measured speedup.
 This synthesis takes precedence over tentative recommendations in the two
 review transcripts. Source baseline: Barn `ef5fcb0`.

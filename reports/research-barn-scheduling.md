@@ -1,5 +1,11 @@
 # Research: Barn scheduling
 
+For the closer transaction/runtime literature and current recommendation, see
+[the transaction scheduling design](../plans/barn-transaction-scheduling-design.md),
+[STM contention research](research-barn-transaction-contention.md), and
+[cooperative MVCC research](research-barn-cooperative-mvcc.md). This earlier
+CPU-scheduling survey remains background, not the complete design basis.
+
 Research date: 2026-09-18. Scope: scheduling choices for a Go MOO runtime with interactive connections, background simulation, external completions, and shared mutable database state. This is an implementation proposal, not a claim that a new policy has been implemented or benchmarked.
 
 ## Summary
