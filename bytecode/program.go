@@ -4,15 +4,23 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// MaxLocals is the number of local slots addressable by a one-byte variable
+// operand. Named variables fill slots from the bottom and compiler temporaries
+// from the top, so NumLocals may reach MaxLocals with only a few VarNames.
+const MaxLocals = 256
+
 // Program represents compiled bytecode
 type Program struct {
-	Code         []byte        // Bytecode instructions
-	Constants    []types.Value // Constant pool
-	VarNames     []string      // Variable name table
-	LineInfo     []LineEntry   // Source line mapping
-	NumLocals    int           // Number of local variables
-	Source       []string      // Source lines (1-based by index+1), optional
-	BuiltinSlots BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+	// BuiltinLayout binds compiled IDs to their registry layout. Zero is reserved
+	// for deliberately hand-assembled bytecode, not compiler output.
+	BuiltinLayout [32]byte
+	Code          []byte        // Bytecode instructions
+	Constants     []types.Value // Constant pool
+	VarNames      []string      // Variable name table
+	LineInfo      []LineEntry   // Source line mapping
+	NumLocals     int           // Number of local variables
+	Source        []string      // Source lines (1-based by index+1), optional
+	BuiltinSlots  BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
 }
 
 // BuiltinSlots caches the local-variable slots populated when a verb frame is
@@ -148,13 +156,14 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	}
 
 	return &Program{
-		Code:         code,
-		Constants:    p.Constants, // Share constants
-		VarNames:     p.VarNames,  // Share variable names
-		LineInfo:     lineInfo,
-		NumLocals:    p.NumLocals, // Same local count (inherit all vars)
-		Source:       p.Source,
-		BuiltinSlots: p.BuiltinSlots,
+		Code:          code,
+		Constants:     p.Constants, // Share constants
+		VarNames:      p.VarNames,  // Share variable names
+		LineInfo:      lineInfo,
+		NumLocals:     p.NumLocals, // Same local count (inherit all vars)
+		Source:        p.Source,
+		BuiltinSlots:  p.BuiltinSlots,
+		BuiltinLayout: p.BuiltinLayout,
 	}
 }
 

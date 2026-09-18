@@ -95,6 +95,17 @@ func (s *Store) findProperty(objID types.ObjID, name string) (PropertyView, type
 }
 
 func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Property, types.ErrorCode) {
+	// Fast path: every object's map already carries its inherited properties
+	// (copyInheritedPropertiesLocked seeds them as clear entries), so a
+	// non-clear hit on the object itself is the final answer — identical to the
+	// BFS's first iteration, without the per-call visited map and queue. Only a
+	// clear entry (value lives on an ancestor) or a miss needs the walk.
+	if self := s.liveObjectLocked(objID); validLiveObject(self) {
+		if actualName, prop, ok := propertyByName(self.properties, name); ok && !prop.clear {
+			return actualName, prop, types.E_NONE
+		}
+	}
+
 	var targetProp Property
 	var targetName string
 	targetFound := false
@@ -435,6 +446,7 @@ func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if owner != nil {
 		prop.owner = *owner
 	}
@@ -460,6 +472,7 @@ func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Val
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
@@ -506,6 +519,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 	}
 	prop.defined = true
 	prop.clear = false
@@ -549,6 +563,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 	}
 
 	delete(obj.properties, actualName)
@@ -578,6 +593,7 @@ func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.Erro
 	if ok {
 		obj = s.republishForMutation(obj)
 		ts := s.bumpClockLocked()
+		s.noteWaifRootsChanged()
 		delete(obj.properties, actualName)
 		stampObjectProperties(obj, ts)
 	}
@@ -642,6 +658,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 			}
 		}
 		stampObjectProperties(obj, s.bumpClockLocked())
+		s.noteWaifRootsChanged()
 	}
 	return types.E_NONE
 }

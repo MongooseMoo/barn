@@ -98,8 +98,24 @@ type Store struct {
 	// observation-only and never affect control flow.
 	commitAttempts  atomic.Uint64
 	commitSuccesses atomic.Uint64
-	commitConflicts atomic.Uint64
-	commitRetries   atomic.Uint64
+	// propertyWriteElisions counts SetPropertyValue calls dropped because the
+	// slot already held an Identical value (see SetPropertyValue).
+	propertyWriteElisions atomic.Uint64
+	// waifRootsEpoch advances whenever the set of WAIFs held directly by live
+	// objects' property values may have changed; waifRootsCache memoizes the
+	// PersistentWaifRoots top-level scan for one epoch. See noteWaifRootsChanged.
+	waifRootsEpoch atomic.Uint64
+	waifRootsCache atomic.Pointer[persistentWaifRootsEntry]
+	// verbDispatchMemo caches verb resolution (object, name, execute-required)
+	// -> (definer, map key) across transactions; verbShapeChangeTS is the clock
+	// value taken after the most recent change that can alter any resolution
+	// (verb add/delete/rename/code image, parents, recycle, renumber). See
+	// StoreTxn.lookupVerbDispatchMemo.
+	verbDispatchMemo     atomic.Pointer[sync.Map]
+	verbDispatchMemoSize atomic.Int64
+	verbShapeChangeTS    atomic.Uint64
+	commitConflicts      atomic.Uint64
+	commitRetries        atomic.Uint64
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
@@ -227,8 +243,12 @@ func (s *Store) AnonCreationCount() uint64 {
 // MVCC commit observability accessors (Phase A). All lock-free.
 func (s *Store) CommitAttempts() uint64  { return s.commitAttempts.Load() }
 func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
-func (s *Store) CommitConflicts() uint64 { return s.commitConflicts.Load() }
-func (s *Store) CommitRetries() uint64   { return s.commitRetries.Load() }
+
+// PropertyWriteElisions is the number of property writes dropped as no-ops
+// because the target slot already held an Identical value.
+func (s *Store) PropertyWriteElisions() uint64 { return s.propertyWriteElisions.Load() }
+func (s *Store) CommitConflicts() uint64       { return s.commitConflicts.Load() }
+func (s *Store) CommitRetries() uint64         { return s.commitRetries.Load() }
 
 // ActiveReadTransactions returns the number of StoreTxn read timestamps currently
 // registered with history GC, including multiple transactions at the same timestamp.
@@ -276,6 +296,38 @@ func (s *Store) readTimestamp() uint64 {
 // coarse callers; the operation itself is lock-free.
 func (s *Store) bumpClockLocked() uint64 {
 	return s.bumpClock()
+}
+
+// noteWaifRootsChanged invalidates the PersistentWaifRoots memo. Every path
+// that can change which WAIFs live directly in a persistent property value
+// must call it AFTER the change is visible: the coarse and direct writers
+// (under store.mu.Lock, where the scan cannot interleave) and the
+// decentralized committer after its publishes. A value write whose old and
+// new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
+// epoch alone, which is what keeps the memo hot on ordinary workloads.
+func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
+
+// noteVerbShapeChanged records that verb resolution may now differ from any
+// memoized result. It must run AFTER the change is visible (after publish on
+// the decentralized path; anywhere inside the exclusive section on the coarse
+// path). Memo entries and transactions whose snapshot predates this clock
+// value stop using the memo, and a transaction that already dispatched
+// through it fails validation and retries.
+func (s *Store) noteVerbShapeChanged() { s.verbShapeChangeTS.Store(s.bumpClock()) }
+
+// verbDispatchMemoCap bounds the memo; when exceeded the whole map is swapped
+// for a fresh one rather than evicting entry by entry.
+const verbDispatchMemoCap = 1 << 17
+
+func (s *Store) verbMemo() *sync.Map {
+	if m := s.verbDispatchMemo.Load(); m != nil {
+		return m
+	}
+	fresh := &sync.Map{}
+	if s.verbDispatchMemo.CompareAndSwap(nil, fresh) {
+		return fresh
+	}
+	return s.verbDispatchMemo.Load()
 }
 
 type objectHistory struct {
@@ -383,6 +435,7 @@ func stampObjectRelationship(obj *Object, ts uint64) {
 func stampObjectProperties(obj *Object, ts uint64) {
 	if obj != nil {
 		obj.propertyVersion = ts
+		obj.propertyShapeVersion = ts
 	}
 }
 
@@ -469,6 +522,8 @@ func (s *Store) Add(obj *Object) error {
 	}
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 	return nil
@@ -493,6 +548,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 		obj.anonymous = true
 	}
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
 	casMaxID(&s.highWaterID, obj.id)
@@ -520,7 +576,8 @@ func (s *Store) setObjectName(objID types.ObjID, name string) types.ErrorCode {
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
-	obj.name = name
+	s.noteWaifRootsChanged()
+	obj.setName(name)
 	stampObjectScalar(obj, ts)
 	return types.E_NONE
 }
@@ -535,6 +592,7 @@ func (s *Store) setObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	obj.owner = owner
 	stampObjectScalar(obj, ts)
 	return types.E_NONE
@@ -550,6 +608,7 @@ func (s *Store) setObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	obj.location = location
 	stampObjectRelationship(obj, ts)
 	return types.E_NONE
@@ -565,6 +624,7 @@ func (s *Store) setObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	if enabled {
 		obj.flags = obj.flags.Set(flag)
 	} else {
@@ -583,6 +643,18 @@ func (s *Store) objectName(objID types.ObjID) (string, types.ErrorCode) {
 		return "", types.E_INVIND
 	}
 	return obj.name, types.E_NONE
+}
+
+// objectNameValue is objectName as a shared TYPE_STR Value (no per-read box).
+func (s *Store) objectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
+		return types.None, types.E_INVIND
+	}
+	return obj.nameValue(), types.E_NONE
 }
 
 func (s *Store) objectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {

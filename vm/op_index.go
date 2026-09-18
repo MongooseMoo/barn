@@ -281,11 +281,11 @@ func (vm *VM) executeRangeSet() error {
 	// Check size limits on the result
 	switch newColl.Type() {
 	case types.TYPE_LIST:
-		if errCode := vm.Builtins.CheckListLimit(newColl); errCode != types.E_NONE {
+		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: list too large")
 		}
 	case types.TYPE_STR:
-		if errCode := vm.Builtins.CheckStringLimit(newColl.Str()); errCode != types.E_NONE {
+		if errCode := vm.Builtins.CheckStringLimitForTask(vm.Context, newColl.Str()); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: string too long")
 		}
 	case types.TYPE_MAP:

@@ -6,6 +6,56 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
+	ctx := newTestExecution()
+	for _, mode := range []string{"common-subset", "CoMmOn-SuBsEt", "embedded-types", "EmBeDdEd-TyPeS"} {
+		for _, test := range []struct {
+			flag     types.Value
+			disabled bool
+		}{
+			{types.NewInt(0), false},
+			{types.NewInt(1), true},
+			{types.NewList(nil), false},
+			{types.NewList([]types.Value{types.NewInt(0)}), true},
+			{types.NewStr(""), false},
+			{types.NewStr("yes"), true},
+		} {
+			t.Run(mode+"/"+test.flag.String(), func(t *testing.T) {
+				value := types.NewList([]types.Value{
+					types.NewStr("~00~08~09~0a~0C~0d~1F~20~ff"),
+					types.NewMap([][2]types.Value{{types.NewStr("~09"), types.NewStr("~0a")}}),
+					types.NewStr(`\~0a`),
+				})
+				want := `["\u0000\b\u0009\n\f\r\u001F~20~ff",{"\u0009":"\n"},"~0a"]`
+				if test.disabled {
+					want = `["~00~08~09~0a~0C~0d~1F~20~ff",{"~09":"~0a"},"~0a"]`
+				}
+				res := builtinGenerateJson(ctx, []types.Value{value, types.NewStr(mode), test.flag})
+				if res.IsError() || res.Val.Str() != want {
+					t.Fatalf("generate_json = %v (%v), want %s", res.Val, res.Error, want)
+				}
+			})
+		}
+	}
+	for _, mode := range []string{"", "pretty", "pretty-embedded", "not-embedded-types", "common-subset "} {
+		t.Run("invalid/"+mode, func(t *testing.T) {
+			res := builtinGenerateJson(ctx, []types.Value{types.NewInt(1), types.NewStr(mode)})
+			if !res.IsError() || res.Error != types.E_INVARG {
+				t.Fatalf("generate_json = %v (%v), want E_INVARG", res.Val, res.Error)
+			}
+		})
+	}
+	res := builtinGenerateJson(ctx, []types.Value{types.NewStr("~0a")})
+	if res.IsError() || res.Val.Str() != `"\n"` {
+		t.Fatalf("default generate_json = %v (%v)", res.Val, res.Error)
+	}
+	info := builtinFunctionInfo(ctx, []types.Value{types.NewStr("generate_json")})
+	wantTypes := types.NewList([]types.Value{types.NewInt(-1), types.NewInt(2), types.NewInt(-1)})
+	if info.IsError() || info.Val.Get(2).Int() != 1 || info.Val.Get(3).Int() != 3 || info.Val.Get(4).String() != wantTypes.String() {
+		t.Fatalf("function_info(generate_json) = %v (%v)", info.Val, info.Error)
+	}
+}
+
 func TestParseJsonNullMapsToENone(t *testing.T) {
 	ctx := newTestExecution()
 

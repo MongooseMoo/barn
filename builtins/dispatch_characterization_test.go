@@ -186,7 +186,7 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 	// Add #0:bf_abs so the redirect path resolves the wrapper verb.
 	verb := dbstore.NewVerb(
 		"bf_abs", []string{"bf_abs"}, types.ObjID(0),
-		dbstore.VerbPerms(0),
+		dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return 12345;"},
 	)

@@ -240,6 +240,29 @@ Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 - Attr conventions: `task_id`, `player`, `this` (object a verb runs on), `verb`,
   `conn_id`, `error` (E_* name), `err` (Go error), `go_stack`, `traceback`, `frames`.
 
+## Benchmarking Against Toast
+
+`scripts/bench_differ.py` times Barn and Toast **in-process** — no servers,
+ports, or sockets. Both engines run inside WSL (Barn as a linux cross-build,
+Toast in emergency mode), each workload is timed by `ftime(1)` bookends inside
+MOO, and the two engines' return values are compared as a correctness check.
+
+```bash
+python scripts/bench_differ.py                       # ten built-in workloads, 5 repeats
+python scripts/bench_differ.py --repeats 7 --out experiments/bench-$(date +%Y%m%d)
+python scripts/bench_differ.py --corpus probes.txt   # `name: moo statements` per line
+python scripts/bench_differ.py --help
+```
+
+Report (`<out>/report.md`, `results.json`, raw transcripts) is sorted by
+Barn/Toast ratio and records the fixture SHA-256, Barn binary SHA-256, and git
+HEAD. Median/min normally agree within ~1%; wider spread means the workload is
+too short — loop it up. It measures VM + builtins + store reads only (the
+dbtool eval path uses a direct transaction, no scheduler or MVCC commit); use
+`moo-conformance-tests/bench/bench.py` or `scripts/benchmark-mongoose.ps1` for
+end-to-end latency. Single-thread Go microbenchmarks stay in
+`vm/perf_bench_test.go` (`go test ./vm -run='^$' -bench=BenchmarkVM -benchmem`).
+
 ## Database Inspection Tools
 
 Build the `barn` binary once; database inspection uses the same `-db` flag as

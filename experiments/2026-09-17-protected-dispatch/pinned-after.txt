@@ -1,0 +1,25 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkProtectedBuiltinDispatch/Builtin         	     608	   2251717 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     477	  20933354 ns/op	  350521 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     100	  35151076 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     100	  17860371 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     429	   2584469 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     225	   4753623 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     244	   5594684 ns/op	  350523 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     238	   5190502 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     344	   5678144 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Builtin         	     283	   5008448 ns/op	  350522 B/op	    8036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     364	   3089206 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     376	   3283513 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     397	   3010386 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     298	   4064177 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     313	   4236003 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     301	   3661792 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     350	   3439571 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     369	   3531644 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     336	   3255186 ns/op	  342537 B/op	    7036 allocs/op
+BenchmarkProtectedBuiltinDispatch/Verb            	     321	   3935945 ns/op	  342537 B/op	    7036 allocs/op
+PASS

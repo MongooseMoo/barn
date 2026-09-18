@@ -1,6 +1,6 @@
 # Barn - Go MOO Server Makefile
 
-.PHONY: build clean test run conformance help
+.PHONY: build build-linux-amd64 clean test run conformance help
 
 # Default target
 all: build
@@ -9,13 +9,18 @@ all: build
 build:
 	go build -o barn.exe ./cmd/barn/
 
+# Build the optimized linux/amd64 deployment and bench_differ binary.
+# Generic release artifacts intentionally retain Go's GOAMD64=v1 default.
+build-linux-amd64:
+	GOOS=linux GOARCH=amd64 GOAMD64=v3 CGO_ENABLED=0 go build -o barn-linux-amd64 ./cmd/barn/
+
 # Build with race detector (for debugging)
 build-race:
 	go build -race -o barn-race.exe ./cmd/barn/
 
 # Clean build artifacts
 clean:
-	rm -f barn.exe barn-race.exe barn_test.exe
+	rm -f barn.exe barn-race.exe barn_test.exe barn-linux-amd64
 	rm -f server_*.log test_*.log output_*.log
 
 # Run Go tests
@@ -60,6 +65,7 @@ quick-test: build
 help:
 	@echo "Barn Makefile targets:"
 	@echo "  build          - Build barn.exe"
+	@echo "  build-linux-amd64 - Build v3 linux/amd64 deployment binary"
 	@echo "  build-race     - Build with race detector"
 	@echo "  clean          - Remove build artifacts and logs"
 	@echo "  test           - Run Go unit tests"

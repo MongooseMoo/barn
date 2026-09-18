@@ -2,6 +2,7 @@ package profile
 
 import (
 	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/vm"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,7 @@ func TestCommittedMongooseProfilesEnablePromotion(t *testing.T) {
 			}
 
 			manifest, err := BuildManifest(BuildInput{
+				Registry:          vm.BuildVMRegistry(),
 				ProfileID:         entry.ProfileID,
 				ImplementationRef: "test",
 				DatabasePath:      databasePath,

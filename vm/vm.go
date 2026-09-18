@@ -33,7 +33,19 @@ type VM struct {
 	// this lossless record after the final activation has already been popped.
 	PendingFinalizations []types.Value
 
-	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
+	// builtinExec is the Execution handed to every builtin call from this VM,
+	// created lazily with its service closures bound once and rebound to the
+	// current Context/Task per call (see executeCallBuiltin).
+	builtinExec                 *builtins.Execution
+	builtinPendingFinalizations func() []types.Value
+
+	frame *StackFrame // Cached top of Frames; kept in sync by pushFrame/popFrame
+	// localStack is the contiguous backing store for verb-frame Locals: each
+	// pushed frame takes the next NumLocals slots and popFrame releases them
+	// LIFO, so a verb call no longer allocates its locals. framePool recycles
+	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
+	localStack  []types.Value
+	framePool   []*StackFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
 	resumeError types.ErrorCode
@@ -48,12 +60,82 @@ func (vm *VM) pushFrame(f *StackFrame) {
 // popFrame removes the top call frame and updates the cached current-frame
 // pointer to the new top (nil when the call stack is empty).
 func (vm *VM) popFrame() {
-	vm.collectPendingFinalizationsFromFrame(vm.Frames[len(vm.Frames)-1])
+	frame := vm.Frames[len(vm.Frames)-1]
+	vm.collectPendingFinalizationsFromFrame(frame)
+	stackEnd := min(vm.SP, len(vm.Stack))
+	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
+		collectDirectWaifsForGC(vm.Stack[i], &vm.PendingWaifs)
+		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
+	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	if n := len(vm.Frames); n > 0 {
 		vm.frame = vm.Frames[n-1]
 	} else {
 		vm.frame = nil
+	}
+	vm.recycleFrame(frame)
+}
+
+// maxFramePool bounds the recycled-frame list kept per VM.
+const maxFramePool = 64
+
+// allocLocals hands out n slots from the VM's contiguous locals stack, all
+// Unbound. Frames pop LIFO, so recycleFrame releases exactly the top
+// len(Locals) slots. Growth reallocates the backing array; outer frames keep
+// their slices into the old array, which stays valid for them because every
+// access goes through frame.Locals, never through vm.localStack by index.
+func (vm *VM) allocLocals(n int) []types.Value {
+	base := len(vm.localStack)
+	if cap(vm.localStack)-base < n {
+		grown := make([]types.Value, base, max(2*cap(vm.localStack), base+n, initialStackCap))
+		copy(grown, vm.localStack)
+		vm.localStack = grown
+	}
+	vm.localStack = vm.localStack[:base+n]
+	locals := vm.localStack[base : base+n : base+n]
+	for i := range locals {
+		locals[i] = types.Unbound
+	}
+	return locals
+}
+
+// frameFrom returns a frame initialized to init, reusing a pooled StackFrame
+// and its LoopStack/ExceptStack backing arrays when one is available. init's
+// Locals must come from allocLocals with localsOnStack set, or be owned.
+func (vm *VM) frameFrom(init StackFrame) *StackFrame {
+	if n := len(vm.framePool); n > 0 {
+		f := vm.framePool[n-1]
+		vm.framePool = vm.framePool[:n-1]
+		if init.LoopStack == nil {
+			init.LoopStack = f.LoopStack[:0]
+		}
+		if init.ExceptStack == nil {
+			init.ExceptStack = f.ExceptStack[:0]
+		}
+		*f = init
+		return f
+	}
+	f := new(StackFrame)
+	*f = init
+	return f
+}
+
+// recycleFrame returns a popped frame's resources to the VM: its locals slots
+// (the top of localStack) and the struct itself. Nothing may read a frame
+// after popFrame — Return and HandleError copy what they need first.
+func (vm *VM) recycleFrame(f *StackFrame) {
+	if f.localsOnStack {
+		clear(f.Locals)
+		if n := len(vm.localStack) - len(f.Locals); n >= 0 {
+			vm.localStack = vm.localStack[:n]
+		}
+	}
+	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
+	clear(f.LoopStack[:cap(f.LoopStack)])
+	clear(f.ExceptStack[:cap(f.ExceptStack)])
+	*f = StackFrame{LoopStack: loops, ExceptStack: handlers}
+	if len(vm.framePool) < maxFramePool {
+		vm.framePool = append(vm.framePool, f)
 	}
 }
 
@@ -91,6 +173,11 @@ type StackFrame struct {
 	SavedIsWizard       bool                           // ctx.IsWizard before verb call
 	MoveContinuation    *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
 	RecycleContinuation *recycleContinuation           // recycle() state owned by this verb frame
+
+	// localsOnStack is true when Locals is a segment of vm.localStack (set by
+	// allocLocals) and must be released on pop; frames restored from a
+	// snapshot own their Locals slice.
+	localsOnStack bool
 }
 
 // NewVM creates a new virtual machine
@@ -120,32 +207,33 @@ func (vm *VM) checkFrameLimit() error {
 // FlowException for uncaught errors, FlowSuspend when a suspend() yields control,
 // and FlowFork when a fork statement yields control.
 func (vm *VM) Run(prog *bytecode.Program) types.Result {
+	vm.beginProgram(prog)
+	return vm.executeLoop()
+}
+
+// beginProgram pushes the initial (non-verb) frame for prog and primes the
+// tick balance, leaving the VM ready for executeLoop or Step-driven execution.
+func (vm *VM) beginProgram(prog *bytecode.Program) {
 	vm.ensureContextDependencies()
 
 	// Create initial frame
-	frame := &StackFrame{
-		Program:     prog,
-		IP:          0,
-		BasePointer: vm.SP,
-		Locals:      make([]types.Value, prog.NumLocals),
-		This:        types.ObjNothing,
-		ThisValue:   types.None,
-		Player:      types.ObjNothing,
-		Verb:        "",
-		Caller:      types.ObjNothing,
-		VerbDebug:   true, // Default: errors propagate as exceptions
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	frame := vm.frameFrom(StackFrame{
+		Program:       prog,
+		IP:            0,
+		BasePointer:   vm.SP,
+		Locals:        vm.allocLocals(prog.NumLocals),
+		localsOnStack: true,
+		This:          types.ObjNothing,
+		ThisValue:     types.None,
+		Player:        types.ObjNothing,
+		Verb:          "",
+		Caller:        types.ObjNothing,
+		VerbDebug:     true, // Default: errors propagate as exceptions
+	})
 
 	vm.pushFrame(frame)
 	vm.FP = 0
 	vm.syncContextTicks()
-
-	return vm.executeLoop()
 }
 
 // RunWithVerbContext executes a program with verb context variables pre-populated
@@ -178,6 +266,182 @@ func (vm *VM) syncContextTicks() {
 	vm.Context.TicksRemaining = left
 }
 
+// Fast-path dispatch kinds. Opcode values are sparse, so switching on them
+// directly compiles to a binary search whose depth grows with every case
+// added; mapping through fastKinds first gives a dense key that Go compiles
+// to a jump table, so extra fast-path cases do not tax the existing ones.
+const (
+	fkNone uint8 = iota
+	fkImm
+	fkGetVar
+	fkPush
+	fkSetVar
+	fkAdd
+	fkPop
+	fkJump
+	fkJumpIfFalse
+	fkForRangeCheck
+	fkForRangeNext
+	fkLoop
+	fkSub
+	fkMul
+	fkMod
+	fkLt
+	fkGt
+	fkEq
+	fkIndex
+	fkForListLoad
+)
+
+var fastKinds = func() (t [256]uint8) {
+	for op := 0; op < 256; op++ {
+		if bytecode.IsImmediateInt(bytecode.OpCode(op)) {
+			t[op] = fkImm
+		}
+	}
+	t[bytecode.OP_GET_VAR] = fkGetVar
+	t[bytecode.OP_PUSH] = fkPush
+	t[bytecode.OP_SET_VAR] = fkSetVar
+	t[bytecode.OP_ADD] = fkAdd
+	t[bytecode.OP_STRING_APPEND] = fkAdd
+	t[bytecode.OP_POP] = fkPop
+	t[bytecode.OP_JUMP_WIDE] = fkJump
+	t[bytecode.OP_JUMP_IF_FALSE_WIDE] = fkJumpIfFalse
+	t[bytecode.OP_FOR_RANGE_CHECK_WIDE] = fkForRangeCheck
+	t[bytecode.OP_FOR_RANGE_NEXT_WIDE] = fkForRangeNext
+	t[bytecode.OP_LOOP_WIDE] = fkLoop
+	t[bytecode.OP_SUB] = fkSub
+	t[bytecode.OP_MUL] = fkMul
+	t[bytecode.OP_MOD] = fkMod
+	t[bytecode.OP_LT] = fkLt
+	t[bytecode.OP_GT] = fkGt
+	t[bytecode.OP_EQ] = fkEq
+	t[bytecode.OP_INDEX] = fkIndex
+	t[bytecode.OP_FOR_LIST_LOAD] = fkForListLoad
+	return t
+}()
+
+// countTick charges one tick for a CountsTick opcode and mirrors the new
+// balance into the task context. Shared by the dispatch fast path and the
+// generic path so the accounting cannot drift between them.
+func (vm *VM) countTick() {
+	vm.Ticks++
+	vm.syncContextTicks()
+}
+
+// topInts returns the two operands on top of the stack when both are ints.
+// Small enough to inline; used by the fast-path binary operators.
+func (vm *VM) topInts() (a, b int64, ok bool) {
+	if vm.SP < 2 {
+		return 0, 0, false
+	}
+	x, y := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+	if x.Type() != types.TYPE_INT || y.Type() != types.TYPE_INT {
+		return 0, 0, false
+	}
+	return x.Int(), y.Int(), true
+}
+
+// replaceTop2 pops two operands and pushes v in their place.
+func (vm *VM) replaceTop2(v types.Value) {
+	vm.Stack[vm.SP-2] = v
+	vm.SP--
+}
+
+// fastIntBinary applies an int/int SUB, MUL, LT, GT or EQ to the top two
+// operands and reports whether it did. Any other operand pairing (floats,
+// promotion, bools, strings, errors) returns false so the generic operator --
+// the single source of truth for those rules -- handles it. Deliberately not
+// inlined: see the call site in executeLoop.
+//
+//go:noinline
+func (vm *VM) fastIntBinary(kind uint8) bool {
+	a, b, ok := vm.topInts()
+	if !ok {
+		return false
+	}
+	var r int64
+	switch kind {
+	case fkSub:
+		r = a - b
+	case fkMul:
+		r = a * b
+	case fkLt:
+		r = boolInt(a < b)
+	case fkGt:
+		r = boolInt(a > b)
+	case fkMod:
+		// Floored modulo, as executeMod: sign follows the divisor. Zero
+		// divisor falls through so the generic path raises E_DIV.
+		if b == 0 {
+			return false
+		}
+		r = a % b
+		if r != 0 && (r < 0) != (b < 0) {
+			r += b
+		}
+	default: // fkEq
+		r = boolInt(a == b)
+	}
+	vm.replaceTop2(types.NewInt(r))
+	return true
+}
+
+// fastListIndex handles INDEX for a list and an in-range int subscript; any
+// other shape (strings, maps, out-of-range, wrong types) returns false and
+// the generic executeIndex applies its rules. Out of line like fastIntBinary.
+//
+//go:noinline
+func (vm *VM) fastListIndex() bool {
+	if vm.SP < 2 {
+		return false
+	}
+	coll, idx := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+	if coll.Type() != types.TYPE_LIST || idx.Type() != types.TYPE_INT {
+		return false
+	}
+	i := idx.Int()
+	if i < 1 || i > int64(coll.Len()) {
+		return false
+	}
+	vm.replaceTop2(coll.Get(int(i)))
+	return true
+}
+
+// fastForListLoad handles the non-pairs FOR_LIST_LOAD (operands: list slot,
+// index slot, value slot, is-pairs slot). The pairs form and non-list
+// iterators return false for the generic case. Mirrors Execute exactly,
+// including release bookkeeping for the overwritten loop variable. Out of line.
+//
+//go:noinline
+func (vm *VM) fastForListLoad(cur *StackFrame, code []byte, ip int) bool {
+	list := cur.Locals[code[ip+1]]
+	if list.Type() != types.TYPE_LIST || cur.Locals[code[ip+4]].Truthy() {
+		return false
+	}
+	valueIdx := code[ip+3]
+	vm.releaseLocal(cur.Locals[valueIdx])
+	cur.Locals[valueIdx] = list.Get(int(cur.Locals[code[ip+2]].Int()))
+	return true
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// releaseLocal records the finalization/GC bookkeeping owed when a local
+// variable's previous value goes out of scope on assignment. Shared by the
+// SET_VAR fast path and Execute's SET_VAR case.
+func (vm *VM) releaseLocal(previous types.Value) {
+	if previous.MayHoldFinalizable() {
+		vm.collectPendingFinalizationsFromValue(previous)
+		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+	}
+}
+
 func (vm *VM) ensureContextDependencies() {
 	if vm.Context == nil {
 		vm.Context = kernel.NewTaskContext()
@@ -192,25 +456,21 @@ func (vm *VM) ensureContextDependencies() {
 // execution. Returns the frame so the caller can set additional local variables
 // (e.g. argstr, dobjstr, etc.) before calling ExecuteLoop().
 func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) *StackFrame {
-	frame := &StackFrame{
-		Program:     prog,
-		IP:          0,
-		BasePointer: vm.SP,
-		Locals:      make([]types.Value, prog.NumLocals),
-		This:        thisObj,
-		ThisValue:   types.None,
-		Player:      player,
-		Verb:        verbName,
-		Caller:      caller,
-		VerbLoc:     verbLoc,
-		Args:        args,
-		VerbDebug:   true, // Default: errors propagate as exceptions
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	frame := vm.frameFrom(StackFrame{
+		Program:       prog,
+		IP:            0,
+		BasePointer:   vm.SP,
+		Locals:        vm.allocLocals(prog.NumLocals),
+		localsOnStack: true,
+		This:          thisObj,
+		ThisValue:     types.None,
+		Player:        player,
+		Verb:          verbName,
+		Caller:        caller,
+		VerbLoc:       verbLoc,
+		Args:          args,
+		VerbDebug:     true, // Default: errors propagate as exceptions
+	})
 
 	vm.pushFrame(frame)
 	vm.FP = 0
@@ -314,13 +574,145 @@ func (vm *VM) executeLoop() types.Result {
 		// Fetch the cached current frame once and dispatch the next opcode
 		// directly, avoiding repeated CurrentFrame lookups on the hottest path.
 		cur := vm.frame
-		op := bytecode.OpCode(cur.Program.Code[cur.IP])
-		cur.IP++
-		if bytecode.CountsTick(op) {
-			vm.Ticks++
-			vm.syncContextTicks()
+		code := cur.Program.Code
+		ip := cur.IP
+		op := bytecode.OpCode(code[ip])
+		var err error
+
+		// DISPATCH FAST PATH. The opcodes below make up essentially every hot
+		// loop the compiler emits (see the bench corpus in perf_bench_test.go).
+		// Handling them here, with code/ip held in locals, avoids the call into
+		// Execute -- whose single giant switch costs a ~240-byte frame plus
+		// operand re-derivation through vm.frame on every instruction.
+		//
+		// Contract: a case only PEEKS operands until it is certain it handles
+		// the instruction completely; then it commits (cur.IP, stack, locals)
+		// and continues. On any guard failure it falls through untouched to the
+		// generic path, so every error, promotion, and edge case is still served
+		// by the one implementation in Execute. Shared bookkeeping (releaseLocal,
+		// countTick, wideOperand) is factored so the two paths cannot drift.
+		//
+		// Ticks are charged only by CountsTick opcodes; of those, only the two
+		// loop back-edges are fast-pathed, and they check the limit themselves.
+		// Nothing here can set vm.yielded (only suspend/fork/builtin paths do),
+		// so the yield check is skipped safely. The compiler emits only the
+		// *_WIDE control-flow forms; narrow forms stay on the generic path.
+		switch fastKinds[op] {
+		case fkImm:
+			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
+			cur.IP = ip + 1
+			continue
+		case fkGetVar:
+			v := cur.Locals[code[ip+1]]
+			if !v.IsUnbound() {
+				vm.Push(v)
+				cur.IP = ip + 2
+				continue
+			}
+		case fkPush:
+			vm.Push(cur.Program.Constants[code[ip+1]])
+			cur.IP = ip + 2
+			continue
+		case fkSetVar:
+			idx := code[ip+1]
+			vm.releaseLocal(cur.Locals[idx])
+			cur.Locals[idx] = vm.Pop()
+			cur.IP = ip + 2
+			continue
+		case fkAdd:
+			if vm.SP >= 2 {
+				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+					vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
+					vm.SP--
+					cur.IP = ip + 1
+					continue
+				}
+				if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
+					// Same finite-result rule as executeAdd; NaN/Inf falls
+					// through so the generic path raises E_FLOAT.
+					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) {
+						vm.Stack[vm.SP-2] = types.NewFloat(r)
+						vm.SP--
+						cur.IP = ip + 1
+						continue
+					}
+				}
+			}
+		case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
+			// Kept out of line: inlining these grew executeLoop's body enough
+			// to cost the core int loops 6-10% (layout, not frame size). A
+			// small call is still far cheaper than the trip through Execute.
+			if vm.fastIntBinary(fastKinds[op]) {
+				cur.IP = ip + 1
+				continue
+			}
+		case fkIndex:
+			if vm.fastListIndex() {
+				cur.IP = ip + 1
+				continue
+			}
+		case fkForListLoad:
+			if vm.fastForListLoad(cur, code, ip) {
+				cur.IP = ip + 5
+				continue
+			}
+		case fkPop:
+			if vm.SP > 0 {
+				vm.SP--
+				cur.IP = ip + 1
+				continue
+			}
+		case fkJump:
+			cur.IP = ip + 5 + wideOperand(code, ip+1)
+			continue
+		case fkJumpIfFalse:
+			if vm.SP > 0 {
+				vm.SP--
+				next := ip + 5
+				if !vm.Stack[vm.SP].Truthy() {
+					next += wideOperand(code, ip+1)
+				}
+				cur.IP = next
+				continue
+			}
+		case fkForRangeCheck:
+			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
+			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+				next := ip + 7
+				if a.Int() > b.Int() {
+					next += wideOperand(code, ip+3)
+				}
+				cur.IP = next
+				continue
+			}
+		case fkForRangeNext:
+			// The MaxInt64 end-bound lowering and object ranges stay generic.
+			vi := code[ip+1]
+			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
+				cur.Locals[vi] = types.NewInt(a.Int() + 1)
+				cur.IP = ip + 7 - wideOperand(code, ip+3)
+				vm.countTick()
+				if vm.Ticks < vm.TickLimit {
+					continue
+				}
+				goto tickLimit
+			}
+		case fkLoop:
+			cur.IP = ip + 5 - wideOperand(code, ip+1)
+			vm.countTick()
+			if vm.Ticks < vm.TickLimit {
+				continue
+			}
+			goto tickLimit
 		}
-		err := vm.Execute(op)
+
+		// GENERIC PATH.
+		cur.IP = ip + 1
+		if bytecode.CountsTick(op) {
+			vm.countTick()
+		}
+		err = vm.Execute(op)
 		if err != nil {
 			// Verb debug flag check: when the current frame's VerbDebug is false,
 			// push the error as a value instead of propagating it as an exception.
@@ -348,11 +740,13 @@ func (vm *VM) executeLoop() types.Result {
 			// Snapshot activation stack before unwind so callers can inspect
 			// the full trace on uncaught exceptions.
 			var stackSnapshot []types.ActivationFrame
-			vmStack := vm.snapshotActivationFrames(line)
-			if len(vmStack) > 0 {
-				stackSnapshot = vmStack
-			} else if vm.Task != nil {
-				stackSnapshot = vm.Task.GetCallStack()
+			if caught, _ := vm.errorObservation(err); !caught {
+				vmStack := vm.snapshotActivationFrames(line)
+				if len(vmStack) > 0 {
+					stackSnapshot = vmStack
+				} else if vm.Task != nil {
+					stackSnapshot = vm.Task.GetCallStack()
+				}
 			}
 			// Handle error
 			handled, exceptionValue := vm.HandleError(err)
@@ -383,11 +777,13 @@ func (vm *VM) executeLoop() types.Result {
 			// Sync line numbers so task_stack() reports accurate lines
 			// for suspended tasks.
 			vm.syncTaskLineNumbers()
+			vm.snapshotTaskRuntimeVariables()
 			vm.clearDeadStackSlots()
 			return vm.yieldResult
 		}
 
 		// Check tick limit
+	tickLimit:
 		if vm.Ticks >= vm.TickLimit {
 			line := vm.CurrentLine()
 			_ = vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
@@ -414,43 +810,34 @@ func (vm *VM) syncTaskLineNumbers() {
 	if vm.Context == nil || vm.Task == nil {
 		return
 	}
-	t := vm.Task
-
-	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
-	// by the engine is both VM frame 0 and CallStack entry 0).
-	var lineNumbers []int
-	var runtimeVariables []types.Value
-	for _, frame := range vm.Frames {
+	lineNumbers := make([]int, len(vm.Frames))
+	for i, frame := range vm.Frames {
 		line := 1
 		if frame.Program != nil {
-			ip := frame.IP - 1
-			if ip < 0 {
-				ip = 0
-			}
-			line = frame.Program.LineForIP(ip)
+			ip := max(frame.IP-1, 0)
+			line = max(frame.Program.LineForIP(ip), 1)
 		}
-		if line < 1 {
-			line = 1
-		}
-		lineNumbers = append(lineNumbers, line)
-
-		variablePairs := make([][2]types.Value, 0)
-		if frame.Program != nil {
-			variablePairs = make([][2]types.Value, 0, len(frame.Program.VarNames))
-			for i, name := range frame.Program.VarNames {
-				if i >= len(frame.Locals) || frame.Locals[i].IsUnbound() {
-					continue
-				}
-				variablePairs = append(variablePairs, [2]types.Value{
-					types.NewStr(name),
-					frame.Locals[i],
-				})
-			}
-		}
-		runtimeVariables = append(runtimeVariables, types.NewMap(variablePairs))
+		lineNumbers[i] = line
 	}
-	t.UpdateCallStackLineNumbers(lineNumbers)
-	t.UpdateCallStackRuntimeVariables(runtimeVariables)
+	vm.Task.UpdateCallStackLineNumbers(lineNumbers)
+}
+
+// snapshotTaskRuntimeVariables retains locals without allocating MOO maps.
+func (vm *VM) snapshotTaskRuntimeVariables() {
+	if vm.Task == nil {
+		return
+	}
+	snapshots := make([]*types.RuntimeVariableSnapshot, len(vm.Frames))
+	for i, frame := range vm.Frames {
+		if frame.Program == nil {
+			continue
+		}
+		snapshots[i] = &types.RuntimeVariableSnapshot{
+			Names:  frame.Program.VarNames,
+			Values: append([]types.Value(nil), frame.Locals...),
+		}
+	}
+	vm.Task.UpdateCallStackRuntimeVariableSnapshots(snapshots)
 }
 
 // Step executes a single instruction
@@ -470,8 +857,7 @@ func (vm *VM) Step() error {
 
 	// Count ticks for expensive operations
 	if bytecode.CountsTick(op) {
-		vm.Ticks++
-		vm.syncContextTicks()
+		vm.countTick()
 	}
 
 	return vm.Execute(op)
@@ -514,9 +900,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_SET_VAR:
 		idx := vm.FetchByte()
 		frame := vm.CurrentFrame()
-		previous := frame.Locals[idx]
-		vm.collectPendingFinalizationsFromValue(previous)
-		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		vm.releaseLocal(frame.Locals[idx])
 		frame.Locals[idx] = vm.Pop()
 
 	// Property operations
@@ -678,6 +1062,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 			}
 			elem = elem.Get(1)
 		}
+		vm.releaseLocal(frame.Locals[valueIdx])
 		frame.Locals[valueIdx] = elem
 
 	case bytecode.OP_FOR_LIST_LOAD_KV:
@@ -696,6 +1081,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		if pair.Type() != types.TYPE_LIST {
 			return MooError{Code: types.E_TYPE}
 		}
+		vm.releaseLocal(frame.Locals[valueIdx])
+		vm.releaseLocal(frame.Locals[indexIdx])
 		frame.Locals[valueIdx] = pair.Get(1)
 		frame.Locals[indexIdx] = pair.Get(2)
 
@@ -814,42 +1201,44 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		errCode = extractErrorCode(err)
 	}
 
-	// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
-	// the traceback contains accurate call-site lines.
-	vm.syncTaskLineNumbers()
-	// Toast includes the eval'd-code activation in the traceback when the error
-	// is caught at (or unwinds to) the eval frame, but not when a verb above the
-	// eval frame catches it first. Decide which case we're in before unwinding.
-	traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
+	if _, observe := vm.errorObservation(err); observe {
+		// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
+		// the traceback contains accurate call-site lines.
+		vm.syncTaskLineNumbers()
+		// Toast includes the eval'd-code activation in the traceback when the error
+		// is caught at (or unwinds to) the eval frame, but not when a verb above the
+		// eval frame catches it first. Decide which case we're in before unwinding.
+		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
 
-	// Build or augment the 4-element exception value: {code, message, value, traceback}
-	if exceptionValue.IsNone() {
-		message := errCode.Message()
-		prefix := errCode.String() + ":"
-		if detail := err.Error(); strings.HasPrefix(detail, prefix) {
-			if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
-				if !strings.EqualFold(detail, message) {
-					message = detail
+		// Build or augment the 4-element exception value: {code, message, value, traceback}
+		if exceptionValue.IsNone() {
+			message := errCode.Message()
+			prefix := errCode.String() + ":"
+			if detail := err.Error(); strings.HasPrefix(detail, prefix) {
+				if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
+					if !strings.EqualFold(detail, message) {
+						message = detail
+					}
 				}
 			}
+			exceptionValue = types.NewList([]types.Value{
+				types.NewErr(errCode),
+				types.NewStr(message),
+				types.NewInt(0),
+				traceback,
+			})
+		} else if exceptionValue.Type() == types.TYPE_LIST {
+			// raise() produces a 3-element list; append traceback as 4th element.
+			elems := make([]types.Value, 0, 4)
+			for i := 1; i <= exceptionValue.Len() && i <= 3; i++ {
+				elems = append(elems, exceptionValue.Get(i))
+			}
+			for len(elems) < 3 {
+				elems = append(elems, types.NewInt(0))
+			}
+			elems = append(elems, traceback)
+			exceptionValue = types.NewList(elems)
 		}
-		exceptionValue = types.NewList([]types.Value{
-			types.NewErr(errCode),
-			types.NewStr(message),
-			types.NewInt(0),
-			traceback,
-		})
-	} else if exceptionValue.Type() == types.TYPE_LIST {
-		// raise() produces a 3-element list; append traceback as 4th element.
-		elems := make([]types.Value, 0, 4)
-		for i := 1; i <= exceptionValue.Len() && i <= 3; i++ {
-			elems = append(elems, exceptionValue.Get(i))
-		}
-		for len(elems) < 3 {
-			elems = append(elems, types.NewInt(0))
-		}
-		elems = append(elems, traceback)
-		exceptionValue = types.NewList(elems)
 	}
 
 	// Search through frames from top (current) to bottom (initial)
@@ -916,8 +1305,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			if vm.Task != nil {
 				vm.Task.PopFrame()
 			}
-			vm.SP = frame.BasePointer
-			vm.popFrame()
+			base := frame.BasePointer
+			vm.popFrame() // frame is recycled here; nothing below may read it
+			vm.SP = base
 			continue
 		}
 
@@ -937,8 +1327,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.Task.PopFrame()
 			}
 		}
-		vm.SP = frame.BasePointer
-		vm.popFrame()
+		base := frame.BasePointer
+		vm.popFrame() // frame is recycled here; nothing below may read it
+		vm.SP = base
 		if recycleContinuation != nil {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
 				Flow: types.FlowException, Error: errCode, Val: exceptionValue,

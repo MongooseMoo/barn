@@ -19,7 +19,7 @@ import (
 //   - Map (always): sort pairs by key, push list of {value, key} pairs, push 1
 //   - String + no index: push list of single-char strings, push 0
 //   - String + has index: push list of {char, position} pairs, push 1
-//   - Other: E_TYPE
+//   - Other: E_TYPE in debug verbs; otherwise skip the loop
 func (vm *VM) executeIterPrep() error {
 	hasIndex := vm.FetchByte() != 0
 	container := vm.Pop()
@@ -75,6 +75,14 @@ func (vm *VM) executeIterPrep() error {
 		}
 
 	default:
+		if frame := vm.CurrentFrame(); frame != nil && !frame.VerbDebug {
+			// A non-debug for loop skips a non-iterable value. Supply both
+			// results expected by the lowered loop setup; the generic error
+			// path pushes only one value and would unbalance the stack.
+			vm.Push(types.NewList(nil))
+			vm.Push(types.NewInt(0))
+			return nil
+		}
 		return fmt.Errorf("E_TYPE: for loop requires list, map, or string")
 	}
 

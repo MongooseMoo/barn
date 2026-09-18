@@ -9,14 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
 )
 
 // parseObjID parses "#N" or "N" to types.ObjID
@@ -200,32 +197,129 @@ func DumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	return nil
 }
 
-// EvalExpression parses and evaluates a MOO expression
-func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
-	registry := vm.BuildVMRegistry()
-	session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
-	prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
-	if len(diagnostics) > 0 {
-		fmt.Fprintf(errOut, "Compile error: %s\n", diagnostics[0].Error())
-		return errors.New("inspection failed")
+// evalSession evaluates MOO source over a loaded database the way Toast's
+// emergency mode does: as the database's first wizard, through the same engine
+// runtime and eval path a live ";" command uses. That is what makes
+// protected-builtin redirection (#0:bf_<name>), callers(), task_id(), fork and
+// suspend behave in the tool exactly as they do on the server.
+type evalSession struct {
+	runtime *engine.Runtime
+	wizard  types.ObjID
+}
+
+func newEvalSession(store *dbstore.Store, options config.Options) (*evalSession, error) {
+	wizard, ok := firstWizard(store)
+	if !ok {
+		return nil, errors.New("database has no wizard to evaluate as")
 	}
+	runtime := engine.NewRuntimeWithOptions(store, options)
+	runtime.Session().LoadServerOptionsFromStore(store)
+	return &evalSession{runtime: runtime, wizard: wizard}, nil
+}
 
-	ctx := kernel.NewTaskContext()
-	ctx.Store = store
-	ctx.StoreTxn = store.DirectTxn()
-	ctx.RuntimeOptions = options
+func (s *evalSession) close() { s.runtime.Stop() }
 
-	machine := vm.NewVM(store, session)
-	machine.Context = ctx
-	result := machine.Run(prog)
+// firstWizard mirrors Toast's emergency mode (server.cc emergency_mode): the
+// lowest-numbered object carrying the wizard flag.
+func firstWizard(store *dbstore.Store) (types.ObjID, bool) {
+	txn := store.DirectTxn()
+	last := txn.MaxObject()
+	for id := types.ObjID(0); id <= last; id++ {
+		if isWizard, errCode := txn.HasObjectFlag(id, dbstore.FlagWizard); errCode == types.E_NONE && isWizard {
+			return id, true
+		}
+	}
+	return types.ObjNothing, false
+}
 
+// eval runs one input. The input is compiled as a statement list first, so
+// "x = 1; return x + 1;" runs every statement; input that is not a statement
+// list is evaluated as an expression, the way Toast's ";expr" wraps it in
+// "return expr;". When neither form compiles the returned error carries the
+// diagnostic for the form the input most resembles.
+func (s *evalSession) eval(input string) (engine.EvalOutcome, error) {
+	outcome := s.runtime.Eval(s.wizard, []string{input})
+	if len(outcome.Diagnostics) == 0 {
+		return outcome, nil
+	}
+	statementDiag := outcome.Diagnostics[0]
+	outcome = s.runtime.Eval(s.wizard, []string{"return " + input + ";"})
+	if len(outcome.Diagnostics) == 0 {
+		return outcome, nil
+	}
+	diag := outcome.Diagnostics[0]
+	if strings.Contains(input, ";") {
+		diag = statementDiag
+	}
+	return outcome, errors.New(diag.Error())
+}
+
+// resultLine renders an evaluation the way the tool prints it: "=> VALUE" for
+// a completed program (one that returns nothing prints 0, as Toast's emergency
+// mode does) and "Error: CODE" for an uncaught error.
+func resultLine(outcome engine.EvalOutcome) string {
+	if outcome.Panic != nil {
+		return fmt.Sprintf("Error: internal error: %v", outcome.Panic)
+	}
+	result := outcome.Result
 	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
 		if result.Val.IsNone() {
-			result.Val = types.NewInt(0)
+			return "=> 0"
 		}
-		fmt.Fprintf(out, "=> %s\n", result.Val.String())
-	} else {
-		fmt.Fprintf(out, "Error: %s\n", result.Error.String())
+		return "=> " + result.Val.String()
+	}
+	return "Error: " + result.Error.String()
+}
+
+// EvalExpression evaluates one MOO input (a statement list, or an expression)
+// as the database's first wizard and prints its result line.
+func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
+	session, err := newEvalSession(store, options)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	defer session.close()
+	outcome, err := session.eval(expr)
+	if err != nil {
+		fmt.Fprintf(errOut, "Compile error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	fmt.Fprintln(out, resultLine(outcome))
+	return nil
+}
+
+// EvalFile evaluates one MOO input per line of the named file, printing one
+// result line ("=> VALUE", "Error: CODE" or "Compile error: ...") per input
+// line, in order. Blank lines and lines starting with "##" are echoed as
+// "-- skipped" so line counts stay aligned with the input for differential
+// drivers. One session serves the whole file, so load_server_options() on an
+// early line governs later lines, as in a Toast emergency-mode session.
+func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	session, err := newEvalSession(store, options)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	defer session.close()
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		input := strings.TrimSpace(line)
+		if input == "" || strings.HasPrefix(input, "##") {
+			fmt.Fprintln(out, "-- skipped")
+			continue
+		}
+		outcome, err := session.eval(input)
+		if err != nil {
+			fmt.Fprintf(out, "Compile error: %v\n", err)
+			continue
+		}
+		fmt.Fprintln(out, resultLine(outcome))
 	}
 	return nil
 }

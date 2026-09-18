@@ -118,8 +118,8 @@ func TestCachedPCREPatternVariantsAreDistinct(t *testing.T) {
 	if sensitive == insensitive {
 		t.Fatal("case-sensitive and insensitive PCRE patterns shared an entry")
 	}
-	if sensitive == moo {
-		t.Fatal("raw PCRE and translated MOO patterns shared an entry")
+	if moo == nil || regexpCacheLenForTest() != 3 {
+		t.Fatalf("raw PCRE and translated MOO patterns should occupy distinct entries, got %d", regexpCacheLenForTest())
 	}
 	if insensitive.MatchString("ABC") != true || sensitive.MatchString("ABC") != false {
 		t.Fatalf("case semantics wrong: insensitive=%v sensitive=%v",

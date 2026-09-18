@@ -79,7 +79,6 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode,
 // supplied by the caller so that the log records the same activation stack the
 // player is shown — the task's live stack has already unwound by this point.
 func (s *Runtime) logTraceback(t *task.Task, err types.ErrorCode, stack []types.ActivationFrame) {
-	metrics.UncaughtExceptions.Add(1)
 	attrs := append([]any{
 		slog.Int64("task_id", t.ID),
 		slog.Int64("this", int64(t.This)),

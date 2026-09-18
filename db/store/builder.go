@@ -33,7 +33,7 @@ func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 
 // --- scalar setters ---
 
-func (b *ObjectBuilder) SetName(name string)         { b.obj.name = name }
+func (b *ObjectBuilder) SetName(name string)         { b.obj.setName(name) }
 func (b *ObjectBuilder) SetOwner(owner types.ObjID)  { b.obj.owner = owner }
 func (b *ObjectBuilder) SetFlags(flags ObjectFlags)  { b.obj.flags = flags }
 func (b *ObjectBuilder) SetLocation(loc types.ObjID) { b.obj.location = loc }
@@ -77,6 +77,7 @@ func (b *ObjectBuilder) AppendVerb(v Verb) int {
 			b.obj.verbs[v.names[0]] = vp
 		}
 	}
+	b.obj.verbIdx = nil // rebuilt by Build; stale until then
 	return len(b.obj.verbList) - 1
 }
 
@@ -148,6 +149,7 @@ func (b *ObjectBuilder) ResetProperties(props map[string]Property, order []strin
 // Build returns the finished object for ingestion into a Store. The builder
 // must not be used after Build.
 func (b *ObjectBuilder) Build() *Object {
+	b.obj.rebuildVerbIndex()
 	if b.obj.parents == nil {
 		b.obj.parents = []types.ObjID{}
 	}

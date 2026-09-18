@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -223,9 +224,13 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	frame.StoredVerb = storedVerb
 	frame.VerbLoc = verbLoc
 	frame.VerbDebug = debug != 0
-	frame.Locals = make([]types.Value, frame.Program.NumLocals)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
+	// A Barn frame arrives with its slots (and restored temporaries) already
+	// allocated by decodeVMFrameMetadata; a Toast-shaped frame only has names.
+	if len(frame.Locals) != frame.Program.NumLocals {
+		frame.Locals = make([]types.Value, frame.Program.NumLocals)
+		for i := range frame.Locals {
+			frame.Locals[i] = types.Unbound
+		}
 	}
 	for i, name := range envNames {
 		for localIndex, declared := range frame.Program.VarNames {
@@ -292,6 +297,17 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	}
 
 	code := value.Get(2)
+	if value.Len() >= 20 {
+		encoded := value.Get(20)
+		if encoded.Type() != types.TYPE_STR {
+			return frame, fmt.Errorf("invalid builtin layout fingerprint")
+		}
+		layout, err := hex.DecodeString(encoded.Str())
+		if err != nil || len(layout) != len(frame.Program.BuiltinLayout) {
+			return frame, fmt.Errorf("invalid builtin layout fingerprint")
+		}
+		copy(frame.Program.BuiltinLayout[:], layout)
+	}
 	frame.Program.Code = make([]byte, code.Len())
 	for i := 1; i <= code.Len(); i++ {
 		frame.Program.Code[i-1] = byte(code.Get(i).Int())
@@ -312,6 +328,33 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 		}
 	}
 	frame.Program.NumLocals = int(value.Get(6).Int())
+	if frame.Program.NumLocals < len(frame.Program.VarNames) || frame.Program.NumLocals > bytecode.MaxLocals {
+		return frame, fmt.Errorf("suspended activation has invalid local metadata: %d locals, %d names", frame.Program.NumLocals, len(frame.Program.VarNames))
+	}
+	// Compiler temporaries live above the named variables and are restored
+	// from element 19 (written by internalLocalsValue); checkpoints predating
+	// that element simply leave them unbound.
+	frame.Locals = make([]types.Value, frame.Program.NumLocals)
+	for i := range frame.Locals {
+		frame.Locals[i] = types.Unbound
+	}
+	if value.Len() >= 19 {
+		internal := value.Get(19)
+		if internal.Type() != types.TYPE_LIST {
+			return frame, fmt.Errorf("suspended activation internal locals must be a list")
+		}
+		for i := 1; i <= internal.Len(); i++ {
+			entry := internal.Get(i)
+			if entry.Type() != types.TYPE_LIST || entry.Len() != 2 || entry.Get(1).Type() != types.TYPE_INT {
+				return frame, fmt.Errorf("suspended activation internal local %d is malformed", i)
+			}
+			slot := int(entry.Get(1).Int())
+			if slot < len(frame.Program.VarNames) || slot >= frame.Program.NumLocals {
+				return frame, fmt.Errorf("suspended activation internal local slot %d outside [%d, %d)", slot, len(frame.Program.VarNames), frame.Program.NumLocals)
+			}
+			frame.Locals[slot] = entry.Get(2)
+		}
+	}
 
 	handlers := value.Get(7)
 	frame.ExceptStack = make([]bytecode.Handler, handlers.Len())
@@ -363,5 +406,32 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 			}
 		}
 	}
+	if value.Len() >= 17 {
+		pendingReturn := value.Get(17)
+		if pendingReturn.Type() == types.TYPE_LIST && pendingReturn.Len() >= 2 {
+			frame.HasPendingReturn = pendingReturn.Get(1).Truthy()
+			frame.PendingReturn = pendingReturn.Get(2)
+		}
+	}
+	if value.Len() >= 18 {
+		recycleState := value.Get(18)
+		if recycleState.Type() == types.TYPE_LIST && recycleState.Len() >= 5 {
+			frame.RecycleContinuation = &task.RecycleContinuationSnapshot{
+				Object:      recycleState.Get(1),
+				OldParents:  objectIDsFromValue(recycleState.Get(2)),
+				OldChildren: objectIDsFromValue(recycleState.Get(3)),
+				OldContents: objectIDsFromValue(recycleState.Get(4)),
+				OldLocation: recycleState.Get(5).Obj(),
+			}
+		}
+	}
 	return frame, nil
+}
+
+func objectIDsFromValue(value types.Value) []types.ObjID {
+	ids := make([]types.ObjID, value.Len())
+	for i := 1; i <= value.Len(); i++ {
+		ids[i-1] = value.Get(i).Obj()
+	}
+	return ids
 }

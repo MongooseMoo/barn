@@ -1,0 +1,24 @@
+name: descriptor_oracle
+description: Independent public contracts used when consolidating builtin descriptors.
+tests:
+  - name: json_third_argument_binary_escapes
+    code: '{generate_json("~00", "common-subset", 0), generate_json("~00", "COMMON-SUBSET", 1)}'
+    expect:
+      value: ['"\u0000"', '"~00"']
+  - name: json_embedded_mode
+    code: 'generate_json(#1, "EMBEDDED-TYPES", 1)'
+    expect:
+      value: '"#1|obj"'
+  - name: json_invalid_mode
+    code: 'generate_json(1, "pretty")'
+    expect:
+      error: E_INVARG
+  - name: optional_builtin_inventory
+    statement: |
+      names = {};
+      for info in (function_info())
+        names = {@names, info[1]};
+      endfor
+      return {"background_test" in names, "malloc_stats" in names, "read_stdin" in names, "finished_tasks" in names};
+    expect:
+      value: [0, 0, 0, 0]

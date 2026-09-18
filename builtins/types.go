@@ -29,14 +29,21 @@ func builtinTostr(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewStr(""))
 	}
 
-	var result strings.Builder
-	for _, val := range args {
-		result.WriteString(valueToStr(val))
+	var resultStr string
+	if len(args) == 1 {
+		// The common single-argument form needs no builder: valueToStr already
+		// yields the final string, so skip the copy into and out of a Builder.
+		resultStr = valueToStr(args[0])
+	} else {
+		var result strings.Builder
+		for _, val := range args {
+			result.WriteString(valueToStr(val))
+		}
+		resultStr = result.String()
 	}
 
 	// Check string length limit (update from load_server_options cache first)
 	ctx.Session.UpdateContextLimits(ctx.TaskContext)
-	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
 	}

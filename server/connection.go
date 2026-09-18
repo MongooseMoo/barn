@@ -46,9 +46,13 @@ type Connection struct {
 	// spawning a parallel do_login_command while one is already running/reading
 	// and (b) kill the reading login task on disconnect.
 	loginTaskID int64
-	mu          sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
+	// lastInputTaskID identifies the foreground task spawned for the most recent
+	// command received on this connection. read_http() uses it to ensure that
+	// only that input's wizard task can use the implicit connection form.
+	lastInputTaskID int64
+	mu              sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // NewConnection creates a new connection with a transport
@@ -184,6 +188,20 @@ func (c *Connection) SetLoginTaskID(id int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.loginTaskID = id
+}
+
+// LastInputTaskID returns the task spawned by this connection's latest input.
+func (c *Connection) LastInputTaskID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastInputTaskID
+}
+
+// SetLastInputTaskID records the task spawned by this connection's latest input.
+func (c *Connection) SetLastInputTaskID(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastInputTaskID = id
 }
 
 // GetOutputPrefix returns the connection's output prefix

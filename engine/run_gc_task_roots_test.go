@@ -105,7 +105,8 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		}
 	}
 
-	rt := NewRuntime(store)
+	var gcSuspendBarrierBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("gc_suspend_barrier", 0, 0, []int64{}, &gcSuspendBarrierBuiltin))
 	defer rt.Stop()
 	defer removeTasksForOwner(rt, 0)
 	entered := make(chan struct{})
@@ -113,7 +114,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseHandoff := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseHandoff()
-	rt.registry.Register("gc_suspend_barrier", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+	gcSuspendBarrierBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		holder := ctx.Task
 		if holder == nil {
 			return types.Err(types.E_INVARG)
@@ -122,7 +123,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		close(entered)
 		<-release
 		return types.Suspend(-1)
-	})
+	}
 
 	program := compileTestProgram(t, rt.registry, "held = #0.hold_handoff; suspend(); gc_suspend_barrier(); return held;")
 	taskID := rt.CreateBackgroundTask(0, program, 0)
@@ -293,15 +294,16 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		t.Fatalf("add ambiguous nested verb: %v", errCode)
 	}
 
-	rt := NewRuntime(store)
+	var ambiguousNestedBarrierBuiltin builtins.BuiltinFunc
+	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("ambiguous_nested_barrier", 0, 0, []int64{}, &ambiguousNestedBarrierBuiltin))
 	defer rt.Stop()
 	nestedEntered := make(chan struct{})
 	releaseNested := make(chan struct{})
-	rt.registry.Register("ambiguous_nested_barrier", func(_ *builtins.Execution, _ []types.Value) types.Result {
+	ambiguousNestedBarrierBuiltin = func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(nestedEntered)
 		<-releaseNested
 		return types.Ok(types.NewInt(0))
-	})
+	}
 	caller := task.NewTask(93001, 0, 1000, 10)
 	ctx := kernel.NewTaskContext()
 	ctx.Player = 0

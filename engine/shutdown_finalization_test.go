@@ -83,14 +83,15 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	if _, errCode := store.AddVerb(9, verb); errCode != types.E_NONE {
 		t.Fatalf("add recycle verb: %v", errCode)
 	}
-	runtime := NewRuntime(store)
+	var recycleReturnedBuiltin builtins.BuiltinFunc
+	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_returned", 0, 0, []int64{}, &recycleReturnedBuiltin))
 	t.Cleanup(runtime.Stop)
 	returned := make(chan struct{})
 	var returnedOnce sync.Once
-	runtime.registry.Register("recycle_returned", func(*builtins.Execution, []types.Value) types.Result {
+	recycleReturnedBuiltin = func(*builtins.Execution, []types.Value) types.Result {
 		returnedOnce.Do(func() { close(returned) })
 		return types.Ok(types.None)
-	})
+	}
 	readyResult := make(chan (<-chan struct{}), 1)
 	configureTestHost(runtime.session, func(host *builtins.Host) {
 		host.Shutdown = func(ctx *builtins.Execution, _ string, _ bool) error {

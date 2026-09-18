@@ -175,11 +175,12 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 
 	// Push new stack frame
-	frame := &StackFrame{
+	frame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            objID,
 		ThisValue:       thisValue,
 		Player:          player,
@@ -195,12 +196,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
@@ -283,6 +279,15 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	return nil
 }
 
+// pushProtectedVerb shares ordinary verb activation, return, unwind, and
+// suspension with the calling VM. args is owned by the builtin dispatcher.
+func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
+		return types.Err(extractErrorCode(err))
+	}
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
 // Bytecode format: OP_PASS <argc:byte>
@@ -300,17 +305,6 @@ func (vm *VM) executePass() error {
 	if frame == nil {
 		return fmt.Errorf("E_INVIND: no active frame for pass()")
 	}
-
-	verbName := frame.Verb
-	if verbName == "" {
-		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
-	}
-
-	verbLoc := frame.VerbLoc
-	if verbLoc == types.ObjNothing {
-		return fmt.Errorf("E_INVIND: pass() has no defining object")
-	}
-
 	// Get pass-through args
 	var passArgs []types.Value
 	if argc == 0xFF {
@@ -332,6 +326,23 @@ func (vm *VM) executePass() error {
 		} else {
 			passArgs = []types.Value{}
 		}
+	}
+
+	// Non-debug frames resume after errors, so consume operands and args first.
+	// Legacy programs have no layout fingerprint, but still require pass enabled.
+	registry := vm.Builtins.Registry()
+	if !registry.Has("pass") || !registry.Compiler().Accepts(frame.Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
+	verbName := frame.Verb
+	if verbName == "" {
+		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+	}
+
+	verbLoc := frame.VerbLoc
+	if verbLoc == types.ObjNothing {
+		return fmt.Errorf("E_INVIND: pass() has no defining object")
 	}
 
 	if vm.Store == nil {
@@ -393,11 +404,12 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := &StackFrame{
+	newFrame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            frame.This,
 		ThisValue:       passThisValue,
 		Player:          frame.Player,
@@ -413,12 +425,7 @@ func (vm *VM) executePass() error {
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)

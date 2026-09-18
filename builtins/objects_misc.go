@@ -8,19 +8,14 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-
-	// TODO: Check caller is wizard
-	// if !isWizard(ctx.Programmer) {
-	// 	return types.Err(types.E_PERM)
-	// }
 
 	// Get object to renumber
 	objVal := args[0]
@@ -33,6 +28,9 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 	// Check object is valid
 	if !validForRead(ctx, oldID) {
 		return types.Err(types.E_INVARG)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
 
 	// Find lowest available ID

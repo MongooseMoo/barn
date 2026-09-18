@@ -325,15 +325,12 @@ func localPropertyForRead(txn *dbstore.StoreTxn, objID types.ObjID, name string)
 func getBuiltinProperty(txn *dbstore.StoreTxn, objID types.ObjID, name string) (types.Value, bool) {
 	switch strings.ToLower(name) {
 	case "name":
-		var (
-			name    string
-			errCode types.ErrorCode
-		)
-		name, errCode = txn.ObjectName(objID)
+		// Shared box built when the name was written — no strRep per read.
+		nameVal, errCode := txn.ObjectNameValue(objID)
 		if errCode != types.E_NONE {
 			return types.None, false
 		}
-		return types.NewStr(name), true
+		return nameVal, true
 	case "owner":
 		var (
 			ownerID types.ObjID

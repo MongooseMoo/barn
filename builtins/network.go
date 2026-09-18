@@ -55,6 +55,10 @@ type inputWakeConnection interface {
 	WakeInputReader()
 }
 
+type lastInputTaskConnection interface {
+	LastInputTaskID() int64
+}
+
 // InputForcer allows builtins to inject input lines into a player's stream.
 // Implemented by the execution engine to avoid import cycles.
 type InputForcer interface {
@@ -1339,7 +1343,8 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if typeStr != "request" && typeStr != "response" {
 		return types.Err(types.E_INVARG)
 	}
-	if resolveConnection(ctx, connection) == nil {
+	conn := resolveConnection(ctx, connection)
+	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1347,15 +1352,18 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		// With explicit connection: require wizard or owner of connection.
 		if !ctx.IsWizard {
-			// TODO: implement db_object_owner check when we have DB access.
-			return types.Err(types.E_PERM)
+			owner, errCode := objectOwnerForRead(ctx, connection)
+			if errCode != types.E_NONE || owner != ctx.Programmer {
+				return types.Err(types.E_PERM)
+			}
 		}
 	} else {
-		// Without explicit connection: require wizard.
-		if !ctx.IsWizard {
+		// The implicit form is reserved for the wizard task spawned by this
+		// connection's most recent input event.
+		inputConn, tracksInputTask := conn.(lastInputTaskConnection)
+		if !ctx.IsWizard || ctx.Task == nil || !tracksInputTask || inputConn.LastInputTaskID() != ctx.Task.ID {
 			return types.Err(types.E_PERM)
 		}
-		// TODO: check last_input_task_id(connection) == current_task_id.
 	}
 	mgr := taskManagerOf(ctx)
 	if mgr == nil {
