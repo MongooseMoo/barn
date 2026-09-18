@@ -458,6 +458,16 @@ func (s *Runtime) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 	s.taskOutputFlusher = flusher
 }
 
+// flushTaskOutput consumes the input command suffix at its first return or
+// suspension. Resumed tasks still flush output, but never repeat the suffix.
+func (s *Runtime) flushTaskOutput(t *task.Task) {
+	if s.taskOutputFlusher != nil {
+		suffix := t.CommandOutputSuffix
+		t.CommandOutputSuffix = ""
+		s.taskOutputFlusher(t.Owner, suffix)
+	}
+}
+
 // ProcessReadyTasks executes at most one task that is ready to run.
 //
 // The input processor owns the outer scheduling loop. Returning after each
@@ -495,9 +505,7 @@ func (s *Runtime) runTaskBatch(readyTasks []*task.Task) {
 				slog.Any("err", result.Err))
 		}
 
-		if s.taskOutputFlusher != nil {
-			s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-		}
+		s.flushTaskOutput(t)
 
 		// runTask returns nil for both suspend/yield and terminal completion.
 		// Only signal Done when the task has actually terminated (Completed or

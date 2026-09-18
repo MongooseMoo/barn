@@ -641,6 +641,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			p.executeCommandMatch(conn, player, cmd, huhMatch, outputSuffix, "I couldn't understand that.")
 			return
 		}
+		conn.SetLastInputTaskID(0)
 		conn.Send("I couldn't understand that.")
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)

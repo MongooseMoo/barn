@@ -1,6 +1,7 @@
 """Safety regressions for the multiplayer benchmark; no real servers/signals."""
 import json
 import os
+import random
 import signal
 import sys
 import tempfile
@@ -101,6 +102,49 @@ class LinuxOwnershipTests(unittest.TestCase):
 
     def test_exact_owned_process_is_signalled_through_pidfd(self):
         self.check_identity(bench.TOAST_MOO, "/tmp/this-session/run.db", True)
+
+
+class ScriptedConnection:
+    def __init__(self, lines):
+        self.lines = iter(lines)
+        self.sent = []
+
+    def send_line(self, line):
+        self.sent.append(line)
+
+    def read_line(self, deadline):
+        return next(self.lines, None)
+
+
+class CommandCompletionTests(unittest.TestCase):
+    def test_suffix_alone_is_not_terminal_completion(self):
+        conn = ScriptedConnection([bench.PREFIX_TAG, bench.SUFFIX_TAG])
+        stats = bench.PlayerStat([bench.ShapeStat()])
+        with patch.object(bench, "SHAPES", [("look", "look", 1)]):
+            bench.run_window([conn], [random.Random(0)], [stats], 0.01, True, 1)
+        self.assertEqual(stats.shapes[0].ok, 0)
+        self.assertEqual(stats.shapes[0].fail, 1)
+        self.assertIsNotNone(stats.broken)
+
+    def test_terminal_ack_collects_tail_and_ignores_stale_framing(self):
+        conn = ScriptedConnection([
+            bench.SUFFIX_TAG, "old output", bench.PREFIX_TAG, "before",
+            bench.SUFFIX_TAG, "after", bench.SUFFIX_TAG,
+            "===BP-DONE=== stale", "===BP-DONE=== nonce",
+        ])
+        with patch.object(bench.uuid, "uuid4", return_value=Mock(hex="nonce")):
+            body = bench.completed_command(conn, "look", 1)
+        self.assertEqual(body, ["before", "after"])
+        self.assertEqual(conn.sent, ["look", "#$#bench-terminal nonce"])
+
+    def test_warmup_timeout_stops_the_connection(self):
+        conn = ScriptedConnection([bench.PREFIX_TAG, bench.SUFFIX_TAG])
+        stats = bench.PlayerStat([bench.ShapeStat()])
+        with patch.object(bench, "SHAPES", [("look", "look", 1)]):
+            bench.run_window([conn], [random.Random(0)], [stats], 0.01, False, 1)
+        self.assertIsNotNone(stats.broken)
+        self.assertEqual(conn.sent.count("look"), 1)
+        self.assertEqual(stats.shapes[0].ok, 0)
 
 
 if __name__ == "__main__":

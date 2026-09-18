@@ -5,7 +5,7 @@ Issue #265. Drives N logged-in TCP connections through the same weighted
 command mix the in-process Barn harness uses (engine/mongoose_real_bench_test.go:
 look 35 / say 30 / i 10 / @who 10 / home 15), closed-loop per connection
 (each connection waits for its command to finish before sending the next),
-2 s warm-up then 8 s measurement per player level, and reports goodput/s,
+2 s warm-up then 8 s measurement per player level, and reports completions/s,
 p50, p99, p99.9 and max latency. The same code path targets either engine so
 the two numbers are apples to apples.
 
@@ -68,9 +68,11 @@ Trusted-proxy prelude (--proxy):
              default.
   never      no PROXY line (untrusted connections only).
 
-Per-command completion uses the server-intrinsic OUTPUTPREFIX/OUTPUTSUFFIX
-bracket, which both engines emit around every command line regardless of the
-verb's own output, so the round trip is timed from write to suffix echo.
+Per-command completion waits beyond OUTPUTSUFFIX, which can precede a suspended
+command's completion. A nonce-bearing out-of-band probe on the disposable copy
+acknowledges when the connection's last input task no longer has a task_stack.
+Native command dispatch is unchanged. Timing includes the probe round trip and
+any polling scheduler delay; command-created background tasks are not included.
 
 Usage
 -----
@@ -109,7 +111,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "mongoose.db.new"
 TOAST_MOO = "/root/src/toaststunt-mongoose/build-release/moo"
 TOAST_SRC = "/root/src/toaststunt-mongoose"
-TOAST_WRAPPER_WSL = "/mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh"
 WSL_DISTRO = "Debian"
 BARN_CONFIG = REPO_ROOT / "profiles" / "barn" / "mongoose-outbound-on.conf"
 BARN_PROFILE_ID = "barn-windows-mongoose-outbound-on"
@@ -126,6 +127,8 @@ SEED_BASE = 0xBEEF
 
 PREFIX_TAG = "===BP-PREFIX==="
 SUFFIX_TAG = "===BP-SUFFIX==="
+DONE_TAG = "===BP-DONE==="
+PROBE_COMMAND = "#$#bench-terminal"
 
 # Mongoose $account_login prompts (read from the fixture; see run notes).
 USERNAME_PROMPT = "Enter your username or email:"
@@ -479,6 +482,34 @@ def bracketed(conn: LineConn, line: str, timeout: float) -> list[str] | None:
             body.append(got)
 
 
+def completed_command(conn: LineConn, line: str, timeout: float) -> list[str] | None:
+    """Wait for the command's terminal acknowledgement, retaining post-yield output."""
+    nonce = uuid.uuid4().hex
+    conn.send_line(line)
+    deadline = time.monotonic() + timeout
+    inside = False
+    probing = False
+    body: list[str] = []
+    while True:
+        got = conn.read_line(deadline)
+        if got is None:
+            return None
+        if got == PREFIX_TAG:
+            inside = True
+            continue
+        if got == SUFFIX_TAG:
+            if inside and not probing:
+                conn.send_line(f"{PROBE_COMMAND} {nonce}")
+                probing = True
+            continue
+        if got.startswith(DONE_TAG + " "):
+            if probing and got == f"{DONE_TAG} {nonce}":
+                return body
+            continue
+        if inside:
+            body.append(got)
+
+
 class Control:
     """A logged-in wizard connection used for eval."""
 
@@ -559,6 +590,45 @@ def wait_port(host: str, port: int, timeout: float, proc: subprocess.Popen) -> f
     raise TimeoutError(f"server did not listen on {host}:{port} within {timeout}s")
 
 
+def install_completion_probe(ctl: Control) -> str:
+    """Extend only the disposable listener's OOB hook; preserve normal dispatch."""
+    verb = "__bench_terminal_" + uuid.uuid4().hex
+    helper = [
+        'input_task = queue_info(player)["last_input_task_id"];',
+        'nonce = args[1];',
+        # Always enter the runtime scheduler, even when the OOB handler sees a
+        # terminal state: a resumed command may still be sending its traceback.
+        # Barn serializes resumed and forked slices in separate scheduler batches;
+        # the acknowledgement relies on that ordering through output flushing.
+        'fork (0)',
+        "while (input_task > 0 && typeof(`task_stack(input_task) ! E_INVARG') == LIST)",
+        'suspend(0);',
+        'endwhile',
+        f'notify(player, "{DONE_TAG} " + nonce);',
+        'endfork',
+        'return 0;',
+    ]
+    gate = [
+        f'if (length(args) == 2 && args[1] == "{PROBE_COMMAND}")',
+        f'return #0:{verb}(args[2]);',
+        'endif',
+    ]
+    helper_literal = "{" + ", ".join(json.dumps(line) for line in helper) + "}"
+    gate_literal = "{" + ", ".join(json.dumps(line) for line in gate) + "}"
+    value, _ = ctl.eval(f'''
+        original = verb_code(#0, "do_out_of_band_command");
+        add_verb(#0, {{player, "xd", "{verb}"}}, {{"this", "none", "this"}});
+        errors = set_verb_code(#0, "{verb}", {helper_literal});
+        if (errors != {{}}) raise(E_INVARG, toliteral(errors)); endif
+        errors = set_verb_code(#0, "do_out_of_band_command", {{@{gate_literal}, @original}});
+        if (errors != {{}}) raise(E_INVARG, toliteral(errors)); endif
+        return 1;
+    ''')
+    if value != 1:
+        raise RuntimeError("could not install terminal command completion probe")
+    return verb
+
+
 def wsl(*args: str, timeout: float = 60.0) -> str:
     cmd = ["wsl.exe", "-d", WSL_DISTRO, "-u", "root", "-e", *args]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=True).stdout
@@ -613,6 +683,7 @@ class ToastServer(Server):
         self.run_dir, self.db_copy, self.port = run_dir, db_copy, port
         self.pid_file = run_dir / f"toast-{uuid.uuid4().hex}.pid"
         self.db_wsl = wsl("wslpath", "-u", db_copy.resolve().as_posix()).strip()
+        self.wrapper_wsl = wsl("wslpath", "-u", (REPO_ROOT / "scripts" / "run_toast_wsl.sh").as_posix()).strip()
         self.proc: subprocess.Popen | None = None
         self.log_file = None
         self.host = wsl("hostname", "-I").strip().split()[0]
@@ -622,7 +693,7 @@ class ToastServer(Server):
             "executable": TOAST_MOO,
             "executable_sha256": sha_line.split()[0] if sha_line else None,
             "source_commit": commit,
-            "wrapper": TOAST_WRAPPER_WSL,
+            "wrapper": self.wrapper_wsl,
             "wsl_distro": WSL_DISTRO,
             "host": self.host,
         }
@@ -636,7 +707,7 @@ class ToastServer(Server):
             "env", f"TOAST_MOO={TOAST_MOO}",
             "bash", "-c",
             'set -euo pipefail; printf "%s" "$$" > "$1"; shift; exec "$@"',
-            "bench-toast", pid_wsl, "bash", TOAST_WRAPPER_WSL, db_win, str(self.port),
+            "bench-toast", pid_wsl, "bash", self.wrapper_wsl, db_win, str(self.port),
         ]
         self.identity["command"] = cmd
         self.proc = subprocess.Popen(
@@ -860,22 +931,23 @@ def run_window(conns: list[LineConn], rngs: list[random.Random], stats: list[Pla
             line = SHAPES[sh][1]
             t0 = time.perf_counter()
             try:
-                body = bracketed(conn, line, cmd_timeout)
+                body = completed_command(conn, line, cmd_timeout)
             except (OSError, ConnectionError) as exc:
                 st.broken = f"{SHAPES[sh][0]}: {exc}"
                 if record:
                     st.shapes[sh].fail += 1
                 break
             lat = time.perf_counter() - t0
+            if body is None:
+                if record:
+                    st.shapes[sh].fail += 1
+                st.broken = f"{SHAPES[sh][0]}: no terminal acknowledgement within {cmd_timeout}s"
+                if record and len(st.fail_samples) < 5:
+                    st.fail_samples.append(st.broken)
+                break
             if not record:
                 continue
             ss = st.shapes[sh]
-            if body is None:
-                ss.fail += 1
-                st.broken = f"{SHAPES[sh][0]}: no suffix within {cmd_timeout}s"
-                if len(st.fail_samples) < 5:
-                    st.fail_samples.append(st.broken)
-                break
             ss.ok += 1
             ss.total_lat += lat
             st.lats.append(lat)
@@ -997,6 +1069,7 @@ def main() -> int:
         who, _ = ctl.eval("return {player, player.name, player.wizard, $prod(), server_version()};")
         record["control_identity"] = [str(v) if isinstance(v, MooObj) else v for v in who] if isinstance(who, list) else who
         log(f"control identity {record['control_identity']}")
+        record["completion_probe"] = install_completion_probe(ctl)
         if not args.no_repair:
             rep = apply_repair(ctl)
             record["repair_result"] = rep
@@ -1033,8 +1106,8 @@ def main() -> int:
                 conn = LineConn(server.host, args.port)
                 lr = mongoose_login(conn, f"benchp{i + 1}", BENCH_PASSWORD, proxy_line, args.proxy, args.banner_wait)
                 arm_bracket(conn)
-                if bracketed(conn, "look", args.cmd_timeout) is None:
-                    raise TimeoutError(f"benchp{i + 1} did not bracket `look`")
+                if completed_command(conn, "look", args.cmd_timeout) is None:
+                    raise TimeoutError(f"benchp{i + 1} did not complete `look`")
                 bench_conns.append(conn)
                 logins.append({"account": f"benchp{i + 1}", "player": roster[i]["obj"],
                                "seconds": round(lr.seconds, 3), "proxy_sent": lr.proxy_sent})
@@ -1058,7 +1131,7 @@ def main() -> int:
             run_window(bench_conns, rngs, stats, args.warmup, False, args.cmd_timeout)
             elapsed = run_window(bench_conns, rngs, stats, args.measure, True, args.cmd_timeout)
 
-            committed = sum(s.ok for st in stats for s in st.shapes)
+            completed = sum(s.ok for st in stats for s in st.shapes)
             failed = sum(s.fail for st in stats for s in st.shapes)
             lats = sorted(l for st in stats for l in st.lats)
             shape_rows = []
@@ -1072,8 +1145,8 @@ def main() -> int:
                                    "traceback_lines": tb})
             level_result = {
                 "players": active, "elapsed_s": round(elapsed, 3),
-                "committed": committed, "failed": failed,
-                "goodput_per_s": round(committed / elapsed, 1) if elapsed else 0,
+                "completed": completed, "failed": failed,
+                "completed_per_s": round(completed / elapsed, 1) if elapsed else 0,
                 "p50_ms": round(percentile(lats, 0.50) * 1000, 2),
                 "p99_ms": round(percentile(lats, 0.99) * 1000, 2),
                 "p999_ms": round(percentile(lats, 0.999) * 1000, 2),
@@ -1083,7 +1156,7 @@ def main() -> int:
                 "broken_connections": [st.broken for st in stats if st.broken],
             }
             results.append(level_result)
-            log(f"players={active} goodput={level_result['goodput_per_s']}/s committed={committed} failed={failed} "
+            log(f"players={active} completed={level_result['completed_per_s']}/s count={completed} failed={failed} "
                 f"p50={level_result['p50_ms']}ms p99={level_result['p99_ms']}ms p99.9={level_result['p999_ms']}ms max={level_result['max_ms']}ms")
             for row in shape_rows:
                 log(f"  shape {row['shape']:<10} ok={row['ok']:<6} fail={row['fail']:<4} avg={row['avg_ms']} ms tracebacks={row['traceback_lines']}")
@@ -1131,10 +1204,11 @@ def write_report(path: Path, rec: dict) -> None:
               f"- roster: " + " ".join(f"#{e['obj']}" for e in rec.get("roster", [])), ""]
     if rec.get("error"):
         lines += [f"**ERROR:** {rec['error']}", ""]
-    lines += ["| players | goodput/s | committed | failed | p50 | p99 | p99.9 | max |",
+    lines += ["Completion is the disappearance of the input task after its suffix, acknowledged by a nonce-bearing out-of-band probe. Timing includes that extra round trip and any polling scheduler delay. Forked background work is excluded; terminal completion does not prove application-level success.", ""]
+    lines += ["| players | completed/s | completed | failed | p50 | p99 | p99.9 | max |",
               "|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in rec.get("results", []):
-        lines.append(f"| {r['players']} | {r['goodput_per_s']} | {r['committed']} | {r['failed']} | "
+        lines.append(f"| {r['players']} | {r['completed_per_s']} | {r['completed']} | {r['failed']} | "
                      f"{r['p50_ms']} ms | {r['p99_ms']} ms | {r['p999_ms']} ms | {r['max_ms']} ms |")
     for r in rec.get("results", []):
         lines += ["", f"Per shape at {r['players']} players:", "",
