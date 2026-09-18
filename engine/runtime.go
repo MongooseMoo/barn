@@ -483,6 +483,15 @@ func (s *Runtime) ProcessReadyTasks() int {
 	return len(readyTasks)
 }
 
+// ProcessReadyBatch executes one bounded batch, retaining undispatched tasks
+// for the next selection. Server loops can reconsider input between batches.
+func (s *Runtime) ProcessReadyBatch() int {
+	readyTasks := s.scheduler.ReadyBatch(time.Now(), s.taskManager.Snapshot())
+	s.runReadyTasks(readyTasks)
+	s.flushDeferredGC()
+	return len(readyTasks)
+}
+
 func (s *Runtime) runReadyTasks(readyTasks []*task.Task) {
 	if len(readyTasks) == 0 {
 		return

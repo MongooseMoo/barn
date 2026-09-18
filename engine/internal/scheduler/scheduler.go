@@ -28,6 +28,7 @@ type workItem struct {
 type Scheduler struct {
 	mu        sync.Mutex
 	waiting   taskQueue
+	pending   []*task.Task
 	queueSeq  int64
 	workers   int
 	retryable func(*task.Task) bool
@@ -91,6 +92,39 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.readyLocked(now, catalog)
+}
+
+// ReadyBatch admits arrivals and selects at most one retry-compatible batch.
+// Unselected tasks retain their admission order without claiming execution.
+func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ready := s.readyLocked(now, catalog)
+	if len(ready) == 0 {
+		return nil
+	}
+	n := 1
+	if s.retryable(ready[0]) {
+		for n < len(ready) && n < s.workers && s.retryable(ready[n]) {
+			n++
+		}
+	}
+	s.pending = ready[n:]
+	// Give the caller separate storage: claiming a batch compacts its slice.
+	return append([]*task.Task(nil), ready[:n]...)
+}
+
+func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
+	var admitted []*task.Task
+	seen := make(map[int64]bool, len(s.pending))
+	for _, t := range s.pending {
+		if t.GetState() == task.TaskQueued && !seen[t.ID] {
+			admitted = append(admitted, t)
+			seen[t.ID] = true
+		}
+	}
+	s.pending = nil
 	var ready []*task.Task
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
@@ -98,13 +132,10 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 			break
 		}
 		heap.Pop(&s.waiting)
-		if t.GetState() == task.TaskQueued {
+		if t.GetState() == task.TaskQueued && !seen[t.ID] {
 			ready = append(ready, t)
+			seen[t.ID] = true
 		}
-	}
-	seen := make(map[int64]bool, len(ready))
-	for _, t := range ready {
-		seen[t.ID] = true
 	}
 	for _, t := range catalog {
 		if t == nil || seen[t.ID] {
@@ -113,12 +144,14 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 		if t.WakeDue(now) {
 			if t.Resume(types.NewInt(0)) {
 				ready = append(ready, t)
+				seen[t.ID] = true
 			}
 			continue
 		}
 		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) &&
 			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 			ready = append(ready, t)
+			seen[t.ID] = true
 		}
 	}
 	// Toast admits completed external tasks at time zero, ahead of waiting
@@ -143,7 +176,9 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 			return !bok || a.Before(b)
 		})
 	}
-	return ready
+	// Toast appends newly admitted work to an existing background queue. Its
+	// time-zero external completion priority does not displace admitted work.
+	return append(admitted, ready...)
 }
 
 // Plan partitions tasks into optimistic retry-safe batches.
