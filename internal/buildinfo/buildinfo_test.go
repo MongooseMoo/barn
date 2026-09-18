@@ -52,6 +52,20 @@ func TestResolveUnknownMetadataDoesNotClaimARelease(t *testing.T) {
 	}
 }
 
+func TestResolveGoPseudoVersionPreservesVCSMetadata(t *testing.T) {
+	got := Resolve(&debug.BuildInfo{
+		Main: debug.Module{Version: "v0.0.0-20260918010000-0123456789ab+dirty"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs", Value: "git"},
+			{Key: "vcs.revision", Value: "0123456789abcdef"},
+			{Key: "vcs.modified", Value: "true"},
+		},
+	}, "")
+	if got.String != "0.0.0-20260918010000-0123456789ab+dirty" || got.Prerelease != "20260918010000-0123456789ab" || got.VCS != "git" || !got.Modified {
+		t.Fatalf("Resolve() = %#v, want Go pseudo-version and VCS metadata", got)
+	}
+}
+
 func TestResolveLinkerReleaseOverridesModuleVersion(t *testing.T) {
 	got := Resolve(&debug.BuildInfo{Main: debug.Module{Version: "v1.2.3"}}, "v4.5.6-rc.1+packaged")
 	if got.String != "4.5.6-rc.1+packaged" || got.Major != 4 || got.Minor != 5 || got.Patch != 6 || got.Prerelease != "rc.1" {

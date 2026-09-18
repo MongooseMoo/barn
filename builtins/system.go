@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 
 	"strings"
 	"time"
@@ -548,9 +549,26 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		versionPair("RUNTIME", types.NewStr(runtime.Version())),
 		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
 	})
+	vcs, revision := build.VCS, build.Revision
+	if vcs == "" {
+		vcs = "unknown"
+	}
+	if revision == "" {
+		revision = "unknown"
+	}
+	osName := runtime.GOOS
+	switch osName {
+	case "linux":
+		osName = "Linux"
+	case "darwin":
+		osName = "Darwin"
+	case "windows":
+		osName = "Windows"
+	}
 	sourceInfo := types.NewList([]types.Value{
-		versionPair("commit", types.NewStr(build.Revision)),
-		versionPair("modified", types.NewInt(boolInt(build.Modified))),
+		versionPair("vcs", types.NewStr(vcs)),
+		versionPair("commit", types.NewStr(revision)),
+		versionPair("modified", types.NewStr(strconv.FormatBool(build.Modified))),
 	})
 	versionInfo := []types.Value{
 		versionPair("major", types.NewInt(build.Major)),
@@ -558,7 +576,7 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		versionPair("release", types.NewInt(build.Patch)),
 		versionPair("ext", types.NewStr(versionExtension(build))),
 		versionPair("string", types.NewStr(build.String)),
-		versionPair("os", types.NewStr(runtime.GOOS)),
+		versionPair("os", types.NewStr(osName)),
 		versionPair("features", features),
 		versionPair("options", optionInfo),
 		versionPair("source", sourceInfo),
@@ -645,13 +663,6 @@ func lookupVersionPath(root types.Value, path string) (types.Value, bool) {
 		}
 	}
 	return current, true
-}
-
-func boolInt(v bool) int64 {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 func boolOptionState(v bool) string {

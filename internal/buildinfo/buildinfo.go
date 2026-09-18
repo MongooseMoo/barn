@@ -21,6 +21,7 @@ type Info struct {
 	String     string
 	Revision   string
 	Modified   bool
+	VCS        string
 }
 
 // Current returns metadata for the running executable.
@@ -35,7 +36,7 @@ func Current() Info {
 // Resolve normalizes injected release data and Go build metadata. It is
 // exported so callers can test both packaged and development build identities.
 func Resolve(info *debug.BuildInfo, release string) Info {
-	revision, modified := vcsMetadata(info)
+	vcs, revision, modified := vcsMetadata(info)
 	version := strings.TrimSpace(release)
 	if version == "" && info != nil {
 		version = info.Main.Version
@@ -43,7 +44,7 @@ func Resolve(info *debug.BuildInfo, release string) Info {
 
 	major, minor, patch, prerelease, normalized, ok := parseVersion(version)
 	if ok {
-		return Info{major, minor, patch, prerelease, normalized, revision, modified}
+		return Info{major, minor, patch, prerelease, normalized, revision, modified, vcs}
 	}
 
 	identity := "unknown"
@@ -56,22 +57,24 @@ func Resolve(info *debug.BuildInfo, release string) Info {
 	if modified {
 		identity += ".dirty"
 	}
-	return Info{0, 0, 0, "dev", "0.0.0-dev+" + identity, revision, modified}
+	return Info{0, 0, 0, "dev", "0.0.0-dev+" + identity, revision, modified, vcs}
 }
 
-func vcsMetadata(info *debug.BuildInfo) (revision string, modified bool) {
+func vcsMetadata(info *debug.BuildInfo) (vcs, revision string, modified bool) {
 	if info == nil {
-		return "", false
+		return "", "", false
 	}
 	for _, setting := range info.Settings {
 		switch setting.Key {
+		case "vcs":
+			vcs = setting.Value
 		case "vcs.revision":
 			revision = setting.Value
 		case "vcs.modified":
 			modified = setting.Value == "true"
 		}
 	}
-	return revision, modified
+	return vcs, revision, modified
 }
 
 func parseVersion(version string) (major, minor, patch int64, prerelease, normalized string, ok bool) {

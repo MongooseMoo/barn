@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/MongooseMoo/barn/config"
@@ -45,11 +46,16 @@ func TestServerVersionUsesInjectedBuildMetadataConsistently(t *testing.T) {
 			assertVersionKey(t, ctx, test.build, "release", types.NewInt(test.build.Patch))
 			assertVersionKey(t, ctx, test.build, "ext", types.NewStr(test.wantExt))
 			assertVersionKey(t, ctx, test.build, "string", types.NewStr(test.build.String))
-			assertVersionKey(t, ctx, test.build, "os", types.NewStr(runtime.GOOS))
+			wantOS := map[string]string{"linux": "Linux", "darwin": "Darwin", "windows": "Windows"}[runtime.GOOS]
+			if wantOS == "" {
+				wantOS = runtime.GOOS
+			}
+			assertVersionKey(t, ctx, test.build, "os", types.NewStr(wantOS))
 			assertVersionKey(t, ctx, test.build, "options/RUNTIME", types.NewStr(runtime.Version()))
 			assertVersionKey(t, ctx, test.build, "options/ARCHITECTURE", types.NewStr(runtime.GOARCH))
 			assertVersionKey(t, ctx, test.build, "source/commit", types.NewStr(test.build.Revision))
-			assertVersionKey(t, ctx, test.build, "source/modified", types.NewInt(boolInt(test.build.Modified)))
+			assertVersionKey(t, ctx, test.build, "source/modified", types.NewStr(strconv.FormatBool(test.build.Modified)))
+			assertVersionKey(t, ctx, test.build, "source/vcs", types.NewStr("unknown"))
 
 			all := serverVersion(ctx, []types.Value{types.NewStr("")}, test.build)
 			if !all.IsNormal() {
@@ -78,7 +84,7 @@ func TestServerVersionNestedGroupsMatchKeyedLookups(t *testing.T) {
 	assertVersionKey(t, ctx, build, "options/OUTBOUND_NETWORK", types.NewStr("ON"))
 	assertVersionKey(t, ctx, build, "options/PROMOTE_NUMBERS", types.NewStr("ON"))
 	assertVersionKey(t, ctx, build, "source/commit", types.NewStr("abc123"))
-	assertVersionKey(t, ctx, build, "source/modified", types.NewInt(1))
+	assertVersionKey(t, ctx, build, "source/modified", types.NewStr("true"))
 
 	for _, group := range []string{"features", "options", "source"} {
 		result := serverVersion(ctx, []types.Value{types.NewStr(group)}, build)
@@ -91,6 +97,16 @@ func TestServerVersionNestedGroupsMatchKeyedLookups(t *testing.T) {
 			t.Errorf("server_version(%q) = %#v, want %s", group+"/", withTrailingSlash, result.Val.String())
 		}
 	}
+}
+
+func TestServerVersionSourceMetadata(t *testing.T) {
+	ctx := runtimeOptionCtx(config.Options{})
+	known := buildinfo.Info{VCS: "git", Revision: "abc123", String: "0.0.0-dev+abc123"}
+	assertVersionKey(t, ctx, known, "source/vcs", types.NewStr("git"))
+	assertVersionKey(t, ctx, known, "source/commit", types.NewStr("abc123"))
+	unknown := buildinfo.Info{String: "0.0.0-dev+unknown"}
+	assertVersionKey(t, ctx, unknown, "source/vcs", types.NewStr("unknown"))
+	assertVersionKey(t, ctx, unknown, "source/commit", types.NewStr("unknown"))
 }
 
 func assertVersionKey(t *testing.T, ctx *Execution, build buildinfo.Info, key string, want types.Value) {
