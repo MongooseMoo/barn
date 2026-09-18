@@ -143,3 +143,79 @@ func TestRuntimeTickAdmitsBackgroundWorkWithQueuedInput(t *testing.T) {
 	}
 	<-done
 }
+
+func TestRuntimeWakeRunsEarlierArrivalAndTimedSuspension(t *testing.T) {
+	store := dbstore.NewStore()
+	rt := engine.NewRuntime(store)
+	defer rt.Stop()
+	processor := NewInputProcessor(store, rt)
+	defer processor.Stop()
+	processor.Start()
+	queue := func(id int64, code string, delay time.Duration) *task.Task {
+		program, diagnostics := rt.Registry().Compiler().CompileMOO([]string{code})
+		if len(diagnostics) != 0 {
+			t.Fatal(diagnostics)
+		}
+		tk := task.NewTaskFull(id, types.ObjNothing, program, 1000, 5)
+		tk.StartTime = time.Now().Add(delay)
+		tk.Done = make(chan struct{})
+		rt.QueueTask(tk)
+		return tk
+	}
+	later := queue(90101, "return 1;", time.Hour)
+	defer later.Kill()
+	// Let the loop install the distant timer before an earlier arrival.
+	time.Sleep(20 * time.Millisecond)
+	immediate := queue(90102, "suspend(0.03); return 7;", 0)
+	select {
+	case <-immediate.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("arrival or timed resumption lost its wakeup")
+	}
+	if immediate.Result.Val.Int() != 7 || immediate.GetState() != task.TaskCompleted {
+		t.Fatalf("timed task result = %v, state = %v", immediate.Result, immediate.GetState())
+	}
+	if later.GetState() != task.TaskQueued {
+		t.Fatal("future task ran early")
+	}
+}
+
+func TestRuntimeWakeExternalCompletionAndLateCompletionAfterStop(t *testing.T) {
+	store := dbstore.NewStore()
+	rt := engine.NewRuntime(store)
+	defer rt.Stop()
+	processor := NewInputProcessor(store, rt)
+	program, diagnostics := rt.Registry().Compiler().CompileMOO([]string{"suspend(); return 9;"})
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	tk := task.NewTaskFull(90201, types.ObjNothing, program, 1000, 5)
+	tk.Done = make(chan struct{})
+	rt.QueueTask(tk)
+	processor.Start()
+	defer processor.Stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for tk.GetState() != task.TaskSuspended && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !tk.CompleteExec(types.NewInt(0)) {
+		t.Fatal("helper completion failed")
+	}
+	select {
+	case <-tk.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("external completion did not wake the dispatcher")
+	}
+	if tk.Result.Val.Int() != 9 {
+		t.Fatalf("result = %v", tk.Result)
+	}
+	processor.Stop()
+	// A subprocess callback may outlive its listener. No closed-channel panic
+	// or blocked sender is permitted, even when many notifications coalesce.
+	for range 1000 {
+		tk.SuspendIndefinite()
+		if !tk.CompleteExec(types.NewInt(0)) {
+			t.Fatal("late completion failed")
+		}
+	}
+}

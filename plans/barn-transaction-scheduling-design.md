@@ -667,16 +667,15 @@ admission order. The existing `ProcessReadyTasks` API still drains a snapshot,
 including retained tasks, for explicit runtime callers. Claims still happen
 at dispatch, so a task may observe or kill a sibling before it starts.
 
-The input loop revisits selection when a nonempty batch completes. An empty
-selection returns to the existing 10 ms timer. Dispatching queued input no
-longer skips background admission. New helper completions are discovered at
-selection; direct completion notifications are not implemented in this slice.
+The input loop revisits selection when a nonempty batch completes. Dispatching
+queued input no longer skips background admission. The first increment retained
+the 10 ms idle timer; the wakeup increment below replaces it.
 
 This is one global background queue, not the proposed per-principal service
 ledger. It preserves FIFO admission but does not establish fairness across
 principals, foreground gate contention, or elapsed-time latency bounds.
 Selections still scan the task catalog, and a parallel batch still joins all
-its workers. Gate ownership, weighted admission, event notifications, and the
+its workers. Gate ownership, weighted admission, and the
 live 1-client/16-client performance matrix remain outstanding.
 
 Reproduce the focused checks with existing scripts from the repository root:
@@ -694,3 +693,47 @@ The managed runs each included capability admission and the unchanged
 background zero-suspend scenario: Toast `2 passed in 8.28s`, Barn
 `2 passed in 1.86s`. Go engine/server tests and the focused race checks passed.
 These are correctness checks for this increment, not Mongoose latency evidence.
+
+## Wakeup increment: notifications and scheduled deadlines
+
+The task manager owns a capacity-one change channel. Registration, suspension,
+resumption (including generation-checked database callbacks), helper completion,
+cancellation, and physical execution handoff send nonblocking hints. The channel
+is never closed: late external callbacks may safely outlive the server loop.
+Heap insertion sends a hint after insertion as well as registration, closing
+the window where a selector sees the catalog entry before its heap membership.
+
+The dispatcher leaves notifications buffered while a batch runs. After an empty
+selection it listens for changes and arms one timer for the earliest scheduled
+task. It never drains notifications after scanning: a change racing the scan
+must remain observable. With no scheduled work the timer stays disabled. The
+five-second catalog cleanup timer remains independent of task dispatch.
+
+A logical queued/suspended state does not establish that a saved VM is safe to
+resume. The task's physical-execution flag follows the existing runtime lease
+reference count. Active tasks cannot be claimed or drive the deadline timer;
+heap tasks encountered during handoff remain pending. The final lease release
+clears the flag and signals selection. Runtime lease references also retain
+direct tasks absent from the catalog, so their handoffs cannot be lost.
+
+Regression coverage includes coalescing, ordinary/generation/exec resumption,
+timed and indefinite waits, nested lease release, retained tasks after handoff,
+earlier arrivals replacing a distant timer, and completions after shutdown.
+Run these checks with:
+
+```powershell
+go test -race ./task ./engine/... ./server/...
+go test -race ./engine ./server -run 'TestReadyWake|TestRuntimeWake' -count=1 -timeout=60s
+./scripts/test-mongoose-deltas.ps1 -Engine Toast -OracleDir /root/src/toaststunt -Packaged -Suites server/exec_recent_regressions.yaml
+./scripts/test-mongoose-deltas.ps1 -Engine Barn -Packaged -Suites server/exec_recent_regressions.yaml
+```
+
+Use the managed oracle/build/Barn commands above for the unchanged yield
+scenario. No conformance expectations are changed by this increment. The
+notification path removes periodic dispatch polling; it does not change worker
+batch joins, provide principal fairness, or establish a Mongoose latency gain.
+
+Captured wakeup verification: the broad race run reported engine `194.992s`,
+scheduler `1.359s`, server `2.375s`, all `ok`. Managed yield/admission reported
+Toast `2 passed in 8.79s`, Barn `2 passed in 1.78s`; managed external-command
+regressions/admission reported Toast `3 passed in 8.25s`, Barn `3 passed in 1.07s`.

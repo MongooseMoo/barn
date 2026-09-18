@@ -110,35 +110,48 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 			n++
 		}
 	}
-	s.pending = ready[n:]
+	s.pending = append(s.pending, ready[n:]...)
 	// Give the caller separate storage: claiming a batch compacts its slice.
 	return append([]*task.Task(nil), ready[:n]...)
 }
 
 func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
 	var admitted []*task.Task
+	var held []*task.Task
 	seen := make(map[int64]bool, len(s.pending))
 	for _, t := range s.pending {
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			admitted = append(admitted, t)
+			if t.ReadyDeadline(now).IsZero() {
+				held = append(held, t)
+			} else {
+				admitted = append(admitted, t)
+			}
 			seen[t.ID] = true
 		}
 	}
-	s.pending = nil
+	s.pending = held
 	var ready []*task.Task
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
-		if t.StartTime.After(now) {
+		start, _, _ := t.SchedulingSnapshot()
+		if start.After(now) {
 			break
 		}
 		heap.Pop(&s.waiting)
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			ready = append(ready, t)
+			if t.ReadyDeadline(now).IsZero() {
+				s.pending = append(s.pending, t)
+			} else {
+				ready = append(ready, t)
+			}
 			seen[t.ID] = true
 		}
 	}
 	for _, t := range catalog {
 		if t == nil || seen[t.ID] {
+			continue
+		}
+		if deadline := t.ReadyDeadline(now); deadline.IsZero() || deadline.After(now) {
 			continue
 		}
 		if t.WakeDue(now) {
@@ -148,8 +161,7 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 			}
 			continue
 		}
-		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) &&
-			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
+		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
 			ready = append(ready, t)
 			seen[t.ID] = true
 		}
@@ -179,6 +191,33 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 	// Toast appends newly admitted work to an existing background queue. Its
 	// time-zero external completion priority does not displace admitted work.
 	return append(admitted, ready...)
+}
+
+// NextWake includes queued heap work, retained batches and timed/resumed VMs.
+// It does not mutate readiness or consume change notifications.
+func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var next time.Time
+	visit := func(t *task.Task) {
+		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
+			next = at
+		}
+	}
+	for _, t := range s.waiting {
+		visit(t)
+	}
+	for _, t := range s.pending {
+		visit(t)
+	}
+	for _, t := range catalog {
+		// Fresh direct foreground tasks live in the catalog but are dispatched
+		// by their caller. Only saved continuations use catalog admission.
+		if t != nil && (t.GetState() == task.TaskSuspended || t.BytecodeVMValue() != nil || t.StmtIndex > 0) {
+			visit(t)
+		}
+	}
+	return next
 }
 
 // Plan partitions tasks into optimistic retry-safe batches.

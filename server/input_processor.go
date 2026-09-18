@@ -179,29 +179,47 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 func (p *InputProcessor) run() {
 	defer p.wg.Done()
 
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	var timerC <-chan time.Time
+	var changed <-chan struct{}
 
 	cleanupTicker := time.NewTicker(5 * time.Second)
 	defer cleanupTicker.Stop()
 
-	var runtimeDone <-chan int
+	// Scan once at startup, including tasks restored before the loop started.
+	runtimeDone := p.processRuntimeTick()
+	startBatch := func() {
+		timer.Stop()
+		timerC = nil
+		// Leave notifications buffered while a batch runs. Consuming one here
+		// could lose an arrival racing the batch's last readiness scan.
+		changed = nil
+		runtimeDone = p.processRuntimeTick()
+	}
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case input := <-p.inputQueue:
 			p.dispatch(input)
-		case <-ticker.C:
-			if runtimeDone == nil {
-				runtimeDone = p.processRuntimeTick()
-			}
+		case <-changed:
+			startBatch()
+		case <-timerC:
+			startBatch()
 		case count := <-runtimeDone:
 			runtimeDone = nil
 			// Drain runnable work without a timer delay between bounded batches.
-			// An empty selection returns to timer polling instead of spinning.
+			// An empty selection waits for an arrival or the next due task.
 			if count != 0 && p.ctx.Err() == nil {
-				runtimeDone = p.processRuntimeTick()
+				startBatch()
+			} else {
+				changed = p.runtime.ScheduleChanged()
+				if at := p.runtime.NextTaskWake(); !at.IsZero() {
+					timer.Reset(time.Until(at))
+					timerC = timer.C
+				}
 			}
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all

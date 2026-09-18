@@ -28,6 +28,7 @@ type Runtime struct {
 	taskManager             *task.Manager
 	lifecycle               finalization.Coordinator
 	scheduler               *scheduler.Scheduler
+	leasedTasks             map[int64]*task.Task // includes direct tasks absent from the catalog
 	nextTaskID              int64
 	registry                *builtins.Registry
 	session                 *builtins.Session
@@ -199,6 +200,11 @@ func (s *Runtime) acquireTaskExecution(t *task.Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lifecycle.ExecutingTasks[t.ID]++
+	if s.leasedTasks == nil {
+		s.leasedTasks = make(map[int64]*task.Task)
+	}
+	s.leasedTasks[t.ID] = t
+	t.SetExecutionActive(true)
 	t.SetState(task.TaskRunning)
 }
 
@@ -209,6 +215,11 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 		s.lifecycle.ExecutingTasks[taskID] = count - 1
 	} else {
 		delete(s.lifecycle.ExecutingTasks, taskID)
+		if t := s.leasedTasks[taskID]; t != nil {
+			t.SetExecutionActive(false)
+		}
+		delete(s.leasedTasks, taskID)
+		s.taskManager.NotifyScheduleChange()
 	}
 }
 
@@ -487,15 +498,24 @@ func (s *Runtime) ProcessReadyTasks() int {
 // for the next selection. Server loops can reconsider input between batches.
 func (s *Runtime) ProcessReadyBatch() int {
 	readyTasks := s.scheduler.ReadyBatch(time.Now(), s.taskManager.Snapshot())
-	s.runReadyTasks(readyTasks)
+	count := s.runReadyTasks(readyTasks)
 	s.flushDeferredGC()
-	return len(readyTasks)
+	return count
 }
 
-func (s *Runtime) runReadyTasks(readyTasks []*task.Task) {
+func (s *Runtime) ScheduleChanged() <-chan struct{} { return s.taskManager.ScheduleChanged() }
+
+// NextTaskWake is zero when no timer is needed. ScheduleChanged must be
+// observed alongside it; a change racing this scan stays buffered for selection.
+func (s *Runtime) NextTaskWake() time.Time {
+	return s.scheduler.NextWake(time.Now(), s.taskManager.Snapshot())
+}
+
+func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
 	if len(readyTasks) == 0 {
-		return
+		return 0
 	}
+	count := 0
 	for _, batch := range s.scheduler.Plan(readyTasks) {
 		claimed := batch[:0]
 		for _, t := range batch {
@@ -504,9 +524,11 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) {
 			}
 		}
 		if len(claimed) != 0 {
+			count += len(claimed)
 			s.runTaskBatch(claimed)
 		}
 	}
+	return count
 }
 
 func (s *Runtime) runTaskBatch(readyTasks []*task.Task) {
