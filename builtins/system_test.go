@@ -28,12 +28,12 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 	}
 
 	ctx := newTestExecution()
-	ctx.Registry.LoadServerOptionsFromStore(store)
-	ctx.Registry.LoadProtectedBuiltinsFromStore(store)
-	if got := ctx.Registry.GetMaxStringConcat(); got != 3000 {
+	ctx.Session.LoadServerOptionsFromStore(store)
+	ctx.Session.LoadProtectedBuiltinsFromStore(store)
+	if got := ctx.Session.GetMaxStringConcat(); got != 3000 {
 		t.Fatalf("initial max_string_concat cache = %d, want 3000", got)
 	}
-	if ctx.Registry.IsProtectedBuiltin("create") {
+	if ctx.Session.IsProtectedBuiltin("create") {
 		t.Fatalf("create should not start protected")
 	}
 
@@ -55,7 +55,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 		t.Fatalf("load_server_options result = flow %v err %v, want return", result.Flow, result.Error)
 	}
 
-	if errCode := store.SetPropertyValue(0, "conflict_marker", types.NewStr("live")); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(0, "conflict_marker", types.NewStr("live")); errCode != types.E_NONE {
 		t.Fatalf("live SetPropertyValue conflict_marker failed: %s", errCode)
 	}
 	if errCode := ctx.StoreTxn.SetPropertyValue(0, "conflict_marker", types.NewStr("task")); errCode != types.E_NONE {
@@ -65,10 +65,10 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 		t.Fatalf("Commit = %s, want E_INVARG conflict", errCode)
 	}
 
-	if got := ctx.Registry.GetMaxStringConcat(); got != 3000 {
+	if got := ctx.Session.GetMaxStringConcat(); got != 3000 {
 		t.Fatalf("max_string_concat cache after failed commit = %d, want committed 3000", got)
 	}
-	if ctx.Registry.IsProtectedBuiltin("create") {
+	if ctx.Session.IsProtectedBuiltin("create") {
 		t.Fatalf("create protected flag leaked from failed transaction")
 	}
 }

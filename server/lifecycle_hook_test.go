@@ -16,11 +16,20 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+type recordingLifecycle struct {
+	states []string
+}
+
+func (l *recordingLifecycle) Ready()    { l.states = append(l.states, "ready") }
+func (l *recordingLifecycle) Draining() { l.states = append(l.states, "draining") }
+func (l *recordingLifecycle) Stopped()  { l.states = append(l.states, "stopped") }
+func (l *recordingLifecycle) Failed()   { l.states = append(l.states, "failed") }
+
 func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
 	addTestVerb(store, system, "server_started", "#0.started = 1;")
@@ -34,7 +43,7 @@ func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 		t.Fatalf("call server_started: %v", err)
 	}
 
-	value, errCode := store.PropertyValue(system, "started")
+	value, errCode := store.DirectTxn().PropertyValue(system, "started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}
@@ -47,7 +56,7 @@ func TestCheckpointedConnectionsDisconnectBeforeServerStarted(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "events", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "events", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define events: %v", errCode)
 	}
 	addTestVerb(store, system, "user_disconnected",
@@ -73,7 +82,7 @@ func TestCheckpointedConnectionsDisconnectBeforeServerStarted(t *testing.T) {
 		t.Fatalf("call server_started: %v", err)
 	}
 
-	got, errCode := store.PropertyValue(system, "events")
+	got, errCode := store.DirectTxn().PropertyValue(system, "events")
 	if errCode != types.E_NONE {
 		t.Fatalf("read events: %v", errCode)
 	}
@@ -99,7 +108,7 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
 	addTestVerb(store, system, "server_started", "#0.listener_count = length(listeners());")
@@ -118,13 +127,13 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 		store:   store,
 		runtime: engine.NewRuntime(store),
 	}
-	s.runtime.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(s.runtime.Session(), cm)
 
 	if err := s.callServerStarted(); err != nil {
 		t.Fatalf("call server_started: %v", err)
 	}
 
-	value, errCode := store.PropertyValue(system, "listener_count")
+	value, errCode := store.DirectTxn().PropertyValue(system, "listener_count")
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}
@@ -146,6 +155,7 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 	input := NewInputProcessor(store, rt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	lifecycle := &recordingLifecycle{}
 	s := &Server{
 		store:          store,
 		runtime:        rt,
@@ -155,6 +165,7 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 		checkpointChan: make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
+		lifecycle:      lifecycle,
 	}
 
 	if err := s.Start(); err == nil {
@@ -166,6 +177,9 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 	s.mu.Unlock()
 	if running {
 		t.Fatalf("server remained running after bind failure")
+	}
+	if got := lifecycle.states; len(got) != 1 || got[0] != "failed" {
+		t.Fatalf("lifecycle states = %v, want [failed]", got)
 	}
 	if infos := s.connManager.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after bind failure = %+v, want none", infos)
@@ -186,10 +200,10 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define listener_count property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, "shutdown_message", dbstore.NewProperty(types.NewStr(""), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "shutdown_message", dbstore.NewProperty(types.NewStr(""), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_message property: %v", errCode)
 	}
 	addTestVerb(store, system, "shutdown_started",
@@ -208,20 +222,22 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	defer cm.CloseListeners()
 
 	rt := engine.NewRuntime(store)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
+	lifecycle := &recordingLifecycle{}
 	s := &Server{
 		store:           store,
 		runtime:         rt,
 		input:           NewInputProcessor(store, rt),
 		connManager:     cm,
 		shutdownMessage: "Maintenance",
+		lifecycle:       lifecycle,
 	}
 
 	if err := s.shutdown(); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
 
-	value, errCode := store.PropertyValue(system, "listener_count")
+	value, errCode := store.DirectTxn().PropertyValue(system, "listener_count")
 	if errCode != types.E_NONE {
 		t.Fatalf("read listener_count: %v", errCode)
 	}
@@ -229,7 +245,7 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 		t.Fatalf("listener_count = %v, want 1", value)
 	}
 
-	value, errCode = store.PropertyValue(system, "shutdown_message")
+	value, errCode = store.DirectTxn().PropertyValue(system, "shutdown_message")
 	if errCode != types.E_NONE {
 		t.Fatalf("read shutdown_message: %v", errCode)
 	}
@@ -239,6 +255,9 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 
 	if !listener.closed {
 		t.Fatalf("listener was not closed")
+	}
+	if got := lifecycle.states; len(got) != 1 || got[0] != "stopped" {
+		t.Fatalf("lifecycle states = %v, want [stopped]", got)
 	}
 	if infos := cm.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after shutdown = %+v, want none", infos)
@@ -345,10 +364,10 @@ func TestShutdownFinalCheckpointRunsHooksBeforeRuntimeStops(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
@@ -369,7 +388,7 @@ func TestShutdownFinalCheckpointRunsHooksBeforeRuntimeStops(t *testing.T) {
 		t.Fatalf("shutdown: %v", err)
 	}
 
-	started, errCode := store.PropertyValue(system, "checkpoint_started")
+	started, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started: %v", errCode)
 	}
@@ -377,7 +396,7 @@ func TestShutdownFinalCheckpointRunsHooksBeforeRuntimeStops(t *testing.T) {
 		t.Fatalf("checkpoint_started = %v, want 1", started)
 	}
 
-	finished, errCode := store.PropertyValue(system, "checkpoint_finished")
+	finished, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_finished")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_finished: %v", errCode)
 	}
@@ -390,13 +409,13 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, "shutdown_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "shutdown_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_started property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
@@ -425,7 +444,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 		t.Fatalf("mainLoop error = %v, want ErrPanicShutdown", err)
 	}
 
-	started, errCode := store.PropertyValue(system, "checkpoint_started")
+	started, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started: %v", errCode)
 	}
@@ -433,7 +452,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 		t.Fatalf("checkpoint_started = %v, want 1", started)
 	}
 
-	finished, errCode := store.PropertyValue(system, "checkpoint_finished")
+	finished, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_finished")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_finished: %v", errCode)
 	}
@@ -441,7 +460,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 		t.Fatalf("checkpoint_finished = %v, want 1", finished)
 	}
 
-	shutdownStarted, errCode := store.PropertyValue(system, "shutdown_started")
+	shutdownStarted, errCode := store.DirectTxn().PropertyValue(system, "shutdown_started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read shutdown_started: %v", errCode)
 	}
@@ -461,10 +480,10 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = #0.checkpoint_started + 1;")
@@ -491,7 +510,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 		t.Fatalf("second request checkpoint: %v", err)
 	}
 
-	started, errCode := store.PropertyValue(system, "checkpoint_started")
+	started, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started before loop: %v", errCode)
 	}
@@ -506,7 +525,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 
 	deadline := time.After(time.Second)
 	for {
-		finished, errCode := store.PropertyValue(system, "checkpoint_finished")
+		finished, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_finished")
 		if errCode != types.E_NONE {
 			t.Fatalf("read checkpoint_finished: %v", errCode)
 		}
@@ -525,7 +544,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 		t.Fatalf("main loop: %v", err)
 	}
 
-	started, errCode = store.PropertyValue(system, "checkpoint_started")
+	started, errCode = store.DirectTxn().PropertyValue(system, "checkpoint_started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started after loop: %v", errCode)
 	}

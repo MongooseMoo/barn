@@ -13,7 +13,6 @@ import (
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -132,7 +131,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		var line string
 		var isOutOfBand bool
 		var err error
-		if conn.IsLoggedIn() && p.runtime.Registry().ConnectionOptionTruthy(player, "binary") {
+		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(player, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
 				line, err = binaryTransport.ReadChunk()
 			} else {
@@ -272,9 +271,10 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		p.processLoginTimeout(input)
 		return
 	}
+	input.Line = unquoteInBandInput(input.Line)
 
 	oob := strings.HasPrefix(input.Line, "#$#")
-	disableOOB := p.runtime.Registry().ConnectionOptionTruthy(input.Player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.Player, "disable-oob")
 	if input.IsOutOfBand || (oob && !disableOOB) {
 		if !disableOOB {
 			p.processOutOfBand(input)
@@ -282,7 +282,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		return
 	}
 	if !(oob && !disableOOB) {
-		handled, flushed := p.runtime.Registry().HandleHeldInput(input.Player, input.Line, false)
+		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.Line, false)
 		if handled {
 			if flushed != nil && p.connManager != nil {
 				if conn := p.connManager.getConnectionByConnID(input.ConnID); conn != nil {
@@ -307,6 +307,13 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	p.processCommand(input)
+}
+
+func unquoteInBandInput(line string) string {
+	if strings.HasPrefix(line, "#$\"") {
+		return line[3:]
+	}
+	return line
 }
 
 func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
@@ -340,13 +347,7 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	}
 	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
 	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		p.runtime.SendTracebackToPlayer(input.Player, result.Error, stack)
+		p.runtime.SendTracebackToPlayer(input.Player, result.Error, result.CallStack)
 	}
 }
 
@@ -361,18 +362,21 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
 	oob := strings.HasPrefix(line, "#$#")
-	disableOOB := p.runtime.Registry().ConnectionOptionTruthy(player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
 	if !(oob && !disableOOB) {
-		handled, _ := p.runtime.Registry().HandleHeldInput(player, line, atFront)
+		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
 		if handled {
 			return
 		}
 	}
 
-	if p.deliverToReadingTask(player, line) {
-		return
-	}
-
+	// Toast's bf_force_input calls enqueue_input_task: the line joins the
+	// connection's input queue and is processed by the server loop like a line
+	// that arrived over the network, after the calling task's slice. It is never
+	// delivered on the caller's goroutine. Doing so here ran a read()-suspended
+	// task inline inside the calling task's builtin; once the caller held the
+	// commit gate (its irreversible-effect boundary) and the resumed slice took
+	// the gate too, the server deadlocked and no connection could log in again.
 	connID := int64(0)
 	if p.connManager != nil {
 		if conn := p.connManager.GetConnection(player); conn != nil {
@@ -385,17 +389,11 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		p.forcePhantomLogin(player, line)
 		return
 	}
-
-	evt := command.InputEvent{
+	p.inputQueue <- command.InputEvent{
 		ConnID: connID,
 		Player: player,
 		Line:   line,
 	}
-	if player < 0 && connID != 0 {
-		p.processInput(evt)
-		return
-	}
-	p.inputQueue <- evt
 }
 
 func (p *InputProcessor) forcePhantomLogin(player types.ObjID, line string) {
@@ -425,11 +423,13 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	handler := conn.ListenerObject()
 
 	delete(cm.connections, conn.ID)
+	replacementActive := false
 	if wasLoggedIn {
 		if mapped := cm.playerConns[player]; mapped == conn {
 			delete(cm.playerConns, player)
 			cm.restorePreviousPlayerConnLocked(player, conn)
 		} else {
+			replacementActive = mapped != nil
 			cm.removePlayerHistoryConnLocked(player, conn)
 		}
 	} else if mapped := cm.playerConns[types.ObjID(-conn.ID)]; mapped == conn {
@@ -446,7 +446,12 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	p.runtime.CancelLoginTasksFor(types.ObjID(-conn.ID))
 
 	cm.detachOutboundClient(conn.ID)
-	p.runtime.Registry().CloseHeldHTTPInput(player)
+	// A superseded connection can close after a replacement has already assumed
+	// the same player. Held input belongs to that active player connection, so the
+	// stale physical close must not discard its queued commands or HTTP waiter.
+	if !replacementActive {
+		p.runtime.Session().CloseHeldHTTPInput(player)
+	}
 
 	if wasLoggedIn {
 		trace.Connection("DISCONNECT", conn.ID, player, "")
@@ -518,13 +523,13 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 // do_login_command verb (or it cannot be dispatched).
 func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	handler := conn.ListenerObject()
-	if errCode := p.store.ObjectExists(handler); errCode != types.E_NONE {
+	if errCode := p.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return
 	}
 
 	// No login handler: preserve the existing synchronous fallback.
 	if !p.store.HasLocalVerb(handler, "do_login_command") {
-		maxBeforeLogin := p.store.MaxObject()
+		maxBeforeLogin := p.store.DirectTxn().MaxObject()
 		player, _ := p.callDoLoginCommand(conn, line)
 		if player > 0 {
 			p.loginPlayer(conn, player, player > maxBeforeLogin)
@@ -539,7 +544,7 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 		args[i] = types.NewStr(word)
 	}
 
-	maxBeforeLogin := p.store.MaxObject()
+	maxBeforeLogin := p.store.DirectTxn().MaxObject()
 	onStart := func(taskID int64) {
 		conn.SetLoginTaskID(taskID)
 	}
@@ -585,7 +590,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	}
 
 	player := conn.GetPlayer()
-	location, errCode := p.store.Location(player)
+	location, errCode := p.store.DirectTxn().Location(player)
 	if errCode != types.E_NONE {
 		return
 	}
@@ -613,7 +618,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	if len(commandWords) == 0 {
 		commandWords = append([]string{cmd.Verb}, cmd.Args...)
 	}
-	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line)
+	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line, conn.SetLastInputTaskID)
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
@@ -647,7 +652,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 }
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
-	err := p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+	err := p.runtime.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, conn.SetLastInputTaskID)
 	if errors.Is(err, engine.ErrCommandVerbNoCode) {
 		conn.Send(emptyMessage)
 		if outputSuffix != "" {
@@ -728,7 +733,7 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 		}
 		return true
 	}
-	if errCode := p.store.SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
+	if errCode := p.store.DirectTxn().SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
 		conn.Send("Verb not found")
 		return true
 	}
@@ -762,7 +767,15 @@ func (p *InputProcessor) parseProgramTarget(player, location types.ObjID, spec s
 		return types.ObjNothing, "", false
 	}
 
-	target := command.MatchObject(p.store, player, location, objText)
+	target := types.ObjFailedMatch
+	if strings.HasPrefix(objText, "$") && len(objText) > 1 {
+		if value, errCode := p.store.DirectTxn().PropertyValue(0, objText[1:]); errCode == types.E_NONE &&
+			(value.Type() == types.TYPE_OBJ || value.Type() == types.TYPE_ANON) {
+			target = value.ID()
+		}
+	} else {
+		target = command.MatchObject(p.store, player, location, objText)
+	}
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}

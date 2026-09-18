@@ -8,22 +8,23 @@ import (
 )
 
 func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
-	r := NewRegistry()
-	ctx := newTestExecution()
+	r := NewSession(NewRegistry(), NoHost())
+	ctx := newTestExecutionForSession(r)
 	ctx.IsWizard = true
 	ctx.Programmer = 7
-	ctx.Registry = r
 
 	called := false
 	var gotCtx *Execution
 	var gotMessage string
 	var gotUnclean bool
-	r.SetShutdownFunc(func(ctx *Execution, message string, unclean bool) error {
-		called = true
-		gotCtx = ctx
-		gotMessage = message
-		gotUnclean = unclean
-		return nil
+	configureTestHost(r, func(host *Host) {
+		host.Shutdown = func(ctx *Execution, message string, unclean bool) error {
+			called = true
+			gotCtx = ctx
+			gotMessage = message
+			gotUnclean = unclean
+			return nil
+		}
 	})
 
 	result := builtinShutdown(ctx, []types.Value{types.NewStr("Maintenance"), types.NewInt(1)})
@@ -45,14 +46,15 @@ func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
 }
 
 func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
-	r := NewRegistry()
-	r.SetShutdownFunc(func(ctx *Execution, message string, unclean bool) error {
-		t.Fatalf("shutdown callback should not run")
-		return nil
+	r := NewSession(NewRegistry(), NoHost())
+	configureTestHost(r, func(host *Host) {
+		host.Shutdown = func(ctx *Execution, message string, unclean bool) error {
+			t.Fatalf("shutdown callback should not run")
+			return nil
+		}
 	})
 
-	ctx := newTestExecution()
-	ctx.Registry = r
+	ctx := newTestExecutionForSession(r)
 	result := builtinShutdown(ctx, []types.Value{types.NewInt(1)})
 	if !result.IsError() || result.Error != types.E_TYPE {
 		t.Fatalf("shutdown result = %+v, want E_TYPE", result)
@@ -60,16 +62,17 @@ func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
 }
 
 func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
-	r := NewRegistry()
-	ctx := newTestExecution()
+	r := NewSession(NewRegistry(), NoHost())
+	ctx := newTestExecutionForSession(r)
 	ctx.IsWizard = true
 	ctx.Programmer = 7
-	ctx.Registry = r
 
 	called := false
-	r.SetDumpFunc(func() error {
-		called = true
-		return errors.New("request failed")
+	configureTestHost(r, func(host *Host) {
+		host.Checkpoint = func() error {
+			called = true
+			return errors.New("request failed")
+		}
 	})
 
 	result := builtinDumpDatabase(ctx, nil)

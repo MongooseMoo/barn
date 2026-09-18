@@ -23,7 +23,7 @@ type Snapshot struct {
 	StartTime           time.Time
 	WakeValue           types.Value
 	TaskLocal           types.Value
-	CallStack           []ActivationFrame
+	CallStack           []types.ActivationFrame
 	Fork                *ForkSnapshot
 	Programmer          types.ObjID
 	VerbLoc             types.ObjID
@@ -42,31 +42,56 @@ type VMSnapshot struct {
 	Frames        []VMFrameSnapshot
 }
 
+// MoveContinuationSnapshot is the persistent native state retained while a
+// lifecycle verb called by move() is suspended on the owning VM.
+type MoveContinuationSnapshot struct {
+	Stage         int
+	What          types.Value
+	Where         types.Value
+	OldLocation   types.Value
+	Position      int64
+	Decentralized bool
+}
+
+// RecycleContinuationSnapshot is the persistent native state retained while
+// an object's recycle verb is suspended on the owning VM.
+type RecycleContinuationSnapshot struct {
+	Object      types.Value
+	OldParents  []types.ObjID
+	OldChildren []types.ObjID
+	OldContents []types.ObjID
+	OldLocation types.ObjID
+}
+
 // VMFrameSnapshot is one activation and its operand-stack segment.
 type VMFrameSnapshot struct {
-	Program         bytecode.Program
-	IP              int
-	Locals          []types.Value
-	Stack           []types.Value
-	This            types.ObjID
-	ThisValue       types.Value
-	Player          types.ObjID
-	Verb            string
-	StoredVerb      string
-	Caller          types.ObjID
-	VerbLoc         types.ObjID
-	Args            []types.Value
-	ExceptStack     []bytecode.Handler
-	PendingError    VMErrorSnapshot
-	VerbDebug       bool
-	DiscardReturn   bool
-	IsVerbCall      bool
-	IsEvalFrame     bool
-	SavedThisObj    types.ObjID
-	SavedThisValue  types.Value
-	SavedVerb       string
-	SavedProgrammer types.ObjID
-	SavedIsWizard   bool
+	Program             bytecode.Program
+	IP                  int
+	Locals              []types.Value
+	Stack               []types.Value
+	This                types.ObjID
+	ThisValue           types.Value
+	Player              types.ObjID
+	Verb                string
+	StoredVerb          string
+	Caller              types.ObjID
+	VerbLoc             types.ObjID
+	Args                []types.Value
+	ExceptStack         []bytecode.Handler
+	PendingError        VMErrorSnapshot
+	PendingReturn       types.Value
+	HasPendingReturn    bool
+	VerbDebug           bool
+	DiscardReturn       bool
+	IsVerbCall          bool
+	IsEvalFrame         bool
+	SavedThisObj        types.ObjID
+	SavedThisValue      types.Value
+	SavedVerb           string
+	SavedProgrammer     types.ObjID
+	SavedIsWizard       bool
+	MoveContinuation    *MoveContinuationSnapshot
+	RecycleContinuation *RecycleContinuationSnapshot
 }
 
 // VMErrorSnapshot is an error held while a finally block is executing.
@@ -123,7 +148,18 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 			frame.Args[index] = transform(value)
 		}
 		frame.PendingError.Value = transform(frame.PendingError.Value)
+		if frame.HasPendingReturn {
+			frame.PendingReturn = transform(frame.PendingReturn)
+		}
 		frame.SavedThisValue = transform(frame.SavedThisValue)
+		if frame.MoveContinuation != nil {
+			frame.MoveContinuation.What = transform(frame.MoveContinuation.What)
+			frame.MoveContinuation.Where = transform(frame.MoveContinuation.Where)
+			frame.MoveContinuation.OldLocation = transform(frame.MoveContinuation.OldLocation)
+		}
+		if frame.RecycleContinuation != nil {
+			frame.RecycleContinuation.Object = transform(frame.RecycleContinuation.Object)
+		}
 	}
 }
 
@@ -181,11 +217,11 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 	return snapshot
 }
 
-func cloneActivationFrames(frames []ActivationFrame) []ActivationFrame {
+func cloneActivationFrames(frames []types.ActivationFrame) []types.ActivationFrame {
 	if len(frames) == 0 {
 		return nil
 	}
-	copied := make([]ActivationFrame, len(frames))
+	copied := make([]types.ActivationFrame, len(frames))
 	for i, frame := range frames {
 		copied[i] = frame
 		copied[i].Args = append([]types.Value(nil), frame.Args...)

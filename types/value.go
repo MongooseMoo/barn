@@ -207,9 +207,6 @@ func formatFloat(f float64) string {
 	if math.IsInf(f, -1) {
 		return "-Inf"
 	}
-	if f == 0 {
-		f = 0
-	}
 	s := strconv.FormatFloat(f, 'g', 15, 64)
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"
@@ -218,6 +215,30 @@ func formatFloat(f float64) string {
 }
 
 // ---- equality ----------------------------------------------------------
+
+// BoolIntEqual implements MOO's Boolean/integer equivalence for language
+// equality and membership: false equals 0 and true equals 1. The handled
+// result is false when the pair is not one Boolean and one integer.
+func BoolIntEqual(left, right Value) (equal bool, handled bool) {
+	leftIsBool := left.Type() == TYPE_BOOL
+	rightIsBool := right.Type() == TYPE_BOOL
+	leftIsInt := left.Type() == TYPE_INT
+	rightIsInt := right.Type() == TYPE_INT
+
+	if leftIsBool && rightIsInt {
+		if left.Bool() {
+			return right.Int() == 1, true
+		}
+		return right.Int() == 0, true
+	}
+	if leftIsInt && rightIsBool {
+		if right.Bool() {
+			return left.Int() == 1, true
+		}
+		return left.Int() == 0, true
+	}
+	return false, false
+}
 
 // Equal implements MOO deep equality. Distinct types are never equal (int 1,
 // float 1.0 and str "1" are all different); strings compare case-insensitively;
@@ -248,7 +269,7 @@ func (v Value) Equal(other Value) bool {
 	case TYPE_BOOL:
 		return other.tag == TYPE_BOOL && v.n == other.n
 	case TYPE_STR:
-		return other.tag == TYPE_STR && compareFoldedASCII(v.strRep().str(), other.strRep().str()) == 0
+		return other.tag == TYPE_STR && compareFoldedASCII(normalizeBinaryString(v.strRep().str()), normalizeBinaryString(other.strRep().str())) == 0
 	case TYPE_LIST:
 		return other.tag == TYPE_LIST && v.sliceList().equal(other.sliceList())
 	case TYPE_MAP:
@@ -261,6 +282,86 @@ func (v Value) Equal(other Value) bool {
 		return other.tag == tagUnbound
 	default:
 		return false
+	}
+}
+
+// Identical reports whether v and other are indistinguishable to MOO code: the
+// same type and, recursively, the same contents with case-SENSITIVE string
+// comparison, bitwise float comparison, and waif identity. Equal is MOO `==`
+// (case-insensitive strings, -0.0 == 0.0); Identical is stricter, so a store may
+// treat a write of an Identical value as a no-op without changing anything a
+// program could observe.
+func (v Value) Identical(other Value) bool {
+	if v.tag != other.tag {
+		return false
+	}
+	switch v.tag {
+	case TYPE_INT, TYPE_OBJ, TYPE_ANON, TYPE_ERR, TYPE_BOOL, TYPE_FLOAT:
+		return v.n == other.n
+	case TYPE_STR:
+		return v.strRep().str() == other.strRep().str()
+	case TYPE_LIST:
+		a, b := v.sliceList().elements, other.sliceList().elements
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if !a[i].Identical(b[i]) {
+				return false
+			}
+		}
+		return true
+	case TYPE_MAP:
+		a, b := v.goMap(), other.goMap()
+		if len(a.order) != len(b.order) {
+			return false
+		}
+		for i := range a.order {
+			if a.order[i] != b.order[i] {
+				return false
+			}
+			ae, be := a.pairs[a.order[i]], b.pairs[b.order[i]]
+			if !ae.key.Identical(be.key) || !ae.val.Identical(be.val) {
+				return false
+			}
+		}
+		return true
+	case TYPE_WAIF:
+		return v.waifRep().equal(other.waifRep())
+	case tagNone, tagUnbound:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeBinaryString(s string) string {
+	var result strings.Builder
+	for i := 0; i < len(s); i++ {
+		if i+2 < len(s) && s[i] == '~' {
+			hi, hiOK := asciiHex(s[i+1])
+			lo, loOK := asciiHex(s[i+2])
+			if hiOK && loOK && hi<<4|lo < 0x20 {
+				result.WriteByte(hi<<4 | lo)
+				i += 2
+				continue
+			}
+		}
+		result.WriteByte(s[i])
+	}
+	return result.String()
+}
+
+func asciiHex(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0', true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10, true
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10, true
+	default:
+		return 0, false
 	}
 }
 

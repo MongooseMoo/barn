@@ -108,7 +108,7 @@ func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxStringConcat: 1,
 		},
 	}}
@@ -145,7 +145,7 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 	decoded := types.NewList([]types.Value{types.NewInt(120), types.NewInt(120)})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: ValueBytes(decoded),
 		},
 	}}
@@ -161,7 +161,7 @@ func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 	decoded := types.NewList([]types.Value{types.NewStr("xx")})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: ValueBytes(decoded),
 		},
 	}}

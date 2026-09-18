@@ -14,7 +14,7 @@ func newGateTestStore(t *testing.T) *Store {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	return store

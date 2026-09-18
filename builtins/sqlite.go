@@ -4,13 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
 
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 type sqliteHandle struct {
@@ -76,9 +78,9 @@ func getSQLiteHandle(ctx *Execution, v types.Value) (*sqliteHandle, types.ErrorC
 		return nil, types.E_TYPE
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	handle := ctx.Registry.runtime.sqlite.handles[v.Int()]
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	handle := ctx.Session.runtime.sqlite.handles[v.Int()]
+	ctx.Session.runtime.sqlite.mu.Unlock()
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -176,7 +178,28 @@ func sqliteErrorResult(err error) types.Result {
 	if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "interrupt") {
 		return types.Ok(types.NewStr("interrupt"))
 	}
-	return types.Ok(types.NewStr(err.Error()))
+	return types.Ok(types.NewStr(sqliteErrorMessage(err)))
+}
+
+// sqliteErrorMessage reduces a driver error to the sqlite3_errmsg() text Toast
+// returns from its thread callbacks (sqlite.cc sqlite_query_thread_callback /
+// sqlite_execute_thread_callback): "no such table: t", not the driver's
+// decorated form. modernc formats every error as
+// "<sqlite3_errstr>: <sqlite3_errmsg> (<code>)", or "<sqlite3_errstr> (<code>)"
+// when the two texts coincide, with an extra " (SQLITE_BUSY)" for busy errors.
+func sqliteErrorMessage(err error) string {
+	var driverErr *sqlite.Error
+	if !errors.As(err, &driverErr) {
+		return err.Error()
+	}
+	msg := strings.TrimSuffix(driverErr.Error(), " (SQLITE_BUSY)")
+	msg = strings.TrimSuffix(msg, fmt.Sprintf(" (%d)", driverErr.Code()))
+	// sqlite3_errstr() texts never contain ": ", so the first occurrence
+	// separates the errstr prefix from the errmsg (which may itself contain it).
+	if i := strings.Index(msg, ": "); i >= 0 {
+		msg = msg[i+2:]
+	}
+	return msg
 }
 
 func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
@@ -240,6 +263,16 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 }
 
 func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	if ctx.Task != nil && !ctx.ThreadMode {
+		// Row-returning statements can write (WITH, PRAGMA), so protect every
+		// inline statement before entering SQLite or waiting on its handle.
+		// A stale attempt must stop before executing any external operation.
+		// Threaded operations instead start only after the slice commits.
+		if !beginIrreversible(ctx) {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
 	return runSQLiteAsync(ctx, func() types.Result {
 		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
 	})
@@ -248,9 +281,25 @@ func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string
 // runSQLiteAsync keeps waits on a handle's serialized operation queue off the
 // scheduler's task goroutines. Every completion, including an error, resumes
 // the suspended task exactly once.
+//
+// With threading disabled for the current activation (set_thread_mode(0)) the
+// operation runs inline and the task never suspends, mirroring Toast's
+// background_thread(), which invokes the callback directly and returns its value
+// (background.cc).
+//
+// The threaded operation is an external effect, so it must not start until this
+// slice's transaction has been published. The suspend commits the transaction;
+// if that commit loses validation the runtime discards the slice and re-executes
+// the task from the top, and an operation already in flight would both leak its
+// effect (a BEGIN or INSERT executed once per attempt) and deliver its completion
+// into the retried attempt's own suspension. Launching through the commit-gated
+// effect log runs the statement at most once per published slice, and because
+// nothing ran, the attempt stays eligible for conflict retry. The generation
+// check makes any completion that no longer belongs to the suspension it was
+// started for a no-op.
 func runSQLiteAsync(ctx *Execution, operation func() types.Result) types.Result {
 	t := ctx.Task
-	if t == nil {
+	if t == nil || !ctx.ThreadMode {
 		return operation()
 	}
 
@@ -259,14 +308,25 @@ func runSQLiteAsync(ctx *Execution, operation func() types.Result) types.Result 
 		return types.Err(types.E_INVARG)
 	}
 	mgr.SuspendTask(t, -1)
-	go func() {
-		result := operation()
-		if result.IsError() {
-			_ = t.Resume(types.NewErr(result.Error))
-			return
-		}
-		_ = t.Resume(result.Val)
-	}()
+	gen := t.SuspendGeneration()
+	start := func() {
+		go func() {
+			result := operation()
+			if result.IsError() {
+				_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
+				return
+			}
+			_ = t.ResumeGeneration(gen, result.Val)
+		}()
+	}
+	if readTxn(ctx).IsDirect() {
+		// A direct transaction (EvalCommandOutput, the dbtool) has no commit
+		// boundary and no conflict retry, so there is nothing to defer to:
+		// start now, exactly as notify() sends immediately on this path.
+		start()
+	} else {
+		enqueuePendingEffect(ctx, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: start})
+	}
 	return types.Suspend(-1)
 }
 
@@ -316,7 +376,10 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	if path != ":memory:" {
+	// osPath is what the driver opens; path stays the MOO-visible string that
+	// sqlite_info() reports and duplicate detection compares.
+	osPath := path
+	if path != ":memory:" && path != "" {
 		// Confine the database file to the files/ sandbox the same way every
 		// fileio builtin does. Toast resolves the sqlite path through
 		// file_resolve_path (toaststunt/src/sqlite.cc:241), which both verifies
@@ -331,10 +394,40 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		if err := ensureFilesRoot(); err != nil {
 			return types.Err(types.E_FILE)
 		}
-		path = resolveFilePath(sanitized)
+		osPath = resolveFilePath(sanitized)
+		// The reported path is Toast's file_resolve_path output verbatim:
+		// file_subdir plus the caller's spelling with one leading "/" removed,
+		// forward slashes on every platform. Database code compares this string
+		// (Mongoose #3882::is_open checks info["path"] == "files/" + path).
+		path = "files/" + strings.TrimPrefix(path, "/")
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// Toast refuses to open a database that is already open at the same
+	// resolved path (sqlite.cc database_already_open): E_INVARG carrying the
+	// existing handle. ":memory:" databases are never duplicates of each other.
+	if path != ":memory:" && path != "" {
+		ctx.Session.runtime.sqlite.mu.Lock()
+		var existing *sqliteHandle
+		for _, h := range ctx.Session.runtime.sqlite.handles {
+			if h.path == path && (existing == nil || h.id < existing.id) {
+				existing = h
+			}
+		}
+		ctx.Session.runtime.sqlite.mu.Unlock()
+		if existing != nil {
+			return types.Result{
+				Flow:  types.FlowException,
+				Error: types.E_INVARG,
+				Val: types.NewList([]types.Value{
+					types.NewErr(types.E_INVARG),
+					types.NewStr(fmt.Sprintf("Database already open with handle: %d", existing.id)),
+					types.NewInt(existing.id),
+				}),
+			}
+		}
+	}
+
+	db, err := sql.Open("sqlite", osPath)
 	if err != nil {
 		return sqliteOpenError(err.Error())
 	}
@@ -347,11 +440,11 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		return sqliteOpenError(err.Error())
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	id := ctx.Registry.runtime.sqlite.nextID
-	ctx.Registry.runtime.sqlite.nextID++
-	ctx.Registry.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	id := ctx.Session.runtime.sqlite.nextID
+	ctx.Session.runtime.sqlite.nextID++
+	ctx.Session.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
+	ctx.Session.runtime.sqlite.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }
 
@@ -372,9 +465,9 @@ func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
 	handle.closed = true
 	handle.mu.Unlock()
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	delete(ctx.Registry.runtime.sqlite.handles, handle.id)
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	delete(ctx.Session.runtime.sqlite.handles, handle.id)
+	ctx.Session.runtime.sqlite.mu.Unlock()
 
 	return runSQLiteAsync(ctx, func() types.Result {
 		handle.mu.Lock()
@@ -401,12 +494,12 @@ func builtinSqliteHandles(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	ids := make([]int64, 0, len(ctx.Registry.runtime.sqlite.handles))
-	for id := range ctx.Registry.runtime.sqlite.handles {
+	ctx.Session.runtime.sqlite.mu.Lock()
+	ids := make([]int64, 0, len(ctx.Session.runtime.sqlite.handles))
+	for id := range ctx.Session.runtime.sqlite.handles {
 		ids = append(ids, id)
 	}
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Unlock()
 
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]types.Value, 0, len(ids))

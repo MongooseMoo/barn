@@ -3,11 +3,12 @@ package format
 import (
 	"bufio"
 	"bytes"
-	"github.com/MongooseMoo/barn/bytecode"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -25,7 +26,7 @@ func TestWriteVMFrameDefinesCompositeOwnedWaifBeforeDirectAlias(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	if err := writer.writeVMFrame(frame, task.ActivationFrame{}); err != nil {
+	if err := writer.writeVMFrame(frame, types.ActivationFrame{}); err != nil {
 		t.Fatalf("writeVMFrame: %v", err)
 	}
 	if err := writer.Flush(); err != nil {
@@ -56,7 +57,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		VerbLoc:    6,
 		VerbName:   "tick",
 		This:       4,
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       4,
 			ThisValue:  types.None,
 			Player:     2,
@@ -143,7 +144,7 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 			types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
 		}}),
 		TaskLocal: types.NewStr("task-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -182,13 +183,30 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 					VarIndex:   1,
 					StackDepth: 1,
 				}},
-				VerbDebug:       true,
-				IsVerbCall:      true,
-				SavedThisObj:    9,
-				SavedThisValue:  types.NewObj(9),
-				SavedVerb:       "outer",
-				SavedProgrammer: 4,
-				SavedIsWizard:   true,
+				PendingReturn:    types.NewInt(73),
+				HasPendingReturn: true,
+				VerbDebug:        true,
+				IsVerbCall:       true,
+				SavedThisObj:     9,
+				SavedThisValue:   types.NewObj(9),
+				SavedVerb:        "outer",
+				SavedProgrammer:  4,
+				SavedIsWizard:    true,
+				MoveContinuation: &task.MoveContinuationSnapshot{
+					Stage:         2,
+					What:          types.NewObj(12),
+					Where:         types.NewObj(11),
+					OldLocation:   types.NewObj(10),
+					Position:      3,
+					Decentralized: true,
+				},
+				RecycleContinuation: &task.RecycleContinuationSnapshot{
+					Object:      types.NewObj(20),
+					OldParents:  []types.ObjID{1, 2},
+					OldChildren: []types.ObjID{3},
+					OldContents: []types.ObjID{4, 5},
+					OldLocation: 6,
+				},
 			}},
 		},
 	}})
@@ -230,6 +248,22 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	if frame.SavedVerb != "outer" || frame.SavedProgrammer != 4 || !frame.SavedIsWizard {
 		t.Fatalf("saved context = %#v", frame)
 	}
+	if frame.MoveContinuation == nil || frame.MoveContinuation.Stage != 2 ||
+		frame.MoveContinuation.What.ID() != 12 || frame.MoveContinuation.Where.ID() != 11 ||
+		frame.MoveContinuation.OldLocation.ID() != 10 || frame.MoveContinuation.Position != 3 ||
+		!frame.MoveContinuation.Decentralized {
+		t.Fatalf("move continuation = %#v", frame.MoveContinuation)
+	}
+	if !frame.HasPendingReturn || !frame.PendingReturn.Equal(types.NewInt(73)) {
+		t.Fatalf("pending return = (%t, %v)", frame.HasPendingReturn, frame.PendingReturn)
+	}
+	if frame.RecycleContinuation == nil || !frame.RecycleContinuation.Object.Equal(types.NewObj(20)) ||
+		!slices.Equal(frame.RecycleContinuation.OldParents, []types.ObjID{1, 2}) ||
+		!slices.Equal(frame.RecycleContinuation.OldChildren, []types.ObjID{3}) ||
+		!slices.Equal(frame.RecycleContinuation.OldContents, []types.ObjID{4, 5}) ||
+		frame.RecycleContinuation.OldLocation != 6 {
+		t.Fatalf("recycle continuation = %#v", frame.RecycleContinuation)
+	}
 }
 
 func TestInterruptedReadingTaskWriterReaderQueuesEIntrptContinuation(t *testing.T) {
@@ -241,7 +275,7 @@ func TestInterruptedReadingTaskWriterReaderQueuesEIntrptContinuation(t *testing.
 		State:         task.TaskSuspended,
 		ReadingPlayer: -7,
 		TaskLocal:     types.NewStr("read-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -320,7 +354,7 @@ func TestInterruptedExecTaskWriterReaderQueuesEIntrptContinuation(t *testing.T) 
 		IsExecSuspended: true,
 		ExecCommandName: "executables/sleep",
 		TaskLocal:       types.NewStr("exec-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -412,7 +446,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.None,
 		Player:     2,
@@ -456,7 +490,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.NewAnon(44),
 		Player:     2,
@@ -495,7 +529,7 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.None,
 		Player:     2,

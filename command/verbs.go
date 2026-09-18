@@ -198,7 +198,7 @@ func FindHuhVerb(store *dbstore.Store, player types.ObjID, location types.ObjID,
 	if usePlayerHuh {
 		target = player
 	}
-	verb, verbLoc, err := store.FindVerb(target, "huh")
+	verb, verbLoc, err := store.DirectTxn().FindVerb(target, "huh")
 	if err != nil {
 		return nil
 	}

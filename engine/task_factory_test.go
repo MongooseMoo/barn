@@ -13,8 +13,14 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-func newTestRegistry() *builtins.Registry {
-	return builtins.NewRegistry()
+func newTestRegistry() *builtins.Session {
+	return builtins.NewSession(builtins.NewRegistry(), builtins.NoHost())
+}
+
+func configureTestHost(session *builtins.Session, configure func(*builtins.Host)) {
+	host := session.Host()
+	configure(&host)
+	session.ConfigureHost(host)
 }
 
 func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
@@ -26,7 +32,7 @@ func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 	reading.SetState(task.TaskSuspended)
 	reading.ReadingPlayer = 7
 	s.mu.Lock()
-	s.tasks[reading.ID] = reading
+	s.taskManager.RegisterTask(reading)
 	s.mu.Unlock()
 	s.taskManager.RegisterTask(reading)
 	defer s.taskManager.RemoveTask(reading.ID)
@@ -34,7 +40,7 @@ func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var starts atomic.Int32
-	s.lifecycle.executionStartObserver = func() {
+	s.lifecycle.ExecutionStartObserver = func() {
 		starts.Add(1)
 		entered <- struct{}{}
 		<-release
@@ -80,7 +86,7 @@ func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
 		t.Fatalf("add server options object: %v", err)
 	}
 
-	machine := vm.NewVM(store, builtins.NewRegistry())
+	machine := vm.NewVM(store, builtins.NewSession(builtins.NewRegistry(), builtins.NoHost()))
 	configureVMStackLimit(machine, newTestRegistry())
 	if machine.MaxStackDepth != 60 {
 		t.Fatalf("VM max stack depth = %d, want live $server_options value 60", machine.MaxStackDepth)

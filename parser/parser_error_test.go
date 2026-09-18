@@ -42,3 +42,11 @@ func TestParseErrorLiteral(t *testing.T) {
 		})
 	}
 }
+
+func TestUnknownErrorSpellingIsAnIdentifier(t *testing.T) {
+	lexer := NewLexer("E_ASSERT;")
+	token := lexer.NextToken()
+	if token.Type != TOKEN_IDENTIFIER || token.Value != "E_ASSERT" {
+		t.Fatalf("token = {%v, %q}, want identifier E_ASSERT", token.Type, token.Value)
+	}
+}

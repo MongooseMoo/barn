@@ -1,6 +1,7 @@
 package format
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -35,11 +36,11 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 		return err
 	}
 	for i, frame := range machine.Frames {
-		var activation task.ActivationFrame
+		var activation types.ActivationFrame
 		if i < len(snapshot.CallStack) {
 			activation = snapshot.CallStack[i]
 		} else {
-			activation = task.ActivationFrame{
+			activation = types.ActivationFrame{
 				This:       frame.This,
 				ThisValue:  frame.ThisValue,
 				Player:     frame.Player,
@@ -57,7 +58,7 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	return nil
 }
 
-func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation task.ActivationFrame) error {
+func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
 	if len(frame.Program.Source) == 0 {
 		return fmt.Errorf("activation has no source program")
 	}
@@ -186,7 +187,7 @@ func valueContainsWaifProperties(value, candidate types.Value, visited map[types
 	return false
 }
 
-func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation task.ActivationFrame) error {
+func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
 	thisValue := frame.ThisValue
 	if thisValue.IsNone() {
 		thisValue = types.NewObj(frame.This)
@@ -255,7 +256,70 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		frame.SavedThisValue,
 		types.NewStr(frame.SavedVerb),
 		types.NewObj(frame.SavedProgrammer),
+		moveContinuationValue(frame.MoveContinuation),
+		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
+		recycleContinuationValue(frame.RecycleContinuation),
+		internalLocalsValue(frame),
+		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
 	})
+}
+
+// internalLocalsValue captures the bound compiler-temporary slots, which sit
+// above the named variables and therefore never appear in the Toast-shaped
+// rt_env written by writeVMFrame. Loop cursors and other continuation state
+// live there, so a task suspended inside such a construct needs them back.
+// Encoded as {{slot, value}, ...} with zero-based slots.
+func internalLocalsValue(frame task.VMFrameSnapshot) types.Value {
+	entries := make([]types.Value, 0)
+	for slot := len(frame.Program.VarNames); slot < len(frame.Locals); slot++ {
+		if frame.Locals[slot].IsUnbound() || frame.Locals[slot].IsNone() {
+			continue
+		}
+		entries = append(entries, types.NewList([]types.Value{
+			types.NewInt(int64(slot)),
+			frame.Locals[slot],
+		}))
+	}
+	return types.NewList(entries)
+}
+
+func pendingReturnValue(value types.Value, present bool) types.Value {
+	return types.NewList([]types.Value{types.NewBool(present), value})
+}
+
+func moveContinuationValue(state *task.MoveContinuationSnapshot) types.Value {
+	if state == nil {
+		return types.NewList(nil)
+	}
+	return types.NewList([]types.Value{
+		types.NewInt(int64(state.Stage)),
+		state.What,
+		state.Where,
+		state.OldLocation,
+		types.NewInt(state.Position),
+		types.NewBool(state.Decentralized),
+	})
+}
+
+func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Value {
+	if state == nil {
+		return types.NewList(nil)
+	}
+	return types.NewList([]types.Value{
+		state.Object,
+		objectIDsValue(state.OldParents),
+		objectIDsValue(state.OldChildren),
+		objectIDsValue(state.OldContents),
+		types.NewObj(state.OldLocation),
+	})
+}
+
+func objectIDsValue(ids []types.ObjID) types.Value {
+	values := make([]types.Value, len(ids))
+	for i, id := range ids {
+		values[i] = types.NewObj(id)
+	}
+	return types.NewList(values)
 }
 
 func bytesValue(values []byte) types.Value {

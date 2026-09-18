@@ -3,6 +3,7 @@ package parser_test
 import (
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,6 +37,75 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 	for _, source := range sources {
 		t.Run(source, func(t *testing.T) { assertCanonicalRoundTrip(t, source) })
 	}
+}
+
+func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
+	values := []string{
+		"column1\tcolumn2",
+		"line1\nline2",
+		"carriage\rreturn",
+		"high\x80byte",
+		`embedded "quote"`,
+		`embedded \backslash`,
+	}
+
+	for _, value := range values {
+		t.Run(strconv.Quote(value), func(t *testing.T) {
+			source := "return " + mooStringLiteral(value) + ";"
+			assertCanonicalRoundTrip(t, source)
+
+			program, err := parser.NewParser(source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+			if got := strings.Join(parser.FormatMOO(program), "\n"); got != source {
+				t.Fatalf("FormatMOO() = %q, want byte-preserving output %q", got, source)
+			}
+		})
+	}
+}
+
+func TestFormatMOOToastDecompileForms(t *testing.T) {
+	tests := []struct {
+		name       string
+		source     string
+		fullyParen bool
+		want       []string
+	}{
+		{"elseif", "if (1) elseif (2) else endif", false, []string{"if (1)", "elseif (2)", "endif"}},
+		{"fixed float", "return 1.5e10;", false, []string{"return 15000000000.0;"}},
+		{"precedence", "return 1 + 2 * 3;", true, []string{"return 1 + (2 * 3);"}},
+		{"logical", "return 1 == 2 && 3 || 4;", true, []string{"return ((1 == 2) && 3) || 4;"}},
+		{"unary", "return !1 + 2;", true, []string{"return (!1) + 2;"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			program, err := parser.NewParser(tt.source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+			got := parser.FormatMOO(program)
+			if tt.fullyParen {
+				got = parser.FormatMOOFullyParenthesized(program)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("formatted = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func mooStringLiteral(value string) string {
+	var literal strings.Builder
+	literal.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		if value[i] == '"' || value[i] == '\\' {
+			literal.WriteByte('\\')
+		}
+		literal.WriteByte(value[i])
+	}
+	literal.WriteByte('"')
+	return literal.String()
 }
 
 func TestFormatMOOPreservesCanonicalBitwiseAndSpelling(t *testing.T) {
@@ -90,7 +160,7 @@ func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
 	checked := 0
 	for _, object := range objects {
 		for index := 0; index < object.VerbCount && checked < 50; index++ {
-			view, errCode := store.VerbByIndex(object.ID, index)
+			view, errCode := store.DirectTxn().VerbByIndex(object.ID, index)
 			if errCode != types.E_NONE || len(view.Code) == 0 {
 				continue
 			}

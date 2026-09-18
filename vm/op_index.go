@@ -52,18 +52,11 @@ func (vm *VM) executeIndex() error {
 		if vm.Store == nil {
 			return fmt.Errorf("E_INVIND: no object store available")
 		}
-		txn := vm.storeTxn()
-		var owner types.ObjID
-		var errCode types.ErrorCode
-		if txn != nil {
-			owner, errCode = txn.ObjectOwner(collection.Class())
-		} else {
-			owner, errCode = vm.Store.ObjectOwner(collection.Class())
-		}
+		owner, errCode := vm.Context.StoreTxn.ObjectOwner(collection.Class())
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: invalid waif class", errCode.String())
 		}
-		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Store, txn, owner, dbstore.FlagWizard)
+		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Context.StoreTxn, owner, dbstore.FlagWizard)
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: invalid waif class owner", errCode.String())
 		}
@@ -153,23 +146,19 @@ func (vm *VM) executeRangeSet() error {
 		newVals := value
 
 		length := coll.Len()
-		isInverted := startIdx > endIdx+1
 
 		// Bounds check
-		if !isInverted {
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return fmt.Errorf("E_RANGE: list range start out of bounds")
-			}
-			if endIdx < 0 || endIdx > int64(length) {
-				return fmt.Errorf("E_RANGE: list range end out of bounds")
-			}
-		} else {
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return fmt.Errorf("E_RANGE: list range start out of bounds")
-			}
-			if endIdx < 0 || endIdx > int64(length) {
-				return fmt.Errorf("E_RANGE: list range end out of bounds")
-			}
+		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > int64(length)+1 {
+			return fmt.Errorf("E_RANGE: list range start out of bounds")
+		}
+		if endIdx < 0 {
+			return fmt.Errorf("E_RANGE: list range end out of bounds")
+		}
+		if startIdx == 0 && endIdx == 0 {
+			result := append([]types.Value(nil), newVals.Elements()...)
+			result = append(result, coll.Elements()...)
+			newColl = types.NewList(result)
+			break
 		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
@@ -200,23 +189,17 @@ func (vm *VM) executeRangeSet() error {
 
 		s := coll.Str()
 		strLen := int64(len(s))
-		isInverted := startIdx > endIdx+1
 
 		// Bounds check
-		if !isInverted {
-			if startIdx < 1 || startIdx > strLen+1 {
-				return fmt.Errorf("E_RANGE: string range start out of bounds")
-			}
-			if endIdx < 0 {
-				return fmt.Errorf("E_RANGE: string range end out of bounds")
-			}
-		} else {
-			if startIdx < 1 || startIdx > strLen+1 {
-				return fmt.Errorf("E_RANGE: string range start out of bounds")
-			}
-			if endIdx < 0 {
-				return fmt.Errorf("E_RANGE: string range end out of bounds")
-			}
+		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > strLen+1 {
+			return fmt.Errorf("E_RANGE: string range start out of bounds")
+		}
+		if endIdx < 0 {
+			return fmt.Errorf("E_RANGE: string range end out of bounds")
+		}
+		if startIdx == 0 && endIdx == 0 {
+			newColl = types.NewStr(newStr.Str() + s)
+			break
 		}
 
 		// Clamp endIdx to actual string length for slicing
@@ -298,15 +281,15 @@ func (vm *VM) executeRangeSet() error {
 	// Check size limits on the result
 	switch newColl.Type() {
 	case types.TYPE_LIST:
-		if errCode := vm.registryForLimits().CheckListLimit(newColl); errCode != types.E_NONE {
+		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: list too large")
 		}
 	case types.TYPE_STR:
-		if errCode := vm.registryForLimits().CheckStringLimit(newColl.Str()); errCode != types.E_NONE {
+		if errCode := vm.Builtins.CheckStringLimitForTask(vm.Context, newColl.Str()); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: string too long")
 		}
 	case types.TYPE_MAP:
-		if errCode := vm.registryForLimits().CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
+		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: map too large")
 		}
 	}

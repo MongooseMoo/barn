@@ -37,18 +37,17 @@ func b2aTestContext(t *testing.T) (*Execution, *dbstore.Store, types.ObjID) {
 		t.Fatalf("AddVerb failed: %v", code)
 	}
 
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(NewSession(NewRegistry(), NoHost()))
 	ctx.IsWizard = true
 	ctx.Player = objID
 	ctx.Programmer = objID
 	ctx.Store = store
-	ctx.Registry = NewRegistry()
 	return ctx, store, objID
 }
 
 func b2aVerbCode(t *testing.T, store *dbstore.Store, objID types.ObjID) []string {
 	t.Helper()
-	view, _, err := store.FindVerb(objID, "scratch")
+	view, _, err := store.DirectTxn().FindVerb(objID, "scratch")
 	if err != nil {
 		t.Fatalf("FindVerb failed: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 	}
 
 	// Reset the verb to a known starting body so we can prove "unchanged".
-	if code := store.SetVerbCode(objID, "scratch", []string{"x = 1;"}); code != types.E_NONE {
+	if code := store.DirectTxn().SetVerbCode(objID, "scratch", []string{"x = 1;"}); code != types.E_NONE {
 		t.Fatalf("reset SetVerbCode failed: %v", code)
 	}
 

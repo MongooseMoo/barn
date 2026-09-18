@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -48,7 +47,7 @@ func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -90,7 +89,7 @@ func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -121,7 +120,7 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	result := list.DeleteAt(index)
 
 	// Check size limit (even for deletions, to be thorough)
-	if err := ctx.Registry.CheckListLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -154,7 +153,7 @@ func builtinListset(ctx *Execution, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -186,7 +185,7 @@ func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -213,7 +212,7 @@ func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 			result := list.DeleteAt(i)
 
 			// Check size limit
-			if err := ctx.Registry.CheckListLimit(result); err != types.E_NONE {
+			if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
 				return types.Err(err)
 			}
 
@@ -309,6 +308,9 @@ func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 }
 
 func memberEqual(a, b types.Value, caseMatters bool) bool {
+	if equal, handled := types.BoolIntEqual(a, b); handled {
+		return equal
+	}
 	if caseMatters {
 		return strictEqual(a, b)
 	}
@@ -828,7 +830,6 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 				}
 				result = append(result, types.NewStr(string(runes[i-1])))
 			default:
-				fmt.Printf("[SLICE DEBUG] E_INVARG: element not list/str: %T = %v\n", elem, elem)
 				return types.Err(types.E_INVARG)
 			}
 		}

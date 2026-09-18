@@ -2,6 +2,7 @@ package engine
 
 import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -24,13 +25,17 @@ func waifInList(needle types.Value, haystack []types.Value) bool {
 	return false
 }
 
-func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) []types.Value {
-	roots := s.store.PersistentWaifRoots()
-	roots = append(roots, siblingWaifs...)
-	for _, exec := range rootVMs {
-		vm.CollectWaifsFromVM(exec, &roots)
+// liveWaifs returns the identity set of every waif reachable from persistent
+// state, the supplied sibling references, and the given VMs.
+func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) *types.WaifSet {
+	live := types.NewWaifSetOver(s.store.PersistentWaifRootSet())
+	for _, waif := range siblingWaifs {
+		live.Add(waif)
 	}
-	return roots
+	for _, exec := range rootVMs {
+		vm.CollectWaifsFromVMInto(exec, live)
+	}
+	return live
 }
 
 // finalizePendingWaifs recycles the task's pending waifs that nothing still
@@ -47,7 +52,7 @@ func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.
 		owner = rootVMs[0].Task
 	}
 	for _, waif := range pending {
-		if waifInList(waif, live) {
+		if live.Has(waif) {
 			continue
 		}
 		s.callWaifRecycle(ctx, owner, waif)
@@ -59,13 +64,6 @@ func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.
 // references its own task's VM held at defer time. ownRefs is captured at defer
 // time, by the goroutine owning that VM, because the VM is released once the task
 // completes and so cannot be walked when the flush finally runs.
-type pendingWaifEntry struct {
-	waif          types.Value
-	ctx           *kernel.TaskContext
-	task          *task.Task
-	ownRefs       []types.Value
-	shutdownRoots []types.Value
-}
 
 const (
 	gcSweepInterval = 2 * time.Second
@@ -92,14 +90,19 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 	if ownVM != nil {
 		vm.CollectWaifsFromVM(ownVM, &ownRefs)
 	}
-	shutdownRoots := vm.CollectPendingFinalizationValues(s.store, ownVM)
-	s.lifecycle.mu.Lock()
-	if s.lifecycle.shutdownRequested {
-		published := s.lifecycle.shutdownPublished
+	// Only the VM's direct references must be captured now, while this
+	// goroutine still owns the VM. Reducing them to canonical shutdown roots
+	// walks every persistent property tree, so that happens only if a shutdown
+	// actually claims this entry (here, or later in flushDeferredGC).
+	direct := vm.CollectDirectFinalizationRoots(ownVM)
+	s.lifecycle.Mu.Lock()
+	if s.lifecycle.ShutdownRequested {
+		shutdownRoots := vm.CanonicalizePendingFinalizationValues(s.store, direct)
+		published := s.lifecycle.ShutdownPublished
 		if !published {
-			s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, shutdownRoots...)
+			s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, shutdownRoots...)
 		}
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Unlock()
 		if published {
 			s.appendPendingFinalizations(shutdownRoots)
 		}
@@ -110,11 +113,11 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 		if ownVM != nil {
 			owner = ownVM.Task
 		}
-		s.lifecycle.pendingWaifs = append(s.lifecycle.pendingWaifs, pendingWaifEntry{
-			waif: waif, ctx: ctx, task: owner, ownRefs: ownRefs, shutdownRoots: shutdownRoots,
+		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{
+			Waif: waif, Ctx: ctx, Task: owner, OwnRefs: ownRefs, DirectRoots: direct,
 		})
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 }
 
 // deferAnonGC queues an orphan-anonymous collection request for the next
@@ -136,23 +139,23 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 		vm.CollectAnonymousRefsFromVM(ownVM, ownRefs)
 		owner = ownVM.Task
 	}
-	s.lifecycle.mu.Lock()
-	if s.lifecycle.shutdownRequested {
+	s.lifecycle.Mu.Lock()
+	if s.lifecycle.ShutdownRequested {
 		roots := vm.CollectPendingFinalizationValues(s.store, ownVM)
-		published := s.lifecycle.shutdownPublished
+		published := s.lifecycle.ShutdownPublished
 		if ownVM != nil && !published {
-			s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, roots...)
+			s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 		}
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Unlock()
 		if ownVM != nil && published {
 			s.appendPendingFinalizations(roots)
 		}
 		return
 	}
-	s.lifecycle.pendingAnonGC = append(s.lifecycle.pendingAnonGC, vm.AnonGCRequest{
+	s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{
 		Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil, Task: owner,
 	})
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 }
 
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
@@ -162,17 +165,17 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
-	s.lifecycle.mu.Lock()
-	shutdown := s.lifecycle.shutdownRequested
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	shutdown := s.lifecycle.ShutdownRequested
+	s.lifecycle.Mu.Unlock()
 	if shutdown {
 		roots := exec.TakePendingFinalizationValues()
-		s.lifecycle.mu.Lock()
-		published := s.lifecycle.shutdownPublished
+		s.lifecycle.Mu.Lock()
+		published := s.lifecycle.ShutdownPublished
 		if !published {
-			s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, roots...)
+			s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 		}
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Unlock()
 		if published {
 			s.appendPendingFinalizations(roots)
 		}
@@ -216,33 +219,33 @@ func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskConte
 // gcSweepInterval once they become expensive.
 func (s *Runtime) flushDeferredGC() {
 	// Avoid contending on the sweep barrier when there is plainly no work.
-	s.lifecycle.mu.Lock()
-	if s.lifecycle.shutdownRequested || s.lifecycle.gcRunning || (len(s.lifecycle.pendingWaifs) == 0 && len(s.lifecycle.pendingAnonGC) == 0) {
-		s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+		s.lifecycle.Mu.Unlock()
 		return
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 
 	// Serialize sweeps, then stop new VM starts before testing quiescence. Both
 	// locks remain held through root capture, batch drain, and every recycle hook.
 	// This makes the captured VM roots valid for the complete sweep.
-	s.lifecycle.sweepMu.Lock()
-	defer s.lifecycle.sweepMu.Unlock()
-	s.lifecycle.vmStartMu.Lock()
-	defer s.lifecycle.vmStartMu.Unlock()
+	s.lifecycle.SweepMu.Lock()
+	defer s.lifecycle.SweepMu.Unlock()
+	s.lifecycle.VMStartMu.Lock()
+	defer s.lifecycle.VMStartMu.Unlock()
 
 	// Another flush may have settled the batch while this goroutine waited.
-	s.lifecycle.mu.Lock()
-	if s.lifecycle.shutdownRequested || s.lifecycle.gcRunning || (len(s.lifecycle.pendingWaifs) == 0 && len(s.lifecycle.pendingAnonGC) == 0) {
-		s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+		s.lifecycle.Mu.Unlock()
 		return
 	}
-	due := time.Since(s.lifecycle.lastGCSweep) >= gcSweepInterval
-	if !due && s.lifecycle.lastGCCost >= cheapGCSweep {
-		s.lifecycle.mu.Unlock()
+	due := time.Since(s.lifecycle.LastGCSweep) >= gcSweepInterval
+	if !due && s.lifecycle.LastGCCost >= cheapGCSweep {
+		s.lifecycle.Mu.Unlock()
 		return
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 
 	// A VM that acquired its lease before vmStartMu cannot be inspected. Leave
 	// the batches queued; that VM's lifecycle release will retry the flush.
@@ -251,28 +254,28 @@ func (s *Runtime) flushDeferredGC() {
 		return
 	}
 
-	s.lifecycle.mu.Lock()
-	waifBatch := s.lifecycle.pendingWaifs
-	anonBatch := s.lifecycle.pendingAnonGC
-	s.lifecycle.pendingWaifs = nil
-	s.lifecycle.pendingAnonGC = nil
-	s.lifecycle.lastGCSweep = time.Now()
-	s.lifecycle.gcRunning = true
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	waifBatch := s.lifecycle.PendingWaifs
+	anonBatch := s.lifecycle.PendingAnonGC
+	s.lifecycle.PendingWaifs = nil
+	s.lifecycle.PendingAnonGC = nil
+	s.lifecycle.LastGCSweep = time.Now()
+	s.lifecycle.GCRunning = true
+	s.lifecycle.Mu.Unlock()
 
 	sweepStart := time.Now()
 	defer func() {
 		cost := time.Since(sweepStart)
 		metrics.GCSweeps.Add(1)
 		metrics.GCSweepLastMs.Set(cost.Milliseconds())
-		s.lifecycle.mu.Lock()
-		s.lifecycle.lastGCCost = cost
-		s.lifecycle.gcRunning = false
+		s.lifecycle.Mu.Lock()
+		s.lifecycle.LastGCCost = cost
+		s.lifecycle.GCRunning = false
 		publish := s.canPublishShutdownLocked()
 		if publish {
-			s.lifecycle.shutdownPublishing = true
+			s.lifecycle.ShutdownPublishing = true
 		}
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Unlock()
 		if publish {
 			s.publishShutdown()
 		}
@@ -281,24 +284,25 @@ func (s *Runtime) flushDeferredGC() {
 	if len(waifBatch) > 0 {
 		roots := append([]types.Value(nil), siblingWaifs...)
 		for _, entry := range waifBatch {
-			roots = append(roots, entry.ownRefs...)
+			roots = append(roots, entry.OwnRefs...)
 		}
 		live := s.liveWaifs(roots)
 		for index, entry := range waifBatch {
-			if waifInList(entry.waif, live) {
+			if live.Has(entry.Waif) {
 				continue
 			}
-			s.callWaifRecycle(entry.ctx, entry.task, entry.waif)
-			s.lifecycle.mu.Lock()
-			shutdown := s.lifecycle.shutdownRequested
+			s.callWaifRecycle(entry.Ctx, entry.Task, entry.Waif)
+			s.lifecycle.Mu.Lock()
+			shutdown := s.lifecycle.ShutdownRequested
 			if shutdown {
 				for _, remaining := range waifBatch[index:] {
-					if remaining.ctx != nil && remaining.task != nil {
-						s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, remaining.shutdownRoots...)
+					if remaining.Ctx != nil && remaining.Task != nil {
+						roots := vm.CanonicalizePendingFinalizationValues(s.store, remaining.DirectRoots)
+						s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 					}
 				}
 			}
-			s.lifecycle.mu.Unlock()
+			s.lifecycle.Mu.Unlock()
 			if shutdown {
 				break
 			}
@@ -322,15 +326,15 @@ func (s *Runtime) flushDeferredGC() {
 				s.releaseSweepContext(ctx)
 			}
 		}()
-		vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, siblingAnon)
+		vm.RecycleOrphanAnonymousBatch(s.store, s.session, anonBatch, siblingAnon)
 	} else {
-		s.lifecycle.mu.Lock()
+		s.lifecycle.Mu.Lock()
 		for _, request := range anonBatch {
 			if !request.TaskOwned {
-				s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, s.anonymousRequestRootValues(request)...)
+				s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, s.anonymousRequestRootValues(request)...)
 			}
 		}
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Unlock()
 	}
 }
 
@@ -360,7 +364,7 @@ func (s *Runtime) anonymousRequestRootValues(request vm.AnonGCRequest) []types.V
 
 func (s *Runtime) takeDeferredFinalizationRootsLocked() []types.Value {
 	refs := make(map[types.ObjID]struct{})
-	for _, request := range s.lifecycle.pendingAnonGC {
+	for _, request := range s.lifecycle.PendingAnonGC {
 		if request.TaskOwned {
 			continue
 		}
@@ -369,13 +373,13 @@ func (s *Runtime) takeDeferredFinalizationRootsLocked() []types.Value {
 		}
 	}
 	values := anonymousRootValues(refs)
-	for _, entry := range s.lifecycle.pendingWaifs {
-		if !waifInList(entry.waif, values) {
-			values = append(values, entry.waif)
+	for _, entry := range s.lifecycle.PendingWaifs {
+		if !waifInList(entry.Waif, values) {
+			values = append(values, entry.Waif)
 		}
 	}
-	s.lifecycle.pendingWaifs = nil
-	s.lifecycle.pendingAnonGC = nil
+	s.lifecycle.PendingWaifs = nil
+	s.lifecycle.PendingAnonGC = nil
 	return values
 }
 
@@ -386,40 +390,40 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	if len(values) == 0 {
 		return
 	}
-	var waifs []types.Value
+	waifs := types.NewWaifSet(nil)
 	anons := make(map[types.ObjID]struct{})
 	for _, value := range values {
-		collectLoadedFinalizationRoots(value, &waifs, anons)
+		collectLoadedFinalizationRoots(value, waifs, anons)
 	}
-	s.lifecycle.mu.Lock()
-	for _, waif := range waifs {
+	s.lifecycle.Mu.Lock()
+	for _, waif := range waifs.Values {
 		ctx := kernel.NewTaskContext()
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
 		ctx.Store = s.store
+		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
-		s.lifecycle.pendingWaifs = append(s.lifecycle.pendingWaifs, pendingWaifEntry{waif: waif, ctx: ctx})
+		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{Waif: waif, Ctx: ctx})
 	}
 	for id := range anons {
 		ctx := kernel.NewTaskContext()
 		ctx.Store = s.store
+		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
 		ctx.DeferredGC = true
-		s.lifecycle.pendingAnonGC = append(s.lifecycle.pendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: id})
+		s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: id})
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 }
 
-func collectLoadedFinalizationRoots(value types.Value, waifs *[]types.Value, anons map[types.ObjID]struct{}) {
+func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, anons map[types.ObjID]struct{}) {
 	switch value.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if value.IsAnonymous() {
 			anons[value.ID()] = struct{}{}
 		}
 	case types.TYPE_WAIF:
-		if !waifInList(value, *waifs) {
-			*waifs = append(*waifs, value)
-		}
+		waifs.Add(value)
 	case types.TYPE_LIST:
 		for _, element := range value.Elements() {
 			collectLoadedFinalizationRoots(element, waifs, anons)
@@ -433,7 +437,7 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *[]types.Value, ano
 }
 
 func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *task.Task, waif types.Value) {
-	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return
 	}
@@ -462,7 +466,7 @@ func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *tas
 	recycleCtx.RuntimeOptions = s.options
 	recycleCtx.DeferredGC = true
 
-	recycleVM := vm.NewVM(s.store, s.registry)
+	recycleVM := vm.NewVM(s.store, s.session)
 	recycleVM.Context = recycleCtx
 	recycleVM.Task = parentTask
 	recycleVM.TickLimit = 300000

@@ -2,7 +2,6 @@ package builtins
 
 import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,7 +20,7 @@ import (
 // owns its own immutable snapshot.
 const protectPrefix = "protect_"
 
-// Registry.runtime.protected holds an IMMUTABLE snapshot of the protected set.
+// Session.runtime.protected holds an IMMUTABLE snapshot of the protected set.
 // The set is read on every builtin call but written only when that registry's
 // database refreshes it, so the classic single-writer/many-reader pattern
 // applies.
@@ -36,30 +35,83 @@ const protectPrefix = "protect_"
 // protected, and that a refresh takes effect atomically) while removing the
 // per-call RLock atomics from the hot path.
 
+// protectedSet is one immutable snapshot of the protected builtins. byName is
+// the source of truth (what the database said); byID is the same set projected
+// onto the registry's builtin-ID layout at snapshot time so the per-call check
+// in dispatch is a bounds-checked slice index instead of a string hash — the
+// analogue of Toast's `f->_protected` flag on the bf_table entry. A builtin
+// registered after the snapshot falls outside byID and is answered by byName.
+type protectedSet struct {
+	byName map[string]bool
+	byID   []bool
+}
+
 // IsProtectedBuiltin reports whether the named builtin is currently protected
 // for this registry. Lock-free: a single atomic load + read-only map index.
-func (r *Registry) IsProtectedBuiltin(name string) bool {
-	return r != nil && r.runtime != nil && (*r.runtime.protected.Load())[name]
+func (r *Session) IsProtectedBuiltin(name string) bool {
+	if r == nil || r.runtime == nil {
+		return false
+	}
+	set := r.runtime.protected.Load()
+	return set != nil && set.byName[name]
+}
+
+// isProtectedEntry is IsProtectedBuiltin for the dispatch hot path: no string
+// hashing when the entry's ID is covered by the snapshot.
+func (r *Session) isProtectedEntry(e *builtinEntry) bool {
+	if r.runtime == nil {
+		return false
+	}
+	set := r.runtime.protected.Load()
+	if set == nil {
+		return false
+	}
+	if e.id < len(set.byID) {
+		return set.byID[e.id]
+	}
+	return set.byName[e.name]
+}
+
+// isProtectedEntryFor is isProtectedEntry as seen by the task running ctx: a
+// task that reloaded the flags before committing its $server_options writes
+// sees its own set (TaskContext.ProtectedBuiltins) until commit publishes it.
+func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
+	if ctx != nil && ctx.TaskContext != nil {
+		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
+			return view.ProtectedBuiltins[e.name]
+		}
+	}
+	return r.isProtectedEntry(e)
+}
+
+// isProtectedNameFor is IsProtectedBuiltin as seen by the task running ctx.
+func (r *Session) isProtectedNameFor(ctx *Execution, name string) bool {
+	if ctx != nil && ctx.TaskContext != nil {
+		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
+			return view.ProtectedBuiltins[name]
+		}
+	}
+	return r.IsProtectedBuiltin(name)
 }
 
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
 // flags and replaces the protected-builtin set. Called from
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.
-func (r *Registry) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
+func (r *Session) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 	if store == nil {
 		r.applyProtectedBuiltins(nil)
 		return
 	}
 	flags := collectProtectedBuiltins(
 		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
-			prop, err := store.FindProperty(objID, name)
+			prop, err := store.DirectTxn().FindProperty(objID, name)
 			if err != types.E_NONE {
 				return dbstore.PropertyView{}, false
 			}
 			return prop, true
 		},
 		func(objID types.ObjID, prefix string) (map[string]bool, bool) {
-			flags, errCode := store.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
+			flags, errCode := store.DirectTxn().TruthyPropertiesWithPrefixInAncestry(objID, prefix)
 			if errCode != types.E_NONE {
 				return nil, false
 			}
@@ -72,7 +124,7 @@ func (r *Registry) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 // LoadProtectedBuiltinsForTask refreshes protected-builtin flags through the
 // active task view so same-task $server_options writes are visible when
 // load_server_options() runs.
-func (r *Registry) LoadProtectedBuiltinsForTask(ctx *Execution) {
+func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 	if ctx == nil {
 		r.applyProtectedBuiltins(nil)
 		return
@@ -86,32 +138,25 @@ func (r *Registry) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			return prop, true
 		},
 		func(objID types.ObjID, prefix string) (map[string]bool, bool) {
-			if ctx.StoreTxn != nil {
-				flags, errCode := ctx.StoreTxn.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
-				if errCode == types.E_NONE {
-					return flags, true
-				}
-				return nil, false
-			}
-			if ctx.Store == nil {
-				return nil, false
-			}
-			flags, errCode := ctx.Store.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
+			flags, errCode := ctx.StoreTxn.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
 			if errCode != types.E_NONE {
 				return nil, false
 			}
 			return flags, true
 		},
 	)
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
-		pending := pendingServerOptions(ctx.TaskContext)
+	pending := pendingServerOptions(ctx.TaskContext)
+	if ctx.StoreTxn.HasWrites() || pending != nil {
+		// Toast's reload takes effect at once. The session-wide swap waits for
+		// this task's commit (the flags came from uncommitted writes), so the
+		// loading task keeps its own view until then: the pending snapshot is
+		// also TaskContext.ServerOptions, which dispatch consults first. A
+		// later reload in the same task stays deferred even after the task has
+		// undone its writes, so the flush order decides (see LoadServerOptionsForTask).
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
-			enqueuePendingEffect(ctx, kernel.PendingEffect{
-				Kind:          kernel.PendingEffectServerOptions,
-				ServerOptions: snapshot,
-			})
-			pending = pendingServerOptions(ctx.TaskContext)
+			pending = &snapshot
+			deferServerOptions(ctx, pending)
 		}
 		pending.ProtectedBuiltins = flags
 		return
@@ -138,11 +183,14 @@ func collectProtectedBuiltins(findProperty propertyReader, findFlags protectedFl
 	return next
 }
 
-func (r *Registry) applyProtectedBuiltins(next map[string]bool) {
+func (r *Session) applyProtectedBuiltins(next map[string]bool) {
 	if next == nil {
 		next = map[string]bool{}
 	}
-	// Publish the freshly-built (and henceforth immutable) map with a single
+	// Publish the freshly-built (and henceforth immutable) set with a single
 	// atomic swap; readers loading after this see the new set in full.
-	r.runtime.protected.Store(&next)
+	r.runtime.protected.Store(&protectedSet{
+		byName: next,
+		byID:   r.registry.protectedByID(next),
+	})
 }

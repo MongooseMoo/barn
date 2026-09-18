@@ -21,7 +21,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx.Store = store
 
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
@@ -29,7 +29,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	result := machine.Run(prog)
@@ -127,7 +127,7 @@ func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 
 func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
 		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
 	}
 	class := dbstore.NewObjectBuilder(1)
@@ -137,13 +137,13 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(1, ":last_key", dbstore.NewProperty(types.NewStr(""), 0, 0, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(1, ":last_key", dbstore.NewProperty(types.NewStr(""), 0, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty last_key failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(1, ":last_value", dbstore.NewProperty(types.NewInt(0), 0, 0, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(1, ":last_value", dbstore.NewProperty(types.NewInt(0), 0, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty last_value failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
@@ -173,7 +173,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 
 func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
 		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
 	}
 	class := dbstore.NewObjectBuilder(1)
@@ -183,7 +183,7 @@ func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 
@@ -200,7 +200,7 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
@@ -218,7 +218,7 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultList),
 		},
 	}}
@@ -232,7 +232,7 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -242,19 +242,33 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: &kernel.PendingServerOptions{
+			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
+		},
+	}}
+
+	result := runBytecodeProgram(t, `return [1 -> 1];`, nil, ctx)
+	requireError(t, result, types.E_QUOTA)
+}
+
 func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
 	}}
 
-	machine := NewVM(nil, nil)
+	machine := NewVM(nil, newTestSession(BuildVMRegistry()))
 	machine.Context = ctx
 	machine.pushFrame(&StackFrame{
 		Program: &bytecode.Program{Code: []byte{0}},
@@ -266,6 +280,42 @@ func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 
 	if err := machine.executeRangeSet(); err == nil || err.Error() != "E_QUOTA: map too large" {
 		t.Fatalf("map range assignment error = %v, want E_QUOTA", err)
+	}
+}
+
+func TestRangeAssignmentAllowsEndPastCollectionLength(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{"list from first", `value = {1, 2, 3}; value[1..5] = {9}; return value;`, `{9}`},
+		{"list from middle", `value = {1, 2, 3}; value[2..5] = {9}; return value;`, `{1, 9}`},
+		{"string from first", `value = "abc"; value[1..5] = "X"; return value;`, `"X"`},
+		{"string from middle", `value = "abc"; value[2..5] = "X"; return value;`, `"aX"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("range assignment result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
+			}
+		})
+	}
+}
+
+func TestRangeAssignmentRejectsStartPastCollectionAppendPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"list", `value = {1, 2, 3}; value[5..1] = {9}; return value;`},
+		{"string", `value = "abc"; value[5..1] = "X"; return value;`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, test.code, nil, nil), types.E_RANGE)
+		})
 	}
 }
 
@@ -537,7 +587,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	}
 
 	taskValue := task.NewTask(1, 0, 30_000, 1)
-	machine := NewVM(store, registry)
+	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
 	machine.Context = kernel.NewTaskContext()
 	machine.Task = taskValue
@@ -553,7 +603,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 
 func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	store := newBytecodeVerbStore()
-	obj, errCode := store.CreateObject(nil, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -599,7 +649,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 		t.Fatalf("add pass source: %s", errCode)
 	}
 
-	verb, defObjID, err := store.FindVerb(3, "pass_caller")
+	verb, defObjID, err := store.DirectTxn().FindVerb(3, "pass_caller")
 	if err != nil {
 		t.Fatalf("find inherited verb: %v", err)
 	}
@@ -608,7 +658,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile inherited verb: %v", diagnostics)
 	}
-	machine := NewVM(store, registry)
+	machine := NewVM(store, newTestSession(registry))
 	machine.Context = kernel.NewTaskContext()
 	result := machine.RunWithVerbContext(prog, 3, 3, 3, "pass_caller", defObjID, nil)
 	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != 3 {
@@ -626,7 +676,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	if err := store.Add(anon.Build()); err != nil {
 		t.Fatalf("add anonymous object: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define anonymous reference: %s", errCode)
 	}
 
@@ -814,7 +864,7 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 
@@ -823,7 +873,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	// Model a stack that previously grew past its current live region. These
@@ -851,7 +901,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
@@ -867,7 +917,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {

@@ -188,6 +188,9 @@ func TestPromoteNumbers_PromoteDivByZeroIsEDIV(t *testing.T) {
 	// Mixed promoted divide-by-zero -> E_DIV (not E_FLOAT).
 	requireError(t, runBytecodeProgram(t, "return 1 / 0.0;", nil, promoteCtx()), types.E_DIV)
 	requireError(t, runBytecodeProgram(t, "return 5.0 / 0;", nil, promoteCtx()), types.E_DIV)
+	// Without numeric promotion, mixed types are rejected before inspecting
+	// the integer divisor's value.
+	requireError(t, runBytecodeProgram(t, "return 5.0 / 0;", nil, strictCtx()), types.E_TYPE)
 }
 
 func TestPromoteNumbers_PromoteModByZeroIsEDIV(t *testing.T) {

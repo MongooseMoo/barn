@@ -1,0 +1,43 @@
+{
+  "name": "protected_dispatch_perf",
+  "tests": [
+    {
+      "name": "same_task_and_caller",
+      "permission": "wizard",
+      "statement": "o = create($nothing); add_verb(o, {player, \"rxd\", \"driver\"}, {\"this\", \"none\", \"this\"}); add_property($server_options, \"protect_valid\", 1, {player, \"r\"}); add_verb(#0, {player, \"rxd\", \"bf_valid\"}, {\"this\", \"none\", \"this\"}); set_verb_code(#0, \"bf_valid\", {\"return {task_id() == args[1], caller == args[2]};\"}); set_verb_code(o, \"driver\", {\"return valid(task_id(), this);\"}); load_server_options(); try return o:driver(); finally delete_verb(#0, \"bf_valid\"); delete_property($server_options, \"protect_valid\"); load_server_options(); recycle(o); endtry",
+      "expect": {
+        "value": [
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "name": "suspend_then_return",
+      "permission": "wizard",
+      "statement": "o = create($nothing); add_verb(o, {player, \"rxd\", \"driver\"}, {\"this\", \"none\", \"this\"}); add_property($server_options, \"protect_valid\", 1, {player, \"r\"}); add_verb(#0, {player, \"rxd\", \"bf_valid\"}, {\"this\", \"none\", \"this\"}); set_verb_code(#0, \"bf_valid\", {\"suspend(0); return args;\"}); set_verb_code(o, \"driver\", {\"return valid(7, 9);\"}); load_server_options(); try return o:driver(); finally delete_verb(#0, \"bf_valid\"); delete_property($server_options, \"protect_valid\"); load_server_options(); recycle(o); endtry",
+      "expect": {
+        "value": [
+          7,
+          9
+        ]
+      }
+    },
+    {
+      "name": "exception_keeps_value",
+      "permission": "wizard",
+      "statement": "o = create($nothing); add_verb(o, {player, \"rxd\", \"driver\"}, {\"this\", \"none\", \"this\"}); add_property($server_options, \"protect_valid\", 1, {player, \"r\"}); add_verb(#0, {player, \"rxd\", \"bf_valid\"}, {\"this\", \"none\", \"this\"}); set_verb_code(#0, \"bf_valid\", {\"raise(E_INVARG, \\\"wrapped\\\", 77);\"}); set_verb_code(o, \"driver\", {\"try valid(#0); except e (E_INVARG) return e[3]; endtry\"}); load_server_options(); try return o:driver(); finally delete_verb(#0, \"bf_valid\"); delete_property($server_options, \"protect_valid\"); load_server_options(); recycle(o); endtry",
+      "expect": {
+        "value": 77
+      }
+    },
+    {
+      "name": "nonexecutable_wrapper",
+      "permission": "wizard",
+      "statement": "o = create($nothing); add_verb(o, {player, \"rxd\", \"driver\"}, {\"this\", \"none\", \"this\"}); add_property($server_options, \"protect_valid\", 1, {player, \"r\"}); add_verb(#0, {player, \"rd\", \"bf_valid\"}, {\"this\", \"none\", \"this\"}); set_verb_code(#0, \"bf_valid\", {\"return 99;\"}); set_verb_code(o, \"driver\", {\"return valid(#0);\"}); load_server_options(); try return o:driver(); finally delete_verb(#0, \"bf_valid\"); delete_property($server_options, \"protect_valid\"); load_server_options(); recycle(o); endtry",
+      "expect": {
+        "value": 1
+      }
+    }
+  ]
+}

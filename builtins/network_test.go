@@ -12,7 +12,7 @@ import (
 
 func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 	player := types.ObjID(424242)
-	r := NewRegistry()
+	r := NewSession(NewRegistry(), NoHost())
 
 	r.setConnectionOption(player, "binary", types.NewInt(0))
 	start := make(chan struct{})
@@ -39,10 +39,11 @@ func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 // ctxWithConnManager returns a task context whose registry has the given
 // connection manager wired, mirroring how the server wires its registry.
 func ctxWithConnManager(cm ConnectionManager) *Execution {
-	r := NewRegistry()
-	r.SetConnectionManager(cm)
-	ctx := newTestExecution()
-	ctx.Registry = r
+	r := NewSession(NewRegistry(), NoHost())
+	configureTestHost(r, func(host *Host) { host.ConnManager = cm })
+	ctx := newTestExecutionForSession(r)
+	ctx.Store = dbstore.NewStore()
+	ctx.StoreTxn = ctx.Store.DirectTxn()
 	return ctx
 }
 
@@ -55,6 +56,7 @@ type stubConn struct {
 	outbound        bool
 	source          string
 	destination     string
+	lastInputTaskID int64
 }
 
 func (c *stubConn) Send(message string) error {
@@ -75,7 +77,8 @@ func (c *stubConn) GetResolvedName() string   { return "" }
 func (c *stubConn) ListenerPort() (int64, bool) {
 	return c.listenerPort, c.listenerPortSet
 }
-func (c *stubConn) IsOutbound() bool { return c.outbound }
+func (c *stubConn) LastInputTaskID() int64 { return c.lastInputTaskID }
+func (c *stubConn) IsOutbound() bool       { return c.outbound }
 func (c *stubConn) OutboundSourceAddr() string {
 	return c.source
 }
@@ -777,7 +780,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 
 func TestFlushCommandMatchesCaseInsensitivelyAndClearsPendingCommands(t *testing.T) {
 	player := types.ObjID(424243)
-	r := NewRegistry()
+	r := NewSession(NewRegistry(), NoHost())
 
 	r.setConnectionOption(player, "hold-input", types.NewInt(1))
 	r.setConnectionOption(player, "flush-command", types.NewStr(".flush"))

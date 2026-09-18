@@ -22,6 +22,15 @@ type TaskContext struct {
 	ThisValue            types.Value // Actual value of 'this' (primitive value, or nil for objects)
 	Verb                 string      // Current verb name
 
+	// ServerOptions is the $server_options snapshot (limits and protected
+	// builtins) this task loaded with load_server_options() while it still had
+	// uncommitted writes; nil means the session-wide cache applies. Toast
+	// applies the reload at once, but Barn publishes it session-wide only when
+	// the task commits, so until then the loading task reads its own view
+	// here. It is the same object the commit-time PendingEffect carries, and
+	// it is cleared when the task's pending effects are flushed or discarded.
+	ServerOptions *PendingServerOptions
+
 	// IndexContext is the length of the collection currently being indexed
 	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
 	// -1 means no indexing context
@@ -68,6 +77,28 @@ type TaskContext struct {
 	// outbound I/O, file/SQLite/process operations, and task control). Validation
 	// conflicts after this point must not retry the whole task body.
 	IrreversibleSideEffect bool
+
+	// BeforeIrreversibleEffect, when the runtime arms it for a task attempt, runs
+	// once, immediately before the attempt's first act that a whole-task re-run
+	// could not undo: an irreversible external effect (IrreversibleSideEffect) or
+	// a direct mutation of the live store (LiveStoreMutated). It returns true when
+	// the attempt must stop right there and be re-run instead of acting (its
+	// reads are already stale, so it could never commit); the builtin then
+	// returns FlowAbortAttempt without acting.
+	BeforeIrreversibleEffect func() bool
+
+	// ConflictRetryRequested is set by BeforeIrreversibleEffect when it stopped
+	// the attempt. Every later irreversible act in the attempt is refused, the
+	// VM unwinds at its next builtin boundary (including from inside a nested
+	// verb-call VM, whose result the calling builtin cannot act on), and the
+	// runtime re-runs the task from the top.
+	ConflictRetryRequested bool
+
+	// DeferredCheckpoint is set when dump_database() runs while this task's
+	// attempt holds the store's commit gate exclusively. The checkpoint takes
+	// that gate itself and runs hook tasks that commit through it, so the
+	// runtime performs it as soon as the gate is released instead.
+	DeferredCheckpoint bool
 
 	// DeferredGC marks a recycle activation owned by the runtime's deferred
 	// collector. Lifecycle requests from it must not wait on that same collector.
@@ -118,6 +149,11 @@ const (
 	PendingEffectConnectionSwitch
 	PendingEffectBootPlayer
 	PendingEffectServerOptions
+	// PendingEffectAsyncStart launches an external operation (for example a
+	// threaded SQLite statement) that completes by resuming the suspended task.
+	// Deferring the launch to the commit keeps the operation from running for a
+	// task attempt whose transaction is then discarded and re-executed.
+	PendingEffectAsyncStart
 )
 
 type PendingEffect struct {
@@ -125,7 +161,8 @@ type PendingEffect struct {
 	Notification     PendingNotification
 	ConnectionSwitch PendingConnectionSwitch
 	BootPlayer       types.ObjID
-	ServerOptions    PendingServerOptions
+	ServerOptions    *PendingServerOptions // shared with TaskContext.ServerOptions until flushed
+	Start            func()                // PendingEffectAsyncStart: launches the operation
 }
 
 type PendingServerOptions struct {
@@ -140,6 +177,7 @@ type PendingServerOptions struct {
 	MaxStackDepth      int
 	MaxCryptBcryptCost int
 	MaxCryptSHARounds  int
+	IncludeRTVars      bool
 	ProtectedBuiltins  map[string]bool
 }
 

@@ -1,6 +1,22 @@
 package types
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func TestResultCallStackHasStaticActivationFrameType(t *testing.T) {
+	field, ok := reflect.TypeOf(Result{}).FieldByName("CallStack")
+	if !ok {
+		t.Fatal("Result.CallStack field is missing")
+	}
+	if field.Type.Kind() != reflect.Slice {
+		t.Fatalf("Result.CallStack type = %v, want []types.ActivationFrame", field.Type)
+	}
+	if got := field.Type.Elem(); got.PkgPath() != "github.com/MongooseMoo/barn/types" || got.Name() != "ActivationFrame" {
+		t.Fatalf("Result.CallStack element type = %v, want types.ActivationFrame", got)
+	}
+}
 
 func TestResultConstructors(t *testing.T) {
 	t.Run("Ok", func(t *testing.T) {

@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"sync"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 // store_resolve_cache.go — allocation-free ancestry walks (Part A) and a
 // per-transaction memo of verb/property resolution (Part B).
@@ -254,10 +258,134 @@ func (tx *StoreTxn) replayPropSteps(steps []propWalkStep) {
 			continue
 		}
 		if st.found {
-			tx.markPropertyRead(st.id, st.actualName, st.prop)
+			tx.markPropertyReadKey(st.id, st.actualName, st.prop)
 		} else {
-			tx.markPropertyScan(st.id, st.obj)
+			tx.markPropertyShapeScan(st.id, st.obj)
 		}
+	}
+}
+
+// verbDispatchMemoEntry is one store-level memoized resolution. readTS is the
+// snapshot of the txn that computed it; the entry is usable by a txn whose
+// snapshot, like this one, postdates the store's last verb-shape change.
+type verbDispatchMemoEntry struct {
+	readTS  uint64
+	found   bool
+	definer types.ObjID
+	// The shape clock protects definition order; first aliases are not unique.
+	index int
+}
+
+// lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
+// replaces the per-ancestor verb-scan marks with a single txn-level
+// dependency on verbShapeChangeTS (validated at commit) plus the usual read
+// mark on the resolved verb, which is re-fetched from this txn's view of the
+// definer so a concurrent code edit is seen exactly as it would be by a walk.
+func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, definer types.ObjID, found, hit bool) {
+	s := tx.store
+	if s == nil || tx.verbMemoDisabled || tx.liveMutated {
+		// A live-mutated txn commits through the coarse path, which validates
+		// scan marks, not the clock; it must never hold mark-less resolutions.
+		return nil, types.ObjNothing, false, false
+	}
+	last := s.verbShapeChangeTS.Load()
+	if tx.readTS < last {
+		return nil, types.ObjNothing, false, false
+	}
+	raw, ok := s.verbMemo().Load(key)
+	if !ok {
+		return nil, types.ObjNothing, false, false
+	}
+	entry := raw.(*verbDispatchMemoEntry)
+	if entry.readTS < last {
+		return nil, types.ObjNothing, false, false
+	}
+	if !entry.found {
+		tx.noteVerbMemoHit(key)
+		return nil, types.ObjNothing, false, true
+	}
+	obj := tx.object(entry.definer)
+	if !validLiveObject(obj) {
+		return nil, types.ObjNothing, false, false
+	}
+	if entry.index < 0 || entry.index >= len(obj.verbList) {
+		return nil, types.ObjNothing, false, false
+	}
+	verb = obj.verbList[entry.index]
+	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
+		return nil, types.ObjNothing, false, false
+	}
+	tx.noteVerbMemoHit(key)
+	tx.markVerbRead(entry.definer, verb)
+	return verb, entry.definer, true, true
+}
+
+func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
+	tx.usedVerbMemo = true
+	tx.verbMemoHits = append(tx.verbMemoHits, key)
+}
+
+// PrepareLiveMutation must run before a task's first direct mutation of the
+// live store (a staged-topology flush or a coarse builtin). Those mutations
+// move verbShapeChangeTS themselves, after which the memo's single clock check
+// cannot distinguish the task's own change from a concurrent one and a
+// live-mutated task cannot retry. So every resolution taken from the memo is
+// re-walked here, on the snapshot the memo hit was equivalent to, into the
+// ordinary per-ancestor scan marks that the coarse commit validates under the
+// store lock; the memo is then off for the rest of the txn.
+func (tx *StoreTxn) PrepareLiveMutation() {
+	if tx == nil || tx.direct {
+		return
+	}
+	tx.materializeVerbMemoMarks()
+}
+
+func (tx *StoreTxn) materializeVerbMemoMarks() {
+	tx.verbMemoDisabled = true
+	if !tx.usedVerbMemo {
+		return
+	}
+	hits := tx.verbMemoHits
+	tx.verbMemoHits = nil
+	tx.usedVerbMemo = false
+	for _, key := range hits {
+		tx.walkVerb(key.objID, key.name, key.requireExecute)
+	}
+}
+
+// storeVerbDispatchMemo publishes a walk's result for other transactions.
+// Anonymous objects are never memoized: their ids are recycled constantly and
+// invalidating the memo on each would make it useless. A txn that has mutated
+// the live store has no clean snapshot to tag the entry with.
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID) {
+	s := tx.store
+	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
+		return
+	}
+	if obj := tx.object(key.objID); obj == nil || obj.anonymous {
+		return
+	}
+	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	if verb != nil {
+		entry.index = -1
+		for i, candidate := range tx.object(definer).verbList {
+			if candidate == verb {
+				entry.index = i
+				break
+			}
+		}
+		if entry.index < 0 {
+			return
+		}
+	}
+	memo := s.verbMemo()
+	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
+		if s.verbDispatchMemoSize.Add(1) > verbDispatchMemoCap {
+			s.verbDispatchMemo.Store(&sync.Map{})
+			s.verbDispatchMemoSize.Store(0)
+		}
+	} else {
+		memo.Store(key, entry)
 	}
 }
 

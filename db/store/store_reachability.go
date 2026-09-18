@@ -118,7 +118,7 @@ func (s *Store) HasAnonymousAtOrAbove(minID types.ObjID) bool {
 	return found
 }
 
-func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+func (s *Store) expandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if len(refs) == 0 {
 		return
 	}
@@ -139,6 +139,10 @@ func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, 
 // that is reachable through the task's in-flight anonymous graph.
 func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if tx == nil || len(refs) == 0 {
+		return
+	}
+	if tx.direct {
+		tx.store.expandAnonymousReachability(reachable, refs)
 		return
 	}
 
@@ -246,57 +250,141 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	return candidates
 }
 
-func collectWaifsFromValue(value types.Value, out *[]types.Value) {
-	collectWaifsFromValueVisited(value, out, nil)
-}
-
-func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited map[types.WaifIdentity]struct{}) {
+// collectWaifsInto records every waif reachable from value (through lists,
+// maps, and waif properties) in set. A waif already present is not re-expanded,
+// which also terminates on cyclic waif graphs.
+func collectWaifsInto(value types.Value, set *types.WaifSet) {
 	switch value.Type() {
 	case types.TYPE_WAIF:
-		if !finalizationValueInList(value, *out) {
-			*out = append(*out, value)
-		}
-		identity := value.WaifIdentity()
-		if _, seen := visited[identity]; seen {
+		if !set.Add(value) {
 			return
 		}
-		if visited == nil {
-			visited = make(map[types.WaifIdentity]struct{})
-		}
-		visited[identity] = struct{}{}
 		for _, name := range value.PropertyNames() {
 			if property, ok := value.GetProperty(name); ok {
-				collectWaifsFromValueVisited(property, out, visited)
+				collectWaifsInto(property, set)
 			}
 		}
 	case types.TYPE_LIST:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, elem := range value.Elements() {
-			collectWaifsFromValueVisited(elem, out, visited)
+			collectWaifsInto(elem, set)
 		}
 	case types.TYPE_MAP:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, pair := range value.Pairs() {
-			collectWaifsFromValueVisited(pair[0], out, visited)
-			collectWaifsFromValueVisited(pair[1], out, visited)
+			collectWaifsInto(pair[0], set)
+			collectWaifsInto(pair[1], set)
 		}
 	}
 }
 
-func (s *Store) PersistentWaifRoots() []types.Value {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch
+// and, for one (waifRootsEpoch, types.WaifGraphEpoch) pair, the expanded
+// closure as an immutable set shared by every caller.
+type persistentWaifRootsEntry struct {
+	epoch      uint64
+	top        []types.Value // waifs held directly in property values (through lists/maps), no closure expansion
+	graphEpoch uint64
+	closure    *types.WaifSet // top expanded through waif properties; read-only once published
+}
 
-	roots := make([]types.Value, 0)
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) {
+// propertyValueMayHoldFinalizable reports whether obj's slot for name currently
+// holds a value that may reference a WAIF or anonymous object.
+func propertyValueMayHoldFinalizable(obj *Object, name string) bool {
+	_, prop, ok := propertyByName(obj.properties, name)
+	return ok && prop.value.MayHoldFinalizable()
+}
+
+// collectTopLevelWaifsInto records the waifs directly inside value (descending
+// through lists and maps) without expanding the waifs' own properties.
+func collectTopLevelWaifsInto(value types.Value, set *types.WaifSet) {
+	switch value.Type() {
+	case types.TYPE_WAIF:
+		set.Add(value)
+	case types.TYPE_LIST:
+		if !value.MayHoldFinalizable() {
+			return
+		}
+		for _, elem := range value.Elements() {
+			collectTopLevelWaifsInto(elem, set)
+		}
+	case types.TYPE_MAP:
+		if !value.MayHoldFinalizable() {
+			return
+		}
+		for _, pair := range value.Pairs() {
+			collectTopLevelWaifsInto(pair[0], set)
+			collectTopLevelWaifsInto(pair[1], set)
+		}
+	}
+}
+
+// PersistentWaifRoots returns every waif reachable from a live object's
+// property values, deduplicated by identity. The slice is shared and must be
+// treated as read-only; PersistentWaifRootSet is the O(1)-membership form.
+func (s *Store) PersistentWaifRoots() []types.Value {
+	set := s.PersistentWaifRootSet()
+	if set.Values == nil {
+		return []types.Value{}
+	}
+	return set.Values
+}
+
+// PersistentWaifRootSet returns the identity set of every waif reachable from
+// a live object's property values. The set is immutable and shared: layer
+// additions on it with types.NewWaifSetOver.
+//
+// Two memos, because the two inputs change at different rates. The walk over
+// every property of every object (the finalizer asks after every task that let
+// a WAIF leave scope, and on a large database that scan dominated the task) is
+// memoized per waifRootsEpoch, which every store write that can add or remove
+// a waif from a property value bumps (noteWaifRootsChanged). The expansion of
+// those roots through waif properties — thousands of waifs on Mongoose, mutated
+// in place by Value.SetProperty with no store write — is memoized per
+// (waifRootsEpoch, types.WaifGraphEpoch).
+func (s *Store) PersistentWaifRootSet() *types.WaifSet {
+	s.mu.RLock()
+	epoch := s.waifRootsEpoch.Load()
+	graphEpoch := types.WaifGraphEpoch()
+	entry := s.waifRootsCache.Load()
+	if entry != nil && entry.epoch == epoch && entry.graphEpoch == graphEpoch {
+		s.mu.RUnlock()
+		return entry.closure
+	}
+	var top []types.Value
+	if entry != nil && entry.epoch == epoch {
+		top = entry.top
+	} else {
+		set := types.NewWaifSet(nil)
+		s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
+			obj := slot.ptr.Load()
+			if obj == nil || !validLiveObject(obj) {
+				return true
+			}
+			for _, prop := range obj.properties {
+				if prop.value.MayHoldFinalizable() {
+					collectTopLevelWaifsInto(prop.value, set)
+				}
+			}
 			return true
-		}
-		for _, prop := range obj.properties {
-			collectWaifsFromValue(prop.value, &roots)
-		}
-		return true
-	})
-	return roots
+		})
+		top = set.Values
+	}
+	s.mu.RUnlock()
+
+	// Expand outside the store lock: waif properties are not store state. A
+	// concurrent in-place write during the expansion moves the graph epoch, so
+	// the entry stored below is already stale and the next call recomputes.
+	closure := types.NewWaifSet(nil)
+	for _, waif := range top {
+		collectWaifsInto(waif, closure)
+	}
+	s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
+	return closure
 }
 
 // LocalProperty returns a copy of the property slot defined on the object

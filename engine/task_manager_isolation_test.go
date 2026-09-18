@@ -43,7 +43,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		ctx.Programmer = types.ObjID(0)
 		ctx.IsWizard = true
 
-		result, ok := rt.registry.CallByNameWithExecution("queued_tasks", rt.registry.NewExecution(ctx, nil), nil)
+		result, ok := rt.session.CallByNameWithExecution("queued_tasks", rt.session.NewExecution(ctx, nil), nil)
 		if !ok {
 			t.Fatal("queued_tasks is not registered")
 		}

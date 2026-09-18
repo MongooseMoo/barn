@@ -12,36 +12,36 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.SetObjectName(0, "before"); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectName(0, "before"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName before failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "scratch", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "scratch", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject child failed: %v", errCode)
 	}
 
-	readTS := store.ReadTimestamp()
+	readTS := store.DirectTxn().ReadTimestamp()
 	tx := store.BeginReadOnly(0)
 	if tx.ReadTimestamp() != readTS {
 		t.Fatalf("txn timestamp = %d, want %d", tx.ReadTimestamp(), readTS)
 	}
 
-	if errCode := store.SetObjectName(0, "after"); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectName(0, "after"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName after failed: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(0, "scratch", types.NewInt(2)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(0, "scratch", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue after failed: %v", errCode)
 	}
-	if errCode := store.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode after failed: %v", errCode)
 	}
-	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
 		t.Fatalf("CreateObject second child failed: %v", errCode)
 	}
 
@@ -70,10 +70,10 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 		t.Fatalf("txn children = %#v, want only child #%d", children, child)
 	}
 
-	if got, errCode := store.ObjectName(0); errCode != types.E_NONE || got != "after" {
+	if got, errCode := store.DirectTxn().ObjectName(0); errCode != types.E_NONE || got != "after" {
 		t.Fatalf("live ObjectName = %q err=%v, want after", got, errCode)
 	}
-	if nextTS := store.ReadTimestamp(); nextTS <= readTS {
+	if nextTS := store.DirectTxn().ReadTimestamp(); nextTS <= readTS {
 		t.Fatalf("store timestamp after writes = %d, want > %d", nextTS, readTS)
 	}
 }
@@ -83,7 +83,7 @@ func TestTransactionStartedAfterAnonymousRecycleSeesRecycledObject(t *testing.T)
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject anonymous failed: %v", errCode)
 	}
@@ -106,7 +106,7 @@ func TestReadOnlyTransactionClonesReturnedContainers(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject child failed: %v", errCode)
 	}
@@ -132,7 +132,7 @@ func TestReadOnlyTransactionLoadsObjectsLazily(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
@@ -159,7 +159,7 @@ func TestTransactionChildrenTracksRelationshipRead(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
@@ -179,7 +179,7 @@ func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -190,7 +190,7 @@ func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}
-	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
@@ -200,7 +200,7 @@ func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -214,22 +214,22 @@ func TestTransactionAdoptLiveRelationshipsSeesMove(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject obj failed: %v", errCode)
 	}
-	oldLocation, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	oldLocation, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject old location failed: %v", errCode)
 	}
-	newLocation, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	newLocation, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject new location failed: %v", errCode)
 	}
-	if errCode := store.MoveObject(obj, oldLocation, 0); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().MoveObject(obj, oldLocation, 0); errCode != types.E_NONE {
 		t.Fatalf("initial MoveObject failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -240,7 +240,7 @@ func TestTransactionAdoptLiveRelationshipsSeesMove(t *testing.T) {
 	if _, errCode := tx.Contents(oldLocation); errCode != types.E_NONE {
 		t.Fatalf("tx Contents old location failed: %v", errCode)
 	}
-	if errCode := store.MoveObject(obj, newLocation, 0); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().MoveObject(obj, newLocation, 0); errCode != types.E_NONE {
 		t.Fatalf("live MoveObject failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveRelationships(obj, oldLocation, newLocation); errCode != types.E_NONE {
@@ -266,7 +266,7 @@ func TestTransactionAdoptLiveRelationshipsSeesCreatedChild(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -279,7 +279,7 @@ func TestTransactionAdoptLiveRelationshipsSeesCreatedChild(t *testing.T) {
 		t.Fatalf("tx Children before create = %#v, want empty", children)
 	}
 
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject child failed: %v", errCode)
 	}
@@ -310,11 +310,11 @@ func TestTransactionAdoptLiveRelationshipsSeesChangedParents(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject obj failed: %v", errCode)
 	}
-	newParent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	newParent, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject new parent failed: %v", errCode)
 	}
@@ -361,18 +361,18 @@ func TestTransactionAdoptLiveRelationshipsRefreshesAnonymousChildAfterRenumber(t
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	freeID, errCode := store.CreateObject(nil, 0, false)
+	freeID, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject free slot failed: %v", errCode)
 	}
 	if err := store.Recycle(freeID); err != nil {
 		t.Fatalf("Recycle free slot failed: %v", err)
 	}
-	parent, errCode := store.CreateObject(nil, 0, false)
+	parent, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject parent failed: %v", errCode)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{parent}, 0, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{parent}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject anonymous child failed: %v", errCode)
 	}
@@ -426,14 +426,14 @@ func TestTransactionRenumberLeavesOldObjectIDInvalid(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	freeID, errCode := store.CreateObject(nil, 0, false)
+	freeID, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject free slot failed: %v", errCode)
 	}
 	if err := store.Recycle(freeID); err != nil {
 		t.Fatalf("Recycle free slot failed: %v", err)
 	}
-	oldID, errCode := store.CreateObject(nil, 0, false)
+	oldID, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject renumber source failed: %v", errCode)
 	}
@@ -483,10 +483,10 @@ func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty a failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "b", NewProperty(types.NewInt(10), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "b", NewProperty(types.NewInt(10), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty b failed: %v", errCode)
 	}
 
@@ -506,14 +506,14 @@ func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 		t.Fatalf("txB Commit failed: %v", errCode)
 	}
 
-	a, errCode := store.PropertyValue(0, "a")
+	a, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue a failed: %v", errCode)
 	}
 	if got := a.Int(); got != 2 {
 		t.Fatalf("a = %d, want 2", got)
 	}
-	b, errCode := store.PropertyValue(0, "b")
+	b, errCode := store.DirectTxn().PropertyValue(0, "b")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue b failed: %v", errCode)
 	}
@@ -527,7 +527,7 @@ func TestTransactionSamePropertyWriteConflicts(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -550,7 +550,7 @@ func TestTransactionSamePropertyWriteConflicts(t *testing.T) {
 		t.Fatalf("second transaction did not record validation failure")
 	}
 
-	a, errCode := store.PropertyValue(0, "a")
+	a, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -564,7 +564,7 @@ func TestTransactionSetPropertyInfoStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -582,7 +582,7 @@ func TestTransactionSetPropertyInfoStagesUntilCommit(t *testing.T) {
 	if txProp.Owner != newOwner || txProp.Perms != newPerms {
 		t.Fatalf("tx property info owner=%d perms=%v, want owner=%d perms=%v", txProp.Owner, txProp.Perms, newOwner, newPerms)
 	}
-	liveProp, ok, errCode := store.LocalProperty(0, "a")
+	liveProp, ok, errCode := store.DirectTxn().LocalProperty(0, "a")
 	if errCode != types.E_NONE || !ok {
 		t.Fatalf("live LocalProperty ok=%v err=%v, want local property", ok, errCode)
 	}
@@ -593,7 +593,7 @@ func TestTransactionSetPropertyInfoStagesUntilCommit(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	liveProp, ok, errCode = store.LocalProperty(0, "a")
+	liveProp, ok, errCode = store.DirectTxn().LocalProperty(0, "a")
 	if errCode != types.E_NONE || !ok {
 		t.Fatalf("live LocalProperty after commit ok=%v err=%v, want local property", ok, errCode)
 	}
@@ -607,7 +607,7 @@ func TestTransactionPropertyInfoConflictsWithValueWrite(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -631,14 +631,14 @@ func TestTransactionPropertyInfoConflictsWithValueWrite(t *testing.T) {
 		t.Fatalf("valueTx did not record validation failure")
 	}
 
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
 	if got := value.Int(); got != 1 {
 		t.Fatalf("property a = %d, want unchanged value 1", got)
 	}
-	prop, ok, errCode := store.LocalProperty(0, "a")
+	prop, ok, errCode := store.DirectTxn().LocalProperty(0, "a")
 	if errCode != types.E_NONE || !ok {
 		t.Fatalf("LocalProperty ok=%v err=%v, want local property", ok, errCode)
 	}
@@ -652,14 +652,14 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue override failed: %v", errCode)
 	}
 
@@ -674,7 +674,7 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if got := txValue.Int(); got != 1 {
 		t.Fatalf("tx property value = %d, want inherited value 1", got)
 	}
-	liveValue, errCode := store.PropertyValue(child, "a")
+	liveValue, errCode := store.DirectTxn().PropertyValue(child, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
@@ -685,7 +685,7 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	liveValue, errCode = store.PropertyValue(child, "a")
+	liveValue, errCode = store.DirectTxn().PropertyValue(child, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue after commit failed: %v", errCode)
 	}
@@ -699,14 +699,14 @@ func TestTransactionClearPropertyOverrideConflictsWithValueWrite(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue override failed: %v", errCode)
 	}
 
@@ -728,7 +728,7 @@ func TestTransactionClearPropertyOverrideConflictsWithValueWrite(t *testing.T) {
 	if !valueTx.ValidationFailed() {
 		t.Fatalf("valueTx did not record validation failure")
 	}
-	liveValue, errCode := store.PropertyValue(child, "a")
+	liveValue, errCode := store.DirectTxn().PropertyValue(child, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
@@ -742,7 +742,7 @@ func TestTransactionDefinePropertyStagesAndPropagatesOnCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -766,21 +766,21 @@ func TestTransactionDefinePropertyStagesAndPropagatesOnCommit(t *testing.T) {
 	if txChild.Defined || !txChild.Clear {
 		t.Fatalf("tx child property defined=%v clear=%v, want inherited clear slot", txChild.Defined, txChild.Clear)
 	}
-	if _, errCode := store.FindProperty(0, "a"); errCode != types.E_PROPNF {
+	if _, errCode := store.DirectTxn().FindProperty(0, "a"); errCode != types.E_PROPNF {
 		t.Fatalf("live FindProperty before commit = %v, want E_PROPNF", errCode)
 	}
 
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	rootProp, ok, errCode := store.LocalProperty(0, "a")
+	rootProp, ok, errCode := store.DirectTxn().LocalProperty(0, "a")
 	if errCode != types.E_NONE || !ok {
 		t.Fatalf("live root LocalProperty ok=%v err=%v, want local property", ok, errCode)
 	}
 	if !rootProp.Defined || rootProp.Clear {
 		t.Fatalf("live root property defined=%v clear=%v, want defined local value", rootProp.Defined, rootProp.Clear)
 	}
-	childProp, ok, errCode := store.LocalProperty(child, "a")
+	childProp, ok, errCode := store.DirectTxn().LocalProperty(child, "a")
 	if errCode != types.E_NONE || !ok {
 		t.Fatalf("live child LocalProperty ok=%v err=%v, want inherited slot", ok, errCode)
 	}
@@ -818,7 +818,7 @@ func TestTransactionPropertyDefinitionsCommitInInsertionOrder(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	committed, errCode := store.DefinedPropertyNames(0)
+	committed, errCode := store.DirectTxn().DefinedPropertyNames(0)
 	if errCode != types.E_NONE {
 		t.Fatalf("committed DefinedPropertyNames failed: %v", errCode)
 	}
@@ -847,7 +847,7 @@ func TestTransactionPropertyDefinitionDecentralizedCommitIgnoresCachedMissingObj
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	if _, errCode := store.FindProperty(0, "kept"); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().FindProperty(0, "kept"); errCode != types.E_NONE {
 		t.Fatalf("committed property lookup failed: %v", errCode)
 	}
 }
@@ -871,7 +871,7 @@ func TestTransactionPropertyDefinitionCoarseCommitIgnoresCachedMissingObjects(t 
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	if _, errCode := store.FindProperty(0, "kept"); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().FindProperty(0, "kept"); errCode != types.E_NONE {
 		t.Fatalf("committed property lookup failed: %v", errCode)
 	}
 }
@@ -881,11 +881,11 @@ func TestTransactionDuplicateDefinedPropertySeesStagedDefinitions(t *testing.T) 
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	left, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	left, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject left failed: %v", errCode)
 	}
-	right, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	right, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject right failed: %v", errCode)
 	}
@@ -938,11 +938,11 @@ func TestTransactionDefinedPropertyConflictSeesStagedDefinitions(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject obj failed: %v", errCode)
 	}
-	parent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	parent, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject parent failed: %v", errCode)
 	}
@@ -969,15 +969,15 @@ func TestTransactionChparentDescendantConflictSeesStagedDefinitions(t *testing.T
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject child failed: %v", errCode)
 	}
-	parent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	parent, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject parent failed: %v", errCode)
 	}
-	newParent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	newParent, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject newParent failed: %v", errCode)
 	}
@@ -1014,15 +1014,15 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	left, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	left, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject left failed: %v", errCode)
 	}
-	right, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	right, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject right failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject child failed: %v", errCode)
 	}
@@ -1080,7 +1080,7 @@ func TestTransactionDefinePropertyConflictsWithConcurrentDefinition(t *testing.T
 	if errCode := tx.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("tx DefineProperty failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("live DefineProperty failed: %v", errCode)
 	}
 
@@ -1090,7 +1090,7 @@ func TestTransactionDefinePropertyConflictsWithConcurrentDefinition(t *testing.T
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -1109,7 +1109,7 @@ func TestTransactionDefinePropertyConflictsWithTopologyChange(t *testing.T) {
 	if errCode := tx.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("tx DefineProperty failed: %v", errCode)
 	}
-	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
@@ -1119,7 +1119,7 @@ func TestTransactionDefinePropertyConflictsWithTopologyChange(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	if _, errCode := store.FindProperty(0, "a"); errCode != types.E_PROPNF {
+	if _, errCode := store.DirectTxn().FindProperty(0, "a"); errCode != types.E_PROPNF {
 		t.Fatalf("live FindProperty after failed commit = %v, want E_PROPNF", errCode)
 	}
 }
@@ -1129,10 +1129,10 @@ func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *te
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -1147,17 +1147,17 @@ func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *te
 	if _, errCode := tx.FindProperty(child, "a"); errCode != types.E_PROPNF {
 		t.Fatalf("tx child FindProperty = %v, want E_PROPNF", errCode)
 	}
-	if _, errCode := store.FindProperty(child, "a"); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().FindProperty(child, "a"); errCode != types.E_NONE {
 		t.Fatalf("live child FindProperty before commit = %v, want inherited property", errCode)
 	}
 
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	if _, ok, errCode := store.LocalProperty(0, "a"); errCode != types.E_NONE || ok {
+	if _, ok, errCode := store.DirectTxn().LocalProperty(0, "a"); errCode != types.E_NONE || ok {
 		t.Fatalf("live root LocalProperty ok=%v err=%v, want no local property", ok, errCode)
 	}
-	if _, errCode := store.FindProperty(child, "a"); errCode != types.E_PROPNF {
+	if _, errCode := store.DirectTxn().FindProperty(child, "a"); errCode != types.E_PROPNF {
 		t.Fatalf("live child FindProperty after commit = %v, want E_PROPNF", errCode)
 	}
 }
@@ -1167,10 +1167,10 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -1188,7 +1188,7 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 	}
 
 	for _, id := range []types.ObjID{0, child} {
-		value, errCode := store.PropertyValue(id, "a")
+		value, errCode := store.DirectTxn().PropertyValue(id, "a")
 		if errCode != types.E_NONE {
 			t.Fatalf("PropertyValue #%d.a failed: %v", id, errCode)
 		}
@@ -1203,7 +1203,7 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacementOnCoarsePath(t *
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -1219,7 +1219,7 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacementOnCoarsePath(t *
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -1233,7 +1233,7 @@ func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t 
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -1241,7 +1241,7 @@ func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t 
 	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
 		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}
 
@@ -1251,7 +1251,7 @@ func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t 
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -1265,7 +1265,7 @@ func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -1286,7 +1286,7 @@ func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 		t.Fatalf("reader property value after commit = %d, want historical value 1", got)
 	}
 
-	live, errCode := store.PropertyValue(0, "a")
+	live, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
@@ -1300,11 +1300,11 @@ func TestTransactionDisjointObjectScalarWritesBothCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	childA, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	childA, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject childA failed: %v", errCode)
 	}
-	childB, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	childB, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject childB failed: %v", errCode)
 	}
@@ -1325,14 +1325,14 @@ func TestTransactionDisjointObjectScalarWritesBothCommit(t *testing.T) {
 		t.Fatalf("txB Commit failed: %v", errCode)
 	}
 
-	name, errCode := store.ObjectName(childA)
+	name, errCode := store.DirectTxn().ObjectName(childA)
 	if errCode != types.E_NONE {
 		t.Fatalf("ObjectName childA failed: %v", errCode)
 	}
 	if name != "alpha" {
 		t.Fatalf("childA name = %q, want alpha", name)
 	}
-	hasRead, errCode := store.HasObjectFlag(childB, FlagRead)
+	hasRead, errCode := store.DirectTxn().HasObjectFlag(childB, FlagRead)
 	if errCode != types.E_NONE {
 		t.Fatalf("HasObjectFlag childB failed: %v", errCode)
 	}
@@ -1366,14 +1366,14 @@ func TestTransactionSameObjectScalarWriteConflicts(t *testing.T) {
 		t.Fatalf("second transaction did not record validation failure")
 	}
 
-	name, errCode := store.ObjectName(0)
+	name, errCode := store.DirectTxn().ObjectName(0)
 	if errCode != types.E_NONE {
 		t.Fatalf("ObjectName failed: %v", errCode)
 	}
 	if name != "first" {
 		t.Fatalf("name = %q, want first", name)
 	}
-	hasRead, errCode := store.HasObjectFlag(0, FlagRead)
+	hasRead, errCode := store.DirectTxn().HasObjectFlag(0, FlagRead)
 	if errCode != types.E_NONE {
 		t.Fatalf("HasObjectFlag failed: %v", errCode)
 	}
@@ -1389,7 +1389,7 @@ func TestTransactionAdoptLiveObjectSeesCreatedObject(t *testing.T) {
 	}
 
 	tx := store.BeginReadOnly(0)
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -1402,7 +1402,7 @@ func TestTransactionAdoptLiveObjectSeesCreatedObject(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	owner, errCode := store.ObjectOwner(obj)
+	owner, errCode := store.DirectTxn().ObjectOwner(obj)
 	if errCode != types.E_NONE {
 		t.Fatalf("ObjectOwner failed: %v", errCode)
 	}
@@ -1416,7 +1416,7 @@ func TestTransactionObjectLocationStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -1432,7 +1432,7 @@ func TestTransactionObjectLocationStagesUntilCommit(t *testing.T) {
 	if txLocation != 0 {
 		t.Fatalf("tx location = %d, want 0", txLocation)
 	}
-	liveLocation, errCode := store.Location(obj)
+	liveLocation, errCode := store.DirectTxn().Location(obj)
 	if errCode != types.E_NONE {
 		t.Fatalf("live Location failed: %v", errCode)
 	}
@@ -1443,7 +1443,7 @@ func TestTransactionObjectLocationStagesUntilCommit(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	liveLocation, errCode = store.Location(obj)
+	liveLocation, errCode = store.DirectTxn().Location(obj)
 	if errCode != types.E_NONE {
 		t.Fatalf("live Location after commit failed: %v", errCode)
 	}
@@ -1457,11 +1457,11 @@ func TestTransactionObjectLocationConflicts(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject obj failed: %v", errCode)
 	}
-	other, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	other, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject other failed: %v", errCode)
 	}
@@ -1470,7 +1470,7 @@ func TestTransactionObjectLocationConflicts(t *testing.T) {
 	if errCode := tx.SetObjectLocationRaw(obj, 0); errCode != types.E_NONE {
 		t.Fatalf("tx SetObjectLocationRaw failed: %v", errCode)
 	}
-	if errCode := store.SetObjectLocationRaw(obj, other); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectLocationRaw(obj, other); errCode != types.E_NONE {
 		t.Fatalf("live SetObjectLocationRaw failed: %v", errCode)
 	}
 
@@ -1480,7 +1480,7 @@ func TestTransactionObjectLocationConflicts(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	liveLocation, errCode := store.Location(obj)
+	liveLocation, errCode := store.DirectTxn().Location(obj)
 	if errCode != types.E_NONE {
 		t.Fatalf("live Location failed: %v", errCode)
 	}
@@ -1494,7 +1494,7 @@ func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -1517,14 +1517,14 @@ func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 		t.Fatalf("successful property transaction recorded validation failure")
 	}
 
-	name, errCode := store.ObjectName(0)
+	name, errCode := store.DirectTxn().ObjectName(0)
 	if errCode != types.E_NONE {
 		t.Fatalf("ObjectName failed: %v", errCode)
 	}
 	if name != "renamed" {
 		t.Fatalf("name = %q, want renamed", name)
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -1586,7 +1586,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
@@ -1597,7 +1597,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if _, _, err := tx.FindVerb(0, "look"); err != nil {
 		t.Fatalf("FindVerb failed: %v", err)
 	}
-	if errCode := store.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode failed: %v", errCode)
 	}
 	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
@@ -1610,7 +1610,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	value, errCode := store.PropertyValue(0, "a")
+	value, errCode := store.DirectTxn().PropertyValue(0, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -1640,7 +1640,7 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	if len(txVerb.Code) != 1 || txVerb.Code[0] != "return 2;" {
 		t.Fatalf("tx verb code = %#v, want staged code", txVerb.Code)
 	}
-	liveVerb, _, err := store.FindVerb(0, "look")
+	liveVerb, _, err := store.DirectTxn().FindVerb(0, "look")
 	if err != nil {
 		t.Fatalf("live FindVerb failed: %v", err)
 	}
@@ -1651,7 +1651,7 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("tx Commit failed: %v", errCode)
 	}
-	liveVerb, _, err = store.FindVerb(0, "look")
+	liveVerb, _, err = store.DirectTxn().FindVerb(0, "look")
 	if err != nil {
 		t.Fatalf("live FindVerb after commit failed: %v", err)
 	}
@@ -1687,7 +1687,7 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	verbView, _, err := store.FindVerb(0, "look")
+	verbView, _, err := store.DirectTxn().FindVerb(0, "look")
 	if err != nil {
 		t.Fatalf("FindVerb failed: %v", err)
 	}
@@ -1756,14 +1756,14 @@ func TestTransactionLiveMutationDoesNotRebaseUnrelatedReads(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	other, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	other, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "read", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "read", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty read failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "write", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "write", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty write failed: %v", errCode)
 	}
 
@@ -1799,7 +1799,7 @@ func TestTransactionLiveMutationDoesNotRebaseUnrelatedReads(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatal("transaction did not record validation failure")
 	}
-	value, errCode := store.PropertyValue(0, "write")
+	value, errCode := store.DirectTxn().PropertyValue(0, "write")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue write failed: %v", errCode)
 	}
@@ -1854,7 +1854,7 @@ func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	if len(txVerb.Code) != 1 || txVerb.Code[0] != "return 2;" {
 		t.Fatalf("tx verb code = %#v, want staged code", txVerb.Code)
 	}
-	liveVerb, errCode := store.VerbByIndex(0, 0)
+	liveVerb, errCode := store.DirectTxn().VerbByIndex(0, 0)
 	if errCode != types.E_NONE {
 		t.Fatalf("live VerbByIndex failed: %v", errCode)
 	}
@@ -1865,7 +1865,7 @@ func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("tx Commit failed: %v", errCode)
 	}
-	liveVerb, errCode = store.VerbByIndex(0, 0)
+	liveVerb, errCode = store.DirectTxn().VerbByIndex(0, 0)
 	if errCode != types.E_NONE {
 		t.Fatalf("live VerbByIndex after commit failed: %v", errCode)
 	}
@@ -1887,7 +1887,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	if errCode := tx.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("tx SetVerbCode failed: %v", errCode)
 	}
-	if errCode := store.SetVerbCode(0, "look", []string{"return 3;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(0, "look", []string{"return 3;"}); errCode != types.E_NONE {
 		t.Fatalf("live SetVerbCode failed: %v", errCode)
 	}
 
@@ -1897,7 +1897,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	if !tx.ValidationFailed() {
 		t.Fatalf("transaction did not record validation failure")
 	}
-	liveVerb, _, err := store.FindVerb(0, "look")
+	liveVerb, _, err := store.DirectTxn().FindVerb(0, "look")
 	if err != nil {
 		t.Fatalf("live FindVerb failed: %v", err)
 	}
@@ -1911,7 +1911,7 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -1972,7 +1972,7 @@ func TestStoreTxnCommitAndRenewConflictLeavesTransactionIntact(t *testing.T) {
 	if first.released.Load() {
 		t.Fatal("CommitAndRenew conflict released the original transaction")
 	}
-	value, errCode := store.PropertyValue(0, "value")
+	value, errCode := store.DirectTxn().PropertyValue(0, "value")
 	if errCode != types.E_NONE || value.Type() != types.TYPE_INT || value.Int() != 3 {
 		t.Fatalf("live value after conflict = %v (%v), want concurrent value 3", value, errCode)
 	}
@@ -2014,8 +2014,8 @@ func TestStoreTxnCommitAndRenewPublishesAndPreservesGateExemption(t *testing.T) 
 	if !next.gateExempt {
 		t.Fatal("CommitAndRenew replacement lost escalation-gate exemption")
 	}
-	if next.ReadTimestamp() != store.ReadTimestamp() {
-		t.Fatalf("replacement timestamp = %d, want current store timestamp %d", next.ReadTimestamp(), store.ReadTimestamp())
+	if next.ReadTimestamp() != store.DirectTxn().ReadTimestamp() {
+		t.Fatalf("replacement timestamp = %d, want current store timestamp %d", next.ReadTimestamp(), store.DirectTxn().ReadTimestamp())
 	}
 	value, errCode := next.PropertyValue(0, "value")
 	if errCode != types.E_NONE || value.Type() != types.TYPE_INT || value.Int() != 2 {
@@ -2036,12 +2036,12 @@ func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 		t.Fatalf("Add #0: %v", err)
 	}
 	// Inheritable property the anon will write through its parent #0.
-	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty #0.a: %v", errCode)
 	}
 
 	// Runtime-created anonymous object: lands in s.anonObjects, not the numbered map.
-	anon, ec := store.CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	anon, ec := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject anonymous: %v", ec)
 	}

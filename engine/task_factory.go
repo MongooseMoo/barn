@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"container/heap"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -15,16 +15,16 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-func foregroundTaskLimits(registry *builtins.Registry) (int64, float64) {
-	return registry.GetTaskLimits(false)
+func foregroundTaskLimits(session *builtins.Session) (int64, float64) {
+	return session.GetTaskLimits(false)
 }
 
-func backgroundTaskLimits(registry *builtins.Registry) (int64, float64) {
-	return registry.GetTaskLimits(true)
+func backgroundTaskLimits(session *builtins.Session) (int64, float64) {
+	return session.GetTaskLimits(true)
 }
 
-func configureVMStackLimit(machine *vm.VM, registry *builtins.Registry) {
-	machine.MaxStackDepth = registry.GetMaxStackDepth(machine.Store)
+func configureVMStackLimit(machine *vm.VM, session *builtins.Session) {
+	machine.MaxStackDepth = session.GetMaxStackDepth(machine.Store)
 }
 
 // QueueTask adds a task to the execution runtime.
@@ -32,14 +32,12 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
+		s.populateTaskContextDependencies(ctx)
+	}
 	t.SetState(task.TaskQueued)
-	s.tasks[t.ID] = t
-	s.queueSeq++
-	t.SetQueueSeq(s.queueSeq)
-	heap.Push(s.waiting, t)
-
-	// Register with this runtime's task manager so builtins can find it.
 	s.taskManager.RegisterTask(t)
+	s.scheduler.Enqueue(t)
 
 	return t.ID
 }
@@ -47,7 +45,7 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits(s.registry)
+	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -57,12 +55,32 @@ func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Pro
 	return s.QueueTask(t)
 }
 
+// ErrServerVerbNotFound reports that a server hook verb does not exist on its
+// handler object (Toast: run_server_task_setting_id "simulates an empty verb").
+var ErrServerVerbNotFound = errors.New("server verb not found")
+
 // RunServerVerbTask runs a server-initiated hook verb through the normal
 // engine/task machinery until it completes or reaches its first suspend.
 func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	return s.RunServerVerbTaskWithArgstr(objID, verbName, args, player, "", nil)
+}
+
+// RunServerVerbTaskWithArgstr is RunServerVerbTask for the command-line hooks
+// (#0:do_command and friends), which also see the typed line as argstr. It is
+// Barn's run_server_task_setting_id (Toast tasks.cc): the hook is a real,
+// registered task run synchronously on the caller's goroutine until it returns
+// or first suspends. A suspended hook stays registered and resumes through the
+// scheduler like any other task, so a suspend() reached from inside the hook —
+// for example a room's enterfunc under a move() the hook dispatched — is
+// honored rather than dropped with the throwaway CallVerbWithArgstr VM. The
+// returned Result carries Flow == FlowSuspend in that case; callers that mirror
+// Toast's do_command_task treat any outcome other than a normal return as
+// "handled". onStart, if non-nil, receives the task ID before the task runs.
+// A missing verb is reported as ErrServerVerbNotFound.
+func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64)) (types.Result, error) {
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
-		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
 	}
 
 	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
@@ -74,7 +92,7 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits(s.registry)
+	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -86,14 +104,15 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 	t.VerbLoc = defObjID
 	t.This = objID
 	t.Caller = types.ObjNothing
+	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
 	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
 	s.taskManager.RegisterTask(t)
+	if onStart != nil {
+		onStart(t.ID)
+	}
 
 	if err := s.runTask(t); err != nil {
 		return t.Result, err
@@ -121,7 +140,7 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 // (for disconnect cancellation) before onComplete can clear it on a task that
 // completes synchronously without suspending.
 func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), onComplete func(types.Result)) (int64, error) {
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
@@ -132,7 +151,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits(s.registry)
+	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -145,7 +164,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	t.VerbName = verbName
 	t.VerbLoc = defObjID
 	t.This = objID
-	t.Caller = player
+	t.Caller = types.ObjNothing
 	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
@@ -157,12 +176,9 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	// (OnComplete fires) or suspends on read() (VM saved; it stays registered
 	// and resumes when the next input line is delivered). Running synchronously
 	// here — rather than queuing for the ticker — ensures the login state is
-	// settled before the I/O loop reads the next line, matching ToastStunt's
+	// settled before the I/O loop reads the next line, matching MOO's
 	// run-to-suspend-or-completion login semantics.
 	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
 	s.taskManager.RegisterTask(t)
 
 	if onStart != nil {
@@ -178,7 +194,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 // CreateBackgroundTask creates a background task (fork)
 func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
 	taskID := s.newTaskID()
-	ticks, seconds := backgroundTaskLimits(s.registry)
+	ticks, seconds := backgroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
@@ -193,6 +209,56 @@ func (s *Runtime) Fork(ctx *kernel.TaskContext, program *bytecode.Program, delay
 	return s.CreateBackgroundTask(ctx.Player, program, delay)
 }
 
+// forkBodyProgram extracts the fork body sub-program described by a bytecode
+// fork record, or returns nil when forkInfo does not carry one.
+func forkBodyProgram(forkInfo *types.ForkInfo) *bytecode.Program {
+	if forkInfo == nil {
+		return nil
+	}
+	bcFork, ok := forkInfo.Body.([3]interface{})
+	if !ok {
+		return nil
+	}
+	parentProg, ok1 := bcFork[0].(*bytecode.Program)
+	bodyIP, ok2 := bcFork[1].(int)
+	bodyLen, ok3 := bcFork[2].(int)
+	if !ok1 || !ok2 || !ok3 {
+		return nil
+	}
+	return parentProg.ExtractForkBody(bodyIP, bodyLen)
+}
+
+// newForkVM builds the pre-configured VM a forked child's first run executes:
+// the extracted fork body with the parent's variables copied in. It is a pure
+// function of forkInfo, which is what lets a first run that loses its commit be
+// re-executed from scratch (see forkFirstRunRebuilder) exactly like a fresh task.
+func (s *Runtime) newForkVM(taskID int64, forkInfo *types.ForkInfo, forkProg *bytecode.Program, ticks int64) *vm.VM {
+	childVM := vm.NewVM(s.store, s.session)
+	childVM.TickLimit = ticks
+	configureVMStackLimit(childVM, s.session)
+
+	// Set up the child frame with inherited variables
+	frame := childVM.PrepareVerbFrame(forkProg,
+		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
+		forkInfo.Verb, forkInfo.VerbLoc, nil)
+	// Mark as verb-call so syncTaskLineNumbers includes this frame
+	// when syncing line numbers to the task's CallStack.
+	frame.IsVerbCall = true
+	// Inherit verb debug flag from the parent verb
+	if forkVerb, _, vErr := s.store.DirectTxn().FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
+		frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
+	}
+
+	// Copy inherited variable values from the parent
+	for varName, varVal := range forkInfo.Variables {
+		vm.SetLocalByName(frame, forkProg, varName, varVal)
+	}
+	if forkInfo.VarName != "" {
+		vm.SetLocalByName(frame, forkProg, forkInfo.VarName, types.NewInt(taskID))
+	}
+	return childVM
+}
+
 // CreateForkedTask creates a forked child task from a bytecode VM fork yield.
 // Implements task.ForkCreator interface.
 func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
@@ -202,56 +268,19 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 		programmer = parent.Context.Programmer
 	}
 
-	var t *task.Task
-	firstLine := 1
-
-	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
-		parentProg, ok1 := bcFork[0].(*bytecode.Program)
-		bodyIP, ok2 := bcFork[1].(int)
-		bodyLen, ok3 := bcFork[2].(int)
-		if !ok1 || !ok2 || !ok3 {
-			return 0 // Invalid fork info
-		}
-
-		// Extract the fork body as a sub-program
-		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
-		if forkProg == nil {
-			return 0
-		}
-		if line := forkProg.LineForIP(0); line > 0 {
-			firstLine = line
-		}
-
-		ticks, seconds := backgroundTaskLimits(s.registry)
-		t = task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
-		s.populateTaskContextDependencies(t.Context)
-
-		// Create a pre-configured VM for the child
-		childVM := vm.NewVM(s.store, s.registry)
-		childVM.TickLimit = ticks
-		configureVMStackLimit(childVM, s.registry)
-
-		// Set up the child frame with inherited variables
-		frame := childVM.PrepareVerbFrame(forkProg,
-			forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
-			forkInfo.Verb, forkInfo.VerbLoc, nil)
-		// Mark as verb-call so syncTaskLineNumbers includes this frame
-		// when syncing line numbers to the task's CallStack.
-		frame.IsVerbCall = true
-		// Inherit verb debug flag from the parent verb
-		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
-			frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
-		}
-
-		// Copy inherited variable values from the parent
-		for varName, varVal := range forkInfo.Variables {
-			vm.SetLocalByName(frame, forkProg, varName, varVal)
-		}
-
-		t.SetBytecodeVM(childVM)
-	} else {
-		return 0 // Unknown fork body type
+	forkProg := forkBodyProgram(forkInfo)
+	if forkProg == nil {
+		return 0 // Unknown or invalid fork body
 	}
+	firstLine := 1
+	if line := forkProg.LineForIP(0); line > 0 {
+		firstLine = line
+	}
+
+	ticks, seconds := backgroundTaskLimits(s.session)
+	t := task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
+	s.populateTaskContextDependencies(t.Context)
+	t.SetBytecodeVM(s.newForkVM(taskID, forkInfo, forkProg, ticks))
 
 	t.StartTime = time.Now().Add(forkInfo.Delay)
 	t.Kind = task.TaskForked
@@ -277,9 +306,9 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	}
 
 	// Push initial activation frame for the fork body.
-	// This matches Toast: forked tasks include a frame for the verb
+	// This matches MOO: forked tasks include a frame for the verb
 	// context in which the fork statement appeared.
-	t.PushFrame(task.ActivationFrame{
+	t.PushFrame(types.ActivationFrame{
 		This:       forkInfo.ThisObj,
 		ThisValue:  forkInfo.ThisValue,
 		Player:     forkInfo.Player,
@@ -299,11 +328,8 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 
 // ResumeTask resumes a suspended task
 func (s *Runtime) ResumeTask(taskID int64, value types.Value) error {
-	s.mu.Lock()
-	t, exists := s.tasks[taskID]
-	s.mu.Unlock()
-
-	if !exists {
+	t := s.taskManager.GetTask(taskID)
+	if t == nil {
 		return ErrNotSuspended
 	}
 
@@ -315,11 +341,8 @@ func (s *Runtime) ResumeTask(taskID int64, value types.Value) error {
 
 // KillTask kills a running task
 func (s *Runtime) KillTask(taskID int64, killerID types.ObjID) error {
-	s.mu.Lock()
-	t, exists := s.tasks[taskID]
-	s.mu.Unlock()
-
-	if !exists {
+	t := s.taskManager.GetTask(taskID)
+	if t == nil {
 		return ErrNotSuspended
 	}
 
@@ -344,22 +367,11 @@ func (s *Runtime) CancelLoginTasksFor(connID types.ObjID) {
 	// Collect candidates: tasks owned by this connID (login-hook tasks run with
 	// Owner == connID) and any task currently reading from this connID.
 	var victims []*task.Task
-	s.mu.Lock()
-	for id, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
 		}
 		if t.Owner == connID || t.ReadingPlayerValue() == connID {
-			victims = append(victims, t)
-			delete(s.tasks, id)
-		}
-	}
-	s.mu.Unlock()
-
-	// Also sweep the owned manager for read()-suspended tasks bound to this
-	// connID that the runtime may not own (defense in depth).
-	for _, t := range s.taskManager.GetAllTasks() {
-		if t != nil && t.ReadingPlayerValue() == connID {
 			victims = append(victims, t)
 		}
 	}
@@ -409,24 +421,14 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 // forever — an unbounded-growth / DoS vector on the pre-auth path. Only
 // terminal tasks are removed; suspended/queued/running tasks are left intact.
 func (s *Runtime) CleanupFinishedTasks() {
-	var finished []int64
-	s.mu.Lock()
-	for id, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
-			delete(s.tasks, id)
 			continue
 		}
 		st := t.GetState()
 		if st == task.TaskCompleted || st == task.TaskKilled {
-			finished = append(finished, id)
-			delete(s.tasks, id)
+			s.taskManager.RemoveTaskIf(t.ID, t)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, id := range finished {
-		mgr.RemoveTask(id)
 	}
 }
 
@@ -437,9 +439,7 @@ func (s *Runtime) IsTaskLive(taskID int64) bool {
 	if taskID == 0 {
 		return false
 	}
-	s.mu.Lock()
-	t := s.tasks[taskID]
-	s.mu.Unlock()
+	t := s.taskManager.GetTask(taskID)
 	if t == nil {
 		return false
 	}
@@ -449,9 +449,7 @@ func (s *Runtime) IsTaskLive(taskID int64) bool {
 
 // GetTask retrieves a task by ID
 func (s *Runtime) GetTask(taskID int64) *task.Task {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.tasks[taskID]
+	return s.taskManager.GetTask(taskID)
 }
 
 // TaskSnapshots returns immutable task snapshots for checkpoint serialization.
@@ -459,7 +457,7 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		snapshot := t.PersistenceSnapshot()
 		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
 			continue

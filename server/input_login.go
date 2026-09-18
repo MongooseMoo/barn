@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -28,7 +30,7 @@ func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string)
 	}
 
 	// Otherwise always call do_login_command — including for the empty line the
-	// connection manager enqueues on connect, matching ToastStunt's
+	// connection manager enqueues on connect, matching MOO's
 	// new_input_task(h->tasks, "", 0, 0). A listener whose do_login_command
 	// returns a player without consuming input thus logs in at connect time.
 	return true
@@ -38,17 +40,17 @@ func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string)
 // Returns the player ObjID if login succeeded, or a negative value on failure.
 func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
 	handler := conn.ListenerObject()
-	if errCode := s.store.ObjectExists(handler); errCode != types.E_NONE {
+	if errCode := s.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return types.ObjID(-1), fmt.Errorf("listener object not found")
 	}
 
 	if !s.store.HasLocalVerb(handler, "do_login_command") {
-		// Match ToastStunt: when #0:do_login_command (the listener handler) does
+		// Preserve the MOO login contract: when #0:do_login_command (the listener handler) does
 		// not exist, do_login_task initializes result to TYPE_INT 0 and the verb
-		// call leaves it unchanged (toaststunt/src/tasks.cc:884). The login
+		// call leaves it unchanged (verified against toaststunt/src/tasks.cc:884). The login
 		// predicate then fails because result is not a user object
 		// (tasks.cc:921 `result.type == TYPE_OBJ && is_user(result.v.obj)`), so
-		// the connection is NOT logged in — no player is assigned and Toast does
+		// the connection is NOT logged in — no player is assigned and MOO does
 		// NOT substitute a default wizard. Return a negative ObjID (login refused).
 		return types.ObjID(-1), nil
 	}
@@ -64,13 +66,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	result := s.runtime.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
 
 	if result.Flow == types.FlowException {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -80,7 +76,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
 		playerID := result.Val.Obj()
 		if playerID > 0 {
-			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
+			hasPlayerFlag, errCode := s.store.DirectTxn().HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID, nil
 			}
@@ -102,13 +98,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 // login path, where the result arrives asynchronously after the task finishes.
 func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Result) types.ObjID {
 	if result.Flow == types.FlowException {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -118,7 +108,7 @@ func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Res
 	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
 		playerID := result.Val.Obj()
 		if playerID > 0 {
-			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
+			hasPlayerFlag, errCode := s.store.DirectTxn().HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID
 			}
@@ -148,13 +138,7 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 			return false, nil
 		}
 
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -167,32 +151,36 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 	return result.Val.Truthy(), nil
 }
 
-// callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string) (bool, error) {
+// callDoCommand runs #handler:do_command(@words) as a real task and reports
+// whether the command was handled. Mirrors Toast tasks.cc do_command_task: the
+// hook runs through run_server_task_setting_id, and any outcome other than a
+// normal false return — a truthy value, an uncaught error (the task machinery
+// has already delivered the traceback), or a suspend (the task stays registered
+// and resumes through the scheduler) — means the hook owns the command and the
+// native parser must not run it again. onStart receives the hook's task ID so
+// the connection can record it as the last input task, as Toast does.
+func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string, onStart func(int64)) (bool, error) {
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := s.runtime.CallVerbWithArgstr(handler, "do_command", args, player, argstr)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
+	result, err := s.runtime.RunServerVerbTaskWithArgstr(handler, "do_command", args, player, argstr, onStart)
+	if err != nil {
+		if errors.Is(err, engine.ErrServerVerbNotFound) {
 			return false, nil
 		}
-
-		// A MOO error code is an int; render it by name, as the traceback records do.
-		slog.Warn("do_command error",
+		// Only a hook that could not start (e.g. failed to compile) reaches
+		// here; a MOO error inside the hook is a normal task outcome below.
+		slog.Warn("do_command could not run",
 			slog.Int64("player", int64(player)),
-			slog.String("error", types.NewErr(result.Error).String()))
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
-		return true, nil
+			slog.Any("err", err))
+		return false, nil
 	}
 
+	switch result.Flow {
+	case types.FlowSuspend, types.FlowException:
+		return true, nil
+	}
 	if result.Val.IsNone() {
 		return false, nil
 	}
@@ -213,13 +201,7 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 			slog.String("verb", verbName),
 			slog.Int64("player", int64(player)),
 			slog.String("error", types.NewErr(result.Error).String()))
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, result.CallStack)
 	}
 }
 
@@ -253,7 +235,16 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 	var existingConn *Connection
 	if ec, exists := cm.playerConns[player]; exists {
 		if ec == conn {
-			alreadyLoggedIn = true
+			// switch_player() may already have installed this connection and
+			// archived the connection it replaced. Preserve that replacement as
+			// a reconnect instead of mistaking it for an ordinary first login.
+			history := cm.playerConnHistory[player]
+			if len(history) > 0 {
+				existingConn = history[len(history)-1]
+				reconnection = true
+			} else {
+				alreadyLoggedIn = true
+			}
 		} else {
 			existingConn = ec
 			reconnection = true
@@ -291,29 +282,41 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
+		} else {
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		return
 	}
 
 	if reconnection {
 		existingConn.Send("*** Redirecting connection to new port ***")
-		s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
-		cm.mu.Lock()
-		cm.playerConns[player] = conn
-		cm.mu.Unlock()
-		if conn.ListenerObject() == 0 || conn.PrintMessages() {
-			_ = conn.Send(s.connectMessage())
+		if existingConn.ListenerObject() == conn.ListenerObject() {
+			cm.mu.Lock()
+			cm.playerConns[player] = conn
+			cm.mu.Unlock()
+			if conn.ListenerObject() == 0 || conn.PrintMessages() {
+				_ = conn.Send(s.connectMessage())
+			}
+			s.callUserHook(conn.ListenerObject(), "user_reconnected", player)
+		} else {
+			s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
+			cm.mu.Lock()
+			cm.playerConns[player] = conn
+			cm.mu.Unlock()
+			if conn.ListenerObject() == 0 || conn.PrintMessages() {
+				_ = conn.Send(s.connectMessage())
+			}
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	} else {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
+		} else {
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	}
 
 	slog.Info("logged in", slog.Int64("conn_id", conn.ID), slog.Int64("player", int64(player)))
@@ -341,9 +344,9 @@ func (s *InputProcessor) isTrustedProxyConnection(conn *Connection) bool {
 
 // getServerOption looks up a server option from the server_options property.
 func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
-	serverOptions, err := s.store.FindProperty(listener, "server_options")
+	serverOptions, err := s.store.DirectTxn().FindProperty(listener, "server_options")
 	if err != types.E_NONE && listener != 0 {
-		serverOptions, err = s.store.FindProperty(0, "server_options")
+		serverOptions, err = s.store.DirectTxn().FindProperty(0, "server_options")
 	}
 	if err != types.E_NONE {
 		return types.None, false
@@ -353,7 +356,7 @@ func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (typ
 		return types.None, false
 	}
 
-	prop, err := s.store.FindProperty(serverOptions.Value.Obj(), name)
+	prop, err := s.store.DirectTxn().FindProperty(serverOptions.Value.Obj(), name)
 	if err != types.E_NONE {
 		return types.None, false
 	}

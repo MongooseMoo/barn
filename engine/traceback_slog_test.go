@@ -38,8 +38,8 @@ func captureRecords(t *testing.T, emit func()) []map[string]any {
 }
 
 // sampleStack is a two-deep call stack: #2:look called #10:look_self.
-func sampleStack() []task.ActivationFrame {
-	return []task.ActivationFrame{
+func sampleStack() []types.ActivationFrame {
+	return []types.ActivationFrame{
 		{
 			This: 2, VerbLoc: 2, Verb: "look", StoredVerb: "look",
 			Player: 2, Programmer: 2, LineNumber: 12, SourceLine: "this:look_self();",
@@ -124,7 +124,7 @@ func TestTracebackFramesCarryStructuredStack(t *testing.T) {
 // activation as "Input to EVAL". The structured frames must agree.
 func TestTracebackFramesUseStoredVerbNames(t *testing.T) {
 	s := &Runtime{}
-	stack := []task.ActivationFrame{
+	stack := []types.ActivationFrame{
 		{This: 2, VerbLoc: 2, Verb: "eval", StoredVerb: "eval*-d", LineNumber: 1},
 		{This: 2, VerbLoc: 2, Verb: "", LineNumber: 1, IsEvalFrame: true},
 	}

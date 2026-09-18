@@ -136,11 +136,11 @@ func (w *Writer) writeInterruptedTasks() error {
 			return err
 		}
 		for i, frame := range machine.Frames {
-			var activation task.ActivationFrame
+			var activation types.ActivationFrame
 			if i < len(interrupted.CallStack) {
 				activation = interrupted.CallStack[i]
 			} else {
-				activation = task.ActivationFrame{
+				activation = types.ActivationFrame{
 					This:       frame.This,
 					ThisValue:  frame.ThisValue,
 					Player:     frame.Player,

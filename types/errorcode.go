@@ -109,11 +109,11 @@ func (e ErrorCode) Message() string {
 	case E_FLOAT:
 		return "Floating-point arithmetic error"
 	case E_FILE:
-		return "File system error"
+		return "File error"
 	case E_EXEC:
 		return "Exec error"
 	case E_INTRPT:
-		return "Task interrupted"
+		return "Interrupted"
 	default:
 		return "Unknown error"
 	}

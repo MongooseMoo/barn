@@ -50,11 +50,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 		defObjID types.ObjID
 		err      error
 	)
-	if parentCtx.StoreTxn != nil {
-		verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
-	} else {
-		verb, defObjID, err = s.store.FindVerb(objID, verbName)
-	}
+	verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -78,11 +74,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	var frameThisValue types.Value
 	var isAnonymous bool
 	var anonErr types.ErrorCode
-	if parentCtx.StoreTxn != nil {
-		isAnonymous, anonErr = parentCtx.StoreTxn.ObjectIsAnonymous(objID)
-	} else {
-		isAnonymous, anonErr = s.store.ObjectIsAnonymous(objID)
-	}
+	isAnonymous, anonErr = parentCtx.StoreTxn.ObjectIsAnonymous(objID)
 	if anonErr == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
@@ -103,7 +95,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 
 	parentTask := parent.Task
 	if parentTask != nil {
-		parentTask.PushFrame(task.ActivationFrame{
+		parentTask.PushFrame(types.ActivationFrame{
 			This:       objID,
 			ThisValue:  frameThisValue,
 			Player:     player,
@@ -121,12 +113,22 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	// returned to the caller and the VM dropped, and ReleaseVM itself declines to
 	// pool a still-yielded VM. Release happens after drainForks, which resumes on
 	// this same VM.
-	bcVM := vm.AcquireVM(s.store, s.registry)
+	//
+	// Consequently a suspend() inside a hook that reaches this path is NOT
+	// honored. The move() hooks (accept/exitfunc/enterfunc) and recycle() no
+	// longer come here from a VM: they run as continuations on the calling task's
+	// own VM (vm/move_lifecycle.go, vm/recycle_lifecycle.go), matching Toast's
+	// do_move/bf_recycle call packs. The hooks that still take this path, and so
+	// remain non-suspendable, are create()'s :initialize and the :exitfunc calls
+	// recycle() makes for the recycled object's contents and location
+	// (builtins/objects.go FinishRecycleLifecycle); Toast runs the latter as
+	// bf_recycle continuations via move_to_nothing.
+	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
-	ticks, _ := foregroundTaskLimits(s.registry)
+	ticks, _ := foregroundTaskLimits(s.session)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
 	frame.IsVerbCall = true
@@ -216,7 +218,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	t := &task.Task{
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
-		CallStack:   make([]task.ActivationFrame, 0),
+		CallStack:   make([]types.ActivationFrame, 0),
 		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
@@ -235,7 +237,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	trace.VerbCall(objID, verbName, args, player, player)
 
 	// Look up the verb to get its owner for programmer permissions
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		// Verb not found
 		result := types.Result{
@@ -266,7 +268,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 
 	thisVal := types.NewObj(objID)
 	frameThisValue := types.None
-	if isAnonymous, errCode := s.store.ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
+	if isAnonymous, errCode := s.store.DirectTxn().ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
 		frameThisValue = anon
@@ -294,7 +296,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ownedCtx = ctx
 
 	// Push activation frame for traceback support
-	t.PushFrame(task.ActivationFrame{
+	t.PushFrame(types.ActivationFrame{
 		This:            objID,
 		ThisValue:       frameThisValue,
 		Player:          player,
@@ -311,12 +313,12 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// reason as CallVerbInContext: this VM is never stored on the task, and the
 	// only post-execution uses (commit, effect flush, traceback) read the task and
 	// the context, never the VM.
-	bcVM := vm.AcquireVM(s.store, s.registry)
+	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
-	ticks, _ := foregroundTaskLimits(s.registry)
+	ticks, _ := foregroundTaskLimits(s.session)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	// Toast sets caller = #-1 in server-initiated hook calls (do_command etc.);
@@ -335,7 +337,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	result = s.drainForks(t, bcVM, result)
 	vm.ReleaseVM(bcVM)
 	committed := true
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			committed = false
@@ -343,19 +345,17 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {
 		stack := t.GetCallStack()
 		if result.CallStack != nil {
-			if captured, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = captured
-			}
+			stack = result.CallStack
 		}
 		result.CallStack = stack
 		// Log traceback to server log

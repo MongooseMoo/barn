@@ -73,14 +73,14 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 	code := "padding = 0; fork (0) " + oversizedAssignments("padding = 1;") +
 		"return 70; endfork return 0;"
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	program, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics)
 	}
 
 	store := dbstore.NewStore()
-	parent := NewVM(store, registry)
+	parent := NewVM(store, session)
 	parent.Context, parent.Task = bytecodeTestContext(store)
 	result := parent.Run(program)
 	if result.Flow != types.FlowFork || result.ForkInfo == nil {
@@ -101,7 +101,7 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 		t.Fatal("ExtractForkBody rejected compiler-produced fork range")
 	}
 
-	child := NewVM(store, registry)
+	child := NewVM(store, session)
 	child.Context, child.Task = bytecodeTestContext(store)
 	childResult := child.Run(childProgram)
 	requireInt(t, childResult, 70)

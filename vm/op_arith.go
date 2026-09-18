@@ -66,12 +66,19 @@ func (vm *VM) executeAdd() error {
 	// Handle string concatenation
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
-			resultStr := a.Str() + b.Str()
-			if errCode := vm.registryForLimits().CheckStringLength(len(resultStr)); errCode != types.E_NONE {
+			if errCode := vm.Builtins.CheckStringLengthForTask(vm.Context, a.Len()+b.Len()); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
-			vm.Push(types.NewStr(resultStr))
+			// StrAppend reuses the accumulator's uncommitted capacity when this
+			// header owns the append frontier (amortized O(1) for the
+			// `s = s + x` idiom) and copies otherwise; aliases keep their old
+			// content. PR #204 folded OP_STRING_APPEND into this handler and
+			// lost the builder path, making the idiom O(n^2) again.
+			vm.Push(a.StrAppend(b))
 			return nil
+		}
+		if b.Type() == types.TYPE_INT {
+			return fmt.Errorf("E_TYPE: Type mismatch (expected string; got integer)")
 		}
 	}
 
@@ -241,13 +248,6 @@ func (vm *VM) executeDiv() error {
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
-	}
-
-	// Strict mixed/invalid: preserve prior behavior. Note the old code's early
-	// b==0 check fired for any int-zero divisor regardless of a's type; replicate
-	// that so strict-mode results are byte-identical (e.g. 5.0 / 0 -> E_DIV).
-	if bIsInt && b.Int() == 0 {
-		return fmt.Errorf("E_DIV: division by zero")
 	}
 
 	return fmt.Errorf("E_TYPE: invalid operands for /")

@@ -55,7 +55,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	}
 
 	createChild := func(parent types.ObjID) types.ObjID {
-		id, errCode := store.CreateObject([]types.ObjID{parent}, 0, false)
+		id, errCode := store.DirectTxn().CreateObject([]types.ObjID{parent}, 0, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject(parent=%d) failed: %v", parent, errCode)
 		}
@@ -82,7 +82,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	disjoint := make([]types.ObjID, nDisjoint)
 	for i := 0; i < nDisjoint; i++ {
 		id := createChild(0)
-		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty counter failed: %v", errCode)
 		}
 		disjoint[i] = id
@@ -114,7 +114,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 				}
 				// Every descendant must now inherit the defined value (no lost/torn define).
 				for _, dID := range descendants[i] {
-					pv, errCode := store.PropertyValue(dID, propName)
+					pv, errCode := store.DirectTxn().PropertyValue(dID, propName)
 					if errCode != types.E_NONE {
 						t.Errorf("subtree %d descendant #%d PropertyValue(%s) after define = %v, want value", i, dID, propName, errCode)
 						return
@@ -137,7 +137,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 				}
 				// Every descendant must no longer resolve the property (no lost delete).
 				for _, dID := range descendants[i] {
-					if _, errCode := store.PropertyValue(dID, propName); errCode != types.E_PROPNF {
+					if _, errCode := store.DirectTxn().PropertyValue(dID, propName); errCode != types.E_PROPNF {
 						t.Errorf("subtree %d descendant #%d PropertyValue(%s) after delete = %v, want E_PROPNF", i, dID, propName, errCode)
 						return
 					}
@@ -180,15 +180,15 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 				want := int64(1000 + s)
 				propName := "sub" + string(rune('A'+s))
 				for _, dID := range descendants[s] {
-					pv, errCode := store.PropertyValue(dID, propName)
+					pv, errCode := store.DirectTxn().PropertyValue(dID, propName)
 					if errCode == types.E_NONE {
 						if pv.Type() != types.TYPE_INT || pv.Int() != want {
 							t.Errorf("reader saw torn inherited value on #%d: %v want absent-or-%d", dID, pv, want)
 							return
 						}
 					}
-					_, _ = store.ObjectName(dID)
-					_, _ = store.Parents(dID)
+					_, _ = store.DirectTxn().ObjectName(dID)
+					_, _ = store.DirectTxn().Parents(dID)
 				}
 			}
 		}(r)
@@ -202,19 +202,19 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	for i := 0; i < nSubtrees; i++ {
 		propName := "sub" + string(rune('A'+i))
 		for _, dID := range descendants[i] {
-			if _, errCode := store.PropertyValue(dID, propName); errCode != types.E_PROPNF {
+			if _, errCode := store.DirectTxn().PropertyValue(dID, propName); errCode != types.E_PROPNF {
 				t.Fatalf("post-run descendant #%d still resolves %s: %v, want E_PROPNF", dID, propName, errCode)
 			}
-			if _, errCode := store.ObjectName(dID); errCode != types.E_NONE {
+			if _, errCode := store.DirectTxn().ObjectName(dID); errCode != types.E_NONE {
 				t.Fatalf("post-run ObjectName(#%d) failed: %v", dID, errCode)
 			}
 		}
-		if _, errCode := store.ObjectName(roots[i]); errCode != types.E_NONE {
+		if _, errCode := store.DirectTxn().ObjectName(roots[i]); errCode != types.E_NONE {
 			t.Fatalf("post-run ObjectName(root #%d) failed: %v", roots[i], errCode)
 		}
 	}
 	for _, id := range disjoint {
-		if _, errCode := store.PropertyValue(id, "counter"); errCode != types.E_NONE {
+		if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
 			t.Fatalf("post-run disjoint PropertyValue(#%d) failed: %v", id, errCode)
 		}
 	}

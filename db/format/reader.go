@@ -57,6 +57,11 @@ func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 		s.AddAnonymous(b.Build())
 	}
 	s.SetPendingFinalizations(database.PendingFinalizations)
+	// WAIF definitions are shared by every reference restored by the reader.
+	// Register each definition once so waif_stats() includes live loaded WAIFs.
+	for _, loaded := range database.savedWaifs {
+		s.RegisterWaif(loaded.waif.Class(), loaded.waif)
+	}
 	return s, nil
 }
 

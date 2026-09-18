@@ -110,7 +110,7 @@ do not invent a Barn change.
 When a tool doesn't work, **fix the tool** - don't work around it with debug logging or manual inspection. Time spent fixing tooling pays dividends. Time spent on workarounds compounds into more workarounds.
 
 Examples:
-- dump_verb doesn't load mongoose.db → Fix dump_verb, don't add printf debugging
+- `barn -verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
 - cow_py fails to parse database → Fix the parser or use barn's own loader
 - Test harness unreliable → Fix harness, don't run tests manually
 
@@ -240,46 +240,45 @@ Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 - Attr conventions: `task_id`, `player`, `this` (object a verb runs on), `verb`,
   `conn_id`, `error` (E_* name), `err` (Go error), `go_stack`, `traceback`, `frames`.
 
+## Benchmarking Against Toast
+
+`scripts/bench_differ.py` times Barn and Toast **in-process** — no servers,
+ports, or sockets. Both engines run inside WSL (Barn as a linux cross-build,
+Toast in emergency mode), each workload is timed by `ftime(1)` bookends inside
+MOO, and the two engines' return values are compared as a correctness check.
+
+```bash
+python scripts/bench_differ.py                       # ten built-in workloads, 5 repeats
+python scripts/bench_differ.py --repeats 7 --out experiments/bench-$(date +%Y%m%d)
+python scripts/bench_differ.py --corpus probes.txt   # `name: moo statements` per line
+python scripts/bench_differ.py --help
+```
+
+Report (`<out>/report.md`, `results.json`, raw transcripts) is sorted by
+Barn/Toast ratio and records the fixture SHA-256, Barn binary SHA-256, and git
+HEAD. Median/min normally agree within ~1%; wider spread means the workload is
+too short — loop it up. It measures VM + builtins + store reads only (the
+dbtool eval path uses a direct transaction, no scheduler or MVCC commit); use
+`moo-conformance-tests/bench/bench.py` or `scripts/benchmark-mongoose.ps1` for
+end-to-end latency. Single-thread Go microbenchmarks stay in
+`vm/perf_bench_test.go` (`go test ./vm -run='^$' -bench=BenchmarkVM -benchmem`).
+
 ## Database Inspection Tools
 
-### dump_verb - Display Verb Code
+Build the `barn` binary once; database inspection uses the same `-db` flag as
+the server and exits without starting listeners.
 
 ```bash
-# Build
-go build -o dump_verb.exe ./cmd/dump_verb/
+go build -o barn.exe ./cmd/barn/
 
-# Dump a specific verb from an object
-./dump_verb.exe 0 do_login_command    # #0:do_login_command
-./dump_verb.exe 2 look                # #2:look
-
-# Lists available verbs if verb not found
-./dump_verb.exe 0 nonexistent
-```
-
-### check_player - Inspect Player Objects
-
-```bash
-# Build
-go build -o check_player.exe ./cmd/check_player/
-
-# Inspect wizard object (default)
-./check_player.exe
-
-# With custom database
-./check_player.exe -db MyGame.db
-```
-
-### cow_py Database Tools (Reference)
-
-For more advanced database inspection, use cow_py's CLI:
-
-```bash
-cd ~/code/cow_py
-uv run cow_py db obj #0              # Show object info
-uv run cow_py db verbs #0            # List verbs on object
-uv run cow_py db verb #0 do_login_command  # Show verb code
-uv run cow_py db props #2            # List properties
-uv run cow_py db ancestry #2         # Show parent chain
+./barn.exe -db Test.db -verb-code '#0:do_login_command'
+./barn.exe -db Test.db -list-verbs '#0'
+./barn.exe -db Test.db -obj-info '#2'
+./barn.exe -db Test.db -eval '1 + 2'
+./barn.exe -db Test.db -dump-obj-raw '#2'
+./barn.exe -db Test.db -verb-lookup '#2:look'
+./barn.exe -db Test.db -ancestry '#2'
+./barn.exe -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
 ```
 
 ## Spec Audit Workflow

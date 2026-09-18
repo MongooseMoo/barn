@@ -14,7 +14,7 @@ import (
 
 func verbViewForTest(t *testing.T, store *Store, objID types.ObjID, name string) VerbView {
 	t.Helper()
-	view, err := store.FindVerbOnObject(objID, name)
+	view, err := store.DirectTxn().FindVerbOnObject(objID, name)
 	if err != nil {
 		t.Fatalf("FindVerbOnObject(#%d, %q): %v", objID, name, err)
 	}
@@ -80,7 +80,7 @@ func TestObjectBuilderSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 func TestStoreSetVerbCodeRefreshesKey(t *testing.T) {
 	store := storeWithVerbForTest(t, []string{"return 1;"})
 	before := verbViewForTest(t, store, 0, "look").CodeKey
-	if errCode := store.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", errCode)
 	}
 	after := verbViewForTest(t, store, 0, "look")
@@ -93,7 +93,7 @@ func TestStoreSetVerbCodeRefreshesKey(t *testing.T) {
 func TestStoreSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 	store := storeWithVerbForTest(t, []string{"return 1;"})
 	before := verbViewForTest(t, store, 0, "look").CodeKey
-	if errCode := store.SetVerbCodeByIndex(0, 0, []string{"return 3;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCodeByIndex(0, 0, []string{"return 3;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex: %v", errCode)
 	}
 	after := verbViewForTest(t, store, 0, "look")
@@ -156,7 +156,7 @@ func TestTxnImageRebuildCarriesStagedVerbKey(t *testing.T) {
 	}
 	// Force a rebuild of the txn's object image by reading a scalar that
 	// re-derives it, then re-read the verb.
-	if errCode := store.SetObjectName(0, "renamed"); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectName(0, "renamed"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName: %v", errCode)
 	}
 	view, err := tx.FindVerbOnObject(0, "look")
@@ -203,7 +203,7 @@ func TestConcurrentVerbReadsSeeConsistentCodeAndKey(t *testing.T) {
 	}
 	for i := 0; i < 200; i++ {
 		lines := []string{"return " + string(rune('a'+i%26)) + ";"}
-		if errCode := store.SetVerbCode(0, "look", lines); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetVerbCode(0, "look", lines); errCode != types.E_NONE {
 			t.Fatalf("SetVerbCode: %v", errCode)
 		}
 	}

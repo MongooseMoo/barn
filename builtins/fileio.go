@@ -147,9 +147,9 @@ func getFileHandle(ctx *Execution, v types.Value) (*mooFileHandle, types.ErrorCo
 	if v.Type() != types.TYPE_INT {
 		return nil, types.E_TYPE
 	}
-	ctx.Registry.runtime.files.mu.Lock()
-	defer ctx.Registry.runtime.files.mu.Unlock()
-	handle := ctx.Registry.runtime.files.handles[v.Int()]
+	ctx.Session.runtime.files.mu.Lock()
+	defer ctx.Session.runtime.files.mu.Unlock()
+	handle := ctx.Session.runtime.files.handles[v.Int()]
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -213,11 +213,11 @@ func builtinFileOpen(ctx *Execution, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
-	ctx.Registry.runtime.files.mu.Lock()
-	id := ctx.Registry.runtime.files.nextID
-	ctx.Registry.runtime.files.nextID++
-	ctx.Registry.runtime.files.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary}
-	ctx.Registry.runtime.files.mu.Unlock()
+	ctx.Session.runtime.files.mu.Lock()
+	id := ctx.Session.runtime.files.nextID
+	ctx.Session.runtime.files.nextID++
+	ctx.Session.runtime.files.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary}
+	ctx.Session.runtime.files.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }
 
@@ -233,9 +233,9 @@ func builtinFileClose(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(code)
 	}
 	_ = h.file.Close()
-	ctx.Registry.runtime.files.mu.Lock()
-	delete(ctx.Registry.runtime.files.handles, h.id)
-	ctx.Registry.runtime.files.mu.Unlock()
+	ctx.Session.runtime.files.mu.Lock()
+	delete(ctx.Session.runtime.files.handles, h.id)
+	ctx.Session.runtime.files.mu.Unlock()
 	return types.Ok(types.NewInt(0))
 }
 
@@ -918,12 +918,12 @@ func builtinFileHandles(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	ctx.Registry.runtime.files.mu.Lock()
-	ids := make([]int64, 0, len(ctx.Registry.runtime.files.handles))
-	for id := range ctx.Registry.runtime.files.handles {
+	ctx.Session.runtime.files.mu.Lock()
+	ids := make([]int64, 0, len(ctx.Session.runtime.files.handles))
+	for id := range ctx.Session.runtime.files.handles {
 		ids = append(ids, id)
 	}
-	ctx.Registry.runtime.files.mu.Unlock()
+	ctx.Session.runtime.files.mu.Unlock()
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]types.Value, 0, len(ids))
 	for _, id := range ids {

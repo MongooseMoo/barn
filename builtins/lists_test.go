@@ -2,11 +2,46 @@ package builtins
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestSliceInvalidElementDoesNotWriteToStdout(t *testing.T) {
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = writer
+	t.Cleanup(func() {
+		os.Stdout = originalStdout
+		reader.Close()
+		writer.Close()
+	})
+
+	result := builtinSlice(newTestExecution(), []types.Value{
+		types.NewList([]types.Value{types.NewInt(1)}),
+	})
+	os.Stdout = originalStdout
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout capture: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout capture: %v", err)
+	}
+
+	if !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("slice({1}) = %#v, want E_INVARG", result)
+	}
+	if len(output) != 0 {
+		t.Fatalf("slice({1}) wrote to stdout: %q", output)
+	}
+}
 
 // TestIsMemberPromoteNumbers: Toast mongoose branch (PROMOTE_NUMBERS on),
 // verified live 2026-07-01: is_member(1, {1.0}) and is_member(1.0, {1}) => 1.
@@ -81,7 +116,7 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.Append(value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -99,7 +134,7 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.InsertAt(1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -117,7 +152,7 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.InsertAt(list.Len()+1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -135,7 +170,7 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 	limit := ValueBytes(list.Set(1, value))
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: kernel.PendingServerOptions{
+		ServerOptions: &kernel.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}

@@ -85,7 +85,7 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 		}
 	}
 
-	final, errCode := store.PropertyValue(0, "counter")
+	final, errCode := store.DirectTxn().PropertyValue(0, "counter")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
@@ -168,7 +168,7 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 	const n = 32
 	ids := make([]types.ObjID, n)
 	for k := 0; k < n; k++ {
-		id, errCode := store.CreateObject(nil, 3, false)
+		id, errCode := store.DirectTxn().CreateObject(nil, 3, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
@@ -201,7 +201,7 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 		}
 	}
 	for _, id := range ids {
-		names, errCode := store.VerbNames(id)
+		names, errCode := store.DirectTxn().VerbNames(id)
 		if errCode != types.E_NONE {
 			t.Fatalf("VerbNames(#%d) failed: %s", id, errCode)
 		}

@@ -71,15 +71,11 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	// Check if caller can see details: wizard, owner, or verb readable, or object readable
-	hasRead := verb.Perms.Has(dbstore.VerbRead)
-	isOwner := verb.Owner == ctx.Player
-	objReadable, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagRead)
-	if errCode != types.E_NONE {
-		objReadable = false
-	}
-
-	if ctx.IsWizard || isOwner || hasRead || objReadable {
+	// Toast exposes the defining object and canonical verb name only when the
+	// effective programmer can read the target object. Keep this check on the
+	// transaction-aware path so staged ownership and flag changes are visible.
+	objReadable, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode == types.E_NONE && objReadable {
 		// Return {defining_object, verb_name}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
@@ -104,7 +100,7 @@ func builtinVerbs(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
 	if errCode != types.E_NONE {
@@ -156,6 +152,9 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.TYPE_INT:
+		if args[1].Int() <= 0 {
+			return types.Err(types.E_INVARG)
+		}
 		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
@@ -298,7 +297,11 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
 	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
-		sourceLines = parser.FormatMOO(program)
+		if len(args) >= 3 && args[2].Truthy() {
+			sourceLines = parser.FormatMOOFullyParenthesized(program)
+		} else {
+			sourceLines = parser.FormatMOO(program)
+		}
 	}
 
 	// Convert source lines to list
@@ -315,8 +318,8 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
@@ -370,7 +373,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	if permsStr.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-
 	// Validate permissions string - only rwxd allowed
 	for _, ch := range permsStr.Str() {
 		if ch != 'r' && ch != 'w' && ch != 'x' && ch != 'd' &&
@@ -460,10 +462,8 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(int64(index)))
@@ -472,8 +472,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -519,16 +517,7 @@ func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 	if !allowed {
 		return types.Err(types.E_PERM)
 	}
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Direct-call contexts without a StoreTxn retain the one-lock fallback: live
-	// authority and exact generation are validated atomically with deletion.
-	if errCode := store.DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+	if errCode := readTxn(ctx).DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -539,8 +528,8 @@ func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
@@ -589,6 +578,9 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	if permsStr.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
+	if !validVerbPerms(permsStr.Str()) {
+		return types.Err(types.E_INVARG)
+	}
 
 	namesStr := infoList.Get(3)
 	if namesStr.Type() != types.TYPE_STR {
@@ -600,10 +592,8 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -613,8 +603,8 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
-	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if res, ok := beforeCoarse(ctx); !ok {
+		return res
 	}
 	store := ctx.Store
 
@@ -668,10 +658,8 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -681,8 +669,6 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -776,22 +762,12 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 
 	switch args[1].Type() {
 	case types.TYPE_STR:
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCode(objID, args[1].Str(), storedLines)
-		} else {
-			errCode = store.SetVerbCode(objID, args[1].Str(), storedLines)
-		}
+		errCode := readTxn(ctx).SetVerbCode(objID, args[1].Str(), storedLines)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	case types.TYPE_INT:
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
-		} else {
-			errCode = store.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
-		}
+		errCode := readTxn(ctx).SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -870,6 +846,15 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 		}
 	}
 	return perms
+}
+
+func validVerbPerms(s string) bool {
+	for _, ch := range s {
+		if !strings.ContainsRune("rwxd", ch) {
+			return false
+		}
+	}
+	return true
 }
 
 // builtinDisassemble: disassemble(object, name) → LIST

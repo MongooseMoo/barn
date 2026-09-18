@@ -38,7 +38,7 @@ func sourceWithDistinctStaticNames(operation string, count int, tail string) str
 func staticNameBoundaryStore(t *testing.T) *dbstore.Store {
 	t.Helper()
 	store := newBytecodeVerbStore()
-	if errCode := store.DefineProperty(0, staticNameBoundary, dbstore.NewProperty(
+	if errCode := store.DirectTxn().DefineProperty(0, staticNameBoundary, dbstore.NewProperty(
 		types.NewInt(41), 0, dbstore.PropRead|dbstore.PropWrite, false, true,
 	)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(%q) = %v, want E_NONE", staticNameBoundary, errCode)
@@ -229,7 +229,7 @@ func TestLegacyDynamicNameSentinelsRemainExecutableAfterPersistence(t *testing.T
 			ctx.Programmer = 0
 			ctx.Store = store
 			registry := BuildVMRegistry()
-			machine := NewVM(store, registry)
+			machine := NewVM(store, newTestSession(registry))
 			machine.Context = ctx
 			machine.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
 			result := machine.Run(tc.program)

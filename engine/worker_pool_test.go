@@ -52,12 +52,13 @@ func TestRuntimeWorkerPoolStopsCleanly(t *testing.T) {
 }
 
 func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
-	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
+	var parallelGateBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, dbstore.NewStore(), config.Options{}, 2, testBuiltinSlot("parallel_gate", 0, 0, []int64{}, &parallelGateBuiltin))
 	defer s.Stop()
 
 	var entered atomic.Int32
 	release := make(chan struct{})
-	s.registry.Register("parallel_gate", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	parallelGateBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if entered.Add(1) == 2 {
 			close(release)
 		}
@@ -67,7 +68,7 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 		case <-time.After(500 * time.Millisecond):
 			return types.Err(types.E_QUOTA)
 		}
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	first := task.NewTaskFull(1101, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 1;"), ticks, seconds)
@@ -114,7 +115,7 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	first := task.NewTaskFull(1201, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
 	second := task.NewTaskFull(1202, 7, compileTestProgram(t, s.registry, "#1.b = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -138,7 +139,7 @@ func TestReadyTaskBatchesCoScheduleConflictingRetryableWrites(t *testing.T) {
 	first := task.NewTaskFull(1211, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
 	second := task.NewTaskFull(1212, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -160,7 +161,7 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
 	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -182,7 +183,7 @@ func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 	first.IsForked = true // not conflict-retryable
 	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 2 {
 		t.Fatalf("batch count = %d, want 2", len(batches))
@@ -265,17 +266,18 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var mutateSnapshotValueBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_snapshot_value", 0, 0, []int64{}, &mutateSnapshotValueBuiltin))
 	defer s.Stop()
-	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	mutateSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store read transaction")
 		}
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("new")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("new")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3001, 0, compileTestProgram(t, s.registry, `
@@ -307,7 +309,7 @@ return {first, #0.snapshot_value};
 		}
 	}
 
-	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	liveValue, errCode := store.DirectTxn().PropertyValue(0, "snapshot_value")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
@@ -375,7 +377,7 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.Registry().SetTaskYielder(s)
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
 
 	owner := types.ObjID(7710)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -440,17 +442,18 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var mutateSnapshotValueBuiltin, stageSnapshotValueBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_snapshot_value", 0, 0, []int64{}, &mutateSnapshotValueBuiltin), testBuiltinSlot("stage_snapshot_value", 0, 0, []int64{}, &stageSnapshotValueBuiltin))
 	defer s.Stop()
-	s.Registry().SetTaskYielder(s)
-	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
+	mutateSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
-	})
-	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	}
+	stageSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -458,7 +461,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	owner := types.ObjID(7712)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -540,7 +543,7 @@ return 0;
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
-	value, errCode := store.PropertyValue(0, "yield_progress")
+	value, errCode := store.DirectTxn().PropertyValue(0, "yield_progress")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
@@ -560,16 +563,17 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var mutateSnapshotValueBuiltin, stageSnapshotValueBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_snapshot_value", 0, 0, []int64{}, &mutateSnapshotValueBuiltin), testBuiltinSlot("stage_snapshot_value", 0, 0, []int64{}, &stageSnapshotValueBuiltin))
 	defer s.Stop()
-	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+	mutateSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
-	})
-	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	}
+	stageSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -577,7 +581,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	owner := types.ObjID(7703)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -620,18 +624,19 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var mutateSnapshotValueOnceBuiltin, stageSnapshotValueBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_snapshot_value_once", 0, 0, []int64{}, &mutateSnapshotValueOnceBuiltin), testBuiltinSlot("stage_snapshot_value", 0, 0, []int64{}, &stageSnapshotValueBuiltin))
 	defer s.Stop()
 	mutateCalls := 0
-	s.registry.Register("mutate_snapshot_value_once", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	mutateSnapshotValueOnceBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		mutateCalls++
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
-	})
-	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
+	}
+	stageSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -639,7 +644,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3004, 0, compileTestProgram(t, s.registry, `
@@ -659,7 +664,7 @@ return before;
 	if mutateCalls != 1 {
 		t.Fatalf("mutate calls = %d, want one non-retried attempt", mutateCalls)
 	}
-	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	liveValue, errCode := store.DirectTxn().PropertyValue(0, "snapshot_value")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
@@ -680,18 +685,19 @@ func TestRunTaskDoesNotRetryAfterIrreversibleSideEffect(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
+	var mutateReadValueBuiltin builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_read_value", 0, 0, []int64{}, &mutateReadValueBuiltin))
 	defer s.Stop()
-	s.registry.Register("mutate_read_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		value, errCode := ctx.Store.PropertyValue(0, "read_value")
+	mutateReadValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
+		value, errCode := ctx.Store.DirectTxn().PropertyValue(0, "read_value")
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		if errCode := ctx.Store.SetPropertyValue(0, "read_value", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "read_value", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
-	})
+	}
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -729,7 +735,7 @@ func TestRunTaskFlushesBufferedEffectsInCallOrder(t *testing.T) {
 		conn:             conn,
 		disconnectOnBoot: true,
 	}
-	s.Registry().SetConnectionManager(manager)
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = manager })
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3006, 7, compileTestProgram(t, s.registry, `
@@ -800,7 +806,7 @@ func TestRunTaskDoesNotReplaceResultAfterDeferredEffectFailure(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	conn := &evalCommandStubConn{sendErr: errors.New("send failed")}
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 7, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 7, conn: conn} })
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
 #0.value = 1;
@@ -815,7 +821,7 @@ return 42;
 	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.Int() != 42 {
 		t.Fatalf("result = flow %v value %v err %v, want return 42", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
 	}
-	value, errCode := store.PropertyValue(0, "value")
+	value, errCode := store.DirectTxn().PropertyValue(0, "value")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
@@ -825,25 +831,10 @@ return 42;
 }
 
 func removeTasksForOwner(s *Runtime, owner types.ObjID) {
-	var ids []int64
-	s.mu.Lock()
-	for id, task := range s.tasks {
+	for _, task := range s.taskManager.Snapshot() {
 		if task != nil && task.Owner == owner {
 			task.Kill()
-			ids = append(ids, id)
-			delete(s.tasks, id)
+			s.taskManager.RemoveTaskIf(task.ID, task)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, task := range mgr.GetAllTasks() {
-		if task != nil && task.Owner == owner {
-			task.Kill()
-			ids = append(ids, task.ID)
-		}
-	}
-	for _, id := range ids {
-		mgr.RemoveTask(id)
 	}
 }

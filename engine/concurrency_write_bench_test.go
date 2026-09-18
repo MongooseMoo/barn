@@ -211,14 +211,14 @@ func buildWriteStore(t *testing.T, n int) (*dbstore.Store, []types.ObjID, types.
 
 	defineCounter := func(id types.ObjID) {
 		prop := dbstore.NewProperty(types.NewInt(0), 3, dbstore.PropRead|dbstore.PropWrite, false, true)
-		if errCode := store.DefineProperty(id, "counter", prop); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "counter", prop); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty(counter) on #%d failed: %v", id, errCode)
 		}
 	}
 
 	ids := make([]types.ObjID, n)
 	for k := 0; k < n; k++ {
-		id, errCode := store.CreateObject(nil, 3, false)
+		id, errCode := store.DirectTxn().CreateObject(nil, 3, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
@@ -226,7 +226,7 @@ func buildWriteStore(t *testing.T, n int) (*dbstore.Store, []types.ObjID, types.
 		ids[k] = id
 	}
 
-	shared, errCode := store.CreateObject(nil, 3, false)
+	shared, errCode := store.DirectTxn().CreateObject(nil, 3, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject (shared) failed: %v", errCode)
 	}

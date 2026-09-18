@@ -13,13 +13,13 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{0}, 1, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 1, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
 
 	taskValue := task.NewTask(1, 2, 1000, 1)
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
 		ThisValue:  types.NewAnon(anon),
 		Programmer: 1,
@@ -27,7 +27,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		VerbLoc:    0,
 		Player:     2,
 	})
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 2,
@@ -51,7 +51,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if thisValue.Type() != types.TYPE_ANON {
 		t.Fatalf("redacted this type = %v, want ANON", thisValue.Type())
 	}
-	if store.Valid(thisValue.ID()) {
+	if store.DirectTxn().Valid(thisValue.ID()) {
 		t.Fatalf("redacted this = %s is still valid", thisValue.String())
 	}
 }
@@ -61,7 +61,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{0}, 1, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 1, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
@@ -69,7 +69,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	const taskID = int64(91872)
 	taskValue := task.NewTask(taskID, 2, 1000, 1)
 	taskValue.VerbName = "delayed"
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
 		ThisValue:  types.NewAnon(anon),
 		Programmer: 2,
@@ -108,7 +108,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 			"marker": types.NewStr("programmer-two"),
 		},
 	}
-	programmerTwoTask.PushFrame(task.ActivationFrame{
+	programmerTwoTask.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 2,
@@ -125,7 +125,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 			"marker": types.NewStr("programmer-three"),
 		},
 	}
-	programmerThreeTask.PushFrame(task.ActivationFrame{
+	programmerThreeTask.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 3,
@@ -212,6 +212,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	programmer := newTestExecution()
 	programmer.Programmer = 2
 	programmer.Registry = wizard.Registry
+	programmer.Session = wizard.Session
 
 	visibleResult := builtinQueuedTasks(programmer, nil)
 	if visibleResult.IsError() {
@@ -249,7 +250,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 		{types.NewStr("alpha"), types.NewInt(2)},
 	})
 	taskValue := task.NewTask(taskID, 2, 1000, 1)
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:             7,
 		ThisValue:        types.NewObj(7),
 		Programmer:       2,

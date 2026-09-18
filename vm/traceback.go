@@ -2,7 +2,6 @@ package vm
 
 import (
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -18,25 +17,32 @@ func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 	if vm.Context == nil || vm.Task == nil {
 		return types.NewList([]types.Value{})
 	}
+	includeVariables := vm.Builtins != nil && vm.Builtins.IncludeRTVars(vm.Context)
+	if includeVariables {
+		vm.snapshotTaskRuntimeVariables()
+	}
 	stack := vm.Task.GetCallStack()
 	frames := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
+		if f.IsEvalFrame && !includeEvalFrame {
+			break
+		}
+		if f.ServerInitiated && !f.IsEvalFrame {
+			continue
+		}
 		if f.ThisValue.Type() == types.TYPE_ANON {
 			f.ThisValue = types.NewAnon(types.ObjNothing)
 		}
+		frame := f.ToList()
+		if includeVariables {
+			values := append(frame.Elements(), f.RuntimeVariableMap())
+			frame = types.NewList(values)
+		}
+		frames = append(frames, frame)
 		if f.IsEvalFrame {
-			if includeEvalFrame {
-				frames = append(frames, f.ToList())
-			}
-			// Stop at the eval boundary either way — frames below are eval
-			// infrastructure, not part of the in-eval traceback.
 			break
 		}
-		if f.ServerInitiated {
-			continue
-		}
-		frames = append(frames, f.ToList())
 	}
 	return types.NewList(frames)
 }
@@ -63,17 +69,18 @@ func (vm *VM) matchingExceptAboveEvalFrame(errCode types.ErrorCode) bool {
 
 // snapshotActivationFrames captures the current VM call chain as activation
 // frames for traceback formatting.
-func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
+func (vm *VM) snapshotActivationFrames(topLine int) []types.ActivationFrame {
 	if len(vm.Frames) == 0 {
 		return nil
 	}
 
-	var taskStack []task.ActivationFrame
+	includeVariables := vm.Builtins != nil && vm.Builtins.IncludeRTVars(vm.Context)
+	var taskStack []types.ActivationFrame
 	if vm.Task != nil {
 		taskStack = vm.Task.GetCallStack()
 	}
 
-	stack := make([]task.ActivationFrame, 0, len(vm.Frames))
+	stack := make([]types.ActivationFrame, 0, len(vm.Frames))
 	for i, frame := range vm.Frames {
 		line := 1
 		if i == len(vm.Frames)-1 {
@@ -95,21 +102,29 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 			serverInitiated = taskStack[i].ServerInitiated
 		}
 
-		stack = append(stack, task.ActivationFrame{
-			This:            frame.This,
-			ThisValue:       frame.ThisValue,
-			Player:          frame.Player,
-			Programmer:      programmer,
-			Caller:          frame.Caller,
-			Verb:            frame.Verb,
-			StoredVerb:      frame.StoredVerb,
-			StoredVerbNames: frame.StoredVerbNames,
-			VerbLoc:         frame.VerbLoc,
-			Args:            frame.Args,
-			LineNumber:      line,
-			SourceLine:      vm.sourceLineForFrame(frame, line),
-			ServerInitiated: serverInitiated,
-			IsEvalFrame:     frame.IsEvalFrame,
+		var runtimeVariables *types.RuntimeVariableSnapshot
+		if includeVariables && frame.Program != nil {
+			runtimeVariables = &types.RuntimeVariableSnapshot{
+				Names:  frame.Program.VarNames,
+				Values: append([]types.Value(nil), frame.Locals...),
+			}
+		}
+		stack = append(stack, types.ActivationFrame{
+			This:                    frame.This,
+			ThisValue:               frame.ThisValue,
+			Player:                  frame.Player,
+			Programmer:              programmer,
+			Caller:                  frame.Caller,
+			Verb:                    frame.Verb,
+			StoredVerb:              frame.StoredVerb,
+			StoredVerbNames:         frame.StoredVerbNames,
+			VerbLoc:                 frame.VerbLoc,
+			Args:                    frame.Args,
+			LineNumber:              line,
+			SourceLine:              vm.sourceLineForFrame(frame, line),
+			ServerInitiated:         serverInitiated,
+			IsEvalFrame:             frame.IsEvalFrame,
+			RuntimeVariableSnapshot: runtimeVariables,
 		})
 	}
 

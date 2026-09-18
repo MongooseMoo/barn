@@ -19,7 +19,7 @@ func dirtyVM(machine *VM) {
 	machine.Frames = append(machine.Frames, &StackFrame{Verb: "dirty"})
 	machine.FP = 3
 	machine.Store = dbstore.NewStore()
-	machine.Builtins = BuildVMRegistry()
+	machine.Builtins = newTestSession(BuildVMRegistry())
 	machine.Context = kernel.NewTaskContext()
 	machine.Task = task.NewTask(1, 0, 1, 1)
 	machine.TickLimit = 123
@@ -27,8 +27,12 @@ func dirtyVM(machine *VM) {
 	machine.Ticks = 789
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
 	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
+	machine.builtinExec = machine.Builtins.NewExecution(machine.Context, machine.Task)
+	machine.builtinPendingFinalizations = func() []types.Value { return nil }
 	machine.frame = machine.Frames[0]
 	machine.yielded = true
+	machine.localStack = machine.allocLocals(2)
+	machine.framePool = []*StackFrame{{}}
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
 	machine.resumeError = types.E_INTRPT
 }
@@ -102,6 +106,14 @@ func TestResetClearsUnexportedFields(t *testing.T) {
 	if machine.resumeError != types.E_NONE {
 		t.Errorf("resumeError not cleared: %v", machine.resumeError)
 	}
+	if len(machine.localStack) != 0 {
+		t.Errorf("localStack not released: len %d", len(machine.localStack))
+	}
+	for i, f := range machine.framePool {
+		if f.Program != nil || len(f.Locals) != 0 || len(f.LoopStack) != 0 || len(f.ExceptStack) != 0 || f.Verb != "" {
+			t.Errorf("framePool[%d] not zeroed: %+v", i, *f)
+		}
+	}
 }
 
 // A pooled VM must not keep the values it held alive: the backing arrays are
@@ -133,13 +145,14 @@ func TestResetScrubsBackingArrays(t *testing.T) {
 func TestAcquireVMReturnsCleanVM(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	session := newTestSession(registry)
 
-	machine := AcquireVM(store, registry)
+	machine := AcquireVM(store, session)
 	dirtyVM(machine)
 	machine.yielded = false // a yielded VM is deliberately not pooled
 	ReleaseVM(machine)
 
-	reused := AcquireVM(store, registry)
+	reused := AcquireVM(store, session)
 	if reused.SP != 0 || reused.FP != 0 || reused.Ticks != 0 {
 		t.Errorf("reused VM dirty: SP=%d FP=%d Ticks=%d", reused.SP, reused.FP, reused.Ticks)
 	}
@@ -153,7 +166,7 @@ func TestAcquireVMReturnsCleanVM(t *testing.T) {
 		t.Errorf("reused VM limits = %d/%d, want %d/%d",
 			reused.TickLimit, reused.MaxStackDepth, defaultTickLimit, defaultMaxStackDepth)
 	}
-	if reused.Store != store || reused.Builtins != registry {
+	if reused.Store != store || reused.Builtins != session {
 		t.Error("AcquireVM did not install the caller's store/registry")
 	}
 }
@@ -200,6 +213,7 @@ func TestReleaseVMDeclinesUnsafeVMs(t *testing.T) {
 func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	session := newTestSession(registry)
 
 	run := func(code string) types.Result {
 		ctx := kernel.NewTaskContext()
@@ -209,7 +223,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		if len(diagnostics) > 0 {
 			t.Fatalf("compile failed: %v", diagnostics)
 		}
-		machine := AcquireVM(store, registry)
+		machine := AcquireVM(store, session)
 		machine.Context = ctx
 		machine.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
 		result := machine.Run(prog)

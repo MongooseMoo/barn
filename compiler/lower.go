@@ -609,6 +609,16 @@ func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
 
 // compileUnary compiles a unary expression
 func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
+	// Toast folds a negated float literal before constant-pool insertion. This is
+	// observable for signed zero: a standalone -0.0 keeps its sign, while an
+	// earlier +0.0 constant wins the pool's equality-based zero deduplication.
+	if n.Operator == verb.UnaryNegate {
+		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralFloat {
+			c.emitConstant(types.NewFloat(-literal.FloatValue))
+			return nil
+		}
+	}
+
 	// Compile operand
 	if err := c.compileNode(n.Operand); err != nil {
 		return err
@@ -1150,6 +1160,10 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	if c.registry == nil {
 		return fmt.Errorf("builtin call compilation requires a builtins registry")
 	}
+	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
+	if !ok {
+		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
+	}
 
 	// Special-case pass(): emit bytecode.OP_PASS instead of bytecode.OP_CALL_BUILTIN.
 	// bytecode.OP_PASS is handled natively by the VM — looks up the parent verb,
@@ -1194,11 +1208,6 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	}
 
 	// Resolve function name to numeric ID at compile time
-	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
-	if !ok {
-		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
-	}
-
 	// Check builtin function ID overflow (emitted as single byte)
 	if funcID > 255 {
 		return fmt.Errorf("too many builtin functions (id %d exceeds max 255)", funcID)
@@ -2543,5 +2552,6 @@ func (c *lowerer) compileMap(n *verb.MapExpr) error {
 
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(tmp))
+	c.emit(bytecode.OP_CHECK_MAP_LIMIT)
 	return nil
 }

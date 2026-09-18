@@ -78,7 +78,7 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if errCode := ctx.CheckStringLimit(len(result)); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -130,6 +130,10 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 	// Start searching from position (offset + 1) in 1-based terms
 	// which is offset in 0-based terms
 	startIdx := offset
+
+	if len(nRunes) == 0 && startIdx <= len(hRunes) {
+		return types.Ok(types.NewInt(1))
+	}
 
 	if startIdx >= len(hRunes) {
 		return types.Ok(types.NewInt(0))
@@ -212,6 +216,9 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 		if endPos < 0 {
 			return types.Ok(types.NewInt(0))
 		}
+	}
+	if endPos < len(nRunes) {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Search backwards from endPos
@@ -398,7 +405,7 @@ func builtinImplode(ctx *Execution, args []types.Value) types.Result {
 	result := strings.Join(parts, delimiter)
 
 	// Check string limit
-	if err := ctx.Registry.CheckStringLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -830,7 +837,7 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 	resultStr := result.String()
 
 	// Check string limit
-	if err := ctx.Registry.CheckStringLimit(resultStr); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimitForTask(ctx.TaskContext, resultStr); err != types.E_NONE {
 		return types.Err(err)
 	}
 

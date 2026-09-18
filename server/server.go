@@ -21,12 +21,14 @@ import (
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
 	runtime            *engine.Runtime
+	registry           *builtins.Registry
 	input              *InputProcessor
 	connManager        *ConnectionManager
 	checkpointedConns  []dbformat.ActiveConnection
@@ -42,7 +44,23 @@ type Server struct {
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
+	lifecycle          LifecycleObserver
 }
+
+// LifecycleObserver reports application lifecycle boundaries to passive
+// operator probes. Implementations must be concurrency safe and non-blocking.
+type LifecycleObserver interface {
+	Ready()
+	Draining()
+	Stopped()
+	Failed()
+}
+
+// SetLifecycleObserver installs a per-server lifecycle observer.
+func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle = observer }
+
+// BuiltinRegistry is the immutable registry used by this server's runtime.
+func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
 
 var ErrPanicShutdown = errors.New("panic shutdown")
 
@@ -59,6 +77,10 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 	if err := options.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime options: %w", err)
 	}
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		return nil, fmt.Errorf("construct builtin registry: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
@@ -66,6 +88,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 		listenerSpecs:      append([]listener.Spec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
+		registry:           registry,
 		checkpointChan:     make(chan struct{}, 1),
 		ctx:                ctx,
 		cancel:             cancel,
@@ -83,7 +106,7 @@ func (s *Server) LoadDatabase() error {
 	if err != nil {
 		return fmt.Errorf("construct store from database: %w", err)
 	}
-	s.runtime = engine.NewRuntimeWithOptions(s.store, s.options)
+	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
@@ -103,7 +126,7 @@ func (s *Server) LoadDatabase() error {
 			_ = conn.Send(line)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
 		lines := task.FormatTraceback(stack, err)
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
@@ -127,21 +150,22 @@ func (s *Server) LoadDatabase() error {
 	})
 
 	// Wire the host capabilities the server provides onto the runtime's
-	// builtin registry (the registry owns them; there is no global state).
-	reg := s.runtime.Registry()
+	// builtin session (the session owns them; there is no global state).
+	session := s.runtime.Session()
+	host := session.Host()
 
 	// Wire notify() builtin to connection manager
-	reg.SetConnectionManager(s.connManager)
+	host.ConnManager = s.connManager
 
 	// Wire the force_input() builtin to the runtime.
-	reg.SetInputForcer(s.input)
-	reg.SetTaskYielder(s.runtime)
-	reg.SetProcessStdin(builtins.NewProcessStdin(os.Stdin))
+	host.InputForcer = s.input
+	host.TaskYielder = s.runtime
+	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
 	// dump_database() does not report success until the requested checkpoint is
 	// durable and available for managed restart adoption.
-	reg.SetDumpFunc(func() error { return s.checkpoint() })
-	reg.SetShutdownFunc(func(execution *builtins.Execution, message string, unclean bool) error {
+	host.Checkpoint = func() error { return s.checkpoint() }
+	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
 		var ctx *kernel.TaskContext
 		var callerRoots []types.Value
 		if execution != nil {
@@ -153,7 +177,7 @@ func (s *Server) LoadDatabase() error {
 		shutdownMessage := "Server shutdown"
 		if ctx != nil {
 			caller := fmt.Sprintf("#%d", ctx.Programmer)
-			if name, errCode := s.store.ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
+			if name, errCode := s.store.DirectTxn().ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
 				caller = name
 			}
 			shutdownMessage = "shutdown() called by " + caller
@@ -188,14 +212,18 @@ func (s *Server) LoadDatabase() error {
 		}
 		s.Shutdown(shutdownMessage)
 		return nil
-	})
+	}
+	session.ConfigureHost(host)
+	if err := host.Validate(); err != nil {
+		return fmt.Errorf("configure builtin host: %w", err)
+	}
 
 	// Prime the server-options and protected-builtin caches from the database
 	// before any verb runs, matching Toast's boot-time load_server_options() /
 	// load_server_protect_function_flags(). The MOO may refresh these later by
 	// calling load_server_options().
-	s.runtime.Registry().LoadServerOptionsFromStore(s.store)
-	s.runtime.Registry().LoadProtectedBuiltinsFromStore(s.store)
+	s.runtime.Session().LoadServerOptionsFromStore(s.store)
+	s.runtime.Session().LoadProtectedBuiltinsFromStore(s.store)
 
 	s.runtime.LoadQueuedTasks(database.QueuedTasks)
 	s.runtime.LoadSuspendedTasks(database.SuspendedTasks)
@@ -227,6 +255,9 @@ func (s *Server) Start() error {
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
 	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+		if s.lifecycle != nil {
+			s.lifecycle.Failed()
+		}
 		s.cancel()
 		s.connManager.CloseListeners()
 		s.input.Stop()
@@ -246,6 +277,9 @@ func (s *Server) Start() error {
 	}
 
 	// Start listening for connections
+	if s.lifecycle != nil {
+		s.lifecycle.Ready()
+	}
 	s.connManager.StartAccepting()
 
 	s.backgroundWG.Add(1)
@@ -363,6 +397,9 @@ func (s *Server) Shutdown(message string) {
 		return
 	}
 	s.shutdownMessage = message
+	if s.lifecycle != nil {
+		s.lifecycle.Draining()
+	}
 	s.mu.Unlock()
 
 	slog.Info("initiating shutdown", slog.String("message", message))
@@ -401,13 +438,16 @@ func (s *Server) shutdown() error {
 
 	s.runtime.Stop()
 	s.backgroundWG.Wait()
-	if err := s.runtime.Registry().Close(); err != nil {
-		slog.Warn("closing builtin registry", slog.Any("err", err))
+	if err := s.runtime.Session().Close(); err != nil {
+		slog.Warn("closing builtin session", slog.Any("err", err))
 	}
 
 	s.mu.Lock()
 	s.running = false
 	s.mu.Unlock()
+	if s.lifecycle != nil {
+		s.lifecycle.Stopped()
+	}
 
 	slog.Info("shutdown complete")
 	return nil
@@ -415,6 +455,9 @@ func (s *Server) shutdown() error {
 
 // Panic performs emergency shutdown
 func (s *Server) Panic(message string) error {
+	if s.lifecycle != nil {
+		s.lifecycle.Draining()
+	}
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
 	slog.Error("PANIC: "+message,
@@ -432,6 +475,9 @@ func (s *Server) Panic(message string) error {
 	s.mu.Lock()
 	s.terminalErr = err
 	s.mu.Unlock()
+	if s.lifecycle != nil {
+		s.lifecycle.Failed()
+	}
 	s.cancel()
 	return err
 }

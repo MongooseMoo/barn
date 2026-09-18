@@ -282,6 +282,11 @@ func (vm *VM) executeEndFinally(wide bool) error {
 		frame.PendingError = nil
 		return err
 	}
+	if frame.HasPendingReturn {
+		value := frame.PendingReturn
+		frame.HasPendingReturn = false
+		return vm.Return(value)
+	}
 
 	return nil
 }

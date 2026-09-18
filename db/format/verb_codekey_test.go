@@ -15,7 +15,7 @@ import (
 // a key would make every call to it rehash its whole source.
 func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	s := store.NewStore()
-	objID, errCode := s.CreateObject(nil, 0, false)
+	objID, errCode := s.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject: %v", errCode)
 	}
@@ -29,10 +29,10 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	if _, errCode = s.AddVerb(objID, mkVerb("second")); errCode != types.E_NONE {
 		t.Fatalf("AddVerb(second): %v", errCode)
 	}
-	if errCode = s.SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex(first): %v", errCode)
 	}
-	if errCode = s.SetVerbCodeByIndex(objID, 1, []string{"return 2;"}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 1, []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex(second): %v", errCode)
 	}
 
@@ -73,5 +73,49 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	}
 	if obj.VerbList[0].CodeKey == obj.VerbList[1].CodeKey {
 		t.Fatalf("verbs with different source share a CodeKey")
+	}
+}
+
+func TestDuplicateVerbNameRoundTripPreservesFirstDefinition(t *testing.T) {
+	s := store.NewStore()
+	objID, errCode := s.DirectTxn().CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject: %v", errCode)
+	}
+	for _, code := range []string{"return 1;", "return 2;"} {
+		verb := store.NewVerb("duplicate", []string{"duplicate"}, 0, store.VerbExecute,
+			store.VerbArgs{This: "none", Prep: "none", That: "none"}, []string{code})
+		if _, errCode := s.AddVerb(objID, verb); errCode != types.E_NONE {
+			t.Fatalf("AddVerb(%q): %v", code, errCode)
+		}
+	}
+
+	dbPath := t.TempDir() + "/duplicate-verbs.db"
+	output, err := os.Create(dbPath)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := NewWriter(output, s.Snapshot()).WriteDatabase(); err != nil {
+		_ = output.Close()
+		t.Fatalf("WriteDatabase: %v", err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	loaded, err := LoadDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("LoadDatabase: %v", err)
+	}
+	loadedStore, err := loaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatalf("NewStoreFromDatabase: %v", err)
+	}
+	verb, _, err := loadedStore.DirectTxn().FindVerb(objID, "duplicate")
+	if err != nil {
+		t.Fatalf("FindVerb: %v", err)
+	}
+	if len(verb.Code) != 1 || verb.Code[0] != "return 1;" {
+		t.Fatalf("reloaded duplicate dispatch code = %q, want first definition", verb.Code)
 	}
 }

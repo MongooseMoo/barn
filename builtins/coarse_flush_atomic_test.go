@@ -34,10 +34,10 @@ func TestGenericCoarseBuiltinPropagatesFailedLegacyTopologyFlush(t *testing.T) {
 	if ctx.LiveStoreMutated {
 		t.Error("failed legacy topology flush marked the task live-mutated")
 	}
-	if got, errCode := store.ObjectName(0); errCode != types.E_NONE || got != "" {
+	if got, errCode := store.DirectTxn().ObjectName(0); errCode != types.E_NONE || got != "" {
 		t.Errorf("failed legacy topology flush changed live name = %q, %v; want empty, E_NONE", got, errCode)
 	}
-	if _, err := store.FindVerbOnObject(0, "added"); err == nil {
+	if _, err := store.DirectTxn().FindVerbOnObject(0, "added"); err == nil {
 		t.Error("coarse builtin ran after its topology flush failed")
 	}
 	if got, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE || got != "private" {
@@ -46,7 +46,7 @@ func TestGenericCoarseBuiltinPropagatesFailedLegacyTopologyFlush(t *testing.T) {
 	if got, errCode := ctx.StoreTxn.Location(1); errCode != types.E_NONE || got != 2 {
 		t.Errorf("failed legacy topology flush private location = #%d, %v; want #2, E_NONE", got, errCode)
 	}
-	if got, errCode := store.Location(1); errCode != types.E_NONE || got != types.ObjNothing {
+	if got, errCode := store.DirectTxn().Location(1); errCode != types.E_NONE || got != types.ObjNothing {
 		t.Errorf("failed legacy topology flush live location = #%d, %v; want #%d, E_NONE", got, errCode, types.ObjNothing)
 	}
 	if ctx.StoreTxn.HasWrites() {

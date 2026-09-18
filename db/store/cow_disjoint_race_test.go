@@ -14,16 +14,16 @@ func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	a, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	a, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject a failed: %v", errCode)
 	}
-	b, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	b, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject b failed: %v", errCode)
 	}
 	for _, id := range []types.ObjID{a, b} {
-		if errCode := store.DefineProperty(id, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty #%d.n failed: %v", id, errCode)
 		}
 	}
@@ -85,11 +85,11 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 	}
 	ids := make([]types.ObjID, nObjects)
 	for i := 0; i < nObjects; i++ {
-		id, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+		id, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
-		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty failed: %v", errCode)
 		}
 		ids[i] = id
@@ -127,10 +127,10 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < readsEach && !stop.Load(); i++ {
 				id := ids[(seed+i)%nObjects]
-				_, _ = store.PropertyValue(id, "counter")
-				_, _ = store.FindProperty(id, "counter")
-				_, _ = store.ObjectName(id)
-				_, _ = store.Parents(id)
+				_, _ = store.DirectTxn().PropertyValue(id, "counter")
+				_, _ = store.DirectTxn().FindProperty(id, "counter")
+				_, _ = store.DirectTxn().ObjectName(id)
+				_, _ = store.DirectTxn().Parents(id)
 			}
 		}(r)
 	}
@@ -140,7 +140,7 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 
 	// Sanity: every object still resolves its counter property (no corruption).
 	for _, id := range ids {
-		if _, errCode := store.PropertyValue(id, "counter"); errCode != types.E_NONE {
+		if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
 			t.Fatalf("post-run PropertyValue(#%d) failed: %v", id, errCode)
 		}
 	}
@@ -168,18 +168,18 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		t.Fatalf("Add root failed: %v", err)
 	}
 	// A couple of distinct location targets so relationship writes vary.
-	locA, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	locA, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject locA failed: %v", errCode)
 	}
-	locB, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	locB, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject locB failed: %v", errCode)
 	}
 
 	ids := make([]types.ObjID, nObjects)
 	for i := 0; i < nObjects; i++ {
-		id, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+		id, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
@@ -189,10 +189,10 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		// simply pre-define a "keep" prop and delete-and-redefine via the store API
 		// between rounds is overkill — instead we delete a property that the writer
 		// re-stages each commit via a value write, see below).
-		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty counter failed: %v", errCode)
 		}
-		if errCode := store.DefineProperty(id, "scratch", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty scratch failed: %v", errCode)
 		}
 		if _, errCode := store.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
@@ -260,7 +260,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach/4; c++ {
-				_ = store.DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
+				_ = store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
 				tx := store.BeginReadOnly(0)
 				if errCode := tx.ClearPropertyOverride(id, "scratch"); errCode != types.E_NONE {
 					_ = tx.Commit()
@@ -278,12 +278,12 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < readsEach && !stop.Load(); i++ {
 				id := ids[(seed+i)%nObjects]
-				_, _ = store.ObjectName(id)
-				_, _ = store.ObjectFlags(id)
-				_, _ = store.Location(id)
-				_, _ = store.PropertyValue(id, "counter")
-				_, _, _ = store.FindVerb(id, "look")
-				_, _ = store.Parents(id)
+				_, _ = store.DirectTxn().ObjectName(id)
+				_, _ = store.DirectTxn().ObjectFlags(id)
+				_, _ = store.DirectTxn().Location(id)
+				_, _ = store.DirectTxn().PropertyValue(id, "counter")
+				_, _, _ = store.DirectTxn().FindVerb(id, "look")
+				_, _ = store.DirectTxn().Parents(id)
 			}
 		}(r)
 	}
@@ -293,10 +293,10 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 
 	// Sanity: every object still resolves its counter property and look verb.
 	for _, id := range ids {
-		if _, errCode := store.PropertyValue(id, "counter"); errCode != types.E_NONE {
+		if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
 			t.Fatalf("post-run PropertyValue(#%d) failed: %v", id, errCode)
 		}
-		if _, _, err := store.FindVerb(id, "look"); err != nil {
+		if _, _, err := store.DirectTxn().FindVerb(id, "look"); err != nil {
 			t.Fatalf("post-run FindVerb(#%d) failed: %v", id, err)
 		}
 	}
@@ -315,11 +315,11 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	id, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	id, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -343,7 +343,7 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	}
 	wg.Wait()
 
-	if _, errCode := store.PropertyValue(id, "counter"); errCode != types.E_NONE {
+	if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
 		t.Fatalf("post-run PropertyValue failed: %v", errCode)
 	}
 }

@@ -211,7 +211,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -315,7 +315,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	}
 
 	// The live value is the last write; new readers see it.
-	live, errCode := store.PropertyValue(0, "n")
+	live, errCode := store.DirectTxn().PropertyValue(0, "n")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
@@ -366,7 +366,7 @@ func TestCOWHistoryDoesNotShareCollectionsWithLiveImage(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 

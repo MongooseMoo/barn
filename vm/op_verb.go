@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -98,7 +97,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	default:
 		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
 		if vm.Store != nil {
-			protoID := getPrimitivePrototypeFromStore(vm.Store, vm.storeTxn(), objVal)
+			protoID := getPrimitivePrototypeFromStore(vm.Context.StoreTxn, objVal)
 			if protoID != types.ObjNothing {
 				objID = protoID
 				thisValue = objVal // "this" = the primitive value itself
@@ -114,10 +113,10 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	txn := vm.storeTxn()
+	txn := vm.Context.StoreTxn
 
 	// Check object validity
-	if !validForRead(vm.Store, txn, objID) {
+	if !validForRead(txn, objID) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
@@ -131,7 +130,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	// verb defined further up the ancestry chain — ToastStunt's call dispatch
 	// (obj:verb() syntax) skips past it and keeps searching. Only when no
 	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
-	verb, defObjID, err := findCallableVerbForRead(vm.Store, txn, objID, lookupVerbName)
+	verb, defObjID, err := findCallableVerbForRead(txn, objID, lookupVerbName)
 	if err != nil {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
@@ -139,7 +138,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
 	// so the cache lookup on this hot path does not rehash the source.
-	prog, diagnostics := vm.Builtins.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -176,11 +175,12 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 
 	// Push new stack frame
-	frame := &StackFrame{
+	frame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            objID,
 		ThisValue:       thisValue,
 		Player:          player,
@@ -196,12 +196,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range frame.Locals {
-		frame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
@@ -246,7 +241,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := hasObjectFlagForRead(vm.Store, txn, verb.Owner, dbstore.FlagWizard)
+			hasWizard, errCode := hasObjectFlagForRead(txn, verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = objID
@@ -264,7 +259,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {
-		actFrame := task.ActivationFrame{
+		actFrame := types.ActivationFrame{
 			This:       objID,
 			ThisValue:  thisValue, // Store waif/primitive/anonymous value for callers()/queued_tasks()
 			Player:     player,
@@ -284,6 +279,15 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	return nil
 }
 
+// pushProtectedVerb shares ordinary verb activation, return, unwind, and
+// suspension with the calling VM. args is owned by the builtin dispatcher.
+func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
+		return types.Err(extractErrorCode(err))
+	}
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
 // Bytecode format: OP_PASS <argc:byte>
@@ -301,17 +305,6 @@ func (vm *VM) executePass() error {
 	if frame == nil {
 		return fmt.Errorf("E_INVIND: no active frame for pass()")
 	}
-
-	verbName := frame.Verb
-	if verbName == "" {
-		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
-	}
-
-	verbLoc := frame.VerbLoc
-	if verbLoc == types.ObjNothing {
-		return fmt.Errorf("E_INVIND: pass() has no defining object")
-	}
-
 	// Get pass-through args
 	var passArgs []types.Value
 	if argc == 0xFF {
@@ -335,18 +328,29 @@ func (vm *VM) executePass() error {
 		}
 	}
 
+	// Non-debug frames resume after errors, so consume operands and args first.
+	// Legacy programs have no layout fingerprint, but still require pass enabled.
+	registry := vm.Builtins.Registry()
+	if !registry.Has("pass") || !registry.Compiler().Accepts(frame.Program) {
+		return VMException{Code: types.E_INVARG}
+	}
+
+	verbName := frame.Verb
+	if verbName == "" {
+		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+	}
+
+	verbLoc := frame.VerbLoc
+	if verbLoc == types.ObjNothing {
+		return fmt.Errorf("E_INVIND: pass() has no defining object")
+	}
+
 	if vm.Store == nil {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	txn := vm.storeTxn()
-	var parents []types.ObjID
-	var parentsErr types.ErrorCode
-	if txn != nil {
-		parents, parentsErr = txn.Parents(verbLoc)
-	} else {
-		parents, parentsErr = vm.Store.Parents(verbLoc)
-	}
+	txn := vm.Context.StoreTxn
+	parents, parentsErr := txn.Parents(verbLoc)
 	if parentsErr != types.E_NONE || len(parents) == 0 {
 		return fmt.Errorf("E_INVIND: pass() has no parent object")
 	}
@@ -355,20 +359,20 @@ func (vm *VM) executePass() error {
 	// (FindCallableVerb): a non-executable same-named verb on an intermediate
 	// ancestor is skipped, not treated as a match, so it never shadows an
 	// executable verb defined further up the chain.
-	verb, defObjID, err := findParentVerbForRead(vm.Store, txn, verbLoc, verbName)
+	verb, defObjID, err := findParentVerbForRead(txn, verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
 		// has no parent at all, pass() indirects through #-1 (an invalid object)
 		// and raises E_INVIND; if a real parent simply doesn't define the verb,
 		// it's E_VERBNF.
-		if parent, _ := vm.Store.Parent(verbLoc); parent == types.ObjNothing {
+		if parent, _ := txn.Parent(verbLoc); parent == types.ObjNothing {
 			return fmt.Errorf("E_INVIND: pass() has no parent object")
 		}
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
 	}
 
 	// Compile the parent verb to bytecode, keyed by the store's content key.
-	prog, diagnostics := vm.Builtins.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -400,11 +404,12 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := &StackFrame{
+	newFrame := vm.frameFrom(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
-		Locals:          make([]types.Value, prog.NumLocals),
+		Locals:          vm.allocLocals(prog.NumLocals),
+		localsOnStack:   true,
 		This:            frame.This,
 		ThisValue:       passThisValue,
 		Player:          frame.Player,
@@ -420,12 +425,7 @@ func (vm *VM) executePass() error {
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
-	}
-
-	// Initialize locals to unbound (reading before assignment raises E_VARNF)
-	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.Unbound
-	}
+	})
 
 	// Pre-populate built-in variables
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)
@@ -465,7 +465,7 @@ func (vm *VM) executePass() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := hasObjectFlagForRead(vm.Store, txn, verb.Owner, dbstore.FlagWizard)
+			hasWizard, errCode := hasObjectFlagForRead(txn, verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = frame.This
@@ -486,7 +486,7 @@ func (vm *VM) executePass() error {
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {
-		actFrame := task.ActivationFrame{
+		actFrame := types.ActivationFrame{
 			This:       frame.This,
 			ThisValue:  passThisValue,
 			Player:     frame.Player,
@@ -506,34 +506,22 @@ func (vm *VM) executePass() error {
 	return nil
 }
 
-func validForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID) bool {
-	if txn != nil {
-		return txn.Valid(objID)
-	}
-	return store.Valid(objID)
+func validForRead(txn *dbstore.StoreTxn, objID types.ObjID) bool {
+	return txn.Valid(objID)
 }
 
-func hasObjectFlagForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
-	if txn != nil {
-		return txn.HasObjectFlag(objID, flag)
-	}
-	return store.HasObjectFlag(objID, flag)
+func hasObjectFlagForRead(txn *dbstore.StoreTxn, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
+	return txn.HasObjectFlag(objID, flag)
 }
 
 // findCallableVerbForRead resolves a verb for call dispatch (obj:verb()): a
 // same-named verb without execute permission does not shadow an executable one
 // defined further up the ancestry chain. It reads through the task's snapshot
 // transaction when present, mirroring findVerbForRead's MVCC behavior.
-func findCallableVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
-	if txn != nil {
-		return txn.FindCallableVerb(objID, verbName)
-	}
-	return store.FindCallableVerb(objID, verbName)
+func findCallableVerbForRead(txn *dbstore.StoreTxn, objID types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
+	return txn.FindCallableVerb(objID, verbName)
 }
 
-func findParentVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
-	if txn != nil {
-		return txn.FindParentVerb(verbLoc, verbName)
-	}
-	return store.FindParentVerb(verbLoc, verbName)
+func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
+	return txn.FindParentVerb(verbLoc, verbName)
 }

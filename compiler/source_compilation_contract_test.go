@@ -127,6 +127,36 @@ func TestMOOCompilationContractKeepsAdjacentFloatConstantsDistinct(t *testing.T)
 	}
 }
 
+func TestMOOCompilationContractDeduplicatesSignedZeroByFirstOccurrence(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		source      string
+		wantSignbit bool
+	}{
+		{name: "negative first", source: "return -0.0;", wantSignbit: true},
+		{name: "positive first", source: "return {0.0, -0.0};", wantSignbit: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compiled, diagnostics := compiler.New(nil).CompileMOO([]string{test.source})
+			if len(diagnostics) > 0 {
+				t.Fatalf("CompileMOO failed: %v", diagnostics)
+			}
+			var zeroes []types.Value
+			for _, constant := range compiled.Constants {
+				if constant.Type() == types.TYPE_FLOAT && constant.Float() == 0 {
+					zeroes = append(zeroes, constant)
+				}
+			}
+			if len(zeroes) != 1 {
+				t.Fatalf("zero constants = %#v, want exactly one", zeroes)
+			}
+			if got := math.Signbit(zeroes[0].Float()); got != test.wantSignbit {
+				t.Fatalf("zero signbit = %v, want %v", got, test.wantSignbit)
+			}
+		})
+	}
+}
+
 func TestMOOCompilationContractReportsParseLine(t *testing.T) {
 	_, diagnostics := compiler.New(nil).CompileMOO([]string{
 		"value = 1;",

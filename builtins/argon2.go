@@ -33,9 +33,9 @@ func builtinArgon2(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	t := uint32(1)
-	m := uint32(64 * 1024)
-	p := uint8(2)
+	t := uint32(3)
+	m := uint32(4 * 1024)
+	p := uint8(1)
 	if len(args) >= 3 {
 		iterVal := args[2]
 		if iterVal.Type() != types.TYPE_INT {
@@ -129,7 +129,7 @@ func builtinArgon2Verify(ctx *Execution, args []types.Value) types.Result {
 	}
 	m, t, p, salt, expected, err := parseArgon2Hash(hashStr)
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		return types.Ok(types.NewInt(0))
 	}
 	actual := argon2.IDKey([]byte(password), salt, t, m, p, uint32(len(expected)))
 	if subtle.ConstantTimeCompare(actual, expected) == 1 {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -39,7 +40,7 @@ func TestBeginShutdownTransfersUnclaimedDeferredRoots(t *testing.T) {
 	runtime := NewRuntime(store)
 	t.Cleanup(runtime.Stop)
 	waif := types.NewWaif(9, 3)
-	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.PendingWaifs = []finalization.PendingWaif{{Waif: waif, Ctx: kernel.NewTaskContext()}}
 	var mu sync.Mutex
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) {
@@ -82,25 +83,28 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	if _, errCode := store.AddVerb(9, verb); errCode != types.E_NONE {
 		t.Fatalf("add recycle verb: %v", errCode)
 	}
-	runtime := NewRuntime(store)
+	var recycleReturnedBuiltin builtins.BuiltinFunc
+	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_returned", 0, 0, []int64{}, &recycleReturnedBuiltin))
 	t.Cleanup(runtime.Stop)
 	returned := make(chan struct{})
 	var returnedOnce sync.Once
-	runtime.registry.Register("recycle_returned", func(*builtins.Execution, []types.Value) types.Result {
+	recycleReturnedBuiltin = func(*builtins.Execution, []types.Value) types.Result {
 		returnedOnce.Do(func() { close(returned) })
 		return types.Ok(types.None)
-	})
+	}
 	readyResult := make(chan (<-chan struct{}), 1)
-	runtime.registry.SetShutdownFunc(func(ctx *builtins.Execution, _ string, _ bool) error {
-		var roots []types.Value
-		if ctx.PendingFinalizations != nil {
-			roots = ctx.PendingFinalizations()
+	configureTestHost(runtime.session, func(host *builtins.Host) {
+		host.Shutdown = func(ctx *builtins.Execution, _ string, _ bool) error {
+			var roots []types.Value
+			if ctx.PendingFinalizations != nil {
+				roots = ctx.PendingFinalizations()
+			}
+			readyResult <- runtime.BeginShutdownWithRoots(roots)
+			return nil
 		}
-		readyResult <- runtime.BeginShutdownWithRoots(roots)
-		return nil
 	})
 	waif := types.NewWaif(9, 3)
-	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.PendingWaifs = []finalization.PendingWaif{{Waif: waif, Ctx: kernel.NewTaskContext()}}
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
 

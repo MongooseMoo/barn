@@ -1,6 +1,9 @@
 package vm
 
 import (
+	"fmt"
+
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -72,12 +75,15 @@ func (vm *VM) ReadShort() uint16 {
 // instruction stream.
 func (vm *VM) ReadWide() uint32 {
 	frame := vm.CurrentFrame()
-	value := uint32(frame.Program.Code[frame.IP])<<24 |
-		uint32(frame.Program.Code[frame.IP+1])<<16 |
-		uint32(frame.Program.Code[frame.IP+2])<<8 |
-		uint32(frame.Program.Code[frame.IP+3])
+	value := uint32(wideOperand(frame.Program.Code, frame.IP))
 	frame.IP += 4
 	return value
+}
+
+// wideOperand decodes the 4-byte big-endian operand at code[ip:ip+4]. Shared
+// by ReadWide and the dispatch fast path so the encoding lives in one place.
+func wideOperand(code []byte, ip int) int {
+	return int(uint32(code[ip])<<24 | uint32(code[ip+1])<<16 | uint32(code[ip+2])<<8 | uint32(code[ip+3]))
 }
 
 func (vm *VM) readControlFlowOperand(wide bool) int {
@@ -88,13 +94,25 @@ func (vm *VM) readControlFlowOperand(wide bool) int {
 }
 
 // Return returns from the current frame
-func (vm *VM) Return(value types.Value) {
+func (vm *VM) Return(value types.Value) error {
 	if len(vm.Frames) == 0 {
-		return
+		return nil
 	}
 
 	frame := vm.Frames[len(vm.Frames)-1]
-	vm.collectPendingWaifsFromFrame(frame)
+	for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
+		handler := frame.ExceptStack[i]
+		if handler.Type != bytecode.HandlerFinally {
+			continue
+		}
+		frame.ExceptStack = frame.ExceptStack[:i]
+		frame.PendingReturn = value
+		frame.HasPendingReturn = true
+		vm.SP = handler.StackDepth
+		frame.IP = handler.HandlerIP
+		return nil
+	}
+	frame.HasPendingReturn = false
 
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
@@ -114,10 +132,11 @@ func (vm *VM) Return(value types.Value) {
 		if vm.Task != nil {
 			vm.Task.PopFrame()
 		}
-		vm.SP = frame.BasePointer
-		vm.popFrame()
+		base := frame.BasePointer
+		vm.popFrame() // frame is recycled here; nothing below may read it
+		vm.SP = base
 		vm.Push(wrapped)
-		return
+		return nil
 	}
 
 	// If this was a verb-call frame, restore context and pop activation frame
@@ -135,9 +154,42 @@ func (vm *VM) Return(value types.Value) {
 		}
 	}
 
-	vm.SP = frame.BasePointer
-	vm.popFrame()
-	if !frame.DiscardReturn {
+	continuation := frame.MoveContinuation
+	recycleContinuation := frame.RecycleContinuation
+	base := frame.BasePointer
+	discardReturn := frame.DiscardReturn
+	vm.popFrame() // frame is recycled here; nothing below may read it
+	vm.SP = base
+	if continuation != nil {
+		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
+		switch result.Flow {
+		case types.FlowException:
+			return VMException{Code: result.Error, Value: result.Val}
+		case types.FlowBuiltinPush:
+			return nil
+		case types.FlowNormal, types.FlowReturn:
+			vm.Push(result.Val)
+			return nil
+		default:
+			return fmt.Errorf("unexpected move continuation flow %d", result.Flow)
+		}
+	}
+	if recycleContinuation != nil {
+		result := vm.resumeRecycleLifecycle(recycleContinuation, types.Ok(value))
+		switch result.Flow {
+		case types.FlowException:
+			return VMException{Code: result.Error, Value: result.Val}
+		case types.FlowBuiltinPush:
+			return nil
+		case types.FlowNormal, types.FlowReturn:
+			vm.Push(result.Val)
+			return nil
+		default:
+			return fmt.Errorf("unexpected recycle continuation flow %d", result.Flow)
+		}
+	}
+	if !discardReturn {
 		vm.Push(value)
 	}
+	return nil
 }

@@ -67,6 +67,7 @@ if ($ExtraServerArgs.Count -gt 0) {
 
 $pytestArgs = @(
     "run",
+    "--frozen",
     "pytest",
     "--pyargs",
     $PytestModule,

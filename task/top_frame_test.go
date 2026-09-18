@@ -13,7 +13,7 @@ func TestSetTopFrameProgrammer(t *testing.T) {
 		t.Fatal("SetTopFrameProgrammer succeeded with an empty call stack")
 	}
 
-	task.PushFrame(ActivationFrame{Programmer: types.ObjID(1)})
+	task.PushFrame(types.ActivationFrame{Programmer: types.ObjID(1)})
 	if !task.SetTopFrameProgrammer(types.ObjID(7)) {
 		t.Fatal("SetTopFrameProgrammer failed with a populated call stack")
 	}
@@ -23,7 +23,7 @@ func TestSetTopFrameProgrammer(t *testing.T) {
 }
 
 func TestSetTopFrameProgrammerConcurrentWithFrameGrowth(t *testing.T) {
-	task := &Task{CallStack: make([]ActivationFrame, 1)}
+	task := &Task{CallStack: make([]types.ActivationFrame, 1)}
 
 	const iterations = 1000
 	var wg sync.WaitGroup
@@ -31,7 +31,7 @@ func TestSetTopFrameProgrammerConcurrentWithFrameGrowth(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range iterations {
-			task.PushFrame(ActivationFrame{})
+			task.PushFrame(types.ActivationFrame{})
 			task.PopFrame()
 		}
 	}()

@@ -6,11 +6,12 @@ import (
 	"slices"
 )
 
-func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
+func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	newID := s.allocateID()
 	if owner == types.ObjNothing {
 		owner = newID
@@ -66,13 +67,13 @@ func (s *Store) NextID() types.ObjID {
 // MaxObject returns the highest allocated object ID
 // Includes recycled objects (high-water mark)
 
-func (s *Store) MaxObject() types.ObjID {
+func (s *Store) maxObject() types.ObjID {
 	return s.maxObjectID()
 }
 
 // Valid checks if an object exists and is not recycled
 
-func (s *Store) Valid(id types.ObjID) bool {
+func (s *Store) valid(id types.ObjID) bool {
 	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
 	if id < 0 {
 		return false
@@ -96,7 +97,7 @@ func (s *Store) Valid(id types.ObjID) bool {
 // IsRecycled checks if an object ID was recycled (vs never existed)
 // Returns true only if the object existed and was recycled
 
-func (s *Store) IsRecycled(id types.ObjID) bool {
+func (s *Store) isRecycled(id types.ObjID) bool {
 	if id < 0 {
 		return false
 	}
@@ -121,6 +122,7 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 	visited := make(map[types.ObjID]bool)
 
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
@@ -179,6 +181,8 @@ func (s *Store) Recycle(id types.ObjID) error {
 
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
 		child := s.load(childID)
@@ -279,6 +283,8 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	// Reset object to fresh state
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
 		parentObj := s.load(parent)
@@ -415,6 +421,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	}
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
+	s.noteVerbShapeChanged()
 	tombstone := NewObject(oldID, obj.owner)
 	tombstone.recycled = true
 	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)
@@ -597,9 +605,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 // a clear slot inherits the first non-clear value from an ancestor.
 
 func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
+	identity := waif.WaifIdentity()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.waifRegistry == nil {
 		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]struct{})
 	}
@@ -608,7 +615,24 @@ func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 		s.waifRegistry[classID] = make(map[types.WaifIdentity]struct{})
 	}
 
-	s.waifRegistry[classID][waif.WaifIdentity()] = struct{}{}
+	if _, registered := s.waifRegistry[classID][identity]; registered {
+		s.mu.Unlock()
+		return
+	}
+	s.waifRegistry[classID][identity] = struct{}{}
+	s.mu.Unlock()
+
+	waif.AddWaifCleanup(func() { s.unregisterWaif(classID, identity) })
+}
+
+func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	waifs := s.waifRegistry[classID]
+	delete(waifs, identity)
+	if len(waifs) == 0 {
+		delete(s.waifRegistry, classID)
+	}
 }
 
 // WaifCount returns the total number of live waifs across all classes
@@ -632,7 +656,9 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 
 	result := make(map[types.ObjID]int)
 	for classID, waifs := range s.waifRegistry {
-		result[classID] = len(waifs)
+		if len(waifs) != 0 {
+			result[classID] = len(waifs)
+		}
 	}
 	return result
 }

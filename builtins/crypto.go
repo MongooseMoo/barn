@@ -59,7 +59,7 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -160,7 +160,7 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
@@ -237,13 +237,14 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+		if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
 	}
 
-	// Group printable ASCII (32-126, excluding ~) as strings, non-printable as ints
+	// Group printable ASCII and horizontal tabs as strings. Toast keeps tab in
+	// the surrounding string run even though the other control bytes are ints.
 	var elements []types.Value
 	var currentStr strings.Builder
 
@@ -255,7 +256,7 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	for _, b := range bytes {
-		if b >= 32 && b <= 126 {
+		if b == '\t' || (b >= 32 && b <= 126) {
 			// Printable ASCII - accumulate into string
 			currentStr.WriteByte(b)
 		} else {
@@ -268,7 +269,7 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 
 	result := types.NewList(elements)
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -343,18 +344,16 @@ func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 		}
 		salt = saltVal.Str()
 	}
-
-	// Check if player is wizard (not just verb owner)
-	// This allows wizard players to use SHA256/SHA512 with custom rounds
-	// even when called from non-wizard verbs
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
+	if (strings.HasPrefix(salt, "$5$") || strings.HasPrefix(salt, "$6$")) && strings.HasSuffix(salt, "$") {
+		return types.Err(types.E_INVARG)
+	}
 
 	// Determine algorithm from salt prefix
 	bcryptCost, shaRounds, errCode := cryptWork(salt)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	maxBcryptCost, maxSHARounds := ctx.Registry.GetCryptWorkLimits()
+	maxBcryptCost, maxSHARounds := ctx.Session.GetCryptWorkLimits()
 	if pending := pendingServerOptions(ctx.TaskContext); pending != nil {
 		maxBcryptCost = pending.MaxCryptBcryptCost
 		maxSHARounds = pending.MaxCryptSHARounds
@@ -373,7 +372,7 @@ func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_QUOTA)
 	}
 
-	result, errCode := cryptPasswordWithPerm(password, salt, playerIsWizard)
+	result, errCode := cryptPasswordWithPerm(password, salt, ctx.IsWizard)
 	if errCode != 0 {
 		return types.Err(errCode)
 	}
@@ -996,7 +995,6 @@ func builtinStringHash(ctx *Execution, args []types.Value) types.Result {
 		}
 		algo = algoVal.Str()
 	}
-
 	binaryOutput := false
 	if len(args) >= 3 {
 		binaryOutput = args[2].Truthy()
@@ -1148,6 +1146,9 @@ func builtinStringHmac(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		algo = algoVal.Str()
+	}
+	if strings.EqualFold(algo, "md5") {
+		return types.Err(types.E_INVARG)
 	}
 
 	binaryOutput := false
@@ -1334,31 +1335,22 @@ func builtinSalt(ctx *Execution, args []types.Value) types.Result {
 	prefixStr := prefix.Str()
 	var result string
 
-	// Base64-like encoding for salt characters
-	const saltChars = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-
 	switch {
-	case prefixStr == "":
-		// Traditional DES crypt - needs 2 bytes
+	case !strings.HasPrefix(prefixStr, "$"):
+		// Unrecognized prefixes fall back to a traditional two-character DES
+		// salt, just like Toast's salt() implementation.
 		if len(randomBytes) < 2 {
 			return types.Err(types.E_INVARG)
 		}
-		result = string([]byte{saltChars[randomBytes[0]%64], saltChars[randomBytes[1]%64]})
+		const alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+		result = string([]byte{alphabet[randomBytes[0]&0x3f], alphabet[randomBytes[1]&0x3f]})
 
 	case strings.HasPrefix(prefixStr, "$1$"):
 		// MD5 crypt - needs at least 3 bytes for 6 chars
 		if len(randomBytes) < 6 {
 			return types.Err(types.E_INVARG)
 		}
-		salt := make([]byte, 8)
-		for i := 0; i < 8; i++ {
-			if i < len(randomBytes) {
-				salt[i] = saltChars[randomBytes[i]%64]
-			} else {
-				salt[i] = '.'
-			}
-		}
-		result = "$1$" + string(salt)
+		result = "$1$" + cryptSaltEncode(randomBytes, 8)
 
 	case strings.HasPrefix(prefixStr, "$5$") || strings.HasPrefix(prefixStr, "$6$"):
 		// SHA256/SHA512 - needs at least 3 bytes
@@ -1389,18 +1381,11 @@ func builtinSalt(ctx *Execution, args []types.Value) types.Result {
 				}
 			}
 		}
-		salt := make([]byte, 16)
-		for i := 0; i < 16; i++ {
-			if i < len(randomBytes) {
-				salt[i] = saltChars[randomBytes[i]%64]
-			} else {
-				salt[i] = '.'
-			}
-		}
+		salt := cryptSaltEncode(randomBytes, 16)
 		if strings.HasPrefix(prefixStr, "$5$") {
-			result = "$5$" + roundsPrefix + string(salt)
+			result = "$5$" + roundsPrefix + salt
 		} else {
-			result = "$6$" + roundsPrefix + string(salt)
+			result = "$6$" + roundsPrefix + salt
 		}
 
 	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2y$"):
@@ -1443,6 +1428,26 @@ func builtinSalt(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(result))
 }
 
+func cryptSaltEncode(data []byte, length int) string {
+	const alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	encoded := make([]byte, 0, length)
+	var bits uint64
+	available := 0
+	for _, b := range data {
+		bits |= uint64(b) << available
+		available += 8
+		for available >= 6 && len(encoded) < length {
+			encoded = append(encoded, alphabet[bits&0x3f])
+			bits >>= 6
+			available -= 6
+		}
+	}
+	if available > 0 && len(encoded) < length {
+		encoded = append(encoded, alphabet[bits&0x3f])
+	}
+	return string(encoded)
+}
+
 // builtinRandomBytes generates random bytes
 // random_bytes(count) -> str (binary encoded)
 func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
@@ -1464,7 +1469,7 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	// Check string length limit before generating bytes (update from load_server_options cache first)
 	// The encoded string will be longer than count due to ~XX escapes
 	// but checking count first prevents unnecessary work
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

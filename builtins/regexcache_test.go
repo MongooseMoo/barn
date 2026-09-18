@@ -118,8 +118,8 @@ func TestCachedPCREPatternVariantsAreDistinct(t *testing.T) {
 	if sensitive == insensitive {
 		t.Fatal("case-sensitive and insensitive PCRE patterns shared an entry")
 	}
-	if sensitive == moo {
-		t.Fatal("raw PCRE and translated MOO patterns shared an entry")
+	if moo == nil || regexpCacheLenForTest() != 3 {
+		t.Fatalf("raw PCRE and translated MOO patterns should occupy distinct entries, got %d", regexpCacheLenForTest())
 	}
 	if insensitive.MatchString("ABC") != true || sensitive.MatchString("ABC") != false {
 		t.Fatalf("case semantics wrong: insensitive=%v sensitive=%v",
@@ -129,7 +129,8 @@ func TestCachedPCREPatternVariantsAreDistinct(t *testing.T) {
 
 func TestPCREBuiltinsShareCachedPattern(t *testing.T) {
 	resetRegexpCacheForTest()
-	match := builtinPcreMatch(nil, []types.Value{
+	ctx := newTestExecution()
+	match := builtinPcreMatch(ctx, []types.Value{
 		types.NewStr("abc"),
 		types.NewStr("abc"),
 		types.NewInt(1),
@@ -137,7 +138,7 @@ func TestPCREBuiltinsShareCachedPattern(t *testing.T) {
 	if match.Error != types.E_NONE {
 		t.Fatalf("pcre_match returned error: %v", match.Error)
 	}
-	replace := builtinPcreReplace(nil, []types.Value{
+	replace := builtinPcreReplace(ctx, []types.Value{
 		types.NewStr("abc"),
 		types.NewStr("s/abc/replaced/"),
 	})

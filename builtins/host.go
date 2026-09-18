@@ -1,6 +1,8 @@
 package builtins
 
 import (
+	"fmt"
+
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -43,12 +45,11 @@ type TaskManager interface {
 
 // Host bundles the server-provided capabilities that builtins depend on but the
 // builtins package cannot implement itself: networking, input injection, task
-// scheduling, and process lifecycle. The Registry owns one Host, wired by its
-// owner (the engine/server) after construction; builtins read it via
+// scheduling, and process lifecycle. A Session owns one Host, supplied at
+// construction or configured once during server startup; builtins read it via
 // hostOf(ctx). A zero Host — db tools, the oracle, pure-builtin tests — leaves
 // every field nil, and each builtin turns a nil capability into its usual MOO
-// error. This mirrors the verbCaller / SetVerbCaller pattern the Registry uses;
-// ownership lives on the instance, not in package-global state.
+// error. Ownership lives on the session instance, not in package-global state.
 type Host struct {
 	ConnManager  ConnectionManager
 	InputForcer  InputForcer
@@ -58,13 +59,43 @@ type Host struct {
 	RunGC        GCHook
 	Checkpoint   CheckpointHook
 	Shutdown     ShutdownHook
+	VerbCaller   VerbCallerFunc
+}
+
+// NoHost explicitly selects a session with no server-provided capabilities.
+// Pure builtin tests, database tools, and oracle processes use this mode.
+func NoHost() Host { return Host{} }
+
+// Validate reports a missing capability from a production server host. Tools
+// and pure tests deliberately use NoHost and do not call Validate.
+func (h Host) Validate() error {
+	checks := []struct {
+		name string
+		set  bool
+	}{
+		{"connection manager", h.ConnManager != nil},
+		{"input forcer", h.InputForcer != nil},
+		{"task yielder", h.TaskYielder != nil},
+		{"task manager", h.TaskManager != nil},
+		{"process stdin", h.ProcessStdin != nil},
+		{"GC hook", h.RunGC != nil},
+		{"checkpoint hook", h.Checkpoint != nil},
+		{"shutdown hook", h.Shutdown != nil},
+		{"verb caller", h.VerbCaller != nil},
+	}
+	for _, check := range checks {
+		if !check.set {
+			return fmt.Errorf("missing builtin host capability: %s", check.name)
+		}
+	}
+	return nil
 }
 
 // hostOf returns the Host wired onto the execution's registry, or the zero Host
 // when no registry is present.
 func hostOf(ctx *Execution) Host {
-	if ctx != nil && ctx.Registry != nil {
-		return ctx.Registry.host
+	if ctx != nil && ctx.Session != nil {
+		return ctx.Session.host
 	}
 	return Host{}
 }
@@ -72,27 +103,3 @@ func hostOf(ctx *Execution) Host {
 func taskManagerOf(ctx *Execution) TaskManager {
 	return hostOf(ctx).TaskManager
 }
-
-// SetConnectionManager wires the connection manager used by network builtins.
-func (r *Registry) SetConnectionManager(cm ConnectionManager) { r.host.ConnManager = cm }
-
-// SetInputForcer wires the input forcer used by force_input/set_connection_option.
-func (r *Registry) SetInputForcer(f InputForcer) { r.host.InputForcer = f }
-
-// SetTaskYielder wires the engine hook used by resume() to run ready tasks.
-func (r *Registry) SetTaskYielder(y TaskYielder) { r.host.TaskYielder = y }
-
-// SetTaskManager wires the execution engine's task manager used by task builtins.
-func (r *Registry) SetTaskManager(m TaskManager) { r.host.TaskManager = m }
-
-// SetProcessStdin wires process stdin for the read_stdin() extension builtin.
-func (r *Registry) SetProcessStdin(stdin *ProcessStdin) { r.host.ProcessStdin = stdin }
-
-// SetRunGCFunc wires the anonymous-object GC entry point used by run_gc().
-func (r *Registry) SetRunGCFunc(f GCHook) { r.host.RunGC = f }
-
-// SetDumpFunc wires the checkpoint request used by dump_database().
-func (r *Registry) SetDumpFunc(f CheckpointHook) { r.host.Checkpoint = f }
-
-// SetShutdownFunc wires the process-lifecycle hook used by shutdown().
-func (r *Registry) SetShutdownFunc(f ShutdownHook) { r.host.Shutdown = f }

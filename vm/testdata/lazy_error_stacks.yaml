@@ -1,0 +1,43 @@
+name: lazy_error_stacks
+description: Runtime variable traceback fields follow the cached server option.
+tests:
+  - name: include_rt_vars_enables_and_disables_traceback_locals
+    steps:
+      - run: |
+          try
+            add_property($server_options, "include_rt_vars", 1, {player, "r"});
+          except (E_INVARG)
+            $server_options.include_rt_vars = 1;
+          endtry
+          load_server_options();
+          return 1;
+        as: wizard
+      - run: |
+          local = 42;
+          try
+            raise(E_DIV, "test message", 19);
+          except e (ANY)
+            return {length(e), length(e[4][1]), e[3], e[4][1][7]["local"]};
+          endtry
+        as: wizard
+        expect:
+          value: [4, 7, 19, 42]
+      - run: |
+          $server_options.include_rt_vars = 0;
+          load_server_options();
+          return 1;
+        as: wizard
+      - run: |
+          try
+            raise(E_DIV);
+          except e (ANY)
+            return {length(e), length(e[4][1])};
+          endtry
+        as: wizard
+        expect:
+          value: [4, 6]
+    cleanup:
+      - run: |
+          delete_property($server_options, "include_rt_vars");
+          load_server_options();
+        as: wizard

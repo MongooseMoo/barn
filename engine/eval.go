@@ -15,9 +15,53 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
+// EvalOutcome is what evaluating MOO source as a player produced. Exactly one
+// of the three fields is meaningful: Diagnostics when the source did not
+// compile (nothing ran), Panic when execution crashed inside the server (a
+// Barn bug, already logged and counted), Result otherwise.
+type EvalOutcome struct {
+	Diagnostics []compiler.Diagnostic
+	Result      types.Result
+	Panic       error
+}
+
 // EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command
 // and returns its single result record. The server input boundary owns framing.
-func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line string) {
+func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) string {
+	outcome := s.Eval(player, strings.Split(code, "\n"))
+	switch {
+	case outcome.Panic != nil:
+		return fmt.Sprintf("{0, {\"Internal error: %v\"}}", outcome.Panic)
+	case len(outcome.Diagnostics) > 0:
+		kind := "Compile error"
+		if outcome.Diagnostics[0].Stage == compiler.SyntaxStage {
+			kind = "Parse error"
+		}
+		return fmt.Sprintf("{0, {\"%s: %s\"}}", kind, outcome.Diagnostics[0].Message)
+	}
+	// Return one result record in ToastStunt eval format:
+	// Success: {1, value}
+	// Runtime error: {2, {E_TYPE, "message", value}}
+	result := outcome.Result
+	if result.Flow == types.FlowException {
+		errCode := types.NewErr(result.Error).String()
+		errMsg := result.Error.Message()
+		return fmt.Sprintf("{2, {%s, \"%s\", 0}}", errCode, errMsg)
+	}
+	if !result.Val.IsNone() {
+		return fmt.Sprintf("{1, %s}", result.Val.String())
+	}
+	// Success with no return value: {1, 0}
+	return "{1, 0}"
+}
+
+// Eval compiles source as a statement list and runs it synchronously as
+// player, the way the intrinsic ";" command does: in a registered task with
+// the eval activation frame and intrinsic variables Toast gives eval'd code,
+// so callers(), task_id(), protected-builtin redirection, fork and suspend
+// behave as they do for a live connection. It is the one eval implementation;
+// the server's ";" and the dbtool's -eval/-eval-file both go through it.
+func (s *Runtime) Eval(player types.ObjID, source []string) (outcome EvalOutcome) {
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
 	var executionTask *task.Task
@@ -25,7 +69,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			line = fmt.Sprintf("{0, {\"Internal error: %v\"}}", r)
+			outcome.Panic = fmt.Errorf("%v", r)
 			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in eval",
 				slog.Int64("player", int64(player)),
@@ -44,14 +88,10 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 		}
 	}()
 
-	prog, diagnostics := s.registry.Compiler().CompileMOO(strings.Split(code, "\n"))
+	prog, diagnostics := s.registry.Compiler().CompileMOO(source)
 	if len(diagnostics) > 0 {
-		kind := "Compile error"
-		if diagnostics[0].Stage == compiler.SyntaxStage {
-			kind = "Parse error"
-		}
-		errMsg := fmt.Sprintf("{0, {\"%s: %s\"}}", kind, diagnostics[0].Message)
-		return errMsg
+		outcome.Diagnostics = diagnostics
+		return outcome
 	}
 
 	// Execute the code synchronously
@@ -60,12 +100,13 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
 	ctx.Store = s.store
+	ctx.StoreTxn = s.store.DirectTxn()
 	ctx.RuntimeOptions = s.options
 
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
 	mgr := s.taskManager
-	ticks, secondsLimit := foregroundTaskLimits(s.registry)
+	ticks, secondsLimit := foregroundTaskLimits(s.session)
 	t := task.NewTask(s.newTaskID(), player, ticks, secondsLimit)
 	mgr.RegisterTask(t)
 	defer mgr.RemoveTask(t.ID)
@@ -78,11 +119,11 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	executionCtx = ctx
 
 	// Create bytecode VM and execute
-	bcVM := vm.NewVM(s.store, s.registry)
+	bcVM := vm.NewVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	// Top-level eval still has intrinsic command variables in Toast:
 	// player/caller/this/verb/args and command parser placeholders.
@@ -106,6 +147,22 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
 	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
 	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+
+	// The eval'd code is an activation of its own, as it is when the eval()
+	// builtin runs it (vm/registry.go): a verb it calls sees this frame and
+	// the eval wrappers in callers(), and like every eval frame it stays out
+	// of tracebacks. It is the root of this task, so nothing pops it.
+	t.PushFrame(types.ActivationFrame{
+		This:        types.ObjNothing,
+		ThisValue:   types.None,
+		Player:      player,
+		Programmer:  player,
+		Caller:      types.ObjNothing,
+		Verb:        "",
+		VerbLoc:     types.ObjNothing,
+		LineNumber:  1,
+		IsEvalFrame: true,
+	})
 
 	anonGCFloor := s.store.NextID()
 	// Sample the global anon-creation counter consistently with anonGCFloor so the
@@ -195,10 +252,10 @@ resumeLoop:
 	anonCreated := s.store.AnonCreationCount() != anonFloor
 	if anonCreated || len(pending) > 0 {
 		func() {
-			s.lifecycle.sweepMu.Lock()
-			defer s.lifecycle.sweepMu.Unlock()
-			s.lifecycle.vmStartMu.Lock()
-			defer s.lifecycle.vmStartMu.Unlock()
+			s.lifecycle.SweepMu.Lock()
+			defer s.lifecycle.SweepMu.Unlock()
+			s.lifecycle.VMStartMu.Lock()
+			defer s.lifecycle.VMStartMu.Unlock()
 
 			siblingAnon, siblingWaifs, quiescent := s.collectSiblingGCRefs(t)
 			if !quiescent {
@@ -217,26 +274,11 @@ resumeLoop:
 				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
 			}
 			if anonCreated {
-				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, s.registry.NewExecution(ctx, t), anonGCFloor, siblingAnon, bcVM)
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.session, s.session.NewExecution(ctx, t), anonGCFloor, siblingAnon, bcVM)
 			}
 		}()
 	}
 
-	// Return one result record in ToastStunt eval format:
-	// Success: {1, value}
-	// Runtime error: {2, {E_TYPE, "message", value}}
-	var resultStr string
-	if result.Flow == types.FlowException {
-		// Runtime error: {2, {E_TYPE, "message", value}}
-		errCode := types.NewErr(result.Error).String()
-		errMsg := result.Error.Message()
-		resultStr = fmt.Sprintf("{2, {%s, \"%s\", 0}}", errCode, errMsg)
-	} else if !result.Val.IsNone() {
-		// Success: {1, value}
-		resultStr = fmt.Sprintf("{1, %s}", result.Val.String())
-	} else {
-		// Success with no return value: {1, 0}
-		resultStr = "{1, 0}"
-	}
-	return resultStr
+	outcome.Result = result
+	return outcome
 }

@@ -57,7 +57,7 @@ Database and inspection flags exit after completing the requested operation:
 
 | Flag | Purpose |
 |------|---------|
-| `-dump <path>` | Load the database and write a ToastStunt-format dump |
+| `-dump <path>` | Write a ToastStunt-format dump, reload it, and compare persistence fields |
 | `-verb-code #obj:verb` | Print verb source and metadata |
 | `-list-verbs #obj` | List verbs defined on an object |
 | `-obj-info #obj` | Print object metadata, properties, and verbs |
@@ -77,14 +77,9 @@ go build -o <tool>.exe ./cmd/<tool>/
 | Tool | Purpose |
 |------|---------|
 | `barn` | Main server plus database inspection commands |
+| `barn_logs` | Inspect Barn's structured run logs |
 | `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
-| `dump_verb` | Print a verb directly from a database object |
-| `dump_prop` | Print a property directly from a database object |
-| `db_roundtrip` | Load, write, reload, and compare a database file |
-| `check_player` | Local diagnostic for wizard `#2` in a database |
 | `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
-| `gen_builtin_signatures` | Generate built-in function signature data |
-| `test_crypt` | Local crypt/hash diagnostic |
 
 ## Conformance Workflow
 
@@ -166,8 +161,50 @@ See [`spec/`](spec/) for local behavior documentation:
   [Regex](spec/builtins/regex.md), [SQLite](spec/builtins/sqlite.md),
   [Exec](spec/builtins/exec.md), [Server](spec/builtins/server.md)
 
+## Performance Builds
+
+Go automatically applies the checked-in `cmd/barn/default.pgo` when building
+the Barn command. The profile combines representative real-Mongoose workloads
+at low and high concurrency with the `BenchmarkVM`/bench_differ hot loops. Keep
+a profile-free baseline available with `go build -pgo=off ./cmd/barn`.
+
+Refresh the profile only after collecting current CPU profiles for all three
+workload shapes, then merge them and re-run the performance gate:
+
+```bash
+go tool pprof -proto mongoose-1p.cpu mongoose-16p.cpu bench-differ.cpu > cmd/barn/default.pgo
+go test -pgo=off ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > before.txt
+go test ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > after.txt
+benchstat before.txt after.txt
+```
+
+Commit a refreshed profile only when the geomean improves with p < 0.05 and no
+benchmark regresses by more than 3%. `make build-linux-amd64` produces the
+BMI2/AVX2 `GOAMD64=v3` binary used for deployment, and bench_differ uses the
+same architecture level. Generic release builds retain Go's `GOAMD64=v1`
+default.
+
 ## Resources
 
 - [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests)
 - [ToastStunt](https://github.com/lisdude/toaststunt)
 - [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
+
+## Housekeeping
+
+Durable prose lives in `docs/` (design notes, reports, `docs/TRACING.md`,
+`docs/history/` for retired plans), active plans in `plans/`, measured results
+in `experiments/`, and agent working notes in `notes/`. Per-session
+`notes-*.md` files at the root are ignored scratch. Ad hoc runs leave
+database copies, transcripts and profiles at the root; list and remove them
+with:
+
+```powershell
+.\scripts\clean-scratch.ps1            # dry run
+.\scripts\clean-scratch.ps1 -Force     # delete untracked scratch
+.\scripts\clean-scratch.ps1 -ArchiveNotes
+```
+
+The Windows runtime DLLs at the root (`argon2.dll`, `pcre.dll`, `sqlite3.dll`,
+`nettle-8.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`)
+are loaded from the executable's directory and must stay tracked there.

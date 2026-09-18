@@ -29,14 +29,21 @@ func builtinTostr(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewStr(""))
 	}
 
-	var result strings.Builder
-	for _, val := range args {
-		result.WriteString(valueToStr(val))
+	var resultStr string
+	if len(args) == 1 {
+		// The common single-argument form needs no builder: valueToStr already
+		// yields the final string, so skip the copy into and out of a Builder.
+		resultStr = valueToStr(args[0])
+	} else {
+		var result strings.Builder
+		for _, val := range args {
+			result.WriteString(valueToStr(val))
+		}
+		resultStr = result.String()
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
-	resultStr := result.String()
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -182,6 +189,14 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
 		// reports via err).
 		str := strings.TrimSpace(val.Str())
+		if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") ||
+			strings.HasPrefix(str, "-0x") || strings.HasPrefix(str, "-0X") ||
+			strings.HasPrefix(str, "+0x") || strings.HasPrefix(str, "+0X") {
+			if integer, err := strconv.ParseInt(str, 0, 64); err == nil {
+				return types.Ok(types.NewFloat(float64(integer)))
+			}
+			return types.Err(types.E_INVARG)
+		}
 		f, err := strconv.ParseFloat(str, 64)
 		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)
@@ -204,7 +219,7 @@ func builtinToliteral(ctx *Execution, args []types.Value) types.Result {
 	resultStr := publicLiteral(args[0])
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -306,6 +321,10 @@ func builtinEqual(ctx *Execution, args []types.Value) types.Result {
 // strictEqual performs case-sensitive deep equality comparison
 // This is used by equal() builtin, not by == operator
 func strictEqual(a, b types.Value) bool {
+	if equal, handled := types.BoolIntEqual(a, b); handled {
+		return equal
+	}
+
 	// For maps, do case-sensitive comparison of keys and values
 	if a.Type() == types.TYPE_MAP && b.Type() == types.TYPE_MAP {
 		if a.Len() != b.Len() {

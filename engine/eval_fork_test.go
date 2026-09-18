@@ -107,7 +107,7 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 	if err := store.Add(wizard.Build()); err != nil {
 		t.Fatalf("Add wizard failed: %v", err)
 	}
-	obj, errCode := store.CreateObject(nil, 3, false)
+	obj, errCode := store.DirectTxn().CreateObject(nil, 3, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -148,23 +148,23 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 	store, _ := database.NewStoreFromDatabase()
-	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
 	}
 	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
-		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}
-	if errCode := store.MoveObject(player, 2, 0); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().MoveObject(player, 2, 0); errCode != types.E_NONE {
 		t.Fatalf("MoveObject player failed: %v", errCode)
 	}
 
 	conn := &evalCommandStubConn{}
 	s := NewRuntime(store)
 	defer s.Stop()
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
 
 	cmd := command.ParseCommand("eval " + auditWaifCommandSource)
 	match := command.FindVerb(store, player, 2, cmd)
@@ -195,12 +195,12 @@ func TestMoveAcceptUsesCurrentTaskTransaction(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 	store, _ := database.NewStoreFromDatabase()
-	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
 	}
 	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
-		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}
@@ -238,12 +238,12 @@ func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 	store, _ := database.NewStoreFromDatabase()
-	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
 	}
 	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
-		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}
@@ -251,7 +251,7 @@ func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 	s := NewRuntime(store)
 	defer s.Stop()
 	conn := &evalCommandStubConn{}
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
 	source := `
 a = create($nothing);
 b = create($nothing);
@@ -301,7 +301,7 @@ func TestCommandEvalRunGCCyclicAnonymousChainCompletes(t *testing.T) {
 			defer s.Stop()
 
 			conn := &evalCommandStubConn{}
-			s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 3, conn: conn})
+			configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 3, conn: conn} })
 			source := fmt.Sprintf(`
 c = head = tail = #-1;
 try
@@ -366,7 +366,7 @@ func TestForkedZeroDelayResumeCommitsPostSuspendWrites(t *testing.T) {
 	if err := store.Add(wizard.Build()); err != nil {
 		t.Fatalf("Add wizard failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "fork_value", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "fork_value", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
@@ -393,7 +393,7 @@ return #0.fork_value;
 		if s.ProcessReadyTasks() == 0 {
 			time.Sleep(5 * time.Millisecond)
 		}
-		value, errCode := store.PropertyValue(0, "fork_value")
+		value, errCode := store.DirectTxn().PropertyValue(0, "fork_value")
 		if errCode != types.E_NONE {
 			t.Fatalf("PropertyValue failed: %v", errCode)
 		}
@@ -401,6 +401,6 @@ return #0.fork_value;
 			return
 		}
 	}
-	value, _ := store.PropertyValue(0, "fork_value")
+	value, _ := store.DirectTxn().PropertyValue(0, "fork_value")
 	t.Fatalf("fork_value = %T %v, want empty map from fork task_local()", value, value)
 }

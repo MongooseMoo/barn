@@ -29,7 +29,11 @@ func (l *Lexer) readErrorLiteral() Token {
 	}
 
 	tok.Value = l.input[start:l.position]
-	tok.Type = TOKEN_ERROR_LIT
+	if isErrorName(tok.Value) {
+		tok.Type = TOKEN_ERROR_LIT
+	} else {
+		tok.Type = TOKEN_IDENTIFIER
+	}
 
 	return tok
 }

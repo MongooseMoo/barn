@@ -22,7 +22,7 @@ func TestVariableNamesAreCaseInsensitiveAcrossTypeConstantSpellings(t *testing.T
 		t.Fatalf("variable names = %v, want %v", got, want)
 	}
 
-	machine := NewVM(dbstore.NewStore(), registry)
+	machine := NewVM(dbstore.NewStore(), newTestSession(registry))
 	result := machine.Run(program)
 	want := types.NewList([]types.Value{types.NewInt(41), types.NewInt(42)})
 	if result.Flow != types.FlowReturn || !result.Val.Equal(want) {

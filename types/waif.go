@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -97,9 +99,26 @@ func (v Value) SetProperty(name string, value Value) Value {
 	if w.properties == nil {
 		w.properties = make(map[string]Value)
 	}
+	// Only a write that adds or removes a reference to a WAIF or anonymous
+	// object can change waif-to-waif reachability; scalar and string writes
+	// (the overwhelming majority) leave the memoized closure valid.
+	if old, ok := w.properties[name]; (ok && old.MayHoldFinalizable()) || value.MayHoldFinalizable() {
+		waifGraphEpoch.Add(1)
+	}
 	w.properties[name] = value
 	return v
 }
+
+// waifGraphEpoch advances on every in-place WAIF property write. WAIF
+// properties are the one part of the value graph that mutates without a
+// store write, so any memo of "which waifs are reachable from these roots"
+// must be keyed on it. See WaifGraphEpoch.
+var waifGraphEpoch atomic.Uint64
+
+// WaifGraphEpoch returns a counter that changes whenever any WAIF's property
+// was assigned in place. Equal values mean the waif-to-waif reachability graph
+// is unchanged.
+func WaifGraphEpoch() uint64 { return waifGraphEpoch.Load() }
 
 // WaifIdentity is an opaque, comparable, process-independent identity token for
 // a waif. Its 128-bit swiss number is unguessable and can be persisted without
@@ -127,6 +146,15 @@ func ParseWaifIdentity(encoded string) (WaifIdentity, error) {
 // waif return equal tokens; independently created waifs return distinct tokens.
 // It is only meaningful when Type()==TYPE_WAIF.
 func (v Value) WaifIdentity() WaifIdentity { return v.waifRep().identity }
+
+// AddWaifCleanup arranges for cleanup to run after this waif becomes
+// unreachable. The callback must not retain v (directly or indirectly).
+//
+// This is intentionally the only lifecycle hook exposed for waifRep: callers
+// can observe liveness without keeping the backing allocation alive.
+func (v Value) AddWaifCleanup(cleanup func()) {
+	runtime.AddCleanup(v.waifRep(), func(func()) { cleanup() }, cleanup)
+}
 
 // PropertyNames returns the names of all properties set on this waif.
 func (v Value) PropertyNames() []string {

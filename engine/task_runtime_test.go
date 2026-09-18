@@ -2,6 +2,7 @@ package engine
 
 import (
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	taskID := s.CreateBackgroundTask(types.ObjNothing, program, 0)
 
 	s.mu.Lock()
-	bgTask := s.tasks[taskID]
+	bgTask := s.taskManager.GetTask(taskID)
 	bgTask.StartTime = time.Now().Add(-10 * time.Minute)
 	s.mu.Unlock()
 
@@ -40,6 +41,34 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 
 	if got := bgTask.GetState(); got != task.TaskCompleted {
 		t.Fatalf("task state = %v, want TaskCompleted (stale StartTime should not expire the budget deadline)", got)
+	}
+}
+
+func TestQueueTaskInitializesNewTaskFullContextBeforeRetryCapture(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewRuntime(store)
+	defer s.Stop()
+	program := compileTestProgram(t, s.registry, "return 42;")
+	queued := task.NewTaskFull(99001, types.ObjNothing, program, 1000, 10)
+	if queued.Context.Store != nil {
+		t.Fatal("NewTaskFull unexpectedly populated its context store")
+	}
+
+	s.QueueTask(queued)
+	if queued.Context.Store != store {
+		t.Fatal("QueueTask did not populate the runtime store before execution")
+	}
+	if queued.Context.StoreTxn != store.DirectTxn() {
+		t.Fatal("QueueTask did not populate the direct transaction before retry capture")
+	}
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("processed tasks = %d, want 1", got)
+	}
+	if got := queued.GetState(); got != task.TaskCompleted {
+		t.Fatalf("queued task state = %v, want completed", got)
+	}
+	if got := queued.Result; got.Flow != types.FlowReturn || got.Val.Type() != types.TYPE_INT || got.Val.Int() != 42 {
+		t.Fatalf("queued task result = %+v, want return 42", got)
 	}
 }
 
@@ -65,7 +94,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s
 	s.mu.Lock()
-	s.tasks[tk.ID] = tk
+	s.taskManager.RegisterTask(tk)
 	s.mu.Unlock()
 	tk.SetState(task.TaskQueued)
 	mgr.RegisterTask(tk)
@@ -117,7 +146,7 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 		_ = reader.Close()
 		_ = writer.Close()
 	})
-	s.registry.SetProcessStdin(builtins.NewProcessStdin(reader))
+	configureTestHost(s.session, func(host *builtins.Host) { host.ProcessStdin = builtins.NewProcessStdin(reader) })
 
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return read_stdin();"})
 	if len(diagnostics) > 0 {
@@ -128,10 +157,10 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 	t.Cleanup(func() {
 		s.taskManager.RemoveTask(taskID)
 		s.mu.Lock()
-		delete(s.tasks, taskID)
+		s.taskManager.RemoveTask(taskID)
 		s.mu.Unlock()
 	})
-	readTask := s.tasks[taskID]
+	readTask := s.taskManager.GetTask(taskID)
 
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
@@ -185,7 +214,8 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	defer func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		for id := range s.tasks {
+		for _, catalogTask := range s.taskManager.Snapshot() {
+			id := catalogTask.ID
 			mgr.RemoveTask(id)
 		}
 	}()
@@ -193,12 +223,12 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
 	}
-	if got := s.tasks[parentID].GetState(); got != task.TaskCompleted {
+	if got := s.taskManager.GetTask(parentID).GetState(); got != task.TaskCompleted {
 		t.Fatalf("parent state = %v, want TaskCompleted", got)
 	}
 
 	var outer *task.Task
-	for _, queued := range s.tasks {
+	for _, queued := range s.taskManager.Snapshot() {
 		if queued.IsForked {
 			outer = queued
 			break
@@ -222,7 +252,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	}
 
 	forkedCount := 0
-	for _, queued := range s.tasks {
+	for _, queued := range s.taskManager.Snapshot() {
 		if !queued.IsForked {
 			continue
 		}
@@ -233,5 +263,44 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	}
 	if forkedCount != 2 {
 		t.Fatalf("forked task count = %d, want 2", forkedCount)
+	}
+}
+
+func TestSuspendFinalizesReleasedWaifBeforeResume(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetLocation(types.ObjNothing)
+	root.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	if errCode := store.DirectTxn().DefineProperty(0, "waif_recycle_log", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define recycle log: %v", errCode)
+	}
+
+	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
+	program := compileTestProgram(t, s.registry, strings.Join([]string{
+		"c = create(-1);",
+		`add_verb(c, {#0, "xd", ":recycle"}, {"this", "none", "this"});`,
+		`set_verb_code(c, ":recycle", {"#0.waif_recycle_log = {@#0.waif_recycle_log, typeof(this) == WAIF};"});`,
+		`add_verb(c, {#0, "xd", "new"}, {"this", "none", "this"});`,
+		`set_verb_code(c, "new", {"return new_waif();"});`,
+		"w = c:new();",
+		"w = 0;",
+		"suspend(0);",
+		"return #0.waif_recycle_log;",
+	}, "\n"))
+	taskID := s.CreateBackgroundTask(0, program, 0)
+	running := s.GetTask(taskID)
+	running.Context.IsWizard = true
+	for pass := 0; pass < 8 && running.GetState() != task.TaskCompleted && running.GetState() != task.TaskKilled; pass++ {
+		if processed := s.ProcessReadyTasks(); processed == 0 {
+			t.Fatalf("task made no progress in state %v", running.GetState())
+		}
+	}
+	if got := running.Result; got.Flow != types.FlowReturn || got.Val.String() != "{1}" {
+		t.Fatalf("released waif recycle log = %+v, want {1}", got)
 	}
 }

@@ -2,7 +2,6 @@ package task
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -57,68 +56,6 @@ func (s TaskState) String() string {
 	}
 }
 
-// ActivationFrame represents a single verb call on the call stack
-// This is what callers() returns
-type ActivationFrame struct {
-	This             types.ObjID   // Object this verb is called on (prototype for primitives)
-	ThisValue        types.Value   // For primitive prototype calls: the actual primitive value
-	Player           types.ObjID   // Player who initiated this task
-	Programmer       types.ObjID   // Programmer (for permissions)
-	Caller           types.ObjID   // Object that called this verb
-	Verb             string        // Verb name as invoked (callers()/task_stack())
-	StoredVerb       string        // Verb's stored name spec incl. wildcards; used by printed tracebacks
-	StoredVerbNames  []string      // Lazy form used by live frames; immutable verb storage owns the backing array
-	VerbLoc          types.ObjID   // Object where verb is defined
-	Args             []types.Value // Arguments passed to verb
-	LineNumber       int           // Current line number in verb
-	RuntimeVariables types.Value   // Bound runtime variables in declaration order
-	SourceLine       string        // Source text at LineNumber (best-effort, for debugging/logging)
-	ServerInitiated  bool          // True if this is a server-invoked call (do_login_command, etc.)
-	IsEvalFrame      bool          // True if this is an eval() infrastructure frame (excluded from tracebacks)
-}
-
-// TracebackVerb returns the stored verb name spec without requiring callers to
-// know whether the frame came from live execution or a persisted checkpoint.
-func (a *ActivationFrame) TracebackVerb() string {
-	if a.StoredVerb != "" {
-		return a.StoredVerb
-	}
-	return strings.Join(a.StoredVerbNames, " ")
-}
-
-// ToList converts an activation frame to a MOO list for callers()
-// Format: {this, verb_name, programmer, verb_loc, player, line_number}
-// For primitive/anonymous targets, ThisValue carries the real "this" value.
-func (a *ActivationFrame) ToList() types.Value {
-	thisVal := types.NewObj(a.This)
-	if !a.ThisValue.IsNone() {
-		thisVal = a.ThisValue
-	}
-
-	return types.NewList([]types.Value{
-		thisVal,
-		types.NewStr(a.Verb),
-		types.NewObj(a.Programmer),
-		types.NewObj(a.VerbLoc),
-		types.NewObj(a.Player),
-		types.NewInt(int64(a.LineNumber)),
-	})
-}
-
-// ToMap converts an activation frame to a MOO map for task_stack()
-// Keys: "this", "verb", "programmer", "verb_loc", "player", "line_number"
-// Note: For primitive prototype calls, 'this' is #-1 (matching Toast).
-func (a *ActivationFrame) ToMap() types.Value {
-	return types.NewMap([][2]types.Value{
-		{types.NewStr("this"), types.NewObj(a.This)}, // Always use object ID (#-1 for primitives)
-		{types.NewStr("verb"), types.NewStr(a.Verb)},
-		{types.NewStr("programmer"), types.NewObj(a.Programmer)},
-		{types.NewStr("verb_loc"), types.NewObj(a.VerbLoc)},
-		{types.NewStr("player"), types.NewObj(a.Player)},
-		{types.NewStr("line_number"), types.NewInt(int64(a.LineNumber))},
-	})
-}
-
 // Task represents a MOO task (unit of execution)
 type Task struct {
 	ID           int64
@@ -131,11 +68,12 @@ type Task struct {
 	TicksLimit   int64
 	SecondsUsed  float64
 	SecondsLimit float64
-	CallStack    []ActivationFrame
+	CallStack    []types.ActivationFrame
 	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
 	WakeTime            time.Time
+	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
@@ -267,7 +205,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 		TicksLimit:    tickLimit,
 		SecondsUsed:   0,
 		SecondsLimit:  secondsLimit,
-		CallStack:     make([]ActivationFrame, 0),
+		CallStack:     make([]types.ActivationFrame, 0),
 		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:     types.NewInt(0),     // Default wake value is 0 (matches LambdaMOO)
 		ReadingPlayer: types.ObjNothing,
@@ -296,7 +234,7 @@ func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLim
 		TicksLimit:    tickLimit,
 		SecondsUsed:   0,
 		SecondsLimit:  secondsLimit,
-		CallStack:     make([]ActivationFrame, 0),
+		CallStack:     make([]types.ActivationFrame, 0),
 		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:     types.NewInt(0),
 		ReadingPlayer: types.ObjNothing,
@@ -341,7 +279,7 @@ func (t *Task) TryClaimQueued() bool {
 }
 
 // PushFrame pushes an activation frame onto the call stack
-func (t *Task) PushFrame(frame ActivationFrame) {
+func (t *Task) PushFrame(frame types.ActivationFrame) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.CallStack = append(t.CallStack, frame)
@@ -357,11 +295,11 @@ func (t *Task) PopFrame() {
 }
 
 // GetCallStack returns a copy of the call stack (thread-safe)
-func (t *Task) GetCallStack() []ActivationFrame {
+func (t *Task) GetCallStack() []types.ActivationFrame {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	// Make a copy
-	stack := make([]ActivationFrame, len(t.CallStack))
+	stack := make([]types.ActivationFrame, len(t.CallStack))
 	copy(stack, t.CallStack)
 	return stack
 }
@@ -376,15 +314,15 @@ func (t *Task) ClearCallStack() {
 // RetryStateSnapshot returns the task fields needed to reconstruct a failed
 // optimistic execution attempt. Slice storage is copied before releasing the
 // lock so a concurrent observer never aliases a changing CallStack.
-func (t *Task) RetryStateSnapshot() (*kernel.TaskContext, []ActivationFrame, types.Value, types.Value, int64, float64) {
+func (t *Task) RetryStateSnapshot() (*kernel.TaskContext, []types.ActivationFrame, types.Value, types.Value, int64, float64) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	stack := append([]ActivationFrame(nil), t.CallStack...)
+	stack := append([]types.ActivationFrame(nil), t.CallStack...)
 	return t.Context, stack, t.TaskLocal, t.WakeValue, t.TicksLimit, t.SecondsLimit
 }
 
 // RestoreRetryState atomically publishes all task-owned state for a retry.
-func (t *Task) RestoreRetryState(ctx *kernel.TaskContext, stack []ActivationFrame, local, wake types.Value, ticks int64, seconds float64) {
+func (t *Task) RestoreRetryState(ctx *kernel.TaskContext, stack []types.ActivationFrame, local, wake types.Value, ticks int64, seconds float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Result = types.Result{}
@@ -441,13 +379,14 @@ func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
 	}
 }
 
-// UpdateCallStackRuntimeVariables bulk-updates the runtime-variable map for
-// each activation frame. variables[0] corresponds to CallStack[0].
-func (t *Task) UpdateCallStackRuntimeVariables(variables []types.Value) {
+// UpdateCallStackRuntimeVariableSnapshots installs immutable local snapshots.
+// Each snapshot corresponds to the activation at the same index.
+func (t *Task) UpdateCallStackRuntimeVariableSnapshots(snapshots []*types.RuntimeVariableSnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for i := 0; i < len(variables) && i < len(t.CallStack); i++ {
-		t.CallStack[i].RuntimeVariables = variables[i]
+	for i := 0; i < len(snapshots) && i < len(t.CallStack); i++ {
+		t.CallStack[i].RuntimeVariables = types.None
+		t.CallStack[i].RuntimeVariableSnapshot = snapshots[i]
 	}
 }
 
@@ -571,11 +510,15 @@ func (t *Task) SetBytecodeVM(machine interface{}) {
 // zero so the runtime never auto-wakes it — only an explicit resume() does.
 var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 
-// Suspend suspends the task for a duration
+// Suspend suspends the task for a duration. A zero duration is a scheduler
+// yield with no wake deadline, so any WakeTime left over from an earlier timed
+// suspend is cleared rather than letting the scheduler treat the yield as due.
 func (t *Task) Suspend(duration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskSuspended
+	t.suspendGen++
+	t.WakeTime = time.Time{}
 	if duration > 0 {
 		t.WakeTime = time.Now().Add(duration)
 	}
@@ -583,14 +526,42 @@ func (t *Task) Suspend(duration time.Duration) {
 
 // SuspendIndefinite suspends the task with no wake deadline (suspend() with
 // no/negative seconds). The task waits for an explicit resume() and must never
-// auto-wake, so WakeTime stays zero. StartTime is stamped with the far-future
-// IndefiniteSuspendStartTime sentinel so the task sorts LAST in queued_tasks()
-// (ascending by start time), matching ToastStunt's INTNUM_MAX start_tv.
+// auto-wake, so WakeTime is cleared: a deadline left over from an earlier timed
+// suspend would otherwise make the scheduler wake this suspension with 0 before
+// the party it is waiting on delivers its value. StartTime is stamped with the
+// far-future IndefiniteSuspendStartTime sentinel so the task sorts LAST in
+// queued_tasks() (ascending by start time), matching ToastStunt's INTNUM_MAX
+// start_tv.
 func (t *Task) SuspendIndefinite() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskSuspended
+	t.suspendGen++
+	t.WakeTime = time.Time{}
 	t.StartTime = IndefiniteSuspendStartTime
+}
+
+// SuspendGeneration identifies the task's current suspension. Every Suspend and
+// SuspendIndefinite starts a new generation, so a completion that captured the
+// generation at suspend time can tell (via ResumeGeneration) whether the task is
+// still waiting on it or has since been retried, resumed by someone else, or
+// suspended again.
+func (t *Task) SuspendGeneration() uint64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.suspendGen
+}
+
+// ResumeGeneration resumes the task like Resume, but only while it is still in
+// the suspension identified by gen. A stale completion (one belonging to an
+// abandoned attempt or an earlier suspension) is ignored and returns false.
+func (t *Task) ResumeGeneration(gen uint64, value types.Value) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.suspendGen != gen {
+		return false
+	}
+	return t.resumeLocked(value)
 }
 
 // Resume resumes the task with a value
@@ -598,6 +569,10 @@ func (t *Task) SuspendIndefinite() {
 func (t *Task) Resume(value types.Value) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.resumeLocked(value)
+}
+
+func (t *Task) resumeLocked(value types.Value) bool {
 	if t.State != TaskSuspended {
 		return false
 	}

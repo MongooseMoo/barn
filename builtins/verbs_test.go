@@ -25,7 +25,7 @@ func TestVerbCodeReturnsCanonicalSource(t *testing.T) {
 	ctx, store := newReviewCtx(t)
 	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
 	mustAddVerb(t, store, obj, "canonical", 0, dbstore.VerbRead)
-	if errCode := store.SetVerbCode(obj, "canonical", []string{"1   ;"}); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(obj, "canonical", []string{"1   ;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode failed: %v", errCode)
 	}
 
@@ -44,7 +44,7 @@ func TestVerbCodeReturnsCompoundStatementAsSeparateLines(t *testing.T) {
 	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
 	mustAddVerb(t, store, obj, "loop", 0, dbstore.VerbRead)
 	source := []string{"for i, i in ({})", "  break i;", "endfor"}
-	if errCode := store.SetVerbCode(obj, "loop", source); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetVerbCode(obj, "loop", source); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode failed: %v", errCode)
 	}
 
@@ -81,7 +81,7 @@ func TestSetVerbCodeStoresToastCanonicalProgramText(t *testing.T) {
 	if result.IsError() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 0 {
 		t.Fatalf("set_verb_code = %+v, want empty diagnostic list", result)
 	}
-	view, errCode := store.VerbByIndex(obj, 0)
+	view, errCode := store.DirectTxn().VerbByIndex(obj, 0)
 	if errCode != types.E_NONE {
 		t.Fatalf("VerbByIndex: %v", errCode)
 	}

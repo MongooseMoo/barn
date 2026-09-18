@@ -9,8 +9,8 @@ func TestStoreBasics(t *testing.T) {
 	store := NewStore()
 
 	// Test initial state
-	if store.MaxObject() != -1 {
-		t.Errorf("MaxObject() = %d, want -1", store.MaxObject())
+	if store.DirectTxn().MaxObject() != -1 {
+		t.Errorf("MaxObject() = %d, want -1", store.DirectTxn().MaxObject())
 	}
 
 	if store.NextID() != 0 {
@@ -24,8 +24,8 @@ func TestStoreBasics(t *testing.T) {
 	}
 
 	// Check max object updated
-	if store.MaxObject() != 0 {
-		t.Errorf("MaxObject() = %d, want 0", store.MaxObject())
+	if store.DirectTxn().MaxObject() != 0 {
+		t.Errorf("MaxObject() = %d, want 0", store.DirectTxn().MaxObject())
 	}
 
 	if store.NextID() != 1 {
@@ -46,16 +46,16 @@ func TestStoreValid(t *testing.T) {
 	store := NewStore()
 
 	// Negative IDs are sentinels
-	if store.Valid(-1) {
+	if store.DirectTxn().Valid(-1) {
 		t.Error("Valid(-1) = true, want false (sentinel)")
 	}
 
-	if store.Valid(-2) {
+	if store.DirectTxn().Valid(-2) {
 		t.Error("Valid(-2) = true, want false (sentinel)")
 	}
 
 	// Non-existent object
-	if store.Valid(99) {
+	if store.DirectTxn().Valid(99) {
 		t.Error("Valid(99) = true, want false (doesn't exist)")
 	}
 
@@ -63,14 +63,14 @@ func TestStoreValid(t *testing.T) {
 	obj := NewObject(0, 0)
 	store.Add(obj)
 
-	if !store.Valid(0) {
+	if !store.DirectTxn().Valid(0) {
 		t.Error("Valid(0) = false, want true (exists)")
 	}
 
 	// Recycle object
 	store.Recycle(0)
 
-	if store.Valid(0) {
+	if store.DirectTxn().Valid(0) {
 		t.Error("Valid(0) = true, want false (recycled)")
 	}
 }
@@ -117,16 +117,16 @@ func TestStoreMaxObjectAfterRecycle(t *testing.T) {
 	store.Add(NewObject(1, 0))
 	store.Add(NewObject(2, 0))
 
-	if store.MaxObject() != 2 {
-		t.Errorf("MaxObject() = %d, want 2", store.MaxObject())
+	if store.DirectTxn().MaxObject() != 2 {
+		t.Errorf("MaxObject() = %d, want 2", store.DirectTxn().MaxObject())
 	}
 
 	// Recycle #1
 	store.Recycle(1)
 
 	// MaxObject should still be 2 (high-water mark)
-	if store.MaxObject() != 2 {
-		t.Errorf("MaxObject() = %d, want 2 (high-water mark)", store.MaxObject())
+	if store.DirectTxn().MaxObject() != 2 {
+		t.Errorf("MaxObject() = %d, want 2 (high-water mark)", store.DirectTxn().MaxObject())
 	}
 
 	// NextID should be 3 (sequential allocation)
@@ -140,7 +140,7 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 	if err := store.Add(NewObject(0, -1)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -150,10 +150,10 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 	if err := store.Recreate(obj, types.ObjNothing, 0); err != nil {
 		t.Fatalf("Recreate failed: %v", err)
 	}
-	if !store.Valid(obj) {
+	if !store.DirectTxn().Valid(obj) {
 		t.Fatalf("recreated object is not valid")
 	}
-	if parent, errCode := store.Parent(obj); errCode != types.E_NONE || parent != types.ObjNothing {
+	if parent, errCode := store.DirectTxn().Parent(obj); errCode != types.E_NONE || parent != types.ObjNothing {
 		t.Fatalf("Parent = %d, %v; want #-1, E_NONE", parent, errCode)
 	}
 	if next := store.LowestFreeID(); next == obj {
@@ -208,15 +208,15 @@ func TestAppendPendingFinalizationsPromotesCoveringRootAndPreservesDistinctValue
 		t.Fatalf("add root: %v", err)
 	}
 
-	leaf, errCode := store.CreateObject(nil, 0, true)
+	leaf, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create leaf: %v", errCode)
 	}
-	head, errCode := store.CreateObject(nil, 0, true)
+	head, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create head: %v", errCode)
 	}
-	if errCode := store.DefineProperty(head, "next", NewProperty(types.NewAnon(leaf), 0, PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(head, "next", NewProperty(types.NewAnon(leaf), 0, PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define head.next: %v", errCode)
 	}
 
@@ -321,11 +321,11 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 		t.Fatalf("Add() failed: %v", err)
 	}
 
-	if errCode := store.DefineProperty(0, "CaseProbe", NewProperty(types.NewInt(42), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "CaseProbe", NewProperty(types.NewInt(42), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty() failed: %v", errCode)
 	}
 
-	prop, errCode := store.FindProperty(0, "caseprobe")
+	prop, errCode := store.DirectTxn().FindProperty(0, "caseprobe")
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty() failed: %v", errCode)
 	}
@@ -335,21 +335,21 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	if prop.Name != "caseprobe" {
 		t.Fatalf("FindProperty() name = %q, want canonical caseprobe", prop.Name)
 	}
-	if names, errCode := store.DefinedPropertyNames(0); errCode != types.E_NONE || len(names) != 1 || names[0] != "CaseProbe" {
+	if names, errCode := store.DirectTxn().DefinedPropertyNames(0); errCode != types.E_NONE || len(names) != 1 || names[0] != "CaseProbe" {
 		t.Fatalf("DefinedPropertyNames() = %v (err=%v), want [CaseProbe]", names, errCode)
 	}
 	if got := prop.Value.Int(); prop.Value.Type() != types.TYPE_INT || got != 42 {
 		t.Fatalf("FindProperty() value = %d, want 42", got)
 	}
 
-	if _, ok, errCode := store.LocalProperty(0, "CASEPROBE"); errCode != types.E_NONE || !ok {
+	if _, ok, errCode := store.DirectTxn().LocalProperty(0, "CASEPROBE"); errCode != types.E_NONE || !ok {
 		t.Fatalf("LocalProperty() ok=%v err=%v, want ok", ok, errCode)
 	}
 
-	if errCode := store.SetPropertyValue(0, "CASEPROBE", types.NewInt(99)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(0, "CASEPROBE", types.NewInt(99)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue() failed: %v", errCode)
 	}
-	prop, errCode = store.FindProperty(0, "caseprobe")
+	prop, errCode = store.DirectTxn().FindProperty(0, "caseprobe")
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty() after set failed: %v", errCode)
 	}
@@ -358,10 +358,10 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	}
 
 	perms := PropRead
-	if errCode := store.SetPropertyInfo(0, "caseprobe", nil, &perms); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyInfo(0, "caseprobe", nil, &perms); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyInfo() failed: %v", errCode)
 	}
-	prop, errCode = store.FindProperty(0, "CASEPROBE")
+	prop, errCode = store.DirectTxn().FindProperty(0, "CASEPROBE")
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty() after info failed: %v", errCode)
 	}
@@ -369,14 +369,14 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 		t.Fatalf("SetPropertyInfo() perms = %v, want %v", prop.Perms, PropRead)
 	}
 
-	if errCode := store.DefineProperty(0, "caseprobe", NewProperty(types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_INVARG {
+	if errCode := store.DirectTxn().DefineProperty(0, "caseprobe", NewProperty(types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_INVARG {
 		t.Fatalf("DefineProperty() duplicate = %v, want E_INVARG", errCode)
 	}
 
-	if errCode := store.DeleteDefinedProperty(0, "CASEPROBE"); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DeleteDefinedProperty(0, "CASEPROBE"); errCode != types.E_NONE {
 		t.Fatalf("DeleteDefinedProperty() failed: %v", errCode)
 	}
-	if _, errCode := store.FindProperty(0, "caseprobe"); errCode != types.E_PROPNF {
+	if _, errCode := store.DirectTxn().FindProperty(0, "caseprobe"); errCode != types.E_PROPNF {
 		t.Fatalf("FindProperty() after delete = %v, want E_PROPNF", errCode)
 	}
 }

@@ -15,7 +15,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 			"first":  anon(101),
 			"second": anon(102),
 		}},
-		CallStack: []ActivationFrame{{ThisValue: anon(103)}},
+		CallStack: []types.ActivationFrame{{ThisValue: anon(103)}},
 	}
 	suspended := Snapshot{
 		// A yielded fork retains Fork metadata in memory, but the suspended-task
@@ -24,15 +24,21 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 		ReadingPlayer: types.ObjNothing,
 		WakeValue:     anon(201),
 		TaskLocal:     anon(202),
-		CallStack:     []ActivationFrame{{ThisValue: anon(998)}},
+		CallStack:     []types.ActivationFrame{{ThisValue: anon(998)}},
 		VM: &VMSnapshot{Frames: []VMFrameSnapshot{{
-			Program:        bytecode.Program{Constants: []types.Value{anon(203), anon(204)}},
-			Locals:         []types.Value{anon(205)},
-			Stack:          []types.Value{anon(206)},
-			ThisValue:      anon(207),
-			Args:           []types.Value{anon(208)},
-			PendingError:   VMErrorSnapshot{Present: true, Value: anon(209)},
-			SavedThisValue: anon(210),
+			Program:          bytecode.Program{Constants: []types.Value{anon(203), anon(204)}},
+			Locals:           []types.Value{anon(205)},
+			Stack:            []types.Value{anon(206)},
+			ThisValue:        anon(207),
+			Args:             []types.Value{anon(208)},
+			PendingError:     VMErrorSnapshot{Present: true, Value: anon(209)},
+			PendingReturn:    anon(210),
+			HasPendingReturn: true,
+			SavedThisValue:   anon(211),
+			MoveContinuation: &MoveContinuationSnapshot{
+				What: anon(212), Where: anon(213), OldLocation: anon(214),
+			},
+			RecycleContinuation: &RecycleContinuationSnapshot{Object: anon(215)},
 		}}},
 	}
 	interrupted := Snapshot{
@@ -56,7 +62,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 	suspended.TransformPersistenceValues(transform)
 	interrupted.TransformPersistenceValues(transform)
 
-	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 301, 302} {
+	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 301, 302} {
 		if got := visited[id]; got != 1 {
 			t.Errorf("serialized value #%d visited %d times, want once", id, got)
 		}
@@ -69,8 +75,14 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 	if got, want := queued.Fork.Variables["first"].ID(), types.ObjID(1101); got != want {
 		t.Errorf("rewritten queued variable id = %d, want %d", got, want)
 	}
-	if got, want := suspended.VM.Frames[0].SavedThisValue.ID(), types.ObjID(1210); got != want {
+	if got, want := suspended.VM.Frames[0].SavedThisValue.ID(), types.ObjID(1211); got != want {
 		t.Errorf("rewritten saved-this id = %d, want %d", got, want)
+	}
+	if got, want := suspended.VM.Frames[0].PendingReturn.ID(), types.ObjID(1210); got != want {
+		t.Errorf("rewritten pending-return id = %d, want %d", got, want)
+	}
+	if got, want := suspended.VM.Frames[0].RecycleContinuation.Object.ID(), types.ObjID(1215); got != want {
+		t.Errorf("rewritten recycle object id = %d, want %d", got, want)
 	}
 }
 
@@ -87,7 +99,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 		},
 		SourceLines: []string{"x = 1;"},
 	}
-	task.CallStack = []ActivationFrame{{
+	task.CallStack = []types.ActivationFrame{{
 		This:   10,
 		Verb:   "run",
 		Args:   []types.Value{types.NewInt(2)},
@@ -138,7 +150,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 func TestQueuedTaskInfoRoundsStartTimeLikeCheckpoint(t *testing.T) {
 	taskValue := NewTask(72, 2, 1000, 1)
 	taskValue.StartTime = time.Unix(100, 600*time.Millisecond.Nanoseconds())
-	taskValue.PushFrame(ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       4,
 		Player:     2,
 		Programmer: 2,

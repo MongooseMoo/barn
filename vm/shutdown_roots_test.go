@@ -44,7 +44,7 @@ func TestSetVarRetainsOverwrittenWaifForFinalization(t *testing.T) {
 
 func TestVMRootCollectorsTraverseWaifPropertiesAndTaskContext(t *testing.T) {
 	store := dbstore.NewStore()
-	anonID, errCode := store.CreateObject(nil, 3, true)
+	anonID, errCode := store.DirectTxn().CreateObject(nil, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}

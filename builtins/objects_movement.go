@@ -5,12 +5,20 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// builtinMove implements move(what, where[, position])
-// Moves object to new location
+// MoveLifecycleRequest is the persistent data the owning VM needs to run
+// move() lifecycle verbs on its resumable call stack.
+type MoveLifecycleRequest struct {
+	What          types.Value
+	Where         types.Value
+	Position      int64
+	Decentralized bool
+}
+
+// builtinMove implements move(what, where[, position]).
 func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry := ctx.Registry
-	if registry == nil {
+	session := ctx.Session
+	if session == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -47,6 +55,10 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	tx := readTxn(ctx)
+	initialLocation, errCode := locationForRead(ctx, whatVal.ID())
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 
 	// Decentralize the move ONLY when the task has not already mutated the live store
 	// directly (via a coarse builtin like create/recycle/renumber earlier in the same
@@ -54,7 +66,7 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	// builtin reads and mutates the LIVE store, so mixing the two in one task would let
 	// the coarse builtin see stale live state. Pure-move tasks (the hot path) stay
 	// decentralized; mixed tasks fall back to the coarse move so live stays consistent.
-	decentralized := tx != nil && !ctx.LiveStoreMutated
+	decentralized := !ctx.LiveStoreMutated
 
 	// Check for recursive move (moving into self or descendant). Through the txn when
 	// decentralized (records read deps so two concurrent moves cannot each create a
@@ -63,14 +75,29 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	if decentralized {
 		recursive = tx.HasContentDescendant(whatVal.ID(), whereVal.ID())
 	} else {
-		recursive = store.HasContentDescendant(whatVal.ID(), whereVal.ID())
+		recursive = store.DirectTxn().HasContentDescendant(whatVal.ID(), whereVal.ID())
 	}
 	if recursive {
 		return types.Err(types.E_RECMOVE)
 	}
 
-	if whereVal.ID() != types.ObjNothing {
-		result := registry.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
+	// MOO treats a move within the current location as a no-op/reorder: it
+	// neither asks the container to accept the object nor runs lifecycle hooks.
+	sameLocation := whereVal.ID() == initialLocation
+	if sameLocation && position == 0 {
+		return types.Ok(types.NewInt(0))
+	}
+	if !sameLocation && ctx.PushMoveLifecycle != nil {
+		return ctx.PushMoveLifecycle(MoveLifecycleRequest{
+			What:          whatVal,
+			Where:         whereVal,
+			Position:      position,
+			Decentralized: decentralized,
+		})
+	}
+
+	if !sameLocation && whereVal.ID() != types.ObjNothing {
+		result := session.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
 		if result.Flow == types.FlowException {
 			if result.Error != types.E_VERBNF {
 				return result
@@ -79,37 +106,84 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_NACC)
 		}
 	}
+	oldLocation, errCode := ApplyMoveLifecycle(ctx, whatVal, whereVal, position, decentralized)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 
-	if decentralized {
-		// Stage the move; it commits on the decentralized MVCC path (disjoint-room
-		// moves in parallel; same-room moves conflict and retry).
-		if errCode := tx.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-	} else {
-		// Coarse path: mutate the live store, flag the task live-mutated (so commit
-		// uses the coarse path and does not retry), and adopt the changed relationship
-		// facets into the transaction's cache.
-		oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
-		if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		markLiveStoreMutated(ctx)
-		if tx != nil {
-			adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
-			if oldLocationErr == types.E_NONE {
-				adoptIDs = append(adoptIDs, oldLocation)
-			}
-			if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-				return types.Err(errCode)
-			}
+	if oldLocation.ID() == whereVal.ID() {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// The object has already moved when these callbacks run. Missing hooks are
+	// ignored; any other exception aborts the move task, as required by MOO semantics.
+	if oldLocation.ID() != types.ObjNothing && validForRead(ctx, oldLocation.ID()) {
+		result := session.CallVerb(oldLocation.ID(), "exitfunc", []types.Value{whatVal}, ctx)
+		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+			return result
 		}
 	}
 
-	// TODO: Call exitfunc and enterfunc verbs (Phase 9) — unimplemented in Toast-Barn
-	// parity terms; no conformance coverage exists for them.
+	// exitfunc is allowed to move or recycle the object. Only call the original
+	// destination's enterfunc if both objects remain valid and containment still
+	// points at that destination.
+	if MoveLifecycleAtDestination(ctx, whatVal, whereVal) {
+		result := session.CallVerb(whereVal.ID(), "enterfunc", []types.Value{whatVal}, ctx)
+		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+			return result
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+// ApplyMoveLifecycle captures the source location immediately before the raw
+// move and applies the transactional or coarse topology mutation.
+func ApplyMoveLifecycle(ctx *Execution, what, where types.Value, position int64, decentralized bool) (types.Value, types.ErrorCode) {
+	oldLocation, errCode := locationForRead(ctx, what.ID())
+	if errCode != types.E_NONE {
+		return types.None, errCode
+	}
+	oldLocationValue := moveObjectReferenceForRead(ctx, oldLocation)
+	if oldLocation == where.ID() && position == 0 {
+		return oldLocationValue, types.E_NONE
+	}
+
+	tx := readTxn(ctx)
+	if decentralized {
+		if errCode := tx.MoveObject(what.ID(), where.ID(), position); errCode != types.E_NONE {
+			return types.None, errCode
+		}
+		return oldLocationValue, types.E_NONE
+	}
+
+	tx.PrepareLiveMutation()
+	if errCode := ctx.Store.DirectTxn().MoveObject(what.ID(), where.ID(), position); errCode != types.E_NONE {
+		return types.None, errCode
+	}
+	markLiveStoreMutated(ctx)
+	if errCode := tx.AdoptLiveRelationships(what.ID(), where.ID(), oldLocation); errCode != types.E_NONE {
+		return types.None, errCode
+	}
+	return oldLocationValue, types.E_NONE
+}
+
+// MoveLifecycleAtDestination reports whether exitfunc left both objects valid
+// and the moved object still contained by the original destination.
+func MoveLifecycleAtDestination(ctx *Execution, what, where types.Value) bool {
+	if where.ID() == types.ObjNothing || !validForRead(ctx, what.ID()) || !validForRead(ctx, where.ID()) {
+		return false
+	}
+	currentLocation, errCode := locationForRead(ctx, what.ID())
+	return errCode == types.E_NONE && currentLocation == where.ID()
+}
+
+func moveObjectReferenceForRead(ctx *Execution, object types.ObjID) types.Value {
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, object)
+	if errCode == types.E_NONE && isAnonymous {
+		return types.NewAnon(object)
+	}
+	return types.NewObj(object)
 }
 
 // builtinOccupants implements occupants(objects [, parent [, player_flag [, inverse]]])
@@ -124,8 +198,6 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
 func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -180,14 +252,8 @@ func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
 			return false
 		}
 
-		tx := readTxn(ctx)
 		for _, parentID := range parents {
-			hasAncestor := false
-			if tx != nil {
-				hasAncestor = tx.HasAncestor(objID, parentID)
-			} else {
-				hasAncestor = store.HasAncestor(objID, parentID)
-			}
+			hasAncestor := readTxn(ctx).HasAncestor(objID, parentID)
 			if hasAncestor {
 				return true
 			}

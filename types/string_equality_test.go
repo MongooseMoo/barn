@@ -11,6 +11,12 @@ func TestStringEqualityFoldsASCIIWithoutFoldingRawHighBytes(t *testing.T) {
 	}
 }
 
+func TestStringEqualityTreatsBinaryControlEscapesAsBytes(t *testing.T) {
+	if !NewStr("a~09b").Equal(NewStr("a\tb")) {
+		t.Fatal("MOO binary tab escape should equal a literal tab byte")
+	}
+}
+
 func TestStringEqualityFoldsValidUTF8Case(t *testing.T) {
 	if !NewStr("À").Equal(NewStr("à")) {
 		t.Fatal("valid UTF-8 case variants should compare equal")
