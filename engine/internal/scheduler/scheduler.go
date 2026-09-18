@@ -85,7 +85,8 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 	heap.Push(&s.waiting, t)
 }
 
-// Ready claims every task ready at now, including resumed catalog tasks.
+// Ready selects tasks ready at now, including resumed catalog tasks. Selection
+// does not claim execution: unstarted siblings must remain visible to MOO code.
 func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -96,7 +97,7 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 			break
 		}
 		heap.Pop(&s.waiting)
-		if t.TryClaimQueued() {
+		if t.GetState() == task.TaskQueued {
 			ready = append(ready, t)
 		}
 	}
@@ -109,13 +110,13 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 			continue
 		}
 		if t.WakeDue(now) {
-			if t.Resume(types.NewInt(0)) && t.TryClaimQueued() {
+			if t.Resume(types.NewInt(0)) {
 				ready = append(ready, t)
 			}
 			continue
 		}
 		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) &&
-			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) && t.TryClaimQueued() {
+			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 			ready = append(ready, t)
 		}
 	}
