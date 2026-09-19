@@ -23,17 +23,25 @@ func debugConflict(kind string, objID types.ObjID, name string, want, live uint6
 func (tx *StoreTxn) validateReads() types.ErrorCode {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
-	for _, validate := range []func() types.ErrorCode{
-		tx.validateObjectScalarReadsLocked,
-		tx.validateObjectRelationshipReadsLocked,
-		tx.validatePropertyReadsLocked,
-		tx.validateVerbReadsLocked,
-	} {
-		if errCode := validate(); errCode != types.E_NONE {
-			return errCode
-		}
+	return tx.validateReadsLocked()
+}
+
+// validateReadsLocked preserves scalar, relationship, property, then verb error
+// precedence. The caller holds store.mu exclusively, or holds store.mu.RLock and
+// the numbered read/write footprint's slot locks in ascending object-ID order.
+// Callers own lock acquisition (commitGate -> store -> slots) and failure
+// classification; this helper neither marks a conflict nor makes tx terminal.
+func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
+	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
+		return errCode
 	}
-	return types.E_NONE
+	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
+	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
+	return tx.validateVerbReadsLocked()
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
