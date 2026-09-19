@@ -52,7 +52,7 @@ None of these StoreTxn helpers owns the task's pending effects or fork lifecycle
 | --- | --- | --- |
 | `CommitAndRenew` | With writes, uses ordinary validated `Commit`: ordered read validation, operation preflight, then clock allocation/publication. A conflict leaves the original private view and staged writes; a terminal operation failure also keeps diagnostic state but prevents re-publication. Without writes it does not validate the old reads. | Success releases the old registration and returns `BeginSnapshot(0)`, registered at the current clock with fresh caches/read sets. Carries the caller's gate exemption. Failure returns the original unreleased transaction and `publishedWrites=false`. Caller must install `next` only on success. |
 | `CommitAndRenewCarryingReads` | First validates even a transaction with no writes, materializes memoized ancestry dependencies, then delegates publication/renewal to `CommitAndRenew`. A validation loss is retryable and leaves the original transaction. | Same registration/return ownership as renewal, but transfers all seven read maps. Read versions for this transaction's own published footprint are rebased; deleted properties/verbs and recycled objects lose the corresponding marks. Unrelated dependencies remain. New object caches and resolution memo are not carried. |
-| `FlushStagedToLive` | No read-set validation. Preflights the complete operation footprint before apply/clock allocation. Rejects staged exact verb deletions. Failure keeps private state; non-validation failures become terminal. Allocated-ID occupancy remains the existing retryable preflight conflict. Successful apply clears staged writes. | Keeps the same transaction, `readTS`, registration and gate exemption. Recreates the read maps, refreshes cached numbered objects from current live state (including recycled tombstones), retains cached anonymous entries, and resets `owned`. It does not return a replacement or call `Release`. No staged writes means no refresh. |
+| `FlushStagedToLive` | No read-set validation. Preflights the complete operation footprint before apply/clock allocation. Rejects staged exact verb deletions through `markTerminal(E_INVARG)`; production callers route them through renewal instead. Failure keeps private state; non-validation failures become terminal. Allocated-ID occupancy remains the existing retryable preflight conflict. Successful apply clears staged writes. | Keeps the same transaction, `readTS`, registration and gate exemption. Recreates the read maps, refreshes cached numbered objects from current live state (including recycled tombstones), retains cached anonymous entries, and resets `owned`. It does not return a replacement or call `Release`. No staged writes means no refresh. |
 
 `markTerminal` changes the publication eligibility (`HasWrites` becomes false), not
 the private object maps available to an error handler. A later `Commit` returns the
@@ -79,9 +79,9 @@ not failure-atomic publication transactions.
 
 | Operation | Read/cache/ownership effect | Failure and anonymous-object handling |
 | --- | --- | --- |
-| `AdoptLiveObject` | Replaces the object binding with a clone of current live state; does not add an ownership mark or rebase the read maps. Advances local high-water bookkeeping; `maxObjID` excludes anonymous objects. | Resolves through `liveObjectLocked`, including the anonymous map. Missing/invalid live object leaves a nil binding and returns `E_INVIND`. |
-| `AdoptLiveVerbs` | Privatizes the cached object, rebuilds the local verb list/map while preserving alias identity, reapplies staged code writes whose targets still exist, refreshes the verb scan and recorded verb versions, and drops reads for removed verbs. Other object facets stay private and unchanged by this adoption. | May invalidate/privatize before an error; not an atomic replacement guarantee. Uses anonymous-aware resolution, although builtin `add_verb` rejects anonymous targets. |
-| `AdoptLiveRelationships` | Privatizes each cached object (or clones live if absent), replaces relationship facets, and updates only relationship read versions. Does not discard other staged operations or unrelated read dependencies. | Skips `ObjNothing`; resolves anonymous relatives through `liveObjectLocked`. A missing later object can return `E_INVIND` after earlier IDs were reconciled. Do not assume all-or-nothing adoption of the list. |
+| `AdoptLiveObject` | Replaces the object binding with a clone of current live state; neither adds nor clears ownership marks and does not rebase the read maps. Advances local high-water bookkeeping; `maxObjID` excludes anonymous objects. | Resolves through `liveObjectLocked`, including the anonymous map. Missing/invalid live object leaves a nil binding and returns `E_INVIND`. |
+| `AdoptLiveVerbs` | Privatizes the cached object, rebuilds the local verb list/map while preserving alias identity, reapplies staged code writes whose targets still exist, adds/refreshes the verb scan and recorded verb versions to current live, and drops reads for removed verbs. Other object facets stay private and unchanged by this adoption. | May invalidate/privatize before an error; not an atomic replacement guarantee. Uses anonymous-aware resolution, although builtin `add_verb` rejects anonymous targets. |
+| `AdoptLiveRelationships` | Privatizes each cached object (or clones live if absent), replaces relationship facets, and updates relationship read versions to current live. Does not discard other staged operations or unrelated read dependencies. | Skips `ObjNothing`; resolves anonymous relatives through `liveObjectLocked`, accepting non-nil recycled tombstones too. A missing later object can return `E_INVIND` after earlier IDs were reconciled. Do not assume all-or-nothing adoption of the list. |
 | `ForgetObject` | Sets the old binding nil; removes that ID's scalar/relationship reads and writes, property scans/reads/staged operations, verb scans/reads/code writes, and ordered verb deletions. Does not clear `createdObjects`, `recycleWrites`, ownership/high-water state or other IDs. | No publication/error return. The caller has already established the live lifecycle transition. Anonymous identities use the same bookkeeping; this is not anonymous GC. |
 | `MoveStagedProperties` | Moves only property define/definition-delete/value-write/delete keys from old ID to new ID. Does not move read marks, object bindings, verb/scalar writes, or publish anything. | No-op for equal IDs; no object lookup or special anonymous resolution. This is renumber-specific ordering, not a general transaction remap. |
 | `ApplyStagedProperties` | Privatizes an existing valid cached object if necessary; overlays defines, values and deletes on its properties/order. Keeps staged operations for later publication. | Returns without work if the cached object is invalid. No live lookup or publication; operates on the already adopted binding. |
@@ -89,8 +89,19 @@ not failure-atomic publication transactions.
 The renumber sequence is deliberately explicit:
 `Store.Renumber -> MarkLiveMutated -> MoveStagedProperties -> ForgetObject(old) ->
 AdoptLiveObject(new) -> ApplyStagedProperties(new) -> AdoptLiveRelationships`.
-Moving properties after forgetting would lose them; omitting the overlay would
-lose read-your-writes at the new identity. Coarse recycle instead forgets the
+Moving properties after forgetting would lose those property operations; omitting
+the overlay would lose their read-your-writes at the new identity. This is not a
+claim that every kind of staged state is migrated. Claude's review raised the
+unconfirmed non-property-write concern tracked in
+[#324](https://github.com/MongooseMoo/barn/issues/324): scalar/verb-code staging
+followed by renumber on an already-gated/resumed task may bypass prior publication
+and then be removed by `ForgetObject`. Expected MOO behavior and a Barn reproduction
+remain unverified; that separate investigation must begin with managed Toast
+verification before Barn diagnosis or a regression-first repair.
+
+Verb and relationship adoption take current live versions, so they can also absorb
+another task's changes to those facets. They do not isolate only the caller's
+mutation. Coarse recycle instead forgets the
 recycled identity and adopts affected relatives. Decentralized recycle must not
 forget the read guards used to detect competing topology changes.
 
@@ -107,10 +118,16 @@ pending effects. The preceding runtime boundary may already have published them.
 
 - A new attempt releases the prior transaction and installs `BeginSnapshot(0)`;
   a gated attempt takes its snapshot under the gate and marks it exempt.
-- Before an irreversible effect, the runtime acquires the exclusive gate and
-  calls carrying-reads renewal. A retryable validation loss aborts before the
-  effect. Successful publication installs `next`, makes created forks durable,
-  and flushes pending effects when writes were published.
+- On the first irreversible boundary of an optimistic attempt, the runtime takes
+  the exclusive gate and calls carrying-reads renewal. `beginIrreversible` skips
+  the hook after an irreversible effect/live mutation (or without a hook); the
+  runtime hook itself returns immediately for an already-escalated attempt.
+  Those paths do not renew or publish just because another coarse call occurs.
+- A boundary validation loss requests retry only when the attempt can rerun.
+  Other boundary failures return without refusing the effect, leaving the old
+  transaction exempt under the held gate for final-commit handling. On renewal
+  success `next` is always installed; created forks become durable and pending
+  effects flush only when writes were actually published.
 - Retry discards only that attempt's pending effects/forks, restores task state,
   releases/replaces the old snapshot, and obeys the existing gate policy. A task
   with live mutation or an irreversible effect cannot be blindly re-executed.
@@ -182,7 +199,8 @@ database copies, uses the `barn-linux-testdb-outbound-on` profile and the
 `--fail-on-unexpected-skip --strict-markers`. Run it through the terminal summary;
 archive the JUnit and admission JSON (including its exact revision/context).
 
-The canonical bundled `Test.db` source is 2035 bytes, SHA-256
+The canonical bundled source
+`moo-conformance-tests/src/moo_conformance/_db/Test.db` is 2035 bytes, SHA-256
 `1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`;
 managed startup tests select their own bundled fixtures. The post-#312 integration
 run [35410934149](https://github.com/MongooseMoo/barn/actions/runs/35410934149)
