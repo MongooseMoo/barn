@@ -1,11 +1,11 @@
 package store
 
 import (
-	"github.com/MongooseMoo/barn/internal/commitgate"
 	"runtime"
 	"sync/atomic"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 

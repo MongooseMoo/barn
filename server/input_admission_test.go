@@ -94,7 +94,7 @@ func TestCheckpointPreventsExecutionBetweenTaskAndStoreCapture(t *testing.T) {
 			close(entered)
 			<-release
 			return nil
-		})
+		}, true)
 	}()
 	<-entered
 	finished := make(chan engine.EvalOutcome, 1)

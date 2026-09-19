@@ -2,9 +2,10 @@ package store
 
 import (
 	"context"
-	"github.com/MongooseMoo/barn/internal/commitgate"
 	"log/slog"
+	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 

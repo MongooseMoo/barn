@@ -132,10 +132,10 @@ func TestCommitGrantRejectsForeignOrReleasedOwnership(t *testing.T) {
 		}()
 		f()
 	}
-	foreign := second.BeginReadOnly(0)
+	foreign := second.BeginSnapshot(0)
 	defer foreign.Release()
 	assertPanic(func() { foreign.BindExclusiveGrant(grant) })
-	tx := first.BeginReadOnly(0)
+	tx := first.BeginSnapshot(0)
 	defer tx.Release()
 	tx.BindExclusiveGrant(grant)
 	if err := tx.SetPropertyValue(0, "a", types.NewInt(99)); err != types.E_NONE {

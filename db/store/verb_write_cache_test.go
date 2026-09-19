@@ -12,7 +12,7 @@ func TestVerbMemoAfterUnrelatedStagedWrite(t *testing.T) {
 	if err := s.Add(NewObject(3, 0)); err != nil {
 		t.Fatal(err)
 	}
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	if ec := tx.SetObjectName(3, "changed"); ec != types.E_NONE {
 		t.Fatal(ec)
@@ -53,7 +53,7 @@ func BenchmarkVerbLookupAfterUnrelatedWrite(b *testing.B) {
 	}
 	v := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)
 	s.AddVerb(0, v)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.SetObjectName(3, "changed")
 	for b.Loop() {
