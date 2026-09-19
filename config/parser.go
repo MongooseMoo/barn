@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -55,6 +56,22 @@ func Parse(r io.Reader, source string) (Options, error) {
 			continue
 		}
 
+		admission := map[string]*int{
+			"ADMISSION_LIMIT":             &options.AdmissionLimit,
+			"ADMISSION_PRINCIPAL_LIMIT":   &options.AdmissionPrincipalLimit,
+			"ADMISSION_INPUT_WEIGHT":      &options.AdmissionInputWeight,
+			"ADMISSION_BACKGROUND_WEIGHT": &options.AdmissionBackgroundWeight,
+			"ADMISSION_ANONYMOUS_WEIGHT":  &options.AdmissionAnonymousWeight,
+			"ADMISSION_SYSTEM_WEIGHT":     &options.AdmissionSystemWeight,
+		}
+		if target := admission[key]; target != nil {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return Options{}, parseError(source, lineNumber, "admission setting must be an integer")
+			}
+			*target = parsed
+			continue
+		}
 		parsed, err := parseBool01(value)
 		if err != nil {
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("%s must be 0 or 1", key))

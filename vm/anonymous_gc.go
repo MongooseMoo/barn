@@ -10,6 +10,12 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// CollectAnonymousRefsFromValue includes references nested in waif properties.
+// The caller must exclude concurrent mutation, as for VM root collection.
+func CollectAnonymousRefsFromValue(v types.Value, out map[types.ObjID]struct{}) {
+	collectAnonymousRefsForGC(v, out)
+}
+
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
 func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 	collectAnonymousRefsForGCVisited(v, out, nil)

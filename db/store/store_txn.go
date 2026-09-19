@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -29,6 +31,8 @@ type StoreTxn struct {
 	store                     *Store
 	direct                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
+	exclusiveGrant            *commitgate.Grant
+	gateWait                  func(time.Duration)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -2367,13 +2371,15 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 	}
 }
 
-// ExemptFromCommitGate marks this txn as the escalated attempt's txn: its
-// Commit will not take the shared commit gate. Only the engine's bounded-
-// escalation path may call this, and only while holding EscalationLock.
-func (tx *StoreTxn) ExemptFromCommitGate() {
-	if tx != nil && !tx.direct {
-		tx.gateExempt = true
+// BindExclusiveGrant requires a live capability from this store's gate.
+func (tx *StoreTxn) BindExclusiveGrant(grant *commitgate.Grant) {
+	if tx == nil || tx.direct {
+		return
 	}
+	if grant == nil || !grant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("transaction requires a live exclusive commit grant")
+	}
+	tx.exclusiveGrant, tx.gateExempt = grant, true
 }
 
 // ClearCommitGateExemption re-arms the shared gate for a retryable txn that
@@ -2381,6 +2387,7 @@ func (tx *StoreTxn) ExemptFromCommitGate() {
 func (tx *StoreTxn) ClearCommitGateExemption() {
 	if tx != nil && !tx.direct {
 		tx.gateExempt = false
+		tx.exclusiveGrant = nil
 	}
 }
 
@@ -2390,6 +2397,14 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 // ordinary txn) must wait until the runtime releases it.
 func (tx *StoreTxn) IsCommitGateExempt() bool {
 	return tx != nil && !tx.direct && tx.gateExempt
+}
+
+// SetCommitWaitObserver carries occupancy accounting through transaction renewals.
+// Commit itself remains noncancellable once publication has begun.
+func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
+	if tx != nil {
+		tx.gateWait = waited
+	}
 }
 
 // validateReads runs the coarse Commit path's read-set validators without applying
@@ -2615,10 +2630,12 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	store := tx.store
 	gateExempt := tx.gateExempt
+	grant, gateWait := tx.exclusiveGrant, tx.gateWait
 	tx.Release()
 	next = store.BeginReadOnly(0)
+	next.SetCommitWaitObserver(gateWait)
 	if gateExempt {
-		next.ExemptFromCommitGate()
+		next.BindExclusiveGrant(grant)
 	}
 	return next, publishedWrites, types.E_NONE
 }
@@ -2647,8 +2664,14 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// because its runtime already holds the gate exclusively. Outermost by
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
-		tx.store.commitGate.RLock()
-		defer tx.store.commitGate.RUnlock()
+		started := time.Now()
+		grant, _ := tx.store.commitGate.Acquire(context.Background(), commitgate.Shared)
+		if tx.gateWait != nil {
+			tx.gateWait(time.Since(started))
+		}
+		defer grant.Release()
+	} else if !tx.exclusiveGrant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("commit with released exclusive grant")
 	}
 	tx.validationFail = false
 

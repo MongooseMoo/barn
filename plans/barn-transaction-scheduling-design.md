@@ -1,7 +1,8 @@
 # Cooperative transaction scheduling for Barn
 
 Design date: 2026-09-18. Source baseline: `e86ecd0` on
-`fix/mongoose-workload`. Status: proposed architecture, not a runtime patch.
+`fix/mongoose-workload`. Implementation stages and verification are recorded below;
+the source observations in the opening sections refer to that baseline.
 This document supersedes the policy recommendation in
 `../reports/barn-gate-scheduling-decision-20260918.md`; the source evidence and
 negative findings in that report remain useful.
@@ -41,10 +42,10 @@ converting bypass paths is a separate, explicit integration milestone.
 | Must the gate cover a whole task? | It currently covers a nonrestartable slice, or the tail after an irreversible boundary. That exclusion remains until a different isolation protocol is implemented. A mutex wrapper cannot shorten it safely. |
 | Can unrelated transactions continue? | Optimistic execution and snapshot reads can continue under current rules; ordinary writing commits wait during exclusive ownership. Allowing nonconflicting commits requires read protection and publication changes, not just a better queue. |
 | Why not use the STM paper's priorities directly? | Its read instrumentation, ownership records, validation rules, and irrevocability protocol are part of its algorithm. Barn does not acquire those guarantees by importing a priority formula. |
-| Is the gate part of scheduling? | Yes: admission knows exclusive demand; gate waiters count against bounded in-flight capacity; ordinary writing commits, promotions and checkpoint capture share one explicit FIFO policy and ownership contract. Initially retain the existing VM lease while waiting. |
+| Is the gate part of scheduling? | Yes: gate waiters count against bounded in-flight capacity, their wait is excluded from execution service, and writing commits, promotions and checkpoint capture share an explicit FIFO ownership contract. Retain the VM lease while waiting. |
 | What is tunable? | Principal weights, bounded interactive preference inside each principal, in-flight limits, and diagnostic latency objectives. Gate FIFO and ownership safety are not tunable. |
 | What is smarter than Toast? | Finer service measurement, explicit commit contention, prompt completion wakeups, bounded speculation, and later measured admission control. No prediction or reinforcement learning is required. |
-| Is it buildable? | Yes as an incremental design using queues, opaque ownership tokens, existing VM boundaries and StoreTxn. It is not yet implemented or performance-validated. |
+| Is it buildable? | Yes. Queue selection, wakeups, shared admission and FIFO grant ownership are implemented in the stages below. Live workload performance remains a separate acceptance experiment. |
 
 ## Research and what transfers
 
@@ -314,13 +315,14 @@ and renew before invoking the effect. Validation failure may replay only an
 actually restartable attempt before any irreversible action. Gate contention
 alone is not a reason to replay an expensive prefix.
 
-On a genuine validation loss, **retain the same exclusive capability across
-the replay**, matching current escalation behavior. Releasing and rejoining
-the tail would permit repeated validation losses under continuous writes.
-Once replay begins on a fresh snapshot under ownership, ordinary commit-based
-writers cannot cause another loss. This is at most one conflict replay for
-those writers, not a guarantee against uncoordinated direct mutations or other
-runtime errors; its cost is re-executing that prefix under global exclusion.
+On a promotion validation loss, the first implementation preserves Barn's
+existing behavior: release the exclusive capability and retry optimistically.
+The final bounded-escalation attempt still runs under exclusive ownership.
+The earlier version of this paragraph incorrectly described retaining the
+promotion grant as existing behavior. Retaining it across a replay is deferred:
+it needs a separate audit of nested commits and effects during that prefix,
+and would change the cost of speculative conflicts. The FIFO gate migration
+does not silently make that change.
 
 ## Ownership and cancellation state machine
 
@@ -737,3 +739,114 @@ Captured wakeup verification: the broad race run reported engine `194.992s`,
 scheduler `1.359s`, server `2.375s`, all `ok`. Managed yield/admission reported
 Toast `2 passed in 8.79s`, Barn `2 passed in 1.78s`; managed external-command
 regressions/admission reported Toast `3 passed in 8.25s`, Barn `3 passed in 1.07s`.
+
+## Shared admission and commit grants (2026-09-18)
+
+Foreground command/login/eval entries and selected background tasks now use
+one runtime admission controller. Input belongs to the player (all negative
+connection IDs share an anonymous budget); background belongs to the active
+programmer. Player connection hooks use the input principal. Server startup,
+checkpoint, and shutdown hooks use a separate system principal.
+
+Selection minimizes settled plus reserved service, first across principals,
+then across input/background classes within a principal. Reservations use a
+bounded per-class duration estimate, replaced at completion by physical-lease
+execution occupancy minus commit-gate waiting. One reservation spans retries;
+transaction renewal carries the wait observer. Positive slices have a 1 us
+service floor; estimates use an eighth-sample EWMA bounded to 1 us–100 ms.
+Idle principals/classes start at the corresponding service watermark and keep
+any debt above it. Background batch selection reads one consistent snapshot of
+the same ledger and preserves FIFO within a principal. User principals have
+equal weight; the 3:1 class ratio is **within** a principal, not a global promise
+that foreground work receives three quarters of the machine.
+
+Nested synchronous VMs explicitly borrow their caller's scope. Login completion
+callbacks run after release. Eval returns its reservation while suspended, then
+reacquires as background. Sweep-owned recycle hooks remain exempt because they
+own the VM-start barrier; deferred sweep occupancy is recorded separately.
+Waiting tasks are unclaimed, cancellable and inspectable by GC. Independent
+call arguments are pinned as roots before waiting. Input shutdown closes only
+input admission, preserving the lifecycle hooks needed for a final checkpoint.
+
+The commit gate grants FIFO shared cohorts and exclusive ownership tokens.
+Transactions can skip shared acquisition only with a live exclusive token from
+their own store; the old tokenless exemption and lock/unlock APIs are removed.
+Entry-exclusive waiting is cancellable. Shared publication, promotion, and
+checkpoint acquisition retain their existing noncancellable behavior. Ownership
+is released by the executing caller, never by a cancellation callback.
+`dump_database()` queues a main-loop checkpoint request, matching the inspected
+Toast implementation; it cannot invoke admission-taking hooks from inside a
+gate-holding activation.
+
+Checkpoint task and store images must describe the same boundary. After
+`checkpoint_started` returns, checkpoint capture pauses new admission and drains
+existing reservations without holding any gate or GC barrier. It then holds
+`SweepMu -> VMStartMu` across task capture and checkpoint serialization. The store
+walk still acquires its exclusive FIFO grant. Admission resumes before
+`checkpoint_finished`. Waiting for physical leases to drain would deadlock a
+suspended intrinsic Eval, which retains a root lease while awaiting readmission;
+the drain therefore counts execution reservations instead. The checkpoint
+callback must not invoke MOO code.
+
+This also fixes a torn-checkpoint window exposed by the managed restart cases:
+previously a saved continuation could be captured, execute, and mutate a WAIF
+before the store was captured, making that continuation execute twice after
+restart. For now the pause covers disk writing as well as serialization because
+checkpoint values still refer to mutable WAIF graphs. A frozen checkpoint payload
+would permit earlier resume; this increment makes no checkpoint-latency claim.
+Completion callbacks likewise pin returned values across VM release and their
+own admission waits, so GC cannot reclaim a result before its consumer runs.
+
+Configuration is read from the normal Barn `-config` file. Zero selects the
+default; explicit values must be positive integers no greater than 1,000,000.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `ADMISSION_LIMIT` | runtime worker count (`GOMAXPROCS`) | Maximum admitted foreground plus background invocations |
+| `ADMISSION_PRINCIPAL_LIMIT` | global limit | Maximum simultaneous invocations of one principal |
+| `ADMISSION_INPUT_WEIGHT` | 3 | Input service weight within a principal |
+| `ADMISSION_BACKGROUND_WEIGHT` | 1 | Background service weight within a principal |
+| `ADMISSION_ANONYMOUS_WEIGHT` | 1 | Aggregate anonymous principal service weight |
+| `ADMISSION_SYSTEM_WEIGHT` | 1 | System lifecycle principal service weight |
+
+The existing `/debug/vars` endpoint exposes `barn.admission_active`,
+`barn.admission_queued`, `barn.admission_service_ns`,
+`barn.admission_gate_wait_ns`, and `barn.admission_maintenance_ns`.
+These distinguish occupancy, admission backlog, execution service, gate
+contention and deferred GC. They do not measure end-to-end player latency.
+
+Reproduce checks without launching ad hoc conformance servers:
+
+```powershell
+./scripts/test-shared-admission.ps1
+./scripts/test-shared-admission.ps1 -SkipGo -FullConformance
+./scripts/test-mongoose-deltas.ps1 -Engine Toast -OracleDir /root/src/toaststunt -Packaged -Suites @('generated_builtins/force_input.yaml','audit/task_scheduling_toast_oracle.yaml')
+```
+
+The admission script builds the verified main package, creates disposable
+databases/configs under `.tmp/shared-admission`, and uses the managed harness
+at limits 1 and 16. Focused runs include canonical capability admission; full
+runs collect the complete suite at each limit. The script records logs through
+the existing managed runner. No conformance expectations are changed.
+
+Remaining limits: cooperative slices and global exclusive holders can still
+delay everyone; this is not preemption or a hard latency guarantee. Intrinsic
+Eval and `.program` retain pre-existing direct-store behavior. Deferred GC is
+exempt rather than budget-limited. Forced-input mailboxes preserve ordering and
+remove a circular wait, but are not bounded; transport readers still await one
+line's completion before submitting the next. The service ledger retains user
+debt for the runtime lifetime, and watermark maintenance scans known principals.
+Cold compilation before physical execution is not measured as VM service.
+Live Mongoose latency/throughput at concurrency 1 and 16 remains a separate
+performance acceptance experiment; unit or conformance passes do not prove it.
+
+To distinguish a new failure from the baseline using the same managed fixtures:
+
+```powershell
+./scripts/recheck-conformance-failures.ps1 -FailureList <run>/failed-tests.txt -Binary <baseline>/barn.exe -RunDir .tmp/shared-admission/baseline-recheck
+```
+
+The script selects the recorded case names and their suites, includes capability
+admission, and copies the database. A focused baseline comparison establishes
+which failures reproduce there; it does not prove that an order-dependent full
+suite would have an identical failure inventory.

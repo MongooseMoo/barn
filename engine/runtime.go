@@ -16,6 +16,7 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/engine/internal/scheduler"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -28,7 +29,11 @@ type Runtime struct {
 	taskManager             *task.Manager
 	lifecycle               finalization.Coordinator
 	scheduler               *scheduler.Scheduler
+	admission               *admission.Controller
+	inputAdmissionContext   context.Context
+	closeInputAdmission     context.CancelFunc
 	leasedTasks             map[int64]*task.Task // includes direct tasks absent from the catalog
+	admissionRoots          map[*admissionRoot][]types.Value
 	nextTaskID              int64
 	registry                *builtins.Registry
 	session                 *builtins.Session
@@ -77,17 +82,20 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	inputContext, closeInput := context.WithCancel(ctx)
 	manager := task.NewManager()
 
 	s := &Runtime{
-		taskManager: manager,
-		lifecycle:   finalization.NewCoordinator(),
-		nextTaskID:  1,
-		registry:    registry,
-		store:       store,
-		options:     options,
-		ctx:         ctx,
-		cancel:      cancel,
+		inputAdmissionContext: inputContext,
+		closeInputAdmission:   closeInput,
+		taskManager:           manager,
+		lifecycle:             finalization.NewCoordinator(),
+		nextTaskID:            1,
+		registry:              registry,
+		store:                 store,
+		options:               options,
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 	host := builtins.Host{TaskManager: manager}
 	host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
@@ -110,13 +118,13 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		// contexts retain CallVerbInContext's shared transaction/caller semantics;
 		// that path handles sweep ownership itself.
 		if s.isSweepOwnedContext(tc) {
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipSweep, 0)
+			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipSweep, 0, nil)
 		}
 		if ownerID, claimed, attributable := s.executionContextClaim(tc); claimed {
 			if !attributable {
 				ownerID = ambiguousExecutionOwnerID
 			}
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID)
+			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID, tc.Admission)
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	}
@@ -166,6 +174,24 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	s.session = builtins.NewSession(registry, host)
 	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
+	limit := options.AdmissionLimit
+	if limit == 0 {
+		limit = workerCount
+	}
+	s.admission = admission.New(admission.Options{Limit: limit, PrincipalLimit: options.AdmissionPrincipalLimit,
+		InputWeight: options.AdmissionInputWeight, BackgroundWeight: options.AdmissionBackgroundWeight,
+		AnonymousWeight: options.AdmissionAnonymousWeight, SystemWeight: options.AdmissionSystemWeight})
+	s.scheduler.SetOrdering(func(tasks []*task.Task) {
+		keys := make([]admission.Key, len(tasks))
+		for i, t := range tasks {
+			keys[i] = backgroundAdmissionKey(t)
+		}
+		order := s.admission.Order(keys)
+		before := append([]*task.Task(nil), tasks...)
+		for i, j := range order {
+			tasks[i] = before[j]
+		}
+	})
 
 	return s
 }
@@ -191,7 +217,7 @@ func (s *Runtime) LiveTaskCount() int64 {
 	return int64(s.taskManager.Len())
 }
 
-func (s *Runtime) acquireTaskExecution(t *task.Task) {
+func (s *Runtime) acquireTaskExecution(t *task.Task) bool {
 	if s.lifecycle.ExecutionStartObserver != nil {
 		s.lifecycle.ExecutionStartObserver()
 	}
@@ -199,13 +225,15 @@ func (s *Runtime) acquireTaskExecution(t *task.Task) {
 	defer s.lifecycle.VMStartMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !t.StartExecution() {
+		return false
+	}
 	s.lifecycle.ExecutingTasks[t.ID]++
 	if s.leasedTasks == nil {
 		s.leasedTasks = make(map[int64]*task.Task)
 	}
 	s.leasedTasks[t.ID] = t
-	t.SetExecutionActive(true)
-	t.SetState(task.TaskRunning)
+	return true
 }
 
 func (s *Runtime) releaseTaskExecution(taskID int64) {
@@ -509,7 +537,7 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
 	for _, batch := range s.scheduler.Plan(readyTasks) {
 		claimed := batch[:0]
 		for _, t := range batch {
-			if t.TryClaimQueued() {
+			if t.ReserveAdmission() {
 				claimed = append(claimed, t)
 			}
 		}
@@ -568,6 +596,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 	}
 	anonRefs = make(map[types.ObjID]struct{})
 	waifSet := types.NewWaifSet(nil)
+	s.collectAdmissionRoots(anonRefs, waifSet)
 	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
@@ -600,6 +629,7 @@ func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRe
 		}
 	}
 	anonRefs = make(map[types.ObjID]struct{})
+	s.collectAdmissionRoots(anonRefs, nil)
 	for _, sibling := range s.taskManager.Snapshot() {
 		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
 			continue
@@ -640,6 +670,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 	}
 	anonRefs = make(map[types.ObjID]struct{})
 	waifSet := types.NewWaifSet(nil)
+	s.collectAdmissionRoots(anonRefs, waifSet)
 	for _, queued := range s.taskManager.Snapshot() {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue

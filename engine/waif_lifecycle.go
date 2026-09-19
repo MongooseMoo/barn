@@ -266,6 +266,7 @@ func (s *Runtime) flushDeferredGC() {
 	sweepStart := time.Now()
 	defer func() {
 		cost := time.Since(sweepStart)
+		s.admission.NoteMaintenance(cost)
 		metrics.GCSweeps.Add(1)
 		metrics.GCSweepLastMs.Set(cost.Milliseconds())
 		s.lifecycle.Mu.Lock()

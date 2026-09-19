@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"fmt"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"sync"
@@ -120,10 +122,10 @@ type Store struct {
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
 	// store lock — lock order is commitGate, then s.mu). A task that keeps
-	// losing validation acquires it exclusively via EscalationLock, re-executes,
+	// losing validation acquires an exclusive grant, re-executes,
 	// and commits a txn marked gateExempt: with no ordinary commit able to
 	// interleave between its snapshot and its validation, it cannot lose again.
-	commitGate        sync.RWMutex
+	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
 
 	waifRegistry    map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
@@ -272,17 +274,15 @@ func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
 
 func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 
-// EscalationLock acquires the commit gate exclusively for a bounded-escalation
-// attempt: while held, no ordinary commit can start, so a gateExempt txn
-// snapshotted and committed under it validates against a frozen store. Direct
-// live-store mutations (the LiveStoreMutated paths) bypass the gate; the
-// runtime's retry cap remains the backstop for that rare interleaving.
-func (s *Store) EscalationLock() {
-	s.commitGate.Lock()
-	s.commitEscalations.Add(1)
+// AcquireExclusive returns owner-held FIFO admission. Cancellation only
+// withdraws the wait; it never revokes a grant returned to executing code.
+func (s *Store) AcquireExclusive(ctx context.Context) (*commitgate.Grant, error) {
+	g, err := s.commitGate.Acquire(ctx, commitgate.Exclusive)
+	if err == nil {
+		s.commitEscalations.Add(1)
+	}
+	return g, err
 }
-
-func (s *Store) EscalationUnlock() { s.commitGate.Unlock() }
 
 func (s *Store) readTimestamp() uint64 {
 	return s.clock.Load()

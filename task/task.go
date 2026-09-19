@@ -126,9 +126,10 @@ type Task struct {
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
-	doneClosed      bool // guards Done against double-close
-	scheduleChanged chan<- struct{}
-	executionActive bool // runtime-owned physical execution lease
+	doneClosed       bool // guards Done against double-close
+	scheduleChanged  chan<- struct{}
+	executionActive  bool // runtime-owned physical execution lease
+	admissionPending bool // selected by one dispatcher, not yet executing
 
 	mu sync.RWMutex
 }
@@ -287,7 +288,7 @@ func (t *Task) notifyScheduleLocked() {
 func (t *Task) ReadyDeadline(now time.Time) time.Time {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	if t.executionActive {
+	if t.executionActive || t.admissionPending {
 		return time.Time{}
 	}
 	if t.State == TaskSuspended {
@@ -317,6 +318,18 @@ func (t *Task) SetExecutionActive(active bool) {
 	}
 }
 
+// StartExecution atomically checks cancellation and publishes VM ownership.
+func (t *Task) StartExecution() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State == TaskKilled {
+		return false
+	}
+	t.executionActive = true
+	t.State = TaskRunning
+	return true
+}
+
 // TryClaimQueued atomically takes the execution claim for a queued task.
 // Dispatchers must claim a task before handing it to runTask so two concurrent
 // scheduling paths cannot execute the same saved VM.
@@ -328,6 +341,25 @@ func (t *Task) TryClaimQueued() bool {
 	}
 	t.State = TaskRunning
 	return true
+}
+
+// ReserveAdmission keeps an unstarted VM inspectable while preventing duplicate
+// dispatch by the input and background scheduling paths.
+func (t *Task) ReserveAdmission() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskQueued || t.executionActive || t.admissionPending {
+		return false
+	}
+	t.admissionPending = true
+	return true
+}
+
+func (t *Task) ReleaseAdmission() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.admissionPending = false
+	t.notifyScheduleLocked()
 }
 
 // PushFrame pushes an activation frame onto the call stack
@@ -475,6 +507,9 @@ func (t *Task) SetCancelFunc(cancel context.CancelFunc) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.CancelFunc = cancel
+	if t.State == TaskKilled && cancel != nil {
+		cancel()
+	}
 }
 
 // SetQueueSeq records the runtime's enqueue sequence under the task lock.
@@ -739,6 +774,9 @@ func (t *Task) Kill() {
 	defer t.mu.Unlock()
 	t.State = TaskKilled
 	t.notifyScheduleLocked()
+	if t.CancelFunc != nil {
+		t.CancelFunc()
+	}
 	// If the task is exec-suspended, cancel the subprocess
 	if t.ExecCancelFunc != nil {
 		t.ExecCancelFunc()

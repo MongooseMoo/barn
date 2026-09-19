@@ -15,6 +15,24 @@ func TestDefaultOptions(t *testing.T) {
 	}
 }
 
+func TestAdmissionConfiguration(t *testing.T) {
+	options, err := Parse(strings.NewReader("ADMISSION_LIMIT = 16\nADMISSION_PRINCIPAL_LIMIT = 4\nADMISSION_INPUT_WEIGHT = 3\nADMISSION_BACKGROUND_WEIGHT = 2\nADMISSION_ANONYMOUS_WEIGHT = 1\nADMISSION_SYSTEM_WEIGHT = 2\n"), "admission.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.AdmissionLimit != 16 || options.AdmissionPrincipalLimit != 4 || options.AdmissionInputWeight != 3 || options.AdmissionBackgroundWeight != 2 || options.AdmissionAnonymousWeight != 1 || options.AdmissionSystemWeight != 2 {
+		t.Fatalf("parsed=%+v", options)
+	}
+	for _, value := range []string{"-1", "1000001", "true", "1.5"} {
+		if _, err := Parse(strings.NewReader("ADMISSION_LIMIT = "+value), "admission.conf"); err == nil {
+			t.Fatalf("accepted %q", value)
+		}
+	}
+	if _, err := Parse(strings.NewReader("ADMISSION_LIMIT = 0"), "admission.conf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFeatureMap(t *testing.T) {
 	on := Options{OutboundNetwork: true, PromoteNumbers: true}.FeatureMap()
 	if on[FeatureOutboundNetwork] != true {
