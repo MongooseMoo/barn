@@ -837,8 +837,14 @@ remove a circular wait, but are not bounded; transport readers still await one
 line's completion before submitting the next. The service ledger retains user
 debt for the runtime lifetime, and watermark maintenance scans known principals.
 Cold compilation before physical execution is not measured as VM service.
-Live Mongoose latency/throughput at concurrency 1 and 16 remains a separate
-performance acceptance experiment; unit or conformance passes do not prove it.
+The [live Mongoose measurement](../reports/mongoose-admission-measurement-20260918.md)
+found a severe single-slot responsiveness regression: median command latency
+rose from 26.52 ms to 1232.73 ms when admission tracked GOMAXPROCS=1. Holding
+GOMAXPROCS at one while admitting two reduced that to 32.57 ms. The current
+single-slot default therefore fails performance acceptance. Sixteen-slot results
+are close; neither clean startup nor checkpointing succeeded in these live trials.
+Decouple admission capacity from CPU parallelism and repair those independent
+workload failures before claiming Mongoose convergence or a general speedup.
 
 To distinguish a new failure from the baseline using the same managed fixtures:
 
