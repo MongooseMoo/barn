@@ -909,6 +909,7 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	clone := *ctx
 	clone.StoreTxn = clone.Store.DirectTxn()
 	clone.PendingEffects = nil
+	clone.WaifJournal = nil
 	return &clone
 }
 

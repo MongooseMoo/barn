@@ -268,7 +268,10 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	// Note: Waifs use copy-on-write semantics. The VM does not currently
 	// propagate the new waif back to the source variable. This matches
 	// non-simple-identifier cases.
-	_ = waif.SetProperty(propName, value)
+	write := waif.SwapProperty(propName, value)
+	if ctx := vm.Context; ctx != nil && ctx.StoreTxn != nil && !ctx.StoreTxn.IsDirect() {
+		ctx.WaifJournal = append(ctx.WaifJournal, write)
+	}
 
 	return nil
 }

@@ -105,6 +105,12 @@ type TaskContext struct {
 	// Failed commits discard the log; successful commits replay it sequentially.
 	PendingEffects []PendingEffect
 
+	// WaifJournal records this attempt's in-place WAIF property writes, which
+	// bypass the transaction. A discarded attempt reverts them newest first; a
+	// commit forgets them. Other tasks can still observe a write before its
+	// attempt commits or reverts: WAIF properties are not transactional.
+	WaifJournal []types.WaifWrite
+
 	// MaxStringConcat is the maximum string length allowed by string-producing builtins
 	// When a string operation would produce a result longer than this, E_QUOTA is returned
 	// Default matches ToastStunt's DEFAULT_MAX_STRING_CONCAT

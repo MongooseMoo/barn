@@ -30,9 +30,12 @@ var waifIdentitySource = struct {
 // copies only the ref, so all copies reference the SAME waif. This is NOT
 // copy-on-write.
 type waifRep struct {
-	identity   WaifIdentity
-	class      ObjID            // the waif's class object
-	owner      ObjID            // the waif's owner (the programmer who created it)
+	identity WaifIdentity
+	class    ObjID // the waif's class object
+	owner    ObjID // the waif's owner (the programmer who created it)
+	// mu guards properties: concurrently running tasks can reach one waif
+	// through a shared property value.
+	mu         sync.RWMutex
 	properties map[string]Value // property values
 }
 
@@ -86,7 +89,10 @@ func (v Value) Owner() ObjID { return v.waifRep().owner }
 
 // GetProperty returns a property value by name.
 func (v Value) GetProperty(name string) (Value, bool) {
-	val, ok := v.waifRep().properties[name]
+	w := v.waifRep()
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	val, ok := w.properties[name]
 	return val, ok
 }
 
@@ -96,6 +102,13 @@ func (v Value) GetProperty(name string) (Value, bool) {
 // same waif.
 func (v Value) SetProperty(name string, value Value) Value {
 	w := v.waifRep()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.setLocked(name, value)
+	return v
+}
+
+func (w *waifRep) setLocked(name string, value Value) {
 	if w.properties == nil {
 		w.properties = make(map[string]Value)
 	}
@@ -106,7 +119,46 @@ func (v Value) SetProperty(name string, value Value) Value {
 		waifGraphEpoch.Add(1)
 	}
 	w.properties[name] = value
-	return v
+}
+
+// WaifWrite records one in-place property write so a discarded task attempt
+// can undo it. WAIF properties live outside the transaction, so a re-run
+// attempt would otherwise apply the write a second time.
+type WaifWrite struct {
+	waif       Value
+	name       string
+	had        bool
+	old, wrote Value
+}
+
+// SwapProperty sets a property like SetProperty and returns the record needed
+// to undo the write.
+func (v Value) SwapProperty(name string, value Value) WaifWrite {
+	w := v.waifRep()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	old, had := w.properties[name]
+	w.setLocked(name, value)
+	return WaifWrite{waif: v, name: name, had: had, old: old, wrote: value}
+}
+
+// Revert undoes the write if the property still holds exactly the value it
+// wrote. A later write by anyone else wins and is left in place.
+func (write WaifWrite) Revert() {
+	w := write.waif.waifRep()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if current, ok := w.properties[write.name]; !ok || current != write.wrote {
+		return
+	}
+	if write.had {
+		w.setLocked(write.name, write.old)
+		return
+	}
+	if write.wrote.MayHoldFinalizable() {
+		waifGraphEpoch.Add(1)
+	}
+	delete(w.properties, write.name)
 }
 
 // waifGraphEpoch advances on every in-place WAIF property write. WAIF
@@ -159,11 +211,11 @@ func (v Value) AddWaifCleanup(cleanup func()) {
 // PropertyNames returns the names of all properties set on this waif.
 func (v Value) PropertyNames() []string {
 	w := v.waifRep()
+	w.mu.RLock()
+	defer w.mu.RUnlock()
 	names := make([]string, 0, len(w.properties))
 	for name := range w.properties {
 		names = append(names, name)
 	}
 	return names
 }
-
-// equalMaps reports whether two property maps are equal.
