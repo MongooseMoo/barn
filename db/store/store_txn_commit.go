@@ -367,19 +367,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
-	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
 		return errCode
 	}
@@ -691,6 +679,14 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		stampObjectAll(live, ts)
 		tx.store.appendRecycledID(id)
 	}
+	tx.clearStagedWrites()
+	return types.E_NONE
+}
+
+// clearStagedWrites runs only after successful publication. Read dependencies,
+// cached/owned objects, memo state, gate exemption and terminal state belong to
+// their callers' lifecycle boundaries and must survive this bookkeeping step.
+func (tx *StoreTxn) clearStagedWrites() {
 	tx.scalarWrites = nil
 	tx.relationshipWrites = nil
 	tx.propertyDefines = nil
@@ -701,5 +697,4 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	tx.verbDeletes = nil
 	tx.createdObjects = nil
 	tx.recycleWrites = nil
-	return types.E_NONE
 }

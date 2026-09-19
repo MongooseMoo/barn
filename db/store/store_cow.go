@@ -457,19 +457,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	defer unlockSlots(slots)
 
 	// Validate the read set against the currently-published immutable images.
-	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
 		return errCode
 	}
@@ -618,16 +606,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		s.noteVerbShapeChanged()
 	}
 
-	tx.scalarWrites = nil
-	tx.relationshipWrites = nil
-	tx.propertyDefines = nil
-	tx.propertyDefinitionDeletes = nil
-	tx.propertyWrites = nil
-	tx.propertyDeletes = nil
-	tx.verbWrites = nil
-	tx.verbDeletes = nil
-	tx.createdObjects = nil
-	tx.recycleWrites = nil
+	tx.clearStagedWrites()
 	return types.E_NONE
 }
 
