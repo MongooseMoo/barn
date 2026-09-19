@@ -1,0 +1,177 @@
+[
+  {
+    "limit": 1,
+    "admission_limit": null,
+    "label": "baseline",
+    "runs": 3,
+    "measured_runs": 3,
+    "binary_sha256": [
+      "198d6e98d494350c92299b807f237b94c9ed2d02c9e2e02e88579ff81243e08b"
+    ],
+    "database_sha256": [
+      "c44051f14006778f1c7185f8914fd08ca2ca629119c3bb5ec0d4c9db3c0e039d"
+    ],
+    "sqlite_sha256": {
+      "log.sqlite": "eed6882de87e2e8374efd7023dfa7b907b2c9cd7cc5626ed662e4c363fcf6dc1",
+      "news.sqlite": "9edccb879527f439ce2e204db0e72021d169d07597beb829b12f235879971403",
+      "sound.sqlite": "5ac3896689041e2ab4ef1c176e61941f83793444d8a2afb25df454e38ad91034"
+    },
+    "median_of_run_medians_ms": 26.517000049352646,
+    "median_of_run_p95_ms": 93.16030004993081,
+    "probes": 635,
+    "error_marked_probes": 3,
+    "clean_logins": 0,
+    "successful_checkpoints": 0,
+    "cpu_cores_per_run": [
+      1.0011515191719114,
+      0.9946155813808387,
+      0.9940546480492433
+    ],
+    "observed_s_run_slow_slices": [
+      21,
+      18,
+      14
+    ],
+    "failures": []
+  },
+  {
+    "limit": 1,
+    "admission_limit": 1,
+    "label": "new",
+    "runs": 3,
+    "measured_runs": 3,
+    "binary_sha256": [
+      "68736fd5e80cb4139b555ddeb91b2a7e1a773100c4d7ecb9907e191889d82384"
+    ],
+    "database_sha256": [
+      "c44051f14006778f1c7185f8914fd08ca2ca629119c3bb5ec0d4c9db3c0e039d"
+    ],
+    "sqlite_sha256": {
+      "log.sqlite": "eed6882de87e2e8374efd7023dfa7b907b2c9cd7cc5626ed662e4c363fcf6dc1",
+      "news.sqlite": "9edccb879527f439ce2e204db0e72021d169d07597beb829b12f235879971403",
+      "sound.sqlite": "5ac3896689041e2ab4ef1c176e61941f83793444d8a2afb25df454e38ad91034"
+    },
+    "median_of_run_medians_ms": 1232.7278499724343,
+    "median_of_run_p95_ms": 6033.070700010285,
+    "probes": 49,
+    "error_marked_probes": 0,
+    "clean_logins": 0,
+    "successful_checkpoints": 0,
+    "cpu_cores_per_run": [
+      0.9965529947980627,
+      0.9922054676384171,
+      0.9994628225070056
+    ],
+    "observed_s_run_slow_slices": [
+      43,
+      33,
+      31
+    ],
+    "failures": []
+  },
+  {
+    "limit": 1,
+    "admission_limit": 2,
+    "label": "new",
+    "runs": 3,
+    "measured_runs": 3,
+    "binary_sha256": [
+      "68736fd5e80cb4139b555ddeb91b2a7e1a773100c4d7ecb9907e191889d82384"
+    ],
+    "database_sha256": [
+      "c44051f14006778f1c7185f8914fd08ca2ca629119c3bb5ec0d4c9db3c0e039d"
+    ],
+    "sqlite_sha256": {
+      "log.sqlite": "eed6882de87e2e8374efd7023dfa7b907b2c9cd7cc5626ed662e4c363fcf6dc1",
+      "news.sqlite": "9edccb879527f439ce2e204db0e72021d169d07597beb829b12f235879971403",
+      "sound.sqlite": "5ac3896689041e2ab4ef1c176e61941f83793444d8a2afb25df454e38ad91034"
+    },
+    "median_of_run_medians_ms": 32.56839979439974,
+    "median_of_run_p95_ms": 102.97299991361797,
+    "probes": 617,
+    "error_marked_probes": 1,
+    "clean_logins": 0,
+    "successful_checkpoints": 0,
+    "cpu_cores_per_run": [
+      0.9985555231214129,
+      0.9952409575146138,
+      0.99888552009004
+    ],
+    "observed_s_run_slow_slices": [
+      18,
+      19,
+      19
+    ],
+    "failures": []
+  },
+  {
+    "limit": 16,
+    "admission_limit": null,
+    "label": "baseline",
+    "runs": 3,
+    "measured_runs": 3,
+    "binary_sha256": [
+      "198d6e98d494350c92299b807f237b94c9ed2d02c9e2e02e88579ff81243e08b"
+    ],
+    "database_sha256": [
+      "c44051f14006778f1c7185f8914fd08ca2ca629119c3bb5ec0d4c9db3c0e039d"
+    ],
+    "sqlite_sha256": {
+      "log.sqlite": "eed6882de87e2e8374efd7023dfa7b907b2c9cd7cc5626ed662e4c363fcf6dc1",
+      "news.sqlite": "9edccb879527f439ce2e204db0e72021d169d07597beb829b12f235879971403",
+      "sound.sqlite": "5ac3896689041e2ab4ef1c176e61941f83793444d8a2afb25df454e38ad91034"
+    },
+    "median_of_run_medians_ms": 7.340450072661042,
+    "median_of_run_p95_ms": 27.73529989644885,
+    "probes": 738,
+    "error_marked_probes": 3,
+    "clean_logins": 0,
+    "successful_checkpoints": 0,
+    "cpu_cores_per_run": [
+      1.4373146838256305,
+      1.4504641724811762,
+      1.4174018901728458
+    ],
+    "observed_s_run_slow_slices": [
+      27,
+      28,
+      28
+    ],
+    "failures": []
+  },
+  {
+    "limit": 16,
+    "admission_limit": 16,
+    "label": "new",
+    "runs": 3,
+    "measured_runs": 3,
+    "binary_sha256": [
+      "68736fd5e80cb4139b555ddeb91b2a7e1a773100c4d7ecb9907e191889d82384"
+    ],
+    "database_sha256": [
+      "c44051f14006778f1c7185f8914fd08ca2ca629119c3bb5ec0d4c9db3c0e039d"
+    ],
+    "sqlite_sha256": {
+      "log.sqlite": "eed6882de87e2e8374efd7023dfa7b907b2c9cd7cc5626ed662e4c363fcf6dc1",
+      "news.sqlite": "9edccb879527f439ce2e204db0e72021d169d07597beb829b12f235879971403",
+      "sound.sqlite": "5ac3896689041e2ab4ef1c176e61941f83793444d8a2afb25df454e38ad91034"
+    },
+    "median_of_run_medians_ms": 6.915449979715049,
+    "median_of_run_p95_ms": 23.915600031614304,
+    "probes": 754,
+    "error_marked_probes": 3,
+    "clean_logins": 0,
+    "successful_checkpoints": 0,
+    "cpu_cores_per_run": [
+      1.4357619862650608,
+      1.39651125013964,
+      1.4350568940934583
+    ],
+    "observed_s_run_slow_slices": [
+      29,
+      27,
+      27
+    ],
+    "failures": []
+  }
+]
