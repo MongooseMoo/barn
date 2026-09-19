@@ -56,7 +56,7 @@ type competingWriter struct {
 func competingWriterDescriptor(store *dbstore.Store) (builtins.Descriptor, *competingWriter) {
 	c := &competingWriter{done: make(chan struct{})}
 	var callback builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
-		tx := store.BeginReadOnly(0)
+		tx := store.BeginSnapshot(0)
 		cur, errCode := tx.PropertyValue(0, "v")
 		if errCode != types.E_NONE {
 			return types.Err(errCode)

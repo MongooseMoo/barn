@@ -24,7 +24,7 @@ import (
 // result plus the exact list of objects the walk visited. It is deliberately
 // PER-TRANSACTION rather than store-global, stamped by the txn's own snapshot:
 //
-//   - A StoreTxn is a fixed MVCC snapshot (readTS, store_txn.go BeginReadOnly)
+//   - A StoreTxn is a fixed MVCC snapshot (readTS, store_txn.go BeginSnapshot)
 //     and lives for a whole task slice (engine/task_runtime.go begins one
 //     per attempt and only replaces it after a commit), which on the mongoose
 //     workload is hundreds to thousands of verb calls and property reads. So the

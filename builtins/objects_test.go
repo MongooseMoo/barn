@@ -167,7 +167,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 	ctx.Programmer = 0
 	ctx.Player = 0

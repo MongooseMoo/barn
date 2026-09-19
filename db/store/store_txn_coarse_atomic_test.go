@@ -24,7 +24,7 @@ func newCoarseAtomicTestStore(t *testing.T) *Store {
 func stageCoarsePreflightFailure(t *testing.T, s *Store) *StoreTxn {
 	t.Helper()
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName stage: %v", errCode)
 	}

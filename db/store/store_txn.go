@@ -78,7 +78,7 @@ type StoreTxn struct {
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
-// write-staging maps on StoreTxn are left nil by BeginReadOnly and stay nil for
+// write-staging maps on StoreTxn are left nil by BeginSnapshot and stay nil for
 // read-only tasks; only an actual stage allocates. A nil map is indistinguishable
 // from an empty one for read/range/delete/len/validate/commit, so only inserts
 // need this guard.
@@ -89,7 +89,7 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 	(*m)[k] = v
 }
 
-func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
+func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

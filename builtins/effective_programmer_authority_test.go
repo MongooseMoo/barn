@@ -28,7 +28,7 @@ func loweredPermsExecution(t *testing.T) *Execution {
 	}
 	ctx := newTestExecution()
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.Player = 0
 	ctx.Programmer = 2
 	ctx.IsWizard = false
@@ -76,7 +76,7 @@ func TestRespondToUsesTransactionAwareObjectReadAuthority(t *testing.T) {
 	if _, errCode := ctx.Store.AddVerb(3, verb); errCode != types.E_NONE {
 		t.Fatalf("add verb: %s", errCode)
 	}
-	ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
+	ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
 
 	result := builtinRespondTo(ctx, []types.Value{types.NewObj(3), types.NewStr("secret")})
 	if result.IsError() || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 1 {

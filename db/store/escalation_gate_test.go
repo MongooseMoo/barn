@@ -27,7 +27,7 @@ func TestEscalationGateBlocksOrdinaryCommit(t *testing.T) {
 
 	store.EscalationLock()
 
-	ordinary := store.BeginReadOnly(0)
+	ordinary := store.BeginSnapshot(0)
 	if errCode := ordinary.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}
@@ -43,7 +43,7 @@ func TestEscalationGateBlocksOrdinaryCommit(t *testing.T) {
 	}
 
 	// The exempt txn commits while the gate is still held.
-	exempt := store.BeginReadOnly(0)
+	exempt := store.BeginSnapshot(0)
 	exempt.ExemptFromCommitGate()
 	if errCode := exempt.SetPropertyValue(0, "a", types.NewInt(3)); errCode != types.E_NONE {
 		t.Fatalf("exempt SetPropertyValue failed: %v", errCode)
@@ -79,7 +79,7 @@ func TestEscalatedAttemptCannotLose(t *testing.T) {
 					return
 				default:
 				}
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				cur, errCode := tx.PropertyValue(0, "a")
 				if errCode != types.E_NONE {
 					continue
@@ -95,7 +95,7 @@ func TestEscalatedAttemptCannotLose(t *testing.T) {
 	// Mirror the scheduler's escalated attempt: gate, snapshot, RMW, commit.
 	for i := 0; i < 200; i++ {
 		store.EscalationLock()
-		tx := store.BeginReadOnly(0)
+		tx := store.BeginSnapshot(0)
 		tx.ExemptFromCommitGate()
 		cur, errCode := tx.PropertyValue(0, "a")
 		if errCode != types.E_NONE {

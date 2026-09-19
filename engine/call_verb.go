@@ -283,7 +283,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.Verb = verbName
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
-	ctx.StoreTxn = s.store.BeginReadOnly(0)
+	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.RuntimeOptions = s.options
 
 	// Propagate the already-published ownership to nested registry hooks.

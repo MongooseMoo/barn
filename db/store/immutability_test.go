@@ -91,7 +91,7 @@ func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	obj := tx.object(id) // aliases the published image at this txn's snapshot
 	_, propBefore, ok := propertyByName(obj.properties, "foo")

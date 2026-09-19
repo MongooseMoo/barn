@@ -27,7 +27,7 @@ func BenchmarkTxnPropertyWriteCommit(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tx := store.BeginReadOnly(0)
+		tx := store.BeginSnapshot(0)
 		if errCode := tx.SetPropertyValue(0, "counter", types.NewInt(int64(i))); errCode != types.E_NONE {
 			b.Fatalf("SetPropertyValue failed: %v", errCode)
 		}
@@ -45,7 +45,7 @@ func BenchmarkTxnReadOnlyCommit(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tx := store.BeginReadOnly(0)
+		tx := store.BeginSnapshot(0)
 		if _, errCode := tx.FindProperty(0, "counter"); errCode != types.E_NONE {
 			b.Fatalf("FindProperty failed: %v", errCode)
 		}

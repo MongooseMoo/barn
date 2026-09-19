@@ -311,7 +311,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.TaskID = caller.ID
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	rt.acquireTaskExecution(caller)
 	defer rt.releaseTaskExecution(caller.ID)
 	rt.acquireExecutionContext(ctx, caller.ID)

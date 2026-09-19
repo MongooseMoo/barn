@@ -28,7 +28,7 @@ func assertNameValueMatches(t *testing.T, s *Store, id types.ObjID, want string)
 		t.Fatalf("ObjectNameValue(#%d) = %v, want %q", id, val, want)
 	}
 	// MVCC view must agree too.
-	rtx := s.BeginReadOnly(0)
+	rtx := s.BeginSnapshot(0)
 	mval, ec := rtx.ObjectNameValue(id)
 	if ec != types.E_NONE || mval.Str() != want {
 		t.Fatalf("MVCC ObjectNameValue(#%d) = %v, %v; want %q", id, mval, ec, want)
@@ -59,7 +59,7 @@ func TestObjectNameValueTracksEveryWriteSite(t *testing.T) {
 	assertNameValueMatches(t, s, 0, "direct")
 
 	// MVCC: mutable copy inside the txn, then commit (coarse republish).
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if ec := tx.SetObjectName(0, "mvcc"); ec != types.E_NONE {
 		t.Fatalf("mvcc SetObjectName: %v", ec)
 	}

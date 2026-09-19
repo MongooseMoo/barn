@@ -46,7 +46,7 @@ func BenchmarkTxnFindVerbAncestry(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
 	leaf := types.ObjID(depth - 1)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	b.ReportAllocs()
@@ -62,7 +62,7 @@ func BenchmarkTxnFindVerbMissing(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
 	leaf := types.ObjID(depth - 1)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	b.ReportAllocs()
@@ -81,7 +81,7 @@ func BenchmarkTxnFindVerbAncestryNoMemo(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
 	leaf := types.ObjID(depth - 1)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.mutableObject(leaf)
 
@@ -98,7 +98,7 @@ func BenchmarkTxnFindPropertyAncestryNoMemo(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
 	leaf := types.ObjID(depth - 1)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.mutableObject(leaf)
 
@@ -115,7 +115,7 @@ func BenchmarkTxnFindPropertyAncestry(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
 	leaf := types.ObjID(depth - 1)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	b.ReportAllocs()

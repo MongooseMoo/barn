@@ -19,7 +19,7 @@ func containsObjID(s []types.ObjID, id types.ObjID) bool {
 // commit error code. It asserts the move did not take the coarse live-mutation path.
 func commitMove(t *testing.T, s *Store, what, where types.ObjID, pos int64) types.ErrorCode {
 	t.Helper()
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	if ec := tx.MoveObject(what, where, pos); ec != types.E_NONE {
 		t.Fatalf("MoveObject(%v,%v): %v", what, where, ec)
@@ -69,9 +69,9 @@ func TestTxnMoveDisjointRoomsCommitInParallel(t *testing.T) {
 	}
 
 	// Two concurrent snapshots.
-	tx1 := s.BeginReadOnly(0)
+	tx1 := s.BeginSnapshot(0)
 	defer tx1.Release()
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 
 	if ec := tx1.MoveObject(x, roomB, 0); ec != types.E_NONE {
@@ -106,9 +106,9 @@ func TestTxnMoveSameRoomCommutes(t *testing.T) {
 		t.Fatalf("seed y->B: %v", ec)
 	}
 
-	tx1 := s.BeginReadOnly(0)
+	tx1 := s.BeginSnapshot(0)
 	defer tx1.Release()
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 
 	if ec := tx1.MoveObject(x, dest, 0); ec != types.E_NONE {

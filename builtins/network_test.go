@@ -155,7 +155,7 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
 	if res.IsError() {
@@ -183,7 +183,7 @@ func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = -8
 	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	before := builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(-8)})
 	if before.IsError() {
@@ -216,7 +216,7 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
 	if res.IsError() {
@@ -240,7 +240,7 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})
 	if res.IsError() {
@@ -264,7 +264,7 @@ func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
 	ctx.Player = 7
 	ctx.Programmer = 7
 	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("before")})
 	if res.IsError() {
@@ -295,7 +295,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
 	if res.IsError() {
@@ -325,7 +325,7 @@ func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
 	if res.IsError() {
