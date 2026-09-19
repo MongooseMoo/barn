@@ -80,7 +80,7 @@ func requireSameReadSet(t *testing.T, what string, want, got readSetSnapshot) {
 // a brand-new transaction has an empty memo, so its first call always walks.
 func referenceVerbReadSet(t *testing.T, s *Store, objID types.ObjID, name string) readSetSnapshot {
 	t.Helper()
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.findVerb(objID, name, false)
 	return snapshotReadSet(tx)
@@ -88,7 +88,7 @@ func referenceVerbReadSet(t *testing.T, s *Store, objID types.ObjID, name string
 
 func referencePropertyReadSet(t *testing.T, s *Store, objID types.ObjID, name string) readSetSnapshot {
 	t.Helper()
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.findProperty(objID, name)
 	return snapshotReadSet(tx)
@@ -101,7 +101,7 @@ func TestVerbResolveCacheHitPreservesReadSetAndResult(t *testing.T) {
 	want := referenceVerbReadSet(t, s, 2, "look")
 	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	v1, d1, err1 := tx.findVerb(2, "look", false)
@@ -133,7 +133,7 @@ func TestVerbResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 	want := referenceVerbReadSet(t, s, 2, "nosuchverb")
 	s.resetVerbDispatchMemoForTest() // exercise the per-txn memo, not the store-level one
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, err := tx.findVerb(2, "nosuchverb", false); err == nil {
@@ -163,7 +163,7 @@ func TestVerbResolveCacheRequireExecuteIsPartOfTheKey(t *testing.T) {
 	addVerbT(t, s, 1, []string{"look"}, VerbRead)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	_, d, err := tx.findVerb(2, "look", false)
@@ -187,7 +187,7 @@ func TestVerbResolveCachePreservesWildcardAliasSemantics(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"l*ook", "exam*ine"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	// Every prefix the wildcard admits must resolve, cached and uncached, and a
@@ -216,7 +216,7 @@ func TestVerbResolveCacheIsCaseInsensitive(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"Look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	var first *Verb
@@ -243,7 +243,7 @@ func TestVerbResolveCacheBypassedAfterStagedWrite(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, err := tx.findVerb(2, "look", false); err != nil {
@@ -279,7 +279,7 @@ func TestPropertyResolveReadsOwnStagedWrite(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if v, ec := tx.PropertyValue(2, "x"); ec != types.E_NONE || v.Int() != 1 {
@@ -303,7 +303,7 @@ func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) 
 
 	want := referencePropertyReadSet(t, s, 2, "desc")
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	p1, n1, ec1 := tx.findProperty(2, "desc")
@@ -328,7 +328,7 @@ func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 
 	want := referencePropertyReadSet(t, s, 2, "nosuchprop")
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, ec := tx.findProperty(2, "nosuchprop"); ec != types.E_PROPNF {
@@ -350,7 +350,7 @@ func TestPropertyResolveCacheIsCaseInsensitive(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	for _, name := range []string{"desc", "DESC", "DeSc", "desc"} {
@@ -371,7 +371,7 @@ func TestResolveCacheIsScopedToTheSnapshot(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if _, d, err := tx.findVerb(2, "look", false); err != nil || d != 0 {
 		t.Fatalf("findVerb = #%d err=%v, want #0", d, err)
 	}
@@ -386,7 +386,7 @@ func TestResolveCacheIsScopedToTheSnapshot(t *testing.T) {
 	}
 	tx.Release()
 
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 	if _, d, err := tx2.findVerb(2, "look", false); err != nil || d != 1 {
 		t.Fatalf("new-snapshot findVerb = #%d err=%v, want #1", d, err)
@@ -397,7 +397,7 @@ func TestResolveCacheInvalidatedByForgetObject(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, err := tx.findVerb(2, "look", false); err != nil {
@@ -416,7 +416,7 @@ func TestResolveCacheInvalidatedByAdoptLiveObject(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, err := tx.findVerb(2, "look", false); err != nil {
@@ -440,7 +440,7 @@ func TestResolveCacheStepIdentityCheckRejectsRebind(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	if _, _, err := tx.findVerb(2, "look", false); err != nil {
@@ -464,7 +464,7 @@ func TestResolveCacheIsBounded(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	for i := 0; i < resolveCacheCap*3; i++ {
@@ -534,7 +534,7 @@ func TestWalkScratchReuseAcrossManyWalks(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	for start := types.ObjID(0); start < depth; start++ {
@@ -556,7 +556,7 @@ func TestFindParentVerbScratchWalk(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 
 	// pass() from #1's definition must find #0's, twice in a row (the scratch is

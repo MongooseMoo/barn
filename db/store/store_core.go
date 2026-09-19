@@ -58,7 +58,7 @@ type Store struct {
 	history     map[types.ObjID][]objectHistory
 
 	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
-	// historyFloor's cross-shard scan. BeginReadOnly holds it shared from the clock
+	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
 	// sample through the shard insertion; historyFloor holds it exclusively while
 	// scanning. Registrations remain concurrent with each other, and deregistration
 	// stays shard-local because missing a reader that has already released is safe.

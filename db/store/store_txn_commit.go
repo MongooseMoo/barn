@@ -271,7 +271,7 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	store := tx.store
 	gateExempt := tx.gateExempt
 	tx.Release()
-	next = store.BeginReadOnly(0)
+	next = store.BeginSnapshot(0)
 	if gateExempt {
 		next.ExemptFromCommitGate()
 	}

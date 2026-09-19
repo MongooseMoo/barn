@@ -49,7 +49,7 @@ func TestHistoryGCConcurrentReadersKeepLiveObjects(t *testing.T) {
 				if attempt%2 == 0 {
 					name = "even"
 				}
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				errCode := tx.SetObjectName(id, name)
 				if errCode == types.E_NONE {
 					errCode = tx.Commit()
@@ -75,7 +75,7 @@ func TestHistoryGCConcurrentReadersKeepLiveObjects(t *testing.T) {
 			defer readerWG.Done()
 			<-start
 			for !writersDone.Load() {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				for offset := range liveObjectCount {
 					id := firstObject + types.ObjID(offset)
 					_, errCode := tx.ObjectName(id)
@@ -153,7 +153,7 @@ func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
 
 	readerDone := make(chan *StoreTxn, 1)
 	go func() {
-		readerDone <- store.BeginReadOnly(readerTS)
+		readerDone <- store.BeginSnapshot(readerTS)
 	}()
 	// On the broken implementation this registration completes in shard 0 even
 	// though the in-progress scan has already passed it. A correct implementation
@@ -216,7 +216,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	}
 
 	// Commit a known baseline value the long reader will snapshot.
-	base := store.BeginReadOnly(0)
+	base := store.BeginSnapshot(0)
 	if errCode := base.SetPropertyValue(0, "n", types.NewInt(1)); errCode != types.E_NONE {
 		t.Fatalf("baseline SetPropertyValue failed: %v", errCode)
 	}
@@ -226,7 +226,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	base.Release()
 
 	// Open the LONG-LIVED reader at the OLD readTS (sees n==1). It stays live.
-	reader := store.BeginReadOnly(0)
+	reader := store.BeginSnapshot(0)
 	prop, errCode := reader.FindProperty(0, "n")
 	if errCode != types.E_NONE {
 		t.Fatalf("reader initial FindProperty failed: %v", errCode)
@@ -240,7 +240,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	// under it because the floor == reader.readTS pins it.
 	const commits = 200
 	for i := 2; i <= commits+1; i++ {
-		w := store.BeginReadOnly(0)
+		w := store.BeginSnapshot(0)
 		if errCode := w.SetPropertyValue(0, "n", types.NewInt(int64(i))); errCode != types.E_NONE {
 			t.Fatalf("commit %d SetPropertyValue failed: %v", i, errCode)
 		}
@@ -292,7 +292,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	// (only the newest-<=floor version is retained; everything older is dead).
 	reader.Release()
 
-	w := store.BeginReadOnly(0)
+	w := store.BeginSnapshot(0)
 	if errCode := w.SetPropertyValue(0, "n", types.NewInt(9999)); errCode != types.E_NONE {
 		t.Fatalf("post-release SetPropertyValue failed: %v", errCode)
 	}
@@ -337,8 +337,8 @@ func TestHistoryGCRegistryDeregistersOnRelease(t *testing.T) {
 		t.Fatalf("Add root failed: %v", err)
 	}
 
-	a := store.BeginReadOnly(0)
-	b := store.BeginReadOnly(0) // same readTS as a (no commits between) -> multiset count 2
+	a := store.BeginSnapshot(0)
+	b := store.BeginSnapshot(0) // same readTS as a (no commits between) -> multiset count 2
 	if got := store.activeFloorCount(); got != 1 {
 		t.Fatalf("distinct active readTS = %d, want 1 (a and b share readTS)", got)
 	}
@@ -370,10 +370,10 @@ func TestCOWHistoryDoesNotShareCollectionsWithLiveImage(t *testing.T) {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
-	reader := store.BeginReadOnly(0)
+	reader := store.BeginSnapshot(0)
 	defer reader.Release()
 
-	writer := store.BeginReadOnly(0)
+	writer := store.BeginSnapshot(0)
 	if errCode := writer.SetPropertyValue(0, "n", types.NewInt(1)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}

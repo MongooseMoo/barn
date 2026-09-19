@@ -28,7 +28,7 @@ func shapeFixture(t *testing.T) (*Store, types.ObjID, types.ObjID) {
 // returns the commit code.
 func walkThenCommit(t *testing.T, s *Store, parent, child types.ObjID, concurrent func()) types.ErrorCode {
 	t.Helper()
-	walker := s.BeginReadOnly(0)
+	walker := s.BeginSnapshot(0)
 	defer walker.Release()
 	if _, ec := walker.PropertyValue(child, "nosuch"); ec != types.E_PROPNF {
 		t.Fatalf("child.nosuch = %v, want E_PROPNF", ec)
@@ -50,7 +50,7 @@ func walkThenCommit(t *testing.T, s *Store, parent, child types.ObjID, concurren
 
 func commitWrite(t *testing.T, s *Store, f func(tx *StoreTxn) types.ErrorCode) {
 	t.Helper()
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	if ec := f(tx); ec != types.E_NONE {
 		t.Fatalf("stage: %v", ec)

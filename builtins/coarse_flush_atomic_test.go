@@ -11,7 +11,7 @@ func TestGenericCoarseBuiltinPropagatesFailedLegacyTopologyFlush(t *testing.T) {
 	addTxnObject(t, store, 1, 0)
 	addTxnObject(t, store, 2, 0)
 	ctx.StoreTxn.Release()
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	if errCode := ctx.StoreTxn.SetObjectName(0, "private"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName stage: %v", errCode)

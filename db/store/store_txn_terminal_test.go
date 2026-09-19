@@ -59,7 +59,7 @@ func objIDSlicesEqual(a, b []types.ObjID) bool {
 func TestStoreTxnTerminalPreflightFailureAndValidationConflictRemainDistinct(t *testing.T) {
 	t.Run("terminal preflight failure", func(t *testing.T) {
 		s := newCoarseAtomicTestStore(t)
-		tx := s.BeginReadOnly(0)
+		tx := s.BeginSnapshot(0)
 		if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 			t.Fatalf("SetObjectName stage: %v", errCode)
 		}
@@ -81,7 +81,7 @@ func TestStoreTxnTerminalPreflightFailureAndValidationConflictRemainDistinct(t *
 
 	t.Run("retryable validation conflict", func(t *testing.T) {
 		s := newCoarseAtomicTestStore(t)
-		tx := s.BeginReadOnly(0)
+		tx := s.BeginSnapshot(0)
 		if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 			t.Fatalf("SetObjectName stage: %v", errCode)
 		}
@@ -103,7 +103,7 @@ func TestStoreTxnTerminalPreflightFailureAndValidationConflictRemainDistinct(t *
 
 func TestStoreTxnCommitAndRenewTerminalFailureKeepsOriginalUnreleased(t *testing.T) {
 	s := newCoarseAtomicTestStore(t)
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName stage: %v", errCode)
 	}

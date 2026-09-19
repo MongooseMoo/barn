@@ -139,7 +139,7 @@ retryAttempt:
 	// beginning a fresh one, so its readTS deregisters from the history-GC floor
 	// promptly (the runtime finalizer is only a backstop).
 	ctx.StoreTxn.Release()
-	ctx.StoreTxn = s.store.BeginReadOnly(0)
+	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	if escalated {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
@@ -462,7 +462,7 @@ retryAttempt:
 	// the gate, or it could still lose to a commit that landed before the lock.
 	if committed && (committedWrites || willInlineResume) {
 		ctx.StoreTxn.Release()
-		ctx.StoreTxn = s.store.BeginReadOnly(0)
+		ctx.StoreTxn = s.store.BeginSnapshot(0)
 		if escalated {
 			ctx.StoreTxn.ExemptFromCommitGate()
 		}
@@ -511,7 +511,7 @@ retryAttempt:
 			t.CreatedForks = nil
 			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
-			ctx.StoreTxn = s.store.BeginReadOnly(0)
+			ctx.StoreTxn = s.store.BeginSnapshot(0)
 		}
 	}
 	if result.Flow != types.FlowSuspend {
@@ -556,7 +556,7 @@ retryAttempt:
 			t.CreatedForks = nil
 			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
-			ctx.StoreTxn = s.store.BeginReadOnly(0)
+			ctx.StoreTxn = s.store.BeginSnapshot(0)
 		}
 		// Only an exhausted inline-yield run still holds the gate here; the
 		// suspended task must not carry it into the hand-off.

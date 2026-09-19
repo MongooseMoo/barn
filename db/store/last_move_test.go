@@ -49,7 +49,7 @@ func TestTxnMoveObjectRecordsLastMoveBeforeAndAfterCommit(t *testing.T) {
 		t.Fatalf("seed move: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	before := time.Now().Unix()
 	if ec := tx.MoveObject(thing, destination, 0); ec != types.E_NONE {

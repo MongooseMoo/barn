@@ -91,7 +91,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for c := 0; c < incrEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				cur, errCode := tx.PropertyValue(anon, "counter")
 				if errCode != types.E_NONE {
 					if visibilitySkip(errCode) {
@@ -138,7 +138,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for c := 0; c < scalarEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				if errCode := tx.SetObjectName(anon, "anon"); errCode != types.E_NONE {
 					if visibilitySkip(errCode) {
 						visSkips.Add(1)
@@ -168,7 +168,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 				_, _ = store.DirectTxn().PropertyValue(anon, "counter")
 				_, _ = store.DirectTxn().ObjectName(anon)
 				_ = store.DirectTxn().Valid(anon)
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				_, _ = tx.PropertyValue(anon, "counter")
 				_, _ = tx.ObjectName(anon)
 			}

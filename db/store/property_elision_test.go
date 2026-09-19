@@ -44,7 +44,7 @@ func TestSetPropertyValueSameValueIsElided(t *testing.T) {
 	v0 := liveSlotVersion(t, s, parent, "aliases")
 	e0 := s.PropertyWriteElisions()
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	if ec := tx.SetPropertyValue(parent, "aliases", strList("a", "b")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue: %v", ec)
@@ -78,13 +78,13 @@ func TestSetPropertyValueSameValueIsElided(t *testing.T) {
 func TestSameValueWritersDoNotConflict(t *testing.T) {
 	s, parent, child := elisionFixture(t)
 
-	reader := s.BeginReadOnly(0)
+	reader := s.BeginSnapshot(0)
 	defer reader.Release()
 	if _, ec := reader.PropertyValue(parent, "aliases"); ec != types.E_NONE {
 		t.Fatalf("reader PropertyValue: %v", ec)
 	}
 
-	writer := s.BeginReadOnly(0)
+	writer := s.BeginSnapshot(0)
 	if ec := writer.SetPropertyValue(parent, "aliases", strList("a", "b")); ec != types.E_NONE {
 		t.Fatalf("writer SetPropertyValue: %v", ec)
 	}
@@ -102,12 +102,12 @@ func TestSameValueWritersDoNotConflict(t *testing.T) {
 	}
 
 	// Control: a different value still conflicts.
-	reader2 := s.BeginReadOnly(0)
+	reader2 := s.BeginSnapshot(0)
 	defer reader2.Release()
 	if _, ec := reader2.PropertyValue(parent, "aliases"); ec != types.E_NONE {
 		t.Fatalf("reader2 PropertyValue: %v", ec)
 	}
-	writer2 := s.BeginReadOnly(0)
+	writer2 := s.BeginSnapshot(0)
 	if ec := writer2.SetPropertyValue(parent, "aliases", strList("a", "b", "z")); ec != types.E_NONE {
 		t.Fatalf("writer2 SetPropertyValue: %v", ec)
 	}
@@ -128,13 +128,13 @@ func TestSameValueWritersDoNotConflict(t *testing.T) {
 func TestElidedWriteKeepsReadDependency(t *testing.T) {
 	s, parent, child := elisionFixture(t)
 
-	elider := s.BeginReadOnly(0)
+	elider := s.BeginSnapshot(0)
 	defer elider.Release()
 	if ec := elider.SetPropertyValue(parent, "aliases", strList("a", "b")); ec != types.E_NONE {
 		t.Fatalf("elider SetPropertyValue: %v", ec)
 	}
 
-	other := s.BeginReadOnly(0)
+	other := s.BeginSnapshot(0)
 	if ec := other.SetPropertyValue(parent, "aliases", strList("x")); ec != types.E_NONE {
 		t.Fatalf("other SetPropertyValue: %v", ec)
 	}
@@ -161,7 +161,7 @@ func TestSetPropertyValueNotElidedWhenObservable(t *testing.T) {
 	if clear, ec := s.DirectTxn().PropertyClearState(child, "aliases"); ec != types.E_NONE || !clear {
 		t.Fatalf("child aliases clear state before = %v (%v), want clear", clear, ec)
 	}
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if ec := tx.SetPropertyValue(child, "aliases", strList("a", "b")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue child: %v", ec)
 	}
@@ -178,7 +178,7 @@ func TestSetPropertyValueNotElidedWhenObservable(t *testing.T) {
 
 	// Case differs: MOO == says equal, but the stored bytes are observable.
 	v0 := liveSlotVersion(t, s, parent, "aliases")
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 	if ec := tx2.SetPropertyValue(parent, "aliases", strList("A", "b")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue case-different: %v", ec)
@@ -204,7 +204,7 @@ func TestRoundTripWriteIsElided(t *testing.T) {
 	s, parent, _ := elisionFixture(t)
 	v0 := liveSlotVersion(t, s, parent, "aliases")
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	if ec := tx.SetPropertyValue(parent, "aliases", strList("a", "b", "The")); ec != types.E_NONE {
 		t.Fatalf("first write: %v", ec)
@@ -230,7 +230,7 @@ func TestRoundTripWriteIsElided(t *testing.T) {
 	}
 
 	// A round trip that lands on a DIFFERENT value still publishes.
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 	if ec := tx2.SetPropertyValue(parent, "aliases", strList("a", "b", "c")); ec != types.E_NONE {
 		t.Fatalf("tx2 first write: %v", ec)

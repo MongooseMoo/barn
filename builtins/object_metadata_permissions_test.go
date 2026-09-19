@@ -62,7 +62,7 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 
 	ctx := newTestExecution()
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.Programmer = intruder
 	ctx.Player = intruder
 

@@ -107,7 +107,7 @@ func TestTxnSetVerbCodeRefreshesKeyBeforeAndAfterCommit(t *testing.T) {
 	store := storeWithVerbForTest(t, []string{"return 1;"})
 	before := verbViewForTest(t, store, 0, "look").CodeKey
 
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if errCode := tx.SetVerbCode(0, "look", []string{"return 4;"}); errCode != types.E_NONE {
 		t.Fatalf("txn SetVerbCode: %v", errCode)
@@ -133,7 +133,7 @@ func TestTxnSetVerbCodeRefreshesKeyBeforeAndAfterCommit(t *testing.T) {
 
 func TestTxnSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 	store := storeWithVerbForTest(t, []string{"return 1;"})
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if errCode := tx.SetVerbCodeByIndex(0, 0, []string{"return 5;"}); errCode != types.E_NONE {
 		t.Fatalf("txn SetVerbCodeByIndex: %v", errCode)
@@ -149,7 +149,7 @@ func TestTxnSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 // carry the staged source's key, not the live verb's.
 func TestTxnImageRebuildCarriesStagedVerbKey(t *testing.T) {
 	store := storeWithVerbForTest(t, []string{"return 1;"})
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if errCode := tx.SetVerbCode(0, "look", []string{"return 6;"}); errCode != types.E_NONE {
 		t.Fatalf("txn SetVerbCode: %v", errCode)
@@ -184,7 +184,7 @@ func TestConcurrentVerbReadsSeeConsistentCodeAndKey(t *testing.T) {
 					return
 				default:
 				}
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				view, _, err := tx.FindCallableVerb(0, "look")
 				tx.Release()
 				if err != nil {

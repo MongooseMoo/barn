@@ -23,7 +23,7 @@ func TestLoadServerOptionsAfterElidedWrites(t *testing.T) {
 	}
 	ctx := newTestExecution()
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 	ctx.Session.LoadServerOptionsFromStore(store)
 	ctx.Session.LoadProtectedBuiltinsFromStore(store)

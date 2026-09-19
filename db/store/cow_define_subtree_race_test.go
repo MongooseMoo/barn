@@ -103,7 +103,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 			want := int64(1000 + i)
 			for r := 0; r < roundsEach; r++ {
 				// DEFINE on the root via the decentralized COW path.
-				txd := store.BeginReadOnly(0)
+				txd := store.BeginSnapshot(0)
 				if errCode := txd.DefineProperty(root, propName, NewProperty(types.NewInt(want), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 					t.Errorf("subtree %d DefineProperty failed: %v", i, errCode)
 					return
@@ -126,7 +126,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 				}
 
 				// DELETE the definition via the decentralized COW path.
-				txx := store.BeginReadOnly(0)
+				txx := store.BeginSnapshot(0)
 				if errCode := txx.DeleteDefinedProperty(root, propName); errCode != types.E_NONE {
 					t.Errorf("subtree %d DeleteDefinedProperty failed: %v", i, errCode)
 					return
@@ -152,7 +152,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(int64(c))); errCode != types.E_NONE {
 					t.Errorf("disjoint SetPropertyValue failed: %v", errCode)
 					return
