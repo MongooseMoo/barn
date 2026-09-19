@@ -176,3 +176,37 @@ The generic regression can be repeated on both engines:
 Build the candidate as `<run-directory>/barn.exe` first. Each managed session
 includes capability admission. This check does not establish a clean login:
 the separate SQLite connection-hook failure can still precede the description.
+
+## PBT fixture cleanup wait
+
+The September 18 checkpoint's `$pbt:_verify_and_recycle` waits for the entire
+server's `queued_tasks()` count to drop to ten before recycling each fixture,
+calling `suspend(0)` up to 300 times. Periodic world jobs make this an unrelated
+and unreliable prerequisite. In the September 19 reproduction, the original
+current checkpoint took 30.75s on Barn and failed three cleanup tests. Mongoose
+Toast failed the same three tests in 507.02ms; that faster run was not successful.
+
+Removing only that polling block gave 65/65 passes in 818.50ms on Barn and
+1.51s on Mongoose Toast. These are individual live-world runs, not a statistical
+comparison. The separate SQLite login-hook error still occurred. Canonical
+stock WSL Toast and unmodified Barn both passed the generic managed regression
+`builtins/recycle_unrelated_tasks.yaml`, including capability admission.
+
+Apply the guarded repair to a **stopped server's checkpoint**, writing a new file:
+
+```powershell
+python scripts/fix-mongoose-pbt-cleanup.py mongoose.db.new mongoose.fixed.db
+python scripts/test_fix_mongoose_pbt_cleanup.py
+```
+
+The script verifies the exact known block inside the PBT cleanup verb, preserves
+all other bytes, prints both hashes, and refuses existing output files or changed
+source. Keep the original checkpoint as a backup before selecting the repaired
+file for the next server start. Re-fetching an uncorrected remote checkpoint
+restores the workaround; this script does not modify mongoose.world.
+
+Repeat the live check with `scripts/mongoose-login.ps1 -Commands @('@test $pbt')`.
+Use `-Timeout 55 -MaxDuration 120` so a slow original run's final report is captured.
+For this mixed-numeric live workload use the documented Mongoose Toast build;
+canonical stock Toast fails additional numeric tests and is not a valid full-suite
+performance baseline. Generic MOO reductions still use the canonical oracle.
