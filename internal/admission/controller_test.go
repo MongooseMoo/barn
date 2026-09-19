@@ -214,3 +214,102 @@ func TestCancelledPauseReopensAdmissionWithoutRevokingOwner(t *testing.T) {
 	next.Finish(0, 0)
 	held.Finish(0, 0)
 }
+
+func TestYieldLendsReservationToWaiterAndReadmitsOwner(t *testing.T) {
+	c := New(Options{Limit: 1})
+	owner, err := c.Enter(context.Background(), Key{Principal: 10, Class: Background})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.Start()
+	if waited := owner.Yield(); waited != 0 {
+		t.Fatalf("uncontended yield waited %v", waited)
+	}
+	waiter := c.Enqueue(Key{Principal: 20, Class: Input})
+	if waited := owner.Yield(); waited != 0 {
+		t.Fatal("yield before a full quantum")
+	}
+	time.Sleep(Quantum)
+	yielded := make(chan time.Duration, 1)
+	go func() { yielded <- owner.Yield() }()
+	var granted *Reservation
+	select {
+	case granted = <-waiter.Ready():
+	case <-time.After(time.Second):
+		t.Fatal("waiter was not granted the yielded reservation")
+	}
+	if s := c.Snapshot(); s.Active != 1 || s.Preempted != 1 || s.Preemptions != 1 || s.Service <= 0 {
+		t.Fatalf("during handoff = %+v", s)
+	}
+	time.Sleep(5 * time.Millisecond)
+	granted.Finish(time.Millisecond, 0)
+	select {
+	case waited := <-yielded:
+		if waited <= 0 {
+			t.Fatalf("readmission wait = %v", waited)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("preempted owner was not readmitted")
+	}
+	owner.Finish()
+	if s := c.Snapshot(); s.Active != 0 || s.Preempted != 0 || s.Queued != 0 {
+		t.Fatalf("after settlement = %+v", s)
+	}
+}
+
+// A checkpoint must see every started slice at a real boundary. A preempted
+// segment is still in flight: Pause waits for it, and readmits it (while still
+// excluding new work) so that the wait can finish.
+func TestPauseWaitsForPreemptedSegmentAndReadmitsIt(t *testing.T) {
+	c := New(Options{Limit: 1})
+	owner, _ := c.Enter(context.Background(), Key{Principal: 10, Class: Background})
+	owner.Start()
+	other := c.Enqueue(Key{Principal: 20, Class: Input})
+	time.Sleep(Quantum)
+	yielded := make(chan struct{})
+	go func() { owner.Yield(); close(yielded) }()
+	granted := <-other.Ready()
+
+	paused := make(chan func(), 1)
+	go func() {
+		resume, err := c.Pause(context.Background())
+		if err != nil {
+			t.Error(err)
+		}
+		paused <- resume
+	}()
+	for registered := false; !registered; {
+		c.mu.Lock()
+		registered = c.paused == 1
+		c.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	fresh := c.Enqueue(Key{Principal: 30, Class: Input})
+	granted.Finish(time.Millisecond, 0)
+	select {
+	case <-yielded:
+	case <-time.After(time.Second):
+		t.Fatal("pause refused to readmit the preempted segment")
+	}
+	select {
+	case <-paused:
+		t.Fatal("pause completed while a preempted segment was in flight")
+	case <-fresh.Ready():
+		t.Fatal("pause admitted new work")
+	case <-time.After(20 * time.Millisecond):
+	}
+	owner.Finish()
+	var resume func()
+	select {
+	case resume = <-paused:
+	case <-time.After(time.Second):
+		t.Fatal("pause did not complete after the preempted segment finished")
+	}
+	select {
+	case <-fresh.Ready():
+		t.Fatal("new work admitted before resume")
+	default:
+	}
+	resume()
+	(<-fresh.Ready()).Finish(time.Millisecond, 0)
+}

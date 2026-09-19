@@ -143,6 +143,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 		// corresponding lifecycle boundary will retry it.
 		if bcVM != nil {
 			sliceTicks = bcVM.Ticks
+			bcVM.Preempt = nil
 		}
 		if executionCtx != nil {
 			s.releaseExecutionContext(executionCtx, t.ID)
@@ -359,6 +360,19 @@ retryAttempt:
 	// The VM owns the seconds deadline so commit-gate waits can extend it.
 	// Cancellation separately handles shutdown and explicit task kills.
 
+	// A root slice lends its reservation at tick checkpoints while others wait.
+	// Never while escalated: a readmission-waiting task holding the exclusive
+	// commit gate would deadlock every admitted committer. A borrowed scope is
+	// its owner's to lend.
+	preempt := func() {
+		if !ownsScope || escalated {
+			return
+		}
+		if wait := scope.Yield(); wait > 0 {
+			t.ExcludeExecutionWait(wait)
+		}
+	}
+
 	var result types.Result
 	anonGCFloor := s.store.NextID()
 	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
@@ -382,6 +396,7 @@ retryAttempt:
 		// Attach task context (may have been updated since VM was created)
 		bcVM.Context = ctx
 		bcVM.Task = t
+		bcVM.Preempt = preempt
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -428,6 +443,7 @@ retryAttempt:
 		bcVM = vm.NewVM(s.store, s.session)
 		bcVM.Context = ctx
 		bcVM.Task = t
+		bcVM.Preempt = preempt
 		bcVM.TickLimit = t.TicksLimit
 		configureVMStackLimit(bcVM, s.session)
 

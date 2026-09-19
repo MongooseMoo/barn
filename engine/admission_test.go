@@ -286,3 +286,95 @@ func TestAdmissionCompletionRetainsResultRootsUntilCallbackReturns(t *testing.T)
 		t.Fatalf("callback received reclaimed result: valid=%v err=%v", valid, err)
 	}
 }
+
+// A cooperative background slice that never suspends must not hold the only
+// admission slot for its whole run: input queued behind it has to be serviced
+// within a bounded quantum, as Go preemption provided before admission existed.
+func TestAdmissionCapOneInputNotStarvedByLongBackgroundSlice(t *testing.T) {
+	store := serverOptionsVerbStore(t, `add_property(#1, "bg_ticks", 1000000000, {player, "r"});`+
+		`add_property(#1, "bg_seconds", 30, {player, "r"});`+
+		`load_server_options();`)
+	rt := newRuntimeWithWorkerCount(store, config.Options{AdmissionLimit: 1}, 1)
+	defer rt.Stop()
+	if r := rt.CallVerb(1, "go", nil, 2); r.Flow == types.FlowException {
+		t.Fatalf("setup raised %s", r.Error)
+	}
+	const spin = time.Second
+	id := rt.CreateBackgroundTask(2, compileTestProgram(t, rt.registry,
+		"t = ftime(1); while (ftime(1) - t < 1.0) endwhile return 7;"), 0)
+	batch := make(chan int, 1)
+	go func() { batch <- rt.ProcessReadyBatch() }()
+	deadline := time.Now().Add(3 * time.Second)
+	for rt.AdmissionStats().Active != 1 || rt.GetTask(id).GetState() != task.TaskRunning {
+		if time.Now().After(deadline) {
+			t.Fatalf("background task never started: %+v", rt.AdmissionStats())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	start := time.Now()
+	got := rt.Eval(2, []string{"return 1;"})
+	latency := time.Since(start)
+	if got.Panic != nil || got.Result.Val.Int() != 1 {
+		t.Fatalf("eval = %+v", got)
+	}
+	<-batch
+	if tk := rt.GetTask(id); tk.GetState() != task.TaskCompleted || tk.Result.Val.Int() != 7 {
+		t.Fatalf("background task state=%v result=%+v", tk.GetState(), tk.Result)
+	}
+	if latency > spin/4 {
+		t.Fatalf("input waited %v behind a nonsuspending background slice", latency)
+	}
+	t.Logf("input latency %v; admission %+v", latency, rt.AdmissionStats())
+}
+
+// A resumed slice runs escalated, holding the exclusive commit gate. It must not
+// lend its reservation: a committing input admitted in its place would wait on
+// the gate while the gate holder waited for readmission.
+func TestAdmissionCapOneEscalatedSliceDoesNotYieldIntoDeadlock(t *testing.T) {
+	store := serverOptionsVerbStore(t, `add_property(#1, "bg_ticks", 1000000000, {player, "r"});`+
+		`add_property(#1, "bg_seconds", 30, {player, "r"});`+
+		`add_property(#1, "v", 0, {player, "rw"});`+
+		`load_server_options();`)
+	rt := newRuntimeWithWorkerCount(store, config.Options{AdmissionLimit: 1}, 1)
+	defer rt.Stop()
+	if r := rt.CallVerb(1, "go", nil, 2); r.Flow == types.FlowException {
+		t.Fatalf("setup raised %s", r.Error)
+	}
+	id := rt.CreateBackgroundTask(2, compileTestProgram(t, rt.registry,
+		"suspend(0); t = ftime(1); while (ftime(1) - t < 0.5) endwhile #1.v = #1.v + 1; return 7;"), 0)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for rt.GetTask(id).GetState() != task.TaskCompleted {
+			rt.ProcessReadyBatch()
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for rt.GetTask(id).GetState() != task.TaskRunning || rt.GetTask(id).BytecodeVMValue() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("resumed slice never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	evalDone := make(chan EvalOutcome, 1)
+	go func() { evalDone <- rt.Eval(2, []string{"#1.v = #1.v + 10; return #1.v;"}) }()
+	select {
+	case got := <-evalDone:
+		if got.Panic != nil || got.Result.Flow == types.FlowException {
+			t.Fatalf("eval = %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("deadlock: admission %+v", rt.AdmissionStats())
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background task never completed")
+	}
+	if v := rt.GetTask(id).Result.Val.Int(); v != 7 {
+		t.Fatalf("background result %d", v)
+	}
+}

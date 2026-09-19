@@ -41,7 +41,28 @@ func (s *Scope) ResumeBackground(ctx context.Context, principal int64) error {
 }
 
 // Start begins service after the physical VM lease, excluding GC barrier wait.
-func (s *Scope) Start()                 { s.started = time.Now() }
+func (s *Scope) Start() { s.started = time.Now() }
+
+// Yield lends the reservation to waiting work once this segment has used a
+// quantum, and returns how long readmission took. The owner keeps its VM,
+// transaction and physical lease: this is neither a MOO suspension nor a commit
+// boundary. Only a root VM holding no gate or lock another admitted invocation
+// could need may yield; readmission is therefore not cancellable.
+func (s *Scope) Yield() time.Duration {
+	if s == nil || s.reservation == nil || s.started.IsZero() || s.controller.waiting.Load() == 0 {
+		return 0
+	}
+	elapsed := time.Since(s.started)
+	if elapsed < Quantum {
+		return 0
+	}
+	start := time.Now()
+	q := s.reservation.preempt(elapsed, time.Duration(s.wait.Load()))
+	s.reservation = <-q.ready
+	s.wait.Store(0)
+	s.started = time.Now()
+	return s.started.Sub(start)
+}
 func (s *Scope) Waited(d time.Duration) { s.wait.Add(int64(d)) }
 func (s *Scope) Finish() {
 	if s == nil || s.reservation == nil {

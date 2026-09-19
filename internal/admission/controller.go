@@ -6,8 +6,14 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// Quantum is how long a root invocation keeps its reservation while another
+// request waits. MOO slices are cooperative and can run for seconds; without a
+// quantum a single-slot controller serializes every player behind them.
+const Quantum = 10 * time.Millisecond
 
 type Class uint8
 
@@ -58,7 +64,10 @@ type Controller struct {
 	principals                     map[identity]*principal
 	queue                          []*Request
 	active                         int
+	preempted                      int // yielded segments awaiting readmission
 	paused                         int
+	waiting                        atomic.Int32
+	preemptions                    uint64
 	idle                           chan struct{}
 	sequence                       uint64
 	watermark                      float64
@@ -69,6 +78,7 @@ type Request struct {
 	key    Key
 	ready  chan *Reservation
 	queued bool
+	resume bool // readmits a preempted segment; granted even while paused
 }
 type Reservation struct {
 	c                   *Controller
@@ -78,7 +88,8 @@ type Reservation struct {
 	finished            bool
 }
 type Stats struct {
-	Active, Queued                 int
+	Active, Queued, Preempted      int
+	Preemptions                    uint64
 	Service, GateWait, Maintenance time.Duration
 }
 
@@ -106,8 +117,10 @@ func New(o Options) *Controller {
 	return &Controller{options: o, principals: make(map[identity]*principal), idle: idle}
 }
 
-// Pause excludes new owners and drains existing reservations. Callers must not
-// own a reservation or run admission-taking hooks until the returned resume.
+// Pause excludes new owners and drains existing reservations, including
+// preempted segments, which it readmits so they can reach a real boundary.
+// Callers must not own a reservation or run admission-taking hooks until the
+// returned resume.
 // Several maintenance callers can pause concurrently; only the last resumes.
 func (c *Controller) Pause(ctx context.Context) (func(), error) {
 	c.mu.Lock()
@@ -139,6 +152,11 @@ func (c *Controller) Pause(ctx context.Context) (func(), error) {
 func (c *Controller) Enqueue(key Key) *Request {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	q := c.enqueueLocked(key, false)
+	c.dispatchLocked()
+	return q
+}
+func (c *Controller) enqueueLocked(key Key, resume bool) *Request {
 	p := c.principals[key.identity()]
 	if p == nil {
 		p = &principal{estimate: [2]time.Duration{time.Millisecond, time.Millisecond}}
@@ -153,9 +171,9 @@ func (c *Controller) Enqueue(key Key) *Request {
 	}
 	p.queued++
 	p.classQueued[cl]++
-	q := &Request{c: c, key: key, ready: make(chan *Reservation, 1), queued: true}
+	q := &Request{c: c, key: key, ready: make(chan *Reservation, 1), queued: true, resume: resume}
 	c.queue = append(c.queue, q)
-	c.dispatchLocked()
+	c.waiting.Store(int32(len(c.queue)))
 	return q
 }
 func (q *Request) Ready() <-chan *Reservation { return q.ready }
@@ -175,6 +193,7 @@ func (q *Request) Cancel() bool {
 			break
 		}
 	}
+	c.waiting.Store(int32(len(c.queue)))
 	q.queued = false
 	p := c.principals[q.key.identity()]
 	p.queued--
@@ -206,12 +225,12 @@ func less(a, b ledger) bool {
 	return av < bv || av == bv && a.last < b.last
 }
 func (c *Controller) dispatchLocked() {
-	if c.paused != 0 {
-		return
-	}
 	for c.active < c.options.Limit {
 		best := -1
 		for i, q := range c.queue {
+			if c.paused != 0 && !q.resume {
+				continue
+			}
 			p := c.principals[q.key.identity()]
 			if p.active >= c.options.PrincipalLimit {
 				continue
@@ -231,6 +250,7 @@ func (c *Controller) dispatchLocked() {
 		}
 		q := c.queue[best]
 		c.queue = append(c.queue[:best], c.queue[best+1:]...)
+		c.waiting.Store(int32(len(c.queue)))
 		q.queued = false
 		p := c.principals[q.key.identity()]
 		cl := q.key.Class
@@ -255,8 +275,11 @@ func (c *Controller) dispatchLocked() {
 		p.classQueued[cl]--
 		p.active++
 		p.classActive[cl]++
-		if c.active == 0 {
+		if c.active+c.preempted == 0 {
 			c.idle = make(chan struct{})
+		}
+		if q.resume {
+			c.preempted--
 		}
 		c.active++
 		q.ready <- r
@@ -270,6 +293,26 @@ func (r *Reservation) Finish(elapsed, gateWait time.Duration) {
 	c := r.c
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	r.settleLocked(elapsed, gateWait)
+	c.dispatchLocked()
+}
+
+// preempt settles the owner's segment and queues its readmission atomically,
+// so a concurrent Pause can never observe the in-flight invocation as idle.
+func (r *Reservation) preempt(elapsed, gateWait time.Duration) *Request {
+	c := r.c
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.preempted++
+	c.preemptions++
+	q := c.enqueueLocked(r.key, true)
+	r.settleLocked(elapsed, gateWait)
+	c.dispatchLocked()
+	return q
+}
+
+func (r *Reservation) settleLocked(elapsed, gateWait time.Duration) {
+	c := r.c
 	if r.finished {
 		return
 	}
@@ -281,7 +324,7 @@ func (r *Reservation) Finish(elapsed, gateWait time.Duration) {
 	p.active--
 	p.classActive[cl]--
 	c.active--
-	if c.active == 0 {
+	if c.active+c.preempted == 0 {
 		close(c.idle)
 	}
 	gateWait = min(max(gateWait, 0), elapsed)
@@ -310,13 +353,13 @@ func (r *Reservation) Finish(elapsed, gateWait time.Duration) {
 		}
 	}
 	p.classWatermark = max(p.classWatermark, classMin)
-	c.dispatchLocked()
 }
 func (r *Reservation) Active() bool { r.c.mu.Lock(); defer r.c.mu.Unlock(); return !r.finished }
 func (c *Controller) Snapshot() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return Stats{Active: c.active, Queued: len(c.queue), Service: c.service, GateWait: c.gateWait, Maintenance: c.maintenance}
+	return Stats{Active: c.active, Queued: len(c.queue), Preempted: c.preempted, Preemptions: c.preemptions,
+		Service: c.service, GateWait: c.gateWait, Maintenance: c.maintenance}
 }
 
 // Order ranks candidates against one consistent ledger snapshot. It does not

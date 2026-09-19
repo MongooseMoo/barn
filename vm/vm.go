@@ -27,7 +27,11 @@ type VM struct {
 	TickLimit     int64               // Maximum ticks before E_MAXREC
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
-	PendingWaifs  []types.Value
+	// Preempt is set only on a root VM whose owner may lend its admission
+	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
+	// may run while their caller holds locks other invocations need.
+	Preempt      func()
+	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
 	// this lossless record after the final activation has already been popped.
@@ -332,7 +336,16 @@ func (vm *VM) countTick() bool {
 	vm.syncContextTicks()
 	// Amortize clock reads while still bounding a non-yielding loop. Both
 	// dispatch paths must honor the seconds budget, including fast back-edges.
-	return vm.Ticks&1023 == 0 && vm.Task != nil && vm.Task.SecondsLeft() <= 0
+	return vm.Ticks&1023 == 0 && vm.tickCheckpoint()
+}
+
+// tickCheckpoint is the amortized boundary where a root VM may lend its
+// admission reservation before the seconds budget is checked.
+func (vm *VM) tickCheckpoint() bool {
+	if vm.Preempt != nil {
+		vm.Preempt()
+	}
+	return vm.Task != nil && vm.Task.SecondsLeft() <= 0
 }
 
 // topInts returns the two operands on top of the stack when both are ints.

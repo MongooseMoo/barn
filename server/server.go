@@ -126,6 +126,8 @@ func (s *Server) LoadDatabase() error {
 	metrics.PublishGauge("barn.admission_service_ns", func() int64 { return int64(s.runtime.AdmissionStats().Service) })
 	metrics.PublishGauge("barn.admission_gate_wait_ns", func() int64 { return int64(s.runtime.AdmissionStats().GateWait) })
 	metrics.PublishGauge("barn.admission_maintenance_ns", func() int64 { return int64(s.runtime.AdmissionStats().Maintenance) })
+	metrics.PublishGauge("barn.admission_preempted", func() int64 { return int64(s.runtime.AdmissionStats().Preempted) })
+	metrics.PublishGauge("barn.admission_preemptions", func() int64 { return int64(s.runtime.AdmissionStats().Preemptions) })
 	metrics.PublishGauge("barn.connections_live", func() int64 {
 		return int64(len(s.connManager.ConnectedPlayers(true)))
 	})

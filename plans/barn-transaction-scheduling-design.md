@@ -811,9 +811,10 @@ default; explicit values must be positive integers no greater than 1,000,000.
 
 The existing `/debug/vars` endpoint exposes `barn.admission_active`,
 `barn.admission_queued`, `barn.admission_service_ns`,
-`barn.admission_gate_wait_ns`, and `barn.admission_maintenance_ns`.
+`barn.admission_gate_wait_ns`, `barn.admission_maintenance_ns`,
+`barn.admission_preempted` and `barn.admission_preemptions`.
 These distinguish occupancy, admission backlog, execution service, gate
-contention and deferred GC. They do not measure end-to-end player latency.
+contention, deferred GC and quantum preemption. They do not measure end-to-end player latency.
 
 Reproduce checks without launching ad hoc conformance servers:
 
@@ -829,8 +830,18 @@ at limits 1 and 16. Focused runs include canonical capability admission; full
 runs collect the complete suite at each limit. The script records logs through
 the existing managed runner. No conformance expectations are changed.
 
-Remaining limits: cooperative slices and global exclusive holders can still
-delay everyone; this is not preemption or a hard latency guarantee. Intrinsic
+Quantum preemption (2026-09-19) answers the single-slot regression above. At
+the VM's amortized 1024-tick checkpoint, a root slice that has held its
+reservation for `admission.Quantum` (10ms) while another request waits settles
+its service and requeues. It keeps its VM, transaction and physical lease, so
+this is neither a MOO suspension nor a commit boundary. Escalated slices never
+yield: a readmission-waiting holder of the exclusive gate would deadlock every
+admitted committer. Nested VMs started by builtins and borrowed scopes never
+yield either. A checkpoint pause counts preempted segments as in flight and
+readmits them, so capture still sees every started slice at a real boundary.
+
+Remaining limits: escalated slices and other global exclusive holders can still
+delay everyone; this is not a hard latency guarantee. Intrinsic
 Eval and `.program` retain pre-existing direct-store behavior. Deferred GC is
 exempt rather than budget-limited. Forced-input mailboxes preserve ordering and
 remove a circular wait, but are not bounded; transport readers still await one
