@@ -33,6 +33,9 @@ type TaskFinder interface {
 
 // TaskController applies task lifecycle operations requested by builtins.
 type TaskController interface {
+	// CheckKill reports KillTask's result without killing, so a builtin can
+	// cross the irreversible boundary only for a kill that will happen.
+	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool) types.ErrorCode
 	SuspendTask(task *task.Task, seconds float64)

@@ -249,7 +249,7 @@ func BaseDescriptors() []Descriptor {
 		{Name: "run_gc", Implementation: builtinRunGC, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Irreversible, Capability: config.Core},
 		{Name: "gc_stats", Implementation: builtinGCStats, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "queued_tasks", Implementation: builtinQueuedTasks, Signature: &Signature{MinArgs: 0, MaxArgs: 2, ArgTypes: []int64{0, 0}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
-		{Name: "kill_task", Implementation: builtinKillTask, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{0}}, Visibility: Public, Effect: Irreversible, Capability: config.Core},
+		{Name: "kill_task", Implementation: builtinKillTask, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{0}}, Visibility: Public, Effect: ImplementationOwned, Capability: config.Core},
 		{Name: "task_stack", Implementation: builtinTaskStack, Signature: &Signature{MinArgs: 1, MaxArgs: 3, ArgTypes: []int64{0, -1, -1}}, Visibility: Public, Effect: Transactional, Capability: config.Core, LineSync: true},
 		{Name: "suspend", Implementation: builtinSuspend, Signature: &Signature{MinArgs: 0, MaxArgs: 1, ArgTypes: []int64{-2}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "resume", Implementation: builtinResume, Signature: &Signature{MinArgs: 1, MaxArgs: 2, ArgTypes: []int64{0, -1}}, Visibility: Public, Effect: Irreversible, Capability: config.Core},

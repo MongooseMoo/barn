@@ -116,6 +116,18 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// Only a kill that will happen is irreversible. A refused kill has no effect
+	// (LambdaCore's $code_utils:task_valid probes existence this way as $no_one),
+	// so it must not end the attempt's retryability or take the commit gate.
+	if errCode := mgr.CheckKill(taskID, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if ctx.TaskContext != nil {
+		if !beginIrreversible(ctx) {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
 	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
