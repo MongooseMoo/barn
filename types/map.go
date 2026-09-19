@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"hash/maphash"
 	"math"
 	"strings"
 	"sync"
@@ -27,13 +28,16 @@ type mapHash struct {
 // goMap is the heap payload behind a TYPE_MAP Value. Keys use a typed,
 // comparable hash; insertion order is tracked in 'order'.
 type goMap struct {
-	order    []mapHash            // key hashes in insertion order
-	pairs    map[mapHash]mapEntry // key hash -> entry
+	order    *mapOrder
+	index    *mapIndex
+	count    int
 	rootOnce sync.Once
 	root     *toastLookupNode
 	// finalizable caches whether any key or value (transitively) is an
 	// anonymous object or WAIF; see finalizableUnknown/None/Maybe.
-	finalizable int8
+	finalizable         int8
+	finalizableOnce     sync.Once
+	finalizableResolved int8
 	// byteSize caches ValueBytes(map) (always > 0 when known; 0 = not
 	// computed). set/delete derive the new map's size from the old one, so
 	// the per-write quota check is O(1) instead of a walk of every pair —
@@ -48,11 +52,7 @@ func (m *goMap) mapBytes() int {
 	if m.byteSize > 0 {
 		return m.byteSize
 	}
-	size := listVarOverhead
-	for _, e := range m.pairs {
-		size += ValueBytes(e.key) + ValueBytes(e.val)
-	}
-	return size
+	return listVarOverhead + mapIndexBytes(m.index)
 }
 
 // finalizableState returns the cached tri-state, resolving finalizableUnknown
@@ -61,14 +61,13 @@ func (m *goMap) mapBytes() int {
 // (*sliceList).finalizableState for why the raw field is not enough.
 func (m *goMap) finalizableState() int8 {
 	if m.finalizable == finalizableUnknown {
-		state := finalizableNone
-		for _, e := range m.pairs {
-			if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
-				state = finalizableMaybe
-				break
+		m.finalizableOnce.Do(func() {
+			m.finalizableResolved = finalizableNone
+			if mapIndexFinalizable(m.index) {
+				m.finalizableResolved = finalizableMaybe
 			}
-		}
-		m.finalizable = state
+		})
+		return m.finalizableResolved
 	}
 	return m.finalizable
 }
@@ -271,13 +270,13 @@ func keyHash(v Value) mapHash {
 }
 
 func (m *goMap) Len() int {
-	return len(m.pairs)
+	return m.count
 }
 
 func (m *goMap) toastRoot() *toastLookupNode {
 	m.rootOnce.Do(func() {
-		for _, hash := range m.order {
-			m.root = toastLookupInsert(m.root, m.pairs[hash])
+		for _, entry := range m.insertionEntries() {
+			m.root = toastLookupInsert(m.root, entry)
 		}
 	})
 	return m.root
@@ -285,7 +284,8 @@ func (m *goMap) toastRoot() *toastLookupNode {
 
 // get returns the value for a key, or (None, false) if absent.
 func (m *goMap) get(k Value) (Value, bool) {
-	if e, ok := m.pairs[keyHash(k)]; ok {
+	hash := keyHash(k)
+	if e, ok := mapIndexGet(m.index, hash, maphash.Comparable(mapIndexSeed, hash)); ok {
 		return e.val, true
 	}
 	return None, false
@@ -293,55 +293,44 @@ func (m *goMap) get(k Value) (Value, bool) {
 
 func (m *goMap) set(k, v Value) *goMap {
 	hash := keyHash(k)
-	newPairs := make(map[mapHash]mapEntry, len(m.pairs)+1)
-	for h, e := range m.pairs {
-		newPairs[h] = e
-	}
-	newPairs[hash] = mapEntry{key: k, val: v}
-
-	var newOrder []mapHash
-	if _, exists := m.pairs[hash]; exists {
-		newOrder = make([]mapHash, len(m.order))
-		copy(newOrder, m.order)
-	} else {
-		newOrder = make([]mapHash, len(m.order)+1)
-		copy(newOrder, m.order)
-		newOrder[len(m.order)] = hash
+	bits := maphash.Comparable(mapIndexSeed, hash)
+	old, exists := mapIndexGet(m.index, hash, bits)
+	order, count := m.order, m.count
+	if !exists {
+		order = &mapOrder{hash: hash, previous: order}
+		count++
 	}
 
 	fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
 	bytes := m.mapBytes() + ValueBytes(k) + ValueBytes(v)
-	if old, exists := m.pairs[hash]; exists {
+	if exists {
 		bytes -= ValueBytes(old.key) + ValueBytes(old.val)
 	}
-	return &goMap{order: newOrder, pairs: newPairs, finalizable: fin, byteSize: bytes}
+	return &goMap{order: order, index: mapIndexSet(m.index, hash, mapEntry{key: k, val: v}, bits, 0, true), count: count, finalizable: fin, byteSize: bytes}
 }
 
 func (m *goMap) delete(k Value) *goMap {
 	hash := keyHash(k)
-	if _, exists := m.pairs[hash]; !exists {
+	bits := maphash.Comparable(mapIndexSeed, hash)
+	old, exists := mapIndexGet(m.index, hash, bits)
+	if !exists {
 		return m
 	}
 
-	newPairs := make(map[mapHash]mapEntry, len(m.pairs)-1)
-	for h, e := range m.pairs {
-		if h != hash {
-			newPairs[h] = e
-		}
+	// Copy only the newer prefix of the order chain; the older suffix is
+	// still valid and can be shared. No deleted-key tombstones accumulate.
+	var prefix []mapHash
+	node := m.order
+	for node.hash != hash {
+		prefix = append(prefix, node.hash)
+		node = node.previous
 	}
-
-	newOrder := make([]mapHash, 0, len(m.order)-1)
-	for _, h := range m.order {
-		if h != hash {
-			newOrder = append(newOrder, h)
-		}
+	order := node.previous
+	for i := len(prefix) - 1; i >= 0; i-- {
+		order = &mapOrder{hash: prefix[i], previous: order}
 	}
-
-	bytes := m.mapBytes()
-	if old, exists := m.pairs[hash]; exists {
-		bytes -= ValueBytes(old.key) + ValueBytes(old.val)
-	}
-	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
+	bytes := m.mapBytes() - ValueBytes(old.key) - ValueBytes(old.val)
+	return &goMap{order: order, index: mapIndexDelete(m.index, hash, bits), count: m.count - 1, finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
 }
 
 func (m *goMap) keys() []Value {
@@ -354,7 +343,7 @@ func (m *goMap) keys() []Value {
 }
 
 func (m *goMap) pairsList() [][2]Value {
-	pairs := make([][2]Value, 0, len(m.order))
+	pairs := make([][2]Value, 0, m.count)
 	var visit func(*toastLookupNode)
 	visit = func(node *toastLookupNode) {
 		if node == nil {
@@ -369,7 +358,7 @@ func (m *goMap) pairsList() [][2]Value {
 }
 
 func (m *goMap) equal(other *goMap) bool {
-	if len(m.pairs) != len(other.pairs) {
+	if m.count != other.count {
 		return false
 	}
 	left := m.pairsList()
@@ -403,23 +392,25 @@ func mapValue(m *goMap) Value {
 
 // NewMap creates a map value from key-value pairs (later duplicates win).
 func NewMap(pairs [][2]Value) Value {
-	m := &goMap{
-		order: make([]mapHash, 0, len(pairs)),
-		pairs: make(map[mapHash]mapEntry),
-	}
+	m := &goMap{byteSize: listVarOverhead}
+	builder := mapBuilder{blockSize: min(32, len(pairs))}
 	for _, p := range pairs {
 		hash := keyHash(p[0])
-		if _, exists := m.pairs[hash]; !exists {
-			m.order = append(m.order, hash)
+		bits := maphash.Comparable(mapIndexSeed, hash)
+		if old, exists := builder.put(&m.index, hash, mapEntry{key: p[0], val: p[1]}, bits); exists {
+			m.byteSize -= ValueBytes(old.key) + ValueBytes(old.val)
+		} else {
+			m.order = builder.order(hash, m.order)
+			m.count++
 		}
-		m.pairs[hash] = mapEntry{key: p[0], val: p[1]}
+		m.byteSize += ValueBytes(p[0]) + ValueBytes(p[1])
 	}
 	return mapValue(m)
 }
 
 // NewEmptyMap creates an empty map value.
 func NewEmptyMap() Value {
-	return mapValue(&goMap{order: nil, pairs: make(map[mapHash]mapEntry), finalizable: finalizableNone})
+	return mapValue(&goMap{finalizable: finalizableNone, byteSize: listVarOverhead})
 }
 
 // ---- Value-level map API (map-typed accessors are Map-prefixed to avoid
@@ -449,10 +440,12 @@ func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 // dump/reload itself performs.
 func (v Value) PairsInInsertionOrder() [][2]Value {
 	m := v.goMap()
-	pairs := make([][2]Value, 0, len(m.order))
-	for _, hash := range m.order {
-		e := m.pairs[hash]
-		pairs = append(pairs, [2]Value{e.key, e.val})
+	pairs := make([][2]Value, m.count)
+	i := len(pairs)
+	for node := m.order; node != nil; node = node.previous {
+		i--
+		e, _ := m.entry(node.hash)
+		pairs[i] = [2]Value{e.key, e.val}
 	}
 	return pairs
 }
