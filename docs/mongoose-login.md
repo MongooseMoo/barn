@@ -156,3 +156,23 @@ disposable server. Use `-Engine Toast` for the same probe on the oracle. These
 calls advance object state: compare identical snapshots and record server age.
 Different tick counts on different live world states do not alone prove a
 server regression. The script requires a successful result marker.
+
+## Self-description regression
+
+Use `-Commands @('look me',';return $string_utils:pronoun_sub("%s %p %r", player);')`
+with the account probe to check pronoun rendering. For q in the pinned September
+18 fixture, the description starts with `You look at yourself.` and clothing
+uses `He` and `his`; the explicit substitution returns `he his himself`.
+`Verb not found` in those positions previously came from a parser rejection of
+a conditional expression inside a catch default in the inherited pronoun verb.
+
+The generic regression can be repeated on both engines:
+
+```powershell
+./scripts/test-mongoose-deltas.ps1 -Engine Toast -OracleDir /root/src/toaststunt -RunDir <run-directory> -Suites builtins/catch_ternary_fallback.yaml
+./scripts/test-mongoose-deltas.ps1 -Engine Barn -RunDir <run-directory> -Suites builtins/catch_ternary_fallback.yaml
+```
+
+Build the candidate as `<run-directory>/barn.exe` first. Each managed session
+includes capability admission. This check does not establish a clean login:
+the separate SQLite connection-hook failure can still precede the description.
