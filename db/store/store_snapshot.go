@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"sort"
 
 	"github.com/MongooseMoo/barn/types"
@@ -68,8 +70,8 @@ func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueR
 	// commitGate for reading. Exclude commits for the complete snapshot walk so a
 	// checkpoint can never combine images from opposite sides of one transaction.
 	// Keep the established lock order (commitGate, then s.mu) used by Commit.
-	s.commitGate.Lock()
-	defer s.commitGate.Unlock()
+	grant, _ := s.commitGate.Acquire(context.Background(), commitgate.Exclusive)
+	defer grant.Release()
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()

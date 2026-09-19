@@ -62,6 +62,12 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) string {
 // behave as they do for a live connection. It is the one eval implementation;
 // the server's ";" and the dbtool's -eval/-eval-file both go through it.
 func (s *Runtime) Eval(player types.ObjID, source []string) (outcome EvalOutcome) {
+	scope, err := s.enterInput(player, false)
+	if err != nil {
+		outcome.Panic = err
+		return
+	}
+	defer scope.Finish()
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
 	var executionTask *task.Task
@@ -84,6 +90,7 @@ func (s *Runtime) Eval(player types.ObjID, source []string) (outcome EvalOutcome
 		}
 		if executionTask != nil {
 			s.releaseTaskExecution(executionTask.ID)
+			scope.Finish()
 			s.flushDeferredGC()
 		}
 	}()
@@ -96,6 +103,7 @@ func (s *Runtime) Eval(player types.ObjID, source []string) (outcome EvalOutcome
 
 	// Execute the code synchronously
 	ctx := kernel.NewTaskContext()
+	ctx.Admission = scope
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
@@ -113,7 +121,10 @@ func (s *Runtime) Eval(player types.ObjID, source []string) (outcome EvalOutcome
 	t.Programmer = player
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.TaskID = t.ID
-	s.acquireTaskExecution(t)
+	if !s.acquireTaskExecution(t) {
+		return
+	}
+	scope.Start()
 	s.acquireExecutionContext(ctx, t.ID)
 	executionTask = t
 	executionCtx = ctx
@@ -178,6 +189,9 @@ resumeLoop:
 		if result.Flow != types.FlowSuspend {
 			continue
 		}
+		// A real suspension releases service, even though this synchronous eval
+		// retains its physical root lease while it drives background work.
+		scope.Finish()
 
 		// suspend(seconds): sleep for seconds then resume.
 		// suspend(0): scheduler-yield then resume quickly.
@@ -240,6 +254,11 @@ resumeLoop:
 			t.WakeValue = types.None // Consume — don't leak into future suspends
 			t.WakeErrorAsValue = false
 		}
+		if err := scope.ResumeBackground(s.ctx, int64(ctx.Programmer)); err != nil {
+			outcome.Panic = err
+			return
+		}
+		scope.Start()
 		result = bcVM.Resume()
 	}
 

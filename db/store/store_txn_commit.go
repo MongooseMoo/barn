@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"log/slog"
 
 	"github.com/MongooseMoo/barn/types"
@@ -270,10 +272,12 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	store := tx.store
 	gateExempt := tx.gateExempt
+	grant, gateWait := tx.exclusiveGrant, tx.gateWait
 	tx.Release()
 	next = store.BeginSnapshot(0)
+	next.SetCommitWaitObserver(gateWait)
 	if gateExempt {
-		next.ExemptFromCommitGate()
+		next.BindExclusiveGrant(grant)
 	}
 	return next, publishedWrites, types.E_NONE
 }
@@ -302,8 +306,14 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// because its runtime already holds the gate exclusively. Outermost by
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
-		tx.store.commitGate.RLock()
-		defer tx.store.commitGate.RUnlock()
+		started := time.Now()
+		grant, _ := tx.store.commitGate.Acquire(context.Background(), commitgate.Shared)
+		if tx.gateWait != nil {
+			tx.gateWait(time.Since(started))
+		}
+		defer grant.Release()
+	} else if !tx.exclusiveGrant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("commit with released exclusive grant")
 	}
 	tx.validationFail = false
 

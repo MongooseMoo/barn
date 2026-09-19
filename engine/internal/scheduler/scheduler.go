@@ -32,6 +32,7 @@ type Scheduler struct {
 	queueSeq  int64
 	workers   int
 	retryable func(*task.Task) bool
+	order     func([]*task.Task)
 	run       func(*task.Task) error
 	work      chan workItem
 	wg        sync.WaitGroup
@@ -69,6 +70,9 @@ func (s *Scheduler) worker() {
 // Stop deterministically joins all workers.
 func (s *Scheduler) Stop() { s.cancel(); s.wg.Wait() }
 
+// SetOrdering is configured at runtime construction, before dispatch starts.
+func (s *Scheduler) SetOrdering(order func([]*task.Task)) { s.order = order }
+
 // Enqueue adds a task to the ready-time heap and assigns its FIFO sequence.
 func (s *Scheduler) Enqueue(t *task.Task) {
 	s.mu.Lock()
@@ -101,6 +105,9 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ready := s.readyLocked(now, catalog)
+	if s.order != nil {
+		s.order(ready)
+	}
 	if len(ready) == 0 {
 		return nil
 	}

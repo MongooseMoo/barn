@@ -14,6 +14,8 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -47,13 +49,66 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Runtime) runTask(t *task.Task) (retErr error) {
+	defer t.ReleaseAdmission()
+	scope, _, cancel, err := s.enterBackground(t)
+	defer cancel()
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Kill has already published TaskKilled. Runtime shutdown merely
+			// withdraws the unstarted request; preserve its queued continuation.
+			return nil
+		}
+		return err
+	}
+	defer scope.Finish()
+	if t.GetState() == task.TaskQueued && !t.TryClaimQueued() {
+		return nil
+	}
+	return s.runTaskAdmitted(t, scope, true)
+}
+
+type taskCompletion struct {
+	callback func(types.Result)
+	roots    *admissionRoot
+}
+
+func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+	var completion taskCompletion
+	defer func() {
+		if completion.roots != nil {
+			completion.roots.release()
+		}
+	}()
+	// Completion may synchronously start the login's next task. Its predecessor
+	// must have relinquished both admission and physical ownership first.
+	defer func() {
+		if r := recover(); r != nil {
+			metrics.PanicsRecovered.Add(1)
+			t.SetState(task.TaskKilled)
+			retErr = fmt.Errorf("internal panic: %v", r)
+		}
+	}()
 	pprof.Do(s.ctx, pprof.Labels("moo.task", fmt.Sprint(t.ID), "moo.verb", fmt.Sprintf("#%d:%s", t.This, t.VerbName)), func(context.Context) {
-		retErr = s.runTaskSlice(t)
+		retErr = s.runTaskSliceAdmitted(t, scope, ownsScope, &completion)
 	})
+	// Explicit kills and runtime shutdown are lifecycle completion, not a Go
+	// error message to send to the player's connection or an error hook to run.
+	if errors.Is(retErr, context.Canceled) {
+		return nil
+	}
+	if retErr == nil && completion.callback != nil {
+		completion.callback(t.Result)
+	}
 	return retErr
 }
 
-func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
+func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
+	if ownsScope {
+		defer scope.Finish()
+	}
+	taskCtx, cancel := context.WithCancel(s.ctx)
+	t.SetCancelFunc(cancel)
+	defer cancel()
 	started := time.Now()
 	execReadyAt := t.TakeExecReadyTime()
 	var bcVM *vm.VM
@@ -73,7 +128,12 @@ func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 	// the VM has returned and before its resumable state is published. Keep a
 	// runtime-owned physical execution lease across the entire invocation so
 	// GC never walks or ignores a VM that this goroutine can still mutate.
-	s.acquireTaskExecution(t)
+	if !s.acquireTaskExecution(t) {
+		return context.Canceled
+	}
+	if ownsScope {
+		scope.Start()
+	}
 	var executionCtx *kernel.TaskContext
 	defer func() {
 		// This is the singular runTask lifecycle boundary for every caller:
@@ -88,6 +148,9 @@ func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 			s.releaseExecutionContext(executionCtx, t.ID)
 		}
 		s.releaseTaskExecution(t.ID)
+		if ownsScope {
+			scope.Finish()
+		}
 		s.flushDeferredGC()
 	}()
 
@@ -114,16 +177,21 @@ func (s *Runtime) runTaskSlice(t *task.Task) (retErr error) {
 	}()
 	attempt := 0
 	escalated := false
+	var exclusive *commitgate.Grant
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
 	// gate must never outlive this invocation. The common path releases it
 	// explicitly right after the attempt's commit resolves.
 	defer func() {
 		if escalated {
-			s.store.EscalationUnlock()
+			exclusive.Release()
 		}
 	}()
 
 retryAttempt:
+	if err := taskCtx.Err(); err != nil {
+		t.SetState(task.TaskKilled)
+		return err
+	}
 	// Two reasons to run this attempt under the exclusive commit gate: the
 	// optimistic-loss budget is spent, or the slice cannot be re-executed at all
 	// (a resumed task's VM carries mid-flight state no retry can rebuild). A
@@ -131,7 +199,14 @@ retryAttempt:
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !escalated {
-		s.store.EscalationLock()
+		waitStart := time.Now()
+		var err error
+		exclusive, err = s.store.AcquireExclusive(taskCtx)
+		scope.Waited(time.Since(waitStart))
+		if err != nil {
+			t.SetState(task.TaskKilled)
+			return err
+		}
 		escalated = true
 		gateHeld = true
 	}
@@ -141,8 +216,11 @@ retryAttempt:
 		// transaction conflict was detected. The physical lease remains held,
 		// while the retry begins a fresh logical running slice.
 		s.mu.Lock()
-		t.SetState(task.TaskRunning)
+		started := t.StartExecution()
 		s.mu.Unlock()
+		if !started {
+			return context.Canceled
+		}
 	}
 
 	ctx := t.ContextValue()
@@ -159,18 +237,20 @@ retryAttempt:
 	}
 
 	ctx.TaskID = t.ID
+	ctx.Admission = scope
 	ctx.Store = s.store
 	// Release any txn left on this context from a previous attempt/run before
 	// beginning a fresh one, so its readTS deregisters from the history-GC floor
 	// promptly (the runtime finalizer is only a backstop).
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	if escalated {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
 		// validation to one. The txn must skip the shared gate or it would
 		// deadlock against our own exclusive hold.
-		ctx.StoreTxn.ExemptFromCommitGate()
+		ctx.StoreTxn.BindExclusiveGrant(exclusive)
 	}
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
@@ -200,12 +280,13 @@ retryAttempt:
 			return false
 		}
 		waitStart := time.Now()
-		s.store.EscalationLock()
+		exclusive, _ = s.store.AcquireExclusive(context.Background())
 		gateWait := time.Since(waitStart)
+		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
 		escalated = true
 		gateHeld = true
-		ctx.StoreTxn.ExemptFromCommitGate()
+		ctx.StoreTxn.BindExclusiveGrant(exclusive)
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
 		slog.Debug("irreversible-effect boundary",
@@ -233,22 +314,19 @@ retryAttempt:
 		}
 		return false
 	}
-	ctx.DeferredCheckpoint = false
 	ctx.RuntimeOptions = s.options
 
 	// releaseEscalation hands the commit gate back once this attempt's commits
 	// are decided. Everything after it — completion hooks, the suspend hand-off,
-	// a failure-path txn that lives on — takes the gate normally. A checkpoint
-	// the attempt had to postpone (dump_database under the gate) runs here, now
-	// that it can take the gate and run its hook tasks without deadlocking.
+	// a failure-path txn that lives on — takes the gate normally. Checkpoint
+	// requests are handled independently by the server loop.
 	releaseEscalation := func() {
 		if !escalated {
 			return
 		}
 		ctx.StoreTxn.ClearCommitGateExemption()
-		s.store.EscalationUnlock()
+		exclusive.Release()
 		escalated = false
-		s.runDeferredCheckpoint(ctx)
 	}
 
 	// A task resuming after suspend runs under background limits: Toast treats
@@ -280,9 +358,6 @@ retryAttempt:
 	t.SetExecutionDeadline(deadline)
 	// The VM owns the seconds deadline so commit-gate waits can extend it.
 	// Cancellation separately handles shutdown and explicit task kills.
-	taskCtx, cancel := context.WithCancel(s.ctx)
-	t.SetCancelFunc(cancel)
-	defer cancel()
 
 	var result types.Result
 	anonGCFloor := s.store.NextID()
@@ -419,7 +494,7 @@ retryAttempt:
 		ctx.ConflictRetryRequested = false
 		if escalated {
 			ctx.StoreTxn.ClearCommitGateExemption()
-			s.store.EscalationUnlock()
+			exclusive.Release()
 			escalated = false
 		}
 		s.discardCreatedForks(t)
@@ -490,6 +565,7 @@ retryAttempt:
 	if committed && committedWrites {
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
+		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	}
 	// Every suspension yields the commit gate along with execution.
 	releaseEscalation()
@@ -541,6 +617,7 @@ retryAttempt:
 			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginSnapshot(0)
+			ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 		}
 		// Save VM state for later Resume() via the thread-safe setter, so a
 		// concurrently running sibling scanning saved VMs for orphan GC never races
@@ -643,13 +720,13 @@ retryAttempt:
 				}
 				handlerValue = result.Val.Get(3)
 			}
-			handlerResult, handlerErr := s.RunServerVerbTask(0, "handle_uncaught_error", []types.Value{
+			handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
 				types.NewErr(result.Error),
 				handlerMessage,
 				handlerValue,
 				types.NewList(stackValues),
 				types.NewList(formattedValues),
-			}, t.Owner)
+			}, t.Owner, "", nil, scope, true)
 			if handlerErr == nil {
 				handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
 			}
@@ -674,6 +751,13 @@ retryAttempt:
 		t.ClearCallStack()
 	} else {
 		t.SetState(task.TaskCompleted)
+	}
+
+	// Completion runs after releasing this VM and may itself wait for admission.
+	// Its result remains a root throughout that gap and the callback invocation.
+	if cb := t.TakeOnComplete(); cb != nil {
+		completion.callback = cb
+		completion.roots = s.pinAdmissionRoots(types.ObjNothing, []types.Value{result.Val})
 	}
 
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
@@ -704,12 +788,6 @@ retryAttempt:
 
 	t.SetBytecodeVM(nil) // Release VM after completion
 
-	// Fire the terminal-completion callback (if any) exactly once. This branch
-	// is only reached on terminal completion — a suspend returns earlier (the
-	// FlowSuspend block above), so OnComplete never fires on a read() yield.
-	if cb := t.TakeOnComplete(); cb != nil {
-		cb(result)
-	}
 	return nil
 }
 
@@ -792,25 +870,6 @@ func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 	return state
 }
 
-// runDeferredCheckpoint performs a dump_database() that a gate-holding attempt
-// had to postpone (see builtinDumpDatabase). It runs only after the gate is
-// released, so the checkpoint can take the gate itself and run its hook tasks.
-func (s *Runtime) runDeferredCheckpoint(ctx *kernel.TaskContext) {
-	if ctx == nil || !ctx.DeferredCheckpoint {
-		return
-	}
-	ctx.DeferredCheckpoint = false
-	dump := s.session.Host().Checkpoint
-	if dump == nil {
-		return
-	}
-	if err := dump(); err != nil {
-		slog.Error("deferred dump_database() failed",
-			slog.Int64("task_id", ctx.TaskID),
-			slog.Any("err", err))
-	}
-}
-
 func (state taskRetryState) restore(t *task.Task) {
 	if t == nil || !state.canRetry {
 		return
@@ -866,11 +925,11 @@ func (s *Runtime) callTaskTimeoutHook(t *task.Task, resource string, message typ
 	if len(traceValues) == 0 {
 		traceValues = append(traceValues, message)
 	}
-	result := s.CallVerb(0, "handle_task_timeout", []types.Value{
+	result := s.callVerbWithArgstr(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
-	}, t.Owner)
+	}, t.Owner, "", vmOwnershipExecution, t.ID, t.ContextValue().Admission)
 	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
 }
 
@@ -924,6 +983,11 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 // ExecuteVerbTaskSyncWithStart is ExecuteVerbTaskSync with a hook invoked after
 // the task is registered and before any of its code runs.
 func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string, onStart func(int64)) error {
+	scope, admissionErr := s.enterInput(player, false)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer scope.Finish()
 	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("verb compile error: %s", diagnostics[0].Error())
@@ -964,7 +1028,7 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 	}
 
 	// Run synchronously on the runtime goroutine.
-	err := s.runTask(t)
+	err := s.runTaskAdmitted(t, scope, true)
 	if err != nil {
 		slog.Error("task error",
 			slog.Int64("task_id", t.ID),

@@ -11,10 +11,12 @@ import (
 // shutdown). Named so the signatures are written once, not at every field,
 // setter, and use site.
 type (
-	GCHook               func(ctx *Execution) error
+	GCHook func(ctx *Execution) error
+	// CheckpointHook queues a request; it must not run checkpoint MOO hooks
+	// synchronously inside the requesting activation.
 	CheckpointHook       func() error
-	DatabaseDiskSizeHook func() (int64, error)
 	ShutdownHook         func(ctx *Execution, message string, unclean bool) error
+	DatabaseDiskSizeHook func() (int64, error)
 )
 
 // TaskLister supplies the task collections inspected by task builtins.

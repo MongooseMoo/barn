@@ -121,6 +121,11 @@ func (s *Server) LoadDatabase() error {
 	// Counters are incremented where the events happen; these two are read on
 	// demand because "how many right now" is a question about live state.
 	metrics.PublishGauge("barn.tasks_live", s.runtime.LiveTaskCount)
+	metrics.PublishGauge("barn.admission_active", func() int64 { return int64(s.runtime.AdmissionStats().Active) })
+	metrics.PublishGauge("barn.admission_queued", func() int64 { return int64(s.runtime.AdmissionStats().Queued) })
+	metrics.PublishGauge("barn.admission_service_ns", func() int64 { return int64(s.runtime.AdmissionStats().Service) })
+	metrics.PublishGauge("barn.admission_gate_wait_ns", func() int64 { return int64(s.runtime.AdmissionStats().GateWait) })
+	metrics.PublishGauge("barn.admission_maintenance_ns", func() int64 { return int64(s.runtime.AdmissionStats().Maintenance) })
 	metrics.PublishGauge("barn.connections_live", func() int64 {
 		return int64(len(s.connManager.ConnectedPlayers(true)))
 	})
@@ -169,9 +174,9 @@ func (s *Server) LoadDatabase() error {
 	host.TaskYielder = s.runtime
 	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
-	// dump_database() does not report success until the requested checkpoint is
-	// durable and available for managed restart adoption.
-	host.Checkpoint = func() error { return s.checkpoint() }
+	// Like the Toast main loop, checkpoint requests run outside the requesting
+	// activation. Its admission reservation and commit grant can then be released.
+	host.Checkpoint = func() error { return s.requestCheckpoint() }
 	host.DatabaseDiskSize = s.databaseDiskSize
 	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
 		var ctx *kernel.TaskContext
@@ -377,14 +382,16 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 
 	start := time.Now()
 
-	queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
-	activeConnections := s.connManager.CheckpointConnections()
-	if ordinary {
-		// A dump attempt makes the ordinary output eligible even if writing
-		// fails. Panic dumps use a different output and do not change this.
-		s.ordinaryDumpStarted.Store(true)
-	}
-	if err := writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := s.runtime.WithCheckpointBarrier(func() error {
+		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
+		activeConnections := s.connManager.CheckpointConnections()
+		if ordinary {
+			// A dump attempt makes the ordinary output eligible even if writing
+			// fails. Panic dumps use a different output and do not change this.
+			s.ordinaryDumpStarted.Store(true)
+		}
+		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
+	}); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}

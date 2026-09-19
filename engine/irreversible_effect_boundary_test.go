@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -63,8 +64,8 @@ func assertCommitGateReleased(t *testing.T, store *dbstore.Store) {
 	t.Helper()
 	acquired := make(chan struct{})
 	go func() {
-		store.EscalationLock()
-		store.EscalationUnlock()
+		grant, _ := store.AcquireExclusive(context.Background())
+		grant.Release()
 		close(acquired)
 	}()
 	select {

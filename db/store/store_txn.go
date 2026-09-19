@@ -1,8 +1,10 @@
 package store
 
 import (
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -12,6 +14,8 @@ type StoreTxn struct {
 	store                     *Store
 	direct                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
+	exclusiveGrant            *commitgate.Grant
+	gateWait                  func(time.Duration)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -179,13 +183,15 @@ func (tx *StoreTxn) ValidationFailed() bool {
 	return tx != nil && !tx.direct && tx.validationFail
 }
 
-// ExemptFromCommitGate marks this txn as the escalated attempt's txn: its
-// Commit will not take the shared commit gate. Only the engine's bounded-
-// escalation path may call this, and only while holding EscalationLock.
-func (tx *StoreTxn) ExemptFromCommitGate() {
-	if tx != nil && !tx.direct {
-		tx.gateExempt = true
+// BindExclusiveGrant requires a live capability from this store's gate.
+func (tx *StoreTxn) BindExclusiveGrant(grant *commitgate.Grant) {
+	if tx == nil || tx.direct {
+		return
 	}
+	if grant == nil || !grant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("transaction requires a live exclusive commit grant")
+	}
+	tx.exclusiveGrant, tx.gateExempt = grant, true
 }
 
 // ClearCommitGateExemption re-arms the shared gate for a retryable txn that
@@ -193,6 +199,7 @@ func (tx *StoreTxn) ExemptFromCommitGate() {
 func (tx *StoreTxn) ClearCommitGateExemption() {
 	if tx != nil && !tx.direct {
 		tx.gateExempt = false
+		tx.exclusiveGrant = nil
 	}
 }
 
@@ -202,4 +209,12 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 // ordinary txn) must wait until the runtime releases it.
 func (tx *StoreTxn) IsCommitGateExempt() bool {
 	return tx != nil && !tx.direct && tx.gateExempt
+}
+
+// SetCommitWaitObserver carries occupancy accounting through transaction renewals.
+// Commit itself remains noncancellable once publication has begun.
+func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
+	if tx != nil {
+		tx.gateWait = waited
+	}
 }

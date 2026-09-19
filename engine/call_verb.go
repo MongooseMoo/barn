@@ -7,6 +7,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -19,7 +20,7 @@ import (
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
 func (s *Runtime) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
-	return s.CallVerbWithArgstr(objID, verbName, args, player, "")
+	return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipNone, 0, nil)
 }
 
 func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parent *builtins.Execution) types.Result {
@@ -180,10 +181,28 @@ const (
 )
 
 func (s *Runtime) CallVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string) (result types.Result) {
-	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0)
+	roots := s.pinAdmissionRoots(objID, args)
+	defer roots.release()
+	scope, err := s.enterInput(player, false)
+	if err != nil {
+		return types.Err(types.E_INTRPT)
+	}
+	defer scope.Finish()
+	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0, scope)
 }
 
-func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64) (result types.Result) {
+func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64, scope *admission.Scope) (result types.Result) {
+	ownsScope := ownership == vmOwnershipNone
+	if ownsScope && scope == nil {
+		roots := s.pinAdmissionRoots(objID, args)
+		defer roots.release()
+		var err error
+		scope, err = s.enterInput(player, true)
+		if err != nil {
+			return types.Err(types.E_INTRPT)
+		}
+		defer scope.Finish()
+	}
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
 	var leasedTask *task.Task
@@ -214,6 +233,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		}
 		if leasedTask != nil {
 			s.releaseTaskExecution(leasedTask.ID)
+			scope.Finish()
 			s.flushDeferredGC()
 		}
 	}()
@@ -230,7 +250,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
 	if ownership == vmOwnershipNone {
-		s.acquireTaskExecution(t)
+		if !s.acquireTaskExecution(t) {
+			return types.Err(types.E_INTRPT)
+		}
+		scope.Start()
 		leasedTask = t
 		ownership = vmOwnershipExecution
 		ownerTaskID = t.ID
@@ -291,6 +314,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.Admission = scope
+	if scope != nil {
+		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	}
 	ctx.RuntimeOptions = s.options
 
 	// Propagate the already-published ownership to nested registry hooks.

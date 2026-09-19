@@ -22,6 +22,7 @@ type InputProcessor struct {
 	runtime     *engine.Runtime
 	connManager *ConnectionManager
 	inputQueue  chan command.InputEvent
+	enqueueMu   sync.RWMutex
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
@@ -31,7 +32,14 @@ type InputProcessor struct {
 	// read()/login classification in processInput) while different connections run
 	// concurrently. The main run() loop only demuxes events onto these lanes.
 	workersMu sync.Mutex
-	workers   map[int64]chan command.InputEvent
+	workers   map[int64]*inputLane
+}
+
+// Transport readers await Done, so their backpressure is per connection.
+// Forced input must never block the dispatcher behind a VM awaiting admission.
+type inputLane struct {
+	queue []command.InputEvent // guarded by workersMu
+	ready chan struct{}
 }
 
 func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProcessor {
@@ -42,7 +50,7 @@ func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProc
 		inputQueue: make(chan command.InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
-		workers:    make(map[int64]chan command.InputEvent),
+		workers:    make(map[int64]*inputLane),
 	}
 }
 
@@ -52,7 +60,23 @@ func (p *InputProcessor) Start() {
 }
 
 func (p *InputProcessor) Stop() {
+	p.runtime.CloseInputAdmission()
 	p.cancel()
+	// Serialize cancellation with enqueue so every accepted transport event
+	// either reaches its lane or has its Done closed here.
+	p.enqueueMu.Lock()
+	draining := true
+	for draining {
+		select {
+		case evt := <-p.inputQueue:
+			if evt.Done != nil {
+				close(evt.Done)
+			}
+		default:
+			draining = false
+		}
+	}
+	p.enqueueMu.Unlock()
 	p.wg.Wait()
 }
 
@@ -64,7 +88,21 @@ func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 }
 
 func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
-	p.inputQueue <- evt
+	p.enqueueMu.RLock()
+	defer p.enqueueMu.RUnlock()
+	if p.ctx.Err() != nil {
+		if evt.Done != nil {
+			close(evt.Done)
+		}
+		return
+	}
+	select {
+	case p.inputQueue <- evt:
+	case <-p.ctx.Done():
+		if evt.Done != nil {
+			close(evt.Done)
+		}
+	}
 }
 
 // HandleConnection reads transport input and serializes it onto the input queue.
@@ -258,39 +296,68 @@ func (p *InputProcessor) processRuntimeTick() <-chan int {
 // concurrently.
 func (p *InputProcessor) dispatch(input command.InputEvent) {
 	p.workersMu.Lock()
+	defer p.workersMu.Unlock()
+	if p.ctx.Err() != nil {
+		if input.Done != nil {
+			close(input.Done)
+		}
+		return
+	}
 	ch, ok := p.workers[input.ConnID]
 	if !ok {
-		ch = make(chan command.InputEvent, 64)
+		ch = &inputLane{ready: make(chan struct{}, 1)}
 		p.workers[input.ConnID] = ch
 		p.wg.Add(1)
 		go p.connectionWorker(input.ConnID, ch)
 	}
-	p.workersMu.Unlock()
-
+	ch.queue = append(ch.queue, input)
 	select {
-	case ch <- input:
-	case <-p.ctx.Done():
+	case ch.ready <- struct{}{}:
+	default:
 	}
 }
 
-func (p *InputProcessor) connectionWorker(connID int64, ch chan command.InputEvent) {
+func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 	defer p.wg.Done()
+	defer func() {
+		p.workersMu.Lock()
+		defer p.workersMu.Unlock()
+		if p.workers[connID] == ch {
+			delete(p.workers, connID)
+		}
+		for _, input := range ch.queue {
+			if input.Done != nil {
+				close(input.Done)
+			}
+		}
+	}()
 	for {
+		if p.ctx.Err() != nil {
+			return
+		}
+		p.workersMu.Lock()
+		if len(ch.queue) > 0 {
+			input := ch.queue[0]
+			ch.queue[0] = command.InputEvent{}
+			ch.queue = ch.queue[1:]
+			p.workersMu.Unlock()
+			p.processInput(input)
+			if input.IsDisconnect {
+				return
+			}
+			continue
+		}
+		if connID < 0 {
+			// Synthetic force_input login lanes have no transport disconnect.
+			delete(p.workers, connID)
+			p.workersMu.Unlock()
+			return
+		}
+		p.workersMu.Unlock()
 		select {
 		case <-p.ctx.Done():
 			return
-		case input := <-ch:
-			p.processInput(input)
-			if input.IsDisconnect {
-				// The connection is gone; retire its lane. A later event for a reused
-				// ConnID will spin up a fresh lane.
-				p.workersMu.Lock()
-				if p.workers[connID] == ch {
-					delete(p.workers, connID)
-				}
-				p.workersMu.Unlock()
-				return
-			}
+		case <-ch.ready:
 		}
 	}
 }
@@ -308,6 +375,10 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 	if input.IsTimeout {
 		p.processLoginTimeout(input)
+		return
+	}
+	if input.ConnID < 0 && input.Player < 0 {
+		p.forcePhantomLogin(input.Player, input.Line)
 		return
 	}
 	input.Line = unquoteInBandInput(input.Line)
@@ -425,14 +496,13 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		}
 	}
 	if player < 0 && connID == 0 {
-		p.forcePhantomLogin(player, line)
-		return
+		connID = int64(player)
 	}
-	p.inputQueue <- command.InputEvent{
+	p.EnqueueInput(command.InputEvent{
 		ConnID: connID,
 		Player: player,
 		Line:   line,
-	}
+	})
 }
 
 func (p *InputProcessor) forcePhantomLogin(player types.ObjID, line string) {
