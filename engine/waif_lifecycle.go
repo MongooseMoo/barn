@@ -38,27 +38,6 @@ func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) *type
 	return live
 }
 
-// finalizePendingWaifs recycles the task's pending waifs that nothing still
-// references. siblingWaifs are waif references already snapshotted from other tasks'
-// VMs under the runtime lock; rootVMs are this goroutine's own VMs.
-func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.Value, siblingWaifs []types.Value, rootVMs ...*vm.VM) {
-	if len(pending) == 0 || ctx == nil {
-		return
-	}
-
-	live := s.liveWaifs(siblingWaifs, rootVMs...)
-	var owner *task.Task
-	if len(rootVMs) > 0 && rootVMs[0] != nil {
-		owner = rootVMs[0].Task
-	}
-	for _, waif := range pending {
-		if live.Has(waif) {
-			continue
-		}
-		s.callWaifRecycle(ctx, owner, waif)
-	}
-}
-
 // pendingWaifEntry is one waif awaiting a deferred liveness check, together with
 // the task context it was pending under (used for :recycle perms) and the waif
 // references its own task's VM held at defer time. ownRefs is captured at defer
@@ -73,8 +52,8 @@ const (
 	cheapGCSweep = 50 * time.Millisecond
 )
 
-// deferPendingWaifs queues waifs for batched finalization. The per-task
-// finalizePendingWaifs pays a full-database waif-roots sweep on every call,
+// deferPendingWaifs queues waifs for batched finalization. Per-task
+// finalization would pay a full-database waif-roots sweep on every call,
 // which is prohibitive on large databases where busy worlds surface pending
 // waifs after nearly every task. Deferral only delays when an orphaned
 // waif's :recycle runs (by up to waifSweepInterval); a waif that is still

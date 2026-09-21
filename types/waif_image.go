@@ -8,7 +8,7 @@ import (
 
 // WaifDomain identifies one publication clock. Its address, not its contents,
 // is the identity; the byte prevents zero-size pointer coalescing.
-type WaifDomain struct{ identity byte }
+type WaifDomain struct{ _ byte }
 
 // WaifImage is an immutable property image owned by one publication clock.
 type WaifImage struct {
