@@ -37,6 +37,8 @@ type waifRep struct {
 	// through a shared property value.
 	mu         sync.RWMutex
 	properties map[string]Value // property values
+	domain     *WaifDomain
+	images     []*WaifImage // oldest to newest; each published image is immutable
 }
 
 // NewWaif creates a waif value with the given class and owner. Each call allocates
@@ -96,14 +98,15 @@ func (v Value) GetProperty(name string) (Value, bool) {
 	return val, ok
 }
 
-// SetProperty sets a property value, mutating the shared waif payload, and
-// returns the same waif value (reference semantics, matching Toast's waif_put_prop,
-// waif.cc:742): the change is visible through every Value handle that references the
-// same waif.
+// SetProperty initializes a detached WAIF during construction or deserialization.
+// Once a store owns the value, writes must use its transaction publication API.
 func (v Value) SetProperty(name string, value Value) Value {
 	w := v.waifRep()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.domain != nil {
+		panic("SetProperty on store-owned WAIF: use StoreTxn.SetWaifProperty")
+	}
 	w.setLocked(name, value)
 	return v
 }
@@ -121,55 +124,12 @@ func (w *waifRep) setLocked(name string, value Value) {
 	w.properties[name] = value
 }
 
-// WaifWrite records one in-place property write so a discarded task attempt
-// can undo it. WAIF properties live outside the transaction, so a re-run
-// attempt would otherwise apply the write a second time.
-type WaifWrite struct {
-	waif       Value
-	name       string
-	had        bool
-	old, wrote Value
-}
-
-// SwapProperty sets a property like SetProperty and returns the record needed
-// to undo the write.
-func (v Value) SwapProperty(name string, value Value) WaifWrite {
-	w := v.waifRep()
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	old, had := w.properties[name]
-	w.setLocked(name, value)
-	return WaifWrite{waif: v, name: name, had: had, old: old, wrote: value}
-}
-
-// Revert undoes the write if the property still holds exactly the value it
-// wrote. A later write by anyone else wins and is left in place.
-func (write WaifWrite) Revert() {
-	w := write.waif.waifRep()
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if current, ok := w.properties[write.name]; !ok || current != write.wrote {
-		return
-	}
-	if write.had {
-		w.setLocked(write.name, write.old)
-		return
-	}
-	if write.wrote.MayHoldFinalizable() {
-		waifGraphEpoch.Add(1)
-	}
-	delete(w.properties, write.name)
-}
-
-// waifGraphEpoch advances on every in-place WAIF property write. WAIF
-// properties are the one part of the value graph that mutates without a
-// store write, so any memo of "which waifs are reachable from these roots"
-// must be keyed on it. See WaifGraphEpoch.
+// waifGraphEpoch tracks changes to the reference graph, including publication
+// and retirement of historical images used by semantic garbage collection.
 var waifGraphEpoch atomic.Uint64
 
-// WaifGraphEpoch returns a counter that changes whenever any WAIF's property
-// was assigned in place. Equal values mean the waif-to-waif reachability graph
-// is unchanged.
+// WaifGraphEpoch changes whenever published or retained WAIF references may
+// change. Equal values mean the semantic reachability graph is unchanged.
 func WaifGraphEpoch() uint64 { return waifGraphEpoch.Load() }
 
 // WaifIdentity is an opaque, comparable, process-independent identity token for

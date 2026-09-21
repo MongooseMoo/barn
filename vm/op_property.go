@@ -120,7 +120,11 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 	}
 
 	// Check waif's own properties first
-	if val, ok := waif.GetProperty(propName); ok {
+	val, ok, ec := vm.Context.StoreTxn.WaifProperty(waif, propName)
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	}
+	if ok {
 		vm.Push(val)
 		return nil
 	}
@@ -260,17 +264,16 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	}
 
 	// Check for self-reference (circular reference)
-	if containsWaif(value, waif) {
+	contains, ec := containsWaif(vm.Context.StoreTxn, value, waif)
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF containment read", ec)
+	}
+	if contains {
 		return fmt.Errorf("E_RECMOVE: value contains the waif itself")
 	}
 
-	// Set property on waif (creates a new waif with the property set)
-	// Note: Waifs use copy-on-write semantics. The VM does not currently
-	// propagate the new waif back to the source variable. This matches
-	// non-simple-identifier cases.
-	write := waif.SwapProperty(propName, value)
-	if ctx := vm.Context; ctx != nil && ctx.StoreTxn != nil && !ctx.StoreTxn.IsDirect() {
-		ctx.WaifJournal = append(ctx.WaifJournal, write)
+	if ec := vm.Context.StoreTxn.SetWaifProperty(waif, propName, value); ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property write", ec)
 	}
 
 	return nil

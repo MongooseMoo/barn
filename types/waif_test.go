@@ -6,35 +6,25 @@ import (
 	"testing"
 )
 
-func TestWaifWriteRevertRestoresPreviousValue(t *testing.T) {
-	w := NewWaif(1, 2)
-	w.SetProperty("n", NewInt(5))
-	write := w.SwapProperty("n", NewInt(6))
-	write.Revert()
-	if got, _ := w.GetProperty("n"); got.Int() != 5 {
-		t.Fatalf("n = %v after revert, want 5", got)
+func TestWaifImageScalarWritesPreserveReferenceGraphMemo(t *testing.T) {
+	domain := new(WaifDomain)
+	w := NewWaif(0, 0).SetProperty("child", NewWaif(0, 0)).SetProperty("n", NewInt(0))
+	before, ok := w.WaifImageAt(domain, 0)
+	if !ok {
+		t.Fatal("attachment failed")
 	}
-}
-
-func TestWaifWriteRevertRemovesPropertyItAdded(t *testing.T) {
-	w := NewWaif(1, 2)
-	write := w.SwapProperty("fresh", NewInt(1))
-	write.Revert()
-	if _, ok := w.GetProperty("fresh"); ok {
-		t.Fatal("revert left a property the write had added")
+	properties := before.Properties()
+	properties["n"] = NewInt(1)
+	epoch := WaifGraphEpoch()
+	w.PublishWaifImage(domain, 1, properties)
+	w.PruneWaifImages(domain, 1)
+	if WaifGraphEpoch() != epoch {
+		t.Fatal("scalar publication invalidated unchanged WAIF reference graph")
 	}
-}
-
-// Another task may have overwritten the property since; its write wins, so the
-// revert must leave it alone rather than restore the stale value.
-func TestWaifWriteRevertSkipsForeignOverwrite(t *testing.T) {
-	w := NewWaif(1, 2)
-	w.SetProperty("n", NewInt(5))
-	write := w.SwapProperty("n", NewInt(6))
-	w.SetProperty("n", NewInt(7))
-	write.Revert()
-	if got, _ := w.GetProperty("n"); got.Int() != 7 {
-		t.Fatalf("n = %v after revert, want the foreign 7 kept", got)
+	properties["child"] = NewWaif(0, 0)
+	w.PublishWaifImage(domain, 2, properties)
+	if WaifGraphEpoch() == epoch {
+		t.Fatal("reference publication did not invalidate graph")
 	}
 }
 

@@ -128,7 +128,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	}
-	host.RunGC = func(execution *builtins.Execution) error {
+	host.RunGC = func(execution *builtins.Execution, beforeSweep func() bool) error {
 		ctx := execution.TaskContext
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
@@ -147,6 +147,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		}
 		siblingAnon, ok := s.collectExplicitGlobalGCSiblingRefs(current)
 		if !ok {
+			return nil
+		}
+		if !beforeSweep() {
 			return nil
 		}
 		renewTransaction := func() error {

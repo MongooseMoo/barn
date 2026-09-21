@@ -96,6 +96,11 @@ func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueR
 	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
 	//     no slot and passing VALIDATE).
 	plan := s.planAnonymousSerializationLocked(roots)
+	// Capture external task roots while the publication barrier is still held.
+	// The returned rewriter must never consult their later live WAIF state.
+	for _, value := range roots {
+		plan.rewriteValue(value)
+	}
 	for i, value := range snapshot.PendingFinalizations {
 		if rewritten, changed := plan.rewriteValue(value); changed {
 			snapshot.PendingFinalizations[i] = rewritten
@@ -265,7 +270,7 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 // rewriteSnapshotObject rewrites every _TYPE_ANON reference in a snapshot
 // object's property values according to the plan.
 func (p *anonSerializationPlan) rewriteSnapshotObject(so *SnapshotObject) {
-	if so == nil || len(p.rewrite) == 0 {
+	if so == nil {
 		return
 	}
 	if rewritten, changed := p.rewriteValue(so.LastMove); changed {
@@ -305,10 +310,7 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 		if rewritten, ok := p.waifRewrite[identity]; ok {
 			return rewritten, true
 		}
-		if !p.valueNeedsAnonymousRewrite(v, nil) {
-			return v, false
-		}
-		rewritten := types.NewWaif(v.Class(), v.Owner())
+		rewritten := types.NewWaifWithIdentity(v.Class(), v.Owner(), identity)
 		p.waifRewrite[identity] = rewritten
 		names := v.PropertyNames()
 		sort.Strings(names)
@@ -362,44 +364,6 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 	default:
 		return v, false
 	}
-}
-
-func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(value types.Value, visited map[types.WaifIdentity]struct{}) bool {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if !value.IsAnonymous() {
-			return false
-		}
-		_, ok := p.rewrite[value.ID()]
-		return ok
-	case types.TYPE_WAIF:
-		identity := value.WaifIdentity()
-		if _, seen := visited[identity]; seen {
-			return false
-		}
-		if visited == nil {
-			visited = make(map[types.WaifIdentity]struct{})
-		}
-		visited[identity] = struct{}{}
-		for _, name := range value.PropertyNames() {
-			if property, ok := value.GetProperty(name); ok && p.valueNeedsAnonymousRewrite(property, visited) {
-				return true
-			}
-		}
-	case types.TYPE_LIST:
-		for _, element := range value.Elements() {
-			if p.valueNeedsAnonymousRewrite(element, visited) {
-				return true
-			}
-		}
-	case types.TYPE_MAP:
-		for _, pair := range value.Pairs() {
-			if p.valueNeedsAnonymousRewrite(pair[0], visited) || p.valueNeedsAnonymousRewrite(pair[1], visited) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func snapshotObjectValue(obj *Object) *SnapshotObject {

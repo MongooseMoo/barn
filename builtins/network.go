@@ -63,7 +63,7 @@ type lastInputTaskConnection interface {
 // InputForcer allows builtins to inject input lines into a player's stream.
 // Implemented by the execution engine to avoid import cycles.
 type InputForcer interface {
-	ForceInput(player types.ObjID, line string, atFront bool)
+	ForceInput(player types.ObjID, line string, atFront bool, onProcessed func())
 }
 
 type httpReadWaiter struct {
@@ -1282,7 +1282,7 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 	}
 	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
 		for _, line := range ctx.Session.drainHeldCommands(player) {
-			forcer.ForceInput(player, line, false)
+			forcer.ForceInput(player, line, false, inputReceipt(ctx))
 		}
 	}
 	return types.Ok(types.NewInt(0))

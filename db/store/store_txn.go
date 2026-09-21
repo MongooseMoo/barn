@@ -33,6 +33,7 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
+	waifs                     map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
 	// resolution and must instead fail validation if verbShapeChangeTS moved
@@ -165,7 +166,7 @@ func (tx *StoreTxn) HasWrites() bool {
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
 }
 
 // markTerminal records an operation/apply failure that cannot become valid by

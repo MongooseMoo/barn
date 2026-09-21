@@ -41,7 +41,10 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
 		return errCode
 	}
-	return tx.validateVerbReadsLocked()
+	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
+	return tx.validateWaifsLocked()
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {

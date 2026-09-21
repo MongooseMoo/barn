@@ -11,7 +11,9 @@ import (
 // shutdown). Named so the signatures are written once, not at every field,
 // setter, and use site.
 type (
-	GCHook func(ctx *Execution) error
+	// GCHook calls beforeSweep only after establishing quiescence. A skipped
+	// sweep must not wait for an active sibling's irreversible-effect gate.
+	GCHook func(ctx *Execution, beforeSweep func() bool) error
 	// CheckpointHook queues a request; it must not run checkpoint MOO hooks
 	// synchronously inside the requesting activation.
 	CheckpointHook       func() error

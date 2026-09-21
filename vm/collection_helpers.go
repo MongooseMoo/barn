@@ -2,6 +2,7 @@ package vm
 
 import (
 	"github.com/MongooseMoo/barn/builtins"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -77,46 +78,41 @@ func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.V
 // values, plus nested lists/maps. A visited set keyed on waif identity
 // (WaifIdentity, an opaque GC-traced token) guards against cycles formed by waif
 // aliasing so traversal always terminates.
-func containsWaif(val types.Value, waif types.Value) bool {
-	return containsWaifVisited(val, waif, nil)
+func containsWaif(tx *dbstore.StoreTxn, val types.Value, waif types.Value) (bool, types.ErrorCode) {
+	return containsWaifVisited(tx, val, waif, make(map[types.WaifIdentity]bool))
 }
 
-func containsWaifVisited(val types.Value, waif types.Value, visited map[types.WaifIdentity]bool) bool {
+func containsWaifVisited(tx *dbstore.StoreTxn, val types.Value, waif types.Value, visited map[types.WaifIdentity]bool) (bool, types.ErrorCode) {
+	var children []types.Value
 	switch val.Type() {
 	case types.TYPE_WAIF:
-		// Leaf: same underlying waif instance (pointer identity), not class+owner.
 		if val.Equal(waif) {
-			return true
+			return true, types.E_NONE
 		}
-		// Recurse into the waif's own property values (Toast waif.cc:252-256),
-		// guarding against aliasing cycles.
 		id := val.WaifIdentity()
 		if visited[id] {
-			return false
-		}
-		if visited == nil {
-			visited = make(map[types.WaifIdentity]bool)
+			return false, types.E_NONE
 		}
 		visited[id] = true
-		for _, name := range val.PropertyNames() {
-			if prop, ok := val.GetProperty(name); ok {
-				if containsWaifVisited(prop, waif, visited) {
-					return true
-				}
-			}
+		properties, ec := tx.WaifProperties(val)
+		if ec != types.E_NONE {
+			return false, ec
+		}
+		for _, property := range properties {
+			children = append(children, property)
 		}
 	case types.TYPE_LIST:
-		for i := 1; i <= val.Len(); i++ {
-			if containsWaifVisited(val.Get(i), waif, visited) {
-				return true
-			}
-		}
+		children = val.Elements()
 	case types.TYPE_MAP:
 		for _, pair := range val.Pairs() {
-			if containsWaifVisited(pair[0], waif, visited) || containsWaifVisited(pair[1], waif, visited) {
-				return true
-			}
+			children = append(children, pair[0], pair[1])
 		}
 	}
-	return false
+	for _, child := range children {
+		found, ec := containsWaifVisited(tx, child, waif, visited)
+		if found || ec != types.E_NONE {
+			return found, ec
+		}
+	}
+	return false, types.E_NONE
 }

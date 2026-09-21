@@ -243,6 +243,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.propertyShapeScans = propertyShapeScans
 	next.verbReads = verbReads
 	next.verbScans = verbScans
+	next.waifs = tx.waifs
 	return next, publishedWrites, types.E_NONE
 }
 
@@ -367,7 +368,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// excludes RLock readers and decentralized committers, making the in-place anon
 	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
+	if len(tx.waifs) == 0 && !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		commitErr = tx.commitDecentralized()
 		if commitErr != types.E_NONE && !tx.validationFail {
 			tx.markTerminal(commitErr)
@@ -501,8 +502,9 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 // store in place (the coarse path): it publishes staged creates, then applies scalar,
 // relationship (location/contents/children), property, and verb writes, retaining
 // pre-mutation images in history, and clears the staged maps. It does NOT validate the
-// read set: coarse Commit does that before shared operation preflight, while Flush
-// intentionally performs only operation preflight. Caller holds store.mu.Lock.
+// read set: callers complete required validation and operation preflight before
+// invoking it. WAIF images share the object publication timestamp and lock.
+// Caller holds store.mu.Lock.
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	tx.store.noteWaifRootsChanged()
@@ -689,6 +691,11 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)
 		stampObjectAll(live, ts)
 		tx.store.appendRecycledID(id)
+	}
+	for _, image := range tx.waifs {
+		if image.staged != nil {
+			tx.store.publishWaifLocked(image, ts)
+		}
 	}
 	tx.clearStagedWrites()
 	return types.E_NONE

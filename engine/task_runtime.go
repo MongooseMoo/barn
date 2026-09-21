@@ -75,6 +75,13 @@ type taskCompletion struct {
 func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool) (retErr error) {
 	var completion taskCompletion
 	defer func() {
+		if retErr != nil {
+			if callback := t.TakeOnFailure(); callback != nil {
+				callback(retErr)
+			}
+		}
+	}()
+	defer func() {
 		if completion.roots != nil {
 			completion.roots.release()
 		}
@@ -447,7 +454,10 @@ retryAttempt:
 		bcVM.TickLimit = t.TicksLimit
 		configureVMStackLimit(bcVM, s.session)
 
-		if t.VerbName != "" {
+		if t.IntrinsicEval {
+			prepareIntrinsicEval(bcVM, t)
+			result = bcVM.ExecuteLoop()
+		} else if t.VerbName != "" {
 			// Command verbs derive args from raw words; server-initiated hooks can
 			// provide fully-typed arguments directly.
 			argList := append([]types.Value(nil), t.VerbArgsValues...)
@@ -521,7 +531,6 @@ retryAttempt:
 	}
 
 	committed := true
-	committedWrites := false
 	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			// A conflict surfaces as E_INVARG (a read-set version moved) OR E_INVIND (a
@@ -565,8 +574,6 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			committed = false
-		} else {
-			committedWrites = true
 		}
 	}
 	if committed {
@@ -576,13 +583,13 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
-	// Refresh the committed view for lifecycle cleanup. Suspended tasks take
-	// their next execution snapshot when the scheduler resumes them.
-	if committed && committedWrites {
-		ctx.StoreTxn.Release()
-		ctx.StoreTxn = s.store.BeginSnapshot(0)
-		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
-	}
+	// This slice no longer needs its read cache, including private WAIF roots.
+	// Retaining a read-only cache here would keep dropped locals alive during
+	// finalization. Cleanup hooks get a fresh usable transaction; suspended tasks
+	// take their next execution snapshot when the scheduler resumes them.
+	ctx.StoreTxn.Release()
+	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	// Every suspension yields the commit gate along with execution.
 	releaseEscalation()
 
@@ -656,8 +663,12 @@ retryAttempt:
 		return nil
 	}
 
-	// Handle completion
-	if result.Flow == types.FlowException {
+	// Intrinsic eval reports exceptions in its result record, without invoking
+	// the database's uncaught-task handler or emitting a second traceback.
+	if result.Flow == types.FlowException && t.IntrinsicEval {
+		t.SetState(task.TaskKilled)
+		t.ClearCallStack()
+	} else if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
 		handled := false
 		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
@@ -909,7 +920,6 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	clone := *ctx
 	clone.StoreTxn = clone.Store.DirectTxn()
 	clone.PendingEffects = nil
-	clone.WaifJournal = nil
 	return &clone
 }
 

@@ -9,6 +9,76 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestPendingCanonicalizationUsesCommittedWaifGraph(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "direct parent", true: "persistent parent"}[persistent], func(t *testing.T) {
+			s := dbstore.NewStore()
+			child := types.NewWaif(0, 0)
+			parent := types.NewWaif(0, 0).SetProperty("child", child)
+			if persistent {
+				if err := s.Add(dbstore.NewObject(0, 0)); err != nil {
+					t.Fatal(err)
+				}
+				if ec := s.DirectTxn().DefineProperty(0, "w", dbstore.NewProperty(parent, 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			}
+			tx := s.BeginSnapshot(0)
+			defer tx.Release()
+			if ec := s.DirectTxn().SetWaifProperty(parent, "child", types.NewInt(0)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			roots := CanonicalizePendingFinalizationValues(s, DirectFinalizationRoots{Waifs: []types.Value{parent, child}})
+			if !types.NewWaifSet(roots).Has(child) {
+				t.Fatalf("historical edge suppressed child: %v", roots)
+			}
+		})
+	}
+}
+
+func TestPendingCanonicalizationUsesCommittedAnonymousGraph(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "direct parent", true: "persistent parent"}[persistent], func(t *testing.T) {
+			s := dbstore.NewStore()
+			if err := s.Add(dbstore.NewObject(0, 0)); err != nil {
+				t.Fatal(err)
+			}
+			parent, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, true)
+			if ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			child, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, true)
+			if ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			link := types.NewWaif(0, 0).SetProperty("child", types.NewAnon(child))
+			if ec := s.DirectTxn().DefineProperty(parent, "link", dbstore.NewProperty(link, 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			if persistent {
+				if ec := s.DirectTxn().DefineProperty(0, "parent", dbstore.NewProperty(types.NewAnon(parent), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			}
+			tx := s.BeginSnapshot(0)
+			defer tx.Release()
+			if ec := s.DirectTxn().SetWaifProperty(link, "child", types.NewInt(0)); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			roots := CanonicalizePendingFinalizationValues(s, DirectFinalizationRoots{AnonRefs: map[types.ObjID]struct{}{parent: {}, child: {}}})
+			found := false
+			for _, value := range roots {
+				if value.IsAnonymous() && value.ID() == child {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("historical edge suppressed anonymous child: %v", roots)
+			}
+		})
+	}
+}
+
 func TestCollectPendingFinalizationValuesKeepsNestedWaifAsOneRoot(t *testing.T) {
 	store := dbstore.NewStore()
 	parent := types.NewWaif(9, 3)

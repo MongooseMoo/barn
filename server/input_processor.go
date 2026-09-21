@@ -69,9 +69,7 @@ func (p *InputProcessor) Stop() {
 	for draining {
 		select {
 		case evt := <-p.inputQueue:
-			if evt.Done != nil {
-				close(evt.Done)
-			}
+			evt.Complete()
 		default:
 			draining = false
 		}
@@ -91,17 +89,13 @@ func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 	p.enqueueMu.RLock()
 	defer p.enqueueMu.RUnlock()
 	if p.ctx.Err() != nil {
-		if evt.Done != nil {
-			close(evt.Done)
-		}
+		evt.Complete()
 		return
 	}
 	select {
 	case p.inputQueue <- evt:
 	case <-p.ctx.Done():
-		if evt.Done != nil {
-			close(evt.Done)
-		}
+		evt.Complete()
 	}
 }
 
@@ -298,9 +292,7 @@ func (p *InputProcessor) dispatch(input command.InputEvent) {
 	p.workersMu.Lock()
 	defer p.workersMu.Unlock()
 	if p.ctx.Err() != nil {
-		if input.Done != nil {
-			close(input.Done)
-		}
+		input.Complete()
 		return
 	}
 	ch, ok := p.workers[input.ConnID]
@@ -326,9 +318,7 @@ func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 			delete(p.workers, connID)
 		}
 		for _, input := range ch.queue {
-			if input.Done != nil {
-				close(input.Done)
-			}
+			input.Complete()
 		}
 	}()
 	for {
@@ -363,11 +353,7 @@ func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 }
 
 func (p *InputProcessor) processInput(input command.InputEvent) {
-	defer func() {
-		if input.Done != nil {
-			close(input.Done)
-		}
-	}()
+	defer input.Complete()
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
@@ -470,12 +456,15 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 	return p.runtime.ResumeReadingTask(player, line)
 }
 
-func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
+func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool, onProcessed func()) {
 	oob := strings.HasPrefix(line, "#$#")
 	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
 	if !(oob && !disableOOB) {
 		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
 		if handled {
+			if onProcessed != nil {
+				onProcessed()
+			}
 			return
 		}
 	}
@@ -499,9 +488,10 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		connID = int64(player)
 	}
 	p.EnqueueInput(command.InputEvent{
-		ConnID: connID,
-		Player: player,
-		Line:   line,
+		ConnID:      connID,
+		Player:      player,
+		Line:        line,
+		OnProcessed: onProcessed,
 	})
 }
 
@@ -803,9 +793,13 @@ func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player 
 	case command.IntrinsicEval:
 		code := strings.TrimSpace(cmd.Argstr)
 		if code != "" {
-			_ = conn.Send(p.runtime.EvalCommandOutput(player, code))
-		}
-		if outputSuffix != "" {
+			p.runtime.StartEval(player, strings.Split(code, "\n"), func(out engine.EvalOutcome) {
+				_ = conn.Send(out.CommandOutput())
+				if outputSuffix != "" {
+					_ = conn.Send(outputSuffix)
+				}
+			})
+		} else if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return true

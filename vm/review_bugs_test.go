@@ -4,6 +4,7 @@ package vm
 // Tests are written to FAIL on buggy behaviour and turn GREEN only after a fix.
 
 import (
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -144,6 +145,14 @@ func TestReview_WaifSetPropertyMutatesOriginalNotCopy(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReview_ContainsWaifFalsePositive_SameClassOwnerDistinctInstances(t *testing.T) {
+	tx := dbstore.NewStore().DirectTxn()
+	containsWaif := func(value, target types.Value) bool {
+		found, ec := containsWaif(tx, value, target)
+		if ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		return found
+	}
 	waifA := types.NewWaif(1, 0)
 	waifB := types.NewWaif(1, 0) // distinct instance, same class+owner
 

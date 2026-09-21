@@ -246,7 +246,7 @@ func BaseDescriptors() []Descriptor {
 		{Name: "verb_cache_stats", Implementation: builtinVerbCacheStats, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "reset_max_object", Implementation: builtinResetMaxObject, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Irreversible, Capability: config.Core},
 		{Name: "value_bytes", Implementation: builtinValueBytes, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{-1}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
-		{Name: "run_gc", Implementation: builtinRunGC, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Irreversible, Capability: config.Core},
+		{Name: "run_gc", Implementation: builtinRunGC, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: ImplementationOwned, Capability: config.Core},
 		{Name: "gc_stats", Implementation: builtinGCStats, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "queued_tasks", Implementation: builtinQueuedTasks, Signature: &Signature{MinArgs: 0, MaxArgs: 2, ArgTypes: []int64{0, 0}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "kill_task", Implementation: builtinKillTask, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{0}}, Visibility: Public, Effect: ImplementationOwned, Capability: config.Core},

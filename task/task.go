@@ -115,6 +115,7 @@ type Task struct {
 	Iobj                types.ObjID   // Indirect object
 	CommandOutputSuffix string        // Connection output suffix for raw command framing
 	FromCommand         bool          // True if dispatched by the command parser (top-level command verb)
+	IntrinsicEval       bool          // Result is returned to the eval caller, not the uncaught-error hook
 	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
 	// OnComplete, when set, is invoked exactly once with the task's terminal
@@ -122,6 +123,7 @@ type Task struct {
 	// or fork re-queue. Used to defer server-hook completion (e.g. logging a
 	// player in once a read()-based do_login_command finally returns a player).
 	OnComplete func(Result types.Result)
+	onFailure  func(error)
 
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
@@ -130,6 +132,9 @@ type Task struct {
 	scheduleChanged  chan<- struct{}
 	executionActive  bool // runtime-owned physical execution lease
 	admissionPending bool // selected by one dispatcher, not yet executing
+	pendingInput     int  // injected events that have not finished their first slice
+	waitingForInput  bool // only a zero-delay continuation observes this fence
+	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
 
 	mu sync.RWMutex
 }
@@ -181,6 +186,20 @@ func (t *Task) TakeOnComplete() func(Result types.Result) {
 	onComplete := t.OnComplete
 	t.OnComplete = nil
 	return onComplete
+}
+
+func (t *Task) SetOnFailure(callback func(error)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onFailure = callback
+}
+
+func (t *Task) TakeOnFailure() func(error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	callback := t.onFailure
+	t.onFailure = nil
+	return callback
 }
 
 // CloseDone closes the task's Done channel exactly once. It is a no-op when
@@ -288,7 +307,7 @@ func (t *Task) notifyScheduleLocked() {
 func (t *Task) ReadyDeadline(now time.Time) time.Time {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	if t.executionActive || t.admissionPending {
+	if t.executionActive || t.admissionPending || t.waitingForInput {
 		return time.Time{}
 	}
 	if t.State == TaskSuspended {
@@ -336,7 +355,7 @@ func (t *Task) StartExecution() bool {
 func (t *Task) TryClaimQueued() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.State != TaskQueued || t.executionActive {
+	if t.State != TaskQueued || t.executionActive || t.waitingForInput {
 		return false
 	}
 	t.State = TaskRunning
@@ -348,7 +367,7 @@ func (t *Task) TryClaimQueued() bool {
 func (t *Task) ReserveAdmission() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.State != TaskQueued || t.executionActive || t.admissionPending {
+	if t.State != TaskQueued || t.executionActive || t.admissionPending || t.waitingForInput {
 		return false
 	}
 	t.admissionPending = true
@@ -524,10 +543,29 @@ func (t *Task) SetQueueSeq(sequence int64) {
 func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.waitingForInput = t.pendingInput != 0
 	if t.WakeTime.IsZero() {
 		t.WakeTime = now
 	}
 	t.QueueSeq = sequence
+}
+
+// NewInputReceipt records causally prior input without waiting inside its
+// builtin. The receiver resolves it after its first slice (or on discard).
+// read() delivery deliberately does not consult this zero-delay-yield fence.
+func (t *Task) NewInputReceipt() func() {
+	t.mu.Lock()
+	t.pendingInput++
+	t.mu.Unlock()
+	return sync.OnceFunc(func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.pendingInput--
+		if t.pendingInput == 0 && t.waitingForInput {
+			t.waitingForInput = false
+			t.notifyScheduleLocked()
+		}
+	})
 }
 
 // SchedulingSnapshot returns immutable heap ordering keys.
@@ -772,6 +810,7 @@ func (t *Task) WakeDue(now time.Time) bool {
 func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.cancelRequested = true
 	t.State = TaskKilled
 	t.notifyScheduleLocked()
 	if t.CancelFunc != nil {
@@ -785,6 +824,12 @@ func (t *Task) Kill() {
 	t.IsExecSuspended = false
 	t.ExecCommandName = ""
 	t.IsHTTPReadSuspended = false
+}
+
+func (t *Task) CancellationRequested() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.cancelRequested
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks().

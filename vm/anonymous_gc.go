@@ -36,11 +36,7 @@ func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{
 			visitedWaifs = make(map[types.WaifIdentity]struct{})
 		}
 		visitedWaifs[identity] = struct{}{}
-		for _, name := range v.PropertyNames() {
-			if prop, ok := v.GetProperty(name); ok {
-				collectAnonymousRefsForGCVisited(prop, out, visitedWaifs)
-			}
-		}
+		v.VisitRetainedWaifValues(func(prop types.Value) { collectAnonymousRefsForGCVisited(prop, out, visitedWaifs) })
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
 			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
@@ -119,7 +115,7 @@ func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct
 		return nil
 	}
 
-	reachable := buildPersistentAnonymousReachability(store)
+	reachable := store.CommittedAnonymousReachability()
 	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
@@ -191,7 +187,7 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	ordered := make([]candidateRoot, 0, len(candidates))
 	for _, candidate := range candidates {
 		closure := make(map[types.ObjID]struct{})
-		store.DirectTxn().ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
+		store.ExpandCommittedAnonymousReachability(closure, map[types.ObjID]struct{}{
 			candidate.ID(): {},
 		})
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
@@ -206,8 +202,8 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 		return ordered[i].value.ID() < ordered[j].value.ID()
 	})
 
-	covered := buildPersistentAnonymousReachability(store)
-	roots := canonicalWaifRoots(waifs, store.PersistentWaifRootSet())
+	covered := store.CommittedAnonymousReachability()
+	roots := canonicalWaifRoots(waifs, store.CommittedWaifRootSet())
 	for _, candidate := range ordered {
 		if _, seen := covered[candidate.value.ID()]; seen {
 			continue
@@ -235,7 +231,7 @@ func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []t
 			continue
 		}
 		closure := types.NewWaifSet(nil)
-		collectWaifsInto(candidate, closure)
+		collectWaifsInto(candidate, closure, false)
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure.Values, order: index})
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {

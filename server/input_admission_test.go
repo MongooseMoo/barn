@@ -25,7 +25,7 @@ func TestAdmissionCapOneForcedInputCannotBlockItsOwnLane(t *testing.T) {
 		Name: "flood_input_test", Signature: &builtins.Signature{MinArgs: 0, MaxArgs: 0}, Visibility: builtins.Hidden, Effect: builtins.Transactional, Capability: config.Core,
 		Implementation: func(_ *builtins.Execution, _ []types.Value) types.Result {
 			for i := 0; i < 1024; i++ {
-				processor.ForceInput(player, "eval return 1;", false)
+				processor.ForceInput(player, "eval return 1;", false, nil)
 			}
 			close(flooded)
 			return types.Ok(types.NewInt(0))

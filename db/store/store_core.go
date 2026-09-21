@@ -51,13 +51,16 @@ type Store struct {
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
 	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
 	// exclusive lock. allocateID()/casMaxID() are the only mutators.
-	maxObjID    atomic.Int64
-	highWaterID atomic.Int64
-	recycledMu  sync.Mutex    // guards recycledID against concurrent decentralized recyclers
-	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
-	clock       atomic.Uint64
-	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
-	history     map[types.ObjID][]objectHistory
+	maxObjID           atomic.Int64
+	highWaterID        atomic.Int64
+	recycledMu         sync.Mutex    // guards recycledID against concurrent decentralized recyclers
+	recycledID         []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	clock              atomic.Uint64
+	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
+	history            map[types.ObjID][]objectHistory
+	waifDomain         *types.WaifDomain
+	waifHistory        map[types.WaifIdentity]types.WeakWaif
+	waifHistoryPending atomic.Bool
 
 	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
 	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
@@ -140,6 +143,7 @@ func NewStore() *Store {
 		anonObjects: make(map[types.ObjID]*Object),
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
+		waifDomain:  new(types.WaifDomain),
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true

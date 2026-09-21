@@ -50,8 +50,6 @@ func FlushPendingEffects(ctx *Execution) {
 	if ctx == nil || ctx.TaskContext == nil {
 		return
 	}
-	// The committed attempt keeps its WAIF writes.
-	ctx.WaifJournal = nil
 	if len(ctx.PendingEffects) == 0 {
 		return
 	}
@@ -122,9 +120,5 @@ func DiscardPendingEffects(ctx *Execution) {
 	if ctx != nil && ctx.TaskContext != nil {
 		ctx.PendingEffects = nil
 		ctx.ServerOptions = nil
-		for i := len(ctx.WaifJournal) - 1; i >= 0; i-- {
-			ctx.WaifJournal[i].Revert()
-		}
-		ctx.WaifJournal = nil
 	}
 }
