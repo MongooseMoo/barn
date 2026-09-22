@@ -116,6 +116,7 @@ func (tx *StoreTxn) validateWaifsLocked() types.ErrorCode {
 }
 
 func (s *Store) publishWaifLocked(image *waifTxnImage, ts uint64) {
+	s.waifPrunedFloor.Store(0)
 	image.value.PublishWaifImage(s.waifDomain, ts, image.staged)
 	image.base, _ = image.value.WaifImageAt(s.waifDomain, ts)
 	image.staged = nil
@@ -131,11 +132,26 @@ func (s *Store) publishWaifLocked(image *waifTxnImage, ts uint64) {
 	s.waifHistoryPending.Store(len(s.waifHistory) != 0)
 }
 
+// pruneWaifHistory avoids the publication lock when a complete scan already
+// visited this exact floor and no publication has invalidated that result.
+func (s *Store) pruneWaifHistory() {
+	floor := s.historyFloor()
+	if floor != 0 && floor == s.waifPrunedFloor.Load() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneWaifHistoryLocked()
+}
+
 func (s *Store) pruneWaifHistoryLocked() {
 	if len(s.waifHistory) == 0 {
 		return
 	}
 	floor := s.historyFloor()
+	if floor != 0 && floor == s.waifPrunedFloor.Load() {
+		return
+	}
 	for identity, weak := range s.waifHistory {
 		value, alive := weak.Value()
 		if !alive || !value.PruneWaifImages(s.waifDomain, floor) {
@@ -143,6 +159,7 @@ func (s *Store) pruneWaifHistoryLocked() {
 		}
 	}
 	s.waifHistoryPending.Store(len(s.waifHistory) != 0)
+	s.waifPrunedFloor.Store(floor)
 }
 
 // VisitWaifValues includes private and historical values in task root capture.

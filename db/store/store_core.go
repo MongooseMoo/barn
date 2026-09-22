@@ -61,6 +61,9 @@ type Store struct {
 	waifDomain         *types.WaifDomain
 	waifHistory        map[types.WaifIdentity]types.WeakWaif
 	waifHistoryPending atomic.Bool
+	// waifPrunedFloor is the last completed full history-prune floor. Zero is
+	// invalid; every publication invalidates it before announcing new history.
+	waifPrunedFloor atomic.Uint64
 
 	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
 	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
