@@ -44,7 +44,17 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 	for name, prop := range old.properties {
 		newProps[name] = prop
 	}
+	img.properties = newProps
+	applyPropertyValueOwned(&img, w, ts)
+	return &img
+}
 
+// applyPropertyValueOwned applies one property-value write to img in place. The
+// caller must exclusively own img and its properties map (an unpublished image
+// the committer built from a private clone); a published image must go through
+// buildImageWithPropertyValue instead.
+func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
+	newProps := img.properties
 	if liveName, prop, ok := propertyByName(newProps, w.name); ok {
 		// Existing property: copy it by value, apply the write, stamp the property
 		// version, and swap it into the new map under its existing key. The old
@@ -75,10 +85,7 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		// A new slot changes which ancestry walks fall through this object.
 		img.propertyShapeVersion = ts
 	}
-
-	img.properties = newProps
 	img.propertyVersion = ts
-	return &img
 }
 
 // buildImageWithScalar returns a NEW immutable *Object equal to old except for the
@@ -476,18 +483,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// on the descendants' own images by propagateDefinedProperty); a definition-delete
 	// applies only to the DEFINER's image (descendant removals are staged as
 	// propertyDeletes by removeInheritedProperty).
-	propDefinesByObj := make(map[types.ObjID][]propertyDefine)
-	for objID, obj := range tx.objects {
-		if obj == nil {
-			continue
-		}
-		for _, name := range obj.propOrder {
-			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-			if def, ok := tx.propertyDefines[key]; ok {
-				propDefinesByObj[objID] = append(propDefinesByObj[objID], def)
-			}
-		}
-	}
+	propDefinesByObj := tx.propertyDefinesByObject()
 	propDefDeletesByObj := make(map[types.ObjID][]string)
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		propDefDeletesByObj[key.objID] = append(propDefDeletesByObj[key.objID], actualName)
@@ -558,7 +554,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			if !waifRootsDirty && (w.value.MayHoldFinalizable() || propertyValueMayHoldFinalizable(img, w.name)) {
 				waifRootsDirty = true
 			}
-			img = buildImageWithPropertyValue(img, w, ts)
+			// img descends from this commit's private clone, so its properties
+			// map is unpublished and can take every write without recopying.
+			applyPropertyValueOwned(img, w, ts)
 		}
 		for _, actualName := range propDeletesByObj[id] {
 			img = buildImageWithPropertyDelete(img, actualName, ts)

@@ -42,6 +42,37 @@ type propertyDefine struct {
 	prop Property
 }
 
+// propertyDefinesByObject groups staged defines by object in each object's
+// property order, so several defines on one object apply in insertion order.
+// Only objects that carry a define are walked.
+func (tx *StoreTxn) propertyDefinesByObject() map[types.ObjID][]propertyDefine {
+	if len(tx.propertyDefines) == 0 {
+		return nil
+	}
+	grouped := make(map[types.ObjID][]propertyDefine)
+	for key := range tx.propertyDefines {
+		if _, seen := grouped[key.objID]; seen {
+			continue
+		}
+		grouped[key.objID] = nil
+		obj := tx.objects[key.objID]
+		if obj == nil {
+			continue
+		}
+		for _, name := range obj.propOrder {
+			if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: propertyNameKey(name)}]; ok {
+				grouped[key.objID] = append(grouped[key.objID], def)
+			}
+		}
+	}
+	for objID, defs := range grouped {
+		if len(defs) == 0 {
+			delete(grouped, objID)
+		}
+	}
+	return grouped
+}
+
 // stagePropertyValue stages value for objID.name. before is the slot as it was
 // on the txn's object view immediately before this write (hasBefore=false when
 // the write creates a new override slot). The first staging of a key remembers

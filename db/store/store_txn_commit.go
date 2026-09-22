@@ -580,16 +580,8 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		}
 		remembered[key.objID] = true
 	}
-	for objID, obj := range tx.objects {
-		if obj == nil {
-			continue
-		}
-		for _, name := range obj.propOrder {
-			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-			def, ok := tx.propertyDefines[key]
-			if !ok {
-				continue
-			}
+	for objID, defs := range tx.propertyDefinesByObject() {
+		for _, def := range defs {
 			live := tx.store.liveObjectLocked(objID)
 			if !validLiveObject(live) {
 				return types.E_INVIND
