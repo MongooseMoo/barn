@@ -47,8 +47,8 @@ const (
 	PREC_CATCH          = 3  // ` ! =>
 	PREC_SPLICE         = 4  // @
 	PREC_SCATTER        = 5  // { } =
-	PREC_OR             = 6  // ||
-	PREC_AND            = 7  // &&
+	PREC_OR             = 6  // || and && (Toast: %left tOR tAND, one level)
+	PREC_AND            = 6  // &&
 	PREC_BIT_OR         = 8  // |.
 	PREC_BIT_XOR        = 9  // ^.
 	PREC_BIT_AND        = 10 // &.
