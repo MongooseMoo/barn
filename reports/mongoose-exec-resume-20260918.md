@@ -1,5 +1,9 @@
 # Mongoose external completion and login latency
 
+Historical command update (2026-09-21): `test-mongoose-deltas.ps1` has been
+retired. Repeat generic checks through the
+[managed conformance workflow](../docs/mongoose-conformance.md), using stock Toast.
+
 Completed external calls could enter Barn's next ready batch behind newly
 admitted forks. The WSL Mongoose Toast oracle admits those completions first,
 while preserving siblings that were already admitted to its ready queue.

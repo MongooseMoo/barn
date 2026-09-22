@@ -2,7 +2,6 @@ name: seconds_elapsed
 description: The execution seconds budget decreases while a task runs.
 requires:
   builtins: [add_property, delete_property, load_server_options, seconds_left, ftime]
-  features: [fork]
 setup:
   permission: wizard
   code: |

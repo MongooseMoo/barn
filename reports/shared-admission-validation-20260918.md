@@ -1,5 +1,11 @@
 # Shared admission implementation and validation
 
+Historical record, superseded for merge readiness on 2026-09-21. The old helper
+scripts below bypassed the current managed entrypoint and have been removed.
+Their reported baseline failures must not be used to excuse failures under CI's
+workflow. Use the [managed command](../docs/mongoose-conformance.md) and
+[current full-suite and benchmark evidence](../experiments/2026-09-21-waif-prune-watermark.md).
+
 Branch: `fix/mongoose-workload`. Baseline: `83751cc`.
 
 ## Delivered behavior

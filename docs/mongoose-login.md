@@ -96,19 +96,12 @@ character chooser: use `-FixedDelays` with the character selection as the first
 entry in `-Commands` before issuing room commands. Prompt login currently assumes
 the account's default character can connect without a chooser.
 
-Run the focused generic regressions against both engines with
-`./scripts/test-mongoose-deltas.ps1 -Engine Toast` and then `-Engine Barn`.
-These use the managed conformance runner and include capability admission.
-The selected generic suites live in `tests/mongoose-conformance`; use `-Suites`
-to select paths under that directory. Rebuild Barn before testing changed code.
-The installed moo-conformance package supplies the managed runner and admission.
-Use `-Packaged -Suites @('server/exec.yaml','server/exec_recent_regressions.yaml','builtins/exec_call_shapes.yaml')`
-to audit the packaged exec assertions against either engine.
-Use `-ConformanceRoot <checkout>` to test a separate conformance worktree
-without changing the installed package or its working copy. For example,
-`-Packaged -ConformanceRoot .tmp/conformance-mongoose-workload -Suites server/exec_fixture_delay.yaml`
-runs the Windows sleep-fixture regression. This uses the managed runner and
-capability admission on both platforms.
+Use the [managed conformance workflow](mongoose-conformance.md) for both engines,
+including capability admission. Generic candidate suites live in
+`tests/mongoose-conformance`; packaged assertions come from the separate
+conformance checkout. Rebuild Barn before testing changed code. The old
+`test-mongoose-deltas.ps1` wrapper has been retired because it bypassed the current
+managed entrypoint and selected a workload-specific oracle by default.
 
 ## Time-offset dependency
 
@@ -166,15 +159,10 @@ uses `He` and `his`; the explicit substitution returns `he his himself`.
 `Verb not found` in those positions previously came from a parser rejection of
 a conditional expression inside a catch default in the inherited pronoun verb.
 
-The generic regression can be repeated on both engines:
-
-```powershell
-./scripts/test-mongoose-deltas.ps1 -Engine Toast -OracleDir /root/src/toaststunt -RunDir <run-directory> -Suites builtins/catch_ternary_fallback.yaml
-./scripts/test-mongoose-deltas.ps1 -Engine Barn -RunDir <run-directory> -Suites builtins/catch_ternary_fallback.yaml
-```
-
-Build the candidate as `<run-directory>/barn.exe` first. Each managed session
-includes capability admission. This check does not establish a clean login:
+Repeat the generic regression using the [managed workflow](mongoose-conformance.md)
+with `--moo-suite-path=builtins/catch_ternary_fallback.yaml` and the candidate suite
+root, first against stock Toast and then Barn. Each managed session includes
+capability admission. This check does not establish a clean login:
 the separate SQLite connection-hook failure can still precede the description.
 
 ## PBT fixture cleanup wait

@@ -1,5 +1,12 @@
 # Cooperative transaction scheduling for Barn
 
+Verification update (2026-09-21): the PowerShell conformance helpers referenced
+in the historical stages below have been retired. Use the
+[current managed workflow](../docs/mongoose-conformance.md). Earlier failure
+inventories from the old invocation are not evidence of current baseline failures;
+the complete managed suite passed on the repaired branch, as recorded in the
+[final experiment](../experiments/2026-09-21-waif-prune-watermark.md).
+
 Design date: 2026-09-18. Source baseline: `e86ecd0` on
 `fix/mongoose-workload`. Implementation stages and verification are recorded below;
 the source observations in the opening sections refer to that baseline.

@@ -2,7 +2,6 @@ name: background_zero_suspend
 description: A background suspend(0) returns control to other ready tasks.
 requires:
   builtins: [add_property, delete_property, suspend]
-  features: [fork]
 tests:
   - name: background_suspend_zero_yields_to_its_ready_child
     steps:
