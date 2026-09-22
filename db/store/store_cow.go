@@ -28,31 +28,10 @@ import (
 //     stores a NEW image and never touches the old one the reader is reading — no
 //     race. This is the race the per-object-lock prototype could not close.
 
-// buildImageWithPropertyValue returns a NEW immutable *Object equal to old except
-// for the single property write `w` applied and the propertyVersion stamped to ts.
-// Only the properties map is copied (a shallow map copy that SHARES every untouched
-// *Property pointer, which are immutable); all other collections (parents/children/
-// contents/verbs/verbList/propOrder/...) are shared by reference with the old image
-// because the property-value write does not touch them. The edited property becomes
-// a freshly-allocated *Property so the old image's *Property is never mutated.
-func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Object {
-	img := *old // shallow struct copy: shares all slices/maps/pointers with old
-
-	// Copy only the properties map (the touched collection). Unedited *Property
-	// nodes are shared (immutable); the edited one is replaced with a new node.
-	newProps := make(map[string]Property, len(old.properties))
-	for name, prop := range old.properties {
-		newProps[name] = prop
-	}
-	img.properties = newProps
-	applyPropertyValueOwned(&img, w, ts)
-	return &img
-}
-
-// applyPropertyValueOwned applies one property-value write to img in place. The
-// caller must exclusively own img and its properties map (an unpublished image
-// the committer built from a private clone); a published image must go through
-// buildImageWithPropertyValue instead.
+// applyPropertyValueOwned applies one property-value write to img in place and
+// stamps its propertyVersion. The caller must exclusively own img and its
+// properties map: an unpublished image the committer built from a private
+// clone. Published images are immutable and must never reach this function.
 func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
 	newProps := img.properties
 	if liveName, prop, ok := propertyByName(newProps, w.name); ok {
@@ -182,7 +161,7 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 // (store_properties.go:501-514): it does NOT propagate clear inherited slots to
 // descendants — that propagation is staged separately by the txn (propagateDefinedProperty,
 // store_txn.go:1219) as per-descendant propertyWrites and is applied to each descendant's
-// own image by buildImageWithPropertyValue. Each descendant image is built independently
+// own image by applyPropertyValueOwned. Each descendant image is built independently
 // from its own published image, so define-on-O and the descendant clear-slot writes are
 // independent per-object builds within the same atomically-published footprint.
 //
