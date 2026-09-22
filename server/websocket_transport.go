@@ -12,6 +12,7 @@ import (
 )
 
 var errWebSocketInvalidInput = errors.New("invalid websocket input")
+var errWebSocketInvalidOutput = errors.New("invalid UTF-8 websocket output")
 
 // wsConn is the subset of *websocket.Conn that WebSocketTransport depends on.
 // It exists so the transport's read-interruption logic can be exercised
@@ -70,7 +71,17 @@ func (t *WebSocketTransport) ReadLine() (string, error) {
 	return string(payload), nil
 }
 
+func (t *WebSocketTransport) ValidateOutput(message string) error {
+	if !utf8.ValidString(message) {
+		return errWebSocketInvalidOutput
+	}
+	return nil
+}
+
 func (t *WebSocketTransport) WriteOutput(message string, newline bool) error {
+	if err := t.ValidateOutput(message); err != nil {
+		return err
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.conn.Write(context.Background(), websocket.MessageText, []byte(message))

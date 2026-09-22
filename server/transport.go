@@ -45,6 +45,11 @@ type BinaryTransport interface {
 	ReadChunk() (string, error)
 }
 
+// OutputValidator checks transport-specific payload constraints before buffering.
+type OutputValidator interface {
+	ValidateOutput(message string) error
+}
+
 type InputTransport interface {
 	ReadInput() (string, bool, error)
 }

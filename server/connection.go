@@ -80,6 +80,11 @@ func (c *Connection) Send(message string) error {
 }
 
 func (c *Connection) SendNotification(note kernel.PendingNotification) error {
+	if validator, ok := c.transport.(OutputValidator); ok {
+		if err := validator.ValidateOutput(note.Message); err != nil {
+			return err
+		}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if note.NoFlush {
