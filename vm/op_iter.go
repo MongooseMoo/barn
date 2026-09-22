@@ -106,15 +106,13 @@ func (vm *VM) executeScatter() error {
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return fmt.Errorf("E_TYPE: scatter assignment requires a list")
+		return fmt.Errorf("E_TYPE: %s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
 	}
 
 	length := val.Len()
-	if length < numRequired {
-		return fmt.Errorf("E_ARGS: too few elements for scatter assignment")
-	}
-	if !hasRest && length > numRequired+numOptional {
-		return fmt.Errorf("E_ARGS: too many elements for scatter assignment")
+	// Toast raises E_ARGS with its default message for either count mismatch.
+	if length < numRequired || (!hasRest && length > numRequired+numOptional) {
+		return MooError{Code: types.E_ARGS}
 	}
 
 	return nil
