@@ -17,7 +17,7 @@ toast  The pinned WSL Mongoose ToastStunt oracle
        plans/barn-toast-mongoose-convergence-workstreams.md and
        scripts/benchmark-mongoose.ps1 do. Clients dial the WSL NAT IP
        (`wsl hostname -I`); localhost forwarding into WSL is unreliable.
-barn   A Windows barn.exe (build with `go build -o barn.exe ./cmd/barn/`)
+barn   A Windows bin/barn.exe (build with `go build -o bin/ ./cmd/barn`)
        started with the Mongoose profile config (PROMOTE_NUMBERS=1,
        OUTBOUND_NETWORK=1), listening on 127.0.0.1.
 
@@ -79,7 +79,7 @@ Usage
   set MONGOOSE_LOGIN_SCRIPT (3 lines) in the environment, then
 
   python scripts/bench_players.py --engine toast --players 1,16
-  python scripts/bench_players.py --engine barn  --players 1,16 --barn-exe barn.exe
+  python scripts/bench_players.py --engine barn  --players 1,16 --barn-exe bin/barn.exe
   python scripts/bench_players.py --engine toast --players 1 --warmup 1 --measure 3   # smoke
 
 Outputs <out>/run.json, <out>/report.md, <out>/server.log; default --out is
@@ -1004,7 +1004,7 @@ def main() -> int:
     ap.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"source fixture (default {DEFAULT_DB})")
     ap.add_argument("--port", type=int, default=7777, help="listen port; 7777 = $network.port makes $prod() true")
     ap.add_argument("--out", type=Path, default=None, help="run directory (default .tmp/bench_players/<engine>-<ts>)")
-    ap.add_argument("--barn-exe", type=Path, default=REPO_ROOT / "barn.exe")
+    ap.add_argument("--barn-exe", type=Path, default=REPO_ROOT / "bin" / "barn.exe")
     ap.add_argument("--no-repair", action="store_true", help="skip the two harness snapshot repairs")
     ap.add_argument("--proxy", choices=["immediate", "auto", "never"], default="immediate",
                     help="when to send the PROXY prelude: immediate (default; first bytes on the wire), "
@@ -1053,7 +1053,7 @@ def main() -> int:
         server: Server = ToastServer(run_dir, db_copy, args.port)
     else:
         if not args.barn_exe.is_file():
-            sys.exit(f"barn executable not found: {args.barn_exe} (go build -o barn.exe ./cmd/barn/)")
+            sys.exit(f"barn executable not found: {args.barn_exe} (go build -o bin/ ./cmd/barn)")
         server = BarnServer(run_dir, db_copy, args.port, args.barn_exe)
     record["server"] = server.identity
     bench_conns: list[LineConn] = []

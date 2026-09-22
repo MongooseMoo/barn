@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Barn - Go MOO Server
 
 ## RULE ZERO: WHEN SOMETHING FAILS ON BARN
@@ -118,7 +122,8 @@ Examples:
 
 ## CRITICAL: Bash Commands on MSYS/Windows
 
-This environment runs MSYS (Git Bash). Common gotchas:
+On the Windows workstation this environment runs MSYS (Git Bash); this section
+does not apply to the Linux checkout. Common gotchas:
 
 **sleep**: Takes `NUMBER[SUFFIX]`, not flags.
 ```bash
@@ -133,11 +138,93 @@ When a command fails with "unknown option", STOP and figure out the correct synt
 
 ## Project Overview
 
-Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in **spec-first phase** - no Go code until spec + tests are complete.
+Barn is a Go implementation of a ToastStunt-compatible MOO server: parser,
+bytecode compiler and VM, ToastStunt-format database reader/writer, MVCC object
+store, task scheduler, TCP/WebSocket server, and the builtin function library.
+The goal is exact Toast behavior on the real Mongoose workload.
 
-## Key Principle
+Paths below written as `C:/Users/Q/...` are from the Windows workstation. On the
+Linux checkout (`/home/ds32/mongoose/`), the sibling repos are
+`../moo-conformance-tests` and `../toaststunt` (built binary at
+`../toaststunt/build/moo`), and there is no WSL layer.
 
-**Zero lines of Go code until spec + tests are complete.**
+`AGENTS.md` holds binding operational rules (conformance discipline, the
+capability-admission requirement, and the rule against unapproved manual Barn or
+Toast launches, plus shell and `rg` pitfalls). Read it before conformance
+work. The PowerShell `scripts/run-conformance.ps1` flow in `README.md` is the
+Windows path. On Linux, use the `uv run ... moo-conformance` command below.
+
+## Build, Lint, Test
+
+CI (`.github/workflows/ci.yml`) is what counts. Run the same gates locally:
+
+```bash
+test -z "$(gofmt -l .)"          # formatting (pass only .go paths to gofmt)
+go vet ./...
+staticcheck ./...                # honnef.co/go/tools/cmd/staticcheck@v0.7.0
+go build ./...
+go test ./...
+python3 -m unittest discover -s scripts -p 'test_*.py'   # bench driver tests
+```
+
+- Single test: `go test ./vm -run 'TestName$' -count=1`
+- Race: `go test -race ./db/store ./engine` (the concurrency/MVCC tests are the ones that matter)
+- Binaries: `make build` (`go build -o bin/ ./cmd/...`) puts every `cmd/` tool in the gitignored `bin/`; Go adds `.exe` on Windows. Never build into the repo root. For one tool, `go build -o bin/ ./cmd/barn`; verify the package first with `go list ./cmd/barn`, since the repo root is not a command.
+- Deployment build: `make build-linux-amd64` (GOAMD64=v3, writes `bin/barn-linux-amd64`). `cmd/barn/default.pgo` is applied automatically; `-pgo=off` gives a baseline.
+- The `conformance*` Makefile targets point at the retired cow_py suite. Don't use them.
+
+CI's managed conformance invocation, which is the canonical Linux form:
+
+```bash
+uv run --project ../moo-conformance-tests --frozen moo-conformance \
+  -m "admission or conformance" \
+  --server-command "$PWD/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=$PWD/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+  --server-db=../moo-conformance-tests/src/moo_conformance/_db/Test.db \
+  --server-db-dir=../moo-conformance-tests/src/moo_conformance/_db/startup \
+  --moo-host=127.0.0.1 \
+  --oracle-profile-manifest=$PWD/profiles/toast/stock-wsl-testdb.json \
+  --fail-on-unexpected-skip --strict-markers -q
+```
+
+Narrow it with `-k`, and keep the `capability_admission` test in any focused
+selection (see `AGENTS.md`). Runtime profiles live in `profiles/barn/*.conf`, and
+Toast oracle manifests live in `profiles/toast/*.json`.
+
+## Architecture
+
+Request flow: `server` (connections, login, input) → `engine.Runtime`
+(task creation, verb calls, eval, fork/suspend/resume, retry) → `vm`
+(executes `bytecode.Program`) → `builtins` → `db/store`.
+
+- **Source to execution:** `parser` (lexer, AST, unparser) → `compiler` (owns
+  complete source compilation, with a cache keyed by `sourcekey`) → `bytecode`
+  (opcodes, verifier, disassembler) → `vm`. `verb` holds the
+  language-neutral verb IR. `command` does player command parsing and
+  verb/object matching.
+- **State:** `db/store` is an MVCC store. Tasks read at a snapshot timestamp and
+  stage writes, and commits validate their read sets. A stale read aborts, and
+  `engine` retries the task. Anonymous objects bypass per-object COW and take the
+  coarse exclusive lock. `db/format` is the only ToastStunt on-disk reader/writer
+  (versions v4/v5/v17, checkpoint, startup repair, waif sidecar). It builds
+  objects through `store.ObjectBuilder`.
+- **Tasks and fairness:** `task` (task state, queues, suspend generations,
+  tracebacks), `internal/admission` (execution occupancy and per-principal
+  fairness; it owns no VM state), and `internal/commitgate`. `kernel.TaskContext`
+  is the per-task context passed into builtins.
+- **Values:** `types` (MOO values, persistent lists/maps, waifs, error codes,
+  activation frames).
+- **Wiring:** `cmd/barn` → `internal/app`. `internal/dbtool` implements the
+  `-eval`/`-verb-code`/... inspection flags and the in-process path used by
+  `scripts/bench_differ.py`. `internal/listener` holds the TCP/TLS/WebSocket
+  listeners, and `config` parses the server options and capabilities.
+- **Observability:** `logging` (slog), `metrics` (expvar), `trace`
+  (`docs/TRACING.md`).
+
+Repo conventions: active plans are in `plans/`, measured results in
+`experiments/`, durable prose in `docs/`, and agent notes in `notes/`.
+`repository_hygiene_test.go` fails `go test` if any of a list of retired root
+scratch files comes back. `scripts/clean-scratch.ps1` lists and removes
+untracked root scratch.
 
 ## Reference Implementations
 
@@ -148,17 +235,6 @@ Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in 
 | moo_interp | `~/code/moo_interp/` | Python MOO interpreter |
 | cow_py | `~/code/cow_py/` | Python MOO server (no longer has conformance tests) |
 | lambdamoo-db-py | `~/src/lambdamoo-db-py/` | LambdaMOO database parser |
-
-## Directory Structure
-
-```
-barn/
-├── spec/           # MOO language specification
-│   ├── builtins/   # 17 builtin category specs
-│   └── *.md        # Core spec documents
-├── prompts/        # Subagent prompts for spec auditing
-└── CLAUDE.md       # This file
-```
 
 ## Managed Conformance Workflow
 
@@ -185,10 +261,10 @@ default — no flag needed.
 **To find out what went wrong on the last run:**
 
 ```bash
-go build -o barn_logs.exe ./cmd/barn_logs/
-./barn_logs.exe -level error     # failures only; exits 1 if the run logged an error
-./barn_logs.exe                  # warnings and errors
-./barn_logs.exe -run list        # available runs
+go build -o bin/ ./cmd/barn_logs
+./bin/barn_logs -level error     # failures only; exits 1 if the run logged an error
+./bin/barn_logs                  # warnings and errors
+./bin/barn_logs -run list        # available runs
 ```
 
 An uncaught MOO error is **one** log record carrying the rendered traceback, the
@@ -269,16 +345,16 @@ Build the `barn` binary once; database inspection uses the same `-db` flag as
 the server and exits without starting listeners.
 
 ```bash
-go build -o barn.exe ./cmd/barn/
+go build -o bin/ ./cmd/barn
 
-./barn.exe -db Test.db -verb-code '#0:do_login_command'
-./barn.exe -db Test.db -list-verbs '#0'
-./barn.exe -db Test.db -obj-info '#2'
-./barn.exe -db Test.db -eval '1 + 2'
-./barn.exe -db Test.db -dump-obj-raw '#2'
-./barn.exe -db Test.db -verb-lookup '#2:look'
-./barn.exe -db Test.db -ancestry '#2'
-./barn.exe -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
+./bin/barn -db Test.db -verb-code '#0:do_login_command'
+./bin/barn -db Test.db -list-verbs '#0'
+./bin/barn -db Test.db -obj-info '#2'
+./bin/barn -db Test.db -eval '1 + 2'
+./bin/barn -db Test.db -dump-obj-raw '#2'
+./bin/barn -db Test.db -verb-lookup '#2:look'
+./bin/barn -db Test.db -ancestry '#2'
+./bin/barn -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
 ```
 
 ## Spec Audit Workflow
@@ -290,16 +366,10 @@ Two-agent loop for finding and fixing specification gaps:
 
 See `prompts/README.md` for details.
 
-## Current Phase
-
-Phase 1: Specification (complete)
-Phase 2: Test suite completion (in progress)
-Phase 3: Go implementation (in progress)
-
 ## Go Tools Available
 
 | Tool | Install | Usage |
 |------|---------|-------|
-| gorename | `go install golang.org/x/tools/cmd/gorename@latest` | Type-safe renaming: `gorename -from '"barn/vm".Evaluator.evalFoo' -to foo` |
+| gorename | `go install golang.org/x/tools/cmd/gorename@latest` | Type-safe renaming: `gorename -from '"github.com/MongooseMoo/barn/vm".Type.method' -to foo` |
 
 Use these instead of manual string replacement for refactoring.

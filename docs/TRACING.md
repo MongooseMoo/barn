@@ -5,7 +5,7 @@
 Enable tracing when starting the server:
 
 ```bash
-./barn.exe -db MyGame.db -port 7777 --trace 2> trace.log
+./bin/barn -db MyGame.db -port 7777 --trace 2> trace.log
 ```
 
 ## Command-Line Flags
@@ -19,16 +19,16 @@ Filter traced verbs using glob patterns. Multiple patterns can be comma-separate
 Examples:
 ```bash
 # Trace all verbs
-./barn.exe --trace
+./bin/barn --trace
 
 # Trace only login-related verbs
-./barn.exe --trace --trace-filter "do_login*,user_*"
+./bin/barn --trace --trace-filter "do_login*,user_*"
 
 # Trace only a specific verb
-./barn.exe --trace --trace-filter "look"
+./bin/barn --trace --trace-filter "look"
 
 # Multiple patterns
-./barn.exe --trace --trace-filter "do_*,user_*,get_*"
+./bin/barn --trace --trace-filter "do_*,user_*,get_*"
 ```
 
 ## Output Format
@@ -64,7 +64,7 @@ Note: Notify calls are indented to show they occurred during verb execution.
 
 ### Debug Login Issues
 ```bash
-./barn.exe -db game.db --trace --trace-filter "do_login*,user_*" 2> login_trace.log
+./bin/barn -db game.db --trace --trace-filter "do_login*,user_*" 2> login_trace.log
 ```
 
 This traces:
@@ -75,12 +75,12 @@ This traces:
 
 ### Debug Command Processing
 ```bash
-./barn.exe -db game.db --trace --trace-filter "look,@describe" 2> command_trace.log
+./bin/barn -db game.db --trace --trace-filter "look,@describe" 2> command_trace.log
 ```
 
 ### Full Execution Trace
 ```bash
-./barn.exe -db game.db --trace 2> full_trace.log
+./bin/barn -db game.db --trace 2> full_trace.log
 ```
 
 Warning: Full traces can be very verbose in active databases.
@@ -88,7 +88,7 @@ Warning: Full traces can be very verbose in active databases.
 ### Real-Time Monitoring
 ```bash
 # Terminal 1: Start server with trace
-./barn.exe -db game.db --trace
+./bin/barn -db game.db --trace
 
 # Terminal 2: Connect and test
 telnet localhost 7777
@@ -135,12 +135,12 @@ When tracing is **enabled**:
 
 1. **Always redirect stderr to a file** for later analysis:
    ```bash
-   ./barn.exe --trace 2> trace.log
+   ./bin/barn --trace 2> trace.log
    ```
 
 2. **Use filters to reduce noise** in busy databases:
    ```bash
-   ./barn.exe --trace --trace-filter "do_*,user_*"
+   ./bin/barn --trace --trace-filter "do_*,user_*"
    ```
 
 3. **Grep for specific events**:
@@ -163,7 +163,7 @@ When tracing is **enabled**:
 ## Example Session
 
 ```bash
-$ ./barn.exe -db toastcore.db --trace 2> trace.log &
+$ ./bin/barn -db toastcore.db --trace 2> trace.log &
 $ telnet localhost 7777
 Trying 127.0.0.1...
 Connected to localhost.

@@ -2,25 +2,29 @@
 
 .PHONY: build build-linux-amd64 clean test run conformance help
 
+# Binaries go to bin/ (gitignored); Go appends .exe on Windows.
+BIN := bin
+EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
+
 # Default target
 all: build
 
-# Build the main barn executable
+# Build every command under cmd/ into bin/
 build:
-	go build -o barn.exe ./cmd/barn/
+	go build -o $(BIN)/ ./cmd/...
 
 # Build the optimized linux/amd64 deployment and bench_differ binary.
 # Generic release artifacts intentionally retain Go's GOAMD64=v1 default.
 build-linux-amd64:
-	GOOS=linux GOARCH=amd64 GOAMD64=v3 CGO_ENABLED=0 go build -o barn-linux-amd64 ./cmd/barn/
+	GOOS=linux GOARCH=amd64 GOAMD64=v3 CGO_ENABLED=0 go build -o $(BIN)/barn-linux-amd64 ./cmd/barn/
 
 # Build with race detector (for debugging)
 build-race:
-	go build -race -o barn-race.exe ./cmd/barn/
+	go build -race -o $(BIN)/barn-race$(EXE) ./cmd/barn/
 
 # Clean build artifacts
 clean:
-	rm -f barn.exe barn-race.exe barn_test.exe barn-linux-amd64
+	rm -rf $(BIN)
 	rm -f server_*.log test_*.log output_*.log
 
 # Run Go tests
@@ -33,11 +37,11 @@ test-v:
 
 # Start server on default port (7777)
 run: build
-	./barn.exe -db Test.db -port 7777
+	./$(BIN)/barn$(EXE) -db Test.db -port 7777
 
 # Start server on test port (9300)
 run-test: build
-	./barn.exe -db Test.db -port 9300
+	./$(BIN)/barn$(EXE) -db Test.db -port 9300
 
 # Run conformance tests against running server (requires server on port 9300)
 conformance:
@@ -57,14 +61,14 @@ conformance-k:
 
 # Quick manual test
 quick-test: build
-	./barn.exe -db Test.db -port 9300 > server.log 2>&1 & \
+	./$(BIN)/barn$(EXE) -db Test.db -port 9300 > server.log 2>&1 & \
 	sleep 2 && \
 	printf 'connect wizard\n; return 1 + 1;\n' | nc -w 3 localhost 9300
 
 # Help
 help:
 	@echo "Barn Makefile targets:"
-	@echo "  build          - Build barn.exe"
+	@echo "  build          - Build all cmd/ tools into bin/"
 	@echo "  build-linux-amd64 - Build v3 linux/amd64 deployment binary"
 	@echo "  build-race     - Build with race detector"
 	@echo "  clean          - Remove build artifacts and logs"
