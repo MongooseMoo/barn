@@ -70,3 +70,102 @@ runs holdout and decides promotion. Worker may not merge/push integration.
 ## Results (append only)
 
 Pending implementation and measurement.
+
+### Development results
+
+Candidate source: 311f23426b1b637198e41e3c5d5d8c2ce138d280. Baseline unchanged
+at 853cba5. All five pairs completed; harness exit 0, ten worlds, zero recorded
+errors. Independent raw correctness verification confirmed all ten PBT summaries
+at 65/65/0 and exact counters for every workload. Holdout results follow below.
+
+Throughput in operations/second, baseline / candidate:
+
+| Pair | Read | Disjoint write | Contended write |
+| --- | --- | --- | --- |
+| 0 | 536.17 / 965.30 | 587.62 / 598.66 | 521.48 / 557.11 |
+| 1 | 554.87 / 954.37 | 532.24 / 587.84 | 479.84 / 555.60 |
+| 2 | 507.09 / 978.99 | 480.84 / 692.32 | 479.28 / 545.59 |
+| 3 | 610.66 / 848.52 | 576.68 / 646.83 | 527.56 / 569.54 |
+| 4 | 613.20 / 1044.37 | 534.87 / 739.53 | 506.44 / 574.63 |
+| Median | 554.87 / 965.30 | 534.87 / 646.83 | 506.44 / 557.11 |
+| Minimum | 507.09 / 848.52 | 480.84 / 587.84 | 479.28 / 545.59 |
+| Maximum | 613.20 / 1044.37 | 587.62 / 739.53 | 527.56 / 574.63 |
+
+Primary paired percentage gains: 1.8791, 10.4464, 43.9811, 12.1645, 38.2636.
+Median paired gain 12.1645 percent; bootstrap 95 percent interval for mean paired
+gain [7.3631, 36.1307] percent. Development numerical gate PASS. Ratio-of-medians
+changes: read +73.9691 percent, disjoint +20.9313 percent, contended +10.0048 percent.
+The paired median and ratio of medians answer different questions; the former
+is the preregistered primary statistic. Five pairs provide limited precision.
+
+Exact candidate validation raw summaries:
+
+```text
+CI_COMMANDS_PASS
+ok  github.com/MongooseMoo/barn/db/store  1.745s
+12524 passed, 420 skipped, 1 warning in 338.95s (0:05:38)
+END exit=0
+```
+
+The warning concerns pytest record_property and xunit2 output. Managed admission
+ran in the same complete conformance session, with unexpected skips prohibited.
+Compiler: Go 1.24.6, Linux. Evaluator bootstrap uses Python Random(20260921),
+20000 choices(k=5) resamples and linear interpolation at (n-1)*q; independent
+verifier checked this implementation before data collection.
+
+Binary SHA256:
+- Baseline: ee59f0ec89a0efa0d87f8fd04f82dc8b47cbc686768b9a0b33b96069db236ef5
+- Candidate: a26fa3e26af0a40612ff47d9fe5e597ef6a537f6001b17a41b794f3d267b4658
+
+Private raw matrix: /tmp/barn-live-20260921/pruning-development/matrix.json.
+Only aggregate numeric results and artifact hashes are recorded here. The fixture
+contains the previously documented disposable PBT cleanup repair; results do not
+claim that an untouched production snapshot passes PBT. Raw databases, live-world
+transcripts, profiles and credentials remain outside Git.
+
+### Independent holdout and decision
+
+The independent verifier ran the sealed holdout once, after development passed:
+three fresh-world pairs at eight clients, harness exit 0. All six worlds had zero
+errors, PBT 65/65/0 and exact counters for every workload. Fixture, binary, evaluator
+and test seals match development; the preregistration prefix is unchanged.
+
+Throughput in operations/second, baseline / candidate:
+
+| Pair | Read | Disjoint write | Contended write |
+| --- | --- | --- | --- |
+| 0 | 667.47 / 826.61 | 517.46 / 660.30 | 415.63 / 502.82 |
+| 1 | 883.36 / 1145.76 | 628.77 / 772.76 | 463.93 / 509.63 |
+| 2 | 792.58 / 989.01 | 596.01 / 653.38 | 447.01 / 438.94 |
+| Median | 792.58 / 989.01 | 596.01 / 660.30 | 447.01 / 502.82 |
+| Minimum | 667.47 / 826.61 | 517.46 / 653.38 | 415.63 / 438.94 |
+| Maximum | 883.36 / 1145.76 | 628.77 / 772.76 | 463.93 / 509.63 |
+
+Holdout ratio-of-medians changes: read +24.7830 percent, disjoint +10.7865 percent,
+contended +12.4851 percent. All satisfy the preregistered no-more-than-10-percent
+median regression gate. Raw matrix: /tmp/barn-live-20260921/pruning-holdout/matrix.json.
+
+Independent verifier raw decision:
+
+```text
+MERGE - promote the exact 311f234 source delta.
+Development: 5 pairs, 10 worlds, 0 errors
+Holdout: run once, exit 0; 3 pairs, 6 worlds, 0 errors
+All 16 raw PBT transcripts report 65/65/0; exact counters pass.
+CI_COMMANDS_PASS
+12524 passed, 420 skipped, 1 warning in 338.95s
+Conformance exit: 0
+XML: errors=0 failures=0
+```
+
+Decision: accept the optimization for local integration into fix/mongoose-correctness.
+This final result supersedes the initial pending marker. Source validation applies
+to exact 311f234; the subsequent result-record commit changes Markdown only.
+No additional experiment is needed: one diagnostic probe and one optimization
+experiment were used. The separate prerequisite race fix remains in the baseline.
+
+Limits: one machine, small paired samples, GOMAXPROCS 4, and the disposable
+PBT-repaired fixture. These measurements establish improvement over corrected
+853cba5 in these workloads; they do not establish universal speedup or a fresh
+original-branch/master comparison. Skipping an unchanged floor may delay removal
+of dead weak registry entries until another prune; it does not retain their payloads.

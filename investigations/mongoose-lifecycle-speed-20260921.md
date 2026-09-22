@@ -40,3 +40,32 @@ external wrapper attaching CPU and execution traces during each parallel case.
 One fresh world per original/repaired binary, 16 clients, 1500 operations/client.
 Collect synchronization/scheduler profiles from Go traces and allocation profiles.
 No source change is part of this probe. Raw results: private lifecycle-profile directory.
+
+## Probe findings and selected experiment
+
+Two diagnostic fresh worlds completed with zero recorded errors. Profiled rates
+(original / repaired, ops/s) were read 737.21 / 743.41, disjoint 463.55 / 681.48,
+contended 550.78 / 304.76. CPU/trace collection changes execution and these are
+not acceptance timings. They do not establish a uniform repair regression.
+
+The repaired read CPU profile attributed 4.17 percent cumulative CPU to transaction
+release, including 2.76 percent to WAIF history pruning. Every release acquired
+the global store write lock while history was pending, even with an unchanged
+oldest reader. The three-second trace attributed about 0.99 blocked goroutine
+seconds to release. Shared task enumeration and verb lookup also consumed CPU,
+but this probe did not establish them as new repair costs. No scheduler, task
+enumeration or cleanup-snapshot change was made.
+
+Inspection exposed a prerequisite publication/last-reader race: publication could
+sample an old reader before announcing pending history; the departing reader
+could then miss cleanup. Commit 853cba5 announces pending history before sampling
+the floor. A deterministic regression controls the reader-registration shard
+barrier and proves the stale history is removed; it failed before the fix.
+
+The selected experiment caches the floor of a completed full WAIF prune, skips
+only equal nonzero floors and invalidates on every publication. This preserves
+explicit older/future snapshot timestamps and prompt last-reader cleanup.
+Preregistration, every development pair, validation output and final decision
+belong in [the experiment record](../experiments/2026-09-21-waif-prune-watermark.md).
+The experiment compares against the corrected 853cba5 baseline; its results must
+not be presented as a fresh direct comparison against original 65a7e21 or master.
