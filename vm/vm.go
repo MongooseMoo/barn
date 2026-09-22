@@ -16,6 +16,11 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
+	// Boxed command-environment strings reused across verb calls (commandStr).
+	cmdStrSrc [4]string
+	cmdStrVal [4]types.Value
+	cmdStrSet [4]bool
+
 	Stack         []types.Value       // Operand stack
 	SP            int                 // Stack pointer
 	Frames        []*StackFrame       // Call stack

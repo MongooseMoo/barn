@@ -48,20 +48,21 @@ func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID,
 		return types.ObjFailedMatch
 	}
 
-	roomContents := make([]types.ObjID, 0)
+	var roomContents []types.ObjID
 	if contents, errCode := store.DirectTxn().Contents(location); errCode == types.E_NONE {
-		roomContents = append(roomContents, contents...)
+		roomContents = contents
 	}
 
-	if matches := findExactMatches(store, inventory, roomContents, name); len(matches) > 0 {
-		if len(matches) == 1 {
-			return matches[0]
+	exact, prefix := findMatches(store, inventory, roomContents, nameLower)
+	if len(exact) > 0 {
+		if len(exact) == 1 {
+			return exact[0]
 		}
 		return types.ObjAmbiguous
 	}
-	if matches := findPrefixMatches(store, inventory, roomContents, name); len(matches) > 0 {
-		if len(matches) == 1 {
-			return matches[0]
+	if len(prefix) > 0 {
+		if len(prefix) == 1 {
+			return prefix[0]
 		}
 		return types.ObjAmbiguous
 	}
@@ -69,31 +70,77 @@ func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID,
 	return types.ObjFailedMatch
 }
 
-func findExactMatches(store *dbstore.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
-	searchLower := strings.ToLower(search)
-	var matches []types.ObjID
-
-	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		name, errCode := store.DirectTxn().ObjectName(objID)
-		if errCode != types.E_NONE {
-			continue
-		}
-		if strings.ToLower(name) == searchLower {
-			matches = appendUniqueMatch(matches, objID)
-			continue
-		}
-		aliases, errCode := store.AliasStrings(objID)
-		if errCode != types.E_NONE {
-			continue
-		}
-		for _, alias := range aliases {
-			if strings.ToLower(alias) == searchLower {
-				matches = appendUniqueMatch(matches, objID)
-				break
+// findMatches collects, in one pass over inventory then room, the objects whose
+// name or an alias equals searchLower and those for which one has it as a
+// prefix, both case-insensitively.
+func findMatches(store *dbstore.Store, inventory []types.ObjID, room []types.ObjID, searchLower string) (exact, prefix []types.ObjID) {
+	scan := func(objs []types.ObjID) {
+		for _, objID := range objs {
+			name, errCode := store.DirectTxn().ObjectName(objID)
+			if errCode != types.E_NONE {
+				continue
+			}
+			isExact := lowerEquals(name, searchLower)
+			isPrefix := lowerHasPrefix(name, searchLower)
+			if !isExact || !isPrefix {
+				store.VisitAliasStrings(objID, func(alias string) bool {
+					isExact = isExact || lowerEquals(alias, searchLower)
+					isPrefix = isPrefix || lowerHasPrefix(alias, searchLower)
+					return !(isExact && isPrefix)
+				})
+			}
+			if isExact {
+				exact = appendUniqueMatch(exact, objID)
+			}
+			if isPrefix {
+				prefix = appendUniqueMatch(prefix, objID)
 			}
 		}
 	}
-	return matches
+	scan(inventory)
+	scan(room)
+	return exact, prefix
+}
+
+// lowerEquals reports strings.ToLower(s) == lower without allocating for ASCII s.
+func lowerEquals(s, lower string) bool {
+	if !isASCII(s) {
+		return strings.ToLower(s) == lower
+	}
+	return len(s) == len(lower) && asciiLowerPrefix(s, lower)
+}
+
+// lowerHasPrefix reports strings.HasPrefix(strings.ToLower(s), lower) without
+// allocating for ASCII s.
+func lowerHasPrefix(s, lower string) bool {
+	if !isASCII(s) {
+		return strings.HasPrefix(strings.ToLower(s), lower)
+	}
+	return len(s) >= len(lower) && asciiLowerPrefix(s, lower)
+}
+
+// asciiLowerPrefix compares lower against the ASCII-lowered first len(lower)
+// bytes of s. The caller guarantees s is ASCII and len(s) >= len(lower).
+func asciiLowerPrefix(s, lower string) bool {
+	for i := 0; i < len(lower); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lower[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 func appendUniqueMatch(matches []types.ObjID, objID types.ObjID) []types.ObjID {
@@ -103,31 +150,4 @@ func appendUniqueMatch(matches []types.ObjID, objID types.ObjID) []types.ObjID {
 		}
 	}
 	return append(matches, objID)
-}
-
-func findPrefixMatches(store *dbstore.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
-	searchLower := strings.ToLower(search)
-	var matches []types.ObjID
-
-	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		name, errCode := store.DirectTxn().ObjectName(objID)
-		if errCode != types.E_NONE {
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(name), searchLower) {
-			matches = appendUniqueMatch(matches, objID)
-			continue
-		}
-		aliases, errCode := store.AliasStrings(objID)
-		if errCode != types.E_NONE {
-			continue
-		}
-		for _, alias := range aliases {
-			if strings.HasPrefix(strings.ToLower(alias), searchLower) {
-				matches = appendUniqueMatch(matches, objID)
-				break
-			}
-		}
-	}
-	return matches
 }

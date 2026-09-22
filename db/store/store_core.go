@@ -766,27 +766,29 @@ func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
 	return result
 }
 
-func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
+// VisitAliasStrings calls fn with each string element of objID's own "aliases"
+// property until fn returns false. It does nothing for an invalid object or a
+// missing or non-list value. fn runs under the store read lock and must not
+// call back into the store.
+func (s *Store) VisitAliasStrings(objID types.ObjID, fn func(string) bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
-		return nil, types.E_INVIND
+		return
 	}
 	prop, ok := obj.properties["aliases"]
 	if !ok {
-		return nil, types.E_NONE
+		return
 	}
 	listVal := prop.value
 	if listVal.Type() != types.TYPE_LIST {
-		return nil, types.E_NONE
+		return
 	}
-	aliases := make([]string, 0, listVal.Len())
 	for i := 1; i <= listVal.Len(); i++ {
-		if elem := listVal.Get(i); elem.Type() == types.TYPE_STR {
-			aliases = append(aliases, elem.Str())
+		if elem := listVal.Get(i); elem.Type() == types.TYPE_STR && !fn(elem.Str()) {
+			return
 		}
 	}
-	return aliases, types.E_NONE
 }

@@ -25,8 +25,14 @@ func TestVerbMemoAfterUnrelatedStagedWrite(t *testing.T) {
 		}
 		requireSameReadSet(t, "untouched ancestry", want, snapshotReadSet(tx))
 	}
-	if n, _ := tx.resolveCacheLenForTest(); n != 1 {
-		t.Fatalf("verb cache size = %d, want 1", n)
+	// The reference walk published a store-level memo entry. A writing txn may
+	// be served from it, but only with the walk's exact scan marks (checked
+	// above), never with a dependency on the global verb-shape clock.
+	if tx.usedVerbMemo {
+		t.Fatal("writing txn took a clock-validated memo resolution")
+	}
+	if n, _ := tx.resolveCacheLenForTest(); n > 1 {
+		t.Fatalf("verb cache size = %d, want at most 1", n)
 	}
 	// Privatizing an ancestor invalidates the entry. Subsequent writes to that
 	// already-owned ancestor must never leave an entry eligible for reuse.

@@ -205,10 +205,22 @@ type propResolveEntry struct {
 	ec    types.ErrorCode // E_PROPNF records a negative resolution
 }
 
-// resolveCacheActive gates property and store-global verb memoization. Local
-// verb entries instead validate that every object on their path is unowned.
+// resolveCacheActive gates property memoization. Local verb entries instead
+// validate that every object on their path is unowned.
 func (tx *StoreTxn) resolveCacheActive() bool {
 	return len(tx.owned) == 0
+}
+
+// verbMemoActive gates the store-global verb dispatch memo. A memo entry names
+// its definer and verb-list index, so it stays exact while every private copy
+// keeps the snapshot's verb lists and parents: property-value, location and
+// verb-code writes privatize objects without changing dispatch. Verb deletes,
+// creates and recycles set privateVerbShape; topology and verb-definition
+// builtins mutate the live store, which disables the memo in
+// materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
+// predates a verb-shape change (validateVerbReadsLocked).
+func (tx *StoreTxn) verbMemoActive() bool {
+	return !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -276,6 +288,10 @@ type verbDispatchMemoEntry struct {
 	definer types.ObjID
 	// The shape clock protects definition order; first aliases are not unique.
 	index int
+	// path lists the objects the producing walk scanned, in order. While the
+	// shape clock holds, a walk on any later snapshot scans the same objects,
+	// so a writing txn can record exact scan marks without re-matching names.
+	path []types.ObjID
 }
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
@@ -302,8 +318,18 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if entry.readTS < last {
 		return nil, types.ObjNothing, false, false
 	}
+	// A txn that has staged writes will be validated at commit; give it the
+	// walk's exact scan marks rather than a dependency on the global shape
+	// clock, which every coarse commit advances.
+	precise := len(tx.owned) > 0
 	if !entry.found {
-		tx.noteVerbMemoHit(key)
+		if precise {
+			if !tx.replayMemoPath(entry.path) {
+				return nil, types.ObjNothing, false, false
+			}
+		} else {
+			tx.noteVerbMemoHit(key)
+		}
 		return nil, types.ObjNothing, false, true
 	}
 	obj := tx.object(entry.definer)
@@ -317,9 +343,30 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
 		return nil, types.ObjNothing, false, false
 	}
-	tx.noteVerbMemoHit(key)
+	if precise {
+		if !tx.replayMemoPath(entry.path) {
+			return nil, types.ObjNothing, false, false
+		}
+	} else {
+		tx.noteVerbMemoHit(key)
+	}
 	tx.markVerbRead(entry.definer, verb)
 	return verb, entry.definer, true, true
+}
+
+// replayMemoPath records a verb-scan mark for every object on a memoized walk
+// path. It marks nothing and reports false if any object is no longer valid in
+// this txn's view, so the caller can fall back to a real walk.
+func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
+	for _, id := range path {
+		if obj := tx.object(id); obj == nil || obj.recycled {
+			return false
+		}
+	}
+	for _, id := range path {
+		tx.markVerbScan(id, tx.object(id))
+	}
+	return true
 }
 
 func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
@@ -359,7 +406,7 @@ func (tx *StoreTxn) materializeVerbMemoMarks() {
 // Anonymous objects are never memoized: their ids are recycled constantly and
 // invalidating the memo on each would make it useless. A txn that has mutated
 // the live store has no clean snapshot to tag the entry with.
-func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID) {
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep) {
 	s := tx.store
 	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
 		return
@@ -368,6 +415,11 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 		return
 	}
 	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	for _, step := range steps {
+		if step.scanned {
+			entry.path = append(entry.path, step.id)
+		}
+	}
 	if verb != nil {
 		entry.index = -1
 		for i, candidate := range tx.object(definer).verbList {
