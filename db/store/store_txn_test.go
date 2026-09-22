@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -1987,10 +1988,10 @@ func TestStoreTxnCommitAndRenewPublishesAndPreservesGateExemption(t *testing.T) 
 		t.Fatalf("add root: %v", err)
 	}
 
-	store.EscalationLock()
-	t.Cleanup(store.EscalationUnlock)
+	grant, _ := store.AcquireExclusive(context.Background())
+	t.Cleanup(func() { grant.Release() })
 	tx := store.BeginSnapshot(0)
-	tx.ExemptFromCommitGate()
+	tx.BindExclusiveGrant(grant)
 	if errCode := tx.SetPropertyValue(0, "value", types.NewInt(2)); errCode != types.E_NONE {
 		tx.Release()
 		t.Fatalf("stage value: %v", errCode)

@@ -7,11 +7,9 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 )
 
-// A threaded sqlite statement inside EvalCommandOutput runs on a direct
-// transaction with no commit boundary, so its start must not wait for a
-// commit-time flush that never comes (that hung the Mongoose harness's boot
-// repair eval). It must start immediately and the eval must complete.
-func TestEvalThreadedSqliteStatementCompletesOnDirectTxn(t *testing.T) {
+// A threaded sqlite statement must launch at the eval's suspension boundary
+// and deliver its result through the same scheduler as ordinary task resumes.
+func TestEvalThreadedSqliteStatementCompletesAfterHandoff(t *testing.T) {
 	store := dbstore.NewStore()
 	wizard := dbstore.NewObjectBuilder(0)
 	wizard.SetOwner(0)

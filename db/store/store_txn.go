@@ -3,7 +3,9 @@ package store
 import (
 	"runtime"
 	"sync/atomic"
+	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -12,6 +14,8 @@ type StoreTxn struct {
 	store                     *Store
 	direct                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
+	exclusiveGrant            *commitgate.Grant
+	gateWait                  func(time.Duration)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -29,6 +33,7 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
+	waifs                     map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
 	// resolution and must instead fail validation if verbShapeChangeTS moved
@@ -161,7 +166,7 @@ func (tx *StoreTxn) HasWrites() bool {
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
 }
 
 // markTerminal records an operation/apply failure that cannot become valid by
@@ -179,13 +184,15 @@ func (tx *StoreTxn) ValidationFailed() bool {
 	return tx != nil && !tx.direct && tx.validationFail
 }
 
-// ExemptFromCommitGate marks this txn as the escalated attempt's txn: its
-// Commit will not take the shared commit gate. Only the engine's bounded-
-// escalation path may call this, and only while holding EscalationLock.
-func (tx *StoreTxn) ExemptFromCommitGate() {
-	if tx != nil && !tx.direct {
-		tx.gateExempt = true
+// BindExclusiveGrant requires a live capability from this store's gate.
+func (tx *StoreTxn) BindExclusiveGrant(grant *commitgate.Grant) {
+	if tx == nil || tx.direct {
+		return
 	}
+	if grant == nil || !grant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("transaction requires a live exclusive commit grant")
+	}
+	tx.exclusiveGrant, tx.gateExempt = grant, true
 }
 
 // ClearCommitGateExemption re-arms the shared gate for a retryable txn that
@@ -193,6 +200,7 @@ func (tx *StoreTxn) ExemptFromCommitGate() {
 func (tx *StoreTxn) ClearCommitGateExemption() {
 	if tx != nil && !tx.direct {
 		tx.gateExempt = false
+		tx.exclusiveGrant = nil
 	}
 }
 
@@ -202,4 +210,12 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 // ordinary txn) must wait until the runtime releases it.
 func (tx *StoreTxn) IsCommitGateExempt() bool {
 	return tx != nil && !tx.direct && tx.gateExempt
+}
+
+// SetCommitWaitObserver carries occupancy accounting through transaction renewals.
+// Commit itself remains noncancellable once publication has begun.
+func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
+	if tx != nil {
+		tx.gateWait = waited
+	}
 }

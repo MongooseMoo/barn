@@ -47,7 +47,10 @@ func deferServerOptions(ctx *Execution, snapshot *kernel.PendingServerOptions) {
 // drop later calls. The task has already committed, so failures are logged instead
 // of being converted into an uncatchable MOO error after successful completion.
 func FlushPendingEffects(ctx *Execution) {
-	if ctx == nil || ctx.TaskContext == nil || len(ctx.PendingEffects) == 0 {
+	if ctx == nil || ctx.TaskContext == nil {
+		return
+	}
+	if len(ctx.PendingEffects) == 0 {
 		return
 	}
 	pending := ctx.PendingEffects
@@ -71,11 +74,7 @@ func FlushPendingEffects(ctx *Execution) {
 				continue
 			}
 			trace.Notify(note.Player, note.Message)
-			if note.NoFlush {
-				conn.Buffer(note.Message)
-				continue
-			}
-			if err := conn.Send(note.Message); err != nil {
+			if err := conn.SendNotification(note); err != nil {
 				setErr(types.E_INVARG)
 			}
 		case kernel.PendingEffectConnectionSwitch:

@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"testing"
 	"time"
 )
@@ -14,7 +16,7 @@ func TestSnapshotWaitsForCommitBoundary(t *testing.T) {
 	// Ordinary commits hold the gate for reading across validation and every
 	// object publication. Model a commit paused between publications and verify
 	// that Snapshot cannot walk the directory until that boundary completes.
-	store.commitGate.RLock()
+	grant, _ := store.commitGate.Acquire(context.Background(), commitgate.Shared)
 	done := make(chan struct{})
 	go func() {
 		store.Snapshot()
@@ -23,12 +25,12 @@ func TestSnapshotWaitsForCommitBoundary(t *testing.T) {
 
 	select {
 	case <-done:
-		store.commitGate.RUnlock()
+		grant.Release()
 		t.Fatal("Snapshot completed while a commit boundary was open")
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	store.commitGate.RUnlock()
+	grant.Release()
 	select {
 	case <-done:
 	case <-time.After(time.Second):

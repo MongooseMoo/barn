@@ -157,9 +157,7 @@ func builtinSecondsLeft(ctx *Execution, args []types.Value) types.Result {
 	// Get from task if available
 	if t := ctx.Task; t != nil {
 		left := int64(t.SecondsLeft())
-		if left > 0 {
-			return types.Ok(types.NewInt(left))
-		}
+		return types.Ok(types.NewInt(max(0, left)))
 	}
 
 	// Default fallback (assume infinite time if no task)
@@ -265,7 +263,10 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	// Launch subprocess in background goroutine
 	go func() {
 		defer execCancel()
+		started := time.Now()
 		result := execCommandWithContext(execCtx, resolvedPath, cmdArgs, input, environment)
+		slog.Debug("external command completed", slog.Int64("task_id", t.ID),
+			slog.String("command", program), slog.Duration("elapsed", time.Since(started)))
 
 		// Deliver result to the task and transition it to Queued
 		if result.IsNormal() {
@@ -865,15 +866,6 @@ func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
 	slog.Info("CHECKPOINTING: dump_database() requested",
 		slog.Int64("programmer", int64(ctx.Programmer)))
 	if dump := hostOf(ctx).Checkpoint; dump != nil {
-		if ctx.StoreTxn.IsCommitGateExempt() {
-			// This attempt holds the store's commit gate exclusively (the engine's
-			// escalation for a slice that cannot be re-executed). The checkpoint
-			// takes that same gate and runs checkpoint_started/finished tasks that
-			// commit through it, so dumping here would self-deadlock. The runtime
-			// dumps the moment it releases the gate; the return value is the same.
-			ctx.DeferredCheckpoint = true
-			return types.Ok(types.NewInt(0))
-		}
 		if err := dump(); err != nil {
 			slog.Error("dump_database() failed", slog.Any("err", err))
 			// MOO spec: dump_database() returns 0 on success

@@ -27,11 +27,18 @@ type VM struct {
 	TickLimit     int64               // Maximum ticks before E_MAXREC
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
-	PendingWaifs  []types.Value
+	// Preempt is set only on a root VM whose owner may lend its admission
+	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
+	// may run while their caller holds locks other invocations need.
+	Preempt      func()
+	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
 	// this lossless record after the final activation has already been popped.
-	PendingFinalizations []types.Value
+	PendingFinalizations       []types.Value
+	pendingWaifIDs             map[types.WaifIdentity]struct{}
+	pendingFinalizationWaifIDs map[types.WaifIdentity]struct{}
+	pendingFinalizationAnonIDs map[types.ObjID]struct{}
 
 	// builtinExec is the Execution handed to every builtin call from this VM,
 	// created lazily with its service closures bound once and rebound to the
@@ -64,7 +71,7 @@ func (vm *VM) popFrame() {
 	vm.collectPendingFinalizationsFromFrame(frame)
 	stackEnd := min(vm.SP, len(vm.Stack))
 	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
-		collectDirectWaifsForGC(vm.Stack[i], &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(vm.Stack[i])
 		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
 	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
@@ -324,9 +331,21 @@ var fastKinds = func() (t [256]uint8) {
 // countTick charges one tick for a CountsTick opcode and mirrors the new
 // balance into the task context. Shared by the dispatch fast path and the
 // generic path so the accounting cannot drift between them.
-func (vm *VM) countTick() {
+func (vm *VM) countTick() bool {
 	vm.Ticks++
 	vm.syncContextTicks()
+	// Amortize clock reads while still bounding a non-yielding loop. Both
+	// dispatch paths must honor the seconds budget, including fast back-edges.
+	return vm.Ticks&1023 == 0 && vm.tickCheckpoint()
+}
+
+// tickCheckpoint is the amortized boundary where a root VM may lend its
+// admission reservation before the seconds budget is checked.
+func (vm *VM) tickCheckpoint() bool {
+	if vm.Preempt != nil {
+		vm.Preempt()
+	}
+	return vm.Task != nil && vm.Task.SecondsLeft() <= 0
 }
 
 // topInts returns the two operands on top of the stack when both are ints.
@@ -438,7 +457,7 @@ func boolInt(b bool) int64 {
 func (vm *VM) releaseLocal(previous types.Value) {
 	if previous.MayHoldFinalizable() {
 		vm.collectPendingFinalizationsFromValue(previous)
-		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(previous)
 	}
 }
 
@@ -692,7 +711,9 @@ func (vm *VM) executeLoop() types.Result {
 			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
 				cur.Locals[vi] = types.NewInt(a.Int() + 1)
 				cur.IP = ip + 7 - wideOperand(code, ip+3)
-				vm.countTick()
+				if vm.countTick() {
+					goto secondsLimit
+				}
 				if vm.Ticks < vm.TickLimit {
 					continue
 				}
@@ -700,7 +721,9 @@ func (vm *VM) executeLoop() types.Result {
 			}
 		case fkLoop:
 			cur.IP = ip + 5 - wideOperand(code, ip+1)
-			vm.countTick()
+			if vm.countTick() {
+				goto secondsLimit
+			}
 			if vm.Ticks < vm.TickLimit {
 				continue
 			}
@@ -710,7 +733,9 @@ func (vm *VM) executeLoop() types.Result {
 		// GENERIC PATH.
 		cur.IP = ip + 1
 		if bytecode.CountsTick(op) {
-			vm.countTick()
+			if vm.countTick() {
+				goto secondsLimit
+			}
 		}
 		err = vm.Execute(op)
 		if err != nil {
@@ -801,6 +826,10 @@ func (vm *VM) executeLoop() types.Result {
 	}
 
 	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
+
+secondsLimit:
+	_ = vm.annotateError(fmt.Errorf("E_MAXREC: seconds limit exceeded"), vm.CurrentLine())
+	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's

@@ -88,7 +88,7 @@ func (s *Store) pendingFinalizationsForSnapshotLocked(taskRoots []types.Value) [
 	taskWaifs := types.NewWaifSet(nil)
 	anonRefs := make(map[types.ObjID]struct{})
 	for _, root := range taskRoots {
-		collectWaifsInto(root, taskWaifs)
+		collectWaifsInto(root, taskWaifs, false)
 		collectAnonymousObjectRefs(root, anonRefs)
 	}
 	taskAnonymous := make(map[types.ObjID]struct{}, len(anonRefs))
@@ -96,7 +96,7 @@ func (s *Store) pendingFinalizationsForSnapshotLocked(taskRoots []types.Value) [
 	for id := range anonRefs {
 		queue = append(queue, id)
 	}
-	s.expandAnonymousReachabilityLocked(taskAnonymous, queue)
+	s.expandAnonymousReachabilityLocked(taskAnonymous, queue, false)
 
 	kept := make([]types.Value, 0, len(s.pendingFinalizations))
 	for _, value := range s.pendingFinalizations {
@@ -138,13 +138,13 @@ func finalizationValueInList(needle types.Value, values []types.Value) bool {
 
 func (s *Store) appendPendingWaifRootLocked(root types.Value) bool {
 	newClosure := types.NewWaifSet(nil)
-	collectWaifsInto(root, newClosure)
+	collectWaifsInto(root, newClosure, false)
 	for _, existing := range s.pendingFinalizations {
 		if existing.Type() != types.TYPE_WAIF {
 			continue
 		}
 		existingClosure := types.NewWaifSet(nil)
-		collectWaifsInto(existing, existingClosure)
+		collectWaifsInto(existing, existingClosure, false)
 		if existingClosure.Has(root) {
 			return false
 		}
@@ -179,7 +179,7 @@ func (s *Store) pendingAnonymousCoverageLocked(values []types.Value) map[types.O
 			queue = append(queue, id)
 		}
 	}
-	s.expandAnonymousReachabilityLocked(reachable, queue)
+	s.expandAnonymousReachabilityLocked(reachable, queue, false)
 	return reachable
 }
 

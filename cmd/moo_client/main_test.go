@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,6 +55,59 @@ func TestMooClientConnectsToIPv6Host(t *testing.T) {
 	}
 	if err := <-accepted; err != nil {
 		t.Fatalf("accept IPv6 connection: %v", err)
+	}
+}
+
+func TestMooClientPromptLogin(t *testing.T) {
+	if os.Getenv("MOO_CLIENT_PROMPT_HELPER") == "1" {
+		flag.CommandLine = flag.NewFlagSet("moo_client", flag.ExitOnError)
+		os.Args = []string{"moo_client", "-host", "127.0.0.1", "-port", os.Getenv("MOO_CLIENT_PROMPT_PORT"),
+			"-login-prompts", "-stop-after-login", "-login-ready", "MOTD", "-banner-wait", "5000", "-inter-cmd", "5000",
+			"-max-duration", "3", "-timeout", "2", "-cmd", "PROXY TCP4 test", "-cmd", "account", "-cmd", "fake-password"}
+		main()
+		return
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(4 * time.Second))
+		reader := bufio.NewReader(conn)
+		for _, step := range []struct{ command, response string }{
+			{"PROXY TCP4 test", "Enter your username or email:"}, {"account", "Password"}, {"fake-password", "Welcome! MOTD"},
+		} {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			if strings.TrimSpace(line) != step.command {
+				serverDone <- fmt.Errorf("unexpected command")
+				return
+			}
+			if _, err := conn.Write([]byte(step.response)); err != nil {
+				serverDone <- err
+				return
+			}
+		}
+		serverDone <- nil
+	}()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMooClientPromptLogin$")
+	cmd.Env = append(os.Environ(), "MOO_CLIENT_PROMPT_HELPER=1", "MOO_CLIENT_PROMPT_PORT="+strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("client: %v\n%s", err, output)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
 	}
 }
 

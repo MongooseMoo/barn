@@ -176,6 +176,9 @@ func (tx *StoreTxn) release() {
 	}
 	if tx.store != nil {
 		tx.store.deregisterReadTS(tx.readTS)
+		if tx.store.waifHistoryPending.Load() {
+			tx.store.pruneWaifHistory()
+		}
 	}
 	runtime.SetFinalizer(tx, nil)
 }

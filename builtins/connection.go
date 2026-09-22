@@ -108,9 +108,16 @@ func builtinForceInput(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if forcer := hostOf(ctx).InputForcer; forcer != nil {
-		forcer.ForceInput(target.ID(), line.Str(), atFront)
+		forcer.ForceInput(target.ID(), line.Str(), atFront, inputReceipt(ctx))
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func inputReceipt(ctx *Execution) func() {
+	if ctx.Task == nil {
+		return nil
+	}
+	return ctx.Task.NewInputReceipt()
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {

@@ -44,7 +44,7 @@ func TestPipeTransportConcurrentSendAndClose(t *testing.T) {
 	for range senders {
 		go func() {
 			defer wg.Done()
-			_ = transport.WriteLine("output")
+			_ = transport.WriteOutput("output", true)
 		}()
 	}
 
@@ -56,7 +56,7 @@ func TestPipeTransportConcurrentSendAndClose(t *testing.T) {
 	if err := transport.Send("after close"); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("Send() after Close() error = %v, want %v", err, net.ErrClosed)
 	}
-	if err := transport.WriteLine("after close"); !errors.Is(err, net.ErrClosed) {
+	if err := transport.WriteOutput("after close", true); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("WriteLine() after Close() error = %v, want %v", err, net.ErrClosed)
 	}
 }

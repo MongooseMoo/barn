@@ -571,6 +571,17 @@ return 0;
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
+	if value.Type() != types.TYPE_STR || value.Str() != "after-long-suspend" {
+		t.Fatalf("yield_progress before scheduler resume = %v, want after-long-suspend", value)
+	}
+	if queued.GetState() != task.TaskQueued {
+		t.Fatalf("state after suspend(0) = %v, want queued", queued.GetState())
+	}
+	s.ProcessReadyTasks()
+	value, errCode = store.DirectTxn().PropertyValue(0, "yield_progress")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue after resume failed: %s", errCode)
+	}
 	if value.Type() != types.TYPE_STR || value.Str() != "after-yield" {
 		t.Fatalf("yield_progress = %v, want after-yield", value)
 	}

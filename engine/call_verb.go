@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -19,7 +21,7 @@ import (
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
 func (s *Runtime) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
-	return s.CallVerbWithArgstr(objID, verbName, args, player, "")
+	return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipNone, 0, nil)
 }
 
 func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parent *builtins.Execution) types.Result {
@@ -126,8 +128,13 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
-	ticks, _ := foregroundTaskLimits(s.session)
-	bcVM.TickLimit = ticks
+	// A builtin callback is part of the current execution slice. Preserve any
+	// earlier callback charges until the outer VM consumes them, and keep this
+	// child from consuming those charges a second time.
+	remaining := parentCtx.TicksRemaining
+	pendingTicks := parentCtx.BuiltinTicksConsumed
+	parentCtx.BuiltinTicksConsumed = 0
+	bcVM.TickLimit = remaining
 	configureVMStackLimit(bcVM, s.session)
 
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
@@ -155,6 +162,8 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	if parentTask != nil {
 		result = s.drainForks(parentTask, bcVM, result)
 	}
+	parentCtx.TicksRemaining = max(0, remaining-bcVM.Ticks)
+	parentCtx.BuiltinTicksConsumed = pendingTicks + bcVM.Ticks
 	vm.ReleaseVM(bcVM)
 	if result.Flow == types.FlowException {
 		trace.Exception(objID, verbName, result.Error)
@@ -173,10 +182,28 @@ const (
 )
 
 func (s *Runtime) CallVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string) (result types.Result) {
-	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0)
+	roots := s.pinAdmissionRoots(objID, args)
+	defer roots.release()
+	scope, err := s.enterInput(player, false)
+	if err != nil {
+		return types.Err(types.E_INTRPT)
+	}
+	defer scope.Finish()
+	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0, scope)
 }
 
-func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64) (result types.Result) {
+func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64, scope *admission.Scope) (result types.Result) {
+	ownsScope := ownership == vmOwnershipNone
+	if ownsScope && scope == nil {
+		roots := s.pinAdmissionRoots(objID, args)
+		defer roots.release()
+		var err error
+		scope, err = s.enterInput(player, true)
+		if err != nil {
+			return types.Err(types.E_INTRPT)
+		}
+		defer scope.Finish()
+	}
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
 	var leasedTask *task.Task
@@ -207,6 +234,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		}
 		if leasedTask != nil {
 			s.releaseTaskExecution(leasedTask.ID)
+			scope.Finish()
 			s.flushDeferredGC()
 		}
 	}()
@@ -223,7 +251,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
 	if ownership == vmOwnershipNone {
-		s.acquireTaskExecution(t)
+		if !s.acquireTaskExecution(t) {
+			return types.Err(types.E_INTRPT)
+		}
+		scope.Start()
 		leasedTask = t
 		ownership = vmOwnershipExecution
 		ownerTaskID = t.ID
@@ -284,6 +315,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.Admission = scope
+	if scope != nil {
+		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	}
 	ctx.RuntimeOptions = s.options
 
 	// Propagate the already-published ownership to nested registry hooks.
@@ -316,7 +351,11 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
-	ticks, _ := foregroundTaskLimits(s.session)
+	// This standalone hook owns a fresh foreground slice. Start its budget only
+	// after admission and setup, just as the normal task execution path does.
+	ticks, seconds := foregroundTaskLimits(s.session)
+	start, seconds := t.ResetExecutionBudget(ticks, seconds, time.Now())
+	t.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM, s.session)
 

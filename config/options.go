@@ -12,6 +12,10 @@ const (
 type Options struct {
 	OutboundNetwork bool
 	PromoteNumbers  bool
+	// Zero selects the runtime default; these affect scheduling, not MOO semantics.
+	AdmissionLimit, AdmissionPrincipalLimit         int
+	AdmissionInputWeight, AdmissionBackgroundWeight int
+	AdmissionAnonymousWeight, AdmissionSystemWeight int
 	// Nil uses Barn's default build capabilities; a pointer to zero disables all.
 	BuiltinCapabilities *Capabilities
 }
@@ -26,6 +30,11 @@ func DefaultOptions() Options {
 
 // Validate checks whether the option set is internally consistent.
 func (o Options) Validate() error {
+	for _, value := range []int{o.AdmissionLimit, o.AdmissionPrincipalLimit, o.AdmissionInputWeight, o.AdmissionBackgroundWeight, o.AdmissionAnonymousWeight, o.AdmissionSystemWeight} {
+		if value < 0 || value > 1000000 {
+			return fmt.Errorf("admission settings must be between 0 and 1000000")
+		}
+	}
 	if o.Capabilities() & ^DefaultCapabilities() != 0 {
 		return fmt.Errorf("unknown builtin capabilities")
 	}

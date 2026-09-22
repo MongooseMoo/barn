@@ -22,6 +22,7 @@ type InputProcessor struct {
 	runtime     *engine.Runtime
 	connManager *ConnectionManager
 	inputQueue  chan command.InputEvent
+	enqueueMu   sync.RWMutex
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
@@ -31,7 +32,14 @@ type InputProcessor struct {
 	// read()/login classification in processInput) while different connections run
 	// concurrently. The main run() loop only demuxes events onto these lanes.
 	workersMu sync.Mutex
-	workers   map[int64]chan command.InputEvent
+	workers   map[int64]*inputLane
+}
+
+// Transport readers await Done, so their backpressure is per connection.
+// Forced input must never block the dispatcher behind a VM awaiting admission.
+type inputLane struct {
+	queue []command.InputEvent // guarded by workersMu
+	ready chan struct{}
 }
 
 func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProcessor {
@@ -42,7 +50,7 @@ func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProc
 		inputQueue: make(chan command.InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
-		workers:    make(map[int64]chan command.InputEvent),
+		workers:    make(map[int64]*inputLane),
 	}
 }
 
@@ -52,7 +60,21 @@ func (p *InputProcessor) Start() {
 }
 
 func (p *InputProcessor) Stop() {
+	p.runtime.CloseInputAdmission()
 	p.cancel()
+	// Serialize cancellation with enqueue so every accepted transport event
+	// either reaches its lane or has its Done closed here.
+	p.enqueueMu.Lock()
+	draining := true
+	for draining {
+		select {
+		case evt := <-p.inputQueue:
+			evt.Complete()
+		default:
+			draining = false
+		}
+	}
+	p.enqueueMu.Unlock()
 	p.wg.Wait()
 }
 
@@ -64,11 +86,21 @@ func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 }
 
 func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
-	p.inputQueue <- evt
+	p.enqueueMu.RLock()
+	defer p.enqueueMu.RUnlock()
+	if p.ctx.Err() != nil {
+		evt.Complete()
+		return
+	}
+	select {
+	case p.inputQueue <- evt:
+	case <-p.ctx.Done():
+		evt.Complete()
+	}
 }
 
 // HandleConnection reads transport input and serializes it onto the input queue.
-// All MOO verb execution remains on the runtime/input goroutine.
+// Each connection's worker executes its input in order.
 func (p *InputProcessor) HandleConnection(conn *Connection) {
 	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
 
@@ -179,20 +211,48 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 func (p *InputProcessor) run() {
 	defer p.wg.Done()
 
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	var timerC <-chan time.Time
+	var changed <-chan struct{}
 
 	cleanupTicker := time.NewTicker(5 * time.Second)
 	defer cleanupTicker.Stop()
 
+	// Scan once at startup, including tasks restored before the loop started.
+	runtimeDone := p.processRuntimeTick()
+	startBatch := func() {
+		timer.Stop()
+		timerC = nil
+		// Leave notifications buffered while a batch runs. Consuming one here
+		// could lose an arrival racing the batch's last readiness scan.
+		changed = nil
+		runtimeDone = p.processRuntimeTick()
+	}
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case input := <-p.inputQueue:
 			p.dispatch(input)
-		case <-ticker.C:
-			p.processRuntimeTick()
+		case <-changed:
+			startBatch()
+		case <-timerC:
+			startBatch()
+		case count := <-runtimeDone:
+			runtimeDone = nil
+			// Drain runnable work without a timer delay between bounded batches.
+			// An empty selection waits for an arrival or the next due task.
+			if count != 0 && p.ctx.Err() == nil {
+				startBatch()
+			} else {
+				changed = p.runtime.ScheduleChanged()
+				if at := p.runtime.NextTaskWake(); !at.IsZero() {
+					timer.Reset(time.Until(at))
+					timerC = timer.C
+				}
+			}
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
@@ -201,16 +261,27 @@ func (p *InputProcessor) run() {
 	}
 }
 
-func (p *InputProcessor) processRuntimeTick() {
+func (p *InputProcessor) processRuntimeTick() <-chan int {
 	// A select chooses randomly when both input and the runtime tick are
 	// ready. Recheck the input queue before running another task so a busy
 	// runtime cannot repeatedly win that tie and starve socket input.
+	// Dispatching input must not suppress the background selection itself.
 	select {
 	case input := <-p.inputQueue:
 		p.dispatch(input)
 	default:
-		p.runtime.ProcessReadyTasks()
 	}
+	// The scheduler already executes tasks on worker goroutines. Joining a
+	// background pass on the input dispatcher prevents even unrelated login
+	// events from reaching their connection lanes until that pass completes.
+	// Keep just one batch in flight, and join it during Stop via the wait group.
+	done := make(chan int, 1)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		done <- p.runtime.ProcessReadyBatch()
+	}()
+	return done
 }
 
 // dispatch routes an input event onto its connection's serial lane, creating the
@@ -219,49 +290,70 @@ func (p *InputProcessor) processRuntimeTick() {
 // concurrently.
 func (p *InputProcessor) dispatch(input command.InputEvent) {
 	p.workersMu.Lock()
+	defer p.workersMu.Unlock()
+	if p.ctx.Err() != nil {
+		input.Complete()
+		return
+	}
 	ch, ok := p.workers[input.ConnID]
 	if !ok {
-		ch = make(chan command.InputEvent, 64)
+		ch = &inputLane{ready: make(chan struct{}, 1)}
 		p.workers[input.ConnID] = ch
 		p.wg.Add(1)
 		go p.connectionWorker(input.ConnID, ch)
 	}
-	p.workersMu.Unlock()
-
+	ch.queue = append(ch.queue, input)
 	select {
-	case ch <- input:
-	case <-p.ctx.Done():
+	case ch.ready <- struct{}{}:
+	default:
 	}
 }
 
-func (p *InputProcessor) connectionWorker(connID int64, ch chan command.InputEvent) {
+func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 	defer p.wg.Done()
+	defer func() {
+		p.workersMu.Lock()
+		defer p.workersMu.Unlock()
+		if p.workers[connID] == ch {
+			delete(p.workers, connID)
+		}
+		for _, input := range ch.queue {
+			input.Complete()
+		}
+	}()
 	for {
+		if p.ctx.Err() != nil {
+			return
+		}
+		p.workersMu.Lock()
+		if len(ch.queue) > 0 {
+			input := ch.queue[0]
+			ch.queue[0] = command.InputEvent{}
+			ch.queue = ch.queue[1:]
+			p.workersMu.Unlock()
+			p.processInput(input)
+			if input.IsDisconnect {
+				return
+			}
+			continue
+		}
+		if connID < 0 {
+			// Synthetic force_input login lanes have no transport disconnect.
+			delete(p.workers, connID)
+			p.workersMu.Unlock()
+			return
+		}
+		p.workersMu.Unlock()
 		select {
 		case <-p.ctx.Done():
 			return
-		case input := <-ch:
-			p.processInput(input)
-			if input.IsDisconnect {
-				// The connection is gone; retire its lane. A later event for a reused
-				// ConnID will spin up a fresh lane.
-				p.workersMu.Lock()
-				if p.workers[connID] == ch {
-					delete(p.workers, connID)
-				}
-				p.workersMu.Unlock()
-				return
-			}
+		case <-ch.ready:
 		}
 	}
 }
 
 func (p *InputProcessor) processInput(input command.InputEvent) {
-	defer func() {
-		if input.Done != nil {
-			close(input.Done)
-		}
-	}()
+	defer input.Complete()
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
@@ -269,6 +361,10 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 	if input.IsTimeout {
 		p.processLoginTimeout(input)
+		return
+	}
+	if input.ConnID < 0 && input.Player < 0 {
+		p.forcePhantomLogin(input.Player, input.Line)
 		return
 	}
 	input.Line = unquoteInBandInput(input.Line)
@@ -360,12 +456,15 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 	return p.runtime.ResumeReadingTask(player, line)
 }
 
-func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
+func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool, onProcessed func()) {
 	oob := strings.HasPrefix(line, "#$#")
 	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
 	if !(oob && !disableOOB) {
 		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
 		if handled {
+			if onProcessed != nil {
+				onProcessed()
+			}
 			return
 		}
 	}
@@ -386,14 +485,14 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 		}
 	}
 	if player < 0 && connID == 0 {
-		p.forcePhantomLogin(player, line)
-		return
+		connID = int64(player)
 	}
-	p.inputQueue <- command.InputEvent{
-		ConnID: connID,
-		Player: player,
-		Line:   line,
-	}
+	p.EnqueueInput(command.InputEvent{
+		ConnID:      connID,
+		Player:      player,
+		Line:        line,
+		OnProcessed: onProcessed,
+	})
 }
 
 func (p *InputProcessor) forcePhantomLogin(player types.ObjID, line string) {
@@ -694,9 +793,13 @@ func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player 
 	case command.IntrinsicEval:
 		code := strings.TrimSpace(cmd.Argstr)
 		if code != "" {
-			_ = conn.Send(p.runtime.EvalCommandOutput(player, code))
-		}
-		if outputSuffix != "" {
+			p.runtime.StartEval(player, strings.Split(code, "\n"), func(out engine.EvalOutcome) {
+				_ = conn.Send(out.CommandOutput())
+				if outputSuffix != "" {
+					_ = conn.Send(outputSuffix)
+				}
+			})
+		} else if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return true

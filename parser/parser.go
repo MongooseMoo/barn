@@ -334,7 +334,9 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		var defaultExpr verb.Expr
 		if p.current.Type == TOKEN_FATARROW {
 			p.nextToken()
-			defaultExpr, err = p.ParseExpression(PREC_CATCH)
+			// The closing quote delimits the default; a conditional expression
+			// belongs inside it even though its precedence is below catch.
+			defaultExpr, err = p.ParseExpression(PREC_TERNARY)
 			if err != nil {
 				return nil, err
 			}

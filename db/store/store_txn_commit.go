@@ -1,8 +1,11 @@
 package store
 
 import (
+	"context"
 	"log/slog"
+	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -240,6 +243,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.propertyShapeScans = propertyShapeScans
 	next.verbReads = verbReads
 	next.verbScans = verbScans
+	next.waifs = tx.waifs
 	return next, publishedWrites, types.E_NONE
 }
 
@@ -270,10 +274,12 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	store := tx.store
 	gateExempt := tx.gateExempt
+	grant, gateWait := tx.exclusiveGrant, tx.gateWait
 	tx.Release()
 	next = store.BeginSnapshot(0)
+	next.SetCommitWaitObserver(gateWait)
 	if gateExempt {
-		next.ExemptFromCommitGate()
+		next.BindExclusiveGrant(grant)
 	}
 	return next, publishedWrites, types.E_NONE
 }
@@ -302,8 +308,14 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// because its runtime already holds the gate exclusively. Outermost by
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
-		tx.store.commitGate.RLock()
-		defer tx.store.commitGate.RUnlock()
+		started := time.Now()
+		grant, _ := tx.store.commitGate.Acquire(context.Background(), commitgate.Shared)
+		if tx.gateWait != nil {
+			tx.gateWait(time.Since(started))
+		}
+		defer grant.Release()
+	} else if !tx.exclusiveGrant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
+		panic("commit with released exclusive grant")
 	}
 	tx.validationFail = false
 
@@ -356,7 +368,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// excludes RLock readers and decentralized committers, making the in-place anon
 	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
+	if len(tx.waifs) == 0 && !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		commitErr = tx.commitDecentralized()
 		if commitErr != types.E_NONE && !tx.validationFail {
 			tx.markTerminal(commitErr)
@@ -490,8 +502,9 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 // store in place (the coarse path): it publishes staged creates, then applies scalar,
 // relationship (location/contents/children), property, and verb writes, retaining
 // pre-mutation images in history, and clears the staged maps. It does NOT validate the
-// read set: coarse Commit does that before shared operation preflight, while Flush
-// intentionally performs only operation preflight. Caller holds store.mu.Lock.
+// read set: callers complete required validation and operation preflight before
+// invoking it. WAIF images share the object publication timestamp and lock.
+// Caller holds store.mu.Lock.
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	tx.store.noteWaifRootsChanged()
@@ -678,6 +691,11 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)
 		stampObjectAll(live, ts)
 		tx.store.appendRecycledID(id)
+	}
+	for _, image := range tx.waifs {
+		if image.staged != nil {
+			tx.store.publishWaifLocked(image, ts)
+		}
 	}
 	tx.clearStagedWrites()
 	return types.E_NONE

@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"slices"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 // store_cow.go — copy-on-write property-value publish (COW Phase 0).
 //
@@ -399,7 +403,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		addID(id)
 	}
-	sortObjIDs(writeIDs)
+	slices.Sort(writeIDs)
 
 	// Lock the union of read-set and write-set slots (ascending) for the whole
 	// validate+build+publish interval. A read-only object with no numbered slot is
@@ -437,7 +441,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.verbScans {
 		addLockID(id)
 	}
-	sortObjIDs(lockIDs)
+	slices.Sort(lockIDs)
 
 	slots := make([]*objectSlot, 0, len(lockIDs))
 	for _, id := range lockIDs {
@@ -619,19 +623,5 @@ type verbWrite2 struct {
 func unlockSlots(slots []*objectSlot) {
 	for i := len(slots) - 1; i >= 0; i-- {
 		slots[i].mu.Unlock()
-	}
-}
-
-// sortObjIDs sorts a small slice of ObjIDs ascending (insertion sort: write
-// footprints are tiny, so this avoids the sort package's overhead/allocation).
-func sortObjIDs(ids []types.ObjID) {
-	for i := 1; i < len(ids); i++ {
-		v := ids[i]
-		j := i - 1
-		for j >= 0 && ids[j] > v {
-			ids[j+1] = ids[j]
-			j--
-		}
-		ids[j+1] = v
 	}
 }

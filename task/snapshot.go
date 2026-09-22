@@ -190,6 +190,9 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ExecCommandName:     t.ExecCommandName,
 		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
+	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+		snapshot.StartTime = t.WakeTime
+	}
 	if t.ForkInfo != nil {
 		var variableNames []string
 		firstLine := 0

@@ -338,10 +338,12 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 // FlushStagedToLive applies this txn's staged decentralized writes to the LIVE store
 // immediately and clears them, so a subsequent COARSE builtin that reads/mutates the
 // live store mid-task (renumber/chparent/add_verb) sees them instead of stale live
-// state. It also drops the read set: the task has now mutated the live store, so it is
+// state. It also drops the object read set: the task has now mutated the live store, so it is
 // non-isolated (Toast-like) and its eventual coarse commit must not conflict on reads
-// taken against the pre-flush snapshot. Reads are NOT validated on the way out (coarse
-// semantics — last-writer-wins, like an immediate mutation). The complete operation
+// taken against the pre-flush snapshot. Transactions with WAIF dependencies first
+// validate their complete read set; other coarse flushes retain their established
+// immediate-mutation semantics. WAIF dependencies survive with own writes rebased.
+// The complete operation
 // footprint is still preflighted before any publication, including allocated-id
 // occupancy. Exact verb deletion is rejected because it must cross a validating
 // CommitAndRenew boundary. No-op if nothing is staged.
@@ -363,6 +365,13 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	}
 	tx.validationFail = false
 	tx.store.mu.Lock()
+	if len(tx.waifs) != 0 {
+		if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
+			tx.validationFail = true
+			tx.store.mu.Unlock()
+			return errCode
+		}
+	}
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		tx.store.mu.Unlock()
 		return tx.markTerminal(errCode)

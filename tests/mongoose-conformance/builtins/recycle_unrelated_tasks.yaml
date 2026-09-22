@@ -1,0 +1,32 @@
+name: recycle_unrelated_tasks
+description: Recycling an object does not require unrelated queued tasks to drain.
+requires:
+  builtins: [create, recycle, valid, queued_tasks, kill_task]
+tests:
+  - name: recycle_with_twelve_future_tasks
+    steps:
+      - run: |
+          jobs = {};
+          obj = create($nothing);
+          try
+            for i in [1..12]
+              fork job (60)
+                return 0;
+              endfork
+              jobs = {@jobs, job};
+            endfor
+            before = length(queued_tasks());
+            recycle(obj);
+            result = {!valid(obj), length(queued_tasks()) == before};
+          finally
+            for job in (jobs)
+              `kill_task(job) ! E_INVARG';
+            endfor
+            if (valid(obj))
+              recycle(obj);
+            endif
+          endtry
+          return result;
+        as: wizard
+        expect:
+          value: [1, 1]

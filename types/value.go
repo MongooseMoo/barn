@@ -313,14 +313,15 @@ func (v Value) Identical(other Value) bool {
 		return true
 	case TYPE_MAP:
 		a, b := v.goMap(), other.goMap()
-		if len(a.order) != len(b.order) {
+		if a.count != b.count {
 			return false
 		}
-		for i := range a.order {
-			if a.order[i] != b.order[i] {
+		for an, bn := a.order, b.order; an != nil; an, bn = an.previous, bn.previous {
+			if an.hash != bn.hash {
 				return false
 			}
-			ae, be := a.pairs[a.order[i]], b.pairs[b.order[i]]
+			ae, _ := a.entry(an.hash)
+			be, _ := b.entry(bn.hash)
 			if !ae.key.Identical(be.key) || !ae.val.Identical(be.val) {
 				return false
 			}

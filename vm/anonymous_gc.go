@@ -10,6 +10,12 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// CollectAnonymousRefsFromValue includes references nested in waif properties.
+// The caller must exclude concurrent mutation, as for VM root collection.
+func CollectAnonymousRefsFromValue(v types.Value, out map[types.ObjID]struct{}) {
+	collectAnonymousRefsForGC(v, out)
+}
+
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
 func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 	collectAnonymousRefsForGCVisited(v, out, nil)
@@ -30,11 +36,7 @@ func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{
 			visitedWaifs = make(map[types.WaifIdentity]struct{})
 		}
 		visitedWaifs[identity] = struct{}{}
-		for _, name := range v.PropertyNames() {
-			if prop, ok := v.GetProperty(name); ok {
-				collectAnonymousRefsForGCVisited(prop, out, visitedWaifs)
-			}
-		}
+		v.VisitRetainedWaifValues(func(prop types.Value) { collectAnonymousRefsForGCVisited(prop, out, visitedWaifs) })
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
 			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
@@ -113,7 +115,7 @@ func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct
 		return nil
 	}
 
-	reachable := buildPersistentAnonymousReachability(store)
+	reachable := store.CommittedAnonymousReachability()
 	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
@@ -185,7 +187,7 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 	ordered := make([]candidateRoot, 0, len(candidates))
 	for _, candidate := range candidates {
 		closure := make(map[types.ObjID]struct{})
-		store.DirectTxn().ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
+		store.ExpandCommittedAnonymousReachability(closure, map[types.ObjID]struct{}{
 			candidate.ID(): {},
 		})
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
@@ -200,8 +202,8 @@ func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFi
 		return ordered[i].value.ID() < ordered[j].value.ID()
 	})
 
-	covered := buildPersistentAnonymousReachability(store)
-	roots := canonicalWaifRoots(waifs, store.PersistentWaifRootSet())
+	covered := store.CommittedAnonymousReachability()
+	roots := canonicalWaifRoots(waifs, store.CommittedWaifRootSet())
 	for _, candidate := range ordered {
 		if _, seen := covered[candidate.value.ID()]; seen {
 			continue
@@ -229,7 +231,7 @@ func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []t
 			continue
 		}
 		closure := types.NewWaifSet(nil)
-		collectWaifsInto(candidate, closure)
+		collectWaifsInto(candidate, closure, false)
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure.Values, order: index})
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -260,7 +262,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	var refs map[types.ObjID]struct{}
 	var waifs []types.Value
 	frame.visitFinalizableCandidates(func(value types.Value) {
-		collectDirectWaifsForGC(value, &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(value)
 		if refs == nil {
 			refs = make(map[types.ObjID]struct{})
 		}
@@ -282,14 +284,33 @@ func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 }
 
 func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waifs []types.Value) {
+	if len(refs) > 0 && vm.pendingFinalizationAnonIDs == nil {
+		vm.pendingFinalizationAnonIDs = make(map[types.ObjID]struct{})
+		for _, value := range vm.PendingFinalizations {
+			if value.Type() == types.TYPE_ANON {
+				vm.pendingFinalizationAnonIDs[value.ID()] = struct{}{}
+			}
+		}
+	}
+	if len(waifs) > 0 && vm.pendingFinalizationWaifIDs == nil {
+		vm.pendingFinalizationWaifIDs = make(map[types.WaifIdentity]struct{})
+		for _, value := range vm.PendingFinalizations {
+			if value.Type() == types.TYPE_WAIF {
+				vm.pendingFinalizationWaifIDs[value.WaifIdentity()] = struct{}{}
+			}
+		}
+	}
 	for id := range refs {
 		value := types.NewAnon(id)
-		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+		if _, exists := vm.pendingFinalizationAnonIDs[id]; !exists {
+			vm.pendingFinalizationAnonIDs[id] = struct{}{}
 			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
 		}
 	}
 	for _, value := range waifs {
-		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+		id := value.WaifIdentity()
+		if _, exists := vm.pendingFinalizationWaifIDs[id]; !exists {
+			vm.pendingFinalizationWaifIDs[id] = struct{}{}
 			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
 		}
 	}
@@ -303,6 +324,8 @@ func (vm *VM) TakePendingFinalizationValues() []types.Value {
 	}
 	values := CollectPendingFinalizationValues(vm.Store, vm)
 	vm.PendingFinalizations = nil
+	vm.pendingFinalizationWaifIDs = nil
+	vm.pendingFinalizationAnonIDs = nil
 	return values
 }
 

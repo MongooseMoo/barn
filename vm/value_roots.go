@@ -148,6 +148,7 @@ func (vm *VM) visitValues(visit valueVisitor) {
 		}
 	}
 	if vm.Context != nil {
+		vm.Context.StoreTxn.VisitWaifValues(func(value types.Value) { visit(value, valueRootLive) })
 		visit(vm.Context.ThisValue, valueRootLive)
 		visit(vm.Context.MapFirstKey, valueRootLive)
 		visit(vm.Context.MapLastKey, valueRootLive)
