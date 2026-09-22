@@ -1,6 +1,8 @@
 # Build artifacts
 *.exe
 *.exe~
+# go build -o bin/ ./cmd/...
+/bin/
 *.log
 *.tmp
 *.err
