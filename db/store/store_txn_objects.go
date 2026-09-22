@@ -184,6 +184,7 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 	if owner == types.ObjNothing {
 		owner = newID
 	}
+	tx.privateVerbShape = true
 
 	obj := NewObject(newID, owner)
 	obj.parents = append([]types.ObjID(nil), parents...)
@@ -253,6 +254,7 @@ func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorC
 	if len(obj.children) > 0 || len(obj.contents) > 0 {
 		return false, types.E_NONE // complex: caller uses coarse recycle
 	}
+	tx.privateVerbShape = true
 
 	oldLoc := obj.location
 	if oldLoc != types.ObjNothing {

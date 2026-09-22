@@ -49,6 +49,7 @@ func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 		return types.E_VERBNF
 	}
 	tx.invalidateResolveCaches()
+	tx.privateVerbShape = true
 	obj = tx.mutableObject(resolved.objID)
 	if !validLiveObject(obj) || obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
 		return types.E_VERBNF
@@ -146,7 +147,7 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 }
 
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
-	cacheable := tx.resolveCacheActive()
+	cacheable := tx.verbMemoActive()
 	key := verbResolveKey{objID: objID, name: verbName, requireExecute: requireExecute}
 	if entry, ok := tx.verbResolve[key]; ok && tx.verbStepsCurrent(entry.steps) {
 		tx.replayVerbSteps(entry.steps)
@@ -176,7 +177,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 	tx.storeVerbResolve(key, steps, verb, definer, err)
 	if cacheable {
-		tx.storeVerbDispatchMemo(key, verb, definer)
+		tx.storeVerbDispatchMemo(key, verb, definer, steps)
 	}
 	return verb, definer, err
 }

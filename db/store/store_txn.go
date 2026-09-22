@@ -44,6 +44,11 @@ type StoreTxn struct {
 	// txn off the memo.
 	usedVerbMemo     bool
 	verbMemoDisabled bool
+	// privateVerbShape: this txn privately changed which verb a lookup can
+	// resolve to (deleted a verb, created or recycled an object). Until then
+	// its private copies share verb lists and parents with the snapshot, so
+	// property-value writes leave store-level verb dispatch valid.
+	privateVerbShape bool
 	verbMemoHits     []verbResolveKey
 	terminalErr      types.ErrorCode
 	liveMutated      bool
