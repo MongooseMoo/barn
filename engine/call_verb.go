@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -350,7 +351,11 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
-	ticks, _ := foregroundTaskLimits(s.session)
+	// This standalone hook owns a fresh foreground slice. Start its budget only
+	// after admission and setup, just as the normal task execution path does.
+	ticks, seconds := foregroundTaskLimits(s.session)
+	start, seconds := t.ResetExecutionBudget(ticks, seconds, time.Now())
+	t.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM, s.session)
 
