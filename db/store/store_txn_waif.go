@@ -119,10 +119,16 @@ func (s *Store) publishWaifLocked(image *waifTxnImage, ts uint64) {
 	image.value.PublishWaifImage(s.waifDomain, ts, image.staged)
 	image.base, _ = image.value.WaifImageAt(s.waifDomain, ts)
 	image.staged = nil
-	if image.value.PruneWaifImages(s.waifDomain, s.historyFloor()) {
-		lazySet(&s.waifHistory, image.value.WaifIdentity(), image.value.WeakWaif())
-		s.waifHistoryPending.Store(true)
+	// Advertise history before sampling the reader floor. A last reader that
+	// deregisters after its shard was sampled must see pending work and prune
+	// after this publication releases store.mu, rather than miss cleanup forever.
+	identity := image.value.WaifIdentity()
+	lazySet(&s.waifHistory, identity, image.value.WeakWaif())
+	s.waifHistoryPending.Store(true)
+	if !image.value.PruneWaifImages(s.waifDomain, s.historyFloor()) {
+		delete(s.waifHistory, identity)
 	}
+	s.waifHistoryPending.Store(len(s.waifHistory) != 0)
 }
 
 func (s *Store) pruneWaifHistoryLocked() {

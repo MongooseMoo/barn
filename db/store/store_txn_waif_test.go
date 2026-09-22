@@ -2,6 +2,7 @@ package store
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -276,5 +277,92 @@ func TestWaifHistoricalEdgeDoesNotRemoveCheckpointPendingRoot(t *testing.T) {
 	s.AppendPendingFinalizations([]types.Value{parent, child})
 	if got := s.TakePendingFinalizations(); len(got) != 2 {
 		t.Fatalf("historical edge removed queued root: %v", got)
+	}
+}
+
+func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
+	previousProcs := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousProcs) })
+	s := NewStore()
+	const readerTS = uint64(readTSShardCount) // shard 0
+	s.clock.Store(readerTS)
+	reader := s.BeginSnapshot(0)
+	t.Cleanup(reader.Release)
+	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+
+	// Stop the publisher after it samples the reader's shard, but before its
+	// floor scan finishes. No production hook or timing delay is needed.
+	lastShard := &s.readTSShards[readTSShardCount-1]
+	lastShard.mu.Lock()
+	shardLocked := true
+	t.Cleanup(func() {
+		if shardLocked {
+			lastShard.mu.Unlock()
+		}
+	})
+	published := make(chan types.ErrorCode, 1)
+	go func() { published <- s.DirectTxn().SetWaifProperty(w, "n", types.NewInt(1)) }()
+
+	blockedIn := func(function string) bool {
+		buffer := make([]byte, 256<<10)
+		stack := string(buffer[:runtime.Stack(buffer, true)])
+		for _, goroutine := range strings.Split(stack, "\n\n") {
+			if strings.Contains(goroutine, t.Name()+".func") && strings.Contains(goroutine, function) && strings.Contains(goroutine, "Mutex.Lock") {
+				return true
+			}
+		}
+		return false
+	}
+	waitFor := func(description string, ready func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !ready() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", description)
+			}
+			runtime.Gosched()
+		}
+	}
+	waitFor("publisher blocked in the floor scan", func() bool {
+		return blockedIn("(*Store).historyFloor(")
+	})
+
+	released := make(chan struct{})
+	go func() { reader.Release(); close(released) }()
+	waitFor("release completion or its pending-history prune", func() bool {
+		select {
+		case <-released:
+			return true
+		default:
+		}
+		return blockedIn("(*StoreTxn).release(")
+	})
+	s.readTSShards[0].mu.Lock()
+	remainingReaders := s.readTSShards[0].counts[readerTS]
+	s.readTSShards[0].mu.Unlock()
+	if remainingReaders != 0 || !reader.released.Load() {
+		t.Fatal("reader did not deregister while the publisher's floor was stale")
+	}
+
+	lastShard.mu.Unlock()
+	shardLocked = false
+	select {
+	case ec := <-published:
+		if ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("publisher did not finish")
+	}
+	select {
+	case <-released:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reader release did not finish")
+	}
+	if _, found := w.WaifImageAt(s.waifDomain, readerTS); found {
+		t.Error("last reader released, but its obsolete WAIF image remains")
+	}
+	if len(s.waifHistory) != 0 || s.waifHistoryPending.Load() {
+		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifHistory), s.waifHistoryPending.Load())
 	}
 }
