@@ -131,6 +131,14 @@ func (s *Server) LoadDatabase() error {
 	metrics.PublishGauge("barn.connections_live", func() int64 {
 		return int64(len(s.connManager.ConnectedPlayers(true)))
 	})
+	// MVCC commit outcomes: a benchmark whose conflict retries rerun whole
+	// commands otherwise looks like unexplained slowness.
+	store := s.store
+	metrics.PublishGauge("barn.commit_attempts", func() int64 { return int64(store.CommitAttempts()) })
+	metrics.PublishGauge("barn.commit_successes", func() int64 { return int64(store.CommitSuccesses()) })
+	metrics.PublishGauge("barn.commit_conflicts", func() int64 { return int64(store.CommitConflicts()) })
+	metrics.PublishGauge("barn.commit_retries", func() int64 { return int64(store.CommitRetries()) })
+	metrics.PublishGauge("barn.commit_escalations", func() int64 { return int64(store.CommitEscalations()) })
 
 	s.input.SetConnectionManager(s.connManager)
 	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
