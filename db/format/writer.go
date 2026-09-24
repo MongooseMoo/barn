@@ -327,8 +327,7 @@ func (w *Writer) writeWaif(waif types.Value) error {
 
 	// Write non-clear properties as index→value pairs in class propdef order.
 	for idx, classPropName := range waifPropNames {
-		propName := classPropName[1:]
-		val, ok := waif.GetProperty(propName)
+		val, ok := waif.GetProperty(store.PropertyNameKey(classPropName[1:]))
 		if !ok {
 			continue
 		}
