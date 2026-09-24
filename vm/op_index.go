@@ -32,7 +32,7 @@ func (vm *VM) executeIndex() error {
 		if indexVal < 1 || indexVal > int64(len(collection.Str())) {
 			return fmt.Errorf("E_RANGE: string index out of range")
 		}
-		vm.Push(types.NewStr(string(collection.Str()[indexVal-1])))
+		vm.Push(types.NewStr(collection.Str()[indexVal-1 : indexVal]))
 		return nil
 
 	case types.TYPE_MAP:
