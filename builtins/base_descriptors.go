@@ -260,3 +260,19 @@ func BaseDescriptors() []Descriptor {
 		{Name: "yin", Implementation: builtinYin, Signature: &Signature{MinArgs: 0, MaxArgs: 3, ArgTypes: []int64{-2, 0, 0}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 	}
 }
+
+// AppendedDescriptors are builtins added after the default layout was frozen.
+// Registries place them after every older builtin, including the VM's eval and
+// pass, so existing builtin IDs never move and saved bytecode stays valid (see
+// compiler.Accepts). Add new builtins at the end of this list.
+func AppendedDescriptors() []Descriptor {
+	return []Descriptor{
+		{Name: "ord", Implementation: builtinOrd, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "tochar", Implementation: builtinTochar, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{-1}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "charname", Implementation: builtinCharname, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "encode_chars", Implementation: builtinEncodeChars, Signature: &Signature{MinArgs: 2, MaxArgs: 2, ArgTypes: []int64{-1, 2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "decode_chars", Implementation: builtinDecodeChars, Signature: &Signature{MinArgs: 2, MaxArgs: 3, ArgTypes: []int64{2, 2, -1}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "string_width", Implementation: builtinStringWidth, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "graphemes", Implementation: builtinGraphemes, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+	}
+}

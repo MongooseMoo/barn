@@ -31,15 +31,27 @@ func TestVMDescriptorsAndDisabledLookup(t *testing.T) {
 }
 
 func TestDefaultDescriptorIDsPreserveExistingBytecode(t *testing.T) {
-	r := BuildVMRegistry()
-	program, diagnostics := r.Compiler().CompileMOO([]string{"return typeof(1);"})
+	// Computed independently from the 252 registrations at pre-migration 4eacf59.
+	const legacyLayout = "73cd9d376515c5d1fb6682bb2c1aa213fd3d6e54a450a5d322dc3980b9cc272d"
+	legacy, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), vmDescriptors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, diagnostics := legacy.Compiler().CompileMOO([]string{"return typeof(1);"})
 	if len(diagnostics) != 0 {
 		t.Fatal(diagnostics)
 	}
-	// Computed independently from the 252 registrations at pre-migration 4eacf59.
-	const legacyLayout = "73cd9d376515c5d1fb6682bb2c1aa213fd3d6e54a450a5d322dc3980b9cc272d"
 	if got := fmt.Sprintf("%x", program.BuiltinLayout); got != legacyLayout {
 		t.Fatalf("default builtin IDs changed: %s", got)
+	}
+	// Appended builtins keep bytecode saved under the legacy layout runnable.
+	r := BuildVMRegistry()
+	if !r.Compiler().Accepts(program) {
+		t.Fatal("default registry rejects bytecode saved under the legacy layout")
+	}
+	current, _ := r.Compiler().CompileMOO([]string{"return typeof(1);"})
+	if current.BuiltinLayout == program.BuiltinLayout {
+		t.Fatal("appended builtins did not change the layout fingerprint")
 	}
 	core, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
 	if err != nil {

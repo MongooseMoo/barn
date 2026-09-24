@@ -49,8 +49,12 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 
 	text := subject.Str()
 	offsets := pcreByteOffsets(text)
+	mapped, _, ok := pcreSubjectRunes(text)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
 	out := make([]types.Value, 0)
-	m, merr := re.re.FindStringMatch(text)
+	m, merr := re.re.FindStringMatch(mapped)
 	for m != nil && merr == nil {
 		entryPairs := make([][2]types.Value, 0, len(re.groups)+1)
 		entryPairs = append(entryPairs, [2]types.Value{
@@ -98,6 +102,63 @@ func pcreByteOffsets(text string) []int {
 		offsets = append(offsets, i)
 	}
 	return append(offsets, len(text))
+}
+
+// regexp2 decodes its input to runes, turning every invalid UTF-8 byte into
+// U+FFFD. pcreSubjectRunes instead maps each invalid byte b to base+b, where
+// base starts a 256-rune private-use block that neither the subject nor the
+// extra strings (a replacement template) use, so restoreInvalidBytes can put
+// the original bytes back. Each invalid byte stays one rune, one character.
+// base is 0 when the subject is valid UTF-8 and needs no mapping.
+func pcreSubjectRunes(subject string, extra ...string) (mapped string, base rune, ok bool) {
+	if utf8.ValidString(subject) {
+		return subject, 0, true
+	}
+	const firstBlock, lastBlock = 0xf0000 >> 8, 0x10ff00 >> 8
+	var used [lastBlock - firstBlock + 1]bool
+	for _, s := range append(extra, subject) {
+		for _, r := range s {
+			if b := int(r >> 8); b >= firstBlock && b <= lastBlock {
+				used[b-firstBlock] = true
+			}
+		}
+	}
+	for i, taken := range used {
+		if taken {
+			continue
+		}
+		base = rune((firstBlock + i) << 8)
+		var out strings.Builder
+		out.Grow(len(subject) + len(subject)/2)
+		for j := 0; j < len(subject); {
+			r, size := utf8.DecodeRuneInString(subject[j:])
+			if r == utf8.RuneError && size == 1 {
+				out.WriteRune(base + rune(subject[j]))
+			} else {
+				out.WriteString(subject[j : j+size])
+			}
+			j += size
+		}
+		return out.String(), base, true
+	}
+	return "", 0, false
+}
+
+// restoreInvalidBytes undoes pcreSubjectRunes' mapping.
+func restoreInvalidBytes(s string, base rune) string {
+	if base == 0 {
+		return s
+	}
+	var out strings.Builder
+	out.Grow(len(s))
+	for _, r := range s {
+		if r >= base && r <= base+0xff {
+			out.WriteByte(byte(r - base))
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func buildPcreCapture(subject string, offsets []int, g *regexp2.Group) types.Value {
@@ -160,10 +221,15 @@ func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
 	if global {
 		count = -1
 	}
-	out, rerr := re.re.Replace(subject.Str(), replacement, -1, count)
+	text, base, ok := pcreSubjectRunes(subject.Str(), replacement)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	out, rerr := re.re.Replace(text, replacement, -1, count)
 	if rerr != nil {
 		return types.Err(types.E_INVARG)
 	}
+	out = restoreInvalidBytes(out, base)
 	if ctx == nil || ctx.Session == nil {
 		return types.Err(types.E_INVARG)
 	}

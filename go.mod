@@ -6,7 +6,9 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/go-crypt/x v0.4.12
+	github.com/rivo/uniseg v0.4.7
 	golang.org/x/crypto v0.46.0
+	golang.org/x/text v0.32.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.39.1
 )

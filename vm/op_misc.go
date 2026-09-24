@@ -38,8 +38,9 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	return execution
 }
 
-func (vm *VM) executeCallBuiltin() error {
-	funcID := vm.FetchByte()
+// executeCallBuiltin runs OP_CALL_BUILTIN and OP_CALL_BUILTIN_WIDE once the
+// caller has fetched the function ID operand.
+func (vm *VM) executeCallBuiltin(funcID int) error {
 	argc := vm.FetchByte()
 
 	var args []types.Value
@@ -70,12 +71,12 @@ func (vm *VM) executeCallBuiltin() error {
 	}
 
 	// Sync task call-stack line numbers only for builtins that expose them.
-	if vm.Builtins.Registry().NeedsLineSyncByID(int(funcID)) {
+	if vm.Builtins.Registry().NeedsLineSyncByID(funcID) {
 		vm.syncTaskLineNumbers()
 	}
 
 	execution := vm.builtinExecution()
-	result := vm.Builtins.CallByIDWithExecution(int(funcID), execution, args)
+	result := vm.Builtins.CallByIDWithExecution(funcID, execution, args)
 	if vm.Context != nil && vm.Context.BuiltinTicksConsumed != 0 {
 		vm.Ticks += vm.Context.BuiltinTicksConsumed
 		vm.Context.BuiltinTicksConsumed = 0
