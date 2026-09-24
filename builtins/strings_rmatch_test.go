@@ -68,7 +68,6 @@ func TestBuiltinRmatchMatchesLegacySuffixSemantics(t *testing.T) {
 		{subject: "foobar", pattern: ".*"},
 		{subject: "aaaa", pattern: "a+"},
 		{subject: "ABab", pattern: "ab"},
-		{subject: "é", pattern: "."},
 	}
 
 	ctx := newTestExecution()
@@ -78,6 +77,15 @@ func TestBuiltinRmatchMatchesLegacySuffixSemantics(t *testing.T) {
 		if got.Flow != types.FlowNormal || got.Val.String() != want.String() {
 			t.Errorf("rmatch(%q, %q) = %s (flow %v), want legacy %s", tc.subject, tc.pattern, got.Val.String(), got.Flow, want.String())
 		}
+	}
+}
+
+// Non-ASCII subjects scan suffixes by character, so a match never starts
+// inside a UTF-8 encoding (Toast's byte scan reports {2, 1} here).
+func TestBuiltinRmatchCountsCharacters(t *testing.T) {
+	got := builtinRmatch(newTestExecution(), []types.Value{types.NewStr("é"), types.NewStr(".")})
+	if got.Flow != types.FlowNormal || got.Val.Get(1).Int() != 1 || got.Val.Get(2).Int() != 1 {
+		t.Fatalf(`rmatch("é", ".") = %s, want {1, 1, ...}`, got.Val.String())
 	}
 }
 

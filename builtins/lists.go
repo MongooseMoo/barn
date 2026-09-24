@@ -460,11 +460,14 @@ func builtinReverse(ctx *Execution, args []types.Value) types.Result {
 		}
 		return types.Ok(types.NewList(elements))
 	case types.TYPE_STR:
-		runes := []rune(args[0].Str())
-		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-			runes[i], runes[j] = runes[j], runes[i]
+		// Reverse characters, keeping each character's raw bytes intact.
+		chars := types.SplitChars(args[0].Str())
+		var b strings.Builder
+		b.Grow(len(args[0].Str()))
+		for i := len(chars) - 1; i >= 0; i-- {
+			b.WriteString(chars[i])
 		}
-		return types.Ok(types.NewStr(string(runes)))
+		return types.Ok(types.NewStr(b.String()))
 	default:
 		return types.Err(types.E_INVARG)
 	}
@@ -824,11 +827,11 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 				}
 				result = append(result, elem.Get(i))
 			case types.TYPE_STR:
-				runes := []rune(elem.Str())
-				if i > len(runes) {
+				cv := types.NewCharView(elem)
+				if i > cv.Len() {
 					return types.Err(types.E_RANGE)
 				}
-				result = append(result, types.NewStr(string(runes[i-1])))
+				result = append(result, types.NewStr(cv.At(i-1)))
 			default:
 				return types.Err(types.E_INVARG)
 			}
@@ -866,12 +869,12 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 					subResult = append(subResult, elem.Get(i))
 				}
 			case types.TYPE_STR:
-				runes := []rune(elem.Str())
+				cv := types.NewCharView(elem)
 				for _, i := range indices {
-					if i > len(runes) {
+					if i > cv.Len() {
 						return types.Err(types.E_RANGE)
 					}
-					subResult = append(subResult, types.NewStr(string(runes[i-1])))
+					subResult = append(subResult, types.NewStr(cv.At(i-1)))
 				}
 			default:
 				return types.Err(types.E_INVARG)

@@ -52,7 +52,7 @@ func (vm *VM) executeLength() error {
 	case types.TYPE_LIST:
 		vm.Push(types.NewInt(int64(coll.Len())))
 	case types.TYPE_STR:
-		vm.Push(types.NewInt(int64(coll.Len())))
+		vm.Push(types.NewInt(int64(coll.StrCharLen())))
 	case types.TYPE_MAP:
 		vm.Push(types.NewInt(int64(coll.Len())))
 	default:
