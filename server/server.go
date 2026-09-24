@@ -142,6 +142,8 @@ func (s *Server) LoadDatabase() error {
 
 	s.input.SetConnectionManager(s.connManager)
 	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
+	// Nothing is recycled before #0:server_started returns (see Start).
+	s.runtime.HoldFinalizationUntilStarted()
 	s.runtime.AdoptPendingFinalizations(s.store.TakePendingFinalizations())
 	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
@@ -298,6 +300,7 @@ func (s *Server) Start() error {
 	if err := s.callServerStarted(); err != nil {
 		slog.Warn("#0:server_started() failed", slog.Any("err", err))
 	}
+	s.runtime.ReleaseStartupFinalization()
 
 	// Start listening for connections
 	if s.lifecycle != nil {

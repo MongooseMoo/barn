@@ -62,6 +62,76 @@ func TestBeginShutdownTransfersUnclaimedDeferredRoots(t *testing.T) {
 	}
 }
 
+// Toast queues loaded pending values, runs #0:server_started, and only then
+// enters the main loop that recycles them. A shutdown() from server_started
+// therefore dumps every loaded value still pending, never recycled.
+func TestHeldStartupFinalizationSurvivesFlushUntilReleased(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(9)
+	root.SetOwner(3)
+	root.SetFlags(dbstore.FlagWizard)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add WAIF class: %v", err)
+	}
+	wizard := dbstore.NewObjectBuilder(3)
+	wizard.SetOwner(3)
+	wizard.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	if err := store.Add(wizard.Build()); err != nil {
+		t.Fatalf("add recycle owner: %v", err)
+	}
+	verb := dbstore.NewVerb(":recycle", []string{":recycle"}, 3,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"recycle_called();"})
+	if _, errCode := store.AddVerb(9, verb); errCode != types.E_NONE {
+		t.Fatalf("add recycle verb: %v", errCode)
+	}
+	var recycleCalledBuiltin builtins.BuiltinFunc
+	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_called", 0, 0, []int64{}, &recycleCalledBuiltin))
+	t.Cleanup(runtime.Stop)
+	recycled := 0
+	recycleCalledBuiltin = func(*builtins.Execution, []types.Value) types.Result {
+		recycled++
+		return types.Ok(types.None)
+	}
+
+	waif := types.NewWaif(9, 3)
+	runtime.HoldFinalizationUntilStarted()
+	runtime.AdoptPendingFinalizations([]types.Value{waif})
+	runtime.flushDeferredGC()
+	if recycled != 0 {
+		t.Fatalf("loaded WAIF recycled %d times before server_started returned", recycled)
+	}
+
+	runtime.ReleaseStartupFinalization()
+	if recycled != 1 {
+		t.Fatalf("loaded WAIF recycled %d times after release, want 1", recycled)
+	}
+}
+
+func TestHeldStartupFinalizationIsHandedOffByShutdown(t *testing.T) {
+	store := dbstore.NewStore()
+	runtime := NewRuntime(store)
+	t.Cleanup(runtime.Stop)
+	var handedOff []types.Value
+	runtime.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
+
+	waif := types.NewWaif(9, 3)
+	runtime.HoldFinalizationUntilStarted()
+	runtime.AdoptPendingFinalizations([]types.Value{waif})
+	runtime.flushDeferredGC()
+
+	ready := beginShutdownForTest(t, runtime, nil)
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown roots were not published while finalization was held")
+	}
+	if len(handedOff) != 1 || !handedOff[0].Equal(waif) {
+		t.Fatalf("shutdown handoff = %v, want the loaded WAIF", handedOff)
+	}
+}
+
 func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(9)

@@ -484,6 +484,25 @@ func (s *Runtime) ShutdownRequested() bool {
 	return s.lifecycle.ShutdownRequested
 }
 
+// HoldFinalizationUntilStarted defers every recycle until
+// ReleaseStartupFinalization. Toast queues the values loaded as pending
+// finalization, runs #0:server_started, and only then enters the main loop
+// that recycles them, so a shutdown() from server_started dumps them unrecycled.
+func (s *Runtime) HoldFinalizationUntilStarted() {
+	s.lifecycle.Mu.Lock()
+	s.lifecycle.FinalizationHeld = true
+	s.lifecycle.Mu.Unlock()
+}
+
+// ReleaseStartupFinalization ends the startup hold once #0:server_started has
+// returned and settles whatever was deferred behind it.
+func (s *Runtime) ReleaseStartupFinalization() {
+	s.lifecycle.Mu.Lock()
+	s.lifecycle.FinalizationHeld = false
+	s.lifecycle.Mu.Unlock()
+	s.flushDeferredGC()
+}
+
 func (s *Runtime) SetPendingFinalizationSink(sink func([]types.Value)) {
 	s.pendingFinalizationSink = sink
 }

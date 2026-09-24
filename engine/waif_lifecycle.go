@@ -199,7 +199,7 @@ func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskConte
 func (s *Runtime) flushDeferredGC() {
 	// Avoid contending on the sweep barrier when there is plainly no work.
 	s.lifecycle.Mu.Lock()
-	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
 		s.lifecycle.Mu.Unlock()
 		return
 	}
@@ -215,7 +215,7 @@ func (s *Runtime) flushDeferredGC() {
 
 	// Another flush may have settled the batch while this goroutine waited.
 	s.lifecycle.Mu.Lock()
-	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
+	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
 		s.lifecycle.Mu.Unlock()
 		return
 	}
