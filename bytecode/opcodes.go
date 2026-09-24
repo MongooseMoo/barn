@@ -176,6 +176,21 @@ const (
 	OP_CHECK_MAP_LIMIT                                             // Validate the map on top of the stack against max_map_value_bytes
 )
 
+// Tick-accounting operations. Barn lowers several Toast constructs into
+// sequences of ordinary opcodes; these let the compiler state exactly which
+// instructions carry Toast's tick charges (see InstructionTicks).
+const (
+	OP_TICKS               OpCode = OP_CHECK_MAP_LIMIT + 1 + iota // Prefix [ticks:byte]: the next instruction charges ticks&0x7F instead of its default; TicksUnchecked (0x80) set = charged without the limit check
+	OP_SET_LOCAL                                                  // Pop and store to local [index] without a tick (compiler-internal stores)
+	OP_PUSH_INT                                                   // Push int64 immediate [value:8 bytes big-endian]
+	OP_SCATTER_TAKE                                               // Scatter element [listVar,cursorVar,targetVar,step]: target = list[cursor]; cursor += 1 (step 0) or -= 1 (step 1)
+	OP_FOR_LIST_CHECK_WIDE                                        // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
+)
+
+// TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
+// at or above EOP_CATCH, decrements the budget without testing it.
+const TicksUnchecked byte = 0x80
+
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
 	OP_PUSH:                  "PUSH",
@@ -266,6 +281,11 @@ var OpCodeNames = map[OpCode]string{
 	OP_TRY_EXCEPT_LOCAL_WIDE: "TRY_EXCEPT_LOCAL_WIDE",
 	OP_FORK_LOCAL_WIDE:       "FORK_LOCAL_WIDE",
 	OP_CHECK_MAP_LIMIT:       "CHECK_MAP_LIMIT",
+	OP_TICKS:                 "TICKS",
+	OP_SET_LOCAL:             "SET_LOCAL",
+	OP_PUSH_INT:              "PUSH_INT",
+	OP_SCATTER_TAKE:          "SCATTER_TAKE",
+	OP_FOR_LIST_CHECK_WIDE:   "FOR_LIST_CHECK_WIDE",
 }
 
 // String returns the name of an opcode
@@ -287,8 +307,11 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 	switch op {
 	case OP_PUSH, OP_GET_VAR, OP_SET_VAR, OP_GET_PROP, OP_SET_PROP,
 		OP_END_EXCEPT, OP_MAKE_LIST, OP_MAKE_MAP, OP_INDEX_SET, OP_RANGE_SET,
-		OP_INDEX_MARKER, OP_ITER_PREP, OP_PASS, OP_CALL_VERB_DYNAMIC:
+		OP_INDEX_MARKER, OP_ITER_PREP, OP_PASS, OP_CALL_VERB_DYNAMIC,
+		OP_TICKS, OP_SET_LOCAL:
 		return 1
+	case OP_PUSH_INT:
+		return 8
 	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
 		OP_TRY_FINALLY, OP_END_FINALLY, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
 		OP_CALL_BUILTIN, OP_CALL_VERB:
@@ -302,9 +325,10 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 5
 	case OP_FORK_LOCAL_WIDE:
 		return 6
-	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
+	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
+		OP_SCATTER_TAKE:
 		return 4
-	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE:
+	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_CHECK_WIDE:
 		return 6
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
 		if len(remaining) == 0 {
@@ -351,13 +375,129 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 	return OpCode(int(OP_IMM_BASE) + value - OP_IMM_MIN), true
 }
 
-// CountsTick reports whether an opcode counts toward tick limit
-func CountsTick(op OpCode) bool {
-	switch op {
-	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
-		OP_LOOP, OP_LOOP_WIDE, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_NEXT_WIDE, OP_PASS:
-		return true
-	default:
-		return false
+// Tick accounting follows ToastStunt (src/include/opcode.h): every executed
+// opcode numbered at or below OP_G_PUT costs one tick, tested against the
+// budget before the opcode runs (COUNT_TICK, execute.cc), and every extended
+// opcode at or above EOP_CATCH costs one tick that is subtracted without the
+// test (COUNT_EOP_TICK). Each Barn opcode is charged what the Toast opcodes it
+// implements would charge. Compiler-synthesized helper instructions that have
+// no Toast counterpart are either tick-free opcodes (OP_SET_LOCAL,
+// OP_SCATTER_TAKE, OP_PUSH_INT) or carry an OP_TICKS prefix.
+const (
+	tickFree      uint8 = iota // no tick
+	tickOne                    // one checked tick (Toast COUNT_TICK opcode)
+	tickUnchecked              // one unchecked tick (Toast COUNT_EOP_TICK opcode)
+	tickDynamic                // cost depends on operands; see dynamicTicks
+)
+
+var tickTable = func() (t [256]uint8) {
+	for _, op := range []OpCode{
+		// OP_PUT
+		OP_SET_VAR,
+		// OP_GET_PROP / OP_PUSH_GET_PROP / OP_PUT_PROP
+		OP_GET_PROP, OP_SET_PROP, OP_GET_PROP_DYNAMIC, OP_SET_PROP_DYNAMIC,
+		OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+		// arithmetic, comparison, logic, unary
+		OP_ADD, OP_STRING_APPEND, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_NEG,
+		OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_IN, OP_NOT,
+		OP_AND, OP_OR, OP_AND_WIDE, OP_OR_WIDE,
+		// OP_IF / OP_EIF / OP_WHILE / OP_IF_QUES
+		OP_JUMP_IF_FALSE, OP_JUMP_IF_FALSE_WIDE, OP_JUMP_IF_TRUE, OP_JUMP_IF_TRUE_WIDE,
+		// OP_FOR_RANGE (the per-iteration test)
+		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE,
+		// OP_REF / OP_INDEXSET / OP_RANGE_REF / OP_CHECK_LIST_FOR_SPLICE
+		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE,
+		// OP_FORK / OP_FORK_WITH_ID
+		OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE,
+	} {
+		t[op] = tickOne
 	}
+	for _, op := range []OpCode{
+		// EOP_EXP and the bitwise extended opcodes
+		OP_POW, OP_BITOR, OP_BITAND, OP_BITXOR, OP_BITNOT, OP_SHL, OP_SHR,
+		// EOP_SCATTER, EOP_TRY_FINALLY, EOP_FOR_LIST_1/2
+		OP_SCATTER, OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE, OP_FOR_LIST_CHECK_WIDE,
+	} {
+		t[op] = tickUnchecked
+	}
+	for _, op := range []OpCode{
+		OP_CALL_BUILTIN, OP_PASS, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
+		OP_MAKE_LIST, OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE,
+	} {
+		t[op] = tickDynamic
+	}
+	return t
+}()
+
+// InstructionTicks returns the ticks charged by the instruction at code[ip]
+// (whose opcode is op), split into ticks tested against the budget before the
+// instruction runs and ticks subtracted without that test. OP_TICKS prefixes
+// are handled by the caller.
+func InstructionTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+	if kind := tickTable[op]; kind != TickDynamic {
+		return StaticTicks(kind)
+	}
+	return DynamicTicks(op, code, ip)
+}
+
+// TickDynamic is the TickKind of an opcode whose charge depends on its
+// operands (DynamicTicks).
+const TickDynamic = tickDynamic
+
+// TickKind returns an opcode's tick classification: StaticTicks decodes any
+// kind but TickDynamic. The dispatch loop uses this split form because the
+// combined InstructionTicks is too large to inline.
+func TickKind(op OpCode) uint8 { return tickTable[op] }
+
+// StaticTicks decodes a non-dynamic TickKind (free = 0, one checked = 1, one
+// unchecked = 2).
+func StaticTicks(kind uint8) (checked, unchecked int64) {
+	return int64(kind & tickOne), int64(kind >> 1)
+}
+
+// DynamicTicks returns the charge of an opcode whose TickKind is TickDynamic.
+func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
+	switch op {
+	case OP_CALL_BUILTIN, OP_CALL_VERB:
+		// OP_BI_FUNC_CALL / OP_CALL_VERB, plus MAKE_SINGLETON_LIST or
+		// CHECK_LIST_FOR_SPLICE for a nonempty argument list (0xFF = spliced).
+		return 1 + nonzero(code[ip+2]), 0
+	case OP_CALL_VERB_WIDE:
+		return 1 + nonzero(code[ip+3]), 0
+	case OP_PASS, OP_CALL_VERB_DYNAMIC:
+		return 1 + nonzero(code[ip+1]), 0
+	case OP_MAKE_LIST:
+		// A list literal charges MAKE_SINGLETON_LIST once for its first element.
+		return nonzero(code[ip+1]), 0
+	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
+		// Each arm with an explicit code list builds it (one checked
+		// MAKE_SINGLETON_LIST or CHECK_LIST_FOR_SPLICE; ANY is a free
+		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks unchecked.
+		varBytes, ipBytes := 1, 2
+		if op != OP_TRY_EXCEPT {
+			ipBytes = 4
+		}
+		if op == OP_TRY_EXCEPT_LOCAL_WIDE {
+			varBytes = 2
+		}
+		pos := ip + 1
+		clauses := int(code[pos])
+		pos++
+		for clause := 0; clause < clauses; clause++ {
+			codes := int(code[pos])
+			if codes != 0 {
+				checked++
+			}
+			pos += 1 + codes + varBytes + ipBytes
+		}
+		return checked, 1
+	}
+	return 0, 0
+}
+
+func nonzero(b byte) int64 {
+	if b != 0 {
+		return 1
+	}
+	return 0
 }

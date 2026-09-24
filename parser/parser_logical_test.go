@@ -42,8 +42,10 @@ func TestLogicalPrecedence(t *testing.T) {
 		rootOp verb.BinaryOperator
 		desc   string
 	}{
-		{"a || b && c", verb.BinaryOr, "should parse as a || (b && c)"},
-		{"a && b || c && d", verb.BinaryOr, "should parse as (a && b) || (c && d)"},
+		// Toast's grammar declares `%left tOR tAND`: one left-associative level.
+		{"a || b && c", verb.BinaryAnd, "should parse as (a || b) && c"},
+		{"a && b || c && d", verb.BinaryAnd, "should parse as ((a && b) || c) && d"},
+		{"a && b || c", verb.BinaryOr, "should parse as (a && b) || c"},
 	}
 
 	for _, tt := range tests {

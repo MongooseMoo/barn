@@ -45,10 +45,13 @@ func (p *Program) CompactInternalLocals(firstInternal int) error {
 			}
 		}
 		switch op {
-		case OP_GET_VAR, OP_SET_VAR, OP_INDEX_SET, OP_RANGE_SET:
+		case OP_GET_VAR, OP_SET_VAR, OP_SET_LOCAL, OP_INDEX_SET, OP_RANGE_SET:
 			direct(1)
-		case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE:
+		case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE,
+			OP_FOR_LIST_CHECK_WIDE:
 			direct(2)
+		case OP_SCATTER_TAKE:
+			direct(3)
 		case OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
 			direct(4)
 		case OP_FORK, OP_FORK_WIDE:

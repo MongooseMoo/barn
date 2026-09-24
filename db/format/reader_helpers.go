@@ -225,8 +225,9 @@ func (database *Database) resolveWaifProperties() {
 
 		for idx, val := range wd.propsByIndex {
 			if idx < len(waifPropNames) {
-				// Strip the ":" prefix for storage in WaifValue.
-				name := strings.TrimPrefix(waifPropNames[idx], ":")
+				// Strip the ":" prefix for storage in WaifValue; values are keyed
+				// by the canonical (case-folded) property key.
+				name := store.PropertyNameKey(strings.TrimPrefix(waifPropNames[idx], ":"))
 				// SetProperty modifies the shared map (all copies see the change).
 				wd.waif.SetProperty(name, val)
 			}

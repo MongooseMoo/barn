@@ -118,6 +118,33 @@ func (vm *VM) executeScatter() error {
 	return nil
 }
 
+// executeScatterTake handles OP_SCATTER_TAKE <listVar> <cursorVar> <targetVar>
+// <step>: target = list[cursor], then the cursor moves one element toward the
+// middle (step 0: forward, step 1: backward). OP_SCATTER has already checked
+// the list's length, so the cursor is always in range. Like the rest of the
+// binding Toast's EOP_SCATTER performs, it costs no tick.
+func (vm *VM) executeScatterTake() error {
+	listIdx := vm.FetchByte()
+	cursorIdx := vm.FetchByte()
+	targetIdx := vm.FetchByte()
+	step := vm.FetchByte()
+	frame := vm.CurrentFrame()
+	list := frame.Locals[listIdx]
+	cursor := frame.Locals[cursorIdx].Int()
+	if list.Type() != types.TYPE_LIST || cursor < 1 || cursor > int64(list.Len()) {
+		return fmt.Errorf("internal error: scatter cursor %d outside list", cursor)
+	}
+	vm.releaseLocal(frame.Locals[targetIdx])
+	frame.Locals[targetIdx] = list.Get(int(cursor))
+	if step == 0 {
+		cursor++
+	} else {
+		cursor--
+	}
+	frame.Locals[cursorIdx] = types.NewInt(cursor)
+	return nil
+}
+
 // SetLocalByName sets a local variable in a stack frame by name.
 // Looks up the name in the program's VarNames table and sets the corresponding
 // slot in frame.Locals. If the name is not found (verb doesn't reference it),

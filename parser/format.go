@@ -13,8 +13,7 @@ const (
 	precedenceLowest     = iota
 	precedenceAssign     // =
 	precedenceTernary    // ? |
-	precedenceOr         // ||
-	precedenceAnd        // &&
+	precedenceOr         // || and && share one level, as in Toast
 	precedenceBitOr      // |
 	precedenceBitXor     // ^
 	precedenceBitAnd     // &
@@ -378,7 +377,7 @@ func binaryPrecedence(op verb.BinaryOperator) int {
 	case verb.BinaryOr:
 		return precedenceOr
 	case verb.BinaryAnd:
-		return precedenceAnd
+		return precedenceOr // Toast: %left tOR tAND, one level
 	case verb.BinaryBitOr:
 		return precedenceBitOr
 	case verb.BinaryBitXor:

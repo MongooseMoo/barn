@@ -44,6 +44,7 @@ type Coordinator struct {
 	ShutdownReady               chan struct{}
 	ActiveFinalizationProducers int
 	GCRunning                   bool
+	FinalizationHeld            bool
 	PendingShutdownRoots        []types.Value
 	PendingWaifs                []PendingWaif
 	PendingAnonGC               []vm.AnonGCRequest

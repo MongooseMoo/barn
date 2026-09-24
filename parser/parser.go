@@ -47,8 +47,8 @@ const (
 	PREC_CATCH          = 3  // ` ! =>
 	PREC_SPLICE         = 4  // @
 	PREC_SCATTER        = 5  // { } =
-	PREC_OR             = 6  // ||
-	PREC_AND            = 7  // &&
+	PREC_OR             = 6  // || and && (Toast: %left tOR tAND, one level)
+	PREC_AND            = 6  // &&
 	PREC_BIT_OR         = 8  // |.
 	PREC_BIT_XOR        = 9  // ^.
 	PREC_BIT_AND        = 10 // &.
@@ -170,6 +170,17 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		}
 
 	case TOKEN_LBRACE:
+		// A scatter with optional (?) or rest (@) targets cannot be parsed as a
+		// list literal. Toast's '{' scatter '}' '=' expr production (which needs
+		// a '?' item) is an operand at any precedence; any other scatter is a
+		// list lowered by '=', so it applies only where '=' may follow.
+		if scatter, optional := p.scatterAhead(); scatter && (optional || prec <= PREC_ASSIGNMENT) {
+			left, err = p.parseScatterAssign(PREC_ASSIGNMENT)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
 		// Parse list expression: {expr, expr, ...}
 		// Uses ListExpr to support sub-expressions including splice (@)
 		left, err = p.parseListExpr()

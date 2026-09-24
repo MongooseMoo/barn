@@ -88,11 +88,17 @@ iteration preparation; collections use the exact operations in
 `bytecode/opcodes.go`; and one `OP_FORK` carries both the optional variable
 index and fork-body length.
 
-`bytecode.CountsTick()` currently charges only `OP_CALL_BUILTIN`,
-`OP_CALL_VERB`, `OP_LOOP`, `OP_FOR_RANGE_NEXT`, and `OP_PASS`. This is a known
-implementation difference from Toast's broader `COUNT_TICK` and
-`COUNT_EOP_TICK` classifications in `src/include/opcode.h`; Barn's current
-classification is not normative MOO tick behavior.
+Ticks follow Toast's `COUNT_TICK` and `COUNT_EOP_TICK` classifications in
+`src/include/opcode.h`: every executed opcode at or below `OP_G_PUT` costs one
+tick, tested against the budget before the opcode runs (so the opcode that
+exhausts the budget never executes), and every extended opcode at or above
+`EOP_CATCH` costs one tick subtracted without that test.
+`bytecode.InstructionTicks()` charges each Barn opcode what the Toast opcodes it
+implements would charge (for example a call with arguments also pays for
+Toast's `OP_MAKE_SINGLETON_LIST`). Compiler-synthesized helpers with no Toast
+counterpart are tick-free (`OP_SET_LOCAL`, `OP_SCATTER_TAKE`, `OP_PUSH_INT`) or
+carry an `OP_TICKS` prefix stating the charge. The conformance suite's
+`vm/tick_accounting.yaml` pins the per-construct values.
 
 ## 3. Current Barn VM state and execution
 

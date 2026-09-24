@@ -51,6 +51,26 @@ func TestWriteWaifPropertiesFollowClassIndexOrder(t *testing.T) {
 	}
 }
 
+func TestWriteWaifFindsCanonicalKeyForMixedCasePropdef(t *testing.T) {
+	waif := types.NewWaif(1, 2).SetProperty(store.PropertyNameKey("UTC_transitions"), types.NewInt(7))
+	snapshot := store.Snapshot{
+		Objects:       map[types.ObjID]*store.SnapshotObject{1: {ID: 1}},
+		PropertyNames: map[types.ObjID][]string{1: {":UTC_transitions"}},
+	}
+
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, snapshot)
+	if err := writer.writeWaif(waif); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "c 0\n1\n2\n1\n0\n0\n7\n-1\n.\n"; got != want {
+		t.Fatalf("mixed-case WAIF propdef value was not written:\n%s", got)
+	}
+}
+
 func TestWriteWaifWithMissingClassAsInvalid(t *testing.T) {
 	waif := types.NewWaif(99, 2)
 	waif = waif.SetProperty("stale", types.NewInt(1))
