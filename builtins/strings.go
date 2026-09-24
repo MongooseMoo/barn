@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -24,8 +25,8 @@ func builtinLength(ctx *Execution, args []types.Value) types.Result {
 
 	switch args[0].Type() {
 	case types.TYPE_STR:
-		// Return raw string length (like C strlen) - do NOT decode ~XX escapes
-		return types.Ok(types.NewInt(int64(len(args[0].Str()))))
+		// Characters, not bytes; ~XX escapes are not decoded.
+		return types.Ok(types.NewInt(int64(args[0].StrCharLen())))
 	case types.TYPE_LIST:
 		return types.Ok(types.NewInt(int64(args[0].Len())))
 	case types.TYPE_MAP:
@@ -120,41 +121,29 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	h := args[0].Str()
-	n := args[1].Str()
-
-	// Convert to runes for proper indexing
-	hRunes := []rune(h)
-	nRunes := []rune(n)
+	// Positions count characters; see types.CharView.
+	hv := types.NewCharView(args[0])
+	nv := types.NewCharView(args[1])
 
 	// Start searching from position (offset + 1) in 1-based terms
 	// which is offset in 0-based terms
 	startIdx := offset
 
-	if len(nRunes) == 0 && startIdx <= len(hRunes) {
+	if nv.Len() == 0 && startIdx <= hv.Len() {
 		return types.Ok(types.NewInt(1))
 	}
 
-	if startIdx >= len(hRunes) {
+	if startIdx >= hv.Len() {
 		return types.Ok(types.NewInt(0))
 	}
 
 	// Search
-	for i := startIdx; i <= len(hRunes)-len(nRunes); i++ {
+	for i := startIdx; i <= hv.Len()-nv.Len(); i++ {
 		match := true
-		for j := 0; j < len(nRunes); j++ {
-			hChar := hRunes[i+j]
-			nChar := nRunes[j]
-			if caseSensitive {
-				if hChar != nChar {
-					match = false
-					break
-				}
-			} else {
-				if unicode.ToLower(hChar) != unicode.ToLower(nChar) {
-					match = false
-					break
-				}
+		for j := 0; j < nv.Len(); j++ {
+			if !types.CharEqual(hv.At(i+j), nv.At(j), !caseSensitive) {
+				match = false
+				break
 			}
 		}
 		if match {
@@ -192,17 +181,13 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	h := args[0].Str()
-	n := args[1].Str()
-
-	// Convert to runes
-	hRunes := []rune(h)
-	nRunes := []rune(n)
+	hv := types.NewCharView(args[0])
+	nv := types.NewCharView(args[1])
 
 	// Handle offset (4th argument)
 	// offset <= 0: specifies search end position (length + offset)
 	// offset > 0: invalid
-	endPos := len(hRunes) // Default: search whole string
+	endPos := hv.Len() // Default: search whole string
 	if len(args) == 4 {
 		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
@@ -212,39 +197,30 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 		// offset is 0 or negative
-		endPos = len(hRunes) + offset
+		endPos = hv.Len() + offset
 		if endPos < 0 {
 			return types.Ok(types.NewInt(0))
 		}
 	}
-	if endPos < len(nRunes) {
+	if endPos < nv.Len() {
 		return types.Ok(types.NewInt(0))
 	}
 
 	// Search backwards from endPos
-	startSearch := endPos - len(nRunes)
+	startSearch := endPos - nv.Len()
 	if startSearch < 0 {
 		startSearch = 0
 	}
-	if startSearch > len(hRunes)-len(nRunes) {
-		startSearch = len(hRunes) - len(nRunes)
+	if startSearch > hv.Len()-nv.Len() {
+		startSearch = hv.Len() - nv.Len()
 	}
 
 	for i := startSearch; i >= 0; i-- {
 		match := true
-		for j := 0; j < len(nRunes); j++ {
-			hChar := hRunes[i+j]
-			nChar := nRunes[j]
-			if caseSensitive {
-				if hChar != nChar {
-					match = false
-					break
-				}
-			} else {
-				if unicode.ToLower(hChar) != unicode.ToLower(nChar) {
-					match = false
-					break
-				}
+		for j := 0; j < nv.Len(); j++ {
+			if !types.CharEqual(hv.At(i+j), nv.At(j), !caseSensitive) {
+				match = false
+				break
 			}
 		}
 		if match {
@@ -510,12 +486,12 @@ func builtinStrtr(ctx *Execution, args []types.Value) types.Result {
 		caseSensitive = args[3].Truthy()
 	}
 
-	s := args[0].Str()
-	fromRunes := []rune(args[1].Str())
-	toRunes := []rune(args[2].Str())
+	sv := types.NewCharView(args[0])
+	fromChars := types.SplitChars(args[1].Str())
+	toChars := types.SplitChars(args[2].Str())
 
 	// Empty from string - return unchanged
-	if len(fromRunes) == 0 {
+	if len(fromChars) == 0 {
 		return types.Ok(args[0])
 	}
 
@@ -523,82 +499,84 @@ func builtinStrtr(ctx *Execution, args []types.Value) types.Result {
 	// If to is shorter than from, extra chars in from are DELETED
 	// If to is longer than from, ignore extra chars in to
 	// If duplicate chars in from, LAST occurrence wins
-	var result []rune
-	for _, ch := range s {
+	var result strings.Builder
+	result.Grow(len(args[0].Str()))
+	for i := 0; i < sv.Len(); i++ {
+		ch := sv.At(i)
 		// Find the LAST matching character in from (duplicates: last wins)
 		matchIdx := -1
-		for i, fc := range fromRunes {
-			var match bool
-			if caseSensitive {
-				match = ch == fc
-			} else {
-				match = unicode.ToLower(ch) == unicode.ToLower(fc)
-			}
-			if match {
-				matchIdx = i // Keep updating to get the last match
+		for k, fc := range fromChars {
+			if types.CharEqual(ch, fc, !caseSensitive) {
+				matchIdx = k
 			}
 		}
 
-		if matchIdx >= 0 {
-			// Get replacement character
-			if matchIdx < len(toRunes) {
-				replacement := toRunes[matchIdx]
-
-				// Case-insensitive: preserve original case
-				if !caseSensitive {
-					if unicode.IsUpper(ch) {
-						replacement = unicode.ToUpper(replacement)
-					} else if unicode.IsLower(ch) {
-						replacement = unicode.ToLower(replacement)
-					}
-				}
-
-				result = append(result, replacement)
+		if matchIdx < 0 {
+			result.WriteString(ch)
+			continue
+		}
+		// If matchIdx >= len(toChars), the character is deleted
+		if matchIdx < len(toChars) {
+			replacement := toChars[matchIdx]
+			if !caseSensitive {
+				replacement = matchCharCase(ch, replacement)
 			}
-			// If matchIdx >= len(toRunes), the character is deleted
-		} else {
-			result = append(result, ch)
+			result.WriteString(replacement)
 		}
 	}
 
-	return types.Ok(types.NewStr(string(result)))
+	return types.Ok(types.NewStr(result.String()))
 }
 
-// replaceAllCaseInsensitive performs case-insensitive string replacement
-func replaceAllCaseInsensitive(s, old, new string) string {
-	// Convert to runes for proper character handling
-	sRunes := []rune(s)
-	oldRunes := []rune(old)
+// matchCharCase gives replacement the case of original when both are valid
+// code points (strtr's case-insensitive mode preserves the source case).
+func matchCharCase(original, replacement string) string {
+	r, size := utf8.DecodeRuneInString(original)
+	rr, rsize := utf8.DecodeRuneInString(replacement)
+	if (r == utf8.RuneError && size <= 1) || (rr == utf8.RuneError && rsize <= 1) {
+		return replacement
+	}
+	if unicode.IsUpper(r) {
+		return string(unicode.ToUpper(rr))
+	}
+	if unicode.IsLower(r) {
+		return string(unicode.ToLower(rr))
+	}
+	return replacement
+}
 
-	if len(oldRunes) == 0 {
+// replaceAllCaseInsensitive performs case-insensitive string replacement,
+// matching character by character and copying unmatched characters' raw bytes.
+func replaceAllCaseInsensitive(s, old, new string) string {
+	sv := types.CharViewOf(s)
+	ov := types.CharViewOf(old)
+	if ov.Len() == 0 {
 		return s
 	}
 
-	var result []rune
+	var result strings.Builder
+	result.Grow(len(s))
 	i := 0
-	for i < len(sRunes) {
-		// Check if we have a match at current position
-		if i+len(oldRunes) <= len(sRunes) {
+	for i < sv.Len() {
+		if i+ov.Len() <= sv.Len() {
 			match := true
-			for j := 0; j < len(oldRunes); j++ {
-				if unicode.ToLower(sRunes[i+j]) != unicode.ToLower(oldRunes[j]) {
+			for j := 0; j < ov.Len(); j++ {
+				if !types.CharEqual(sv.At(i+j), ov.At(j), true) {
 					match = false
 					break
 				}
 			}
 			if match {
-				// Found a match - add replacement
-				result = append(result, []rune(new)...)
-				i += len(oldRunes)
+				result.WriteString(new)
+				i += ov.Len()
 				continue
 			}
 		}
-		// No match - add current character
-		result = append(result, sRunes[i])
+		result.WriteString(sv.At(i))
 		i++
 	}
 
-	return string(result)
+	return result.String()
 }
 
 // ============================================================================
@@ -671,8 +649,7 @@ func builtinRmatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	if !requiresSuffixScan && !isASCII(subject) {
-		// The historical byte-by-byte suffix scan can start in the middle of a
-		// UTF-8 encoding. Keep that byte-oriented behavior for non-ASCII strings.
+		// Non-ASCII subjects use the suffix scan, stepping by character.
 		re, err = cachedMOOPattern(pattern, caseSensitive, true)
 		if err != nil {
 			return types.Err(types.E_INVARG)
@@ -681,7 +658,9 @@ func builtinRmatch(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if requiresSuffixScan {
-		for i := len(subject); i >= 0; i-- {
+		cv := types.CharViewOf(subject)
+		for k := cv.Len(); k >= 0; k-- {
+			i := cv.ByteOffset(k)
 			loc := re.FindStringSubmatchIndex(subject[i:])
 			if loc == nil {
 				continue
@@ -763,7 +742,8 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	subjectText := matchResult.Get(4).Str()
-	subjectLen := len(subjectText)
+	subjectView := types.CharViewOf(subjectText)
+	subjectLen := subjectView.Len()
 	validRange := func(start, end int, allowUnused bool) bool {
 		if allowUnused && start == 0 && end == -1 {
 			return true
@@ -802,7 +782,7 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 		if start == 0 && end == -1 {
 			return ""
 		}
-		return subjectText[start-1 : end]
+		return subjectView.Slice(start-1, end)
 	}
 
 	// Process template and substitute %N with captured groups.
@@ -844,17 +824,21 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(resultStr))
 }
 
+// buildMatchResult converts regexp byte offsets into MOO's 1-based character
+// positions. Go's regexp matches only at rune boundaries and treats an invalid
+// byte as a one-byte rune, so every offset starts a character.
 func buildMatchResult(subject string, loc []int) types.Value {
-	start := types.NewInt(int64(loc[0] + 1))
-	end := types.NewInt(int64(loc[1]))
+	cv := types.CharViewOf(subject)
+	start := types.NewInt(int64(cv.CharIndexOfByte(loc[0]) + 1))
+	end := types.NewInt(int64(cv.CharIndexOfByte(loc[1])))
 	subs := make([]types.Value, 9)
 	for i := 0; i < 9; i++ {
 		subStart := int64(0)
 		subEnd := int64(-1)
 		subIdx := i + 1
 		if subIdx*2+1 < len(loc) && loc[subIdx*2] >= 0 {
-			subStart = int64(loc[subIdx*2] + 1)
-			subEnd = int64(loc[subIdx*2+1])
+			subStart = int64(cv.CharIndexOfByte(loc[subIdx*2]) + 1)
+			subEnd = int64(cv.CharIndexOfByte(loc[subIdx*2+1]))
 		}
 		subs[i] = types.NewList([]types.Value{types.NewInt(subStart), types.NewInt(subEnd)})
 	}

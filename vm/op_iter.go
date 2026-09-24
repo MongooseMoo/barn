@@ -53,22 +53,22 @@ func (vm *VM) executeIterPrep() error {
 		vm.Push(types.NewInt(1))
 
 	case types.TYPE_STR:
-		s := container.Str()
-		runes := []rune(s)
+		// Each character keeps its raw bytes, so invalid bytes survive iteration.
+		chars := types.SplitChars(container.Str())
 		if hasIndex {
 			// Produce {char, 1-based-index} pairs
-			elements := make([]types.Value, len(runes))
-			for i, r := range runes {
-				pair := types.NewList([]types.Value{types.NewStr(string(r)), types.NewInt(int64(i + 1))})
+			elements := make([]types.Value, len(chars))
+			for i, c := range chars {
+				pair := types.NewList([]types.Value{types.NewStr(c), types.NewInt(int64(i + 1))})
 				elements[i] = pair
 			}
 			vm.Push(types.NewList(elements))
 			vm.Push(types.NewInt(1))
 		} else {
 			// Convert to list of single-char strings
-			elements := make([]types.Value, len(runes))
-			for i, r := range runes {
-				elements[i] = types.NewStr(string(r))
+			elements := make([]types.Value, len(chars))
+			for i, c := range chars {
+				elements[i] = types.NewStr(c)
 			}
 			vm.Push(types.NewList(elements))
 			vm.Push(types.NewInt(0))

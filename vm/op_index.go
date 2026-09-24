@@ -29,10 +29,15 @@ func (vm *VM) executeIndex() error {
 			return fmt.Errorf("E_TYPE: string index must be integer")
 		}
 		indexVal := index.Int()
-		if indexVal < 1 || indexVal > int64(len(collection.Str())) {
+		if indexVal < 1 || indexVal > int64(collection.StrCharLen()) {
 			return fmt.Errorf("E_RANGE: string index out of range")
 		}
-		vm.Push(types.NewStr(string(collection.Str()[indexVal-1])))
+		s := collection.Str()
+		if collection.StrIsSingleByte() {
+			vm.Push(types.NewStr(s[indexVal-1 : indexVal]))
+		} else {
+			vm.Push(types.NewStr(types.CharSlice(s, int(indexVal-1), int(indexVal))))
+		}
 		return nil
 
 	case types.TYPE_MAP:
@@ -188,7 +193,7 @@ func (vm *VM) executeRangeSet() error {
 		newStr := value
 
 		s := coll.Str()
-		strLen := int64(len(s))
+		strLen := int64(coll.StrCharLen())
 
 		// Bounds check
 		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > strLen+1 {
@@ -209,7 +214,12 @@ func (vm *VM) executeRangeSet() error {
 		}
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
-		newColl = types.NewStr(s[:startIdx-1] + newStr.Str() + s[effectiveEnd:])
+		prefixEnd, suffixStart := int(startIdx-1), int(effectiveEnd)
+		if !coll.StrIsSingleByte() {
+			prefixEnd = types.CharByteOffset(s, prefixEnd)
+			suffixStart = types.CharByteOffset(s, suffixStart)
+		}
+		newColl = types.NewStr(s[:prefixEnd] + newStr.Str() + s[suffixStart:])
 
 	case types.TYPE_MAP:
 		var startIdx int64
@@ -339,7 +349,7 @@ func (vm *VM) executeRange() error {
 		startIdx := start.Int()
 		endIdx := end.Int()
 		s := collection.Str()
-		length := int64(len(s))
+		length := int64(collection.StrCharLen())
 
 		if startIdx > endIdx {
 			vm.Push(types.NewStr(""))
@@ -352,7 +362,11 @@ func (vm *VM) executeRange() error {
 			return fmt.Errorf("E_RANGE: string range end out of range")
 		}
 
-		vm.Push(types.NewStr(s[startIdx-1 : endIdx]))
+		if collection.StrIsSingleByte() {
+			vm.Push(types.NewStr(s[startIdx-1 : endIdx]))
+		} else {
+			vm.Push(types.NewStr(types.CharSlice(s, int(startIdx-1), int(endIdx))))
+		}
 		return nil
 
 	case types.TYPE_MAP:
@@ -418,6 +432,8 @@ func (vm *VM) executeIndexMarker() error {
 		}
 		if marker == bytecode.RangeMarkerFirst {
 			vm.Push(types.NewInt(1))
+		} else if coll.Type() == types.TYPE_STR {
+			vm.Push(types.NewInt(int64(coll.StrCharLen())))
 		} else {
 			vm.Push(types.NewInt(int64(coll.Len())))
 		}
@@ -439,7 +455,7 @@ func (vm *VM) executeIndexMarker() error {
 		if marker == bytecode.IndexMarkerFirst {
 			vm.Push(types.NewInt(1))
 		} else if marker == bytecode.IndexMarkerLast {
-			vm.Push(types.NewInt(int64(len(coll.Str()))))
+			vm.Push(types.NewInt(int64(coll.StrCharLen())))
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")
 		}

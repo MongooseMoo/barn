@@ -16,6 +16,10 @@ type strRep struct {
 	val       string
 	data      []byte
 	watermark *int
+	// chars caches the character count (see StrCharLen); 0 means not yet
+	// computed, since a non-empty string has at least one character. A rep's
+	// content never changes after construction, so the cache stays valid.
+	chars int64
 }
 
 // emptyStrRep backs every empty string. A rep without a watermark is never

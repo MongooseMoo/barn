@@ -37,13 +37,18 @@ func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.V
 		}
 		i := int(index.Int())
 		s := coll.Str()
-		if i < 1 || i > len(s) {
+		if i < 1 || i > coll.StrCharLen() {
 			return types.None, types.E_RANGE
 		}
-		if value.Type() != types.TYPE_STR || len(value.Str()) != 1 {
+		if value.Type() != types.TYPE_STR || value.StrCharLen() != 1 {
 			return types.None, types.E_INVARG
 		}
-		newStr := s[:i-1] + value.Str() + s[i:]
+		start, end := i-1, i
+		if !coll.StrIsSingleByte() {
+			start = types.CharByteOffset(s, start)
+			end = start + types.CharByteOffset(s[start:], 1)
+		}
+		newStr := s[:start] + value.Str() + s[end:]
 		if err := session.CheckStringLimitForTask(ctx, newStr); err != types.E_NONE {
 			return types.None, err
 		}

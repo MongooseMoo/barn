@@ -110,12 +110,12 @@ func TestPcreCaptureGroupsScanner(t *testing.T) {
 	}
 }
 
-// Positions are Toast's 1-based byte positions even when the subject holds
-// multi-byte characters, which regexp2 indexes by rune.
-func TestPcreMatchPositionsAreByteOffsets(t *testing.T) {
+// Positions are 1-based character positions. Barn strings count code points,
+// deliberately unlike Toast's byte positions.
+func TestPcreMatchPositionsAreCharacterPositions(t *testing.T) {
 	got := pcreMatchList(t, "héllo wörld", `w\S+`, 0, 0)
 	match, pos := pcreCapture(t, got.Get(1), "0")
-	if match != "wörld" || !reflect.DeepEqual(pos, []int64{8, 13}) {
+	if match != "wörld" || !reflect.DeepEqual(pos, []int64{7, 11}) {
 		t.Fatalf("got %q at %v", match, pos)
 	}
 }

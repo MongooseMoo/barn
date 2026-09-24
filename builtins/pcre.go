@@ -86,8 +86,8 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(out))
 }
 
-// pcreByteOffsets maps regexp2's rune indices back to byte offsets so the
-// MOO-visible positions stay Toast's 1-based byte positions. It returns nil for
+// pcreByteOffsets maps regexp2's rune indices, which are MOO character
+// positions, to byte offsets for cutting the matched text. It returns nil for
 // pure-ASCII subjects, where the two coincide.
 func pcreByteOffsets(text string) []int {
 	if utf8.RuneCountInString(text) == len(text) {
@@ -105,11 +105,12 @@ func buildPcreCapture(subject string, offsets []int, g *regexp2.Group) types.Val
 	pos := []types.Value{}
 	if g != nil && len(g.Captures) > 0 {
 		start, end := g.Index, g.Index+g.Length
+		byteStart, byteEnd := start, end
 		if offsets != nil {
-			start, end = offsets[start], offsets[end]
+			byteStart, byteEnd = offsets[start], offsets[end]
 		}
-		match = subject[start:end]
-		// 1-based inclusive positions.
+		match = subject[byteStart:byteEnd]
+		// 1-based inclusive character positions.
 		pos = []types.Value{types.NewInt(int64(start + 1)), types.NewInt(int64(end))}
 	}
 	return types.NewMap([][2]types.Value{
