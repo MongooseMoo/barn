@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -42,6 +43,9 @@ type Compiler struct {
 	builtinIDs map[string]int
 	cache      *programCache
 	layout     [32]byte
+	// olderLayouts fingerprints each proper ID prefix of this layout: the
+	// layouts this registry had before builtins were appended to it.
+	olderLayouts map[[32]byte]bool
 }
 
 // New constructs a compiler for one builtin registry layout.
@@ -50,25 +54,44 @@ func New(builtinIDs map[string]int) *Compiler {
 	for name, id := range builtinIDs {
 		snapshot[canonicalIdentifier(name)] = id
 	}
-	names := make([]string, 0, len(snapshot))
-	for name := range snapshot {
-		names = append(names, name)
+	ids := make([]int, 0, len(snapshot))
+	for _, id := range snapshot {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	olderLayouts := make(map[[32]byte]bool, len(ids))
+	for i := 1; i < len(ids); i++ {
+		olderLayouts[layoutFingerprint(snapshot, ids[i])] = true
+	}
+	return &Compiler{
+		builtinIDs:   snapshot,
+		cache:        newProgramCache(mooCacheCapacity),
+		layout:       layoutFingerprint(snapshot, math.MaxInt),
+		olderLayouts: olderLayouts,
+	}
+}
+
+// layoutFingerprint hashes the name-to-ID pairs whose ID is below bound.
+func layoutFingerprint(builtinIDs map[string]int, bound int) [32]byte {
+	names := make([]string, 0, len(builtinIDs))
+	for name, id := range builtinIDs {
+		if id < bound {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 	var layout strings.Builder
 	for _, name := range names {
-		fmt.Fprintf(&layout, "%s:%d\n", name, snapshot[name])
+		fmt.Fprintf(&layout, "%s:%d\n", name, builtinIDs[name])
 	}
-	return &Compiler{
-		builtinIDs: snapshot,
-		cache:      newProgramCache(mooCacheCapacity),
-		layout:     sha256.Sum256([]byte(layout.String())),
-	}
+	return sha256.Sum256([]byte(layout.String()))
 }
 
 // Accepts rejects compiled bytecode whose builtin IDs belong to another layout.
+// Bytecode compiled before builtins were appended is accepted: every ID it
+// uses still names the same builtin.
 func (c *Compiler) Accepts(program *bytecode.Program) bool {
-	return program != nil && (program.BuiltinLayout == [32]byte{} || program.BuiltinLayout == c.layout)
+	return program != nil && (program.BuiltinLayout == [32]byte{} || program.BuiltinLayout == c.layout || c.olderLayouts[program.BuiltinLayout])
 }
 
 // CompileMOO parses, lowers, source-attaches, and caches one MOO verb body.

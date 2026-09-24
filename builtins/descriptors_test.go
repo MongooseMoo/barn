@@ -43,7 +43,7 @@ func TestDescriptorConstructionRejectsInvalid(t *testing.T) {
 	if _, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), []Descriptor{d, d}); err == nil {
 		t.Fatal("duplicate accepted")
 	}
-	tooMany := make([]Descriptor, 257)
+	tooMany := make([]Descriptor, 1<<16+1)
 	for i := range tooMany {
 		tooMany[i] = testDescriptor(fmt.Sprintf("builtin_%d", i))
 	}

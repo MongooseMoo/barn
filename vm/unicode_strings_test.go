@@ -86,3 +86,10 @@ func TestInvalidBytesAreSingleCharactersAndPreserved(t *testing.T) {
 		expectMOO(t, tc.code, tc.want)
 	}
 }
+
+func TestCharacterBuiltinsFromMOO(t *testing.T) {
+	expectMOO(t, `return {ord("€"), tochar(8364), charname("€"), tochar("euro sign")};`, `{8364, "€", "EURO SIGN", "€"}`)
+	expectMOO(t, `return {string_width("漢字"), length("漢字"), graphemes("ab")};`, `{4, 2, {"a", "b"}}`)
+	expectMOO(t, `return {encode_chars("Σ", "utf-8"), decode_chars(encode_chars("Σ", "utf-8"), "utf-8")};`, `{"~CE~A3", {"Σ"}}`)
+	expectMOOError(t, `return tochar(10);`, types.E_INVARG)
+}

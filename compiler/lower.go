@@ -183,6 +183,19 @@ func (c *lowerer) emitShort(s uint16) {
 	c.program.Code = append(c.program.Code, byte(s>>8), byte(s))
 }
 
+// emitCallBuiltin emits a builtin call, using the wide form for IDs that do
+// not fit a byte.
+func (c *lowerer) emitCallBuiltin(funcID int, argc byte) {
+	if funcID > 0xff {
+		c.emit(bytecode.OP_CALL_BUILTIN_WIDE)
+		c.emitShort(uint16(funcID))
+	} else {
+		c.emit(bytecode.OP_CALL_BUILTIN)
+		c.emitByte(byte(funcID))
+	}
+	c.emitByte(argc)
+}
+
 // emitWide adds a 4-byte unsigned control-flow operand (big-endian).
 func (c *lowerer) emitWide(value uint32) {
 	c.program.Code = append(c.program.Code,
@@ -1214,12 +1227,6 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 		return nil
 	}
 
-	// Resolve function name to numeric ID at compile time
-	// Check builtin function ID overflow (emitted as single byte)
-	if funcID > 255 {
-		return fmt.Errorf("too many builtin functions (id %d exceeds max 255)", funcID)
-	}
-
 	// Check if any argument is a splice expression
 	hasSplice := hasSpliceArgs(n.Args)
 
@@ -1246,9 +1253,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 			}
 		}
 		// argc=0xFF signals that args list is on top of stack
-		c.emit(bytecode.OP_CALL_BUILTIN)
-		c.emitByte(byte(funcID))
-		c.emitByte(0xFF)
+		c.emitCallBuiltin(funcID, 0xFF)
 	} else {
 		// Fast path: no splices, push args directly
 		for _, arg := range n.Args {
@@ -1256,9 +1261,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 				return err
 			}
 		}
-		c.emit(bytecode.OP_CALL_BUILTIN)
-		c.emitByte(byte(funcID))
-		c.emitByte(byte(len(n.Args)))
+		c.emitCallBuiltin(funcID, byte(len(n.Args)))
 	}
 
 	return nil

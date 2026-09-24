@@ -187,6 +187,12 @@ const (
 	OP_FOR_LIST_CHECK_WIDE                                        // for-in condition [idxVar,lenVar,exitOffset:uint32]: FOR_RANGE_CHECK_WIDE with Toast's EOP_FOR_LIST tick
 )
 
+// OP_CALL_BUILTIN_WIDE calls a builtin whose ID does not fit OP_CALL_BUILTIN's
+// byte operand. The compiler emits it only for IDs above 255.
+const (
+	OP_CALL_BUILTIN_WIDE OpCode = OP_FOR_LIST_CHECK_WIDE + 1 + iota // Call builtin function [func_id:short, argc]
+)
+
 // TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
 // at or above EOP_CATCH, decrements the budget without testing it.
 const TicksUnchecked byte = 0x80
@@ -286,6 +292,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_PUSH_INT:              "PUSH_INT",
 	OP_SCATTER_TAKE:          "SCATTER_TAKE",
 	OP_FOR_LIST_CHECK_WIDE:   "FOR_LIST_CHECK_WIDE",
+	OP_CALL_BUILTIN_WIDE:     "CALL_BUILTIN_WIDE",
 }
 
 // String returns the name of an opcode
@@ -319,7 +326,7 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
 		OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
 		return 4
-	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE:
+	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE:
 		return 3
 	case OP_FORK_WIDE:
 		return 5
@@ -421,7 +428,7 @@ var tickTable = func() (t [256]uint8) {
 		t[op] = tickUnchecked
 	}
 	for _, op := range []OpCode{
-		OP_CALL_BUILTIN, OP_PASS, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
+		OP_CALL_BUILTIN, OP_CALL_BUILTIN_WIDE, OP_PASS, OP_CALL_VERB, OP_CALL_VERB_DYNAMIC, OP_CALL_VERB_WIDE,
 		OP_MAKE_LIST, OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE,
 	} {
 		t[op] = tickDynamic
@@ -462,7 +469,7 @@ func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
 		// OP_BI_FUNC_CALL / OP_CALL_VERB, plus MAKE_SINGLETON_LIST or
 		// CHECK_LIST_FOR_SPLICE for a nonempty argument list (0xFF = spliced).
 		return 1 + nonzero(code[ip+2]), 0
-	case OP_CALL_VERB_WIDE:
+	case OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE:
 		return 1 + nonzero(code[ip+3]), 0
 	case OP_PASS, OP_CALL_VERB_DYNAMIC:
 		return 1 + nonzero(code[ip+1]), 0

@@ -1286,7 +1286,9 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 
 	// Builtin calls
 	case bytecode.OP_CALL_BUILTIN:
-		return vm.executeCallBuiltin()
+		return vm.executeCallBuiltin(int(vm.FetchByte()))
+	case bytecode.OP_CALL_BUILTIN_WIDE:
+		return vm.executeCallBuiltin(int(vm.ReadShort()))
 
 	// Verb calls
 	case bytecode.OP_CALL_VERB:

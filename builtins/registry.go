@@ -87,7 +87,7 @@ type Registry struct {
 // NewRegistry constructs Barn's default base registry. VM clients contribute
 // their descriptors using NewRegistryFromDescriptors before creating sessions.
 func NewRegistry() *Registry {
-	r, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), BaseDescriptors())
+	r, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), append(BaseDescriptors(), AppendedDescriptors()...))
 	if err != nil {
 		panic(err)
 	}

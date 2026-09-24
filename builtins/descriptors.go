@@ -144,8 +144,8 @@ func NewRegistryFromDescriptors(capabilities config.Capabilities, descriptors []
 		}
 		seen[d.Name] = true
 	}
-	if len(descriptors) > 256 {
-		return nil, fmt.Errorf("builtin ID layout has %d entries; limit is 256", len(descriptors))
+	if len(descriptors) > 1<<16 {
+		return nil, fmt.Errorf("builtin ID layout has %d entries; limit is 65536", len(descriptors))
 	}
 	r := &Registry{funcs: make(map[string]BuiltinFunc), nameToID: make(map[string]int)}
 	for _, d := range descriptors {
