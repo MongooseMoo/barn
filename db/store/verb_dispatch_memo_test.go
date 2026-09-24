@@ -30,7 +30,7 @@ func TestVerbDispatchMemoPreservesDuplicateAliasWinner(t *testing.T) {
 				t.Helper()
 				var cold *Verb
 				for i := 0; i < 2; i++ {
-					tx := s.BeginReadOnly(0)
+					tx := s.BeginSnapshot(0)
 					verb, definer, err := tx.findVerb(2, "second", callable)
 					usedMemo := tx.usedVerbMemo
 					tx.Release()
@@ -68,7 +68,7 @@ func TestVerbDispatchMemoHitSkipsAncestryScans(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 	s.resetVerbDispatchMemoForTest()
 
-	first := s.BeginReadOnly(0)
+	first := s.BeginSnapshot(0)
 	v1, d1, err := first.findVerb(2, "look", false)
 	if err != nil || d1 != 0 {
 		t.Fatalf("walk: %v definer=#%d", err, d1)
@@ -81,7 +81,7 @@ func TestVerbDispatchMemoHitSkipsAncestryScans(t *testing.T) {
 	}
 	first.Release()
 
-	second := s.BeginReadOnly(0)
+	second := s.BeginSnapshot(0)
 	defer second.Release()
 	v2, d2, err := second.findVerb(2, "look", false)
 	if err != nil || d2 != d1 || v2 != v1 {
@@ -108,7 +108,7 @@ func TestVerbDispatchMemoFollowsShapeChanges(t *testing.T) {
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
 
 	resolve := func() (types.ObjID, error) {
-		tx := s.BeginReadOnly(0)
+		tx := s.BeginSnapshot(0)
 		defer tx.Release()
 		_, definer, err := tx.findVerb(2, "look", false)
 		return definer, err
@@ -166,11 +166,11 @@ func TestVerbDispatchMemoUserConflictsWithShapeChange(t *testing.T) {
 	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
-	warm := s.BeginReadOnly(0)
+	warm := s.BeginSnapshot(0)
 	warm.findVerb(2, "look", false)
 	warm.Release()
 
-	user := s.BeginReadOnly(0)
+	user := s.BeginSnapshot(0)
 	defer user.Release()
 	if _, _, err := user.findVerb(2, "look", false); err != nil {
 		t.Fatalf("findVerb: %v", err)
@@ -187,7 +187,7 @@ func TestVerbDispatchMemoUserConflictsWithShapeChange(t *testing.T) {
 	}
 
 	// Without a shape change the same pattern commits.
-	user2 := s.BeginReadOnly(0)
+	user2 := s.BeginSnapshot(0)
 	defer user2.Release()
 	user2.findVerb(2, "look", false)
 	if ec := user2.SetPropertyValue(2, "p", types.NewInt(2)); ec != types.E_NONE {
@@ -208,7 +208,7 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject anon: %v", ec)
 	}
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if _, d, err := tx.findVerb(anon, "look", false); err != nil || d != 0 {
 		t.Fatalf("anon findVerb: %v definer=#%d", err, d)
 	}
@@ -223,7 +223,7 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 		t.Fatalf("negative resolution was not memoized")
 	}
 
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 	if _, _, err := tx2.findVerb(2, "nosuch", false); err == nil {
 		t.Fatalf("memoized miss resolved")
@@ -232,7 +232,7 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 		t.Fatalf("negative entry was not used")
 	}
 	addVerbT(t, s, 2, []string{"nosuch"}, VerbRead|VerbExecute)
-	tx3 := s.BeginReadOnly(0)
+	tx3 := s.BeginSnapshot(0)
 	defer tx3.Release()
 	if _, d, err := tx3.findVerb(2, "nosuch", false); err != nil || d != 2 {
 		t.Fatalf("after add, nosuch = %v definer=#%d", err, d)
@@ -249,11 +249,11 @@ func TestVerbDispatchMemoSurvivesOwnLiveMutation(t *testing.T) {
 	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
-	warm := s.BeginReadOnly(0)
+	warm := s.BeginSnapshot(0)
 	warm.findVerb(2, "look", false)
 	warm.Release()
 
-	user := s.BeginReadOnly(0)
+	user := s.BeginSnapshot(0)
 	defer user.Release()
 	if _, _, err := user.findVerb(2, "look", false); err != nil {
 		t.Fatalf("findVerb: %v", err)
@@ -300,11 +300,11 @@ func TestVerbDispatchMemoMaterializedMarksCatchConcurrentChange(t *testing.T) {
 	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
-	warm := s.BeginReadOnly(0)
+	warm := s.BeginSnapshot(0)
 	warm.findVerb(2, "look", false)
 	warm.Release()
 
-	user := s.BeginReadOnly(0)
+	user := s.BeginSnapshot(0)
 	defer user.Release()
 	if _, _, err := user.findVerb(2, "look", false); err != nil || !user.usedVerbMemo {
 		t.Fatalf("expected a memo hit, err=%v", err)
@@ -325,11 +325,11 @@ func TestVerbDispatchMemoMaterializedMarksCatchConcurrentChange(t *testing.T) {
 func TestVerbDispatchMemoSkippedAfterLiveMutation(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
-	warm := s.BeginReadOnly(0)
+	warm := s.BeginSnapshot(0)
 	warm.findVerb(2, "look", false)
 	warm.Release()
 
-	user := s.BeginReadOnly(0)
+	user := s.BeginSnapshot(0)
 	defer user.Release()
 	user.MarkLiveMutated()
 	if _, _, err := user.findVerb(2, "look", false); err != nil {

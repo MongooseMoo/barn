@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ type competingWriter struct {
 func competingWriterDescriptor(store *dbstore.Store) (builtins.Descriptor, *competingWriter) {
 	c := &competingWriter{done: make(chan struct{})}
 	var callback builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
-		tx := store.BeginReadOnly(0)
+		tx := store.BeginSnapshot(0)
 		cur, errCode := tx.PropertyValue(0, "v")
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -251,33 +252,19 @@ return 0;
 	}
 }
 
-// dump_database() inside a gate-holding slice must not take the gate again
-// (the checkpoint walk locks it, and its hook tasks commit through it). The
-// checkpoint is deferred until the slice's commit is published and the gate is
-// released.
-func TestDumpDatabaseInGatedSliceDefersUntilGateReleased(t *testing.T) {
+// dump_database() queues a request even inside a gate-holding slice. The host
+// must handle the request independently after its caller can release the gate.
+func TestDumpDatabaseInGatedSliceQueuesCheckpointRequest(t *testing.T) {
 	store := newConflictTestStore(t)
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 
 	checkpoints := 0
-	gateFree := false
-	sawCommittedWrite := false
+	requested := make(chan struct{}, 1)
 	configureTestHost(s.Session(), func(host *builtins.Host) {
 		host.Checkpoint = func() error {
 			checkpoints++
-			acquired := make(chan struct{})
-			go func() {
-				store.EscalationLock()
-				store.EscalationUnlock()
-				close(acquired)
-			}()
-			select {
-			case <-acquired:
-				gateFree = true
-			case <-time.After(2 * time.Second):
-			}
-			sawCommittedWrite = readRootV(t, store) == 7
+			requested <- struct{}{}
 			return nil
 		}
 	})
@@ -303,10 +290,11 @@ return dump_database();
 	if checkpoints != 1 {
 		t.Fatalf("checkpoints = %d, want exactly 1", checkpoints)
 	}
-	if !gateFree {
-		t.Fatal("checkpoint ran while the slice still held the commit gate")
-	}
-	if !sawCommittedWrite {
-		t.Fatal("checkpoint ran before the slice's write was published")
+	// The host queues the request; the server loop performs it independently.
+	<-requested
+	grant, _ := store.AcquireExclusive(context.Background())
+	grant.Release()
+	if got := readRootV(t, store); got != 7 {
+		t.Fatalf("committed value = %d", got)
 	}
 }

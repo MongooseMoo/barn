@@ -167,7 +167,7 @@ func TestVerbIndexTracksLiveMutations(t *testing.T) {
 	requireIndexCurrent(t, s, obj)
 
 	// Transactional verb-code write publishes a new image; the index rides along.
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if ec := tx.SetVerbCodeByIndex(obj, 0, []string{"return 1;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex: %v", ec)
 	}

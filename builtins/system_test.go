@@ -38,7 +38,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 	}
 
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 	if _, errCode := ctx.StoreTxn.PropertyValue(0, "conflict_marker"); errCode != types.E_NONE {
 		t.Fatalf("PropertyValue conflict_marker failed: %s", errCode)

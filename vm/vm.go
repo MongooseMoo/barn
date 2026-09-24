@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"strings"
@@ -16,6 +17,11 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
+	// Boxed command-environment strings reused across verb calls (commandStr).
+	cmdStrSrc [4]string
+	cmdStrVal [4]types.Value
+	cmdStrSet [4]bool
+
 	Stack         []types.Value       // Operand stack
 	SP            int                 // Stack pointer
 	Frames        []*StackFrame       // Call stack
@@ -27,11 +33,18 @@ type VM struct {
 	TickLimit     int64               // Maximum ticks before E_MAXREC
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
-	PendingWaifs  []types.Value
+	// Preempt is set only on a root VM whose owner may lend its admission
+	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
+	// may run while their caller holds locks other invocations need.
+	Preempt      func()
+	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
 	// this lossless record after the final activation has already been popped.
-	PendingFinalizations []types.Value
+	PendingFinalizations       []types.Value
+	pendingWaifIDs             map[types.WaifIdentity]struct{}
+	pendingFinalizationWaifIDs map[types.WaifIdentity]struct{}
+	pendingFinalizationAnonIDs map[types.ObjID]struct{}
 
 	// builtinExec is the Execution handed to every builtin call from this VM,
 	// created lazily with its service closures bound once and rebound to the
@@ -64,7 +77,7 @@ func (vm *VM) popFrame() {
 	vm.collectPendingFinalizationsFromFrame(frame)
 	stackEnd := min(vm.SP, len(vm.Stack))
 	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
-		collectDirectWaifsForGC(vm.Stack[i], &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(vm.Stack[i])
 		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
 	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
@@ -291,6 +304,9 @@ const (
 	fkEq
 	fkIndex
 	fkForListLoad
+	fkSetLocal
+	fkPushInt
+	fkForListCheck
 )
 
 var fastKinds = func() (t [256]uint8) {
@@ -318,15 +334,78 @@ var fastKinds = func() (t [256]uint8) {
 	t[bytecode.OP_EQ] = fkEq
 	t[bytecode.OP_INDEX] = fkIndex
 	t[bytecode.OP_FOR_LIST_LOAD] = fkForListLoad
+	t[bytecode.OP_SET_LOCAL] = fkSetLocal
+	t[bytecode.OP_PUSH_INT] = fkPushInt
+	t[bytecode.OP_FOR_LIST_CHECK_WIDE] = fkForListCheck
 	return t
 }()
 
-// countTick charges one tick for a CountsTick opcode and mirrors the new
-// balance into the task context. Shared by the dispatch fast path and the
-// generic path so the accounting cannot drift between them.
-func (vm *VM) countTick() {
-	vm.Ticks++
-	vm.syncContextTicks()
+// Tick accounting mirrors ToastStunt's run loop (execute.cc): an ordinary
+// ticking opcode decrements the budget and aborts the task, without running,
+// when the budget reaches zero; an extended opcode at or above EOP_CATCH
+// decrements it without that test. bytecode.InstructionTicks says what each
+// instruction charges. The task context's TicksRemaining mirror is refreshed
+// before every generic-path instruction (builtins read it) and on exit, not
+// per tick.
+
+type tickOutcome uint8
+
+const (
+	ticksOK tickOutcome = iota
+	ticksExhausted
+	secondsExhausted
+)
+
+// chargeTicks charges an instruction's ticks before it runs. The limit test
+// precedes the seconds test, as in Toast. Clock reads are amortized: the
+// seconds budget is consulted whenever the count crosses a multiple of 1024,
+// which also bounds a non-yielding loop on either dispatch path.
+func (vm *VM) chargeTicks(checked, unchecked int64) tickOutcome {
+	before := vm.Ticks
+	if checked != 0 {
+		vm.Ticks += checked
+		if vm.Ticks >= vm.TickLimit {
+			return ticksExhausted
+		}
+	}
+	vm.Ticks += unchecked
+	if vm.Ticks>>10 != before>>10 && vm.tickCheckpoint() {
+		return secondsExhausted
+	}
+	return ticksOK
+}
+
+// fastTick charges the single checked tick of a fast-path instruction. It
+// declines, charging nothing, when that tick would exhaust the budget or reach
+// a seconds checkpoint; the instruction then takes the generic path, which
+// performs both tests. Small enough to inline.
+func (vm *VM) fastTick() bool {
+	t := vm.Ticks + 1
+	if t >= vm.TickLimit || t&1023 == 0 {
+		return false
+	}
+	vm.Ticks = t
+	return true
+}
+
+// fastTickUnchecked is fastTick for an extended-opcode tick, which never
+// exhausts the budget by itself.
+func (vm *VM) fastTickUnchecked() bool {
+	t := vm.Ticks + 1
+	if t&1023 == 0 {
+		return false
+	}
+	vm.Ticks = t
+	return true
+}
+
+// tickCheckpoint is the amortized boundary where a root VM may lend its
+// admission reservation before the seconds budget is checked.
+func (vm *VM) tickCheckpoint() bool {
+	if vm.Preempt != nil {
+		vm.Preempt()
+	}
+	return vm.Task != nil && vm.Task.SecondsLeft() <= 0
 }
 
 // topInts returns the two operands on top of the stack when both are ints.
@@ -438,7 +517,7 @@ func boolInt(b bool) int64 {
 func (vm *VM) releaseLocal(previous types.Value) {
 	if previous.MayHoldFinalizable() {
 		vm.collectPendingFinalizationsFromValue(previous)
-		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		vm.collectDirectWaifsForGC(previous)
 	}
 }
 
@@ -551,6 +630,9 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 
 // executeLoop is the core execution loop shared by Run() and Resume().
 func (vm *VM) executeLoop() types.Result {
+	// The fast path does not mirror ticks into the task context; publish the
+	// final balance however the loop exits.
+	defer vm.syncContextTicks()
 	// Hot path. Two invariants let this loop skip per-opcode bookkeeping that
 	// earlier revisions paid for on every single instruction:
 	//
@@ -590,17 +672,25 @@ func (vm *VM) executeLoop() types.Result {
 		// and continues. On any guard failure it falls through untouched to the
 		// generic path, so every error, promotion, and edge case is still served
 		// by the one implementation in Execute. Shared bookkeeping (releaseLocal,
-		// countTick, wideOperand) is factored so the two paths cannot drift.
+		// fastTick, wideOperand) is factored so the two paths cannot drift.
 		//
-		// Ticks are charged only by CountsTick opcodes; of those, only the two
-		// loop back-edges are fast-pathed, and they check the limit themselves.
-		// Nothing here can set vm.yielded (only suspend/fork/builtin paths do),
-		// so the yield check is skipped safely. The compiler emits only the
-		// *_WIDE control-flow forms; narrow forms stay on the generic path.
+		// A ticking case charges its tick with fastTick only once its guard
+		// has passed, and before it mutates anything; fastTick declines when
+		// the tick would exhaust the budget or reach a seconds checkpoint, and
+		// the instruction then falls through to the generic path, which runs
+		// those tests (fastIntBinary-style guards that do the work themselves
+		// refund the tick when they fall through). Nothing here can set
+		// vm.yielded (only suspend/fork/builtin paths do), so the yield check
+		// is skipped safely. The compiler emits only the *_WIDE control-flow
+		// forms; narrow forms stay on the generic path.
 		switch fastKinds[op] {
 		case fkImm:
 			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
 			cur.IP = ip + 1
+			continue
+		case fkPushInt:
+			vm.Push(types.NewInt(int64(binary.BigEndian.Uint64(code[ip+1 : ip+9]))))
+			cur.IP = ip + 9
 			continue
 		case fkGetVar:
 			v := cur.Locals[code[ip+1]]
@@ -614,6 +704,14 @@ func (vm *VM) executeLoop() types.Result {
 			cur.IP = ip + 2
 			continue
 		case fkSetVar:
+			if vm.fastTick() {
+				idx := code[ip+1]
+				vm.releaseLocal(cur.Locals[idx])
+				cur.Locals[idx] = vm.Pop()
+				cur.IP = ip + 2
+				continue
+			}
+		case fkSetLocal:
 			idx := code[ip+1]
 			vm.releaseLocal(cur.Locals[idx])
 			cur.Locals[idx] = vm.Pop()
@@ -623,15 +721,16 @@ func (vm *VM) executeLoop() types.Result {
 			if vm.SP >= 2 {
 				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
 				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-					vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
-					vm.SP--
-					cur.IP = ip + 1
-					continue
-				}
-				if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
+					if vm.fastTick() {
+						vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
+						vm.SP--
+						cur.IP = ip + 1
+						continue
+					}
+				} else if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
 					// Same finite-result rule as executeAdd; NaN/Inf falls
 					// through so the generic path raises E_FLOAT.
-					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) {
+					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) && vm.fastTick() {
 						vm.Stack[vm.SP-2] = types.NewFloat(r)
 						vm.SP--
 						cur.IP = ip + 1
@@ -643,14 +742,20 @@ func (vm *VM) executeLoop() types.Result {
 			// Kept out of line: inlining these grew executeLoop's body enough
 			// to cost the core int loops 6-10% (layout, not frame size). A
 			// small call is still far cheaper than the trip through Execute.
-			if vm.fastIntBinary(fastKinds[op]) {
-				cur.IP = ip + 1
-				continue
+			if vm.fastTick() {
+				if vm.fastIntBinary(fastKinds[op]) {
+					cur.IP = ip + 1
+					continue
+				}
+				vm.Ticks--
 			}
 		case fkIndex:
-			if vm.fastListIndex() {
-				cur.IP = ip + 1
-				continue
+			if vm.fastTick() {
+				if vm.fastListIndex() {
+					cur.IP = ip + 1
+					continue
+				}
+				vm.Ticks--
 			}
 		case fkForListLoad:
 			if vm.fastForListLoad(cur, code, ip) {
@@ -667,7 +772,7 @@ func (vm *VM) executeLoop() types.Result {
 			cur.IP = ip + 5 + wideOperand(code, ip+1)
 			continue
 		case fkJumpIfFalse:
-			if vm.SP > 0 {
+			if vm.SP > 0 && vm.fastTick() {
 				vm.SP--
 				next := ip + 5
 				if !vm.Stack[vm.SP].Truthy() {
@@ -676,15 +781,23 @@ func (vm *VM) executeLoop() types.Result {
 				cur.IP = next
 				continue
 			}
-		case fkForRangeCheck:
+		case fkForRangeCheck, fkForListCheck:
 			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
 			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-				next := ip + 7
-				if a.Int() > b.Int() {
-					next += wideOperand(code, ip+3)
+				ticked := false
+				if fastKinds[op] == fkForRangeCheck {
+					ticked = vm.fastTick()
+				} else {
+					ticked = vm.fastTickUnchecked()
 				}
-				cur.IP = next
-				continue
+				if ticked {
+					next := ip + 7
+					if a.Int() > b.Int() {
+						next += wideOperand(code, ip+3)
+					}
+					cur.IP = next
+					continue
+				}
 			}
 		case fkForRangeNext:
 			// The MaxInt64 end-bound lowering and object ranges stay generic.
@@ -692,26 +805,39 @@ func (vm *VM) executeLoop() types.Result {
 			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
 				cur.Locals[vi] = types.NewInt(a.Int() + 1)
 				cur.IP = ip + 7 - wideOperand(code, ip+3)
-				vm.countTick()
-				if vm.Ticks < vm.TickLimit {
-					continue
-				}
-				goto tickLimit
+				continue
 			}
 		case fkLoop:
 			cur.IP = ip + 5 - wideOperand(code, ip+1)
-			vm.countTick()
-			if vm.Ticks < vm.TickLimit {
-				continue
-			}
-			goto tickLimit
+			continue
 		}
 
-		// GENERIC PATH.
+		// GENERIC PATH. An OP_TICKS prefix replaces the next instruction's
+		// default charge.
 		cur.IP = ip + 1
-		if bytecode.CountsTick(op) {
-			vm.countTick()
+		var checked, unchecked int64
+		if op == bytecode.OP_TICKS {
+			if t := code[ip+1]; t&bytecode.TicksUnchecked != 0 {
+				unchecked = int64(t &^ bytecode.TicksUnchecked)
+			} else {
+				checked = int64(t)
+			}
+			op = bytecode.OpCode(code[ip+2])
+			cur.IP = ip + 3
+		} else if kind := bytecode.TickKind(op); kind != bytecode.TickDynamic {
+			checked, unchecked = bytecode.StaticTicks(kind)
+		} else {
+			checked, unchecked = bytecode.DynamicTicks(op, code, ip)
 		}
+		if checked|unchecked != 0 {
+			switch vm.chargeTicks(checked, unchecked) {
+			case ticksExhausted:
+				goto tickLimit
+			case secondsExhausted:
+				goto secondsLimit
+			}
+		}
+		vm.syncContextTicks()
 		err = vm.Execute(op)
 		if err != nil {
 			// Verb debug flag check: when the current frame's VerbDebug is false,
@@ -782,9 +908,17 @@ func (vm *VM) executeLoop() types.Result {
 			return vm.yieldResult
 		}
 
-		// Check tick limit
+		// Ticks a builtin charged for nested verb work can exhaust the budget
+		// after an instruction runs; that only matters at an instruction that
+		// tests the budget. (An extended opcode's unchecked tick may leave it
+		// exhausted; the next checked tick aborts, as in Toast.)
+		if checked != 0 && vm.Ticks >= vm.TickLimit {
+			goto tickLimit
+		}
+		continue
+
 	tickLimit:
-		if vm.Ticks >= vm.TickLimit {
+		{
 			line := vm.CurrentLine()
 			_ = vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
 			return types.Result{
@@ -801,6 +935,10 @@ func (vm *VM) executeLoop() types.Result {
 	}
 
 	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
+
+secondsLimit:
+	_ = vm.annotateError(fmt.Errorf("E_MAXREC: seconds limit exceeded"), vm.CurrentLine())
+	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
@@ -852,13 +990,25 @@ func (vm *VM) Step() error {
 		return vm.Return(types.NewInt(0))
 	}
 
-	op := bytecode.OpCode(frame.Program.Code[frame.IP])
+	code := frame.Program.Code
+	ip := frame.IP
+	op := bytecode.OpCode(code[ip])
 	frame.IP++
 
-	// Count ticks for expensive operations
-	if bytecode.CountsTick(op) {
-		vm.countTick()
+	var checked, unchecked int64
+	if op == bytecode.OP_TICKS {
+		if t := code[ip+1]; t&bytecode.TicksUnchecked != 0 {
+			unchecked = int64(t &^ bytecode.TicksUnchecked)
+		} else {
+			checked = int64(t)
+		}
+		op = bytecode.OpCode(code[ip+2])
+		frame.IP = ip + 3
+	} else {
+		checked, unchecked = bytecode.InstructionTicks(op, code, ip)
 	}
+	vm.chargeTicks(checked, unchecked)
+	vm.syncContextTicks()
 
 	return vm.Execute(op)
 }
@@ -897,11 +1047,20 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		}
 		vm.Push(val)
 
-	case bytecode.OP_SET_VAR:
+	case bytecode.OP_SET_VAR, bytecode.OP_SET_LOCAL:
 		idx := vm.FetchByte()
 		frame := vm.CurrentFrame()
 		vm.releaseLocal(frame.Locals[idx])
 		frame.Locals[idx] = vm.Pop()
+
+	case bytecode.OP_PUSH_INT:
+		frame := vm.CurrentFrame()
+		value := binary.BigEndian.Uint64(frame.Program.Code[frame.IP : frame.IP+8])
+		frame.IP += 8
+		vm.Push(types.NewInt(int64(value)))
+
+	case bytecode.OP_SCATTER_TAKE:
+		return vm.executeScatterTake()
 
 	// Property operations
 	case bytecode.OP_GET_PROP:
@@ -998,12 +1157,12 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		offset := vm.readControlFlowOperand(op == bytecode.OP_LOOP_WIDE)
 		vm.CurrentFrame().IP -= offset
 
-	case bytecode.OP_FOR_RANGE_CHECK, bytecode.OP_FOR_RANGE_CHECK_WIDE:
+	case bytecode.OP_FOR_RANGE_CHECK, bytecode.OP_FOR_RANGE_CHECK_WIDE, bytecode.OP_FOR_LIST_CHECK_WIDE:
 		// Range-for condition, fused: if Locals[valueVar] > Locals[endVar], jump to exit.
 		// Replicates GET_VAR/GET_VAR/LE/JUMP_IF_FALSE using the same compare semantics.
 		valueIdx := vm.FetchByte()
 		endIdx := vm.FetchByte()
-		offset := vm.readControlFlowOperand(op == bytecode.OP_FOR_RANGE_CHECK_WIDE)
+		offset := vm.readControlFlowOperand(op != bytecode.OP_FOR_RANGE_CHECK)
 		frame := vm.CurrentFrame()
 		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx], vm.promoting())
 		if err != nil {
@@ -1269,9 +1428,15 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 
-				// Store error in variable if specified
+				// Store error in variable if specified. For a named except
+				// variable this is the handler's OP_PUT in Toast, one tick; a
+				// catch expression's compiler temporary (a slot past the named
+				// locals) stands for Toast's free exception-tuple push.
 				if handler.VarIndex >= 0 {
 					frame.Locals[handler.VarIndex] = exceptionValue
+					if handler.VarIndex < len(frame.Program.VarNames) {
+						vm.Ticks++
+					}
 				}
 
 				return true, exceptionValue

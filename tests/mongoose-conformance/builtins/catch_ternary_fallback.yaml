@@ -1,0 +1,18 @@
+name: catch_ternary_fallback
+description: Catch defaults accept conditional expressions without extra parentheses.
+tests:
+  - name: conditional_default_true
+    steps:
+      - run: "return `1 / 0 ! E_DIV => 1 ? 2 | 3';"
+        expect:
+          value: 2
+  - name: conditional_default_false
+    steps:
+      - run: "return `1 / 0 ! E_DIV => 0 ? 2 | 3';"
+        expect:
+          value: 3
+  - name: successful_expression_skips_conditional_default
+    steps:
+      - run: "return `7 ! E_DIV => 1 ? 1 / 0 | 3';"
+        expect:
+          value: 7

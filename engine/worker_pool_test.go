@@ -255,6 +255,30 @@ func TestProcessReadyTasksFlushesInReadyOrder(t *testing.T) {
 	}
 }
 
+func TestSuspendedCommandFlushesSuffixOnlyOnce(t *testing.T) {
+	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 1)
+	defer s.Stop()
+	var flushed []string
+	s.SetTaskOutputFlusher(func(_ types.ObjID, suffix string) {
+		flushed = append(flushed, suffix)
+	})
+	program := compileTestProgram(t, s.registry, "suspend(0); return 1;")
+	queued := task.NewTaskFull(2010, 7, program, 10000, 5)
+	queued.StartTime = time.Now()
+	queued.CommandOutputSuffix = "end"
+	s.QueueTask(queued)
+	defer s.taskManager.RemoveTask(queued.ID)
+	if got := s.ProcessReadyTasks(); got != 1 || queued.GetState() != task.TaskQueued {
+		t.Fatalf("initial run count=%d state=%s; want one immediately queued resumption", got, queued.GetState())
+	}
+	if got := s.ProcessReadyTasks(); got != 1 || queued.GetState() != task.TaskCompleted {
+		t.Fatalf("resume count=%d state=%s; want one completed task", got, queued.GetState())
+	}
+	if len(flushed) != 2 || flushed[0] != "end" || flushed[1] != "" {
+		t.Fatalf("flush suffixes = %#v; want [end empty]", flushed)
+	}
+}
+
 func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(0)
@@ -546,6 +570,17 @@ return 0;
 	value, errCode := store.DirectTxn().PropertyValue(0, "yield_progress")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
+	}
+	if value.Type() != types.TYPE_STR || value.Str() != "after-long-suspend" {
+		t.Fatalf("yield_progress before scheduler resume = %v, want after-long-suspend", value)
+	}
+	if queued.GetState() != task.TaskQueued {
+		t.Fatalf("state after suspend(0) = %v, want queued", queued.GetState())
+	}
+	s.ProcessReadyTasks()
+	value, errCode = store.DirectTxn().PropertyValue(0, "yield_progress")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue after resume failed: %s", errCode)
 	}
 	if value.Type() != types.TYPE_STR || value.Str() != "after-yield" {
 		t.Fatalf("yield_progress = %v, want after-yield", value)

@@ -222,10 +222,10 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 	if !insideEval && vm.Task != nil {
 		t := vm.Task
-		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
 		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
 		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 	} else {
@@ -446,10 +446,10 @@ func (vm *VM) executePass() error {
 	}
 	if !insideEval && vm.Task != nil {
 		t := vm.Task
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
 		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
 		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 	} else {
@@ -524,4 +524,19 @@ func findCallableVerbForRead(txn *dbstore.StoreTxn, objID types.ObjID, verbName 
 
 func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
 	return txn.FindParentVerb(verbLoc, verbName)
+}
+
+// commandStr returns the string value for command-environment variable i
+// (argstr, dobjstr, iobjstr, prepstr), reusing the previous value when the
+// text is unchanged: every verb call in a command task sets all four.
+func (vm *VM) commandStr(i int, s string) types.Value {
+	if s == "" {
+		return types.NewStr("")
+	}
+	if vm.cmdStrSet[i] && vm.cmdStrSrc[i] == s {
+		return vm.cmdStrVal[i]
+	}
+	v := types.NewStr(s)
+	vm.cmdStrSrc[i], vm.cmdStrVal[i], vm.cmdStrSet[i] = s, v, true
+	return v
 }

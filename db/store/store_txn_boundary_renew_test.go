@@ -10,13 +10,13 @@ func TestBoundaryRenewPreservesResolutionDependencies(t *testing.T) {
 	for _, kind := range []string{"property-shape", "verb-memo"} {
 		t.Run(kind, func(t *testing.T) {
 			s := newBoundaryRenewStore(t)
-			tx := s.BeginReadOnly(0)
+			tx := s.BeginSnapshot(0)
 			if kind == "property-shape" {
 				if _, ec := tx.PropertyValue(0, "missing"); ec != types.E_PROPNF {
 					t.Fatalf("missing property: %v", ec)
 				}
 			} else {
-				warm := s.BeginReadOnly(0)
+				warm := s.BeginSnapshot(0)
 				warm.findVerb(0, "missing", true)
 				warm.Release()
 				tx.findVerb(0, "missing", true)
@@ -67,7 +67,7 @@ func newBoundaryRenewStore(t *testing.T) *Store {
 // CommitAndRenew would have skipped validation and silently dropped the read.
 func TestCommitAndRenewCarryingReadsRejectsStaleReadWithoutWrites(t *testing.T) {
 	store := newBoundaryRenewStore(t)
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if _, errCode := tx.PropertyValue(0, "seen"); errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
@@ -94,7 +94,7 @@ func TestCommitAndRenewCarryingReadsRejectsStaleReadWithoutWrites(t *testing.T) 
 // its own publication nor stops watching that object.
 func TestCommitAndRenewCarryingReadsCarriesReadsAndPublishes(t *testing.T) {
 	store := newBoundaryRenewStore(t)
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	if _, errCode := tx.PropertyValue(0, "seen"); errCode != types.E_NONE {
 		t.Fatalf("PropertyValue seen failed: %v", errCode)
 	}
@@ -127,7 +127,7 @@ func TestCommitAndRenewCarryingReadsCarriesReadsAndPublishes(t *testing.T) {
 
 func TestCommitAndRenewCarryingReadsStillWatchesRepublishedObject(t *testing.T) {
 	store := newBoundaryRenewStore(t)
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	if _, errCode := tx.PropertyValue(0, "seen"); errCode != types.E_NONE {
 		t.Fatalf("PropertyValue seen failed: %v", errCode)
 	}
@@ -163,7 +163,7 @@ func TestCommitAndRenewCarryingReadsKeepsReadsOfUntouchedObjects(t *testing.T) {
 		t.Fatalf("DefineProperty other failed: %v", errCode)
 	}
 
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	if _, errCode := tx.PropertyValue(child, "other"); errCode != types.E_NONE {
 		t.Fatalf("PropertyValue other failed: %v", errCode)
 	}

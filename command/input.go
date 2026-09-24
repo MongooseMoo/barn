@@ -11,4 +11,14 @@ type InputEvent struct {
 	IsDisconnect bool
 	IsTimeout    bool
 	Done         chan struct{}
+	OnProcessed  func() // first slice completed, or event discarded
+}
+
+func (input InputEvent) Complete() {
+	if input.OnProcessed != nil {
+		input.OnProcessed()
+	}
+	if input.Done != nil {
+		close(input.Done)
+	}
 }

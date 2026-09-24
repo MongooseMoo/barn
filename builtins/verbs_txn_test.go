@@ -40,7 +40,7 @@ func verbMetadataTxnTestContext(t *testing.T) (*Execution, *dbstore.Store) {
 	ctx.Player = 0
 	ctx.Programmer = 0
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	return ctx, store
 }
 
@@ -127,7 +127,7 @@ func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
 
 	retry := newTestExecution()
 	retry.Store = store
-	retry.StoreTxn = store.BeginReadOnly(0)
+	retry.StoreTxn = store.BeginSnapshot(0)
 	retry.Programmer = 0
 	retry.Player = 0
 	result = builtinDeleteVerb(retry, []types.Value{types.NewObj(0), types.NewStr("look")})
@@ -146,7 +146,7 @@ func TestDeleteVerbUnrelatedReadConflictLeavesVerbIntact(t *testing.T) {
 		t.Fatalf("SetObjectName(before): %v", errCode)
 	}
 	ctx.StoreTxn.Release()
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	if _, errCode := ctx.StoreTxn.ObjectName(1); errCode != types.E_NONE {
 		t.Fatalf("ObjectName read: %v", errCode)
 	}
@@ -280,7 +280,7 @@ func TestObjectCoarseBuiltinPropagatesStagedDeleteFlushConflict(t *testing.T) {
 		t.Fatalf("Recycle(#1): %v", err)
 	}
 	ctx.StoreTxn.Release()
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
 		t.Fatalf("ObjectName conflict read: %v", errCode)
 	}
@@ -329,7 +329,7 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	ctx.Player = 10
 	ctx.Programmer = 10
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	for _, name := range []string{"audit_proxy_seen", "audit_proxy_login_saved", "audit_proxy_trusted_saved"} {
 		result := builtinAddProperty(ctx, []types.Value{

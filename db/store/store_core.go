@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"fmt"
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"sync"
@@ -49,16 +51,22 @@ type Store struct {
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
 	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
 	// exclusive lock. allocateID()/casMaxID() are the only mutators.
-	maxObjID    atomic.Int64
-	highWaterID atomic.Int64
-	recycledMu  sync.Mutex    // guards recycledID against concurrent decentralized recyclers
-	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
-	clock       atomic.Uint64
-	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
-	history     map[types.ObjID][]objectHistory
+	maxObjID           atomic.Int64
+	highWaterID        atomic.Int64
+	recycledMu         sync.Mutex    // guards recycledID against concurrent decentralized recyclers
+	recycledID         []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	clock              atomic.Uint64
+	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
+	history            map[types.ObjID][]objectHistory
+	waifDomain         *types.WaifDomain
+	waifHistory        map[types.WaifIdentity]types.WeakWaif
+	waifHistoryPending atomic.Bool
+	// waifPrunedFloor is the last completed full history-prune floor. Zero is
+	// invalid; every publication invalidates it before announcing new history.
+	waifPrunedFloor atomic.Uint64
 
 	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
-	// historyFloor's cross-shard scan. BeginReadOnly holds it shared from the clock
+	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
 	// sample through the shard insertion; historyFloor holds it exclusively while
 	// scanning. Registrations remain concurrent with each other, and deregistration
 	// stays shard-local because missing a reader that has already released is safe.
@@ -120,10 +128,10 @@ type Store struct {
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
 	// store lock — lock order is commitGate, then s.mu). A task that keeps
-	// losing validation acquires it exclusively via EscalationLock, re-executes,
+	// losing validation acquires an exclusive grant, re-executes,
 	// and commits a txn marked gateExempt: with no ordinary commit able to
 	// interleave between its snapshot and its validation, it cannot lose again.
-	commitGate        sync.RWMutex
+	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
 
 	waifRegistry    map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
@@ -138,6 +146,7 @@ func NewStore() *Store {
 		anonObjects: make(map[types.ObjID]*Object),
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
+		waifDomain:  new(types.WaifDomain),
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true
@@ -272,17 +281,15 @@ func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
 
 func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 
-// EscalationLock acquires the commit gate exclusively for a bounded-escalation
-// attempt: while held, no ordinary commit can start, so a gateExempt txn
-// snapshotted and committed under it validates against a frozen store. Direct
-// live-store mutations (the LiveStoreMutated paths) bypass the gate; the
-// runtime's retry cap remains the backstop for that rare interleaving.
-func (s *Store) EscalationLock() {
-	s.commitGate.Lock()
-	s.commitEscalations.Add(1)
+// AcquireExclusive returns owner-held FIFO admission. Cancellation only
+// withdraws the wait; it never revokes a grant returned to executing code.
+func (s *Store) AcquireExclusive(ctx context.Context) (*commitgate.Grant, error) {
+	g, err := s.commitGate.Acquire(ctx, commitgate.Exclusive)
+	if err == nil {
+		s.commitEscalations.Add(1)
+	}
+	return g, err
 }
-
-func (s *Store) EscalationUnlock() { s.commitGate.Unlock() }
 
 func (s *Store) readTimestamp() uint64 {
 	return s.clock.Load()
@@ -759,27 +766,29 @@ func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
 	return result
 }
 
-func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
+// VisitAliasStrings calls fn with each string element of objID's own "aliases"
+// property until fn returns false. It does nothing for an invalid object or a
+// missing or non-list value. fn runs under the store read lock and must not
+// call back into the store.
+func (s *Store) VisitAliasStrings(objID types.ObjID, fn func(string) bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
-		return nil, types.E_INVIND
+		return
 	}
 	prop, ok := obj.properties["aliases"]
 	if !ok {
-		return nil, types.E_NONE
+		return
 	}
 	listVal := prop.value
 	if listVal.Type() != types.TYPE_LIST {
-		return nil, types.E_NONE
+		return
 	}
-	aliases := make([]string, 0, listVal.Len())
 	for i := 1; i <= listVal.Len(); i++ {
-		if elem := listVal.Get(i); elem.Type() == types.TYPE_STR {
-			aliases = append(aliases, elem.Str())
+		if elem := listVal.Get(i); elem.Type() == types.TYPE_STR && !fn(elem.Str()) {
+			return
 		}
 	}
-	return aliases, types.E_NONE
 }

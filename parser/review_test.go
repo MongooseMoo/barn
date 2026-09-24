@@ -25,7 +25,7 @@ func TestReview_EIntrptLiteralRejected(t *testing.T) {
 // TestReview_ListExprAsStatementMistakenForScatter confirms that a list
 // expression starting with an identifier used as a statement is incorrectly
 // parsed as a scatter assignment. `{x, y};` is a valid MOO statement (list
-// expression whose result is discarded), but looksLikeScatter() returns true
+// expression whose result is discarded), but scatterAhead() once returned true
 // for any `{IDENTIFIER ...}` pattern, causing the parser to attempt scatter
 // parsing and then fail because `=` is missing.
 func TestReview_ListExprAsStatementMistakenForScatter(t *testing.T) {

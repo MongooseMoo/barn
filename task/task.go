@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -58,18 +59,20 @@ func (s TaskState) String() string {
 
 // Task represents a MOO task (unit of execution)
 type Task struct {
-	ID           int64
-	Owner        types.ObjID
-	Kind         TaskKind // Type of task (input, forked, suspended)
-	State        TaskState
-	StartTime    time.Time
-	QueueTime    time.Time // When task was queued
-	TicksUsed    int64
-	TicksLimit   int64
-	SecondsUsed  float64
-	SecondsLimit float64
-	CallStack    []types.ActivationFrame
-	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
+	ID                int64
+	Owner             types.ObjID
+	Kind              TaskKind // Type of task (input, forked, suspended)
+	State             TaskState
+	StartTime         time.Time
+	QueueTime         time.Time // When task was queued
+	TicksUsed         int64
+	TicksLimit        int64
+	SecondsUsed       float64
+	SecondsLimit      float64
+	executionDeadline time.Time
+	execReadyAt       time.Time // External completion, retained until its next execution slice.
+	CallStack         []types.ActivationFrame
+	TaskLocal         types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
 	WakeTime            time.Time
@@ -112,6 +115,7 @@ type Task struct {
 	Iobj                types.ObjID   // Indirect object
 	CommandOutputSuffix string        // Connection output suffix for raw command framing
 	FromCommand         bool          // True if dispatched by the command parser (top-level command verb)
+	IntrinsicEval       bool          // Result is returned to the eval caller, not the uncaught-error hook
 	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
 	// OnComplete, when set, is invoked exactly once with the task's terminal
@@ -119,11 +123,18 @@ type Task struct {
 	// or fork re-queue. Used to defer server-hook completion (e.g. logging a
 	// player in once a read()-based do_login_command finally returns a player).
 	OnComplete func(Result types.Result)
+	onFailure  func(error)
 
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
-	doneClosed bool // guards Done against double-close
+	doneClosed       bool // guards Done against double-close
+	scheduleChanged  chan<- struct{}
+	executionActive  bool // runtime-owned physical execution lease
+	admissionPending bool // selected by one dispatcher, not yet executing
+	pendingInput     int  // injected events that have not finished their first slice
+	waitingForInput  bool // only a zero-delay continuation observes this fence
+	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
 
 	mu sync.RWMutex
 }
@@ -175,6 +186,20 @@ func (t *Task) TakeOnComplete() func(Result types.Result) {
 	onComplete := t.OnComplete
 	t.OnComplete = nil
 	return onComplete
+}
+
+func (t *Task) SetOnFailure(callback func(error)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onFailure = callback
+}
+
+func (t *Task) TakeOnFailure() func(error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	callback := t.onFailure
+	t.onFailure = nil
+	return callback
 }
 
 // CloseDone closes the task's Done channel exactly once. It is a no-op when
@@ -263,6 +288,65 @@ func (t *Task) SetState(state TaskState) {
 		metrics.TasksKilled.Add(1)
 	}
 	t.State = state
+	if state != TaskRunning {
+		t.notifyScheduleLocked()
+	}
+}
+
+// Only a nonblocking channel send runs under the task lock; no scheduler or
+// runtime callback may acquire locks in the reverse direction.
+func (t *Task) notifyScheduleLocked() {
+	select {
+	case t.scheduleChanged <- struct{}{}:
+	default:
+	}
+}
+
+// ReadyDeadline reports the next time this task could be selected. Zero means
+// no scheduled wake, including VMs whose physical execution has not ended.
+func (t *Task) ReadyDeadline(now time.Time) time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.executionActive || t.admissionPending || t.waitingForInput {
+		return time.Time{}
+	}
+	if t.State == TaskSuspended {
+		return t.WakeTime
+	}
+	if t.State != TaskQueued {
+		return time.Time{}
+	}
+	at := t.StartTime
+	if t.WakeTime.After(at) {
+		at = t.WakeTime
+	}
+	if at.Before(now) {
+		return now
+	}
+	return at
+}
+
+// SetExecutionActive brackets physical VM execution, which can outlast its
+// logical running state. Publishing the handoff must wake a sleeping selector.
+func (t *Task) SetExecutionActive(active bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.executionActive = active
+	if !active {
+		t.notifyScheduleLocked()
+	}
+}
+
+// StartExecution atomically checks cancellation and publishes VM ownership.
+func (t *Task) StartExecution() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State == TaskKilled {
+		return false
+	}
+	t.executionActive = true
+	t.State = TaskRunning
+	return true
 }
 
 // TryClaimQueued atomically takes the execution claim for a queued task.
@@ -271,11 +355,30 @@ func (t *Task) SetState(state TaskState) {
 func (t *Task) TryClaimQueued() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.State != TaskQueued {
+	if t.State != TaskQueued || t.executionActive || t.waitingForInput {
 		return false
 	}
 	t.State = TaskRunning
 	return true
+}
+
+// ReserveAdmission keeps an unstarted VM inspectable while preventing duplicate
+// dispatch by the input and background scheduling paths.
+func (t *Task) ReserveAdmission() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskQueued || t.executionActive || t.admissionPending || t.waitingForInput {
+		return false
+	}
+	t.admissionPending = true
+	return true
+}
+
+func (t *Task) ReleaseAdmission() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.admissionPending = false
+	t.notifyScheduleLocked()
 }
 
 // PushFrame pushes an activation frame onto the call stack
@@ -423,6 +526,9 @@ func (t *Task) SetCancelFunc(cancel context.CancelFunc) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.CancelFunc = cancel
+	if t.State == TaskKilled && cancel != nil {
+		cancel()
+	}
 }
 
 // SetQueueSeq records the runtime's enqueue sequence under the task lock.
@@ -437,10 +543,29 @@ func (t *Task) SetQueueSeq(sequence int64) {
 func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.waitingForInput = t.pendingInput != 0
 	if t.WakeTime.IsZero() {
 		t.WakeTime = now
 	}
 	t.QueueSeq = sequence
+}
+
+// NewInputReceipt records causally prior input without waiting inside its
+// builtin. The receiver resolves it after its first slice (or on discard).
+// read() delivery deliberately does not consult this zero-delay-yield fence.
+func (t *Task) NewInputReceipt() func() {
+	t.mu.Lock()
+	t.pendingInput++
+	t.mu.Unlock()
+	return sync.OnceFunc(func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		t.pendingInput--
+		if t.pendingInput == 0 && t.waitingForInput {
+			t.waitingForInput = false
+			t.notifyScheduleLocked()
+		}
+	})
 }
 
 // SchedulingSnapshot returns immutable heap ordering keys.
@@ -454,7 +579,27 @@ func (t *Task) SchedulingSnapshot() (time.Time, time.Time, int64) {
 func (t *Task) SecondsLeft() float64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	if !t.executionDeadline.IsZero() {
+		return math.Max(0, math.Ceil(time.Until(t.executionDeadline).Seconds()))
+	}
 	return t.SecondsLimit - t.SecondsUsed
+}
+
+// SetExecutionDeadline starts the timer only once execution has acquired its
+// resources. Queueing and waiting for the commit gate do not consume it.
+func (t *Task) SetExecutionDeadline(deadline time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.executionDeadline = deadline
+}
+
+// ExcludeExecutionWait keeps server-side contention out of the MOO budget.
+func (t *Task) ExcludeExecutionWait(wait time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.executionDeadline.IsZero() {
+		t.executionDeadline = t.executionDeadline.Add(wait)
+	}
 }
 
 // ConsumeTick increments tick count and returns true if ticks remain
@@ -522,6 +667,7 @@ func (t *Task) Suspend(duration time.Duration) {
 	if duration > 0 {
 		t.WakeTime = time.Now().Add(duration)
 	}
+	t.notifyScheduleLocked()
 }
 
 // SuspendIndefinite suspends the task with no wake deadline (suspend() with
@@ -539,6 +685,7 @@ func (t *Task) SuspendIndefinite() {
 	t.suspendGen++
 	t.WakeTime = time.Time{}
 	t.StartTime = IndefiniteSuspendStartTime
+	t.notifyScheduleLocked()
 }
 
 // SuspendGeneration identifies the task's current suspension. Every Suspend and
@@ -581,6 +728,7 @@ func (t *Task) resumeLocked(value types.Value) bool {
 		return false
 	}
 	t.State = TaskQueued
+	t.notifyScheduleLocked()
 	t.WakeValue = value
 	t.IsHTTPReadSuspended = false
 	// An indefinitely-suspended task carries the far-future
@@ -626,11 +774,29 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	t.ExecCancelFunc = nil
 	t.ExecCommandName = ""
 	t.State = TaskQueued
+	t.notifyScheduleLocked()
+	t.execReadyAt = time.Now()
 	t.WakeValue = value
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}
 	return true
+}
+
+// ExecReadyTime returns when an external result made the task ready.
+func (t *Task) ExecReadyTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.execReadyAt
+}
+
+// TakeExecReadyTime consumes the observation timestamp once, under the task lock.
+func (t *Task) TakeExecReadyTime() time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ready := t.execReadyAt
+	t.execReadyAt = time.Time{}
+	return ready
 }
 
 // WakeDue reports whether a suspended task has a timed wake deadline due.
@@ -644,7 +810,12 @@ func (t *Task) WakeDue(now time.Time) bool {
 func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.cancelRequested = true
 	t.State = TaskKilled
+	t.notifyScheduleLocked()
+	if t.CancelFunc != nil {
+		t.CancelFunc()
+	}
 	// If the task is exec-suspended, cancel the subprocess
 	if t.ExecCancelFunc != nil {
 		t.ExecCancelFunc()
@@ -653,6 +824,12 @@ func (t *Task) Kill() {
 	t.IsExecSuspended = false
 	t.ExecCommandName = ""
 	t.IsHTTPReadSuspended = false
+}
+
+func (t *Task) CancellationRequested() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.cancelRequested
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks().

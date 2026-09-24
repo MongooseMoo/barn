@@ -13,6 +13,36 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestRunGCRejectedBoundaryDoesNotRenewOrSweep(t *testing.T) {
+	store := dbstore.NewStore()
+	orphan, errCode := store.DirectTxn().CreateObject(nil, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatal(errCode)
+	}
+	rt := NewRuntime(store)
+	defer rt.Stop()
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.StoreTxn = store.BeginSnapshot(0)
+	defer ctx.StoreTxn.Release()
+	before := ctx.StoreTxn
+	ctx.IsWizard = true
+	called := 0
+	ctx.BeforeIrreversibleEffect = func() bool {
+		called++
+		ctx.ConflictRetryRequested = true
+		return true
+	}
+	runGC, _ := rt.Registry().Get("run_gc")
+	result := runGC(rt.Session().NewExecution(ctx, nil), nil)
+	if result.Flow != types.FlowAbortAttempt || called != 1 || ctx.IrreversibleSideEffect {
+		t.Fatalf("rejected sweep = %+v, boundary calls=%d, irreversible=%v", result, called, ctx.IrreversibleSideEffect)
+	}
+	if ctx.StoreTxn != before || !store.DirectTxn().Valid(orphan) {
+		t.Fatal("rejected boundary renewed or recycled")
+	}
+}
+
 func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testing.T) {
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(0)
@@ -311,7 +341,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.TaskID = caller.ID
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	rt.acquireTaskExecution(caller)
 	defer rt.releaseTaskExecution(caller.ID)
 	rt.acquireExecutionContext(ctx, caller.ID)

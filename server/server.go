@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -26,25 +28,26 @@ import (
 
 // Server represents the MOO server
 type Server struct {
-	store              *dbstore.Store
-	runtime            *engine.Runtime
-	registry           *builtins.Registry
-	input              *InputProcessor
-	connManager        *ConnectionManager
-	checkpointedConns  []dbformat.ActiveConnection
-	dbPath             string
-	listenerSpecs      []listener.Spec
-	checkpointInterval time.Duration
-	options            config.Options
-	running            bool
-	mu                 sync.Mutex
-	shutdownMessage    string
-	terminalErr        error
-	backgroundWG       sync.WaitGroup
-	checkpointChan     chan struct{}
-	ctx                context.Context
-	cancel             context.CancelFunc
-	lifecycle          LifecycleObserver
+	store               *dbstore.Store
+	runtime             *engine.Runtime
+	registry            *builtins.Registry
+	input               *InputProcessor
+	connManager         *ConnectionManager
+	checkpointedConns   []dbformat.ActiveConnection
+	dbPath              string
+	listenerSpecs       []listener.Spec
+	checkpointInterval  time.Duration
+	ordinaryDumpStarted atomic.Bool
+	options             config.Options
+	running             bool
+	mu                  sync.Mutex
+	shutdownMessage     string
+	terminalErr         error
+	backgroundWG        sync.WaitGroup
+	checkpointChan      chan struct{}
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	lifecycle           LifecycleObserver
 }
 
 // LifecycleObserver reports application lifecycle boundaries to passive
@@ -76,6 +79,10 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 	}
 	if err := options.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime options: %w", err)
+	}
+	dbPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
 	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
 	if err != nil {
@@ -114,12 +121,29 @@ func (s *Server) LoadDatabase() error {
 	// Counters are incremented where the events happen; these two are read on
 	// demand because "how many right now" is a question about live state.
 	metrics.PublishGauge("barn.tasks_live", s.runtime.LiveTaskCount)
+	metrics.PublishGauge("barn.admission_active", func() int64 { return int64(s.runtime.AdmissionStats().Active) })
+	metrics.PublishGauge("barn.admission_queued", func() int64 { return int64(s.runtime.AdmissionStats().Queued) })
+	metrics.PublishGauge("barn.admission_service_ns", func() int64 { return int64(s.runtime.AdmissionStats().Service) })
+	metrics.PublishGauge("barn.admission_gate_wait_ns", func() int64 { return int64(s.runtime.AdmissionStats().GateWait) })
+	metrics.PublishGauge("barn.admission_maintenance_ns", func() int64 { return int64(s.runtime.AdmissionStats().Maintenance) })
+	metrics.PublishGauge("barn.admission_preempted", func() int64 { return int64(s.runtime.AdmissionStats().Preempted) })
+	metrics.PublishGauge("barn.admission_preemptions", func() int64 { return int64(s.runtime.AdmissionStats().Preemptions) })
 	metrics.PublishGauge("barn.connections_live", func() int64 {
 		return int64(len(s.connManager.ConnectedPlayers(true)))
 	})
+	// MVCC commit outcomes: a benchmark whose conflict retries rerun whole
+	// commands otherwise looks like unexplained slowness.
+	store := s.store
+	metrics.PublishGauge("barn.commit_attempts", func() int64 { return int64(store.CommitAttempts()) })
+	metrics.PublishGauge("barn.commit_successes", func() int64 { return int64(store.CommitSuccesses()) })
+	metrics.PublishGauge("barn.commit_conflicts", func() int64 { return int64(store.CommitConflicts()) })
+	metrics.PublishGauge("barn.commit_retries", func() int64 { return int64(store.CommitRetries()) })
+	metrics.PublishGauge("barn.commit_escalations", func() int64 { return int64(store.CommitEscalations()) })
 
 	s.input.SetConnectionManager(s.connManager)
 	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
+	// Nothing is recycled before #0:server_started returns (see Start).
+	s.runtime.HoldFinalizationUntilStarted()
 	s.runtime.AdoptPendingFinalizations(s.store.TakePendingFinalizations())
 	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
@@ -162,9 +186,10 @@ func (s *Server) LoadDatabase() error {
 	host.TaskYielder = s.runtime
 	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
-	// dump_database() does not report success until the requested checkpoint is
-	// durable and available for managed restart adoption.
-	host.Checkpoint = func() error { return s.checkpoint() }
+	// Like the Toast main loop, checkpoint requests run outside the requesting
+	// activation. Its admission reservation and commit grant can then be released.
+	host.Checkpoint = func() error { return s.requestCheckpoint() }
+	host.DatabaseDiskSize = s.databaseDiskSize
 	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
 		var ctx *kernel.TaskContext
 		var callerRoots []types.Value
@@ -275,6 +300,7 @@ func (s *Server) Start() error {
 	if err := s.callServerStarted(); err != nil {
 		slog.Warn("#0:server_started() failed", slog.Any("err", err))
 	}
+	s.runtime.ReleaseStartupFinalization()
 
 	// Start listening for connections
 	if s.lifecycle != nil {
@@ -348,7 +374,7 @@ func (s *Server) requestCheckpoint() error {
 
 // checkpoint saves the database to disk
 func (s *Server) checkpoint() error {
-	return s.checkpointWith(dbformat.WriteCheckpoint)
+	return s.checkpointWith(dbformat.WriteCheckpoint, true)
 }
 
 type checkpointWriter func(
@@ -359,7 +385,7 @@ type checkpointWriter func(
 	[]dbformat.ActiveConnection,
 ) error
 
-func (s *Server) checkpointWith(writeCheckpoint checkpointWriter) error {
+func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool) error {
 	slog.Info("checkpoint started")
 
 	// Call #0:checkpoint_started()
@@ -369,9 +395,16 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter) error {
 
 	start := time.Now()
 
-	queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
-	activeConnections := s.connManager.CheckpointConnections()
-	if err := writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := s.runtime.WithCheckpointBarrier(func() error {
+		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
+		activeConnections := s.connManager.CheckpointConnections()
+		if ordinary {
+			// A dump attempt makes the ordinary output eligible even if writing
+			// fails. Panic dumps use a different output and do not change this.
+			s.ordinaryDumpStarted.Store(true)
+		}
+		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
+	}); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}
@@ -465,7 +498,7 @@ func (s *Server) Panic(message string) error {
 		slog.String("go_stack", string(debug.Stack())))
 
 	// Attempt emergency database dump
-	if err := s.checkpointWith(dbformat.WritePanicCheckpoint); err != nil {
+	if err := s.checkpointWith(dbformat.WritePanicCheckpoint, false); err != nil {
 		slog.Error("emergency dump failed", slog.Any("err", err))
 	} else {
 		slog.Info("emergency dump written", slog.String("path", s.dbPath+".new.PANIC"))

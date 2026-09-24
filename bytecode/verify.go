@@ -138,8 +138,22 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 	switch op {
 	case OP_PUSH:
 		return constant(int(operand[0]))
-	case OP_GET_VAR, OP_SET_VAR, OP_INDEX_SET, OP_RANGE_SET:
+	case OP_GET_VAR, OP_SET_VAR, OP_SET_LOCAL, OP_INDEX_SET, OP_RANGE_SET:
 		return local(int(operand[0]))
+	case OP_TICKS:
+		// The prefix modifies exactly the instruction that follows it.
+		if instruction.next >= len(program.Code) || OpCode(program.Code[instruction.next]) == OP_TICKS {
+			return fmt.Errorf("tick prefix does not precede an instruction")
+		}
+	case OP_SCATTER_TAKE:
+		for _, index := range operand[:3] {
+			if err := local(int(index)); err != nil {
+				return err
+			}
+		}
+		if operand[3] > 1 {
+			return fmt.Errorf("invalid scatter step %d", operand[3])
+		}
 	case OP_GET_PROP, OP_SET_PROP:
 		if operand[0] != 0xff {
 			return constant(int(operand[0]))
@@ -160,7 +174,7 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 			return err
 		}
 		return verifyRelativeTarget(instruction, int(binary.BigEndian.Uint16(operand[2:])), op == OP_FOR_RANGE_NEXT, target)
-	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE:
+	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_CHECK_WIDE:
 		if err := local(int(operand[0])); err != nil {
 			return err
 		}

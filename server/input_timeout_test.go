@@ -16,10 +16,10 @@ type deadlineProbeTransport struct {
 	recordedAt time.Time
 }
 
-func (t *deadlineProbeTransport) ReadLine() (string, error) { return "", io.EOF }
-func (t *deadlineProbeTransport) WriteLine(string) error    { return nil }
-func (t *deadlineProbeTransport) Close() error              { return nil }
-func (t *deadlineProbeTransport) RemoteAddr() string        { return "127.0.0.1:7777" }
+func (t *deadlineProbeTransport) ReadLine() (string, error)      { return "", io.EOF }
+func (t *deadlineProbeTransport) WriteOutput(string, bool) error { return nil }
+func (t *deadlineProbeTransport) Close() error                   { return nil }
+func (t *deadlineProbeTransport) RemoteAddr() string             { return "127.0.0.1:7777" }
 
 func (t *deadlineProbeTransport) SetReadDeadline(deadline time.Time) error {
 	t.deadline = deadline

@@ -18,8 +18,16 @@ type strRep struct {
 	watermark *int
 }
 
+// emptyStrRep backs every empty string. A rep without a watermark is never
+// mutated (appendRep copies), so all empty strings can share it; verb frames
+// alone set four empty builtin locals per call.
+var emptyStrRep = &strRep{}
+
 // NewStr creates a string value.
 func NewStr(s string) Value {
+	if s == "" {
+		return Value{tag: TYPE_STR, ref: unsafe.Pointer(emptyStrRep)}
+	}
 	return Value{tag: TYPE_STR, ref: unsafe.Pointer(&strRep{val: s})}
 }
 

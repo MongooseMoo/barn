@@ -13,7 +13,7 @@ func TestTxnCreateDecentralized(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	parent := ids[0]
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	newID, ec := tx.CreateObject([]types.ObjID{parent}, 3)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject: %v", ec)
@@ -55,7 +55,7 @@ func TestTxnRecycleSimpleDecentralized(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	parent := ids[0]
 
-	tx0 := s.BeginReadOnly(0)
+	tx0 := s.BeginSnapshot(0)
 	obj, ec := tx0.CreateObject([]types.ObjID{parent}, 3)
 	if ec != types.E_NONE {
 		t.Fatalf("setup create: %v", ec)
@@ -68,7 +68,7 @@ func TestTxnRecycleSimpleDecentralized(t *testing.T) {
 		t.Fatalf("setup: parent should contain obj")
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	handled, ec := tx.RecycleObject(obj)
 	if !handled || ec != types.E_NONE {
 		t.Fatalf("RecycleObject handled=%v ec=%v", handled, ec)
@@ -98,7 +98,7 @@ func TestTxnCreateThenRecycleSameTxn(t *testing.T) {
 	parent := ids[0]
 	childrenBefore := len(s.load(parent).children)
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	o, ec := tx.CreateObject([]types.ObjID{parent}, 3)
 	if ec != types.E_NONE {
 		t.Fatalf("create: %v", ec)
@@ -131,9 +131,9 @@ func TestTxnCreateConcurrentSameParentBothCommit(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	parent := ids[0]
 
-	tx1 := s.BeginReadOnly(0)
+	tx1 := s.BeginSnapshot(0)
 	defer tx1.Release()
-	tx2 := s.BeginReadOnly(0)
+	tx2 := s.BeginSnapshot(0)
 	defer tx2.Release()
 
 	id1, ec := tx1.CreateObject([]types.ObjID{parent}, 3)

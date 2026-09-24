@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"slices"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 // store_cow.go — copy-on-write property-value publish (COW Phase 0).
 //
@@ -24,23 +28,12 @@ import "github.com/MongooseMoo/barn/types"
 //     stores a NEW image and never touches the old one the reader is reading — no
 //     race. This is the race the per-object-lock prototype could not close.
 
-// buildImageWithPropertyValue returns a NEW immutable *Object equal to old except
-// for the single property write `w` applied and the propertyVersion stamped to ts.
-// Only the properties map is copied (a shallow map copy that SHARES every untouched
-// *Property pointer, which are immutable); all other collections (parents/children/
-// contents/verbs/verbList/propOrder/...) are shared by reference with the old image
-// because the property-value write does not touch them. The edited property becomes
-// a freshly-allocated *Property so the old image's *Property is never mutated.
-func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Object {
-	img := *old // shallow struct copy: shares all slices/maps/pointers with old
-
-	// Copy only the properties map (the touched collection). Unedited *Property
-	// nodes are shared (immutable); the edited one is replaced with a new node.
-	newProps := make(map[string]Property, len(old.properties))
-	for name, prop := range old.properties {
-		newProps[name] = prop
-	}
-
+// applyPropertyValueOwned applies one property-value write to img in place and
+// stamps its propertyVersion. The caller must exclusively own img and its
+// properties map: an unpublished image the committer built from a private
+// clone. Published images are immutable and must never reach this function.
+func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
+	newProps := img.properties
 	if liveName, prop, ok := propertyByName(newProps, w.name); ok {
 		// Existing property: copy it by value, apply the write, stamp the property
 		// version, and swap it into the new map under its existing key. The old
@@ -71,10 +64,7 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		// A new slot changes which ancestry walks fall through this object.
 		img.propertyShapeVersion = ts
 	}
-
-	img.properties = newProps
 	img.propertyVersion = ts
-	return &img
 }
 
 // buildImageWithScalar returns a NEW immutable *Object equal to old except for the
@@ -171,7 +161,7 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 // (store_properties.go:501-514): it does NOT propagate clear inherited slots to
 // descendants — that propagation is staged separately by the txn (propagateDefinedProperty,
 // store_txn.go:1219) as per-descendant propertyWrites and is applied to each descendant's
-// own image by buildImageWithPropertyValue. Each descendant image is built independently
+// own image by applyPropertyValueOwned. Each descendant image is built independently
 // from its own published image, so define-on-O and the descendant clear-slot writes are
 // independent per-object builds within the same atomically-published footprint.
 //
@@ -399,7 +389,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		addID(id)
 	}
-	sortObjIDs(writeIDs)
+	slices.Sort(writeIDs)
 
 	// Lock the union of read-set and write-set slots (ascending) for the whole
 	// validate+build+publish interval. A read-only object with no numbered slot is
@@ -437,7 +427,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.verbScans {
 		addLockID(id)
 	}
-	sortObjIDs(lockIDs)
+	slices.Sort(lockIDs)
 
 	slots := make([]*objectSlot, 0, len(lockIDs))
 	for _, id := range lockIDs {
@@ -457,19 +447,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	defer unlockSlots(slots)
 
 	// Validate the read set against the currently-published immutable images.
-	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
-		return errCode
-	}
-	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
 		return errCode
 	}
@@ -484,18 +462,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// on the descendants' own images by propagateDefinedProperty); a definition-delete
 	// applies only to the DEFINER's image (descendant removals are staged as
 	// propertyDeletes by removeInheritedProperty).
-	propDefinesByObj := make(map[types.ObjID][]propertyDefine)
-	for objID, obj := range tx.objects {
-		if obj == nil {
-			continue
-		}
-		for _, name := range obj.propOrder {
-			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-			if def, ok := tx.propertyDefines[key]; ok {
-				propDefinesByObj[objID] = append(propDefinesByObj[objID], def)
-			}
-		}
-	}
+	propDefinesByObj := tx.propertyDefinesByObject()
 	propDefDeletesByObj := make(map[types.ObjID][]string)
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		propDefDeletesByObj[key.objID] = append(propDefDeletesByObj[key.objID], actualName)
@@ -566,7 +533,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			if !waifRootsDirty && (w.value.MayHoldFinalizable() || propertyValueMayHoldFinalizable(img, w.name)) {
 				waifRootsDirty = true
 			}
-			img = buildImageWithPropertyValue(img, w, ts)
+			// img descends from this commit's private clone, so its properties
+			// map is unpublished and can take every write without recopying.
+			applyPropertyValueOwned(img, w, ts)
 		}
 		for _, actualName := range propDeletesByObj[id] {
 			img = buildImageWithPropertyDelete(img, actualName, ts)
@@ -618,16 +587,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		s.noteVerbShapeChanged()
 	}
 
-	tx.scalarWrites = nil
-	tx.relationshipWrites = nil
-	tx.propertyDefines = nil
-	tx.propertyDefinitionDeletes = nil
-	tx.propertyWrites = nil
-	tx.propertyDeletes = nil
-	tx.verbWrites = nil
-	tx.verbDeletes = nil
-	tx.createdObjects = nil
-	tx.recycleWrites = nil
+	tx.clearStagedWrites()
 	return types.E_NONE
 }
 
@@ -640,19 +600,5 @@ type verbWrite2 struct {
 func unlockSlots(slots []*objectSlot) {
 	for i := len(slots) - 1; i >= 0; i-- {
 		slots[i].mu.Unlock()
-	}
-}
-
-// sortObjIDs sorts a small slice of ObjIDs ascending (insertion sort: write
-// footprints are tiny, so this avoids the sort package's overhead/allocation).
-func sortObjIDs(ids []types.ObjID) {
-	for i := 1; i < len(ids); i++ {
-		v := ids[i]
-		j := i - 1
-		for j >= 0 && ids[j] > v {
-			ids[j+1] = ids[j]
-			j--
-		}
-		ids[j+1] = v
 	}
 }

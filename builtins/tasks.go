@@ -116,6 +116,18 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// Only a kill that will happen is irreversible. A refused kill has no effect
+	// (LambdaCore's $code_utils:task_valid probes existence this way as $no_one),
+	// so it must not end the attempt's retryability or take the commit gate.
+	if errCode := mgr.CheckKill(taskID, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if ctx.TaskContext != nil {
+		if !beginIrreversible(ctx) {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
 	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
@@ -495,6 +507,9 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+		return types.Err(types.E_INVARG)
+	}
 	// Permission check: must be task owner or wizard
 	if t.Owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -659,8 +674,12 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	connected := 0
-	if resolveConnection(ctx, target) != nil {
+	var lastInputTaskID int64
+	if conn := resolveConnection(ctx, target); conn != nil {
 		connected = 1
+		if inputConn, ok := conn.(lastInputTaskConnection); ok {
+			lastInputTaskID = inputConn.LastInputTaskID()
+		}
 	} else if target != ctx.Player {
 		// Toast behavior for wizard querying non-connected/nonexistent player.
 		// This is connection-state handling, not a permission decision.
@@ -671,6 +690,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 		{types.NewStr("player"), types.NewObj(target)},
 		{types.NewStr("connected"), types.NewInt(int64(connected))},
 		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
+		{types.NewStr("last_input_task_id"), types.NewInt(lastInputTaskID)},
 	}))
 }
 

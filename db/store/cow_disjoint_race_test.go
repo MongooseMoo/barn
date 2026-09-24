@@ -28,7 +28,7 @@ func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
 		}
 	}
 
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if _, errCode := tx.PropertyValue(b, "n"); errCode != types.E_NONE {
 		t.Fatalf("read b.n failed: %v", errCode)
@@ -106,7 +106,7 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(int64(c))); errCode != types.E_NONE {
 					t.Errorf("SetPropertyValue failed: %v", errCode)
 					return
@@ -212,7 +212,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		go func(id types.ObjID, seed int) {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				if errCode := tx.SetObjectName(id, "obj"); errCode != types.E_NONE {
 					t.Errorf("SetObjectName failed: %v", errCode)
 					return
@@ -261,7 +261,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 			defer wg.Done()
 			for c := 0; c < commitsEach/4; c++ {
 				_ = store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				if errCode := tx.ClearPropertyOverride(id, "scratch"); errCode != types.E_NONE {
 					_ = tx.Commit()
 					continue
@@ -329,7 +329,7 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginReadOnly(0)
+				tx := store.BeginSnapshot(0)
 				// SetPropertyValue records a property read of the prop, so concurrent
 				// same-object committers may conflict (E_INVARG) — that is the correct
 				// optimistic-validation contract, not a failure. Tolerate it.

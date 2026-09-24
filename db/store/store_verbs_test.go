@@ -260,7 +260,7 @@ func TestDeleteResolvedVerbAuthorizedPreservesStaleIdentityPrecedence(t *testing
 
 func TestStoreTxnVerbDeleteCommitAndRenewValidatesBeforeMutation(t *testing.T) {
 	store := newOverlappingVerbStore(t)
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	if _, errCode := tx.ObjectOwner(0); errCode != types.E_NONE {
 		t.Fatalf("ObjectOwner authority read: %v", errCode)
 	}
@@ -298,7 +298,7 @@ func TestStoreTxnVerbDeleteCommitAndRenewValidatesBeforeMutation(t *testing.T) {
 
 func TestStoreTxnVerbDeleteCommitAndRenewAppliesAfterValidation(t *testing.T) {
 	store := newOverlappingVerbStore(t)
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	resolved, err := tx.ResolveVerbOnObject(0, "peek")
 	if err != nil {
 		t.Fatalf("ResolveVerbOnObject: %v", err)

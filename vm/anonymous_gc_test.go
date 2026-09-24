@@ -169,7 +169,7 @@ func TestExpandAnonymousReachabilityIncludesTransactionPropertyWrites(t *testing
 		}
 	}
 
-	tx := store.BeginReadOnly(0)
+	tx := store.BeginSnapshot(0)
 	defer tx.Release()
 	if errCode := tx.SetPropertyValue(4, "next", types.NewAnon(5)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue(head) = %v", errCode)

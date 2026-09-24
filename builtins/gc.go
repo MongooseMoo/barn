@@ -30,7 +30,19 @@ func builtinRunGC(ctx *Execution, args []types.Value) types.Result {
 	runtime.GC()
 
 	if runGC := hostOf(ctx).RunGC; runGC != nil {
-		if err := runGC(ctx); err != nil {
+		aborted := false
+		err := runGC(ctx, func() bool {
+			if !beginIrreversible(ctx) {
+				aborted = true
+				return false
+			}
+			ctx.IrreversibleSideEffect = true
+			return true
+		})
+		if aborted {
+			return abortedAttempt()
+		}
+		if err != nil {
 			return types.Err(types.E_INVARG)
 		}
 	}

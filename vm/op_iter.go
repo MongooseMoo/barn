@@ -106,17 +106,42 @@ func (vm *VM) executeScatter() error {
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return fmt.Errorf("E_TYPE: scatter assignment requires a list")
+		return fmt.Errorf("E_TYPE: %s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
 	}
 
 	length := val.Len()
-	if length < numRequired {
-		return fmt.Errorf("E_ARGS: too few elements for scatter assignment")
-	}
-	if !hasRest && length > numRequired+numOptional {
-		return fmt.Errorf("E_ARGS: too many elements for scatter assignment")
+	// Toast raises E_ARGS with its default message for either count mismatch.
+	if length < numRequired || (!hasRest && length > numRequired+numOptional) {
+		return MooError{Code: types.E_ARGS}
 	}
 
+	return nil
+}
+
+// executeScatterTake handles OP_SCATTER_TAKE <listVar> <cursorVar> <targetVar>
+// <step>: target = list[cursor], then the cursor moves one element toward the
+// middle (step 0: forward, step 1: backward). OP_SCATTER has already checked
+// the list's length, so the cursor is always in range. Like the rest of the
+// binding Toast's EOP_SCATTER performs, it costs no tick.
+func (vm *VM) executeScatterTake() error {
+	listIdx := vm.FetchByte()
+	cursorIdx := vm.FetchByte()
+	targetIdx := vm.FetchByte()
+	step := vm.FetchByte()
+	frame := vm.CurrentFrame()
+	list := frame.Locals[listIdx]
+	cursor := frame.Locals[cursorIdx].Int()
+	if list.Type() != types.TYPE_LIST || cursor < 1 || cursor > int64(list.Len()) {
+		return fmt.Errorf("internal error: scatter cursor %d outside list", cursor)
+	}
+	vm.releaseLocal(frame.Locals[targetIdx])
+	frame.Locals[targetIdx] = list.Get(int(cursor))
+	if step == 0 {
+		cursor++
+	} else {
+		cursor--
+	}
+	frame.Locals[cursorIdx] = types.NewInt(cursor)
 	return nil
 }
 

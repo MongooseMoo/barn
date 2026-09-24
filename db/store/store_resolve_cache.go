@@ -24,7 +24,7 @@ import (
 // result plus the exact list of objects the walk visited. It is deliberately
 // PER-TRANSACTION rather than store-global, stamped by the txn's own snapshot:
 //
-//   - A StoreTxn is a fixed MVCC snapshot (readTS, store_txn.go BeginReadOnly)
+//   - A StoreTxn is a fixed MVCC snapshot (readTS, store_txn.go BeginSnapshot)
 //     and lives for a whole task slice (engine/task_runtime.go begins one
 //     per attempt and only replaces it after a commit), which on the mongoose
 //     workload is hundreds to thousands of verb calls and property reads. So the
@@ -48,20 +48,24 @@ import (
 // up identical to an uncached run and committed-write conflict detection is
 // unaffected.
 //
-// CORRECTNESS: staged writes bypass the memo. The memo is live only while
+// CORRECTNESS: staged writes bypass the property and store-global verb memos.
+// The transaction-local verb memo additionally accepts walks whose entire path
+// remains unowned: unrelated writes cannot mutate these immutable images. Paths
+// through any owned object are never cached, even after their first mutation.
+// The property and store-global memos are live only while
 // len(tx.owned) == 0 — i.e. while the transaction has not privatized a single
 // object. Every staging path (SetPropertyValue, DefineProperty, SetVerbCode,
 // CreateObject, MoveObject, RecycleObject, ...) goes through
 // mutableObject/privatizeCached first, which marks the object owned, and
 // `owned` only ever grows within a transaction. So the first staged write
-// disables the memo for the remainder of the transaction and its own writes are
+// disables those memos for the remainder of the transaction and its own writes are
 // always read back by a real walk. (The single exception is a successful
 // FlushStagedToLive, which publishes the staged writes, re-clones every cached
 // object from current live and resets tx.owned; it invalidates the memo
 // explicitly, and the fresh clones it installs are unowned, so nothing can be
 // mutated in place without a new privatizeCached. A failed flush preserves
 // owned and therefore keeps the memo disabled.) The gate also guarantees no
-// memoized entry can ever reference a
+// property or store-global memoized entry can ever reference a
 // txn-private object: with owned empty, every cached *Object is a shared
 // IMMUTABLE published image, whose properties/verbs/parents cannot change
 // under us.
@@ -201,12 +205,22 @@ type propResolveEntry struct {
 	ec    types.ErrorCode // E_PROPNF records a negative resolution
 }
 
-// resolveCacheActive reports whether the resolution memo may be read or
-// written. See the staged-write argument in this file's header: a transaction
-// that has privatized any object (i.e. staged any write) never uses the memo
-// again.
+// resolveCacheActive gates property memoization. Local verb entries instead
+// validate that every object on their path is unowned.
 func (tx *StoreTxn) resolveCacheActive() bool {
 	return len(tx.owned) == 0
+}
+
+// verbMemoActive gates the store-global verb dispatch memo. A memo entry names
+// its definer and verb-list index, so it stays exact while every private copy
+// keeps the snapshot's verb lists and parents: property-value, location and
+// verb-code writes privatize objects without changing dispatch. Verb deletes,
+// creates and recycles set privateVerbShape; topology and verb-definition
+// builtins mutate the live store, which disables the memo in
+// materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
+// predates a verb-shape change (validateVerbReadsLocked).
+func (tx *StoreTxn) verbMemoActive() bool {
+	return !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -221,10 +235,10 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 }
 
 // verbStepsCurrent reports whether the txn's view of every object the recorded
-// walk visited is still the identical *Object pointer.
+// walk visited is still the identical immutable, unowned *Object pointer.
 func (tx *StoreTxn) verbStepsCurrent(steps []verbWalkStep) bool {
 	for i := range steps {
-		if tx.objects[steps[i].id] != steps[i].obj {
+		if tx.owned[steps[i].id] || tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
 	}
@@ -274,6 +288,10 @@ type verbDispatchMemoEntry struct {
 	definer types.ObjID
 	// The shape clock protects definition order; first aliases are not unique.
 	index int
+	// path lists the objects the producing walk scanned, in order. While the
+	// shape clock holds, a walk on any later snapshot scans the same objects,
+	// so a writing txn can record exact scan marks without re-matching names.
+	path []types.ObjID
 }
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
@@ -300,8 +318,18 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if entry.readTS < last {
 		return nil, types.ObjNothing, false, false
 	}
+	// A txn that has staged writes will be validated at commit; give it the
+	// walk's exact scan marks rather than a dependency on the global shape
+	// clock, which every coarse commit advances.
+	precise := len(tx.owned) > 0
 	if !entry.found {
-		tx.noteVerbMemoHit(key)
+		if precise {
+			if !tx.replayMemoPath(entry.path) {
+				return nil, types.ObjNothing, false, false
+			}
+		} else {
+			tx.noteVerbMemoHit(key)
+		}
 		return nil, types.ObjNothing, false, true
 	}
 	obj := tx.object(entry.definer)
@@ -315,9 +343,30 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
 		return nil, types.ObjNothing, false, false
 	}
-	tx.noteVerbMemoHit(key)
+	if precise {
+		if !tx.replayMemoPath(entry.path) {
+			return nil, types.ObjNothing, false, false
+		}
+	} else {
+		tx.noteVerbMemoHit(key)
+	}
 	tx.markVerbRead(entry.definer, verb)
 	return verb, entry.definer, true, true
+}
+
+// replayMemoPath records a verb-scan mark for every object on a memoized walk
+// path. It marks nothing and reports false if any object is no longer valid in
+// this txn's view, so the caller can fall back to a real walk.
+func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
+	for _, id := range path {
+		if obj := tx.object(id); obj == nil || obj.recycled {
+			return false
+		}
+	}
+	for _, id := range path {
+		tx.markVerbScan(id, tx.object(id))
+	}
+	return true
 }
 
 func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
@@ -357,7 +406,7 @@ func (tx *StoreTxn) materializeVerbMemoMarks() {
 // Anonymous objects are never memoized: their ids are recycled constantly and
 // invalidating the memo on each would make it useless. A txn that has mutated
 // the live store has no clean snapshot to tag the entry with.
-func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID) {
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep) {
 	s := tx.store
 	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
 		return
@@ -366,6 +415,11 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 		return
 	}
 	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	for _, step := range steps {
+		if step.scanned {
+			entry.path = append(entry.path, step.id)
+		}
+	}
 	if verb != nil {
 		entry.index = -1
 		for i, candidate := range tx.object(definer).verbList {
@@ -390,6 +444,11 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
+	for _, step := range steps {
+		if tx.owned[step.id] {
+			return
+		}
+	}
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
 	} else if len(tx.verbResolve) >= resolveCacheCap {

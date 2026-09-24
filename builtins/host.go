@@ -11,9 +11,14 @@ import (
 // shutdown). Named so the signatures are written once, not at every field,
 // setter, and use site.
 type (
-	GCHook         func(ctx *Execution) error
-	CheckpointHook func() error
-	ShutdownHook   func(ctx *Execution, message string, unclean bool) error
+	// GCHook calls beforeSweep only after establishing quiescence. A skipped
+	// sweep must not wait for an active sibling's irreversible-effect gate.
+	GCHook func(ctx *Execution, beforeSweep func() bool) error
+	// CheckpointHook queues a request; it must not run checkpoint MOO hooks
+	// synchronously inside the requesting activation.
+	CheckpointHook       func() error
+	ShutdownHook         func(ctx *Execution, message string, unclean bool) error
+	DatabaseDiskSizeHook func() (int64, error)
 )
 
 // TaskLister supplies the task collections inspected by task builtins.
@@ -30,6 +35,9 @@ type TaskFinder interface {
 
 // TaskController applies task lifecycle operations requested by builtins.
 type TaskController interface {
+	// CheckKill reports KillTask's result without killing, so a builtin can
+	// cross the irreversible boundary only for a kill that will happen.
+	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool) types.ErrorCode
 	SuspendTask(task *task.Task, seconds float64)
@@ -51,15 +59,16 @@ type TaskManager interface {
 // every field nil, and each builtin turns a nil capability into its usual MOO
 // error. Ownership lives on the session instance, not in package-global state.
 type Host struct {
-	ConnManager  ConnectionManager
-	InputForcer  InputForcer
-	TaskYielder  TaskYielder
-	TaskManager  TaskManager
-	ProcessStdin *ProcessStdin
-	RunGC        GCHook
-	Checkpoint   CheckpointHook
-	Shutdown     ShutdownHook
-	VerbCaller   VerbCallerFunc
+	ConnManager      ConnectionManager
+	InputForcer      InputForcer
+	TaskYielder      TaskYielder
+	TaskManager      TaskManager
+	ProcessStdin     *ProcessStdin
+	RunGC            GCHook
+	Checkpoint       CheckpointHook
+	DatabaseDiskSize DatabaseDiskSizeHook
+	Shutdown         ShutdownHook
+	VerbCaller       VerbCallerFunc
 }
 
 // NoHost explicitly selects a session with no server-provided capabilities.
@@ -80,6 +89,7 @@ func (h Host) Validate() error {
 		{"process stdin", h.ProcessStdin != nil},
 		{"GC hook", h.RunGC != nil},
 		{"checkpoint hook", h.Checkpoint != nil},
+		{"database disk size hook", h.DatabaseDiskSize != nil},
 		{"shutdown hook", h.Shutdown != nil},
 		{"verb caller", h.VerbCaller != nil},
 	}

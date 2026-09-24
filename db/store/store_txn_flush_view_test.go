@@ -11,7 +11,7 @@ func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 	if _, errCode := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb: %v", errCode)
 	}
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	if _, _, err := tx.FindVerb(0, "look"); err != nil {
 		t.Fatalf("FindVerb memo setup: %v", err)
 	}

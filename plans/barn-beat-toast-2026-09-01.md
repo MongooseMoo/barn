@@ -175,6 +175,13 @@ through 6 ancestors, `$prop`, `for x in (list)`, map get/put, `index/strsub/
 match/tostr` mixes, `valid()` through a protected-builtin wrapper verb. Run it
 with every change. This is the corpus that predicts Mongoose.
 
+The [2026-09-17 corpus comparison](../experiments/2026-09-17-real-corpus-review/report.md)
+sets the next serial profiling order: protected-builtin dispatch first (inspect
+B4/B1/B5 together), then map updates, then call-stack/list operations, then
+general verb/string execution. Local exception and missing-property idioms
+are already faster than Toast in that run, so B2/B3 do not lead the next pass.
+These rankings identify profiling targets, not confirmed causes of the gaps.
+
 B7. **Free wins.** Profile-guided optimization: commit a `cmd/barn/default.pgo`
 from the real-workload CPU profile (Go applies it automatically); expect
 2–10% on an interpreter. Build linux/amd64 with `GOAMD64=v3`. Record both in

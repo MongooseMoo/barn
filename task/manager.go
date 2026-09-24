@@ -9,13 +9,26 @@ import (
 
 // Manager tracks the tasks owned by one execution engine.
 type Manager struct {
-	tasks map[int64]*Task
-	mu    sync.RWMutex
+	tasks           map[int64]*Task
+	mu              sync.RWMutex
+	scheduleChanged chan struct{}
 }
 
 // NewManager creates an empty task manager for one execution engine.
 func NewManager() *Manager {
-	return &Manager{tasks: make(map[int64]*Task)}
+	return &Manager{tasks: make(map[int64]*Task), scheduleChanged: make(chan struct{}, 1)}
+}
+
+// ScheduleChanged requests a fresh readiness scan. Notifications coalesce; the
+// catalog is the source of truth. This channel is never closed, so late external
+// completions remain safe after the runtime stops listening.
+func (m *Manager) ScheduleChanged() <-chan struct{} { return m.scheduleChanged }
+
+func (m *Manager) NotifyScheduleChange() {
+	select {
+	case m.scheduleChanged <- struct{}{}:
+	default:
+	}
 }
 
 // GetTask retrieves a task by ID
@@ -31,6 +44,10 @@ func (m *Manager) RegisterTask(t *Task) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tasks[t.ID] = t
+	t.mu.Lock()
+	t.scheduleChanged = m.scheduleChanged
+	t.mu.Unlock()
+	m.NotifyScheduleChange()
 }
 
 // RemoveTask removes a task from the manager
@@ -101,23 +118,36 @@ func (m *Manager) GetQueuedTasks() []*Task {
 // KillTask kills a task by ID
 // Returns ErrorCode if task doesn't exist, already killed, or caller doesn't have permission
 func (m *Manager) KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode {
+	task, errCode := m.killable(taskID, killerID, isWizard)
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	task.Kill()
+	return types.E_NONE
+}
+
+// CheckKill reports the error KillTask would return without killing anything.
+func (m *Manager) CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode {
+	_, errCode := m.killable(taskID, killerID, isWizard)
+	return errCode
+}
+
+func (m *Manager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*Task, types.ErrorCode) {
 	task := m.GetTask(taskID)
 	if task == nil {
-		return types.E_INVARG
+		return nil, types.E_INVARG
 	}
 
 	// Check if task is already killed
 	if task.GetState() == TaskKilled {
-		return types.E_INVARG
+		return nil, types.E_INVARG
 	}
 
 	// Permission check: must be task owner or wizard
 	if task.Owner != killerID && !isWizard {
-		return types.E_PERM
+		return nil, types.E_PERM
 	}
-
-	task.Kill()
-	return types.E_NONE
+	return task, types.E_NONE
 }
 
 // ResumeTask resumes a suspended task with a value

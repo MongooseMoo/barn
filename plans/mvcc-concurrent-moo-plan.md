@@ -126,7 +126,7 @@ Work:
   - object scalar/relationship version;
   - property namespace/version;
   - verb namespace/version.
-- Add `Store.BeginReadOnly(readTS)` and `StoreTxn` read APIs for:
+- Add `Store.BeginSnapshot(readTS)` and `StoreTxn` read APIs for:
   - `ObjectExists`, `ObjectName`, `ObjectOwner`, `ObjectFlags`, `HasObjectFlag`;
   - `FindProperty`, `PropertyValue`, `LocalProperty`;
   - `FindVerb`, `FindParentVerb`, `FindVerbOnObject`;

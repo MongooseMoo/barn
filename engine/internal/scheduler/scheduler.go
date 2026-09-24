@@ -5,6 +5,7 @@ package scheduler
 import (
 	"container/heap"
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -27,9 +28,11 @@ type workItem struct {
 type Scheduler struct {
 	mu        sync.Mutex
 	waiting   taskQueue
+	pending   []*task.Task
 	queueSeq  int64
 	workers   int
 	retryable func(*task.Task) bool
+	order     func([]*task.Task)
 	run       func(*task.Task) error
 	work      chan workItem
 	wg        sync.WaitGroup
@@ -67,6 +70,9 @@ func (s *Scheduler) worker() {
 // Stop deterministically joins all workers.
 func (s *Scheduler) Stop() { s.cancel(); s.wg.Wait() }
 
+// SetOrdering is configured at runtime construction, before dispatch starts.
+func (s *Scheduler) SetOrdering(order func([]*task.Task)) { s.order = order }
+
 // Enqueue adds a task to the ready-time heap and assigns its FIFO sequence.
 func (s *Scheduler) Enqueue(t *task.Task) {
 	s.mu.Lock()
@@ -85,41 +91,140 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 	heap.Push(&s.waiting, t)
 }
 
-// Ready claims every task ready at now, including resumed catalog tasks.
+// Ready selects tasks ready at now, including resumed catalog tasks. Selection
+// does not claim execution: unstarted siblings must remain visible to MOO code.
 func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.readyLocked(now, catalog)
+}
+
+// ReadyBatch admits arrivals and selects at most one retry-compatible batch.
+// Unselected tasks retain their admission order without claiming execution.
+func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ready := s.readyLocked(now, catalog)
+	if s.order != nil {
+		s.order(ready)
+	}
+	if len(ready) == 0 {
+		return nil
+	}
+	n := 1
+	if s.retryable(ready[0]) {
+		for n < len(ready) && n < s.workers && s.retryable(ready[n]) {
+			n++
+		}
+	}
+	s.pending = append(s.pending, ready[n:]...)
+	// Give the caller separate storage: claiming a batch compacts its slice.
+	return append([]*task.Task(nil), ready[:n]...)
+}
+
+func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
+	var admitted []*task.Task
+	var held []*task.Task
+	seen := make(map[int64]bool, len(s.pending))
+	for _, t := range s.pending {
+		if t.GetState() == task.TaskQueued && !seen[t.ID] {
+			if t.ReadyDeadline(now).IsZero() {
+				held = append(held, t)
+			} else {
+				admitted = append(admitted, t)
+			}
+			seen[t.ID] = true
+		}
+	}
+	s.pending = held
 	var ready []*task.Task
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
-		if t.StartTime.After(now) {
+		start, _, _ := t.SchedulingSnapshot()
+		if start.After(now) {
 			break
 		}
 		heap.Pop(&s.waiting)
-		if t.TryClaimQueued() {
-			ready = append(ready, t)
+		if t.GetState() == task.TaskQueued && !seen[t.ID] {
+			if t.ReadyDeadline(now).IsZero() {
+				s.pending = append(s.pending, t)
+			} else {
+				ready = append(ready, t)
+			}
+			seen[t.ID] = true
 		}
-	}
-	seen := make(map[int64]bool, len(ready))
-	for _, t := range ready {
-		seen[t.ID] = true
 	}
 	for _, t := range catalog {
 		if t == nil || seen[t.ID] {
 			continue
 		}
+		if deadline := t.ReadyDeadline(now); deadline.IsZero() || deadline.After(now) {
+			continue
+		}
 		if t.WakeDue(now) {
-			if t.Resume(types.NewInt(0)) && t.TryClaimQueued() {
+			if t.Resume(types.NewInt(0)) {
 				ready = append(ready, t)
+				seen[t.ID] = true
 			}
 			continue
 		}
-		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) &&
-			(t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) && t.TryClaimQueued() {
+		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
 			ready = append(ready, t)
+			seen[t.ID] = true
 		}
 	}
-	return ready
+	// Toast admits completed external tasks at time zero, ahead of waiting
+	// forks. Preserve the existing order of all other work; re-sorting ordinary
+	// resumptions by their old StartTime can repeatedly overtake fresh forks.
+	var completions map[*task.Task]time.Time
+	for _, t := range ready {
+		if at := t.ExecReadyTime(); !at.IsZero() {
+			if completions == nil {
+				completions = make(map[*task.Task]time.Time)
+			}
+			completions[t] = at
+		}
+	}
+	if len(completions) != 0 {
+		sort.SliceStable(ready, func(i, j int) bool {
+			a, aok := completions[ready[i]]
+			b, bok := completions[ready[j]]
+			if !aok {
+				return false
+			}
+			return !bok || a.Before(b)
+		})
+	}
+	// Toast appends newly admitted work to an existing background queue. Its
+	// time-zero external completion priority does not displace admitted work.
+	return append(admitted, ready...)
+}
+
+// NextWake includes queued heap work, retained batches and timed/resumed VMs.
+// It does not mutate readiness or consume change notifications.
+func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var next time.Time
+	visit := func(t *task.Task) {
+		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
+			next = at
+		}
+	}
+	for _, t := range s.waiting {
+		visit(t)
+	}
+	for _, t := range s.pending {
+		visit(t)
+	}
+	for _, t := range catalog {
+		// Fresh direct foreground tasks live in the catalog but are dispatched
+		// by their caller. Only saved continuations use catalog admission.
+		if t != nil && (t.GetState() == task.TaskSuspended || t.BytecodeVMValue() != nil || t.StmtIndex > 0) {
+			visit(t)
+		}
+	}
+	return next
 }
 
 // Plan partitions tasks into optimistic retry-safe batches.

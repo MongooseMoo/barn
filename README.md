@@ -25,15 +25,15 @@ world.
 Build and run the server:
 
 ```powershell
-go build -o barn.exe ./cmd/barn/
-.\barn.exe -db Test.db -port 7777
+go build -o bin/ ./cmd/barn
+.\bin\barn.exe -db Test.db -port 7777
 ```
 
 Send commands from another terminal:
 
 ```powershell
-go build -o moo_client.exe ./cmd/moo_client/
-.\moo_client.exe -port 7777 -cmd "connect wizard" -cmd "; return 1 + 1;"
+go build -o bin/ ./cmd/moo_client
+.\bin\moo_client.exe -port 7777 -cmd "connect wizard" -cmd "; return 1 + 1;"
 ```
 
 `cmd/barn` defaults to `Test.db`, port `7777`, and a 3600-second checkpoint
@@ -68,11 +68,15 @@ Database and inspection flags exit after completing the requested operation:
 
 ## Command-Line Tools
 
-Build any tool with:
+Build every tool into the gitignored `bin/` directory with `make build`, or
+directly:
 
 ```powershell
-go build -o <tool>.exe ./cmd/<tool>/
+go build -o bin/ ./cmd/...        # all tools
+go build -o bin/ ./cmd/<tool>     # one tool
 ```
+
+Go adds the `.exe` suffix on Windows.
 
 | Tool | Purpose |
 |------|---------|
@@ -86,7 +90,7 @@ go build -o <tool>.exe ./cmd/<tool>/
 The preferred managed conformance entrypoint in this repo is:
 
 ```powershell
-.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788
+.\scripts\run-conformance.ps1 -Build -Binary .\bin\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788
 ```
 
 The script builds Barn when `-Build` is supplied, copies the source database to a

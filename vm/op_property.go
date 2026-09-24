@@ -96,7 +96,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 // Reads a waif property, falling back to the waif's class object.
 func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 	// Special waif properties
-	switch propName {
+	switch strings.ToLower(propName) {
 	case "owner":
 		vm.Push(types.NewObj(waif.Owner()))
 		return nil
@@ -120,7 +120,11 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 	}
 
 	// Check waif's own properties first
-	if val, ok := waif.GetProperty(propName); ok {
+	val, ok, ec := vm.Context.StoreTxn.WaifProperty(waif, dbstore.PropertyNameKey(propName))
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	}
+	if ok {
 		vm.Push(val)
 		return nil
 	}
@@ -254,21 +258,23 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 // Assigns a waif property and returns the copied waif value.
 func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) error {
 	// These properties cannot be set on waifs
-	switch propName {
+	switch strings.ToLower(propName) {
 	case "owner", "class", "wizard", "programmer":
 		return fmt.Errorf("E_PERM: cannot set .%s on a waif", propName)
 	}
 
 	// Check for self-reference (circular reference)
-	if containsWaif(value, waif) {
+	contains, ec := containsWaif(vm.Context.StoreTxn, value, waif)
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF containment read", ec)
+	}
+	if contains {
 		return fmt.Errorf("E_RECMOVE: value contains the waif itself")
 	}
 
-	// Set property on waif (creates a new waif with the property set)
-	// Note: Waifs use copy-on-write semantics. The VM does not currently
-	// propagate the new waif back to the source variable. This matches
-	// non-simple-identifier cases.
-	_ = waif.SetProperty(propName, value)
+	if ec := vm.Context.StoreTxn.SetWaifProperty(waif, dbstore.PropertyNameKey(propName), value); ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property write", ec)
+	}
 
 	return nil
 }

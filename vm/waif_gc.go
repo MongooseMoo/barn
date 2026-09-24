@@ -12,30 +12,36 @@ func collectWaifsForGC(v types.Value, out *[]types.Value) {
 		return
 	}
 	set := types.NewWaifSet(*out)
-	collectWaifsInto(v, set)
+	collectWaifsInto(v, set, true)
 	*out = set.Values
 }
 
-func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
+func (vm *VM) collectDirectWaifsForGC(v types.Value) {
 	if !v.MayHoldFinalizable() {
 		return
 	}
 	switch v.Type() {
 	case types.TYPE_WAIF:
-		for _, existing := range *out {
-			if existing.Equal(v) {
-				return
+		if vm.pendingWaifIDs == nil {
+			vm.pendingWaifIDs = make(map[types.WaifIdentity]struct{}, len(vm.PendingWaifs))
+			for _, existing := range vm.PendingWaifs {
+				vm.pendingWaifIDs[existing.WaifIdentity()] = struct{}{}
 			}
 		}
-		*out = append(*out, v)
+		id := v.WaifIdentity()
+		if _, exists := vm.pendingWaifIDs[id]; exists {
+			return
+		}
+		vm.pendingWaifIDs[id] = struct{}{}
+		vm.PendingWaifs = append(vm.PendingWaifs, v)
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
-			collectDirectWaifsForGC(elem, out)
+			vm.collectDirectWaifsForGC(elem)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.Pairs() {
-			collectDirectWaifsForGC(pair[0], out)
-			collectDirectWaifsForGC(pair[1], out)
+			vm.collectDirectWaifsForGC(pair[0])
+			vm.collectDirectWaifsForGC(pair[1])
 		}
 	}
 }
@@ -43,15 +49,19 @@ func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
 // collectWaifsInto records every waif reachable from v (through lists, maps,
 // and waif properties) in set. A waif already present is not re-expanded, which
 // also terminates on cyclic waif graphs.
-func collectWaifsInto(v types.Value, set *types.WaifSet) {
+func collectWaifsInto(v types.Value, set *types.WaifSet, retained bool) {
 	switch v.Type() {
 	case types.TYPE_WAIF:
 		if !set.Add(v) {
 			return
 		}
-		for _, name := range v.PropertyNames() {
-			if prop, ok := v.GetProperty(name); ok {
-				collectWaifsInto(prop, set)
+		if retained {
+			v.VisitRetainedWaifValues(func(prop types.Value) { collectWaifsInto(prop, set, true) })
+		} else {
+			for _, name := range v.PropertyNames() {
+				if prop, ok := v.GetProperty(name); ok {
+					collectWaifsInto(prop, set, false)
+				}
 			}
 		}
 	case types.TYPE_LIST:
@@ -59,15 +69,15 @@ func collectWaifsInto(v types.Value, set *types.WaifSet) {
 			return
 		}
 		for _, elem := range v.Elements() {
-			collectWaifsInto(elem, set)
+			collectWaifsInto(elem, set, retained)
 		}
 	case types.TYPE_MAP:
 		if !v.MayHoldFinalizable() {
 			return
 		}
 		for _, pair := range v.Pairs() {
-			collectWaifsInto(pair[0], set)
-			collectWaifsInto(pair[1], set)
+			collectWaifsInto(pair[0], set, retained)
+			collectWaifsInto(pair[1], set, retained)
 		}
 	}
 }
@@ -84,6 +94,7 @@ func (vm *VM) TakePendingWaifs() []types.Value {
 	}
 	pending := append([]types.Value(nil), vm.PendingWaifs...)
 	vm.PendingWaifs = nil
+	vm.pendingWaifIDs = nil
 	return pending
 }
 
@@ -106,7 +117,7 @@ func CollectWaifsFromVMInto(exec *VM, set *types.WaifSet) {
 	}
 	exec.visitValues(func(value types.Value, kind valueRootKind) {
 		if kind == valueRootLive {
-			collectWaifsInto(value, set)
+			collectWaifsInto(value, set, true)
 		}
 	})
 }

@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Benchmark driver tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
   conformance:
     name: MOO conformance suite
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
@@ -57,7 +60,7 @@ jobs:
           cache: true
 
       - name: Build barn
-        run: go build -o barn ./cmd/barn/
+        run: go build -o bin/barn ./cmd/barn/
 
       # The conformance suite is the spec. It lives in its own repo and is a
       # read-only dependency here; CI always runs barn against its latest tip.
@@ -79,7 +82,7 @@ jobs:
         run: |
           uv run --project moo-conformance-tests --frozen moo-conformance \
             -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
             --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
             --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
             --moo-host=127.0.0.1 \

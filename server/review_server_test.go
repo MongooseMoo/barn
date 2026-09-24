@@ -18,10 +18,10 @@ import (
 // Used to probe error-handling paths in ConnectionNameLookup.
 type badAddrTransport struct{}
 
-func (badAddrTransport) ReadLine() (string, error) { return "", io.EOF }
-func (badAddrTransport) WriteLine(string) error    { return nil }
-func (badAddrTransport) Close() error              { return nil }
-func (badAddrTransport) RemoteAddr() string        { return "not-a-valid-addr" }
+func (badAddrTransport) ReadLine() (string, error)      { return "", io.EOF }
+func (badAddrTransport) WriteOutput(string, bool) error { return nil }
+func (badAddrTransport) Close() error                   { return nil }
+func (badAddrTransport) RemoteAddr() string             { return "not-a-valid-addr" }
 
 // TestReview_FallbackLoginReturnsWizardWithNoLoginHandler demonstrates that
 // callDoLoginCommand returns the wizard object (#2) when the listener handler

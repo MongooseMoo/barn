@@ -141,3 +141,18 @@ func TestNestedParentheses(t *testing.T) {
 		t.Errorf("expected nested parentheses to produce a literal, got %T", expr)
 	}
 }
+
+func TestCatchDefaultContainsConditional(t *testing.T) {
+	p := NewParser("`1 / 0 ! E_DIV => 1 ? 2 | 3'")
+	expr, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caught, ok := expr.(*verb.CatchExpr)
+	if !ok {
+		t.Fatalf("expected catch expression, got %T", expr)
+	}
+	if _, ok := caught.Default.(*verb.TernaryExpr); !ok {
+		t.Fatalf("expected conditional inside catch default, got %T", caught.Default)
+	}
+}

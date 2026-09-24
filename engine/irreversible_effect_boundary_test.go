@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -63,8 +64,8 @@ func assertCommitGateReleased(t *testing.T, store *dbstore.Store) {
 	t.Helper()
 	acquired := make(chan struct{})
 	go func() {
-		store.EscalationLock()
-		store.EscalationUnlock()
+		grant, _ := store.AcquireExclusive(context.Background())
+		grant.Release()
 		close(acquired)
 	}()
 	select {
@@ -268,4 +269,76 @@ return {before, valid(c)};
 		t.Fatalf("write_value = %v (%v), want 11 committed from the re-run", written, errCode)
 	}
 	assertCommitGateReleased(t, store)
+}
+
+// kill_task is only irreversible when it kills. LambdaCore's
+// $code_utils:task_valid probes task existence as $no_one via
+// `kill_task(id) ! ANY`, which can only be refused: E_INVARG or E_PERM. A refused
+// kill has no effect, so it must leave the attempt retryable instead of taking
+// the exclusive commit gate for the rest of the slice.
+func TestRefusedKillTaskKeepsAttemptRetryable(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	descriptor, _ := bumpReadValueLiveOnce(t, store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	other := task.NewTaskFull(4201, 77, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	other.SetState(task.TaskSuspended)
+	s.taskManager.RegisterTask(other)
+	defer s.taskManager.RemoveTaskIf(other.ID, other)
+
+	queued := task.NewTaskFull(4202, 5, compileTestProgram(t, s.registry, `
+before = #0.read_value;
+bump_read_value_live_once();
+missing = `+"`kill_task(999999) ! ANY'"+`;
+foreign = `+"`kill_task(4201) ! ANY'"+`;
+#0.write_value = before + 10;
+return {before, missing, foreign};
+`), ticks, seconds)
+	queued.Context.Programmer = 5
+	queued.Context.IsWizard = false
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if got := queued.Result.Val.String(); queued.Result.Flow != types.FlowReturn || got != "{1, E_INVARG, E_PERM}" {
+		t.Fatalf("result = flow %v val %s, want {1, E_INVARG, E_PERM} from the re-run attempt", queued.Result.Flow, got)
+	}
+	if got := store.CommitRetries(); got != 1 {
+		t.Fatalf("commit retries = %d, want 1 (the stale attempt re-ran optimistically)", got)
+	}
+	if got := store.CommitEscalations(); got != 0 {
+		t.Fatalf("commit escalations = %d, want 0: a refused kill_task has no effect to protect", got)
+	}
+	if other.GetState() == task.TaskKilled {
+		t.Fatal("refused kill_task killed the other owner's task")
+	}
+}
+
+func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	victim := task.NewTaskFull(4301, 5, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	victim.SetState(task.TaskSuspended)
+	s.taskManager.RegisterTask(victim)
+	defer s.taskManager.RemoveTaskIf(victim.ID, victim)
+
+	killer := task.NewTaskFull(4302, 5, compileTestProgram(t, s.registry, "return kill_task(4301);"), ticks, seconds)
+	killer.Context.Programmer = 5
+	if err := s.runTask(killer); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if killer.Result.Flow != types.FlowReturn || killer.Result.Val.Int() != 0 {
+		t.Fatalf("kill_task result = flow %v val %v", killer.Result.Flow, killer.Result.Val)
+	}
+	if victim.GetState() != task.TaskKilled {
+		t.Fatalf("victim state = %v, want killed", victim.GetState())
+	}
+	if got := store.CommitEscalations(); got == 0 {
+		t.Fatal("a kill that happens must cross the irreversible boundary")
+	}
 }

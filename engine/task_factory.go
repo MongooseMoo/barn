@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -38,6 +40,9 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
 	s.scheduler.Enqueue(t)
+	// Registration can wake a selector before the heap insertion is visible.
+	// Publish another hint after insertion to close that lost-wakeup window.
+	s.taskManager.NotifyScheduleChange()
 
 	return t.ID
 }
@@ -62,7 +67,7 @@ var ErrServerVerbNotFound = errors.New("server verb not found")
 // RunServerVerbTask runs a server-initiated hook verb through the normal
 // engine/task machinery until it completes or reaches its first suspend.
 func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
-	return s.RunServerVerbTaskWithArgstr(objID, verbName, args, player, "", nil)
+	return s.runServerVerbTask(objID, verbName, args, player, "", nil, nil, true)
 }
 
 // RunServerVerbTaskWithArgstr is RunServerVerbTask for the command-line hooks
@@ -78,6 +83,21 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 // "handled". onStart, if non-nil, receives the task ID before the task runs.
 // A missing verb is reported as ErrServerVerbNotFound.
 func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64)) (types.Result, error) {
+	return s.runServerVerbTask(objID, verbName, args, player, argstr, onStart, nil, false)
+}
+
+func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), scope *admission.Scope, system bool) (types.Result, error) {
+	ownsScope := scope == nil
+	if ownsScope {
+		roots := s.pinAdmissionRoots(objID, args)
+		defer roots.release()
+		var err error
+		scope, err = s.enterInput(player, system)
+		if err != nil {
+			return types.Result{}, err
+		}
+		defer scope.Finish()
+	}
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
@@ -114,12 +134,10 @@ func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string
 		onStart(t.ID)
 	}
 
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskAdmitted(t, scope, ownsScope); err != nil {
 		return t.Result, err
 	}
-	if s.taskOutputFlusher != nil {
-		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-	}
+	s.flushTaskOutput(t)
 	return t.Result, nil
 }
 
@@ -140,6 +158,13 @@ func (s *Runtime) RunServerVerbTaskWithArgstr(objID types.ObjID, verbName string
 // (for disconnect cancellation) before onComplete can clear it on a task that
 // completes synchronously without suspending.
 func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), onComplete func(types.Result)) (int64, error) {
+	roots := s.pinAdmissionRoots(objID, args)
+	defer roots.release()
+	scope, admissionErr := s.enterInput(player, false)
+	if admissionErr != nil {
+		return 0, admissionErr
+	}
+	defer scope.Finish()
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
@@ -185,7 +210,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		onStart(t.ID)
 	}
 
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskAdmitted(t, scope, true); err != nil {
 		return t.ID, err
 	}
 	return t.ID, nil
@@ -396,22 +421,28 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 	if t == nil {
 		return false
 	}
+	admissionCtx, cancel := context.WithCancel(s.inputAdmissionContext)
+	defer cancel()
+	t.SetCancelFunc(cancel)
+	scope, err := s.admission.Enter(admissionCtx, inputAdmissionKey(player))
+	if err != nil {
+		return false
+	}
+	defer scope.Finish()
 	t.SetReadingPlayer(types.ObjNothing)
 	// Resume directly into a claimed state. Publishing TaskQueued here lets the
 	// ticker select this saved VM before this goroutine enters runTask.
 	if !t.ResumeAndClaim(types.NewStr(line)) {
 		return false
 	}
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskAdmitted(t, scope, true); err != nil {
 		slog.Error("task resume error",
 			slog.Int64("task_id", t.ID),
 			slog.Int64("this", int64(t.This)),
 			slog.String("verb", t.VerbName),
 			slog.Any("err", err))
 	}
-	if s.taskOutputFlusher != nil {
-		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
-	}
+	s.flushTaskOutput(t)
 	return true
 }
 
@@ -463,9 +494,6 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 			continue
 		}
 		if snapshot.VM != nil {
-			if snapshot.State == task.TaskSuspended && !t.WakeTime.IsZero() {
-				snapshot.StartTime = t.WakeTime
-			}
 			suspended = append(suspended, snapshot)
 			continue
 		}

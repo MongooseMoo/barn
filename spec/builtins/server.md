@@ -10,15 +10,16 @@ Functions for server administration, monitoring, and control.
 
 ### 1.1 server_version
 
-**Signature:** `server_version() → STR`
+**Signature:** `server_version([detail]) → ANY`
 
-**Description:** Returns server version string.
+**Description:** Without arguments, returns the implementation's version string. An empty string or non-string argument returns the complete version information list.
 
-**Returns:** Version identifier string (format implementation-defined, conventionally "Name Major.Minor.Patch").
+**Returns:** The information list contains `major`, `minor`, `release`, `ext`, `string`, `os`, `features`, `options`, and `source`. A nonempty string selects a key or slash-separated nested path; one trailing slash is accepted. Unknown keys and traversal through a non-list value raise `E_INVARG`. Version numbers and source metadata describe the running implementation.
 
 **Examples:**
 ```moo
-server_version()  => "Barn 1.0.0"
+server_version("string") == server_version()  => 1
+server_version("source/vcs")  // Version-control system, or "unknown"
 ```
 
 ---

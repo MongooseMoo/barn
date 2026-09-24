@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Binary = ".\barn_parity.exe",
+    [string]$Binary = ".\bin\barn_parity.exe",
     [string]$SourceDb = "Test_conf.db",
     [string]$RunDb = "Test_run.db",
     [int]$Port = 7788,

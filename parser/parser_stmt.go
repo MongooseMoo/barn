@@ -636,14 +636,15 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 func (p *Parser) parseScatterOrExprStatement() (verb.Stmt, error) {
 	// Simple heuristic: if we see { followed by identifier/? /@, likely scatter
 	// Otherwise, parse as expression
-	if p.looksLikeScatter() {
+	if scatter, _ := p.scatterAhead(); scatter {
 		return p.parseScatterStatement()
 	}
 	return p.parseExpressionStatement()
 }
 
-// looksLikeScatter reports whether the leading '{' begins a scatter-assignment
-// target rather than a list-literal expression.
+// scatterAhead reports whether the leading '{' begins a scatter-assignment
+// target rather than a list-literal expression, and whether that target has an
+// optional ('?') item.
 //
 // A '{...}' is fundamentally a list literal; it is a scatter target ONLY when a
 // top-level '=' immediately follows the matching '}'. This mirrors ToastStunt's
@@ -664,14 +665,23 @@ func (p *Parser) parseScatterOrExprStatement() (verb.Stmt, error) {
 // We reproduce that by scanning a cloned lexer over the brace group (tracking
 // (), [] and {} nesting) and checking the token after the matching '}'.
 //
+// Only the dedicated production's 'scatter' requires an optional item; without
+// one the target is a list literal lowered by expr '=' expr, which binds with
+// assignment precedence. Callers use optional to tell the two apart.
+//
 // p.current is the opening '{'; p.peek is the first token inside it.
-func (p *Parser) looksLikeScatter() bool {
+func (p *Parser) scatterAhead() (scatter, optional bool) {
 	// Lexer is a pure value struct (no shared mutable state), so a copy gives an
 	// independent cursor we can advance without disturbing the real parser.
 	lex := *p.lexer
 	depth := 1 // the opening '{' (p.current) is already consumed
+	itemStart := true
 	tok := p.peek
 	for {
+		if depth == 1 && itemStart && tok.Type == TOKEN_QUESTION {
+			optional = true
+		}
+		itemStart = depth == 1 && tok.Type == TOKEN_COMMA
 		switch tok.Type {
 		case TOKEN_LBRACE, TOKEN_LBRACKET, TOKEN_LPAREN:
 			depth++
@@ -679,10 +689,10 @@ func (p *Parser) looksLikeScatter() bool {
 			depth--
 			if depth == 0 {
 				// tok is the matching '}'; scatter iff a top-level '=' follows.
-				return lex.NextToken().Type == TOKEN_ASSIGN
+				return lex.NextToken().Type == TOKEN_ASSIGN, optional
 			}
 		case TOKEN_EOF:
-			return false
+			return false, false
 		}
 		tok = lex.NextToken()
 	}
@@ -690,6 +700,25 @@ func (p *Parser) looksLikeScatter() bool {
 
 // parseScatterStatement parses a scatter assignment
 func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
+	pos := p.current.Position
+	assign, err := p.parseScatterAssign(PREC_LOWEST)
+	if err != nil {
+		return nil, err
+	}
+
+	// Consume semicolon
+	if p.current.Type != TOKEN_SEMICOLON {
+		return nil, fmt.Errorf("expected ';' after scatter assignment")
+	}
+	p.nextToken() // consume ';'
+
+	return &verb.ExprStmt{Pos: pos, Expr: assign}, nil
+}
+
+// parseScatterAssign parses '{' scatter '}' '=' expr, the scatter production
+// that admits optional and rest targets. It is an expression in Toast's
+// grammar, so statements and expression prefixes share it.
+func (p *Parser) parseScatterAssign(valuePrec int) (*verb.AssignExpr, error) {
 	pos := p.current.Position
 	p.nextToken() // consume '{'
 
@@ -728,24 +757,15 @@ func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
 	p.nextToken() // consume '='
 
 	// Parse value expression
-	value, err := p.ParseExpression(PREC_LOWEST)
+	value, err := p.ParseExpression(valuePrec)
 	if err != nil {
 		return nil, err
 	}
 
-	// Consume semicolon
-	if p.current.Type != TOKEN_SEMICOLON {
-		return nil, fmt.Errorf("expected ';' after scatter assignment")
-	}
-	p.nextToken() // consume ';'
-
-	return &verb.ExprStmt{
-		Pos: pos,
-		Expr: &verb.AssignExpr{
-			Pos:    pos,
-			Target: &verb.DestructuringTarget{Pos: pos, Bindings: bindings},
-			Value:  value,
-		},
+	return &verb.AssignExpr{
+		Pos:    pos,
+		Target: &verb.DestructuringTarget{Pos: pos, Bindings: bindings},
+		Value:  value,
 	}, nil
 }
 

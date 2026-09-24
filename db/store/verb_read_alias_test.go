@@ -30,7 +30,7 @@ func TestAliasedVerbReadCommits(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
-	tx := s.BeginReadOnly(0)
+	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	// Resolve the verb through an alias — this records a verb read.
 	if _, _, err := tx.FindCallableVerb(obj, "glance"); err != nil {

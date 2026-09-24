@@ -67,6 +67,16 @@ func (v Value) MayHoldFinalizable() bool {
 	switch v.tag {
 	case TYPE_ANON, TYPE_WAIF:
 		return true
+	case TYPE_LIST, TYPE_MAP:
+		return v.containerMayHoldFinalizable()
+	}
+	return false
+}
+
+// Keep container cache resolution out of the scalar path so callers scanning
+// plain frame locals can inline the tag check.
+func (v Value) containerMayHoldFinalizable() bool {
+	switch v.tag {
 	case TYPE_LIST:
 		return v.sliceList().mayHoldFinalizable()
 	case TYPE_MAP:

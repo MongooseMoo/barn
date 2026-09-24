@@ -37,7 +37,7 @@ func (s *Store) registerReadTS(readTS uint64) {
 // currentReadTSAndRegister samples the current clock and registers that timestamp
 // as one linearizable operation with respect to historyFloor. Without this gate a
 // floor scan could pass the target shard after the clock sample but before the
-// registration, then prune above the reader before BeginReadOnly returned.
+// registration, then prune above the reader before BeginSnapshot returned.
 func (s *Store) currentReadTSAndRegister() uint64 {
 	s.readTSFloorMu.RLock()
 	readTS := s.clock.Load()
@@ -176,6 +176,9 @@ func (tx *StoreTxn) release() {
 	}
 	if tx.store != nil {
 		tx.store.deregisterReadTS(tx.readTS)
+		if tx.store.waifHistoryPending.Load() {
+			tx.store.pruneWaifHistory()
+		}
 	}
 	runtime.SetFinalizer(tx, nil)
 }

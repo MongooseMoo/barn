@@ -64,3 +64,36 @@ func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
 	}
 	return strings.TrimSpace(frame.Program.Source[line-1])
 }
+
+// typeMismatchMessage renders Toast's type_mismatch_string for one expected
+// type: "Type mismatch (expected list; got string)".
+func typeMismatchMessage(expected, got types.TypeCode) string {
+	return fmt.Sprintf("Type mismatch (expected %s; got %s)", toastTypeName(expected), toastTypeName(got))
+}
+
+// toastTypeName is Toast's parse_type() spelling of a value type.
+func toastTypeName(t types.TypeCode) string {
+	switch t {
+	case types.TYPE_INT:
+		return "integer"
+	case types.TYPE_OBJ:
+		return "object"
+	case types.TYPE_ERR:
+		return "error"
+	case types.TYPE_STR:
+		return "string"
+	case types.TYPE_FLOAT:
+		return "float"
+	case types.TYPE_LIST:
+		return "list"
+	case types.TYPE_MAP:
+		return "map"
+	case types.TYPE_ANON:
+		return "anonymous object"
+	case types.TYPE_WAIF:
+		return "waif"
+	case types.TYPE_BOOL:
+		return "bool"
+	}
+	return "unknown type"
+}

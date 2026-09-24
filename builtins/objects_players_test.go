@@ -20,7 +20,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 	if errCode := ctx.StoreTxn.AdoptLiveObject(obj); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveObject failed: %v", errCode)
@@ -75,7 +75,7 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 
 	ctx := ctxWithConnManager(manager)
 	ctx.Store = store
-	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 
 	res := builtinSetPlayerFlag(ctx, []types.Value{types.NewObj(obj), types.NewInt(0)})

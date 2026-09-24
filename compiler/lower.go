@@ -1,9 +1,9 @@
 package compiler
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -140,6 +140,11 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 	// The compiler's declareVariable already appends to program.VarNames in order,
 	// so program.VarNames[idx] == name for all entries in c.variables.
 	// No extra work needed here — VarNames is populated incrementally.
+	if len(c.internalVariables) != 0 {
+		if err := c.program.CompactInternalLocals(256 - len(c.internalVariables)); err != nil {
+			return nil, err
+		}
+	}
 
 	return c.program, nil
 }
@@ -149,6 +154,23 @@ func (c *lowerer) emit(op bytecode.OpCode) int {
 	pos := len(c.program.Code)
 	c.program.Code = append(c.program.Code, byte(op))
 	return pos
+}
+
+// emitTicks prefixes the next instruction with an explicit tick charge,
+// replacing that opcode's default (bytecode.InstructionTicks). Used where one
+// Barn instruction stands for a different Toast opcode sequence, or where a
+// compiler-synthesized instruction has no Toast counterpart (ticks = 0).
+func (c *lowerer) emitTicks(ticks byte) {
+	c.emit(bytecode.OP_TICKS)
+	c.emitByte(ticks)
+}
+
+// emitStoreLocal stores the top of stack into a local without a tick: the
+// store is compiler bookkeeping (a temporary, or a variable Toast binds inside
+// a larger opcode such as OP_FOR_RANGE), not a MOO assignment's OP_PUT.
+func (c *lowerer) emitStoreLocal(idx int) {
+	c.emit(bytecode.OP_SET_LOCAL)
+	c.emitByte(byte(idx))
 }
 
 // emitByte adds a byte to the bytecode
@@ -539,31 +561,11 @@ func (c *lowerer) emitIntLiteral(v int64) {
 		return
 	}
 
-	// Avoid overflow when negating MinInt64.
-	if v == math.MinInt64 {
-		c.emitConstant(types.NewInt(v))
-		return
-	}
-	if v < 0 {
-		c.emitIntLiteral(-v)
-		c.emit(bytecode.OP_NEG)
-		return
-	}
-
-	// Build positive integers from decimal digits:
-	// n = (((d0 * 10) + d1) * 10 + d2) ...
-	digits := strconv.FormatInt(v, 10)
-	c.emitIntLiteral(int64(digits[0] - '0'))
-	for i := 1; i < len(digits); i++ {
-		c.emitIntLiteral(10)
-		c.emit(bytecode.OP_MUL)
-
-		d := int64(digits[i] - '0')
-		if d != 0 {
-			c.emitIntLiteral(d)
-			c.emit(bytecode.OP_ADD)
-		}
-	}
+	// One tick-free push, like Toast's OP_IMM literal.
+	c.emit(bytecode.OP_PUSH_INT)
+	var operand [8]byte
+	binary.BigEndian.PutUint64(operand[:], uint64(v))
+	c.program.Code = append(c.program.Code, operand[:]...)
 }
 
 // builtinConstants maps MOO type constant names to their integer values.
@@ -612,9 +614,15 @@ func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
 	// Toast folds a negated float literal before constant-pool insertion. This is
 	// observable for signed zero: a standalone -0.0 keeps its sign, while an
 	// earlier +0.0 constant wins the pool's equality-based zero deduplication.
+	// Integer literals fold the same way, so `-5` is one tick-free push rather
+	// than a push and an OP_UNARY_MINUS.
 	if n.Operator == verb.UnaryNegate {
 		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralFloat {
 			c.emitConstant(types.NewFloat(-literal.FloatValue))
+			return nil
+		}
+		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralInt {
+			c.emitIntLiteral(-literal.IntValue)
 			return nil
 		}
 	}
@@ -789,8 +797,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			return err
 		}
 		objectVar := c.declareInternalVariable(fmt.Sprintf("__propassignobj_depth_%d__", depth))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(objectVar))
+		c.emitStoreLocal(objectVar)
 
 		nameVar := -1
 		if target.Name == "" {
@@ -801,8 +808,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 				return err
 			}
 			nameVar = c.declareInternalVariable(fmt.Sprintf("__propassignname_depth_%d__", depth))
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(nameVar))
+			c.emitStoreLocal(nameVar)
 		}
 
 		if err := c.compileNode(n.Value); err != nil {
@@ -865,8 +871,7 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	tempIdx := c.declareInternalVariable(c.tempVar("rngsetctx"))
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(varIdx))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(tempIdx))
+	c.emitStoreLocal(tempIdx)
 
 	c.indexContextVar = tempIdx
 	c.indexBoundaryContext = indexBoundaryRange
@@ -905,8 +910,7 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 		nameVar:   -1,
 		name:      property.Name,
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(writeback.objectVar))
+	c.emitStoreLocal(writeback.objectVar)
 
 	if property.Name == "" {
 		if property.NameExpr == nil {
@@ -916,8 +920,7 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 			return 0, nil, err
 		}
 		writeback.nameVar = c.declareInternalVariable(c.tempVar("collectionname"))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(writeback.nameVar))
+		c.emitStoreLocal(writeback.nameVar)
 	}
 
 	c.emit(bytecode.OP_GET_VAR)
@@ -930,8 +933,7 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 		c.emit(bytecode.OP_GET_PROP_DYNAMIC)
 	}
 	baseVar := c.declareInternalVariable(c.tempVar("collectionbase"))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(baseVar))
+	c.emitStoreLocal(baseVar)
 	return baseVar, writeback, nil
 }
 
@@ -993,17 +995,16 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 			return err
 		}
 		indexVars[i] = c.declareInternalVariable(c.tempVar("assignindex"))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(indexVars[i]))
+		c.emitStoreLocal(indexVars[i])
 		if i < len(indices)-1 {
 			c.emit(bytecode.OP_GET_VAR)
 			c.emitByte(byte(collectionVar))
 			c.emit(bytecode.OP_GET_VAR)
 			c.emitByte(byte(indexVars[i]))
+			c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 			c.emit(bytecode.OP_INDEX)
 			intermediateVars[i] = c.declareInternalVariable(c.tempVar("assignintermediate"))
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(intermediateVars[i]))
+			c.emitStoreLocal(intermediateVars[i])
 			collectionVar = intermediateVars[i]
 		}
 	}
@@ -1014,8 +1015,7 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 	c.emit(bytecode.OP_DUP)
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(indexVars[len(indexVars)-1]))
-	c.emit(bytecode.OP_INDEX_SET)
-	c.emitByte(byte(collectionVar))
+	c.emitCollectionIndexSet(collectionVar, baseVar, writeback)
 
 	for i := len(intermediateVars) - 1; i >= 0; i-- {
 		childVar := intermediateVars[i]
@@ -1027,11 +1027,21 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 		c.emitByte(byte(childVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(indexVars[i]))
-		c.emit(bytecode.OP_INDEX_SET)
-		c.emitByte(byte(parentVar))
+		c.emitCollectionIndexSet(parentVar, baseVar, writeback)
 	}
 	c.emitCollectionWriteback(baseVar, writeback)
 	return nil
+}
+
+// emitCollectionIndexSet emits OP_INDEX_SET (Toast's OP_INDEXSET, one tick)
+// into target. When target is the assignment's own variable, the same
+// instruction also performs Toast's closing OP_PUT, so it carries both ticks.
+func (c *lowerer) emitCollectionIndexSet(target, baseVar int, writeback *propertyWriteback) {
+	if target == baseVar && writeback == nil {
+		c.emitTicks(2)
+	}
+	c.emit(bytecode.OP_INDEX_SET)
+	c.emitByte(byte(target))
 }
 
 func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) error {
@@ -1046,14 +1056,12 @@ func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) 
 		return err
 	}
 	startVar := c.declareInternalVariable(c.tempVar("rangestart"))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(startVar))
+	c.emitStoreLocal(startVar)
 	if err := c.compileRangeIndex(target.End, baseVar); err != nil {
 		return err
 	}
 	endVar := c.declareInternalVariable(c.tempVar("rangeend"))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(endVar))
+	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {
 		return err
@@ -1063,6 +1071,9 @@ func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) 
 	c.emitByte(byte(startVar))
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(endVar))
+	if writeback == nil {
+		c.emitTicks(1) // EOP_RANGESET is free; this carries the variable's OP_PUT
+	}
 	c.emit(bytecode.OP_RANGE_SET)
 	c.emitByte(byte(baseVar))
 	c.emitCollectionWriteback(baseVar, writeback)
@@ -1098,16 +1109,15 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 			return err
 		}
 		indexVars[i] = c.declareInternalVariable(c.tempVar("nestedrangeindex"))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(indexVars[i]))
+		c.emitStoreLocal(indexVars[i])
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(collectionVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(indexVars[i]))
+		c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 		c.emit(bytecode.OP_INDEX)
 		collectionVars[i] = c.declareInternalVariable(c.tempVar("nestedrangecollection"))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(collectionVars[i]))
+		c.emitStoreLocal(collectionVars[i])
 		collectionVar = collectionVars[i]
 	}
 	innerVar := collectionVars[len(collectionVars)-1]
@@ -1116,14 +1126,12 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		return err
 	}
 	startVar := c.declareInternalVariable(c.tempVar("nestedrangestart"))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(startVar))
+	c.emitStoreLocal(startVar)
 	if err := c.compileRangeIndex(end, innerVar); err != nil {
 		return err
 	}
 	endVar := c.declareInternalVariable(c.tempVar("nestedrangeend"))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(endVar))
+	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {
 		return err
@@ -1146,8 +1154,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		c.emitByte(byte(childVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(indexVars[i]))
-		c.emit(bytecode.OP_INDEX_SET)
-		c.emitByte(byte(parentVar))
+		c.emitCollectionIndexSet(parentVar, baseVar, writeback)
 	}
 	c.emitCollectionWriteback(baseVar, writeback)
 	return nil
@@ -1271,8 +1278,7 @@ func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
 	if hasIndexBoundary {
 		tempIdx := c.declareInternalVariable(c.tempVar("idxctx"))
 		c.emit(bytecode.OP_DUP)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tempIdx))
+		c.emitStoreLocal(tempIdx)
 		c.indexContextVar = tempIdx
 		c.indexBoundaryContext = indexBoundaryIndex
 	}
@@ -1307,8 +1313,7 @@ func (c *lowerer) compileRange(n *verb.RangeExpr) error {
 	if hasIndexBoundary {
 		tempIdx := c.declareInternalVariable(c.tempVar("rngctx"))
 		c.emit(bytecode.OP_DUP)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tempIdx))
+		c.emitStoreLocal(tempIdx)
 		c.indexContextVar = tempIdx
 		c.indexBoundaryContext = indexBoundaryRange
 	}
@@ -1402,8 +1407,7 @@ func (c *lowerer) compileVerbCall(n *verb.VerbCallExpr) error {
 			return err
 		}
 		nameVar = c.declareInternalVariable(c.tempVar("verbcallname"))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(nameVar))
+		c.emitStoreLocal(nameVar)
 	}
 
 	// Check if any argument is a splice expression
@@ -1611,15 +1615,28 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 						idx := c.declareVariable(ident.Name)
 						c.emit(bytecode.OP_GET_VAR)
 						c.emitByte(byte(idx))
-						for _, elem := range list.Elements[1:] {
+						// Toast checks the leading @v with one
+						// CHECK_LIST_FOR_SPLICE tick. The first append
+						// carries it (Toast's own append opcodes are
+						// free); a lone {@v} uses OP_SPLICE itself.
+						if len(list.Elements) == 1 {
+							c.emit(bytecode.OP_SPLICE)
+						}
+						for i, elem := range list.Elements[1:] {
 							if splice, ok := elem.(*verb.SpliceExpr); ok {
 								if err := c.compileNode(splice.Expr); err != nil {
 									return err
+								}
+								if i == 0 {
+									c.emitTicks(1)
 								}
 								c.emit(bytecode.OP_LIST_EXTEND)
 							} else {
 								if err := c.compileNode(elem); err != nil {
 									return err
+								}
+								if i == 0 {
+									c.emitTicks(1)
 								}
 								c.emit(bytecode.OP_LIST_APPEND)
 							}
@@ -1687,8 +1704,7 @@ func (c *lowerer) compileWhile(n *verb.WhileStmt) error {
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(resultVar))
+	c.emitStoreLocal(resultVar)
 
 	// Start loop
 	c.beginLoop(n.Label, resultVar, "", "")
@@ -1701,7 +1717,11 @@ func (c *lowerer) compileWhile(n *verb.WhileStmt) error {
 		return err
 	}
 
-	// Exit loop if false
+	// Exit loop if false. A named loop's test is Toast's EOP_WHILE_ID, an
+	// extended opcode whose tick is not tested against the budget.
+	if n.Label != "" {
+		c.emitTicks(1 | bytecode.TicksUnchecked)
+	}
 	exitJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
 
 	// Compile body
@@ -1851,22 +1871,20 @@ func (c *lowerer) compileRangeLoop(n *verb.RangeLoopStmt) error {
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(resultVar))
+	c.emitStoreLocal(resultVar)
 
 	// Evaluate end and store
 	if err := c.compileNode(n.End); err != nil {
 		return err
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(endVar))
+	c.emitStoreLocal(endVar)
 
-	// Evaluate start and store as loop variable
+	// Evaluate start and store as loop variable. Toast's OP_FOR_RANGE binds the
+	// variable itself, so this store is not an OP_PUT.
 	if err := c.compileNode(n.Start); err != nil {
 		return err
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(valueVar))
+	c.emitStoreLocal(valueVar)
 
 	// Loop start
 	c.beginLoop(n.Label, resultVar, n.Value, "")
@@ -1931,8 +1949,7 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(resultVar))
+	c.emitStoreLocal(resultVar)
 
 	// Evaluate container, then bytecode.OP_ITER_PREP normalizes it
 	if err := c.compileNode(n.Collection); err != nil {
@@ -1946,32 +1963,29 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	}
 	// Stack now has: [normalizedList, isPairsFlag]
 	// Store isPairs flag, then store list
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(isPairsVar))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(listVar))
+	c.emitStoreLocal(isPairsVar)
+	c.emitStoreLocal(listVar)
 
 	// idx = 1
 	if op, ok := bytecode.MakeImmediateOpcode(1); ok {
 		c.emit(op)
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(idxVar))
+	c.emitStoreLocal(idxVar)
 
 	// len = length(list)
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(listVar))
 	c.emit(bytecode.OP_LENGTH)
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(lenVar))
+	c.emitStoreLocal(lenVar)
 
 	// Loop start
 	c.beginLoop(n.Label, resultVar, n.Value, n.Index)
 	loopStart := c.currentOffset()
 
-	// Condition: if idx > len, jump to exit. Fused FOR_RANGE_CHECK (idx and len are
-	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE — same opcode used by range-for.
-	c.emit(bytecode.OP_FOR_RANGE_CHECK_WIDE)
+	// Condition: if idx > len, jump to exit. Fused FOR_LIST_CHECK (idx and len are
+	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE; it is FOR_RANGE_CHECK with
+	// the unchecked tick of Toast's EOP_FOR_LIST.
+	c.emit(bytecode.OP_FOR_LIST_CHECK_WIDE)
 	c.emitByte(byte(idxVar))
 	c.emitByte(byte(lenVar))
 	exitJump := c.currentOffset()
@@ -2037,7 +2051,9 @@ func (c *lowerer) compileBreak(n *verb.BreakStmt) error {
 		return fmt.Errorf("break outside of loop")
 	}
 
-	// Emit a forward jump past the loop end (will be patched by endLoop)
+	// Emit a forward jump past the loop end (will be patched by endLoop). It
+	// stands for Toast's EOP_EXIT / EOP_EXIT_ID: one unchecked tick.
+	c.emitTicks(1 | bytecode.TicksUnchecked)
 	patchOffset := c.emitJump(bytecode.OP_JUMP)
 	loop.BreakJumps = append(loop.BreakJumps, patchOffset)
 	return nil
@@ -2053,6 +2069,8 @@ func (c *lowerer) compileContinue(n *verb.ContinueStmt) error {
 		return fmt.Errorf("continue outside of loop")
 	}
 
+	// Like break, continue is Toast's EOP_EXIT / EOP_EXIT_ID.
+	c.emitTicks(1 | bytecode.TicksUnchecked)
 	if loop.ContinueIP > 0 {
 		// ContinueIP is known (while loops) -- emit backward jump directly
 		c.emit(bytecode.OP_LOOP_WIDE)
@@ -2214,10 +2232,12 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 	leftVar := c.declareInternalVariable(c.tempVar("scatter_left"))
 	rightVar := c.declareInternalVariable(c.tempVar("scatter_right"))
 
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(listVar))
+	c.emitStoreLocal(listVar)
 
 	// Preserve the original assignment value while validating the stored copy.
+	// OP_SCATTER is Toast's EOP_SCATTER, which binds every target for its one
+	// tick; the bookkeeping below is therefore tick-free, and only an optional
+	// target's default expression and its OP_PUT are charged.
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(listVar))
 	c.emit(bytecode.OP_SCATTER)
@@ -2233,21 +2253,18 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(listVar))
 	c.emit(bytecode.OP_LENGTH)
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(lenVar))
+	c.emitStoreLocal(lenVar)
 
 	// left = 1
 	if op, ok := bytecode.MakeImmediateOpcode(1); ok {
 		c.emit(op)
 	}
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(leftVar))
+	c.emitStoreLocal(leftVar)
 
 	// right = len
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(lenVar))
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(rightVar))
+	c.emitStoreLocal(rightVar)
 
 	// countRequired returns number of required non-rest targets in [start, end].
 	countRequired := func(start, end int) int {
@@ -2264,36 +2281,14 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 		return count
 	}
 
-	emitAssignFrom := func(targetVar, indexVar int) {
-		c.emit(bytecode.OP_GET_VAR)
+	// emitTake binds target = list[cursor] and steps the cursor toward the
+	// middle: forward from the left (step 0) or backward from the right (1).
+	emitTake := func(targetVar, cursorVar int, step byte) {
+		c.emit(bytecode.OP_SCATTER_TAKE)
 		c.emitByte(byte(listVar))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(indexVar))
-		c.emit(bytecode.OP_INDEX)
-		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(cursorVar))
 		c.emitByte(byte(targetVar))
-	}
-
-	emitDec := func(varIdx int) {
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(varIdx))
-		if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emit(bytecode.OP_SUB)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(varIdx))
-	}
-
-	emitInc := func(varIdx int) {
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(varIdx))
-		if op, ok := bytecode.MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emit(bytecode.OP_ADD)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(varIdx))
+		c.emitByte(step)
 	}
 
 	emitOptionalCondition := func(requiredReserve int) {
@@ -2302,13 +2297,17 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 		c.emitByte(byte(rightVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(leftVar))
+		c.emitTicks(0)
 		c.emit(bytecode.OP_SUB)
 		if op, ok := bytecode.MakeImmediateOpcode(1); ok {
 			c.emit(op)
 		}
+		c.emitTicks(0)
 		c.emit(bytecode.OP_ADD)
-		c.emitConstant(types.NewInt(int64(requiredReserve)))
+		c.emitIntLiteral(int64(requiredReserve))
+		c.emitTicks(0)
 		c.emit(bytecode.OP_GT)
+		c.emitTicks(0)
 	}
 
 	emitOptionalMissingValue := func(binding compiledBinding, targetVar int) error {
@@ -2336,8 +2335,7 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 				emitOptionalCondition(requiredBefore)
 				elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
 
-				emitAssignFrom(targetVar, rightVar)
-				emitDec(rightVar)
+				emitTake(targetVar, rightVar, 1)
 				endJump := c.emitJump(bytecode.OP_JUMP)
 
 				c.patchJump(elseJump)
@@ -2346,8 +2344,7 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 				}
 				c.patchJump(endJump)
 			} else {
-				emitAssignFrom(targetVar, rightVar)
-				emitDec(rightVar)
+				emitTake(targetVar, rightVar, 1)
 			}
 		}
 	}
@@ -2369,8 +2366,7 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 			emitOptionalCondition(requiredAfter)
 			elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
 
-			emitAssignFrom(targetVar, leftVar)
-			emitInc(leftVar)
+			emitTake(targetVar, leftVar, 0)
 			endJump := c.emitJump(bytecode.OP_JUMP)
 
 			c.patchJump(elseJump)
@@ -2379,8 +2375,7 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 			}
 			c.patchJump(endJump)
 		} else {
-			emitAssignFrom(targetVar, leftVar)
-			emitInc(leftVar)
+			emitTake(targetVar, leftVar, 0)
 		}
 	}
 
@@ -2393,7 +2388,9 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 		c.emitByte(byte(leftVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(rightVar))
+		c.emitTicks(0)
 		c.emit(bytecode.OP_LE)
+		c.emitTicks(0)
 		elseJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
 
 		c.emit(bytecode.OP_GET_VAR)
@@ -2402,16 +2399,15 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 		c.emitByte(byte(leftVar))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(rightVar))
+		c.emitTicks(0)
 		c.emit(bytecode.OP_RANGE)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(restVar))
+		c.emitStoreLocal(restVar)
 		endJump := c.emitJump(bytecode.OP_JUMP)
 
 		c.patchJump(elseJump)
 		c.emit(bytecode.OP_MAKE_LIST)
 		c.emitByte(0)
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(restVar))
+		c.emitStoreLocal(restVar)
 		c.patchJump(endJump)
 	}
 
@@ -2484,14 +2480,30 @@ func (c *lowerer) compileBlock(stmts []verb.Stmt) error {
 	return nil
 }
 
-// compileList compiles a list literal incrementally:
-// start with {}, then append regular elements and extend splices.
+// compileList compiles a list literal incrementally, as Toast does: the first
+// element becomes a singleton list (OP_MAKE_SINGLETON_LIST, one tick) or, when
+// spliced, is checked to be a list (OP_CHECK_LIST_FOR_SPLICE, one tick); later
+// elements are appended or spliced tick-free.
 func (c *lowerer) compileList(n *verb.ListExpr) error {
-	// Start with an empty list on the stack.
-	c.emit(bytecode.OP_MAKE_LIST)
-	c.emitByte(0)
+	if len(n.Elements) == 0 {
+		c.emit(bytecode.OP_MAKE_LIST)
+		c.emitByte(0)
+		return nil
+	}
+	if splice, ok := n.Elements[0].(*verb.SpliceExpr); ok {
+		if err := c.compileNode(splice.Expr); err != nil {
+			return err
+		}
+		c.emit(bytecode.OP_SPLICE)
+	} else {
+		if err := c.compileNode(n.Elements[0]); err != nil {
+			return err
+		}
+		c.emit(bytecode.OP_MAKE_LIST)
+		c.emitByte(1)
+	}
 
-	for _, elem := range n.Elements {
+	for _, elem := range n.Elements[1:] {
 		if splice, ok := elem.(*verb.SpliceExpr); ok {
 			// Splice: compile inner expression, then extend
 			if err := c.compileNode(splice.Expr); err != nil {
@@ -2532,11 +2544,11 @@ func (c *lowerer) compileListRange(n *verb.ListRangeExpr) error {
 // compileMap compiles a map literal: [key -> value, ...]
 func (c *lowerer) compileMap(n *verb.MapExpr) error {
 	// Build map incrementally in a temp local via bytecode.OP_INDEX_SET.
+	// Toast's OP_MAP_CREATE / OP_MAP_INSERT are tick-free.
 	tmp := c.declareInternalVariable(c.tempVar("maplit"))
 	c.emit(bytecode.OP_MAKE_MAP)
 	c.emitByte(0)
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(tmp))
+	c.emitStoreLocal(tmp)
 
 	for _, pair := range n.Pairs {
 		// bytecode.OP_INDEX_SET pops index first, then value.
@@ -2546,6 +2558,7 @@ func (c *lowerer) compileMap(n *verb.MapExpr) error {
 		if err := c.compileNode(pair.Key); err != nil {
 			return err
 		}
+		c.emitTicks(0)
 		c.emit(bytecode.OP_INDEX_SET)
 		c.emitByte(byte(tmp))
 	}
