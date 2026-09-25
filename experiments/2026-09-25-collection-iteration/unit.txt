@@ -1,0 +1,34 @@
+ok  	github.com/MongooseMoo/barn	7.446s
+ok  	github.com/MongooseMoo/barn/builtins	7.136s
+ok  	github.com/MongooseMoo/barn/bytecode	0.674s
+ok  	github.com/MongooseMoo/barn/cmd/barn	0.611s
+ok  	github.com/MongooseMoo/barn/cmd/barn_logs	0.614s
+ok  	github.com/MongooseMoo/barn/cmd/mongoose_tz	0.493s
+ok  	github.com/MongooseMoo/barn/cmd/moo_client	0.919s
+?   	github.com/MongooseMoo/barn/cmd/toast_oracle	[no test files]
+ok  	github.com/MongooseMoo/barn/command	0.527s
+ok  	github.com/MongooseMoo/barn/compiler	0.543s
+ok  	github.com/MongooseMoo/barn/config	0.514s
+ok  	github.com/MongooseMoo/barn/db/format	1.845s
+ok  	github.com/MongooseMoo/barn/db/store	1.745s
+ok  	github.com/MongooseMoo/barn/engine	22.463s
+ok  	github.com/MongooseMoo/barn/engine/internal/finalization	0.924s
+ok  	github.com/MongooseMoo/barn/engine/internal/scheduler	0.717s
+ok  	github.com/MongooseMoo/barn/internal/admission	0.557s
+ok  	github.com/MongooseMoo/barn/internal/app	0.557s
+ok  	github.com/MongooseMoo/barn/internal/buildinfo	0.514s
+ok  	github.com/MongooseMoo/barn/internal/commitgate	0.516s
+ok  	github.com/MongooseMoo/barn/internal/dbtool	0.581s
+ok  	github.com/MongooseMoo/barn/internal/listener	0.519s
+ok  	github.com/MongooseMoo/barn/kernel	0.504s
+ok  	github.com/MongooseMoo/barn/logging	0.620s
+?   	github.com/MongooseMoo/barn/metrics	[no test files]
+ok  	github.com/MongooseMoo/barn/parser	18.499s
+ok  	github.com/MongooseMoo/barn/profile	0.584s
+ok  	github.com/MongooseMoo/barn/server	2.131s
+ok  	github.com/MongooseMoo/barn/sourcekey	0.513s
+ok  	github.com/MongooseMoo/barn/task	0.709s
+?   	github.com/MongooseMoo/barn/trace	[no test files]
+ok  	github.com/MongooseMoo/barn/types	0.597s
+ok  	github.com/MongooseMoo/barn/verb	0.498s
+ok  	github.com/MongooseMoo/barn/vm	7.041s

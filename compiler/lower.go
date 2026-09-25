@@ -1930,15 +1930,14 @@ func (c *lowerer) compileRangeLoop(n *verb.RangeLoopStmt) error {
 }
 
 // compileCollectionLoop compiles: for x in (expr) ... endfor
-// Handles lists, maps, and strings via bytecode.OP_ITER_PREP runtime type dispatch.
-// When an index/key variable is present (for v, k in ...), bytecode.OP_ITER_PREP wraps
-// elements as {value, key/index} pairs and the loop extracts both components.
+// Values and optional map keys are separate snapshots. List/string indexes
+// come from the cursor; no per-element pair lists are needed.
 func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	hasIndex := n.Index != ""
 
 	// Hidden variables (unique per loop to support nesting)
 	listVar := c.declareInternalVariable(c.tempVar("list"))
-	isPairsVar := c.declareInternalVariable(c.tempVar("pairs"))
+	keysVar := c.declareInternalVariable(c.tempVar("keys"))
 	idxVar := c.declareInternalVariable(c.tempVar("idx"))
 	lenVar := c.declareInternalVariable(c.tempVar("len"))
 	valueVar := c.declareVariable(n.Value)
@@ -1954,19 +1953,14 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	}
 	c.emitStoreLocal(resultVar)
 
-	// Evaluate container, then bytecode.OP_ITER_PREP normalizes it
+	// Evaluate the container once, then prepare its iteration snapshots.
 	if err := c.compileNode(n.Collection); err != nil {
 		return err
 	}
-	c.emit(bytecode.OP_ITER_PREP)
-	if hasIndex {
-		c.emitByte(1)
-	} else {
-		c.emitByte(0)
-	}
-	// Stack now has: [normalizedList, isPairsFlag]
-	// Store isPairs flag, then store list
-	c.emitStoreLocal(isPairsVar)
+	c.emit(bytecode.OP_ITER_PREP_COLUMNS)
+	// Stack: [values, keys-or-zero]. Map keys stay rooted even when the loop
+	// does not bind them, preserving their lifetime across suspension.
+	c.emitStoreLocal(keysVar)
 	c.emitStoreLocal(listVar)
 
 	// idx = 1
@@ -1998,19 +1992,17 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	// GET_VAR(list)/GET_VAR(idx)/INDEX plus the value/index extraction: idx is
 	// provably in [1..len] so the bounds-checked INDEX dispatch is unnecessary.
 	if hasIndex {
-		// elem is always a {value, key/index} pair (bytecode.OP_ITER_PREP guarantees isPairs).
-		c.emit(bytecode.OP_FOR_LIST_LOAD_KV)
+		c.emit(bytecode.OP_FOR_LIST_LOAD_COLUMNS)
 		c.emitByte(byte(listVar))
 		c.emitByte(byte(idxVar))
 		c.emitByte(byte(valueVar))
 		c.emitByte(byte(indexVar))
+		c.emitByte(byte(keysVar))
 	} else {
-		// value = isPairs ? elem[1] : elem (isPairs resolved at runtime).
-		c.emit(bytecode.OP_FOR_LIST_LOAD)
+		c.emit(bytecode.OP_FOR_LIST_LOAD_VALUE)
 		c.emitByte(byte(listVar))
 		c.emitByte(byte(idxVar))
 		c.emitByte(byte(valueVar))
-		c.emitByte(byte(isPairsVar))
 	}
 
 	// Body

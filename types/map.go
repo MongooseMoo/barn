@@ -431,6 +431,29 @@ func (v Value) Keys() []Value { return v.goMap().keys() }
 // Pairs returns all key-value pairs in insertion order.
 func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 
+// MapColumns returns fresh value and key slices in the same tree
+// order as Pairs. Iterators can retain these snapshots without allocating a
+// pair container for every entry. The caller owns both returned slices.
+func (v Value) MapColumns() (values, keys []Value) {
+	m := v.goMap()
+	values = make([]Value, m.count)
+	keys = make([]Value, m.count)
+	i := 0
+	var visit func(*toastLookupNode)
+	visit = func(node *toastLookupNode) {
+		if node == nil {
+			return
+		}
+		visit(node.link[0])
+		values[i] = node.entry.val
+		keys[i] = node.entry.key
+		i++
+		visit(node.link[1])
+	}
+	visit(m.toastRoot())
+	return values, keys
+}
+
 // PairsInInsertionOrder returns all key-value pairs in raw insertion order,
 // NOT tree-traversal order. Feeding these to NewMap reproduces the source
 // map's topology exactly. In-memory rebuilds (e.g. the snapshot anon-id

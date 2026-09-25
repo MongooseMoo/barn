@@ -1,0 +1,65 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                               │ .tmp/iteration-perf/base.txt │  .tmp/iteration-perf/candidate.txt  │
+                                               │            sec/op            │   sec/op     vs base                │
+CollectionIteration/list/n1000/rejectfalse                        159.0µ ± 1%   157.2µ ± 1%   -1.15% (p=0.009 n=10)
+CollectionIteration/list/n1000/rejecttrue                         67.15µ ± 1%   64.18µ ± 1%   -4.42% (p=0.000 n=10)
+CollectionIteration/indexed/n1000/rejectfalse                     302.3µ ± 5%   176.5µ ± 2%  -41.63% (p=0.000 n=10)
+CollectionIteration/indexed/n1000/rejecttrue                     206.66µ ± 1%   83.07µ ± 1%  -59.80% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejectfalse                         340.2µ ± 2%   210.0µ ± 2%  -38.28% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejecttrue                          242.7µ ± 2%   115.8µ ± 3%  -52.28% (p=0.000 n=10)
+CollectionIteration/count/n1000/rejectfalse                       82.47µ ± 0%   79.05µ ± 1%   -4.14% (p=0.001 n=10)
+CollectionIteration/count/n1000/rejecttrue                        66.53µ ± 2%   63.58µ ± 1%   -4.44% (p=0.002 n=10)
+CollectionIteration/list/n10000/rejectfalse                       1.648m ± 1%   1.599m ± 2%   -2.96% (p=0.005 n=10)
+CollectionIteration/list/n10000/rejecttrue                        569.2µ ± 4%   516.9µ ± 3%   -9.18% (p=0.000 n=10)
+CollectionIteration/indexed/n10000/rejectfalse                    3.243m ± 2%   1.785m ± 2%  -44.96% (p=0.000 n=10)
+CollectionIteration/indexed/n10000/rejecttrue                    2108.6µ ± 1%   692.1µ ± 2%  -67.18% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejectfalse                        3.602m ± 1%   2.162m ± 2%  -39.99% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejecttrue                         2.546m ± 1%   1.123m ± 2%  -55.87% (p=0.000 n=10)
+CollectionIteration/count/n10000/rejectfalse                      698.0µ ± 2%   657.2µ ± 2%   -5.84% (p=0.000 n=10)
+CollectionIteration/count/n10000/rejecttrue                       563.8µ ± 2%   531.3µ ± 2%   -5.77% (p=0.000 n=10)
+geomean                                                           476.2µ        325.2µ       -31.71%
+
+                                               │ .tmp/iteration-perf/base.txt │   .tmp/iteration-perf/candidate.txt    │
+                                               │             B/op             │     B/op      vs base                  │
+CollectionIteration/list/n1000/rejectfalse                       70.31Ki ± 0%   70.31Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n1000/rejecttrue                        15.45Ki ± 0%   15.45Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/indexed/n1000/rejectfalse                   188.11Ki ± 0%   70.31Ki ± 0%  -62.62% (p=0.000 n=10)
+CollectionIteration/indexed/n1000/rejecttrue                    133.24Ki ± 0%   15.45Ki ± 0%  -88.41% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejectfalse                        236.1Ki ± 0%   118.4Ki ± 0%  -49.85% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejecttrue                        181.24Ki ± 0%   63.54Ki ± 0%  -64.94% (p=0.000 n=10)
+CollectionIteration/count/n1000/rejectfalse                      15.23Ki ± 0%   15.23Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/count/n1000/rejecttrue                       15.23Ki ± 0%   15.23Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n10000/rejectfalse                      747.9Ki ± 0%   747.9Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n10000/rejecttrue                       15.45Ki ± 0%   15.45Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/indexed/n10000/rejectfalse                  1925.5Ki ± 0%   747.9Ki ± 0%  -61.16% (p=0.000 n=10)
+CollectionIteration/indexed/n10000/rejecttrue                  1192.99Ki ± 0%   15.45Ki ± 0%  -98.71% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejectfalse                       2.341Mi ± 0%   1.199Mi ± 0%  -48.78% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejecttrue                       1665.0Ki ± 0%   495.5Ki ± 0%  -70.24% (p=0.000 n=10)
+CollectionIteration/count/n10000/rejectfalse                     15.23Ki ± 0%   15.23Ki ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/count/n10000/rejecttrue                      15.23Ki ± 0%   15.23Ki ± 0%        ~ (p=1.000 n=10) ¹
+geomean                                                          130.0Ki        61.20Ki       -52.91%
+¹ all samples are equal
+
+                                               │ .tmp/iteration-perf/base.txt │   .tmp/iteration-perf/candidate.txt   │
+                                               │          allocs/op           │  allocs/op   vs base                  │
+CollectionIteration/list/n1000/rejectfalse                         539.0 ± 0%    539.0 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n1000/rejecttrue                          19.00 ± 0%    19.00 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/indexed/n1000/rejectfalse                     2541.0 ± 0%    539.0 ± 0%  -78.79% (p=0.000 n=10)
+CollectionIteration/indexed/n1000/rejecttrue                     2021.00 ± 0%    19.00 ± 0%  -99.06% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejectfalse                         2542.0 ± 0%    543.0 ± 0%  -78.64% (p=0.000 n=10)
+CollectionIteration/map/n1000/rejecttrue                         2022.00 ± 0%    23.00 ± 0%  -98.86% (p=0.000 n=10)
+CollectionIteration/count/n1000/rejectfalse                        11.00 ± 0%    11.00 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/count/n1000/rejecttrue                         11.00 ± 0%    11.00 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n10000/rejectfalse                       5.051k ± 0%   5.051k ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/list/n10000/rejecttrue                         19.00 ± 0%    19.00 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/indexed/n10000/rejectfalse                   25.053k ± 0%   5.051k ± 0%  -79.84% (p=0.000 n=10)
+CollectionIteration/indexed/n10000/rejecttrue                   20021.00 ± 0%    19.00 ± 0%  -99.91% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejectfalse                       25.054k ± 0%   5.055k ± 0%  -79.82% (p=0.000 n=10)
+CollectionIteration/map/n10000/rejecttrue                       20022.00 ± 0%    23.00 ± 0%  -99.89% (p=0.000 n=10)
+CollectionIteration/count/n10000/rejectfalse                       11.00 ± 0%    11.00 ± 0%        ~ (p=1.000 n=10) ¹
+CollectionIteration/count/n10000/rejecttrue                        11.00 ± 0%    11.00 ± 0%        ~ (p=1.000 n=10) ¹
+geomean                                                            560.7         90.58       -83.85%
+¹ all samples are equal

@@ -1,0 +1,210 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     758	    158162 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1576	     67066 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     364	    305176 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     571	    203995 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     350	    336209 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     489	    239775 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1468	     82557 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1792	     66463 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      92	   1648217 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     213	    610438 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      21	  10492424 ns/op	 1971680 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      26	   5981258 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      26	   4374746 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      48	   2750702 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     168	    824796 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     192	    574660 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     710	    157447 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1603	     67594 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     382	    304201 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     552	    205948 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     352	    345132 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     477	    246217 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1353	     82471 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1809	     68145 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      96	   1656792 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    568724 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      55	   3245820 ns/op	 1971681 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      78	   2120472 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3634025 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      67	   2549379 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     166	    695937 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     200	    579345 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     736	    161946 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1534	     68389 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     369	    322199 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     558	    208686 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     337	    345810 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     477	    248704 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1447	     82459 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1598	     65292 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      96	   1656376 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     216	    573846 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      54	   3273409 ns/op	 1971681 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      70	   2116730 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3632534 ns/op	 2455008 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      68	   2539409 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     174	    700386 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     206	    566582 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     835	    158677 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1782	     66892 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     392	    301144 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     577	    207209 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     337	    337707 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     484	    241837 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1420	     82328 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1573	     66132 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      94	   1647267 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    573109 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      54	   3222226 ns/op	 1971681 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      72	   2113425 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3600116 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      68	   2516018 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     166	    700082 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     205	    563724 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     705	    160242 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1573	     66505 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     391	    290049 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     542	    204780 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     357	    333250 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     501	    238217 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1456	     82331 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1701	     65178 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      96	   1602875 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     218	    547394 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      56	   3135754 ns/op	 1971681 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      79	   2095425 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      33	   3533270 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      72	   2542403 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     175	    694825 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     211	    555689 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     722	    158188 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1710	     67737 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     376	    301707 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     566	    207690 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     342	    341585 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     481	    242781 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1316	     82492 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1573	     66757 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      88	   1655118 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    568405 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      52	   3271465 ns/op	 1971681 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      78	   2082737 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      33	   3642273 ns/op	 2455008 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      46	   2569024 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     166	    691328 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     207	    563629 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     722	    159049 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1528	     67723 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     385	    300630 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     553	    204874 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     339	    341515 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     494	    242554 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1324	     93879 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1783	     67589 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      96	   1641342 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     216	    552478 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      54	   3296120 ns/op	 1971680 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      78	   2123868 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3589725 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      48	   2533569 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     141	    713868 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     210	    556482 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     724	    160999 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1773	     66969 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     386	    316672 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     564	    208057 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     331	    351541 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     451	    248156 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1441	     82777 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1664	     67213 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      93	   1643828 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    569596 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      55	   3239278 ns/op	 1971680 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      78	   2102532 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3595947 ns/op	 2455008 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      48	   2560765 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     169	    680935 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     201	    563973 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     770	    158971 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1581	     67230 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     384	    302946 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     571	    206116 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     346	    338845 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     488	    239406 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1298	     81582 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1815	     66607 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      90	   1648392 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    549152 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      55	   3235311 ns/op	 1971680 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      75	   2103735 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      32	   3592050 ns/op	 2455009 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      46	   2477265 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     169	    682889 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     204	    567096 ns/op	   15592 B/op	      11 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkCollectionIteration/list/n1000/rejectfalse         	     714	    160898 ns/op	   72000 B/op	     539 allocs/op
+BenchmarkCollectionIteration/list/n1000/rejecttrue          	    1741	     66831 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejectfalse      	     388	    295656 ns/op	  192624 B/op	    2541 allocs/op
+BenchmarkCollectionIteration/indexed/n1000/rejecttrue       	     558	    208846 ns/op	  136440 B/op	    2021 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejectfalse          	     345	    334482 ns/op	  241776 B/op	    2542 allocs/op
+BenchmarkCollectionIteration/map/n1000/rejecttrue           	     486	    244380 ns/op	  185592 B/op	    2022 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejectfalse        	    1312	     82176 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n1000/rejecttrue         	    1573	     66373 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejectfalse        	      99	   1626483 ns/op	  765872 B/op	    5051 allocs/op
+BenchmarkCollectionIteration/list/n10000/rejecttrue         	     217	    569741 ns/op	   15816 B/op	      19 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejectfalse     	      55	   3198580 ns/op	 1971680 B/op	   25053 allocs/op
+BenchmarkCollectionIteration/indexed/n10000/rejecttrue      	      72	   2101892 ns/op	 1221624 B/op	   20021 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejectfalse         	      31	   3603835 ns/op	 2455008 B/op	   25054 allocs/op
+BenchmarkCollectionIteration/map/n10000/rejecttrue          	      70	   2570109 ns/op	 1704952 B/op	   20022 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejectfalse       	     174	    700197 ns/op	   15592 B/op	      11 allocs/op
+BenchmarkCollectionIteration/count/n10000/rejecttrue        	     204	    562627 ns/op	   15592 B/op	      11 allocs/op
+PASS
