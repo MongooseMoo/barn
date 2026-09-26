@@ -772,18 +772,22 @@ func builtinUsage(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Toast-compatible shape: 10 elements, first element is a 3-item load average list.
+	stats, err := readProcessUsage()
+	if err != nil {
+		return types.Err(types.E_QUOTA)
+	}
+	loads := make([]types.Value, len(stats.loadAverage))
+	for i, load := range stats.loadAverage {
+		loads[i] = types.NewFloat(load)
+	}
 	result := []types.Value{
-		types.NewList([]types.Value{types.NewFloat(0), types.NewFloat(0), types.NewFloat(0)}),
-		types.NewFloat(0), // user time
-		types.NewFloat(0), // system time
-		types.NewInt(0),   // minflt
-		types.NewInt(0),   // majflt
-		types.NewInt(0),   // inblock
-		types.NewInt(0),   // oublock
-		types.NewInt(0),   // nvcsw
-		types.NewInt(0),   // nivcsw
-		types.NewInt(0),   // nsignals
+		types.NewList(loads),
+		types.NewFloat(stats.userSeconds),
+		types.NewFloat(stats.systemSeconds),
+		types.NewInt(stats.minorFaults), types.NewInt(stats.majorFaults),
+		types.NewInt(stats.inputBlocks), types.NewInt(stats.outputBlocks),
+		types.NewInt(stats.voluntarySwitches), types.NewInt(stats.involuntarySwitches),
+		types.NewInt(stats.signals),
 	}
 	return types.Ok(types.NewList(result))
 }
@@ -810,19 +814,12 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	// ToastStunt returns five floats from /proc/self/statm (page counts):
-	// total program size, resident set size, shared pages, text, and data.
-	// Barn reports the closest Go-runtime equivalents so the five-element shape
-	// matches on every platform.
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	const page = 4096
+	stats, err := readProcessMemory()
+	if err != nil {
+		return types.Err(types.E_QUOTA)
+	}
 	vals := []int64{
-		int64(m.Sys / page),
-		int64(m.HeapInuse / page),
-		0,
-		0,
-		int64(m.HeapAlloc / page),
+		stats.total, stats.resident, stats.shared, stats.text, stats.data,
 	}
 	out := make([]types.Value, len(vals))
 	for i, v := range vals {
