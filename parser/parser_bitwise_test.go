@@ -38,15 +38,15 @@ func TestBitwiseOperators(t *testing.T) {
 }
 
 func TestBitwisePrecedence(t *testing.T) {
-	// Bitwise operators are between comparison and shift
-	// &. has higher precedence than |., ^. is in between
+	// Bitwise operators bind tighter than comparison and looser than shift.
+	// Toast declares |., &., and ^. at one left-associative level.
 	tests := []struct {
 		input  string
 		rootOp verb.BinaryOperator
 		desc   string
 	}{
-		{"a |. b &. c", verb.BinaryBitOr, "should parse as a |. (b &. c)"},
-		{"a ^. b &. c", verb.BinaryBitXor, "should parse as a ^. (b &. c)"},
+		{"a |. b &. c", verb.BinaryBitAnd, "should parse as (a |. b) &. c"},
+		{"a ^. b &. c", verb.BinaryBitAnd, "should parse as (a ^. b) &. c"},
 	}
 
 	for _, tt := range tests {
@@ -66,6 +66,23 @@ func TestBitwisePrecedence(t *testing.T) {
 				t.Errorf("%s - expected root %s, got %s", tt.desc, tt.rootOp, binary.Operator)
 			}
 		})
+	}
+}
+
+func TestBitwiseBindsMoreTightlyThanComparison(t *testing.T) {
+	p := NewParser("a < b |. c")
+	expr, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	comparison, ok := expr.(*verb.BinaryExpr)
+	if !ok || comparison.Operator != verb.BinaryLess {
+		t.Fatalf("root = %T (%v), want less-than", expr, expr)
+	}
+	bitwise, ok := comparison.Right.(*verb.BinaryExpr)
+	if !ok || bitwise.Operator != verb.BinaryBitOr {
+		t.Fatalf("right = %T (%v), want bitwise-or", comparison.Right, comparison.Right)
 	}
 }
 
