@@ -655,22 +655,25 @@ func builtinAllMembers(ctx *Execution, args []types.Value) types.Result {
 		caseMatters = args[2].Truthy()
 	}
 	needle := args[0]
-	result := make([]types.Value, 0)
-	for i := 1; i <= list.Len(); i++ {
-		item := list.Get(i)
-		matched := false
-		if !caseMatters {
-			if needle.Type() == types.TYPE_STR && item.Type() == types.TYPE_STR {
-				matched = strings.EqualFold(needle.Str(), item.Str())
+	// all_members() is a threaded builtin (see threaded.go).
+	return backgroundValue(ctx, func() types.Value {
+		result := make([]types.Value, 0)
+		for i := 1; i <= list.Len(); i++ {
+			item := list.Get(i)
+			matched := false
+			if !caseMatters {
+				if needle.Type() == types.TYPE_STR && item.Type() == types.TYPE_STR {
+					matched = strings.EqualFold(needle.Str(), item.Str())
+				}
+			} else {
+				matched = needle.Equal(item)
 			}
-		} else {
-			matched = needle.Equal(item)
+			if matched {
+				result = append(result, types.NewInt(int64(i)))
+			}
 		}
-		if matched {
-			result = append(result, types.NewInt(int64(i)))
-		}
-	}
-	return types.Ok(types.NewList(result))
+		return types.NewList(result)
+	})
 }
 
 func builtinDistance(ctx *Execution, args []types.Value) types.Result {

@@ -37,7 +37,11 @@ type VM struct {
 	// Preempt is set only on a root VM whose owner may lend its admission
 	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
 	// may run while their caller holds locks other invocations need.
-	Preempt      func()
+	Preempt func()
+	// Resumable is set only on the root VM the runtime saves and resumes when
+	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
+	// so a builtin running there must not suspend.
+	Resumable    bool
 	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses

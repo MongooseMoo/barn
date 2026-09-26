@@ -404,6 +404,7 @@ retryAttempt:
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.Preempt = preempt
+		bcVM.Resumable = true
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -451,6 +452,7 @@ retryAttempt:
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.Preempt = preempt
+		bcVM.Resumable = true
 		bcVM.TickLimit = t.TicksLimit
 		configureVMStackLimit(bcVM, s.session)
 

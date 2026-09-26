@@ -28,6 +28,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	} else {
 		execution.Rebind(vm.Context, vm.Task)
 	}
+	execution.CanSuspend = vm.Resumable
 	if vm.Context == nil || !vm.Context.DeferredGC {
 		execution.PendingFinalizations = vm.builtinPendingFinalizations
 	} else {

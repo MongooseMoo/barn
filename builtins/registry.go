@@ -25,6 +25,9 @@ type Execution struct {
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
+	// CanSuspend reports that a FlowSuspend returned now is honored: the call
+	// runs on the task's root VM, which the runtime saves and later resumes.
+	CanSuspend bool
 }
 
 // NewExecution binds task state and an optional concrete task to this session.

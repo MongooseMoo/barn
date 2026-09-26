@@ -334,6 +334,11 @@ func memberEqual(a, b types.Value, caseMatters bool) bool {
 // register_function's type tokens); the sort-key list must be homogeneous and made
 // of scalar sortable values (INT/FLOAT/OBJ/ERR/STR) or E_TYPE; an empty list/empty
 // keys yields {}. String comparison is case-insensitive (strcasecmp), matching Toast.
+//
+// sort() is a threaded builtin (see threaded.go). The argument checks above are
+// register_function's and always raise; the length and element errors come from
+// sort_callback, so they are raised only when the call is threaded and are
+// otherwise returned as the call's value.
 func builtinSort(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
@@ -370,7 +375,14 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 		}
 		reverse = args[3].Int() != 0
 	}
+	return backgroundValue(ctx, func() types.Value {
+		return sortCallback(list, keys, useKeys, natural, reverse)
+	})
+}
 
+// sortCallback is Toast's sort_callback: it returns the sorted list, or an
+// error value for mismatched keys or unsortable elements.
+func sortCallback(list, keys types.Value, useKeys, natural, reverse bool) types.Value {
 	// The list we actually compare on: the keys list if provided, else list.
 	sortList := list
 	if useKeys {
@@ -379,10 +391,10 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 
 	n := sortList.Len()
 	if n == 0 {
-		return types.Ok(types.NewList([]types.Value{}))
+		return types.NewList([]types.Value{})
 	}
 	if useKeys && list.Len() != keys.Len() {
-		return types.Err(types.E_INVARG)
+		return types.NewErr(types.E_INVARG)
 	}
 
 	// All sort-key elements must share the first element's type and be a scalar
@@ -392,7 +404,7 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 		t := sortList.Get(i).Type()
 		if t != keyType || t == types.TYPE_LIST || t == types.TYPE_MAP ||
 			t == types.TYPE_ANON || t == types.TYPE_WAIF {
-			return types.Err(types.E_TYPE)
+			return types.NewErr(types.E_TYPE)
 		}
 	}
 
@@ -414,7 +426,7 @@ func builtinSort(ctx *Execution, args []types.Value) types.Result {
 	for p, it := range idx {
 		result[p] = list.Get(it)
 	}
-	return types.Ok(types.NewList(result))
+	return types.NewList(result)
 }
 
 // sortLess implements Toast's VarCompare (list.cc:980-1006): numeric ordering for
