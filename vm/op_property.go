@@ -51,19 +51,19 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 
 	// Check if it's an object reference
 	if !isObjLike(objVal) {
-		return fmt.Errorf("E_TYPE: property access requires an object")
+		return newMooError(types.E_TYPE, "property access requires an object")
 	}
 
 	objID := objVal.ID()
 
 	// Need a store to look up properties
 	if vm.Store == nil {
-		return fmt.Errorf("E_INVIND: no object store available")
+		return newMooError(types.E_INVIND, "no object store available")
 	}
 
 	txn := vm.Context.StoreTxn
 	if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
-		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
+		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
 	}
 
 	// Built-in property names (.name/.owner/.location/...) can never be defined
@@ -74,7 +74,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 			vm.Push(val)
 			return nil
 		}
-		return fmt.Errorf("E_PROPNF: Property not found: #%d.%s", objID, propName)
+		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
@@ -89,7 +89,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 	}
 
 	// Property not found
-	return fmt.Errorf("E_PROPNF: Property not found: #%d.%s", objID, propName)
+	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
 }
 
 // getWaifProp handles property read on a waif value.
@@ -131,13 +131,13 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 
 	// Fall back to waif instance properties defined on the class with a colon prefix.
 	if vm.Store == nil {
-		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
 
 	classID := waif.Class()
 	txn := vm.Context.StoreTxn
 	if errCode := objectExistsForRead(txn, classID); errCode != types.E_NONE {
-		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
 
 	classPropName := propName
@@ -146,7 +146,7 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 	}
 	prop, errCode := findPropertyForRead(txn, classID, classPropName)
 	if errCode != types.E_NONE {
-		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
 
 	vm.Push(prop.Value)
@@ -195,19 +195,19 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 
 	// Check if it's an object reference
 	if !isObjLike(objVal) {
-		return fmt.Errorf("E_TYPE: property assignment requires an object")
+		return newMooError(types.E_TYPE, "property assignment requires an object")
 	}
 
 	objID := objVal.ID()
 
 	// Need a store to set properties
 	if vm.Store == nil {
-		return fmt.Errorf("E_INVIND: no object store available")
+		return newMooError(types.E_INVIND, "no object store available")
 	}
 
 	txn := vm.Context.StoreTxn
 	if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
-		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
+		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
 	}
 
 	// Check for built-in property assignment first
@@ -238,7 +238,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 	// Property not on this object - check if inherited
 	inheritedProp, errCode := findPropertyForRead(txn, objID, propName)
 	if errCode != types.E_NONE {
-		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+		return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
 	}
 
 	// Check write permission on the inherited property
@@ -260,7 +260,7 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	// These properties cannot be set on waifs
 	switch strings.ToLower(propName) {
 	case "owner", "class", "wizard", "programmer":
-		return fmt.Errorf("E_PERM: cannot set .%s on a waif", propName)
+		return newMooErrorf(types.E_PERM, "cannot set .%s on a waif", propName)
 	}
 
 	// Check for self-reference (circular reference)
@@ -269,7 +269,7 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 		return fmt.Errorf("%s: WAIF containment read", ec)
 	}
 	if contains {
-		return fmt.Errorf("E_RECMOVE: value contains the waif itself")
+		return newMooError(types.E_RECMOVE, "value contains the waif itself")
 	}
 
 	if ec := vm.Context.StoreTxn.SetWaifProperty(waif, dbstore.PropertyNameKey(propName), value); ec != types.E_NONE {
@@ -292,7 +292,7 @@ func (vm *VM) checkPropertyReadPerm(prop dbstore.PropertyView) error {
 		return nil
 	}
 	if !prop.Perms.Has(dbstore.PropRead) {
-		return fmt.Errorf("E_PERM: property not readable")
+		return newMooError(types.E_PERM, "property not readable")
 	}
 	return nil
 }
@@ -310,7 +310,7 @@ func (vm *VM) checkPropertyWritePerm(prop dbstore.PropertyView) error {
 		return nil
 	}
 	if !prop.Perms.Has(dbstore.PropWrite) {
-		return fmt.Errorf("E_PERM: property not writable")
+		return newMooError(types.E_PERM, "property not writable")
 	}
 	return nil
 }

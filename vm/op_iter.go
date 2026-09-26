@@ -32,7 +32,7 @@ func (vm *VM) executeIterPrepColumns() error {
 		values = types.NewList(elements)
 	default:
 		if frame := vm.CurrentFrame(); frame == nil || frame.VerbDebug {
-			return fmt.Errorf("E_TYPE: for loop requires list, map, or string")
+			return newMooError(types.E_TYPE, "for loop requires list, map, or string")
 		}
 		values = types.NewList(nil)
 	}
@@ -48,7 +48,7 @@ func (vm *VM) executeForListLoadValue() error {
 	frame := vm.CurrentFrame()
 	values := frame.Locals[valuesSlot]
 	if values.Type() != types.TYPE_LIST {
-		return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+		return newMooError(types.E_TYPE, "for loop iterator is not a list")
 	}
 	value := values.Get(int(frame.Locals[cursorSlot].Int()))
 	vm.releaseLocal(frame.Locals[valueSlot])
@@ -65,7 +65,7 @@ func (vm *VM) executeForListLoadColumns() error {
 	frame := vm.CurrentFrame()
 	values, keys := frame.Locals[valuesSlot], frame.Locals[keysSlot]
 	if values.Type() != types.TYPE_LIST {
-		return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+		return newMooError(types.E_TYPE, "for loop iterator is not a list")
 	}
 	cursor := frame.Locals[cursorSlot]
 	value, key := values.Get(int(cursor.Int())), cursor
@@ -158,7 +158,7 @@ func (vm *VM) executeIterPrep() error {
 			vm.Push(types.NewInt(0))
 			return nil
 		}
-		return fmt.Errorf("E_TYPE: for loop requires list, map, or string")
+		return newMooError(types.E_TYPE, "for loop requires list, map, or string")
 	}
 
 	return nil
@@ -181,7 +181,7 @@ func (vm *VM) executeScatter() error {
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return fmt.Errorf("E_TYPE: %s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
+		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
 	}
 
 	length := val.Len()

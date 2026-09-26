@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"fmt"
-
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -42,20 +40,20 @@ func (vm *VM) startOrSkipMoveLifecycleVerb(state *task.MoveContinuationSnapshot,
 
 func (vm *VM) pushMoveLifecycleVerb(state *task.MoveContinuationSnapshot, target types.Value, verbName string) (bool, error) {
 	if vm.Context == nil || vm.Context.StoreTxn == nil {
-		return false, fmt.Errorf("E_INVARG: move lifecycle has no transaction")
+		return false, newMooError(types.E_INVARG, "move lifecycle has no transaction")
 	}
 	if _, _, err := findCallableVerbForRead(vm.Context.StoreTxn, target.ID(), verbName); err != nil {
 		return false, nil
 	}
 	if err := vm.startVerbCall(target, verbName, []types.Value{state.What}); err != nil {
-		if extractErrorCode(err) == types.E_VERBNF {
+		if errorCode(err) == types.E_VERBNF {
 			return false, nil
 		}
 		return false, err
 	}
 	frame := vm.CurrentFrame()
 	if frame == nil {
-		return false, fmt.Errorf("E_INVARG: move lifecycle verb created no frame")
+		return false, newMooError(types.E_INVARG, "move lifecycle verb created no frame")
 	}
 	frame.DiscardReturn = true
 	frame.MoveContinuation = cloneMoveContinuation(state)
@@ -127,7 +125,7 @@ func (vm *VM) continueMoveLifecycleAfterExit(state *task.MoveContinuationSnapsho
 }
 
 func moveLifecycleErrorResult(err error) types.Result {
-	errCode := extractErrorCode(err)
+	errCode := errorCode(err)
 	if errCode == types.E_NONE {
 		errCode = types.E_INVARG
 	}

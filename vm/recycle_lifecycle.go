@@ -18,7 +18,7 @@ func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) ty
 		return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 	}
 	if err := vm.startVerbCall(request.Object, "recycle", nil); err != nil {
-		if extractErrorCode(err) == types.E_VERBNF {
+		if errorCode(err) == types.E_VERBNF {
 			return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 		}
 		return moveLifecycleErrorResult(err)

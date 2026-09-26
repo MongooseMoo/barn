@@ -39,16 +39,16 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	switch delay.Type() {
 	case types.TYPE_INT:
 		if delay.Int() < 0 {
-			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
+			return newMooError(types.E_INVARG, "fork delay must be non-negative")
 		}
 		delaySeconds = float64(delay.Int())
 	case types.TYPE_FLOAT:
 		if delay.Float() < 0 {
-			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
+			return newMooError(types.E_INVARG, "fork delay must be non-negative")
 		}
 		delaySeconds = delay.Float()
 	default:
-		return fmt.Errorf("E_TYPE: fork delay must be numeric")
+		return newMooError(types.E_TYPE, "fork delay must be numeric")
 	}
 
 	// Resolve variable name from index

@@ -21,7 +21,7 @@ func (vm *VM) staticNameFromConstant(index int, kind string) (string, error) {
 func (vm *VM) popDynamicName(kind string) (string, error) {
 	name := vm.Pop()
 	if name.Type() != types.TYPE_STR {
-		return "", fmt.Errorf("E_TYPE: dynamic %s name must be a string", kind)
+		return "", newMooErrorf(types.E_TYPE, "dynamic %s name must be a string", kind)
 	}
 	return name.Str(), nil
 }

@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"fmt"
-
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
@@ -48,7 +46,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: expected list for spliced builtin args")
+			return newMooError(types.E_TYPE, "expected list for spliced builtin args")
 		}
 		args = make([]types.Value, listVal.Len())
 		for i := 1; i <= listVal.Len(); i++ {
