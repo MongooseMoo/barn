@@ -127,6 +127,7 @@ func (vm *VM) Return(value types.Value) error {
 			vm.Context.Verb = frame.SavedVerb
 			vm.Context.Programmer = frame.SavedProgrammer
 			vm.Context.IsWizard = frame.SavedIsWizard
+			vm.Context.ThreadMode = frame.SavedThreadMode
 		}
 		// Pop activation frame from task call stack
 		if vm.Task != nil {
@@ -147,6 +148,7 @@ func (vm *VM) Return(value types.Value) error {
 		vm.Context.Verb = frame.SavedVerb
 		vm.Context.Programmer = frame.SavedProgrammer
 		vm.Context.IsWizard = frame.SavedIsWizard
+		vm.Context.ThreadMode = frame.SavedThreadMode
 
 		// Pop activation frame from task call stack
 		if vm.Task != nil {

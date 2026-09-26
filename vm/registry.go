@@ -118,6 +118,7 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 		SavedVerb:       ctx.Verb,
 		SavedProgrammer: ctx.Programmer,
 		SavedIsWizard:   ctx.IsWizard,
+		SavedThreadMode: ctx.ThreadMode,
 	})
 
 	SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
@@ -135,6 +136,7 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 	ctx.ThisObj = types.ObjNothing
 	ctx.ThisValue = types.None
 	ctx.Verb = ""
+	ctx.ThreadMode = true
 
 	if vm.Task != nil {
 		vm.Task.PushFrame(types.ActivationFrame{

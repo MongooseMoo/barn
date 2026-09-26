@@ -165,12 +165,14 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	var savedVerb string
 	var savedProgrammer types.ObjID
 	var savedIsWizard bool
+	savedThreadMode := true
 	if vm.Context != nil {
 		savedThisObj = vm.Context.ThisObj
 		savedThisValue = vm.Context.ThisValue
 		savedVerb = vm.Context.Verb
 		savedProgrammer = vm.Context.Programmer
 		savedIsWizard = vm.Context.IsWizard
+		savedThreadMode = vm.Context.ThreadMode
 	}
 
 	// Push new stack frame
@@ -195,6 +197,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
+		SavedThreadMode: savedThreadMode,
 	})
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
@@ -248,6 +251,9 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		vm.Context.Verb = lookupVerbName
 		vm.Context.Programmer = verb.Owner
 		vm.Context.IsWizard = isWizard
+		// Every verb activation, pass() included, starts with Toast's
+		// default thread mode (call_verb2 with DEFAULT_THREAD_MODE).
+		vm.Context.ThreadMode = true
 	}
 
 	// Enforce the VM frame limit before adding the matching task activation
@@ -281,9 +287,13 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
 // suspension with the calling VM. args is owned by the builtin dispatcher.
 func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+	threadMode := vm.Context.ThreadMode
 	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
 		return types.Err(errorCode(err))
 	}
+	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread
+	// mode rather than the default one (functions.cc call_bi_func).
+	vm.Context.ThreadMode = threadMode
 	return types.Result{Flow: types.FlowBuiltinPush}
 }
 
@@ -384,12 +394,14 @@ func (vm *VM) executePass() error {
 	var savedVerb string
 	var savedProgrammer types.ObjID
 	var savedIsWizard bool
+	savedThreadMode := true
 	if vm.Context != nil {
 		savedThisObj = vm.Context.ThisObj
 		savedThisValue = vm.Context.ThisValue
 		savedVerb = vm.Context.Verb
 		savedProgrammer = vm.Context.Programmer
 		savedIsWizard = vm.Context.IsWizard
+		savedThreadMode = vm.Context.ThreadMode
 	}
 
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
@@ -424,6 +436,7 @@ func (vm *VM) executePass() error {
 		SavedVerb:       savedVerb,
 		SavedProgrammer: savedProgrammer,
 		SavedIsWizard:   savedIsWizard,
+		SavedThreadMode: savedThreadMode,
 	})
 
 	// Pre-populate built-in variables
@@ -472,6 +485,9 @@ func (vm *VM) executePass() error {
 		vm.Context.Verb = verbName
 		vm.Context.Programmer = verb.Owner
 		vm.Context.IsWizard = isWizard
+		// Every verb activation, pass() included, starts with Toast's
+		// default thread mode (call_verb2 with DEFAULT_THREAD_MODE).
+		vm.Context.ThreadMode = true
 	}
 
 	// Trace pass() target call.

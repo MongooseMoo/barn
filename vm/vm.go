@@ -185,6 +185,7 @@ type StackFrame struct {
 	SavedVerb           string                         // ctx.Verb before verb call
 	SavedProgrammer     types.ObjID                    // ctx.Programmer before verb call
 	SavedIsWizard       bool                           // ctx.IsWizard before verb call
+	SavedThreadMode     bool                           // ctx.ThreadMode (the caller activation's mode) before verb call
 	MoveContinuation    *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
 	RecycleContinuation *recycleContinuation           // recycle() state owned by this verb frame
 
@@ -1489,6 +1490,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.Context.Verb = frame.SavedVerb
 				vm.Context.Programmer = frame.SavedProgrammer
 				vm.Context.IsWizard = frame.SavedIsWizard
+				vm.Context.ThreadMode = frame.SavedThreadMode
 			}
 			if vm.Task != nil {
 				vm.Task.PopFrame()
@@ -1510,6 +1512,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			vm.Context.Verb = frame.SavedVerb
 			vm.Context.Programmer = frame.SavedProgrammer
 			vm.Context.IsWizard = frame.SavedIsWizard
+			vm.Context.ThreadMode = frame.SavedThreadMode
 
 			if vm.Task != nil {
 				vm.Task.PopFrame()
