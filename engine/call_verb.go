@@ -88,12 +88,14 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	savedVerb := parentCtx.Verb
 	savedProgrammer := parentCtx.Programmer
 	savedIsWizard := parentCtx.IsWizard
+	savedThreadMode := parentCtx.ThreadMode
 
 	parentCtx.ThisObj = objID
 	parentCtx.ThisValue = frameThisValue
 	parentCtx.Verb = verbName
 	parentCtx.Programmer = verb.Owner
 	parentCtx.IsWizard = s.isWizard(verb.Owner)
+	parentCtx.ThreadMode = true
 
 	parentTask := parent.Task
 	if parentTask != nil {
@@ -146,6 +148,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	frame.SavedVerb = savedVerb
 	frame.SavedProgrammer = savedProgrammer
 	frame.SavedIsWizard = savedIsWizard
+	frame.SavedThreadMode = savedThreadMode
 	vm.SetLocalByName(frame, prog, "this", thisVal)
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
 	vm.SetLocalByName(frame, prog, "caller", types.NewObj(caller))

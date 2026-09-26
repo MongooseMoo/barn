@@ -53,9 +53,10 @@ type TaskContext struct {
 	// IsWizard indicates if the current programmer has wizard permissions
 	IsWizard bool
 
-	// ThreadMode is the current activation's Toast-compatible background mode.
-	// Toast defaults this to enabled and set_thread_mode() changes it only for
-	// the current task activation.
+	// ThreadMode is the running activation's Toast-compatible background mode.
+	// set_thread_mode() changes it for that activation only: every verb call,
+	// pass(), eval(), and fork starts enabled, and the VM restores the caller's
+	// mode from the frame when an activation returns or unwinds.
 	ThreadMode bool
 
 	// ServerInitiated indicates if this is a server-initiated call (do_login_command, etc.)

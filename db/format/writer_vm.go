@@ -207,7 +207,11 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 	if err := w.writeValue(types.NewObj(frame.VerbLoc)); err != nil {
 		return err
 	}
-	if err := w.writeInt(0); err != nil {
+	threaded := 0
+	if frame.ThreadMode {
+		threaded = 1
+	}
+	if err := w.writeInt(threaded); err != nil {
 		return err
 	}
 	debug := 0
@@ -249,6 +253,7 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 			types.NewBool(frame.IsVerbCall),
 			types.NewBool(frame.IsEvalFrame),
 			types.NewBool(frame.SavedIsWizard),
+			types.NewBool(frame.ThreadMode),
 		}),
 		types.NewObj(frame.Caller),
 		types.NewList(frame.Args),

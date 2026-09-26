@@ -85,6 +85,7 @@ type VMFrameSnapshot struct {
 	DiscardReturn       bool
 	IsVerbCall          bool
 	IsEvalFrame         bool
+	ThreadMode          bool // this activation's own set_thread_mode() state; Toast persists it as the threaded flag
 	SavedThisObj        types.ObjID
 	SavedThisValue      types.Value
 	SavedVerb           string

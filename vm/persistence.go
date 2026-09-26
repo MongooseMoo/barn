@@ -52,6 +52,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			DiscardReturn:       frame.DiscardReturn,
 			IsVerbCall:          frame.IsVerbCall,
 			IsEvalFrame:         frame.IsEvalFrame,
+			ThreadMode:          activationThreadMode(vm.Frames, i, vm.Context),
 			SavedThisObj:        frame.SavedThisObj,
 			SavedThisValue:      frame.SavedThisValue,
 			SavedVerb:           frame.SavedVerb,
@@ -75,6 +76,23 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 		snapshot.Frames = append(snapshot.Frames, saved)
 	}
 	return snapshot
+}
+
+// activationThreadMode reports frame i's own thread mode. The context holds the
+// running activation's mode; each lower activation's mode is what the nearest
+// context-saving frame above it saved when it was pushed.
+func activationThreadMode(frames []*StackFrame, i int, ctx *kernel.TaskContext) bool {
+	for above := i + 1; above < len(frames); above++ {
+		if savesContext(frames[above]) {
+			return frames[above].SavedThreadMode
+		}
+	}
+	return ctx == nil || ctx.ThreadMode
+}
+
+// savesContext reports whether frame restores the task context when popped.
+func savesContext(frame *StackFrame) bool {
+	return frame.IsVerbCall || frame.IsEvalFrame
 }
 
 func storedVerbName(frame *StackFrame) string {
@@ -137,8 +155,12 @@ func RestoreVMSnapshot(
 			SavedVerb:           saved.SavedVerb,
 			SavedProgrammer:     saved.SavedProgrammer,
 			SavedIsWizard:       saved.SavedIsWizard,
+			SavedThreadMode:     true,
 			MoveContinuation:    cloneMoveContinuation(saved.MoveContinuation),
 			RecycleContinuation: recycleContinuation,
+		}
+		if n := len(machine.Frames); n > 0 && savesContext(frame) {
+			frame.SavedThreadMode = snapshot.Frames[n-1].ThreadMode
 		}
 		if saved.PendingError.Present {
 			frame.PendingError = VMException{
@@ -161,6 +183,9 @@ func RestoreVMSnapshot(
 		}
 	}
 
+	if ctx != nil {
+		ctx.ThreadMode = snapshot.Frames[len(snapshot.Frames)-1].ThreadMode
+	}
 	machine.SP = len(machine.Stack)
 	machine.FP = len(machine.Frames) - 1
 	machine.frame = machine.Frames[len(machine.Frames)-1]

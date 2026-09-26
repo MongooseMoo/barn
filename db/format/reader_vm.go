@@ -145,8 +145,13 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	if err != nil {
 		return frame, activation, fmt.Errorf("read activation verb location: %w", err)
 	}
-	if _, err := readLine(r); err != nil {
+	threadedLine, err := readLine(r)
+	if err != nil {
 		return frame, activation, fmt.Errorf("read activation thread mode: %w", err)
+	}
+	threaded, err := strconv.Atoi(strings.TrimSpace(threadedLine))
+	if err != nil {
+		return frame, activation, fmt.Errorf("parse activation thread mode %q: %w", threadedLine, err)
 	}
 	verbRef, err := readLine(r)
 	if err != nil {
@@ -213,6 +218,7 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 			VarNames:  append([]string(nil), envNames...),
 			NumLocals: len(envNames),
 		}
+		frame.ThreadMode = threaded != 0
 	}
 	frame.Stack = runtimeStack
 	frame.Program.Source = source
@@ -387,6 +393,9 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	frame.IsVerbCall = flags.Get(3).Truthy()
 	frame.IsEvalFrame = flags.Get(4).Truthy()
 	frame.SavedIsWizard = flags.Get(5).Truthy()
+	// Barn frames written before the activation's thread mode was recorded
+	// carry a constant 0 threaded flag; they ran in Toast's default mode.
+	frame.ThreadMode = flags.Len() < 6 || flags.Get(6).Truthy()
 	frame.Caller = value.Get(10).Obj()
 	frame.Args = append([]types.Value(nil), value.Get(11).Elements()...)
 	frame.SavedThisObj = value.Get(12).Obj()
