@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/MongooseMoo/barn/types"
@@ -56,7 +55,7 @@ func (vm *VM) executeAdd() error {
 		if b.Type() == types.TYPE_FLOAT {
 			result := a.Float() + b.Float()
 			if math.IsNaN(result) || math.IsInf(result, 0) {
-				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+				return newMooError(types.E_FLOAT, "result is NaN or Inf")
 			}
 			vm.Push(types.NewFloat(result))
 			return nil
@@ -67,7 +66,7 @@ func (vm *VM) executeAdd() error {
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
 			if errCode := vm.Builtins.CheckStringLengthForTask(vm.Context, a.Len()+b.Len()); errCode != types.E_NONE {
-				return fmt.Errorf("E_QUOTA: string too long")
+				return newMooError(types.E_QUOTA, "string too long")
 			}
 			// StrAppend reuses the accumulator's uncommitted capacity when this
 			// header owns the append frontier (amortized O(1) for the
@@ -78,7 +77,7 @@ func (vm *VM) executeAdd() error {
 			return nil
 		}
 		if b.Type() == types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: Type mismatch (expected string; got integer)")
+			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)")
 		}
 	}
 
@@ -104,14 +103,14 @@ func (vm *VM) executeAdd() error {
 		if af, bf, ok := promoteNumericPair(a, b); ok {
 			result := af + bf
 			if math.IsNaN(result) || math.IsInf(result, 0) {
-				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+				return newMooError(types.E_FLOAT, "result is NaN or Inf")
 			}
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("E_TYPE: invalid operands for +")
+	return newMooError(types.E_TYPE, "invalid operands for +")
 }
 
 func (vm *VM) executeStringAppend() error {
@@ -138,7 +137,7 @@ func (vm *VM) executeSub() error {
 	if aIsFloat && bIsFloat {
 		result := a.Float() - b.Float()
 		if math.IsNaN(result) || math.IsInf(result, 0) {
-			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+			return newMooError(types.E_FLOAT, "result is NaN or Inf")
 		}
 		vm.Push(types.NewFloat(result))
 		return nil
@@ -149,14 +148,14 @@ func (vm *VM) executeSub() error {
 		if af, bf, ok := promoteNumericPair(a, b); ok {
 			result := af - bf
 			if math.IsNaN(result) || math.IsInf(result, 0) {
-				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+				return newMooError(types.E_FLOAT, "result is NaN or Inf")
 			}
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("E_TYPE: invalid operands for -")
+	return newMooError(types.E_TYPE, "invalid operands for -")
 }
 
 func (vm *VM) executeMul() error {
@@ -176,7 +175,7 @@ func (vm *VM) executeMul() error {
 	if aIsFloat && bIsFloat {
 		result := a.Float() * b.Float()
 		if math.IsNaN(result) || math.IsInf(result, 0) {
-			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+			return newMooError(types.E_FLOAT, "result is NaN or Inf")
 		}
 		vm.Push(types.NewFloat(result))
 		return nil
@@ -187,14 +186,14 @@ func (vm *VM) executeMul() error {
 		if af, bf, ok := promoteNumericPair(a, b); ok {
 			result := af * bf
 			if math.IsNaN(result) || math.IsInf(result, 0) {
-				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+				return newMooError(types.E_FLOAT, "result is NaN or Inf")
 			}
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("E_TYPE: invalid operands for *")
+	return newMooError(types.E_TYPE, "invalid operands for *")
 }
 
 func (vm *VM) executeDiv() error {
@@ -209,7 +208,7 @@ func (vm *VM) executeDiv() error {
 	// Pure int/int branch (unchanged): b==0 -> E_DIV, MININT/-1 special case.
 	if aIsInt && bIsInt {
 		if b.Int() == 0 {
-			return fmt.Errorf("E_DIV: division by zero")
+			return newMooError(types.E_DIV, "division by zero")
 		}
 		// Toast special case: MININT / -1 returns MININT to prevent overflow
 		if a.Int() == MININT && b.Int() == -1 {
@@ -224,11 +223,11 @@ func (vm *VM) executeDiv() error {
 		af := a.Float()
 		bf := b.Float()
 		if bf == 0 {
-			return fmt.Errorf("E_DIV: division by zero")
+			return newMooError(types.E_DIV, "division by zero")
 		}
 		result := af / bf
 		if math.IsNaN(result) || math.IsInf(result, 0) {
-			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+			return newMooError(types.E_FLOAT, "result is NaN or Inf")
 		}
 		vm.Push(types.NewFloat(result))
 		return nil
@@ -239,18 +238,18 @@ func (vm *VM) executeDiv() error {
 	if vm.promoting() {
 		if af, bf, ok := promoteNumericPair(a, b); ok {
 			if bf == 0 {
-				return fmt.Errorf("E_DIV: division by zero")
+				return newMooError(types.E_DIV, "division by zero")
 			}
 			result := af / bf
 			if math.IsNaN(result) || math.IsInf(result, 0) {
-				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+				return newMooError(types.E_FLOAT, "result is NaN or Inf")
 			}
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("E_TYPE: invalid operands for /")
+	return newMooError(types.E_TYPE, "invalid operands for /")
 }
 
 func (vm *VM) executeMod() error {
@@ -263,7 +262,7 @@ func (vm *VM) executeMod() error {
 	bIsFloat := b.Type() == types.TYPE_FLOAT
 
 	if !(aIsInt || aIsFloat) || !(bIsInt || bIsFloat) {
-		return fmt.Errorf("E_TYPE: invalid operands for %%")
+		return newMooError(types.E_TYPE, "invalid operands for %")
 	}
 	// PROMOTE_NUMBERS: mixed int/float -> promote both to float, then run the
 	// floored float modulo (same algorithm as the float/float branch below).
@@ -272,7 +271,7 @@ func (vm *VM) executeMod() error {
 		af, _ := numericToFloat(a)
 		bf, _ := numericToFloat(b)
 		if bf == 0 {
-			return fmt.Errorf("E_DIV: modulo by zero")
+			return newMooError(types.E_DIV, "modulo by zero")
 		}
 		result := math.Mod(af, bf)
 		if result != 0 && (result < 0) != (bf < 0) {
@@ -282,15 +281,15 @@ func (vm *VM) executeMod() error {
 		return nil
 	}
 	if aIsInt != bIsInt {
-		return fmt.Errorf("E_TYPE: invalid operands for %%")
+		return newMooError(types.E_TYPE, "invalid operands for %")
 	}
 
 	// Check for division by zero
 	if bIsInt && b.Int() == 0 {
-		return fmt.Errorf("E_DIV: modulo by zero")
+		return newMooError(types.E_DIV, "modulo by zero")
 	}
 	if bIsFloat && b.Float() == 0 {
-		return fmt.Errorf("E_DIV: modulo by zero")
+		return newMooError(types.E_DIV, "modulo by zero")
 	}
 
 	// Both are floats.
@@ -330,21 +329,21 @@ func (vm *VM) executePow() error {
 	} else if aIsFloat {
 		af = a.Float()
 	} else {
-		return fmt.Errorf("E_TYPE: invalid operands for ^")
+		return newMooError(types.E_TYPE, "invalid operands for ^")
 	}
 	if bIsInt {
 		bf = float64(b.Int())
 	} else if bIsFloat {
 		bf = b.Float()
 	} else {
-		return fmt.Errorf("E_TYPE: invalid operands for ^")
+		return newMooError(types.E_TYPE, "invalid operands for ^")
 	}
 
 	// Strict: int ^ float is E_TYPE. Under PROMOTE_NUMBERS, it becomes a legal
 	// float pow (both operands already coerced to af/bf above; falls through to
 	// the math.Pow path below, which returns E_FLOAT on a non-real result).
 	if aIsInt && bIsFloat && !vm.promoting() {
-		return fmt.Errorf("E_TYPE: invalid operands for ^")
+		return newMooError(types.E_TYPE, "invalid operands for ^")
 	}
 
 	if aIsInt && bIsInt {
@@ -358,7 +357,7 @@ func (vm *VM) executePow() error {
 		}
 		// Toast semantics: 0 ^ negative is division by zero.
 		if a.Int() == 0 && b.Int() < 0 {
-			return fmt.Errorf("E_DIV: division by zero")
+			return newMooError(types.E_DIV, "division by zero")
 		}
 		// Negative exponents with integer operands truncate toward zero.
 		if b.Int() < 0 {
@@ -386,7 +385,7 @@ func (vm *VM) executePow() error {
 	result := math.Pow(af, bf)
 
 	if math.IsNaN(result) || math.IsInf(result, 0) {
-		return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+		return newMooError(types.E_FLOAT, "result is NaN or Inf")
 	}
 
 	vm.Push(types.NewFloat(result))
@@ -406,5 +405,5 @@ func (vm *VM) executeNeg() error {
 		return nil
 	}
 
-	return fmt.Errorf("E_TYPE: invalid operand for unary -")
+	return newMooError(types.E_TYPE, "invalid operand for unary -")
 }

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -872,7 +873,7 @@ func (vm *VM) executeLoop() types.Result {
 				} else if mooErr, ok := err.(MooError); ok {
 					errCode = mooErr.Code
 				} else {
-					errCode = extractErrorCode(err)
+					errCode = errorCode(err)
 					if errCode == types.E_NONE {
 						errCode = types.E_EXEC
 					}
@@ -904,7 +905,7 @@ func (vm *VM) executeLoop() types.Result {
 				} else if vmErr, ok := err.(VMException); ok {
 					errCode = vmErr.Code
 				} else {
-					errCode = extractErrorCode(err)
+					errCode = errorCode(err)
 					if errCode == types.E_NONE {
 						errCode = types.E_EXEC
 					}
@@ -940,7 +941,7 @@ func (vm *VM) executeLoop() types.Result {
 	tickLimit:
 		{
 			line := vm.CurrentLine()
-			_ = vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
+			_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), line)
 			return types.Result{
 				Flow:  types.FlowException,
 				Error: types.E_MAXREC,
@@ -957,7 +958,7 @@ func (vm *VM) executeLoop() types.Result {
 	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
 
 secondsLimit:
-	_ = vm.annotateError(fmt.Errorf("E_MAXREC: seconds limit exceeded"), vm.CurrentLine())
+	_ = vm.annotateError(newMooError(types.E_MAXREC, "seconds limit exceeded"), vm.CurrentLine())
 	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
 
@@ -1061,7 +1062,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		val := frame.Locals[idx]
 		if val.IsUnbound() {
 			if int(idx) < len(frame.Program.VarNames) {
-				return fmt.Errorf("E_VARNF: Variable not found: %s", frame.Program.VarNames[idx])
+				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx])
 			}
 			return MooError{Code: types.E_VARNF}
 		}
@@ -1217,7 +1218,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 				frame.Locals[endIdx] = types.NewObj(end.ID() - 1)
 			}
 		default:
-			return fmt.Errorf("E_TYPE: invalid operands for +")
+			return newMooError(types.E_TYPE, "invalid operands for +")
 		}
 		frame.IP -= offset
 
@@ -1232,7 +1233,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		frame := vm.CurrentFrame()
 		list := frame.Locals[listIdx]
 		if list.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+			return newMooError(types.E_TYPE, "for loop iterator is not a list")
 		}
 		elem := list.Get(int(frame.Locals[elemIdx].Int()))
 		if frame.Locals[isPairsIdx].Truthy() {
@@ -1254,7 +1255,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		frame := vm.CurrentFrame()
 		list := frame.Locals[listIdx]
 		if list.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+			return newMooError(types.E_TYPE, "for loop iterator is not a list")
 		}
 		pair := list.Get(int(frame.Locals[elemIdx].Int()))
 		if pair.Type() != types.TYPE_LIST {
@@ -1375,17 +1376,11 @@ func (vm *VM) CurrentLine() int {
 // frames if no handler is found. This supports cross-frame exception propagation
 // for native verb calls.
 func (vm *VM) HandleError(err error) (bool, types.Value) {
-	// Extract error code
-	errCode := types.E_NONE
+	errCode := errorCode(err)
 	exceptionValue := types.None
-	if vmErr, ok := err.(VMException); ok {
-		errCode = vmErr.Code
+	var vmErr VMException
+	if errors.As(err, &vmErr) {
 		exceptionValue = vmErr.Value
-	} else if mooErr, ok := err.(MooError); ok {
-		errCode = mooErr.Code
-	} else {
-		// Try to parse error code from error message (e.g. "E_DIV: division by zero")
-		errCode = extractErrorCode(err)
 	}
 
 	if _, observe := vm.errorObservation(err); observe {

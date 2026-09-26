@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -62,7 +61,7 @@ func (vm *VM) executeCallVerbNamed(verbName string, argc int) error {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: expected list for spliced verb args")
+			return newMooError(types.E_TYPE, "expected list for spliced verb args")
 		}
 		args = make([]types.Value, listVal.Len())
 		for i := 1; i <= listVal.Len(); i++ {
@@ -102,15 +101,15 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 				objID = protoID
 				thisValue = objVal // "this" = the primitive value itself
 			} else {
-				return fmt.Errorf("E_TYPE: verb call requires an object")
+				return newMooError(types.E_TYPE, "verb call requires an object")
 			}
 		} else {
-			return fmt.Errorf("E_TYPE: verb call requires an object")
+			return newMooError(types.E_TYPE, "verb call requires an object")
 		}
 	}
 
 	if vm.Store == nil {
-		return fmt.Errorf("E_INVIND: no object store available")
+		return newMooError(types.E_INVIND, "no object store available")
 	}
 
 	txn := vm.Context.StoreTxn
@@ -118,7 +117,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	// Check object validity
 	if !validForRead(txn, objID) {
 		vm.Store.NoteVerbCacheMiss()
-		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
+		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
 	}
 
 	// Look up verb via store (with inheritance)
@@ -133,14 +132,14 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	verb, defObjID, err := findCallableVerbForRead(txn, objID, lookupVerbName)
 	if err != nil {
 		vm.Store.NoteVerbCacheMiss()
-		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
+		return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
 	}
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
 	// so the cache lookup on this hot path does not rehash the source.
 	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
-		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
+		return newMooErrorf(types.E_VERBNF, "compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---
@@ -283,7 +282,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 // suspension with the calling VM. args is owned by the builtin dispatcher.
 func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
 	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
-		return types.Err(extractErrorCode(err))
+		return types.Err(errorCode(err))
 	}
 	return types.Result{Flow: types.FlowBuiltinPush}
 }
@@ -303,7 +302,7 @@ func (vm *VM) executePass() error {
 
 	frame := vm.CurrentFrame()
 	if frame == nil {
-		return fmt.Errorf("E_INVIND: no active frame for pass()")
+		return newMooError(types.E_INVIND, "no active frame for pass()")
 	}
 	// Get pass-through args
 	var passArgs []types.Value
@@ -311,7 +310,7 @@ func (vm *VM) executePass() error {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: expected list for spliced pass() args")
+			return newMooError(types.E_TYPE, "expected list for spliced pass() args")
 		}
 		passArgs = make([]types.Value, listVal.Len())
 		for i := 1; i <= listVal.Len(); i++ {
@@ -337,22 +336,22 @@ func (vm *VM) executePass() error {
 
 	verbName := frame.Verb
 	if verbName == "" {
-		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+		return newMooError(types.E_INVIND, "pass() called outside of a verb")
 	}
 
 	verbLoc := frame.VerbLoc
 	if verbLoc == types.ObjNothing {
-		return fmt.Errorf("E_INVIND: pass() has no defining object")
+		return newMooError(types.E_INVIND, "pass() has no defining object")
 	}
 
 	if vm.Store == nil {
-		return fmt.Errorf("E_INVIND: no object store available")
+		return newMooError(types.E_INVIND, "no object store available")
 	}
 
 	txn := vm.Context.StoreTxn
 	parents, parentsErr := txn.Parents(verbLoc)
 	if parentsErr != types.E_NONE || len(parents) == 0 {
-		return fmt.Errorf("E_INVIND: pass() has no parent object")
+		return newMooError(types.E_INVIND, "pass() has no parent object")
 	}
 
 	// FindParentVerb walks ancestors the same way obj:verb() dispatch does
@@ -366,15 +365,15 @@ func (vm *VM) executePass() error {
 		// and raises E_INVIND; if a real parent simply doesn't define the verb,
 		// it's E_VERBNF.
 		if parent, _ := txn.Parent(verbLoc); parent == types.ObjNothing {
-			return fmt.Errorf("E_INVIND: pass() has no parent object")
+			return newMooError(types.E_INVIND, "pass() has no parent object")
 		}
-		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
+		return newMooError(types.E_VERBNF, "no parent verb for pass()")
 	}
 
 	// Compile the parent verb to bytecode, keyed by the store's content key.
 	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
-		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
+		return newMooErrorf(types.E_VERBNF, "compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---

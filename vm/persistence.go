@@ -69,7 +69,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			case MooError:
 				saved.PendingError.Code = pending.Code
 			default:
-				saved.PendingError.Code = extractErrorCode(frame.PendingError)
+				saved.PendingError.Code = errorCode(frame.PendingError)
 			}
 		}
 		snapshot.Frames = append(snapshot.Frames, saved)

@@ -15,22 +15,22 @@ func (vm *VM) executeIndex() error {
 	switch collection.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: list index must be integer")
+			return newMooError(types.E_TYPE, "list index must be integer")
 		}
 		indexVal := index.Int()
 		if indexVal < 1 || indexVal > int64(collection.Len()) {
-			return fmt.Errorf("E_RANGE: list index out of range")
+			return newMooError(types.E_RANGE, "list index out of range")
 		}
 		vm.Push(collection.Get(int(indexVal)))
 		return nil
 
 	case types.TYPE_STR:
 		if index.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: string index must be integer")
+			return newMooError(types.E_TYPE, "string index must be integer")
 		}
 		indexVal := index.Int()
 		if indexVal < 1 || indexVal > int64(collection.StrCharLen()) {
-			return fmt.Errorf("E_RANGE: string index out of range")
+			return newMooError(types.E_RANGE, "string index out of range")
 		}
 		s := collection.Str()
 		if collection.StrIsSingleByte() {
@@ -44,18 +44,18 @@ func (vm *VM) executeIndex() error {
 		// Map keys must be scalar types (not list or map)
 		switch index.Type() {
 		case types.TYPE_LIST, types.TYPE_MAP:
-			return fmt.Errorf("E_TYPE: invalid map key type")
+			return newMooError(types.E_TYPE, "invalid map key type")
 		}
 		val, ok := collection.MapGet(index)
 		if !ok {
-			return fmt.Errorf("E_RANGE: map key not found")
+			return newMooError(types.E_RANGE, "map key not found")
 		}
 		vm.Push(val)
 		return nil
 
 	case types.TYPE_WAIF:
 		if vm.Store == nil {
-			return fmt.Errorf("E_INVIND: no object store available")
+			return newMooError(types.E_INVIND, "no object store available")
 		}
 		owner, errCode := vm.Context.StoreTxn.ObjectOwner(collection.Class())
 		if errCode != types.E_NONE {
@@ -66,16 +66,16 @@ func (vm *VM) executeIndex() error {
 			return fmt.Errorf("%s: invalid waif class owner", errCode.String())
 		}
 		if !ownerIsWizard {
-			return fmt.Errorf("E_TYPE: waif class owner is not a wizard")
+			return newMooError(types.E_TYPE, "waif class owner is not a wizard")
 		}
 		err := vm.startVerbCall(collection, "_index", []types.Value{index})
 		if err != nil && err.Error() == "E_VERBNF: verb not found: _index" {
-			return fmt.Errorf("E_TYPE: waif has no _index handler")
+			return newMooError(types.E_TYPE, "waif has no _index handler")
 		}
 		return err
 
 	default:
-		return fmt.Errorf("E_TYPE: cannot index %s", collection.Type().String())
+		return newMooErrorf(types.E_TYPE, "cannot index %s", collection.Type().String())
 	}
 }
 
@@ -103,16 +103,15 @@ func (vm *VM) executeIndexSet() error {
 		// Map error codes to error strings for the VM error handler
 		switch errCode {
 		case types.E_TYPE:
-			return fmt.Errorf("E_TYPE: invalid index assignment")
+			return newMooError(types.E_TYPE, "invalid index assignment")
 		case types.E_RANGE:
-			return fmt.Errorf("E_RANGE: index out of range")
+			return newMooError(types.E_RANGE, "index out of range")
 		case types.E_INVARG:
-			return fmt.Errorf("E_INVARG: invalid argument for index assignment")
+			return newMooError(types.E_INVARG, "invalid argument for index assignment")
 		case types.E_QUOTA:
-			return fmt.Errorf("E_QUOTA: value too large")
+			return newMooError(types.E_QUOTA, "value too large")
 		default:
-			//lint:ignore ST1005 The E_* prefix is parsed by the VM error handler.
-			return fmt.Errorf("E_%d: index assignment error", errCode)
+			return newMooError(errCode, "index assignment error")
 		}
 	}
 
@@ -139,14 +138,14 @@ func (vm *VM) executeRangeSet() error {
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: range indices must be integers")
+			return newMooError(types.E_TYPE, "range indices must be integers")
 		}
 		startIdx := start.Int()
 		endIdx := end.Int()
 
 		// Value must be a list
 		if value.Type() != types.TYPE_LIST {
-			return fmt.Errorf("E_TYPE: list range assignment requires a list value")
+			return newMooError(types.E_TYPE, "list range assignment requires a list value")
 		}
 		newVals := value
 
@@ -154,10 +153,10 @@ func (vm *VM) executeRangeSet() error {
 
 		// Bounds check
 		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > int64(length)+1 {
-			return fmt.Errorf("E_RANGE: list range start out of bounds")
+			return newMooError(types.E_RANGE, "list range start out of bounds")
 		}
 		if endIdx < 0 {
-			return fmt.Errorf("E_RANGE: list range end out of bounds")
+			return newMooError(types.E_RANGE, "list range end out of bounds")
 		}
 		if startIdx == 0 && endIdx == 0 {
 			result := append([]types.Value(nil), newVals.Elements()...)
@@ -181,14 +180,14 @@ func (vm *VM) executeRangeSet() error {
 
 	case types.TYPE_STR:
 		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: range indices must be integers")
+			return newMooError(types.E_TYPE, "range indices must be integers")
 		}
 		startIdx := start.Int()
 		endIdx := end.Int()
 
 		// Value must be a string
 		if value.Type() != types.TYPE_STR {
-			return fmt.Errorf("E_TYPE: string range assignment requires a string value")
+			return newMooError(types.E_TYPE, "string range assignment requires a string value")
 		}
 		newStr := value
 
@@ -197,10 +196,10 @@ func (vm *VM) executeRangeSet() error {
 
 		// Bounds check
 		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > strLen+1 {
-			return fmt.Errorf("E_RANGE: string range start out of bounds")
+			return newMooError(types.E_RANGE, "string range start out of bounds")
 		}
 		if endIdx < 0 {
-			return fmt.Errorf("E_RANGE: string range end out of bounds")
+			return newMooError(types.E_RANGE, "string range end out of bounds")
 		}
 		if startIdx == 0 && endIdx == 0 {
 			newColl = types.NewStr(newStr.Str() + s)
@@ -228,11 +227,11 @@ func (vm *VM) executeRangeSet() error {
 		} else {
 			switch start.Type() {
 			case types.TYPE_LIST, types.TYPE_MAP:
-				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 			}
 			startIdx = coll.KeyPosition(start)
 			if startIdx == 0 {
-				return fmt.Errorf("E_RANGE: map range start key not found")
+				return newMooError(types.E_RANGE, "map range start key not found")
 			}
 		}
 
@@ -242,17 +241,17 @@ func (vm *VM) executeRangeSet() error {
 		} else {
 			switch end.Type() {
 			case types.TYPE_LIST, types.TYPE_MAP:
-				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 			}
 			endIdx = coll.KeyPosition(end)
 			if endIdx == 0 {
-				return fmt.Errorf("E_RANGE: map range end key not found")
+				return newMooError(types.E_RANGE, "map range end key not found")
 			}
 		}
 
 		// Value must be a map
 		if value.Type() != types.TYPE_MAP {
-			return fmt.Errorf("E_TYPE: map range assignment requires a map value")
+			return newMooError(types.E_TYPE, "map range assignment requires a map value")
 		}
 		newMap := value
 
@@ -261,14 +260,14 @@ func (vm *VM) executeRangeSet() error {
 
 		// Bounds check
 		if startIdx < 1 || startIdx > int64(length)+1 {
-			return fmt.Errorf("E_RANGE: map range start out of bounds")
+			return newMooError(types.E_RANGE, "map range start out of bounds")
 		}
 		if endIdx < 0 || endIdx > int64(length) {
-			return fmt.Errorf("E_RANGE: map range end out of bounds")
+			return newMooError(types.E_RANGE, "map range end out of bounds")
 		}
 		if isInverted {
 			if startIdx > int64(length) || endIdx < 1 {
-				return fmt.Errorf("E_RANGE: map range inverted out of bounds")
+				return newMooError(types.E_RANGE, "map range inverted out of bounds")
 			}
 		}
 
@@ -285,22 +284,22 @@ func (vm *VM) executeRangeSet() error {
 		newColl = types.NewMap(result)
 
 	default:
-		return fmt.Errorf("E_TYPE: cannot range-assign to %s", coll.Type().String())
+		return newMooErrorf(types.E_TYPE, "cannot range-assign to %s", coll.Type().String())
 	}
 
 	// Check size limits on the result
 	switch newColl.Type() {
 	case types.TYPE_LIST:
 		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
-			return fmt.Errorf("E_QUOTA: list too large")
+			return newMooError(types.E_QUOTA, "list too large")
 		}
 	case types.TYPE_STR:
 		if errCode := vm.Builtins.CheckStringLimitForTask(vm.Context, newColl.Str()); errCode != types.E_NONE {
-			return fmt.Errorf("E_QUOTA: string too long")
+			return newMooError(types.E_QUOTA, "string too long")
 		}
 	case types.TYPE_MAP:
 		if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
-			return fmt.Errorf("E_QUOTA: map too large")
+			return newMooError(types.E_QUOTA, "map too large")
 		}
 	}
 
@@ -318,7 +317,7 @@ func (vm *VM) executeRange() error {
 	switch collection.Type() {
 	case types.TYPE_LIST:
 		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: range indices must be integers")
+			return newMooError(types.E_TYPE, "range indices must be integers")
 		}
 		startIdx := start.Int()
 		endIdx := end.Int()
@@ -329,10 +328,10 @@ func (vm *VM) executeRange() error {
 			return nil
 		}
 		if startIdx < 1 || startIdx > length {
-			return fmt.Errorf("E_RANGE: list range start out of range")
+			return newMooError(types.E_RANGE, "list range start out of range")
 		}
 		if endIdx < 1 || endIdx > length {
-			return fmt.Errorf("E_RANGE: list range end out of range")
+			return newMooError(types.E_RANGE, "list range end out of range")
 		}
 
 		result := make([]types.Value, 0, endIdx-startIdx+1)
@@ -344,7 +343,7 @@ func (vm *VM) executeRange() error {
 
 	case types.TYPE_STR:
 		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
-			return fmt.Errorf("E_TYPE: range indices must be integers")
+			return newMooError(types.E_TYPE, "range indices must be integers")
 		}
 		startIdx := start.Int()
 		endIdx := end.Int()
@@ -356,10 +355,10 @@ func (vm *VM) executeRange() error {
 			return nil
 		}
 		if startIdx < 1 || startIdx > length {
-			return fmt.Errorf("E_RANGE: string range start out of range")
+			return newMooError(types.E_RANGE, "string range start out of range")
 		}
 		if endIdx < 1 || endIdx > length {
-			return fmt.Errorf("E_RANGE: string range end out of range")
+			return newMooError(types.E_RANGE, "string range end out of range")
 		}
 
 		if collection.StrIsSingleByte() {
@@ -375,11 +374,11 @@ func (vm *VM) executeRange() error {
 			startIdx = start.Int()
 		} else {
 			if !types.IsValidMapKey(start) {
-				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 			}
 			startIdx = collection.KeyPosition(start)
 			if startIdx == 0 {
-				return fmt.Errorf("E_RANGE: map range start key not found")
+				return newMooError(types.E_RANGE, "map range start key not found")
 			}
 		}
 
@@ -388,11 +387,11 @@ func (vm *VM) executeRange() error {
 			endIdx = end.Int()
 		} else {
 			if !types.IsValidMapKey(end) {
-				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 			}
 			endIdx = collection.KeyPosition(end)
 			if endIdx == 0 {
-				return fmt.Errorf("E_RANGE: map range end key not found")
+				return newMooError(types.E_RANGE, "map range end key not found")
 			}
 		}
 		length := int64(collection.Len())
@@ -402,10 +401,10 @@ func (vm *VM) executeRange() error {
 			return nil
 		}
 		if startIdx < 1 || startIdx > length {
-			return fmt.Errorf("E_RANGE: map range start out of range")
+			return newMooError(types.E_RANGE, "map range start out of range")
 		}
 		if endIdx < 1 || endIdx > length {
-			return fmt.Errorf("E_RANGE: map range end out of range")
+			return newMooError(types.E_RANGE, "map range end out of range")
 		}
 
 		pairs := collection.Pairs()
@@ -417,7 +416,7 @@ func (vm *VM) executeRange() error {
 		return nil
 
 	default:
-		return fmt.Errorf("E_TYPE: cannot slice %s", collection.Type().String())
+		return newMooErrorf(types.E_TYPE, "cannot slice %s", collection.Type().String())
 	}
 }
 
@@ -428,7 +427,7 @@ func (vm *VM) executeIndexMarker() error {
 	coll := vm.Pop()
 	if marker == bytecode.RangeMarkerFirst || marker == bytecode.RangeMarkerLast {
 		if coll.Type() != types.TYPE_LIST && coll.Type() != types.TYPE_STR && coll.Type() != types.TYPE_MAP {
-			return fmt.Errorf("E_TYPE: invalid range marker context")
+			return newMooError(types.E_TYPE, "invalid range marker context")
 		}
 		if marker == bytecode.RangeMarkerFirst {
 			vm.Push(types.NewInt(1))
@@ -447,7 +446,7 @@ func (vm *VM) executeIndexMarker() error {
 		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(types.NewInt(int64(coll.Len())))
 		} else {
-			return fmt.Errorf("E_INVARG: invalid index marker")
+			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil
 
@@ -457,7 +456,7 @@ func (vm *VM) executeIndexMarker() error {
 		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(types.NewInt(int64(coll.StrCharLen())))
 		} else {
-			return fmt.Errorf("E_INVARG: invalid index marker")
+			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil
 
@@ -470,7 +469,7 @@ func (vm *VM) executeIndexMarker() error {
 			} else if marker == bytecode.IndexMarkerLast {
 				vm.Push(types.NewInt(0))
 			} else {
-				return fmt.Errorf("E_INVARG: invalid index marker")
+				return newMooError(types.E_INVARG, "invalid index marker")
 			}
 			return nil
 		}
@@ -481,12 +480,12 @@ func (vm *VM) executeIndexMarker() error {
 		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(keys[len(keys)-1])
 		} else {
-			return fmt.Errorf("E_INVARG: invalid index marker")
+			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil
 
 	default:
-		return fmt.Errorf("E_TYPE: invalid index marker context")
+		return newMooError(types.E_TYPE, "invalid index marker context")
 	}
 }
 
@@ -506,7 +505,7 @@ func (vm *VM) executeListRange() error {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		start = int64(startVal.ID())
 	default:
-		return fmt.Errorf("E_TYPE: list range requires integer start")
+		return newMooError(types.E_TYPE, "list range requires integer start")
 	}
 
 	switch endVal.Type() {
@@ -515,7 +514,7 @@ func (vm *VM) executeListRange() error {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		end = int64(endVal.ID())
 	default:
-		return fmt.Errorf("E_TYPE: list range requires integer end")
+		return newMooError(types.E_TYPE, "list range requires integer end")
 	}
 
 	// Build the list

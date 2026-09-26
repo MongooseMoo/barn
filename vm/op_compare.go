@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"github.com/MongooseMoo/barn/types"
 	"strings"
 )
@@ -175,7 +174,7 @@ func (vm *VM) executeIn() error {
 			}
 			return nil
 		}
-		return fmt.Errorf("E_TYPE: invalid element type for 'in' with string")
+		return newMooError(types.E_TYPE, "invalid element type for 'in' with string")
 
 	case types.TYPE_MAP:
 		// For maps, `in` searches the map's VALUES (not keys) and returns the
@@ -213,7 +212,7 @@ func (vm *VM) executeIn() error {
 		return nil
 
 	default:
-		return fmt.Errorf("E_TYPE: 'in' requires list, string, or map")
+		return newMooError(types.E_TYPE, "'in' requires list, string, or map")
 	}
 }
 
@@ -279,7 +278,7 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 			}
 			return 0, nil
 		}
-		return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
+		return 0, newMooErrorf(types.E_TYPE, "cannot compare %s and %s", a.Type().String(), b.Type().String())
 	}
 
 	// String comparison
@@ -346,5 +345,5 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 		return 0, nil
 	}
 
-	return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
+	return 0, newMooErrorf(types.E_TYPE, "cannot compare %s and %s", a.Type().String(), b.Type().String())
 }

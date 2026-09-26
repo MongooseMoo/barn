@@ -1,18 +1,54 @@
 package vm
 
 import (
+	"errors"
 	"fmt"
-	"github.com/MongooseMoo/barn/types"
 	"strings"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
-// MooError wraps an ErrorCode as a Go error
+// MooError carries a MOO error code and an optional detail. Formatted details
+// retain their format and arguments until Error is called, keeping the normal
+// caught-exception path from paying to construct a message it will not use.
 type MooError struct {
-	Code types.ErrorCode
+	Code   types.ErrorCode
+	Detail string
+
+	detailFormat string
+	detailArgs   []any
+}
+
+type annotatedError struct {
+	err  error
+	line int
+}
+
+func (e annotatedError) Error() string {
+	return fmt.Sprintf("%s (line %d)", e.err, e.line)
+}
+
+func (e annotatedError) Unwrap() error {
+	return e.err
 }
 
 func (e MooError) Error() string {
-	return fmt.Sprintf("E_%d", e.Code)
+	detail := e.Detail
+	if e.detailFormat != "" {
+		detail = fmt.Sprintf(e.detailFormat, e.detailArgs...)
+	}
+	if detail == "" {
+		return e.Code.String()
+	}
+	return e.Code.String() + ": " + detail
+}
+
+func newMooError(code types.ErrorCode, detail string) MooError {
+	return MooError{Code: code, Detail: detail}
+}
+
+func newMooErrorf(code types.ErrorCode, format string, args ...any) MooError {
+	return MooError{Code: code, detailFormat: format, detailArgs: args}
 }
 
 // VMException carries a structured exception value alongside an error code.
@@ -46,11 +82,26 @@ func extractErrorCode(err error) types.ErrorCode {
 	return types.E_NONE
 }
 
+// errorCode obtains the code directly from structured VM errors, including
+// errors wrapped with source context. String parsing remains solely as a
+// compatibility fallback for errors returned by external integrations.
+func errorCode(err error) types.ErrorCode {
+	var exception VMException
+	if errors.As(err, &exception) {
+		return exception.Code
+	}
+	var mooErr MooError
+	if errors.As(err, &mooErr) {
+		return mooErr.Code
+	}
+	return extractErrorCode(err)
+}
+
 // annotateError wraps an error with source line information if available.
 // If the line is 0 (no line info), the original error is returned unchanged.
 func (vm *VM) annotateError(err error, line int) error {
 	if line > 0 {
-		return fmt.Errorf("%w (line %d)", err, line)
+		return annotatedError{err: err, line: line}
 	}
 	return err
 }

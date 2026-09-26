@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -12,7 +11,7 @@ func (vm *VM) executeBitOr() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT || b.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: bitwise operations require integers")
+		return newMooError(types.E_TYPE, "bitwise operations require integers")
 	}
 
 	vm.Push(types.NewInt(a.Int() | b.Int()))
@@ -24,7 +23,7 @@ func (vm *VM) executeBitAnd() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT || b.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: bitwise operations require integers")
+		return newMooError(types.E_TYPE, "bitwise operations require integers")
 	}
 
 	vm.Push(types.NewInt(a.Int() & b.Int()))
@@ -36,7 +35,7 @@ func (vm *VM) executeBitXor() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT || b.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: bitwise operations require integers")
+		return newMooError(types.E_TYPE, "bitwise operations require integers")
 	}
 
 	vm.Push(types.NewInt(a.Int() ^ b.Int()))
@@ -47,7 +46,7 @@ func (vm *VM) executeBitNot() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: bitwise operations require integers")
+		return newMooError(types.E_TYPE, "bitwise operations require integers")
 	}
 
 	vm.Push(types.NewInt(^a.Int()))
@@ -59,19 +58,19 @@ func (vm *VM) executeShl() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT || b.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: shift operations require integers")
+		return newMooError(types.E_TYPE, "shift operations require integers")
 	}
 	bVal := b.Int()
 
 	if bVal < 0 {
-		return fmt.Errorf("E_INVARG: negative shift count")
+		return newMooError(types.E_INVARG, "negative shift count")
 	}
 	if bVal == 64 {
 		vm.Push(types.NewInt(0))
 		return nil
 	}
 	if bVal > 64 {
-		return fmt.Errorf("E_INVARG: invalid shift count")
+		return newMooError(types.E_INVARG, "invalid shift count")
 	}
 
 	vm.Push(types.NewInt(a.Int() << uint(bVal)))
@@ -83,19 +82,19 @@ func (vm *VM) executeShr() error {
 	a := vm.Pop()
 
 	if a.Type() != types.TYPE_INT || b.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: shift operations require integers")
+		return newMooError(types.E_TYPE, "shift operations require integers")
 	}
 	bVal := b.Int()
 
 	if bVal < 0 {
-		return fmt.Errorf("E_INVARG: negative shift count")
+		return newMooError(types.E_INVARG, "negative shift count")
 	}
 	if bVal == 64 {
 		vm.Push(types.NewInt(0))
 		return nil
 	}
 	if bVal > 64 {
-		return fmt.Errorf("E_INVARG: invalid shift count")
+		return newMooError(types.E_INVARG, "invalid shift count")
 	}
 
 	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
