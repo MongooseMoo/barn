@@ -19,7 +19,14 @@ type (
 	CheckpointHook       func() error
 	ShutdownHook         func(ctx *Execution, message string, unclean bool) error
 	DatabaseDiskSizeHook func() (int64, error)
+	AnonymousGCStatsHook func() AnonymousGCStats
 )
+
+// AnonymousGCStats is the collector-owned seven-color snapshot exposed by
+// gc_stats(). Fields are named after the Toast-compatible result keys.
+type AnonymousGCStats struct {
+	Green, Yellow, Black, Gray, White, Purple, Pink int64
+}
 
 // TaskLister supplies the task collections inspected by task builtins.
 type TaskLister interface {
@@ -65,6 +72,7 @@ type Host struct {
 	TaskManager      TaskManager
 	ProcessStdin     *ProcessStdin
 	RunGC            GCHook
+	AnonymousGCStats AnonymousGCStatsHook
 	Checkpoint       CheckpointHook
 	DatabaseDiskSize DatabaseDiskSizeHook
 	Shutdown         ShutdownHook
@@ -88,6 +96,7 @@ func (h Host) Validate() error {
 		{"task manager", h.TaskManager != nil},
 		{"process stdin", h.ProcessStdin != nil},
 		{"GC hook", h.RunGC != nil},
+		{"GC stats hook", h.AnonymousGCStats != nil},
 		{"checkpoint hook", h.Checkpoint != nil},
 		{"database disk size hook", h.DatabaseDiskSize != nil},
 		{"shutdown hook", h.Shutdown != nil},

@@ -175,6 +175,17 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		vm.AutoRecycleOrphanAnonymousSince(store, s.session, execution, 0, siblingAnon)
 		return renewTransaction()
 	}
+	// Barn's tracing collector has two stable externally observable sets rather
+	// than Toast's incremental seven-color work queues. Report live anonymous
+	// objects as green and currently collectible objects as white; the remaining
+	// colors are genuine empty sets, not fabricated substitutes.
+	host.AnonymousGCStats = func() builtins.AnonymousGCStats {
+		reachable := store.PersistentAnonymousReachability()
+		return builtins.AnonymousGCStats{
+			Green: int64(len(reachable)),
+			White: int64(len(store.AnonymousRecycleCandidates(reachable, 0))),
+		}
+	}
 	s.session = builtins.NewSession(registry, host)
 	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
 	limit := options.AdmissionLimit

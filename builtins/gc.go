@@ -63,19 +63,19 @@ func builtinGCStats(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Since Go manages its own GC and we don't have a tri-color marking
-	// algorithm like ToastStunt's cyclic reference collector,
-	// we return a map with all zeros
-	// In the future, if we implement anonymous object cycle detection,
-	// these could report actual statistics
+	measure := hostOf(ctx).AnonymousGCStats
+	if measure == nil {
+		return types.Err(types.E_QUOTA)
+	}
+	stats := measure()
 	result := types.NewEmptyMap()
-	result = result.MapSet(types.NewStr("green"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("yellow"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("black"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("gray"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("white"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("purple"), types.NewInt(0))
-	result = result.MapSet(types.NewStr("pink"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("green"), types.NewInt(stats.Green))
+	result = result.MapSet(types.NewStr("yellow"), types.NewInt(stats.Yellow))
+	result = result.MapSet(types.NewStr("black"), types.NewInt(stats.Black))
+	result = result.MapSet(types.NewStr("gray"), types.NewInt(stats.Gray))
+	result = result.MapSet(types.NewStr("white"), types.NewInt(stats.White))
+	result = result.MapSet(types.NewStr("purple"), types.NewInt(stats.Purple))
+	result = result.MapSet(types.NewStr("pink"), types.NewInt(stats.Pink))
 
 	return types.Ok(result)
 }
