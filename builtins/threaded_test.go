@@ -3,6 +3,7 @@ package builtins
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -10,6 +11,7 @@ import (
 // threadedCtx is a wizard execution on a task's root VM with thread mode on.
 func threadedCtx() (*Execution, *task.Task) {
 	ctx, taskValue := sqliteAsyncCtx()
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: true}
 	ctx.BeforeIrreversibleEffect = func() bool {
 		panic("a threaded call crossed the irreversible-effect boundary")
 	}
@@ -86,5 +88,49 @@ func TestThreadedBuiltinsRunInlineWhereSuspendIsNotHonored(t *testing.T) {
 	}
 	if len(ctx.PendingEffects) != 0 {
 		t.Fatalf("pending effects = %d, want none", len(ctx.PendingEffects))
+	}
+}
+
+// A threaded curl() issues its request after the slice commits: it neither
+// takes the exclusive commit gate nor marks the attempt irreversible.
+func TestThreadedCurlDefersRequestWithoutCommitGate(t *testing.T) {
+	ctx, taskValue := threadedCtx()
+
+	result := builtinCurl(ctx, []types.Value{types.NewStr("file:///etc/passwd")})
+	if result.Flow != types.FlowSuspend {
+		t.Fatalf("curl flow = %v, want suspend", result.Flow)
+	}
+	if ctx.IrreversibleSideEffect {
+		t.Fatal("threaded curl marked the attempt irreversible")
+	}
+	if len(ctx.PendingEffects) != 1 {
+		t.Fatalf("pending effects = %d, want the deferred request", len(ctx.PendingEffects))
+	}
+	FlushPendingEffects(ctx)
+	waitForSQLiteResume(t, taskValue)
+	if taskValue.WakeValue.Type() != types.TYPE_MAP {
+		t.Fatalf("wake value = %v, want the error map", taskValue.WakeValue)
+	}
+}
+
+// An inline curl() is an irreversible effect inside the slice.
+func TestUnthreadedCurlCrossesIrreversibleBoundary(t *testing.T) {
+	ctx, taskValue := threadedCtx()
+	ctx.ThreadMode = false
+	crossings := 0
+	ctx.BeforeIrreversibleEffect = func() bool {
+		crossings++
+		return false
+	}
+
+	result := builtinCurl(ctx, []types.Value{types.NewStr("file:///etc/passwd")})
+	if result.Flow != types.FlowNormal || result.Val.Type() != types.TYPE_MAP {
+		t.Fatalf("curl = %+v, want the error map", result)
+	}
+	if crossings != 1 || !ctx.IrreversibleSideEffect {
+		t.Fatalf("crossings = %d irreversible = %v, want 1 and true", crossings, ctx.IrreversibleSideEffect)
+	}
+	if got := taskValue.GetState(); got != task.TaskRunning {
+		t.Fatalf("task state = %v, want still running", got)
 	}
 }
