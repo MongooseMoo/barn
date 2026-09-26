@@ -397,3 +397,30 @@ func TestWaifCoarseCommitValueWriteKeepsPropertyShape(t *testing.T) {
 		t.Fatalf("propertyShapeVersion moved %d -> %d on a value write", shape, live.propertyShapeVersion)
 	}
 }
+
+// Coarse commits reshape verb dispatch only through verb edits or recycling, as on
+// the decentralized path. A WAIF-dependent value write must leave the memo clock
+// alone, or every in-flight task that resolved a verb through the memo aborts.
+func TestWaifCoarseCommitValueWriteKeepsVerbShape(t *testing.T) {
+	s := NewStore()
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	verbShape := s.verbShapeChangeTS.Load()
+	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	waifNumber(t, tx, w, 0)
+	if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	if ec := tx.Commit(); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	if got := s.verbShapeChangeTS.Load(); got != verbShape {
+		t.Fatalf("verbShapeChangeTS moved %d -> %d on a value write", verbShape, got)
+	}
+}

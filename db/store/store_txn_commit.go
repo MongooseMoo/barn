@@ -508,7 +508,17 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	tx.store.noteWaifRootsChanged()
-	tx.store.noteVerbShapeChanged() // coarse commits are rare; any of them may reshape dispatch
+	// As in commitDecentralized: only verb edits and recycling a memoizable object
+	// reshape dispatch. Parent changes are live operations that note it themselves.
+	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
+	for id := range tx.recycleWrites {
+		if live := tx.store.liveObjectLocked(id); live != nil && !live.anonymous {
+			verbShapeDirty = true
+		}
+	}
+	if verbShapeDirty {
+		tx.store.noteVerbShapeChanged()
+	}
 	remembered := make(map[types.ObjID]bool)
 
 	// Publish staged creates FIRST (under the exclusive lock) so they are live before
