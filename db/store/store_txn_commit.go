@@ -615,8 +615,10 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 			prop.clear = false
 			prop.version = ts
 			live.properties[propertyNameKey(write.name)] = prop
+			// Only a new slot changes the shape, as in applyPropertyValueOwned.
+			live.propertyShapeVersion = ts
 		}
-		stampObjectProperties(live, ts)
+		live.propertyVersion = ts
 	}
 	for key, actualName := range tx.propertyDeletes {
 		live := tx.store.liveObjectLocked(key.objID)

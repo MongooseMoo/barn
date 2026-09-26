@@ -366,3 +366,34 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifHistory), s.waifHistoryPending.Load())
 	}
 }
+
+// A WAIF dependency routes a commit through the coarse path. A value write to an
+// existing property slot must not move the object's property shape there either,
+// or every concurrent ancestry walk through the object fails validation.
+func TestWaifCoarseCommitValueWriteKeepsPropertyShape(t *testing.T) {
+	s := NewStore()
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	shape := s.liveObjectLocked(0).propertyShapeVersion
+	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	waifNumber(t, tx, w, 0)
+	if ec := tx.SetPropertyValue(0, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	if ec := tx.Commit(); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	live := s.liveObjectLocked(0)
+	if got, ec := s.DirectTxn().PropertyValue(0, "p"); ec != types.E_NONE || got.Int() != 1 {
+		t.Fatalf("p = %v, %v; want 1", got, ec)
+	}
+	if live.propertyShapeVersion != shape {
+		t.Fatalf("propertyShapeVersion moved %d -> %d on a value write", shape, live.propertyShapeVersion)
+	}
+}
