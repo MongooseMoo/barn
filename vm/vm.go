@@ -307,6 +307,7 @@ const (
 	fkSetLocal
 	fkPushInt
 	fkForListCheck
+	fkForListLoadValue
 )
 
 var fastKinds = func() (t [256]uint8) {
@@ -337,6 +338,7 @@ var fastKinds = func() (t [256]uint8) {
 	t[bytecode.OP_SET_LOCAL] = fkSetLocal
 	t[bytecode.OP_PUSH_INT] = fkPushInt
 	t[bytecode.OP_FOR_LIST_CHECK_WIDE] = fkForListCheck
+	t[bytecode.OP_FOR_LIST_LOAD_VALUE] = fkForListLoadValue
 	return t
 }()
 
@@ -501,6 +503,19 @@ func (vm *VM) fastForListLoad(cur *StackFrame, code []byte, ip int) bool {
 	valueIdx := code[ip+3]
 	vm.releaseLocal(cur.Locals[valueIdx])
 	cur.Locals[valueIdx] = list.Get(int(cur.Locals[code[ip+2]].Int()))
+	return true
+}
+
+//go:noinline
+func (vm *VM) fastForListLoadValue(cur *StackFrame, code []byte, ip int) bool {
+	list := cur.Locals[code[ip+1]]
+	if list.Type() != types.TYPE_LIST {
+		return false
+	}
+	valueIdx := code[ip+3]
+	value := list.Get(int(cur.Locals[code[ip+2]].Int()))
+	vm.releaseLocal(cur.Locals[valueIdx])
+	cur.Locals[valueIdx] = value
 	return true
 }
 
@@ -760,6 +775,11 @@ func (vm *VM) executeLoop() types.Result {
 		case fkForListLoad:
 			if vm.fastForListLoad(cur, code, ip) {
 				cur.IP = ip + 5
+				continue
+			}
+		case fkForListLoadValue:
+			if vm.fastForListLoadValue(cur, code, ip) {
+				cur.IP = ip + 4
 				continue
 			}
 		case fkPop:
@@ -1283,6 +1303,12 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Iteration preparation
 	case bytecode.OP_ITER_PREP:
 		return vm.executeIterPrep()
+	case bytecode.OP_ITER_PREP_COLUMNS:
+		return vm.executeIterPrepColumns()
+	case bytecode.OP_FOR_LIST_LOAD_COLUMNS:
+		return vm.executeForListLoadColumns()
+	case bytecode.OP_FOR_LIST_LOAD_VALUE:
+		return vm.executeForListLoadValue()
 
 	// Builtin calls
 	case bytecode.OP_CALL_BUILTIN:

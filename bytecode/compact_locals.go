@@ -50,10 +50,12 @@ func (p *Program) CompactInternalLocals(firstInternal int) error {
 		case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE,
 			OP_FOR_LIST_CHECK_WIDE:
 			direct(2)
-		case OP_SCATTER_TAKE:
+		case OP_SCATTER_TAKE, OP_FOR_LIST_LOAD_VALUE:
 			direct(3)
 		case OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
 			direct(4)
+		case OP_FOR_LIST_LOAD_COLUMNS:
+			direct(5)
 		case OP_FORK, OP_FORK_WIDE:
 			optional(0, 1)
 		case OP_FORK_LOCAL_WIDE:

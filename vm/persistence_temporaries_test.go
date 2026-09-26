@@ -17,6 +17,18 @@ import (
 // the never-persisted task; this is the restart-from-checkpoint path the
 // conformance suite exercises with resume()d suspended VMs.
 func TestSuspendedLoopSurvivesCheckpointRoundTrip(t *testing.T) {
+	for _, tc := range []struct{ loop, keyExpr, want string }{
+		{"for x in ({1, 2, 3})", "0", "{6, {0, 0, 0}}"},
+		{"for x, key in ({1, 2, 3})", "key", "{6, {1, 2, 3}}"},
+		{`for x in (["c" -> 3, "a" -> 1, "b" -> 2])`, "0", "{6, {0, 0, 0}}"},
+		{`for x, key in (["c" -> 3, "a" -> 1, "b" -> 2])`, "key", `{6, {"a", "b", "c"}}`},
+		{`for x, key in ("123")`, "key", "{6, {1, 2, 3}}"},
+	} {
+		t.Run(tc.loop, func(t *testing.T) { testSuspendedLoopCheckpoint(t, tc.loop, tc.keyExpr, tc.want) })
+	}
+}
+
+func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 	store := dbstore.NewStore()
 	for _, builder := range []*dbstore.ObjectBuilder{
 		dbstore.NewObjectBuilder(0),
@@ -36,12 +48,13 @@ func TestSuspendedLoopSurvivesCheckpointRoundTrip(t *testing.T) {
 	taskValue := task.NewTask(1, 2, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{
-		"total = 0;",
-		"for x in ({1, 2, 3})",
-		"  total = total + x;",
+		"total = 0; keys = {};",
+		loop,
+		"  total = total + toint(x);",
 		"  suspend();",
+		"  keys = {@keys, " + keyExpr + "};",
 		"endfor",
-		"return total;",
+		"return {total, keys};",
 	})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
@@ -93,7 +106,7 @@ func TestSuspendedLoopSurvivesCheckpointRoundTrip(t *testing.T) {
 		}
 		result = restored.Resume()
 	}
-	if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewInt(6)) {
-		t.Fatalf("restored result = %#v, want return 6", result)
+	if result.Flow != types.FlowReturn || result.Val.String() != want {
+		t.Fatalf("restored result = %#v, want %s", result, want)
 	}
 }

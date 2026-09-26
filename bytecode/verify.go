@@ -182,7 +182,7 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 			return err
 		}
 		return verifyRelativeTarget(instruction, int(binary.BigEndian.Uint32(operand[2:])), op == OP_FOR_RANGE_NEXT_WIDE, target)
-	case OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
+	case OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV, OP_FOR_LIST_LOAD_COLUMNS, OP_FOR_LIST_LOAD_VALUE:
 		for _, index := range operand {
 			if err := local(int(index)); err != nil {
 				return err

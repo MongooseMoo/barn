@@ -6,7 +6,82 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// executeIterPrep handles OP_ITER_PREP: normalize a container for iteration.
+// executeIterPrepColumns retains list snapshots directly. Map values and keys
+// use separate lists, and string indexes are derived from the loop cursor.
+// All state remains ordinary Values, so suspension, GC roots, and checkpoint
+// persistence use the same mechanisms as other compiler temporaries.
+func (vm *VM) executeIterPrepColumns() error {
+	container := vm.Pop()
+	keys := types.NewInt(0)
+	var values types.Value
+	switch container.Type() {
+	case types.TYPE_LIST:
+		values = container
+	case types.TYPE_MAP:
+		valueColumn, keyColumn := container.MapColumns()
+		values = types.NewList(valueColumn)
+		// Keys remain roots even in a value-only loop, just as they did in
+		// the pair representation. Dropping them could finalize WAIF/anon keys.
+		keys = types.NewList(keyColumn)
+	case types.TYPE_STR:
+		chars := types.SplitChars(container.Str())
+		elements := make([]types.Value, len(chars))
+		for i, c := range chars {
+			elements[i] = types.NewStr(c)
+		}
+		values = types.NewList(elements)
+	default:
+		if frame := vm.CurrentFrame(); frame == nil || frame.VerbDebug {
+			return fmt.Errorf("E_TYPE: for loop requires list, map, or string")
+		}
+		values = types.NewList(nil)
+	}
+	vm.Push(values)
+	vm.Push(keys)
+	return nil
+}
+
+func (vm *VM) executeForListLoadValue() error {
+	valuesSlot := vm.FetchByte()
+	cursorSlot := vm.FetchByte()
+	valueSlot := vm.FetchByte()
+	frame := vm.CurrentFrame()
+	values := frame.Locals[valuesSlot]
+	if values.Type() != types.TYPE_LIST {
+		return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+	}
+	value := values.Get(int(frame.Locals[cursorSlot].Int()))
+	vm.releaseLocal(frame.Locals[valueSlot])
+	frame.Locals[valueSlot] = value
+	return nil
+}
+
+func (vm *VM) executeForListLoadColumns() error {
+	valuesSlot := vm.FetchByte()
+	cursorSlot := vm.FetchByte()
+	valueSlot := vm.FetchByte()
+	indexSlot := vm.FetchByte()
+	keysSlot := vm.FetchByte()
+	frame := vm.CurrentFrame()
+	values, keys := frame.Locals[valuesSlot], frame.Locals[keysSlot]
+	if values.Type() != types.TYPE_LIST {
+		return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+	}
+	cursor := frame.Locals[cursorSlot]
+	value, key := values.Get(int(cursor.Int())), cursor
+	if keys.Type() == types.TYPE_LIST {
+		key = keys.Get(int(cursor.Int()))
+	}
+	// Capture both values before overwriting either local. Duplicate variable
+	// names are legal; the key/index assignment must win, as in the pair opcode.
+	vm.releaseLocal(frame.Locals[valueSlot])
+	vm.releaseLocal(frame.Locals[indexSlot])
+	frame.Locals[valueSlot] = value
+	frame.Locals[indexSlot] = key
+	return nil
+}
+
+// executeIterPrep handles saved OP_ITER_PREP bytecode's pair representation.
 //
 // Bytecode format: OP_ITER_PREP <hasIndex:byte>
 //
