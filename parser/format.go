@@ -8,23 +8,14 @@ import (
 	"github.com/MongooseMoo/barn/verb"
 )
 
-// Operator precedence levels (higher = tighter binding)
+// Non-binary precedence aliases. Binary precedence, spelling, and associativity
+// all come from binaryOperatorSpecs.
 const (
-	precedenceLowest     = iota
-	precedenceAssign     // =
-	precedenceTernary    // ? |
-	precedenceOr         // || and && share one level, as in Toast
-	precedenceBitOr      // |
-	precedenceBitXor     // ^
-	precedenceBitAnd     // &
-	precedenceEquality   // == !=
-	precedenceComparison // < <= > >= in
-	precedenceShift      // << >>
-	precedenceAdditive   // + -
-	precedenceMultiply   // * / %
-	precedenceExponent   // ^
-	precedenceUnary      // - ! ~
-	precedenceProperty   // . : [] (highest - property access, verb call, index)
+	precedenceLowest   = PREC_LOWEST
+	precedenceAssign   = PREC_ASSIGNMENT
+	precedenceTernary  = PREC_TERNARY
+	precedenceUnary    = PREC_UNARY
+	precedenceProperty = PREC_POSTFIX
 )
 
 // FormatMOO converts a semantic verb program back to MOO source lines.
@@ -358,95 +349,23 @@ func unparsePropertyExpr(e *verb.PropertyExpr, fullyParenthesized bool) string {
 
 // unparseBinaryExpr handles binary expressions with proper precedence
 func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int, fullyParenthesized bool) string {
-	prec := binaryPrecedence(e.Operator)
-	left := unparseExpr(e.Left, prec, fullyParenthesized)
-	right := unparseExpr(e.Right, prec+1, fullyParenthesized) // Right-associative for same precedence
-	op := unparseBinaryOp(e.Operator)
+	spec, ok := binaryOperatorBySemantic(e.Operator)
+	if !ok {
+		return "<unknown binary expression>"
+	}
+	leftPrecedence, rightPrecedence := spec.precedence, spec.precedence+1
+	if spec.associativity == associateRight {
+		leftPrecedence, rightPrecedence = spec.precedence+1, spec.precedence
+	}
+	left := unparseExpr(e.Left, leftPrecedence, fullyParenthesized)
+	right := unparseExpr(e.Right, rightPrecedence, fullyParenthesized)
 
-	result := left + " " + op + " " + right
+	result := left + " " + spec.spelling + " " + right
 
-	if prec < parentPrecedence || (fullyParenthesized && parentPrecedence != precedenceLowest) {
+	if spec.precedence < parentPrecedence || (fullyParenthesized && parentPrecedence != precedenceLowest) {
 		return "(" + result + ")"
 	}
 	return result
-}
-
-// binaryPrecedence returns the precedence level for a binary operator
-func binaryPrecedence(op verb.BinaryOperator) int {
-	switch op {
-	case verb.BinaryOr:
-		return precedenceOr
-	case verb.BinaryAnd:
-		return precedenceOr // Toast: %left tOR tAND, one level
-	case verb.BinaryBitOr:
-		return precedenceBitOr
-	case verb.BinaryBitXor:
-		return precedenceBitXor
-	case verb.BinaryBitAnd:
-		return precedenceBitAnd
-	case verb.BinaryEqual, verb.BinaryNotEqual:
-		return precedenceEquality
-	case verb.BinaryLess, verb.BinaryLessEqual, verb.BinaryGreater, verb.BinaryGreaterEqual, verb.BinaryIn:
-		return precedenceComparison
-	case verb.BinaryShiftLeft, verb.BinaryShiftRight:
-		return precedenceShift
-	case verb.BinaryAdd, verb.BinarySubtract:
-		return precedenceAdditive
-	case verb.BinaryMultiply, verb.BinaryDivide, verb.BinaryModulo:
-		return precedenceMultiply
-	case verb.BinaryPower:
-		return precedenceExponent
-	default:
-		return precedenceLowest
-	}
-}
-
-// unparseBinaryOp converts a semantic operator to MOO spelling.
-func unparseBinaryOp(op verb.BinaryOperator) string {
-	switch op {
-	case verb.BinaryAdd:
-		return "+"
-	case verb.BinarySubtract:
-		return "-"
-	case verb.BinaryMultiply:
-		return "*"
-	case verb.BinaryDivide:
-		return "/"
-	case verb.BinaryModulo:
-		return "%"
-	case verb.BinaryPower:
-		return "^"
-	case verb.BinaryEqual:
-		return "=="
-	case verb.BinaryNotEqual:
-		return "!="
-	case verb.BinaryLess:
-		return "<"
-	case verb.BinaryGreater:
-		return ">"
-	case verb.BinaryLessEqual:
-		return "<="
-	case verb.BinaryGreaterEqual:
-		return ">="
-	case verb.BinaryAnd:
-		return "&&"
-	case verb.BinaryOr:
-		return "||"
-	case verb.BinaryBitAnd:
-		return "&."
-	case verb.BinaryBitOr:
-		return "|."
-	case verb.BinaryBitXor:
-		return "^."
-	case verb.BinaryShiftLeft:
-		return "<<"
-	case verb.BinaryShiftRight:
-		return ">>"
-	case verb.BinaryIn:
-		return "in"
-	default:
-		return "<unknown op>"
-	}
 }
 
 // unparseUnaryOp converts a unary operator to its string representation

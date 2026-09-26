@@ -48,46 +48,26 @@ const (
 	PREC_SPLICE         = 4  // @
 	PREC_SCATTER        = 5  // { } =
 	PREC_OR             = 6  // || and && (Toast: %left tOR tAND, one level)
-	PREC_AND            = 6  // &&
-	PREC_BIT_OR         = 8  // |.
-	PREC_BIT_XOR        = 9  // ^.
-	PREC_BIT_AND        = 10 // &.
-	PREC_COMPARISON     = 11 // == != < <= > >= in
-	PREC_SHIFT          = 12 // << >>
-	PREC_ADDITIVE       = 13 // + -
-	PREC_MULTIPLICATIVE = 14 // * / %
-	PREC_POWER          = 15 // ^
-	PREC_UNARY          = 16 // ! ~ -
-	PREC_POSTFIX        = 17 // . : [ ]
+	PREC_COMPARISON     = 7  // == != < <= > >= in
+	PREC_BITWISE        = 8  // |. &. ^. (Toast: one left-associative level)
+	PREC_SHIFT          = 9  // << >>
+	PREC_ADDITIVE       = 10 // + -
+	PREC_MULTIPLICATIVE = 11 // * / %
+	PREC_POWER          = 12 // ^
+	PREC_UNARY          = 13 // ! ~ -
+	PREC_POSTFIX        = 14 // . : [ ]
 )
 
 // precedence returns the precedence of the given token type
 func precedence(t TokenType) int {
+	if spec, ok := binaryOperatorByToken(t); ok {
+		return spec.precedence
+	}
 	switch t {
 	case TOKEN_ASSIGN:
 		return PREC_ASSIGNMENT
 	case TOKEN_QUESTION:
 		return PREC_TERNARY
-	case TOKEN_OR:
-		return PREC_OR
-	case TOKEN_AND:
-		return PREC_AND
-	case TOKEN_BITOR:
-		return PREC_BIT_OR
-	case TOKEN_BITXOR:
-		return PREC_BIT_XOR
-	case TOKEN_BITAND:
-		return PREC_BIT_AND
-	case TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE, TOKEN_IN:
-		return PREC_COMPARISON
-	case TOKEN_LSHIFT, TOKEN_RSHIFT:
-		return PREC_SHIFT
-	case TOKEN_PLUS, TOKEN_MINUS:
-		return PREC_ADDITIVE
-	case TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT:
-		return PREC_MULTIPLICATIVE
-	case TOKEN_CARET:
-		return PREC_POWER
 	case TOKEN_LPAREN, TOKEN_LBRACKET, TOKEN_DOT, TOKEN_COLON:
 		return PREC_POSTFIX // Function calls, indexing, property access, and verb calls have high precedence
 	default:
@@ -109,50 +89,10 @@ func semanticUnaryOperator(token TokenType) verb.UnaryOperator {
 }
 
 func semanticBinaryOperator(token TokenType) verb.BinaryOperator {
-	switch token {
-	case TOKEN_PLUS:
-		return verb.BinaryAdd
-	case TOKEN_MINUS:
-		return verb.BinarySubtract
-	case TOKEN_STAR:
-		return verb.BinaryMultiply
-	case TOKEN_SLASH:
-		return verb.BinaryDivide
-	case TOKEN_PERCENT:
-		return verb.BinaryModulo
-	case TOKEN_CARET:
-		return verb.BinaryPower
-	case TOKEN_EQ:
-		return verb.BinaryEqual
-	case TOKEN_NE:
-		return verb.BinaryNotEqual
-	case TOKEN_LT:
-		return verb.BinaryLess
-	case TOKEN_LE:
-		return verb.BinaryLessEqual
-	case TOKEN_GT:
-		return verb.BinaryGreater
-	case TOKEN_GE:
-		return verb.BinaryGreaterEqual
-	case TOKEN_IN:
-		return verb.BinaryIn
-	case TOKEN_AND:
-		return verb.BinaryAnd
-	case TOKEN_OR:
-		return verb.BinaryOr
-	case TOKEN_BITAND:
-		return verb.BinaryBitAnd
-	case TOKEN_BITOR:
-		return verb.BinaryBitOr
-	case TOKEN_BITXOR:
-		return verb.BinaryBitXor
-	case TOKEN_LSHIFT:
-		return verb.BinaryShiftLeft
-	case TOKEN_RSHIFT:
-		return verb.BinaryShiftRight
-	default:
-		panic(fmt.Sprintf("non-binary token %s", token))
+	if spec, ok := binaryOperatorByToken(token); ok {
+		return spec.semantic
 	}
+	panic(fmt.Sprintf("non-binary token %s", token))
 }
 
 // ParseExpression parses an expression
@@ -384,9 +324,9 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			opPrec := precedence(op)
 			p.nextToken()
 
-			// Handle right-associativity for power operator
+			spec, _ := binaryOperatorByToken(op)
 			var right verb.Expr
-			if op == TOKEN_CARET {
+			if spec.associativity == associateRight {
 				right, err = p.ParseExpression(opPrec) // Don't increment for right-assoc
 			} else {
 				right, err = p.ParseExpression(opPrec + 1)
