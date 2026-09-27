@@ -261,7 +261,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 	} else {
 		delete(s.lifecycle.ExecutingTasks, taskID)
 		if t := s.leasedTasks[taskID]; t != nil {
-			t.SetExecutionActive(false)
+			s.scheduler.ReleaseExecution(t)
 		}
 		delete(s.leasedTasks, taskID)
 		s.taskManager.NotifyScheduleChange()

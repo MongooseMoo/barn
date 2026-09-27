@@ -48,6 +48,42 @@ func TestReadyWakeWaitsForPhysicalExecutionHandoff(t *testing.T) {
 	}
 }
 
+func TestConcurrentReadierHandoffPreservesForkOrder(t *testing.T) {
+	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 1)
+	defer s.Stop()
+	for attempt := range 10000 {
+		parent := task.NewTask(int64(2*attempt+1), 0, 1000, 1)
+		child := task.NewTask(int64(2*attempt+2), 0, 1000, 1)
+		if !s.acquireTaskExecution(parent) {
+			t.Fatal("parent did not acquire execution")
+		}
+		child.SetState(task.TaskQueued)
+		child.SetReadier(parent)
+		child.SetBytecodeVM(struct{}{}) // Readiness markers only; no VM executes.
+		parent.SetBytecodeVM(struct{}{})
+		parent.SetState(task.TaskQueued) // suspend(0), before physical handoff.
+		s.scheduler.Enqueue(child)
+		s.scheduler.RequeueYield(parent, time.Now())
+		start, released := make(chan struct{}), make(chan struct{})
+		go func() {
+			<-start
+			s.releaseTaskExecution(parent.ID)
+			close(released)
+		}()
+		close(start)
+		batch := s.scheduler.ReadyBatch(time.Now(), nil)
+		<-released
+		if len(batch) == 0 {
+			batch = s.scheduler.ReadyBatch(time.Now(), nil)
+		}
+		if len(batch) != 1 || batch[0] != child {
+			t.Fatalf("attempt %d: parent overtook its fork during execution handoff", attempt)
+		}
+		// Drain the parent's retained queue entry before the next trial.
+		s.scheduler.Ready(time.Now(), nil)
+	}
+}
+
 func TestProcessReadyBatchRetainsTasksBetweenSelections(t *testing.T) {
 	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 1)
 	defer s.Stop()
