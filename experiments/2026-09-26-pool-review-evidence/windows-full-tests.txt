@@ -1,0 +1,40 @@
+ok  	github.com/MongooseMoo/barn	6.767s
+--- FAIL: TestDivergenceRuntimeIntrospection (0.01s)
+    divergence_edges_test.go:109: memory_usage() = flow 4 error E_QUOTA
+2026/09/26 22:32:22 INFO CHECKPOINTING: dump_database() requested programmer=7
+2026/09/26 22:32:22 ERROR dump_database() failed err="request failed"
+FAIL
+FAIL	github.com/MongooseMoo/barn/builtins	7.386s
+ok  	github.com/MongooseMoo/barn/bytecode	0.611s
+ok  	github.com/MongooseMoo/barn/cmd/barn	0.516s
+ok  	github.com/MongooseMoo/barn/cmd/barn_logs	0.546s
+ok  	github.com/MongooseMoo/barn/cmd/mongoose_tz	0.499s
+ok  	github.com/MongooseMoo/barn/cmd/moo_client	0.899s
+?   	github.com/MongooseMoo/barn/cmd/toast_oracle	[no test files]
+ok  	github.com/MongooseMoo/barn/command	0.477s
+ok  	github.com/MongooseMoo/barn/compiler	0.550s
+ok  	github.com/MongooseMoo/barn/config	0.490s
+ok  	github.com/MongooseMoo/barn/db/format	1.768s
+ok  	github.com/MongooseMoo/barn/db/store	1.654s
+ok  	github.com/MongooseMoo/barn/engine	22.899s
+ok  	github.com/MongooseMoo/barn/engine/internal/finalization	0.892s
+ok  	github.com/MongooseMoo/barn/engine/internal/scheduler	0.694s
+ok  	github.com/MongooseMoo/barn/internal/admission	0.558s
+ok  	github.com/MongooseMoo/barn/internal/app	0.511s
+ok  	github.com/MongooseMoo/barn/internal/buildinfo	0.487s
+ok  	github.com/MongooseMoo/barn/internal/commitgate	0.488s
+ok  	github.com/MongooseMoo/barn/internal/dbtool	0.589s
+ok  	github.com/MongooseMoo/barn/internal/listener	0.519s
+ok  	github.com/MongooseMoo/barn/kernel	0.495s
+ok  	github.com/MongooseMoo/barn/logging	0.593s
+?   	github.com/MongooseMoo/barn/metrics	[no test files]
+ok  	github.com/MongooseMoo/barn/parser	18.784s
+ok  	github.com/MongooseMoo/barn/profile	0.654s
+ok  	github.com/MongooseMoo/barn/server	2.086s
+ok  	github.com/MongooseMoo/barn/sourcekey	0.475s
+ok  	github.com/MongooseMoo/barn/task	0.659s
+?   	github.com/MongooseMoo/barn/trace	[no test files]
+ok  	github.com/MongooseMoo/barn/types	0.579s
+ok  	github.com/MongooseMoo/barn/verb	0.479s
+ok  	github.com/MongooseMoo/barn/vm	7.492s
+FAIL
