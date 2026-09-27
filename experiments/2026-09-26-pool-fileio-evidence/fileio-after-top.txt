@@ -1,0 +1,28 @@
+File: fileio-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\fileio-candidate.exe2026-09-26 22:20:35.0311574 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:21:19 MDT
+Showing nodes accounting for 388769.28kB, 99.00% of 392678.71kB total
+Dropped 265 nodes (cum <= 1963.39kB)
+      flat  flat%   sum%        cum   cum%
+330043.66kB 84.05% 84.05% 330043.66kB 84.05%  strings.(*Builder).WriteByte (inline)
+41948.83kB 10.68% 94.73% 41948.83kB 10.68%  strings.(*Builder).WriteString (inline)
+ 8775.16kB  2.23% 96.97% 14319.06kB  3.65%  github.com/MongooseMoo/barn/compiler.layoutFingerprint
+ 5539.92kB  1.41% 98.38%  5539.92kB  1.41%  strings.(*Builder).Write
+ 2176.02kB  0.55% 98.93%  2176.08kB  0.55%  os.newFileStatFromGetFileInformationByHandle
+  134.94kB 0.034% 98.97% 14467.84kB  3.68%  github.com/MongooseMoo/barn/compiler.New
+      96kB 0.024% 98.99% 15232.78kB  3.88%  github.com/MongooseMoo/barn/builtins.NewRegistry
+   53.72kB 0.014% 99.00% 15008.75kB  3.82%  github.com/MongooseMoo/barn/builtins.NewRegistryFromDescriptors
+    0.88kB 0.00022% 99.00% 15594.70kB  3.97%  github.com/MongooseMoo/barn/builtins.poolReadFixture
+    0.17kB 4.4e-05% 99.00% 392643.45kB   100%  testing.(*B).runN
+         0     0% 99.00%  5545.23kB  1.41%  fmt.Fprintf
+         0     0% 99.00% 392355.02kB 99.92%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolFileRead.func1
+         0     0% 99.00% 392355.02kB 99.92%  github.com/MongooseMoo/barn/builtins.benchPoolRead
+         0     0% 99.00% 376760.27kB 95.95%  github.com/MongooseMoo/barn/builtins.builtinFileRead
+         0     0% 99.00% 89769.02kB 22.86%  github.com/MongooseMoo/barn/builtins.encodeBinaryBytes
+         0     0% 99.00% 89769.02kB 22.86%  github.com/MongooseMoo/barn/builtins.encodeByte
+         0     0% 99.00% 282222.62kB 71.87%  github.com/MongooseMoo/barn/builtins.filterTextMode (inline)
+         0     0% 99.00% 15237.47kB  3.88%  github.com/MongooseMoo/barn/builtins.newTestExecution
+         0     0% 99.00%  2176.08kB  0.55%  os.(*File).Stat
+         0     0% 99.00%  2176.08kB  0.55%  os.statHandle
+         0     0% 99.00% 392640.19kB   100%  testing.(*B).run1.func1
