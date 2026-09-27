@@ -2,6 +2,7 @@ package vm
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -253,23 +254,50 @@ func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []t
 	return roots
 }
 
+// Scratch holds only temporary roots; appendPendingFinalizationRoots copies
+// them into VM-owned storage before scratch is cleared and returned.
+type pendingFinalizationScratch struct {
+	refs  map[types.ObjID]struct{}
+	waifs []types.Value
+}
+
+const maxPendingFinalizationScratch = 256
+
+var pendingFinalizationScratchPool = sync.Pool{New: func() any {
+	return &pendingFinalizationScratch{refs: make(map[types.ObjID]struct{})}
+}}
+
+func (scratch *pendingFinalizationScratch) reset() bool {
+	reusable := len(scratch.refs) <= maxPendingFinalizationScratch && cap(scratch.waifs) <= maxPendingFinalizationScratch
+	clear(scratch.refs)
+	clear(scratch.waifs)
+	scratch.waifs = scratch.waifs[:0]
+	return reusable
+}
+
+func releasePendingFinalizationScratch(scratch *pendingFinalizationScratch) {
+	if scratch.reset() {
+		pendingFinalizationScratchPool.Put(scratch)
+	}
+}
+
 // collectPendingFinalizationsFromFrame records, for a frame about to be
 // popped, the waifs leaving scope (vm.PendingWaifs) and the direct
 // finalization roots it held (vm.PendingFinalizations) in one pass. Frames
 // that hold no finalizable value — the overwhelming majority — cost one
 // MayHoldFinalizable check per slot and allocate nothing.
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
-	var refs map[types.ObjID]struct{}
-	var waifs []types.Value
+	var scratch *pendingFinalizationScratch
 	frame.visitFinalizableCandidates(func(value types.Value) {
 		vm.collectDirectWaifsForGC(value)
-		if refs == nil {
-			refs = make(map[types.ObjID]struct{})
+		if scratch == nil {
+			scratch = pendingFinalizationScratchPool.Get().(*pendingFinalizationScratch)
 		}
-		collectDirectFinalizationRoots(value, refs, &waifs)
+		collectDirectFinalizationRoots(value, scratch.refs, &scratch.waifs)
 	})
-	if refs != nil {
-		vm.appendPendingFinalizationRoots(refs, waifs)
+	if scratch != nil {
+		vm.appendPendingFinalizationRoots(scratch.refs, scratch.waifs)
+		releasePendingFinalizationScratch(scratch)
 	}
 }
 
@@ -277,10 +305,10 @@ func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 	if !value.MayHoldFinalizable() {
 		return
 	}
-	refs := make(map[types.ObjID]struct{})
-	var waifs []types.Value
-	collectDirectFinalizationRoots(value, refs, &waifs)
-	vm.appendPendingFinalizationRoots(refs, waifs)
+	scratch := pendingFinalizationScratchPool.Get().(*pendingFinalizationScratch)
+	collectDirectFinalizationRoots(value, scratch.refs, &scratch.waifs)
+	vm.appendPendingFinalizationRoots(scratch.refs, scratch.waifs)
+	releasePendingFinalizationScratch(scratch)
 }
 
 func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waifs []types.Value) {
