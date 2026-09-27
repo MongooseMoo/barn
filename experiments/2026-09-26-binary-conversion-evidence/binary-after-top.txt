@@ -1,0 +1,16 @@
+File: binary-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\binary-candidate.exe2026-09-26 22:28:19.0593866 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:29:46 MDT
+Showing nodes accounting for 291446.62kB, 100% of 291537.44kB total
+Dropped 167 nodes (cum <= 1457.69kB)
+      flat  flat%   sum%        cum   cum%
+236379.52kB 81.08% 81.08% 236379.52kB 81.08%  strings.(*Builder).WriteByte (inline)
+55066.94kB 18.89%   100% 55066.94kB 18.89%  internal/bytealg.MakeNoZero
+    0.17kB 5.9e-05%   100% 291501.15kB   100%  testing.(*B).runN
+         0     0%   100% 291446.30kB   100%  github.com/MongooseMoo/barn/builtins.BenchmarkFileConversion.func1
+         0     0%   100% 54746.62kB 18.78%  github.com/MongooseMoo/barn/builtins.encodeBinaryBytes
+         0     0%   100% 236379.36kB 81.08%  github.com/MongooseMoo/barn/builtins.filterTextMode
+         0     0%   100% 54746.62kB 18.78%  strings.(*Builder).Grow
+         0     0%   100% 54746.62kB 18.78%  strings.(*Builder).grow
+         0     0%   100% 291497.88kB   100%  testing.(*B).run1.func1
