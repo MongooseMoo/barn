@@ -73,6 +73,15 @@ func (s *Scheduler) Stop() { s.cancel(); s.wg.Wait() }
 // SetOrdering is configured at runtime construction, before dispatch starts.
 func (s *Scheduler) SetOrdering(order func([]*task.Task)) { s.order = order }
 
+// ReleaseExecution publishes a slice's physical handoff between readiness
+// scans. Otherwise a scan can hold its child while the parent is active, then
+// select the parent after its lease clears midway through the same scan.
+func (s *Scheduler) ReleaseExecution(t *task.Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t.SetExecutionActive(false)
+}
+
 // Enqueue adds a task to the ready-time heap and assigns its FIFO sequence.
 func (s *Scheduler) Enqueue(t *task.Task) {
 	s.mu.Lock()
