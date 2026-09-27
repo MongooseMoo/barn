@@ -1,0 +1,22 @@
+File: engine-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-candidate.exe2026-09-26 22:33:17.6490536 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:50:59 MDT
+Duration: 50.45s, Total samples = 58.34s (115.64%)
+Active filters:
+   show=Unique|FileRead|Finalization|Finalizer|Pending.*Root|pending.*Root|finaliza…
+Showing nodes accounting for 2.10s, 3.60% of 58.34s total
+      flat  flat%   sum%        cum   cum%
+     0.79s  1.35%  1.35%      1.74s  2.98%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame
+     0.46s  0.79%  2.14%      0.60s  1.03%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame.func1
+     0.36s  0.62%  2.76%      0.36s  0.62%  github.com/MongooseMoo/barn/vm.pendingFinalizationValueInList
+     0.27s  0.46%  3.22%      0.27s  0.46%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+     0.10s  0.17%  3.39%      0.46s  0.79%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+     0.05s 0.086%  3.48%      0.05s 0.086%  github.com/MongooseMoo/barn/vm.(*pendingFinalizationScratch).reset (inline)
+     0.04s 0.069%  3.55%      0.09s  0.15%  github.com/MongooseMoo/barn/vm.releasePendingFinalizationScratch
+     0.02s 0.034%  3.58%      0.32s  0.55%  github.com/MongooseMoo/barn/engine.(*Runtime).settleCompletedTaskFinalizations
+     0.01s 0.017%  3.60%      0.01s 0.017%  runtime.runFinalizers
+         0     0%  3.60%      0.03s 0.051%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromValue
+         0     0%  3.60%      0.30s  0.51%  github.com/MongooseMoo/barn/vm.CollectDirectFinalizationRoots
+         0     0%  3.60%      0.30s  0.51%  github.com/MongooseMoo/barn/vm.CollectDirectFinalizationRoots.collectDirectFinalizationRootsFromVM.func1
+         0     0%  3.60%      0.30s  0.51%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRootsFromVM (inline)

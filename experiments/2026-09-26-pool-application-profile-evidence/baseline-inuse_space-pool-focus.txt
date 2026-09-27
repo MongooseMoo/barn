@@ -1,0 +1,24 @@
+File: engine-baseline.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-baseline.exe2026-09-26 22:18:29.2552463 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:19:17 MDT
+Active filters:
+   focus=Unique|FileRead|Finalization|Finalizer|Pending.*Root|pending.*Root
+Showing nodes accounting for 3.01MB, 0.19% of 1593.93MB total
+      flat  flat%   sum%        cum   cum%
+    1.50MB 0.094% 0.094%     2.50MB  0.16%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame.func1
+       1MB 0.063%  0.16%        1MB 0.063%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+    0.51MB 0.032%  0.19%     0.51MB 0.032%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/engine.(*Runtime).runTask
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted.func4
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskSliceAdmitted
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/engine/internal/scheduler.(*Scheduler).worker
+         0     0%  0.19%     2.50MB  0.16%  github.com/MongooseMoo/barn/vm.(*StackFrame).visitFinalizableCandidates
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).Execute
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).ExecuteLoop
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).Return
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).executeLoop
+         0     0%  0.19%     3.01MB  0.19%  github.com/MongooseMoo/barn/vm.(*VM).popFrame
+         0     0%  0.19%     3.01MB  0.19%  runtime/pprof.Do

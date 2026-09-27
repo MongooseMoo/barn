@@ -1,0 +1,6 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects8-4         	    4599	    549803 ns/op	   22634 B/op	     147 allocs/op
+PASS

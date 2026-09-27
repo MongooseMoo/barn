@@ -1,0 +1,33 @@
+File: engine-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-candidate.exe2026-09-26 22:33:17.6490536 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:48:52 MDT
+Showing nodes accounting for 1431.15MB, 95.49% of 1498.74MB total
+Dropped 139 nodes (cum <= 7.49MB)
+Showing top 25 nodes out of 64
+      flat  flat%   sum%        cum   cum%
+ 1028.69MB 68.64% 68.64%  1028.69MB 68.64%  github.com/MongooseMoo/barn/db/format.(*Database).resolvePropertyNames
+   74.14MB  4.95% 73.58%    95.65MB  6.38%  github.com/MongooseMoo/barn/db/store.cloneObjectForReadTxn
+   60.13MB  4.01% 77.60%    60.13MB  4.01%  github.com/MongooseMoo/barn/types.(*mapBuilder).leaf (inline)
+   56.50MB  3.77% 81.37%    56.50MB  3.77%  github.com/MongooseMoo/barn/types.NewStr (inline)
+   36.13MB  2.41% 83.78%   239.79MB 16.00%  github.com/MongooseMoo/barn/db/format.(*Database).readValueAfterType
+   29.51MB  1.97% 85.75%    29.51MB  1.97%  internal/bytealg.MakeNoZero
+      25MB  1.67% 87.41%       25MB  1.67%  github.com/MongooseMoo/barn/types.newMapIndexBranch (inline)
+   21.51MB  1.44% 88.85%    21.51MB  1.44%  github.com/MongooseMoo/barn/db/store.cloneVerbForReadTxn (inline)
+   19.50MB  1.30% 90.15%    19.50MB  1.30%  github.com/MongooseMoo/barn/types.newSliceList (inline)
+   19.02MB  1.27% 91.42%    19.02MB  1.27%  github.com/MongooseMoo/barn/types.(*mapBuilder).order (inline)
+   18.51MB  1.23% 92.65%    18.51MB  1.23%  github.com/MongooseMoo/barn/db/store.NewObjectBuilder (inline)
+   15.50MB  1.03% 93.69%       27MB  1.80%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).storeVerbDispatchMemo
+       9MB   0.6% 94.29%   115.15MB  7.68%  github.com/MongooseMoo/barn/types.NewMap
+    7.50MB   0.5% 94.79%     7.50MB   0.5%  github.com/MongooseMoo/barn/types.(*waifRep).setLocked
+       4MB  0.27% 95.06%   266.98MB 17.81%  github.com/MongooseMoo/barn/db/format.(*Database).readObjectCommon
+    3.50MB  0.23% 95.29%       12MB   0.8%  github.com/MongooseMoo/barn/db/format.(*Database).readVerbCode
+       2MB  0.13% 95.42%        8MB  0.53%  github.com/MongooseMoo/barn/db/store.(*ObjectBuilder).Build
+    0.50MB 0.033% 95.46%    26.01MB  1.74%  github.com/MongooseMoo/barn/vm.(*VM).executeCallVerbNamed
+    0.50MB 0.033% 95.49%    26.01MB  1.74%  github.com/MongooseMoo/barn/vm.(*VM).startVerbCall
+         0     0% 95.49%    29.01MB  1.94%  bufio.(*Reader).ReadString
+         0     0% 95.49%    29.56MB  1.97%  github.com/MongooseMoo/barn/builtins.(*Session).CallByIDWithExecution
+         0     0% 95.49%    29.56MB  1.97%  github.com/MongooseMoo/barn/builtins.(*Session).dispatch
+         0     0% 95.49%    13.51MB   0.9%  github.com/MongooseMoo/barn/builtins.builtinRespondTo
+         0     0% 95.49%    10.01MB  0.67%  github.com/MongooseMoo/barn/builtins.findCallableVerbForRead
+         0     0% 95.49%     9.03MB   0.6%  github.com/MongooseMoo/barn/db/format.(*Database).NewStoreFromDatabase

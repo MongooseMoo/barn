@@ -1,0 +1,96 @@
+File: conversion-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\conversion-base.exe2026-09-26 22:21:27.4365592 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:29:46 MDT
+Duration: 2.50s, Total samples = 3.27s (130.70%)
+Showing nodes accounting for 3.09s, 94.50% of 3.27s total
+Dropped 47 nodes (cum <= 0.02s)
+      flat  flat%   sum%        cum   cum%
+     1.22s 37.31% 37.31%      2.13s 65.14%  github.com/MongooseMoo/barn/builtins.filterTextMode
+     0.39s 11.93% 49.24%      0.90s 27.52%  strings.(*Builder).WriteByte (inline)
+     0.25s  7.65% 56.88%      0.25s  7.65%  runtime.memmove
+     0.17s  5.20% 62.08%      0.17s  5.20%  runtime.sysUnusedOS
+     0.10s  3.06% 65.14%      0.13s  3.98%  runtime.lock2
+     0.10s  3.06% 68.20%      0.10s  3.06%  runtime.preemptM
+     0.09s  2.75% 70.95%      0.09s  2.75%  runtime.memclrNoHeapPointers
+     0.09s  2.75% 73.70%      0.15s  4.59%  runtime.typePointers.next
+     0.09s  2.75% 76.45%      0.09s  2.75%  runtime.typePointers.nextFast (inline)
+     0.07s  2.14% 78.59%      0.11s  3.36%  runtime.unlock2
+     0.06s  1.83% 80.43%      0.06s  1.83%  strings.(*Builder).copyCheck (inline)
+     0.04s  1.22% 81.65%      0.04s  1.22%  runtime.(*mLockProfile).store (inline)
+     0.04s  1.22% 82.87%      0.24s  7.34%  runtime.scanObject
+     0.04s  1.22% 84.10%      0.07s  2.14%  runtime.scanblock
+     0.04s  1.22% 85.32%      0.05s  1.53%  runtime.tryDeferToSpanScan
+     0.03s  0.92% 86.24%      0.13s  3.98%  runtime.freeDeadSpanSPMCs
+     0.03s  0.92% 87.16%      0.03s  0.92%  runtime.semasleep
+     0.03s  0.92% 88.07%      0.08s  2.45%  runtime.sweepone
+     0.03s  0.92% 88.99%      0.03s  0.92%  runtime.sysUsedOS
+     0.02s  0.61% 89.60%      0.02s  0.61%  runtime.(*lfstack).pop
+     0.02s  0.61% 90.21%      0.02s  0.61%  runtime.arenaIndex (inline)
+     0.02s  0.61% 90.83%      0.02s  0.61%  runtime.asyncPreempt
+     0.02s  0.61% 91.44%      0.02s  0.61%  runtime.extractHeapBitsSmall
+     0.02s  0.61% 92.05%      0.02s  0.61%  runtime.semawakeup
+     0.01s  0.31% 92.35%      0.04s  1.22%  runtime.(*mcache).refill
+     0.01s  0.31% 92.66%      0.02s  0.61%  runtime.(*mcentral).uncacheSpan
+     0.01s  0.31% 92.97%      0.03s  0.92%  runtime.(*spanSet).push
+     0.01s  0.31% 93.27%      0.35s 10.70%  runtime.bgsweep
+     0.01s  0.31% 93.58%      0.08s  2.45%  runtime.freeSomeWbufs
+     0.01s  0.31% 93.88%      0.41s 12.54%  runtime.gcBgMarkWorker
+     0.01s  0.31% 94.19%      0.03s  0.92%  runtime.schedule
+     0.01s  0.31% 94.50%      0.12s  3.67%  runtime.unlockWithRank (inline)
+         0     0% 94.50%      2.14s 65.44%  github.com/MongooseMoo/barn/builtins.BenchmarkFileConversion.func1
+         0     0% 94.50%      0.02s  0.61%  runtime.(*mcache).allocLarge
+         0     0% 94.50%      0.04s  1.22%  runtime.(*mcache).nextFree
+         0     0% 94.50%      0.04s  1.22%  runtime.(*mheap).alloc.func1
+         0     0% 94.50%      0.04s  1.22%  runtime.(*mheap).allocSpan
+         0     0% 94.50%      0.02s  0.61%  runtime.(*mheap).freeSpan (inline)
+         0     0% 94.50%      0.02s  0.61%  runtime.(*mheap).freeSpanLocked
+         0     0% 94.50%      0.02s  0.61%  runtime.(*pageAlloc).free
+         0     0% 94.50%      0.17s  5.20%  runtime.(*pageAlloc).scavenge.func1
+         0     0% 94.50%      0.17s  5.20%  runtime.(*pageAlloc).scavengeOne
+         0     0% 94.50%      0.02s  0.61%  runtime.(*stkframe).getStackMap
+         0     0% 94.50%      0.04s  1.22%  runtime.(*sweepLocked).sweep
+         0     0% 94.50%      0.02s  0.61%  runtime.(*sweepLocked).sweep.(*mheap).freeSpan.func2
+         0     0% 94.50%      0.02s  0.61%  runtime.deductAssistCredit
+         0     0% 94.50%      0.02s  0.61%  runtime.findObject
+         0     0% 94.50%      0.02s  0.61%  runtime.findRunnable
+         0     0% 94.50%      0.03s  0.92%  runtime.forEachPInternal
+         0     0% 94.50%      0.02s  0.61%  runtime.gcAssistAlloc
+         0     0% 94.50%      0.04s  1.22%  runtime.gcAssistAlloc.func2
+         0     0% 94.50%      0.04s  1.22%  runtime.gcAssistAlloc1
+         0     0% 94.50%      0.42s 12.84%  runtime.gcBgMarkWorker.func2
+         0     0% 94.50%      0.42s 12.84%  runtime.gcDrain
+         0     0% 94.50%      0.13s  3.98%  runtime.gcDrainMarkWorkerDedicated (inline)
+         0     0% 94.50%      0.29s  8.87%  runtime.gcDrainMarkWorkerIdle (inline)
+         0     0% 94.50%      0.03s  0.92%  runtime.gcDrainN
+         0     0% 94.50%      0.02s  0.61%  runtime.gcMarkDone.forEachP.func5
+         0     0% 94.50%      0.02s  0.61%  runtime.gcMarkDone.func2
+         0     0% 94.50%      0.02s  0.61%  runtime.gopreempt_m (inline)
+         0     0% 94.50%      0.06s  1.83%  runtime.goschedImpl
+         0     0% 94.50%      0.04s  1.22%  runtime.gosched_m
+         0     0% 94.50%      0.44s 13.46%  runtime.growslice
+         0     0% 94.50%      0.13s  3.98%  runtime.lock (inline)
+         0     0% 94.50%      0.13s  3.98%  runtime.lockWithRank (inline)
+         0     0% 94.50%      0.10s  3.06%  runtime.mallocgc
+         0     0% 94.50%      0.02s  0.61%  runtime.mallocgcLarge
+         0     0% 94.50%      0.06s  1.83%  runtime.mallocgcSmallNoscan
+         0     0% 94.50%      0.15s  4.59%  runtime.markroot
+         0     0% 94.50%      0.08s  2.45%  runtime.markroot.func1
+         0     0% 94.50%      0.07s  2.14%  runtime.markrootBlock
+         0     0% 94.50%      0.06s  1.83%  runtime.mcall
+         0     0% 94.50%      0.02s  0.61%  runtime.notewakeup
+         0     0% 94.50%      0.05s  1.53%  runtime.preemptall
+         0     0% 94.50%      0.05s  1.53%  runtime.preemptone
+         0     0% 94.50%      0.05s  1.53%  runtime.scanObjectsSmall
+         0     0% 94.50%      0.06s  1.83%  runtime.scanSpan
+         0     0% 94.50%      0.03s  0.92%  runtime.scanframeworker
+         0     0% 94.50%      0.03s  0.92%  runtime.scanstack
+         0     0% 94.50%      0.02s  0.61%  runtime.spanOf (inline)
+         0     0% 94.50%      0.02s  0.61%  runtime.stopTheWorldWithSema
+         0     0% 94.50%      0.05s  1.53%  runtime.suspendG
+         0     0% 94.50%      0.17s  5.20%  runtime.sysUnused (inline)
+         0     0% 94.50%      0.03s  0.92%  runtime.sysUsed (inline)
+         0     0% 94.50%      0.75s 22.94%  runtime.systemstack
+         0     0% 94.50%      0.12s  3.67%  runtime.unlock (inline)
+         0     0% 94.50%      2.14s 65.44%  testing.(*B).run1.func1
+         0     0% 94.50%      2.14s 65.44%  testing.(*B).runN

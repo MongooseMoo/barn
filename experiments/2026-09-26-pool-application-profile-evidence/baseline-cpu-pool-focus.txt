@@ -1,0 +1,41 @@
+File: engine-baseline.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-baseline.exe2026-09-26 22:18:29.2552463 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:49:22 MDT
+Duration: 65.99s, Total samples = 68.64s (104.02%)
+Active filters:
+   focus=Unique|FileRead|Finalization|Finalizer|Pending.*Root|pending.*Root
+Showing nodes accounting for 3.63s, 5.29% of 68.64s total
+Dropped 46 nodes (cum <= 0.34s)
+Showing top 30 nodes out of 73
+      flat  flat%   sum%        cum   cum%
+     0.46s  0.67%  0.67%      3.05s  4.44%  github.com/MongooseMoo/barn/vm.(*StackFrame).visitFinalizableCandidates
+     0.37s  0.54%  1.21%      0.74s  1.08%  runtime.newobject
+     0.28s  0.41%  1.62%      0.28s  0.41%  github.com/MongooseMoo/barn/types.(*waifRep).equal (inline)
+     0.21s  0.31%  1.92%      0.22s  0.32%  runtime.makeSpanClass (inline)
+     0.20s  0.29%  2.21%      0.20s  0.29%  runtime.asyncPreempt
+     0.19s  0.28%  2.49%      0.63s  0.92%  runtime.mapaccess2
+     0.17s  0.25%  2.74%      0.21s  0.31%  github.com/MongooseMoo/barn/types.Value.Type (inline)
+     0.15s  0.22%  2.96%      0.40s  0.58%  github.com/MongooseMoo/barn/types.Value.MayHoldFinalizable (inline)
+     0.15s  0.22%  3.18%      0.50s  0.73%  github.com/MongooseMoo/barn/vm.pendingFinalizationValueInList
+     0.15s  0.22%  3.39%      0.15s  0.22%  internal/runtime/maps.ctrlGroup.matchH2 (inline)
+     0.14s   0.2%  3.60%      0.49s  0.71%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+     0.14s   0.2%  3.80%      0.14s   0.2%  internal/runtime/maps.(*Map).directoryAt (inline)
+     0.10s  0.15%  3.95%      1.09s  1.59%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+     0.08s  0.12%  4.06%      0.18s  0.26%  github.com/MongooseMoo/barn/types.(*sliceList).finalizableState
+     0.07s   0.1%  4.17%      0.28s  0.41%  github.com/MongooseMoo/barn/types.Value.containerMayHoldFinalizable
+     0.07s   0.1%  4.27%      3.61s  5.26%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame
+     0.07s   0.1%  4.37%      0.29s  0.42%  runtime.growslice
+     0.07s   0.1%  4.47%      0.13s  0.19%  runtime.rand
+     0.06s 0.087%  4.56%      0.50s  0.73%  github.com/MongooseMoo/barn/vm.(*VM).collectDirectWaifsForGC
+     0.06s 0.087%  4.65%      0.56s  0.82%  runtime.mallocgc
+     0.06s 0.087%  4.73%      0.11s  0.16%  runtime.memhash128
+     0.05s 0.073%  4.81%      0.05s 0.073%  aeshashbody
+     0.05s 0.073%  4.88%      0.33s  0.48%  github.com/MongooseMoo/barn/types.Value.Equal
+     0.05s 0.073%  4.95%      0.05s 0.073%  internal/runtime/maps.(*Iter).Init
+     0.04s 0.058%  5.01%      0.04s 0.058%  internal/chacha8rand.block
+     0.04s 0.058%  5.07%      0.05s 0.073%  runtime.(*mspan).writeHeapBitsSmall
+     0.04s 0.058%  5.13%      0.12s  0.17%  runtime.mapIterStart
+     0.04s 0.058%  5.19%      0.04s 0.058%  runtime.memclrNoHeapPointers
+     0.04s 0.058%  5.24%      0.04s 0.058%  runtime.nextFreeFast (inline)
+     0.03s 0.044%  5.29%      2.13s  3.10%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame.func1

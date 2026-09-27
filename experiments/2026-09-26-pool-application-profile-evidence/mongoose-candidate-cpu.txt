@@ -1,0 +1,16 @@
+=== RUN   TestMongooseRealWorkload
+    mongoose_real_bench_test.go:242: loaded C:\Users\Q\code\barn-pool-campaign\.tmp\mongoose.db in 29.7055677s
+    mongoose_real_bench_test.go:252: players with valid location: 190
+2026/09/26 22:51:20 INFO Creating database schema for database 'news.sqlite'... task_id=0 player=0 verb="" src=server_log
+2026/09/26 22:51:20 INFO Creating database schema for database 'log.sqlite'... task_id=0 player=0 verb="" src=server_log
+    mongoose_real_bench_test.go:368: snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: {1, {0, 4, {1, 2, 3}, 1, {#36, "r"}}}
+    mongoose_real_bench_test.go:381: GOMAXPROCS=4 warmup=1s measure=5s mix=[{look look 35} {say say Hello there, this is a benchmark message! 30} {inventory i 10} {who @who 10} {home home 15}]
+    mongoose_real_bench_test.go:518: players=1 goodput=73/s failed=0 uncaught=0 abort=0.12% elided=1875 p50=7.26ms p99=117.18ms max=966.68ms allocs/op=27473 bytes/op=2365306 GCs=0
+    mongoose_real_bench_test.go:528:   shape look       ok=137      fail=0      avg=26.90ms attempts=275 retries=1
+    mongoose_real_bench_test.go:528:   shape say        ok=147      fail=0      avg=8.92ms attempts=294 retries=0
+    mongoose_real_bench_test.go:528:   shape inventory  ok=39       fail=0      avg=7.56ms attempts=78 retries=0
+    mongoose_real_bench_test.go:528:   shape who        ok=39       fail=0      avg=8.80ms attempts=78 retries=0
+    mongoose_real_bench_test.go:528:   shape home       ok=56       fail=0      avg=2.02ms attempts=112 retries=0
+    mongoose_real_bench_test.go:538:   idle 2s: attempts=0 successes=0 retries=0
+--- PASS: TestMongooseRealWorkload (80.21s)
+PASS

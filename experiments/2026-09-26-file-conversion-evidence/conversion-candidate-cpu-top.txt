@@ -1,0 +1,57 @@
+File: conversion-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\conversion-candidate.exe2026-09-26 22:23:21.579112 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:29:49 MDT
+Duration: 2.40s, Total samples = 2.64s (109.99%)
+Showing nodes accounting for 2.54s, 96.21% of 2.64s total
+Dropped 42 nodes (cum <= 0.01s)
+      flat  flat%   sum%        cum   cum%
+     1.65s 62.50% 62.50%      2.27s 85.98%  github.com/MongooseMoo/barn/builtins.filterTextMode
+     0.44s 16.67% 79.17%      0.58s 21.97%  strings.(*Builder).WriteByte (inline)
+     0.13s  4.92% 84.09%      0.13s  4.92%  strings.(*Builder).copyCheck (inline)
+     0.06s  2.27% 86.36%      0.06s  2.27%  runtime.sysUnusedOS
+     0.04s  1.52% 87.88%      0.04s  1.52%  runtime.lock2
+     0.04s  1.52% 89.39%      0.04s  1.52%  runtime.semawakeup
+     0.04s  1.52% 90.91%      0.05s  1.89%  runtime.unlock2
+     0.03s  1.14% 92.05%      0.03s  1.14%  runtime.typePointers.next
+     0.02s  0.76% 92.80%      0.02s  0.76%  internal/runtime/atomic.(*Bool).Load (inline)
+     0.02s  0.76% 93.56%      0.02s  0.76%  runtime.asyncPreempt
+     0.02s  0.76% 94.32%      0.02s  0.76%  runtime.preemptM
+     0.02s  0.76% 95.08%      0.03s  1.14%  runtime.sweepone
+     0.01s  0.38% 95.45%      0.17s  6.44%  runtime.bgsweep
+     0.01s  0.38% 95.83%      0.05s  1.89%  runtime.scanObject
+     0.01s  0.38% 96.21%      0.06s  2.27%  runtime.unlockWithRank (inline)
+         0     0% 96.21%      2.27s 85.98%  github.com/MongooseMoo/barn/builtins.BenchmarkFileConversion.func1
+         0     0% 96.21%      0.03s  1.14%  internal/bytealg.MakeNoZero
+         0     0% 96.21%      0.06s  2.27%  runtime.(*pageAlloc).scavenge.func1
+         0     0% 96.21%      0.06s  2.27%  runtime.(*pageAlloc).scavengeOne
+         0     0% 96.21%      0.08s  3.03%  runtime.freeDeadSpanSPMCs
+         0     0% 96.21%      0.03s  1.14%  runtime.freeSomeWbufs
+         0     0% 96.21%      0.07s  2.65%  runtime.gcBgMarkWorker
+         0     0% 96.21%      0.08s  3.03%  runtime.gcBgMarkWorker.func2
+         0     0% 96.21%      0.08s  3.03%  runtime.gcDrain
+         0     0% 96.21%      0.03s  1.14%  runtime.gcDrainMarkWorkerDedicated (inline)
+         0     0% 96.21%      0.05s  1.89%  runtime.gcDrainMarkWorkerIdle (inline)
+         0     0% 96.21%      0.02s  0.76%  runtime.gopreempt_m (inline)
+         0     0% 96.21%      0.04s  1.52%  runtime.goschedImpl
+         0     0% 96.21%      0.02s  0.76%  runtime.gosched_m
+         0     0% 96.21%      0.04s  1.52%  runtime.lock (inline)
+         0     0% 96.21%      0.04s  1.52%  runtime.lockWithRank (inline)
+         0     0% 96.21%      0.04s  1.52%  runtime.mallocgc
+         0     0% 96.21%      0.03s  1.14%  runtime.mallocgcLarge
+         0     0% 96.21%      0.03s  1.14%  runtime.markroot
+         0     0% 96.21%      0.02s  0.76%  runtime.markroot.func1
+         0     0% 96.21%      0.03s  1.14%  runtime.mcall
+         0     0% 96.21%      0.02s  0.76%  runtime.morestack
+         0     0% 96.21%      0.02s  0.76%  runtime.newstack
+         0     0% 96.21%      0.04s  1.52%  runtime.notewakeup
+         0     0% 96.21%      0.03s  1.14%  runtime.startm
+         0     0% 96.21%      0.02s  0.76%  runtime.suspendG
+         0     0% 96.21%      0.06s  2.27%  runtime.sysUnused (inline)
+         0     0% 96.21%      0.17s  6.44%  runtime.systemstack
+         0     0% 96.21%      0.06s  2.27%  runtime.unlock (inline)
+         0     0% 96.21%      0.03s  1.14%  runtime.wakep
+         0     0% 96.21%      0.03s  1.14%  strings.(*Builder).Grow
+         0     0% 96.21%      0.03s  1.14%  strings.(*Builder).grow
+         0     0% 96.21%      2.27s 85.98%  testing.(*B).run1.func1
+         0     0% 96.21%      2.27s 85.98%  testing.(*B).runN

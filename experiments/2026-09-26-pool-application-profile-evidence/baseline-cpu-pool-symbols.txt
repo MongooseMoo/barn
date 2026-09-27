@@ -1,0 +1,20 @@
+File: engine-baseline.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-baseline.exe2026-09-26 22:18:29.2552463 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:49:22 MDT
+Duration: 65.99s, Total samples = 68.64s (104.02%)
+Active filters:
+   show=Unique|FileRead|Finalization|Finalizer|Pending.*Root|pending.*Root|finaliza…
+Showing nodes accounting for 4.04s, 5.89% of 68.64s total
+      flat  flat%   sum%        cum   cum%
+     1.45s  2.11%  2.11%      2.13s  3.10%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame.func1
+     0.99s  1.44%  3.55%      3.61s  5.26%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame
+     0.59s  0.86%  4.41%      1.09s  1.59%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+     0.50s  0.73%  5.14%      0.50s  0.73%  github.com/MongooseMoo/barn/vm.pendingFinalizationValueInList
+     0.49s  0.71%  5.86%      0.49s  0.71%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+     0.01s 0.015%  5.87%      0.02s 0.029%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromValue
+     0.01s 0.015%  5.89%      0.01s 0.015%  runtime.SetFinalizer
+         0     0%  5.89%      0.40s  0.58%  github.com/MongooseMoo/barn/engine.(*Runtime).settleCompletedTaskFinalizations
+         0     0%  5.89%      0.40s  0.58%  github.com/MongooseMoo/barn/vm.CollectDirectFinalizationRoots
+         0     0%  5.89%      0.40s  0.58%  github.com/MongooseMoo/barn/vm.CollectDirectFinalizationRoots.collectDirectFinalizationRootsFromVM.func1
+         0     0%  5.89%      0.40s  0.58%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRootsFromVM (inline)

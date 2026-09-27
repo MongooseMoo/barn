@@ -1,0 +1,180 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2514910	        95.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  793282	       286.5 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  766405	       354.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  348098	       632.0 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    8296	     40305 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7887	     45993 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    6732	     44973 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7813	     42110 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2070657	       114.8 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       224.7 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  322047	       912.9 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  203547	      1253 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  251571	       900.0 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2504688	        94.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  817660	       298.9 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  643345	       363.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  407151	       640.0 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    8182	     37027 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7694	     39707 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8959	     40146 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7714	     41795 ns/op	   19049 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2204536	       110.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       248.3 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  300909	      1055 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  183750	     12163 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  186418	      1469 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2048455	       148.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  583869	      1371 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  637873	       393.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  390974	       815.9 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    8148	     39610 ns/op	   18857 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    5604	     43115 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    7261	     41489 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7320	     42273 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 1934794	       126.5 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       392.8 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  243163	      1520 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  121072	      2455 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  179930	      1407 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2202073	       104.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  756190	       573.7 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  615079	       407.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  277328	      1117 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    7414	     42067 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7074	     48343 ns/op	   19049 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8762	     40666 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    8410	     46037 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2055723	       116.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       241.3 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  253401	       957.5 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  203522	      1158 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  273058	       971.6 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2526567	        95.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  648490	       315.0 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  698791	       354.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  351349	       605.0 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    8530	     34546 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    8319	     39331 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8959	     41475 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7677	     42168 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2163727	       114.5 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       222.3 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  268828	       931.2 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  222435	      1265 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  255802	       822.2 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 1742970	       122.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  471985	       575.7 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  635172	       374.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  392060	       799.7 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    6908	     63243 ns/op	   18857 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    6202	     55414 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8691	     46021 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    4960	     70239 ns/op	   19049 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 1821924	       125.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	  944769	       296.9 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  221287	      1326 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  188664	      1665 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  174992	      2313 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 1766145	       133.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  711616	       716.0 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  741747	       373.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  404755	       936.6 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    7064	     39457 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7071	     55119 ns/op	   19049 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8622	     42238 ns/op	   18857 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7711	     50207 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 1759209	       141.3 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       247.2 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  272986	       963.8 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  211554	      1553 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  120662	      1999 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2475826	        94.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  740169	       334.5 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  676646	       355.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  392451	       602.3 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    8356	     41126 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7318	     42963 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    8150	     37088 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7630	     41614 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2229405	       108.6 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       231.1 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  271069	       842.4 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  216621	      1195 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  262558	      1057 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2632020	        92.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  769748	       285.6 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  735204	       343.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  364292	       609.3 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    7228	     39359 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    8241	     42502 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    7609	     40193 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    7897	     44286 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 2127915	       114.7 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       222.3 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  314246	      1049 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  216198	      1251 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  225393	      1028 ns/op	     912 B/op	      10 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Value-32         	 2360257	       101.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/1/Frame-32         	  673268	       336.9 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Value-32         	  648666	       368.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/8/Frame-32         	  341064	       776.6 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Value-32       	    6790	     44318 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/256/Frame-32       	    7903	     59660 ns/op	   19049 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Value-32       	    4545	     46386 ns/op	   18856 B/op	      13 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Anonymous/257/Frame-32       	    8206	     47547 ns/op	   19048 B/op	      15 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Value-32              	 1927698	       121.8 ns/op	      24 B/op	       1 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/1/Frame-32              	 1000000	       227.9 ns/op	      72 B/op	       2 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Value-32              	  215155	      1067 ns/op	     360 B/op	       4 allocs/op
+BenchmarkPendingFinalizationDiagnostic/Waif/8/Frame-32              	  171225	      1247 ns/op	     408 B/op	       5 allocs/op
+BenchmarkPendingFinalizationDiagnostic/ParallelMixed-32             	  206074	      1087 ns/op	     912 B/op	      10 allocs/op
+PASS

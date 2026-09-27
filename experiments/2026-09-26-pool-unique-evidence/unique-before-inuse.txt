@@ -1,0 +1,99 @@
+File: unique-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\unique-base.exe2026-09-26 22:14:56.4095801 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:14:58 MDT
+Showing nodes accounting for 24.06kB, 98.37% of 24.46kB total
+Dropped 40 nodes (cum <= 0.12kB)
+      flat  flat%   sum%        cum   cum%
+   18.17kB 74.29% 74.29%    18.17kB 74.29%  runtime.mallocgc
+    1.55kB  6.32% 80.61%     1.55kB  6.32%  regexp.onePassCopy
+    1.38kB  5.62% 86.23%     1.38kB  5.62%  regexp/syntax.(*compiler).inst (inline)
+    1.02kB  4.15% 90.39%     1.02kB  4.15%  sync.(*Pool).pinSlow
+    0.88kB  3.58% 93.96%     0.88kB  3.58%  github.com/MongooseMoo/barn/builtins.builtinUnique
+    0.22kB  0.89% 94.86%     0.22kB  0.89%  testing.(*B).run1
+    0.20kB  0.83% 95.69%     0.20kB  0.83%  fmt.init.func1
+    0.20kB   0.8% 96.49%     0.20kB   0.8%  os.newFile
+    0.18kB  0.73% 97.22%     3.34kB 13.64%  regexp.compile
+    0.16kB  0.64% 97.86%     0.16kB  0.64%  internal/sync.newIndirectNode[go.shape.interface {},go.shape.interface {}] (inline)
+    0.12kB  0.51% 98.37%     0.12kB  0.51%  regexp/syntax.(*parser).maybeConcat
+         0     0% 98.37%     0.59kB  2.43%  fmt.Fprintf
+         0     0% 98.37%     0.70kB  2.87%  fmt.Sprintf
+         0     0% 98.37%     0.70kB  2.87%  fmt.newPrinter
+         0     0% 98.37%     1.55kB  6.32%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolUnique
+         0     0% 98.37%     0.88kB  3.58%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolUnique.func1
+         0     0% 98.37%     0.59kB  2.43%  internal/poll.(*FD).Write
+         0     0% 98.37%     0.59kB  2.43%  internal/poll.(*FD).execIO
+         0     0% 98.37%     0.16kB  0.64%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Delete (inline)
+         0     0% 98.37%     0.16kB  0.64%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).LoadAndDelete
+         0     0% 98.37%     0.16kB  0.64%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).init
+         0     0% 98.37%     0.16kB  0.64%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).initSlow
+         0     0% 98.37%     3.87kB 15.81%  main.main
+         0     0% 98.37%     0.59kB  2.43%  os.(*File).Write
+         0     0% 98.37%     0.59kB  2.43%  os.(*File).write (inline)
+         0     0% 98.37%     0.24kB  0.99%  os.Create (inline)
+         0     0% 98.37%     0.24kB  0.99%  os.OpenFile
+         0     0% 98.37%     0.24kB  0.99%  os.openFileNolog
+         0     0% 98.37%     3.34kB 13.64%  regexp.Compile (inline)
+         0     0% 98.37%     1.56kB  6.39%  regexp.compileOnePass
+         0     0% 98.37%     1.38kB  5.62%  regexp/syntax.(*compiler).compile
+         0     0% 98.37%     1.38kB  5.62%  regexp/syntax.(*compiler).rune
+         0     0% 98.37%     0.12kB  0.51%  regexp/syntax.(*parser).literal
+         0     0% 98.37%     0.12kB  0.51%  regexp/syntax.(*parser).push
+         0     0% 98.37%     1.42kB  5.81%  regexp/syntax.Compile
+         0     0% 98.37%     0.12kB  0.51%  regexp/syntax.Parse (inline)
+         0     0% 98.37%     0.12kB  0.51%  regexp/syntax.parse
+         0     0% 98.37%     4.98kB 20.34%  runtime.(*gcControllerState).enlistWorker
+         0     0% 98.37%     0.77kB  3.13%  runtime.acquireSudog
+         0     0% 98.37%     0.12kB  0.51%  runtime.allgadd
+         0     0% 98.37%    11.95kB 48.87%  runtime.allocm
+         0     0% 98.37%     2.77kB 11.31%  runtime.gcBgMarkWorker
+         0     0% 98.37%     4.98kB 20.34%  runtime.gcBgMarkWorker.func2
+         0     0% 98.37%     4.98kB 20.34%  runtime.gcDrain
+         0     0% 98.37%     4.98kB 20.34%  runtime.gcDrainMarkWorkerIdle (inline)
+         0     0% 98.37%     0.77kB  3.13%  runtime.gcMarkDone
+         0     0% 98.37%     0.17kB   0.7%  runtime.growslice
+         0     0% 98.37%     4.50kB 18.40%  runtime.mProfStackInit (inline)
+         0     0% 98.37%     3.87kB 15.81%  runtime.main
+         0     0% 98.37%     4.50kB 18.40%  runtime.makeProfStackFP (inline)
+         0     0% 98.37%     4.50kB 18.40%  runtime.makeslice
+         0     0% 98.37%     4.22kB 17.25%  runtime.malg
+         0     0% 98.37%     4.98kB 20.34%  runtime.mcall
+         0     0% 98.37%     5.02kB 20.50%  runtime.mcommoninit
+         0     0% 98.37%        2kB  8.18%  runtime.mstart
+         0     0% 98.37%        2kB  8.18%  runtime.mstart0
+         0     0% 98.37%        2kB  8.18%  runtime.mstart1
+         0     0% 98.37%    11.95kB 48.87%  runtime.newm
+         0     0% 98.37%    13.50kB 55.19%  runtime.newobject
+         0     0% 98.37%     3.41kB 13.93%  runtime.newproc.func1
+         0     0% 98.37%     3.41kB 13.93%  runtime.newproc1
+         0     0% 98.37%     4.98kB 20.34%  runtime.park_m
+         0     0% 98.37%     6.98kB 28.52%  runtime.resetspinning
+         0     0% 98.37%     6.98kB 28.52%  runtime.schedule
+         0     0% 98.37%     0.77kB  3.13%  runtime.semacquire (inline)
+         0     0% 98.37%     0.77kB  3.13%  runtime.semacquire1
+         0     0% 98.37%    11.95kB 48.87%  runtime.startm
+         0     0% 98.37%     8.38kB 34.27%  runtime.systemstack
+         0     0% 98.37%    11.95kB 48.87%  runtime.wakep
+         0     0% 98.37%     0.16kB  0.64%  sync.(*Map).Delete (inline)
+         0     0% 98.37%     0.32kB  1.31%  sync.(*Once).Do (partial-inline)
+         0     0% 98.37%     0.32kB  1.31%  sync.(*Once).doSlow
+         0     0% 98.37%     1.27kB  5.17%  sync.(*Pool).Get
+         0     0% 98.37%     1.02kB  4.15%  sync.(*Pool).pin
+         0     0% 98.37%     1.66kB  6.77%  testing.(*B).Run
+         0     0% 98.37%     1.44kB  5.88%  testing.(*B).run
+         0     0% 98.37%     2.42kB  9.90%  testing.(*B).run1.func1
+         0     0% 98.37%     2.53kB 10.35%  testing.(*B).runN
+         0     0% 98.37%     3.87kB 15.81%  testing.(*M).Run
+         0     0% 98.37%     0.24kB  0.99%  testing.(*M).after
+         0     0% 98.37%     0.24kB  0.99%  testing.(*M).after.func1
+         0     0% 98.37%     0.24kB  0.99%  testing.(*M).writeProfiles
+         0     0% 98.37%     1.36kB  5.56%  testing.(*benchState).processBench
+         0     0% 98.37%     0.70kB  2.87%  testing.benchmarkName (inline)
+         0     0% 98.37%     3.36kB 13.73%  testing.newMatcher
+         0     0% 98.37%     3.47kB 14.18%  testing.runBenchmarks
+         0     0% 98.37%     0.16kB  0.64%  testing.runTests
+         0     0% 98.37%     3.36kB 13.73%  testing.simpleMatch.verify
+         0     0% 98.37%     0.16kB  0.64%  testing.tRunner
+         0     0% 98.37%     0.16kB  0.64%  testing.tRunner.func1
+         0     0% 98.37%     0.16kB  0.64%  testing.tRunner.func1.1
+         0     0% 98.37%     3.34kB 13.64%  testing/internal/testdeps.TestDeps.MatchString
