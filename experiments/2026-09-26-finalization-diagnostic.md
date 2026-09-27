@@ -35,3 +35,27 @@ by this diagnostic. Missing rows, failed assertions, nonzero exits or mismatched
 evaluator sources invalidate the affected measurement. No selective reruns.
 
 No baseline/candidate builds or CPU tests have run as of this preregistration.
+
+## Evaluator preparation (before builds or measurements)
+
+Preregistration/harness commit: 000d0fe. Harness Git blob:
+794d3e3d1f72f6b7f79e6cd4d0602e5e7501a3dc; on-disk SHA256:
+18096FC819941DC37040D91130603A7209996F03F6A2383BF48E420ACF1EE460.
+
+Go overlays make both binaries share the same diagnostic evaluator and all other
+tests. Both replace vm/finalization_scratch_test.go (candidate-only API contracts)
+with `.tmp/diagnostic-empty-test.go`, containing only `package vm`, SHA256
+557693541E08F709730DB064B251AED9CCC4135295D757E1481DC6BB5F52AE51.
+Baseline additionally replaces vm/anonymous_gc.go with output from
+`git show 3c0f510:vm/anonymous_gc.go`, SHA256
+C438C6134445076D0F2F08856D1B6802B2FCA265AFF37D3870EF340F861E8B87.
+No other overlay substitutions. Overlay files reside under .tmp as
+diagnostic-baseline-overlay.json and diagnostic-candidate-overlay.json.
+Production checkout files are unchanged. The previous contract tests remain
+unchanged on disk and committed; only these diagnostic binaries exclude them.
+
+Sequential rows warm PendingFinalizations and identity maps once before b.Loop;
+they do not drain/reinitialize those retained maps during measurement. This
+isolates repeated-root scratch overhead, not task/new-VM lifecycle cost.
+ParallelMixed initializes one VM per benchmark worker inside RunParallel, so
+amortized per-worker initialization is included identically on both sides.
