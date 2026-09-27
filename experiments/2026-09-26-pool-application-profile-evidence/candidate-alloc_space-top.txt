@@ -1,0 +1,33 @@
+File: engine-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-candidate.exe2026-09-26 22:33:17.6490536 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:48:52 MDT
+Showing nodes accounting for 8.28GB, 88.60% of 9.34GB total
+Dropped 345 nodes (cum <= 0.05GB)
+Showing top 25 nodes out of 116
+      flat  flat%   sum%        cum   cum%
+    1.85GB 19.85% 19.85%     2.08GB 22.32%  github.com/MongooseMoo/barn/db/format.(*Database).resolvePropertyNames
+    1.78GB 19.09% 38.94%     1.78GB 19.09%  github.com/MongooseMoo/barn/db/store.(*ObjectBuilder).SetProperty (inline)
+    0.68GB  7.31% 46.24%     0.68GB  7.31%  github.com/MongooseMoo/barn/types.NewStr (inline)
+    0.56GB  5.95% 52.19%     0.56GB  5.95%  github.com/MongooseMoo/barn/types.newSliceList (inline)
+    0.54GB  5.76% 57.95%     0.54GB  5.76%  github.com/MongooseMoo/barn/task.(*Task).GetCallStack
+    0.34GB  3.69% 61.64%     0.34GB  3.69%  github.com/MongooseMoo/barn/vm.(*VM).executeTryExcept
+    0.24GB  2.59% 64.23%     0.24GB  2.59%  internal/bytealg.MakeNoZero
+    0.23GB  2.46% 66.69%     0.23GB  2.46%  github.com/MongooseMoo/barn/db/format.propertyNamesSelfFirstRecursive
+    0.22GB  2.40% 69.09%     0.22GB  2.40%  github.com/MongooseMoo/barn/db/store.(*Store).VerbCandidatesInAncestry
+    0.21GB  2.24% 71.33%     0.69GB  7.35%  github.com/MongooseMoo/barn/builtins.(*Session).maybeProtectedRedirect
+    0.17GB  1.82% 73.15%     0.25GB  2.73%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).HasAncestor
+    0.17GB  1.80% 74.95%     0.21GB  2.29%  github.com/MongooseMoo/barn/db/store.cloneObjectForReadTxn
+    0.15GB  1.65% 76.60%     0.40GB  4.25%  github.com/MongooseMoo/barn/db/format.(*Database).readValueAfterType
+    0.13GB  1.43% 78.03%     0.13GB  1.43%  github.com/MongooseMoo/barn/types.toastLookupInsert
+    0.13GB  1.36% 79.39%     0.13GB  1.36%  github.com/MongooseMoo/barn/vm.errorCode
+    0.11GB  1.20% 80.59%     2.60GB 27.80%  github.com/MongooseMoo/barn/db/format.(*Database).readObjectCommon
+    0.10GB  1.11% 81.70%     0.10GB  1.11%  fmt.Sprintf
+    0.10GB  1.08% 82.78%     0.11GB  1.17%  github.com/MongooseMoo/barn/builtins.builtinLocations
+    0.09GB  1.01% 83.80%     0.33GB  3.52%  github.com/MongooseMoo/barn/builtins.builtinRespondTo
+    0.09GB  0.95% 84.74%     0.31GB  3.28%  github.com/MongooseMoo/barn/types.(*goMap).pairsList
+    0.08GB   0.9% 85.64%     0.08GB   0.9%  github.com/MongooseMoo/barn/types.(*goMap).insertionEntries
+    0.08GB   0.9% 86.54%     0.09GB  0.91%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).Parents
+    0.07GB  0.76% 87.30%     0.07GB  0.76%  github.com/MongooseMoo/barn/vm.(*VM).PopN
+    0.06GB  0.67% 87.97%     0.06GB  0.67%  github.com/MongooseMoo/barn/types.(*sliceList).append
+    0.06GB  0.63% 88.60%     0.06GB  0.63%  github.com/MongooseMoo/barn/types.(*mapBuilder).leaf (inline)

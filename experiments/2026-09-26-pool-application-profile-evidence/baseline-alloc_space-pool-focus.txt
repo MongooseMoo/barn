@@ -1,0 +1,39 @@
+File: engine-baseline.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-baseline.exe2026-09-26 22:18:29.2552463 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:19:17 MDT
+Active filters:
+   focus=Unique|FileRead|Finalization|Finalizer|Pending.*Root|pending.*Root
+Showing nodes accounting for 430.74MB, 3.72% of 11579.88MB total
+Showing top 30 nodes out of 45
+      flat  flat%   sum%        cum   cum%
+  248.01MB  2.14%  2.14%   381.28MB  3.29%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromFrame.func1
+  126.57MB  1.09%  3.23%   135.07MB  1.17%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+   22.92MB   0.2%  3.43%    24.99MB  0.22%  github.com/MongooseMoo/barn/engine.(*Runtime).deferPendingWaifs
+   11.88MB   0.1%  3.54%    11.88MB   0.1%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+      10MB 0.086%  3.62%    10.50MB 0.091%  github.com/MongooseMoo/barn/types.(*goMap).pairsList
+    8.76MB 0.076%  3.70%    10.76MB 0.093%  github.com/MongooseMoo/barn/vm.(*VM).collectDirectWaifsForGC
+    2.10MB 0.018%  3.72%     2.10MB 0.018%  github.com/MongooseMoo/barn/vm.(*VM).TakePendingWaifs (inline)
+    0.50MB 0.0043%  3.72%     0.50MB 0.0043%  github.com/MongooseMoo/barn/types.toastLookupInsert
+         0     0%  3.72%     0.50MB 0.0044%  github.com/MongooseMoo/barn/engine.(*Runtime).Eval
+         0     0%  3.72%     0.50MB 0.0044%  github.com/MongooseMoo/barn/engine.(*Runtime).EvalCommandOutput
+         0     0%  3.72%    16.16MB  0.14%  github.com/MongooseMoo/barn/engine.(*Runtime).ExecuteVerbTaskSync (inline)
+         0     0%  3.72%    16.16MB  0.14%  github.com/MongooseMoo/barn/engine.(*Runtime).ExecuteVerbTaskSyncWithStart
+         0     0%  3.72%     0.50MB 0.0044%  github.com/MongooseMoo/barn/engine.(*Runtime).StartEval
+         0     0%  3.72%    24.04MB  0.21%  github.com/MongooseMoo/barn/engine.(*Runtime).drainForks
+         0     0%  3.72%   414.08MB  3.58%  github.com/MongooseMoo/barn/engine.(*Runtime).runTask
+         0     0%  3.72%   430.74MB  3.72%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted
+         0     0%  3.72%   430.74MB  3.72%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted.func4
+         0     0%  3.72%   430.74MB  3.72%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskSliceAdmitted
+         0     0%  3.72%    27.08MB  0.23%  github.com/MongooseMoo/barn/engine.(*Runtime).settleCompletedTaskFinalizations
+         0     0%  3.72%     0.50MB 0.0044%  github.com/MongooseMoo/barn/engine.TestMongooseRealWorkload
+         0     0%  3.72%    16.16MB  0.14%  github.com/MongooseMoo/barn/engine.TestMongooseRealWorkload.func6.1
+         0     0%  3.72%    16.16MB  0.14%  github.com/MongooseMoo/barn/engine.runRealCommandLine
+         0     0%  3.72%   414.08MB  3.58%  github.com/MongooseMoo/barn/engine/internal/scheduler.(*Scheduler).worker
+         0     0%  3.72%     0.50MB 0.0043%  github.com/MongooseMoo/barn/types.(*goMap).toastRoot
+         0     0%  3.72%     0.50MB 0.0043%  github.com/MongooseMoo/barn/types.(*goMap).toastRoot.func1
+         0     0%  3.72%    10.50MB 0.091%  github.com/MongooseMoo/barn/types.Value.Pairs (inline)
+         0     0%  3.72%   381.28MB  3.29%  github.com/MongooseMoo/barn/vm.(*StackFrame).visitFinalizableCandidates
+         0     0%  3.72%   392.65MB  3.39%  github.com/MongooseMoo/barn/vm.(*VM).Execute
+         0     0%  3.72%   379.62MB  3.28%  github.com/MongooseMoo/barn/vm.(*VM).ExecuteLoop
+         0     0%  3.72%    24.04MB  0.21%  github.com/MongooseMoo/barn/vm.(*VM).Resume
