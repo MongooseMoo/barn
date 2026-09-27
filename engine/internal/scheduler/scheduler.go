@@ -91,6 +91,20 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 	heap.Push(&s.waiting, t)
 }
 
+// Resume applies resume() by readier and queues the task at now, behind work
+// that was already ready. The selection lock keeps the state change and its
+// queue position atomic with respect to readiness scans.
+func (s *Scheduler) Resume(t *task.Task, value types.Value, readier *task.Task, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !t.ResumeFrom(value, readier, s.queueSeq+1, now) {
+		return false
+	}
+	s.queueSeq++
+	heap.Push(&s.waiting, t)
+	return true
+}
+
 // Ready selects tasks ready at now, including resumed catalog tasks. Selection
 // does not claim execution: unstarted siblings must remain visible to MOO code.
 func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {

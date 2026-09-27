@@ -147,3 +147,56 @@ func TestRunPreservesAssociationOrder(t *testing.T) {
 		t.Fatalf("results = %#v, want ordered task/result association", results)
 	}
 }
+
+func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	parent := testTask(1, now)
+	if !parent.StartExecution() {
+		t.Fatal("parent did not start")
+	}
+	child := testTask(2, now)
+	child.SetReadier(parent)
+	s.Enqueue(child)
+	if batch := s.ReadyBatch(now, nil); len(batch) != 0 {
+		t.Fatalf("child selected while its forking slice runs: %v", batch)
+	}
+	parent.SetExecutionActive(false)
+	if batch := s.ReadyBatch(time.Now(), nil); len(batch) != 1 || batch[0] != child {
+		t.Fatalf("child not selected after its forking slice ended: %v", batch)
+	}
+}
+
+func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	resumer := testTask(1, now)
+	target := testTask(2, now)
+	target.SetBytecodeVM(struct{}{}) // Readiness marker, never executed.
+	target.SuspendIndefinite()
+	if !resumer.StartExecution() {
+		t.Fatal("resumer did not start")
+	}
+	if !s.Resume(target, types.NewInt(0), resumer, now) {
+		t.Fatal("resume failed")
+	}
+	if batch := s.ReadyBatch(now, []*task.Task{target}); len(batch) != 0 {
+		t.Fatalf("target selected while the resuming slice runs: %v", batch)
+	}
+	// suspend(0) ends the resumer's slice and requeues it behind the target.
+	resumer.Suspend(0)
+	resumer.Resume(types.NewInt(0))
+	resumer.SetBytecodeVM(struct{}{})
+	s.RequeueYield(resumer, now.Add(time.Millisecond))
+	resumer.SetExecutionActive(false)
+	later := now.Add(2 * time.Millisecond)
+	catalog := []*task.Task{resumer, target}
+	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != target {
+		t.Fatalf("resumed target did not run first: %v", batch)
+	}
+	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != resumer {
+		t.Fatalf("resumer did not follow the target: %v", batch)
+	}
+}

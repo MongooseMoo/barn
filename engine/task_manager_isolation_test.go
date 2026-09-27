@@ -66,7 +66,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		t.Fatalf("second task state changed with first suspend: %v", got)
 	}
 
-	if errCode := first.taskManager.ResumeTask(firstTask.ID, types.NewInt(42), firstTask.Owner, false); errCode != types.E_NONE {
+	if errCode := first.taskManager.ResumeTask(firstTask.ID, types.NewInt(42), firstTask.Owner, false, nil); errCode != types.E_NONE {
 		t.Fatalf("resume first task: %s", errCode)
 	}
 	if got := firstTask.GetState(); got != task.TaskQueued {

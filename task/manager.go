@@ -12,6 +12,14 @@ type Manager struct {
 	tasks           map[int64]*Task
 	mu              sync.RWMutex
 	scheduleChanged chan struct{}
+	resume          func(t *Task, value types.Value, readier *Task) bool
+}
+
+// SetResumeScheduler routes resume() through the runtime scheduler, which
+// orders the resumed task among ready work. Without one, resume() only marks
+// the task queued.
+func (m *Manager) SetResumeScheduler(resume func(t *Task, value types.Value, readier *Task) bool) {
+	m.resume = resume
 }
 
 // NewManager creates an empty task manager for one execution engine.
@@ -150,8 +158,8 @@ func (m *Manager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*
 	return task, types.E_NONE
 }
 
-// ResumeTask resumes a suspended task with a value
-func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool) types.ErrorCode {
+// ResumeTask resumes a suspended task with a value on behalf of task readier.
+func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *Task) types.ErrorCode {
 	task := m.GetTask(taskID)
 	if task == nil {
 		return types.E_INVARG
@@ -166,7 +174,13 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 		return types.E_INVARG
 	}
 
-	if !task.Resume(value) {
+	resumed := false
+	if m.resume != nil {
+		resumed = m.resume(task, value, readier)
+	} else {
+		resumed = task.Resume(value)
+	}
+	if !resumed {
 		return types.E_INVARG
 	}
 

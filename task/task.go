@@ -78,6 +78,7 @@ type Task struct {
 	WakeTime            time.Time
 	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
+	readier             *Task       // Task whose fork or resume() readied this one; cleared when it starts
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
@@ -305,6 +306,9 @@ func (t *Task) notifyScheduleLocked() {
 // ReadyDeadline reports the next time this task could be selected. Zero means
 // no scheduled wake, including VMs whose physical execution has not ended.
 func (t *Task) ReadyDeadline(now time.Time) time.Time {
+	if t.awaitingReadier() {
+		return time.Time{}
+	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if t.executionActive || t.admissionPending || t.waitingForInput {
@@ -346,6 +350,7 @@ func (t *Task) StartExecution() bool {
 	}
 	t.executionActive = true
 	t.State = TaskRunning
+	t.readier = nil
 	return true
 }
 
@@ -550,6 +555,31 @@ func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
 	t.QueueSeq = sequence
 }
 
+// SetReadier records the task whose fork made this task ready.
+func (t *Task) SetReadier(readier *Task) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.readier = readier
+}
+
+// awaitingReadier reports whether the slice that forked or resumed this task
+// is still executing. Toast runs a readied task only after that slice ends, so
+// it observes everything the slice did; until then it stays queued. The
+// readier's lease release notifies the scheduler. Lightweight server-hook
+// tasks all carry ID 0, and the runtime keys execution leases by task ID, so
+// their lease flag is not a reliable end-of-slice signal and is not waited on.
+func (t *Task) awaitingReadier() bool {
+	t.mu.RLock()
+	readier := t.readier
+	t.mu.RUnlock()
+	if readier == nil || readier == t || readier.ID == 0 {
+		return false
+	}
+	readier.mu.RLock()
+	defer readier.mu.RUnlock()
+	return readier.executionActive
+}
+
 // NewInputReceipt records causally prior input without waiting inside its
 // builtin. The receiver resolves it after its first slice (or on discard).
 // read() delivery deliberately does not consult this zero-delay-yield fence.
@@ -740,6 +770,22 @@ func (t *Task) resumeLocked(value types.Value) bool {
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}
+	return true
+}
+
+// ResumeFrom is resume() issued by task readier. Toast appends the target to
+// the ready queue at once, so the resume is stamped as a readiness event at now
+// with enqueue order sequence; an early resume of a timed suspension drops its
+// future wake deadline.
+func (t *Task) ResumeFrom(value types.Value, readier *Task, sequence int64, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.resumeLocked(value) {
+		return false
+	}
+	t.readier = readier
+	t.WakeTime = now
+	t.QueueSeq = sequence
 	return true
 }
 
