@@ -59,3 +59,59 @@ they do not drain/reinitialize those retained maps during measurement. This
 isolates repeated-root scratch overhead, not task/new-VM lifecycle cost.
 ParallelMixed initializes one VM per benchmark worker inside RunParallel, so
 amortized per-worker initialization is included identically on both sides.
+
+## Results and diagnosis
+
+Recommendation: do not promote the finalization pool unchanged. This diagnostic
+supersedes the original development-row recommendation: two anonymous-only Value
+rows have credible regressions above the declared 5% threshold. The original
+WAIF result remains valid for its workload but did not generalize to these rows.
+
+Build commands: `go test -overlay .tmp/diagnostic-baseline-overlay.json -c -o
+.tmp/diagnostic-baseline.test.exe ./vm` and corresponding candidate paths.
+Both build exits were 0. All ten pairs, thirteen rows per process, completed with
+exit 0. Raw output: diagnostic-baseline.txt and diagnostic-candidate.txt in
+2026-09-26-finalization-scratch. Diagnostic evaluator SHA256 after measurement
+remained 18096FC819941DC37040D91130603A7209996F03F6A2383BF48E420ACF1EE460.
+Production source did not change during these measurements.
+
+Reproduction analysis command:
+`python experiments/2026-09-26-finalization-scratch/evaluate-diagnostic.py`.
+The script implements the declared paired-bootstrap plan, validates all 260 rows
+and twenty PASS markers, and writes every paired percentage and median to
+diagnostic-results.json. Analysis exit was 0 (successfully analyzed, not a
+performance pass). Per-row runtime changes below are paired percentages; median
+runtime quotients need not equal the median paired percentage.
+
+| Row | Runtime change median, 95% interval | Baseline ns/B/alloc medians | Candidate ns/B/alloc medians |
+| --- | --- | --- | --- |
+| Anonymous/1/Value | +53.00% [41.68,56.20] | 98.52 / 0 / 0 | 148 / 0 / 0 |
+| Anonymous/1/Frame | -46.46% [-71.32,-43.63] | 335.7 / 192 / 2 | 171.7 / 0 / 0 |
+| Anonymous/8/Value | +14.94% [9.83,19.22] | 365.95 / 0 / 0 | 403.9 / 0 / 0 |
+| Anonymous/8/Frame | -25.70% [-40.16,-21.70] | 708.3 / 192 / 2 | 483.25 / 0 / 0 |
+| Anonymous/256/Value | -65.68% [-66.62,-63.69] | 39957.5 / 18856 / 13 | 13713 / 0 / 0 |
+| Anonymous/256/Frame | -64.55% [-68.16,-60.63] | 44554 / 19048 / 15 | 15703.5 / 0 / 0 |
+| Anonymous/257/Value | +4.26% [-1.97,68.74] | 41482 / 18856 / 13 | 43426 / 19114 / 16 |
+| Anonymous/257/Frame | +4.36% [-5.30,45.61] | 43279.5 / 19048 / 15 | 44771 / 19115 / 16 |
+| Waif/1/Value | -29.93% [-34.19,-23.79] | 115.7 / 24 / 1 | 80.865 / 0 / 0 |
+| Waif/1/Frame | -49.09% [-52.60,-42.91] | 236.2 / 72 / 2 | 124.05 / 0 / 0 |
+| Waif/8/Value | -51.11% [-54.50,-45.98] | 1006.4 / 360 / 4 | 503.35 / 0 / 0 |
+| Waif/8/Frame | -43.01% [-59.10,-37.23] | 1259 / 408 / 5 | 727.7 / 0 / 0 |
+| ParallelMixed | -79.66% [-89.56,-77.35] | 1072 / 912 / 10 | 223.45 / 0 / 0 |
+
+Operational diagnosis: small anonymous-only Value collection already allocates
+zero bytes in the baseline. Pool access/reset adds work without removing an
+allocation there. The frame path differs: baseline allocates 192B/two objects,
+and pooling removes those allocations. WAIF paths also remove actual slice
+allocation. At 257 anonymous IDs scratch exceeds the 256-entry retention cap,
+so each collection discards its scratch; candidate allocations increase instead
+of falling. That row's runtime interval is too wide to claim a credible slowdown,
+but the allocation penalty and absence of reuse follow directly from the reset
+bound and measured counts. No broad concurrency regression is evident in the
+mixed parallel row. These microbenchmarks do not establish which path dominates
+the separate application regression; that still requires application profiling.
+
+No refinement implemented. A follow-up should evaluate keeping small anonymous
+Value collection on its allocation-free path while preserving proven frame/WAIF
+reuse, or reject this pool if avoiding the regressions adds unjustified complexity.
+Any follow-up requires a new frozen experiment and all diagnostic rows as gates.
