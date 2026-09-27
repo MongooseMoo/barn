@@ -1,0 +1,44 @@
+File: finalization-candidate.test.exe
+Build ID: C:\Users\Q\code\barn-pool-finalization\.tmp\finalization-candidate.test.exe2026-09-26 22:19:21.3994037 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:22:50 MDT
+Showing nodes accounting for 4107.34kB, 100% of 4107.34kB total
+      flat  flat%   sum%        cum   cum%
+ 3595.31kB 87.53% 87.53%  3595.31kB 87.53%  runtime.mallocgc
+  512.03kB 12.47%   100%   512.03kB 12.47%  time.initLocalFromTZI
+         0     0%   100%  1024.02kB 24.93%  runtime.(*scavengerState).sleep
+         0     0%   100%  1024.02kB 24.93%  runtime.(*timer).maybeAdd
+         0     0%   100%  1024.02kB 24.93%  runtime.(*timer).modify
+         0     0%   100%  1024.02kB 24.93%  runtime.(*timer).reset (inline)
+         0     0%   100%  1024.02kB 24.93%  runtime.(*timers).addHeap
+         0     0%   100%     1539kB 37.47%  runtime.allocm
+         0     0%   100%  1024.02kB 24.93%  runtime.bgscavenge
+         0     0%   100%   512.25kB 12.47%  runtime.gcBgMarkWorker
+         0     0%   100%  1024.02kB 24.93%  runtime.growslice
+         0     0%   100%      513kB 12.49%  runtime.mcall
+         0     0%   100%     1026kB 24.98%  runtime.mstart
+         0     0%   100%     1026kB 24.98%  runtime.mstart0
+         0     0%   100%     1026kB 24.98%  runtime.mstart1
+         0     0%   100%     1539kB 37.47%  runtime.newm
+         0     0%   100%  2571.29kB 62.60%  runtime.newobject
+         0     0%   100%      513kB 12.49%  runtime.park_m
+         0     0%   100%   520.04kB 12.66%  runtime.procresize
+         0     0%   100%     1026kB 24.98%  runtime.resetspinning
+         0     0%   100%   520.04kB 12.66%  runtime.rt0_go
+         0     0%   100%   520.04kB 12.66%  runtime.schedinit
+         0     0%   100%     1539kB 37.47%  runtime.schedule
+         0     0%   100%     1539kB 37.47%  runtime.startm
+         0     0%   100%     1539kB 37.47%  runtime.wakep
+         0     0%   100%   512.03kB 12.47%  runtime/pprof.(*profileBuilder).readMapping
+         0     0%   100%   512.03kB 12.47%  runtime/pprof.newProfileBuilder
+         0     0%   100%   512.03kB 12.47%  runtime/pprof.peBuildID
+         0     0%   100%   512.03kB 12.47%  runtime/pprof.profileWriter
+         0     0%   100%   512.03kB 12.47%  sync.(*Once).Do (inline)
+         0     0%   100%   512.03kB 12.47%  sync.(*Once).doSlow
+         0     0%   100%   512.03kB 12.47%  time.(*Location).get
+         0     0%   100%   512.03kB 12.47%  time.Time.AppendFormat
+         0     0%   100%   512.03kB 12.47%  time.Time.Format
+         0     0%   100%   512.03kB 12.47%  time.Time.String
+         0     0%   100%   512.03kB 12.47%  time.Time.appendFormat
+         0     0%   100%   512.03kB 12.47%  time.Time.locabs
+         0     0%   100%   512.03kB 12.47%  time.initLocal
