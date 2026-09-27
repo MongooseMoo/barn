@@ -1,0 +1,31 @@
+=== RUN   TestMongooseRealWorkload
+    mongoose_real_bench_test.go:242: loaded C:\Users\Q\code\barn-pool-campaign\.tmp\mongoose.db in 11.4431616s
+    mongoose_real_bench_test.go:252: players with valid location: 190
+2026/09/26 22:38:12 INFO Creating database schema for database 'news.sqlite'... task_id=0 player=0 verb="" src=server_log
+2026/09/26 22:38:12 INFO Creating database schema for database 'log.sqlite'... task_id=0 player=0 verb="" src=server_log
+    mongoose_real_bench_test.go:368: snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: {1, {1, 4, {1, 2, 3, 4}, 1, {#36, "r"}}}
+    mongoose_real_bench_test.go:381: GOMAXPROCS=4 warmup=1s measure=3s mix=[{look look 35} {say say Hello there, this is a benchmark message! 30} {inventory i 10} {who @who 10} {home home 15}]
+    mongoose_real_bench_test.go:518: players=1 goodput=131/s failed=0 uncaught=0 abort=0.13% elided=1742 p50=5.77ms p99=23.81ms max=65.16ms allocs/op=25588 bytes/op=2270009 GCs=0
+    mongoose_real_bench_test.go:528:   shape look       ok=127      fail=0      avg=13.40ms attempts=255 retries=1
+    mongoose_real_bench_test.go:528:   shape say        ok=138      fail=0      avg=5.93ms attempts=276 retries=0
+    mongoose_real_bench_test.go:528:   shape inventory  ok=38       fail=0      avg=5.83ms attempts=76 retries=0
+    mongoose_real_bench_test.go:528:   shape who        ok=37       fail=0      avg=4.28ms attempts=74 retries=0
+    mongoose_real_bench_test.go:528:   shape home       ok=52       fail=0      avg=1.93ms attempts=104 retries=0
+    mongoose_real_bench_test.go:538:   idle 2s: attempts=2 successes=1 retries=1
+    mongoose_real_bench_test.go:518: players=4 goodput=281/s failed=0 uncaught=0 abort=9.64% elided=9939 p50=9.20ms p99=139.49ms max=440.34ms allocs/op=17476 bytes/op=2511420 GCs=1
+    mongoose_real_bench_test.go:528:   shape look       ok=289      fail=0      avg=15.71ms attempts=2466 retries=196
+    mongoose_real_bench_test.go:528:   shape say        ok=269      fail=0      avg=19.06ms attempts=3186 retries=389
+    mongoose_real_bench_test.go:528:   shape inventory  ok=79       fail=0      avg=7.22ms attempts=409 retries=30
+    mongoose_real_bench_test.go:528:   shape who        ok=87       fail=0      avg=11.56ms attempts=643 retries=63
+    mongoose_real_bench_test.go:528:   shape home       ok=120      fail=0      avg=6.39ms attempts=760 retries=42
+    mongoose_real_bench_test.go:538:   idle 2s: attempts=1 successes=0 retries=1
+    mongoose_real_bench_test.go:518: players=16 goodput=250/s failed=0 uncaught=0 abort=17.23% elided=8683 p50=26.23ms p99=563.83ms max=3108.41ms allocs/op=17632 bytes/op=2682312 GCs=1
+    mongoose_real_bench_test.go:528:   shape look       ok=282      fail=0      avg=48.00ms attempts=8538 retries=1422
+    mongoose_real_bench_test.go:528:   shape say        ok=227      fail=0      avg=88.59ms attempts=12278 retries=2124
+    mongoose_real_bench_test.go:528:   shape inventory  ok=82       fail=0      avg=28.15ms attempts=1429 retries=203
+    mongoose_real_bench_test.go:528:   shape who        ok=71       fail=0      avg=123.94ms attempts=4720 retries=827
+    mongoose_real_bench_test.go:528:   shape home       ok=114      fail=0      avg=33.83ms attempts=2782 retries=476
+    mongoose_real_bench_test.go:538:   idle 2s: attempts=1 successes=0 retries=1
+--- PASS: TestMongooseRealWorkload (65.03s)
+PASS
+exit=0
