@@ -310,7 +310,18 @@ func (q taskQueue) Less(i, j int) bool {
 }
 func (q taskQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
 func (q *taskQueue) Push(x any)   { *q = append(*q, x.(*task.Task)) }
-func (q *taskQueue) Pop() any     { old := *q; n := len(old); x := old[n-1]; *q = old[:n-1]; return x }
+
+// Pop hands the last task to container/heap and clears its slot. The scheduler
+// outlives any one drain, so a slot left populated past len would keep the
+// popped task, and everything it reaches, alive until a later push reuses it.
+func (q *taskQueue) Pop() any {
+	old := *q
+	n := len(old)
+	x := old[n-1]
+	old[n-1] = nil
+	*q = old[:n-1]
+	return x
+}
 func (q taskQueue) Peek() *task.Task {
 	if len(q) == 0 {
 		return nil

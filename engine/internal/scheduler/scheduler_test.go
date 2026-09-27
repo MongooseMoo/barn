@@ -200,3 +200,65 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 		t.Fatalf("resumer did not follow the target: %v", batch)
 	}
 }
+
+// assertQueueOwnsOnly checks the heap's whole backing array: the live region
+// holds exactly want, and every slot past len is nil so popped tasks are not
+// kept reachable by the long-lived scheduler.
+func assertQueueOwnsOnly(t *testing.T, q taskQueue, want ...*task.Task) {
+	t.Helper()
+	live := make(map[*task.Task]bool, len(q))
+	for _, queued := range q {
+		live[queued] = true
+	}
+	if len(live) != len(want) || len(q) != len(want) {
+		t.Fatalf("queue holds %d tasks, want %d", len(q), len(want))
+	}
+	for _, w := range want {
+		if !live[w] {
+			t.Fatalf("queue lost task %d", w.ID)
+		}
+	}
+	for i, stale := range q[len(q):cap(q)] {
+		if stale != nil {
+			t.Fatalf("spare slot %d retains popped task %d", len(q)+i, stale.ID)
+		}
+	}
+}
+
+func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	base := time.Now()
+	// Enqueue out of time order so the drain exercises heap reordering.
+	offsets := []int{4, 1, 5, 0, 3, 2}
+	byOffset := make([]*task.Task, len(offsets))
+	for _, off := range offsets {
+		tk := testTask(int64(off+1), base.Add(time.Duration(off)*time.Second))
+		byOffset[off] = tk
+		s.Enqueue(tk)
+	}
+
+	ready := s.Ready(base.Add(2*time.Second), nil)
+	if len(ready) != 3 || ready[0] != byOffset[0] || ready[1] != byOffset[1] || ready[2] != byOffset[2] {
+		t.Fatalf("partial drain = %v, want offsets 0,1,2 in time order", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting, byOffset[3], byOffset[4], byOffset[5])
+
+	ready = s.Ready(base.Add(time.Hour), nil)
+	if len(ready) != 3 || ready[0] != byOffset[3] || ready[1] != byOffset[4] || ready[2] != byOffset[5] {
+		t.Fatalf("complete drain = %v, want offsets 3,4,5 in time order", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting)
+
+	// Reuse the drained backing array: ordering is unchanged and only the
+	// new tasks are owned.
+	late, early := testTask(10, base.Add(2*time.Hour)), testTask(11, base.Add(90*time.Minute))
+	s.Enqueue(late)
+	s.Enqueue(early)
+	assertQueueOwnsOnly(t, s.waiting, late, early)
+	ready = s.Ready(base.Add(3*time.Hour), nil)
+	if len(ready) != 2 || ready[0] != early || ready[1] != late {
+		t.Fatalf("push-after-drain order = %v, want [early late]", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting)
+}
