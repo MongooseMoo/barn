@@ -142,6 +142,13 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		return newMooErrorf(types.E_VERBNF, "compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
 
+	// Enforce the frame limit before touching the task context, locals, or
+	// activation stack: like Toast's call_verb2, a call refused with E_MAXREC
+	// leaves the caller running with its own this, permissions, and thread mode.
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
+
 	// --- Native frame push ---
 
 	// Get current frame's context for caller/player
@@ -254,12 +261,6 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		// Every verb activation, pass() included, starts with Toast's
 		// default thread mode (call_verb2 with DEFAULT_THREAD_MODE).
 		vm.Context.ThreadMode = true
-	}
-
-	// Enforce the VM frame limit before adding the matching task activation
-	// frame. A rejected call has no VM frame to pop that activation later.
-	if err := vm.checkFrameLimit(); err != nil {
-		return err
 	}
 
 	// Push activation frame onto task call stack (if we have a task)
@@ -386,6 +387,12 @@ func (vm *VM) executePass() error {
 		return newMooErrorf(types.E_VERBNF, "compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}
 
+	// As in startVerbCall, a pass() refused with E_MAXREC must leave the
+	// caller's context untouched, so check before any of it changes.
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
+
 	// --- Native frame push ---
 
 	// Save current context fields for restore on return/unwind
@@ -492,12 +499,6 @@ func (vm *VM) executePass() error {
 
 	// Trace pass() target call.
 	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, frame.Caller)
-
-	// Enforce the VM frame limit before adding the matching task activation
-	// frame. A rejected pass has no VM frame to pop that activation later.
-	if err := vm.checkFrameLimit(); err != nil {
-		return err
-	}
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {

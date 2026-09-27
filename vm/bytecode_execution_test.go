@@ -590,6 +590,10 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
 	machine.Context = kernel.NewTaskContext()
+	machine.Context.ThisObj = 7
+	machine.Context.Programmer = 7
+	machine.Context.IsWizard = false
+	machine.Context.ThreadMode = false
 	machine.Task = taskValue
 
 	result := machine.Run(program)
@@ -598,6 +602,13 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	}
 	if got := len(taskValue.CallStack); got != 0 {
 		t.Fatalf("task activation frames after rejected call = %d, want 0", got)
+	}
+	// Toast's call_verb2 refuses the call before it changes any VM state, so
+	// the catching activation keeps its own this, permissions, and thread mode.
+	ctx := machine.Context
+	if ctx.ThisObj != 7 || ctx.Programmer != 7 || ctx.IsWizard || ctx.ThreadMode {
+		t.Fatalf("context after rejected call = this %v programmer %v wizard %v thread mode %v; want #7, #7, false, false",
+			ctx.ThisObj, ctx.Programmer, ctx.IsWizard, ctx.ThreadMode)
 	}
 }
 
