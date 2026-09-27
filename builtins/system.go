@@ -772,13 +772,10 @@ func builtinUsage(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	stats, err := readProcessUsage()
-	if err != nil {
-		return types.Err(types.E_QUOTA)
-	}
+	stats := readProcessUsage()
 	loads := make([]types.Value, len(stats.loadAverage))
 	for i, load := range stats.loadAverage {
-		loads[i] = types.NewFloat(load)
+		loads[i] = types.NewInt(load)
 	}
 	result := []types.Value{
 		types.NewList(loads),
@@ -816,7 +813,7 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 	}
 	stats, err := readProcessMemory()
 	if err != nil {
-		return types.Err(types.E_QUOTA)
+		return types.Err(processMemoryErrorCode(err))
 	}
 	vals := []int64{
 		stats.total, stats.resident, stats.shared, stats.text, stats.data,

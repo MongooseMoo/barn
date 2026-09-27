@@ -8,37 +8,38 @@ import (
 	"syscall"
 )
 
-func readProcessUsage() (processUsage, error) {
-	var load [3]float64
-	f, err := os.Open("/proc/loadavg")
-	if err != nil {
-		return processUsage{}, err
-	}
-	_, scanErr := fmt.Fscan(f, &load[0], &load[1], &load[2])
-	closeErr := f.Close()
-	if scanErr != nil {
-		return processUsage{}, scanErr
-	}
-	if closeErr != nil {
-		return processUsage{}, closeErr
+// readProcessUsage follows Toast's bf_usage: load averages come from
+// sysinfo() and rusage from getrusage(); a failed call leaves its fields 0.
+func readProcessUsage() processUsage {
+	var stats processUsage
+	var info syscall.Sysinfo_t
+	if syscall.Sysinfo(&info) == nil {
+		for i := range stats.loadAverage {
+			stats.loadAverage[i] = int64(info.Loads[i])
+		}
 	}
 	var r syscall.Rusage
-	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &r); err != nil {
-		return processUsage{}, err
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &r) == nil {
+		seconds := func(v syscall.Timeval) float64 { return float64(v.Sec) + float64(v.Usec)/1e6 }
+		stats.userSeconds, stats.systemSeconds = seconds(r.Utime), seconds(r.Stime)
+		stats.minorFaults, stats.majorFaults = r.Minflt, r.Majflt
+		stats.inputBlocks, stats.outputBlocks = r.Inblock, r.Oublock
+		stats.voluntarySwitches, stats.involuntarySwitches = r.Nvcsw, r.Nivcsw
+		stats.signals = r.Nsignals
 	}
-	seconds := func(v syscall.Timeval) float64 { return float64(v.Sec) + float64(v.Usec)/1e6 }
-	return processUsage{[]float64{load[0], load[1], load[2]}, seconds(r.Utime), seconds(r.Stime),
-		r.Minflt, r.Majflt, r.Inblock, r.Oublock, r.Nvcsw, r.Nivcsw, r.Nsignals}, nil
+	return stats
 }
 
 func readProcessMemory() (processMemory, error) {
 	f, err := os.Open("/proc/self/statm")
 	if err != nil {
-		return processMemory{}, err
+		return processMemory{}, fmt.Errorf("%w: %v", errProcessMemoryUnreadable, err)
 	}
 	defer f.Close()
 	var m processMemory
 	var ignored int64
-	_, err = fmt.Fscan(f, &m.total, &m.resident, &m.shared, &m.text, &ignored, &m.data)
-	return m, err
+	if _, err := fmt.Fscan(f, &m.total, &m.resident, &m.shared, &m.text, &ignored, &m.data); err != nil {
+		return processMemory{}, fmt.Errorf("%w: %v", errProcessMemoryMalformed, err)
+	}
+	return m, nil
 }

@@ -105,7 +105,12 @@ func TestDivergenceRuntimeIntrospection(t *testing.T) {
 	if result := builtinCtime(ctx, []types.Value{types.NewInt(-9223372036854775807)}); result.Flow != types.FlowException || result.Error != types.E_INVARG {
 		t.Fatalf("ctime(-maxint) = flow %v error %v value %v, want E_INVARG", result.Flow, result.Error, result.Val)
 	}
-	if result := builtinMemoryUsage(ctx, nil); !result.IsNormal() {
+	if _, err := readProcessMemory(); err != nil {
+		// Without /proc/self/statm Toast's memory_usage() raises E_FILE.
+		if result := builtinMemoryUsage(ctx, nil); result.Flow != types.FlowException || result.Error != types.E_FILE {
+			t.Fatalf("memory_usage() without statm = flow %v error %v, want E_FILE", result.Flow, result.Error)
+		}
+	} else if result := builtinMemoryUsage(ctx, nil); !result.IsNormal() {
 		t.Fatalf("memory_usage() = flow %v error %v", result.Flow, result.Error)
 	} else {
 		for _, value := range result.Val.Elements() {
