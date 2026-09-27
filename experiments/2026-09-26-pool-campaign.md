@@ -24,8 +24,24 @@ Use unchanged `engine/TestMongooseRealWorkload`, disposable snapshot SHA256 `489
 
 File-read profiling also identified returned-string builder growth as a larger allocator than the input buffer. Permit one separate preallocation follow-on experiment after the buffer experiment, with its own preregistration and gate; no further scope expansion without measured evidence.
 
-## Selected combined source
+## Initial combined source
 
 At `5fb70c77af24a3ee16d7bfcde9d9cdcea8467f17`, independently verified production source exactly matches unique `7e0363d`, file-read `0e5fdba`, and finalization `6b72d0a`. Reviewer ownership/race tests and all ten-pair holdouts passed; see the independent review record. Commit scratch pooling was rejected from its measured allocation ceiling before implementation. Both combined text/binary preallocation and its separately preregistered binary-only refinement failed runtime guards and are excluded.
 
 Application evaluator seals: `engine/mongoose_real_bench_test.go` blob `3ac942cb3d5589b7a588dfb354ec0d0ac0627045`; `experiments/pool-application-measure.ps1` blob `dc78471a52cb7c385ffdd5c7c762b6ecaf7a76b2`. The baseline binary was compiled before any production source integration. Application fixture processes get fresh private directories and identical input databases.
+
+## Final narrowed source
+
+The initial application runs raised a throughput concern. Broader finalization
+benchmarks then exposed overhead in anonymous-only Value collection, which
+already allocated nothing. One preregistered refinement keeps that original
+path for anonymous/list/map Values and pools only direct WAIF Values plus
+Frames. Source `ea251f7` passes all fourteen focused workload guards; independent
+review `074bb8d` verifies the calculations and ownership/race tests. See the
+diagnostic, refinement, and refinement-review records for the rejected initial
+design and the remaining oversized-frame allocation tradeoff.
+
+The final source is frozen for a separate ten-pair, longer sixteen-player
+confirmation. Its preregistration and binary/evaluator seals are in
+`2026-09-26-pool-application-confirmation.md`. Original application observations
+and profiles remain preserved and explicitly identify their older candidate.

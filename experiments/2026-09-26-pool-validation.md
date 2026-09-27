@@ -29,4 +29,19 @@ Independent reviewer ownership/concurrency and race tests, plus ten-pair holdout
 
 ## Application environment observations
 
+After the narrowed finalization source `ea251f7` was integrated, final build,
+vet, and source whitespace checks completed:
+
+```text
+go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
+github.com/MongooseMoo/barn/cmd/barn main
+go build ./...: build exit=0
+go vet ./...: vet exit=0
+git diff --check origin/master -- builtins vm db/store: source diff check exit=0
+```
+
+Focused normal/race tests and the full VM test run for the narrowed source are
+recorded in `2026-09-26-pool-refinement-review.md` and the refinement record.
+The full Windows-suite baseline limitation above remains; Linux CI is separate.
+
 The fixed five-pair application experiment runs one workload process at a time; no campaign tests, builds, or profiles overlap it. During the run, Windows reported total CPU utilization 99%, later 77%. One process-counter snapshot showed Everything at 1122% (the process counter sums logical-core use), WSL at 191%, System at 117%, and several Python processes near 100% each. Free physical memory was 33,624,148 KiB of 134,125,572 KiB. These observations establish competing work, not causation for any particular baseline/candidate difference. All originally planned pairs remain in the result; none are excluded or replaced.
