@@ -1,0 +1,40 @@
+pair=0 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=188/s failed=0 uncaught=0 abort=18.61% elided=33349 p50=28.89ms p99=899.52ms max=7570.07ms allocs/op=19201 bytes/op=2784882 GCs=4
+pair=0 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=190/s failed=0 uncaught=0 abort=19.27% elided=33651 p50=34.90ms p99=629.28ms max=7406.75ms allocs/op=18882 bytes/op=2767594 GCs=4
+pair=1 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=189/s failed=0 uncaught=0 abort=20.03% elided=33342 p50=32.30ms p99=665.85ms max=7473.77ms allocs/op=19073 bytes/op=2769620 GCs=4
+pair=1 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=163/s failed=0 uncaught=0 abort=21.51% elided=30736 p50=36.20ms p99=655.65ms max=8369.79ms allocs/op=19486 bytes/op=2842839 GCs=3
+pair=2 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=199/s failed=0 uncaught=0 abort=19.32% elided=36206 p50=32.77ms p99=596.80ms max=7173.54ms allocs/op=18493 bytes/op=2756100 GCs=4
+pair=2 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=340/s failed=0 uncaught=0 abort=15.55% elided=57586 p50=20.36ms p99=389.26ms max=3904.03ms allocs/op=17708 bytes/op=2662426 GCs=6
+pair=3 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=335/s failed=0 uncaught=0 abort=15.80% elided=58196 p50=20.32ms p99=379.17ms max=4140.73ms allocs/op=17754 bytes/op=2663403 GCs=6
+pair=3 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=280/s failed=0 uncaught=0 abort=17.36% elided=48429 p50=25.77ms p99=401.26ms max=4964.61ms allocs/op=18770 bytes/op=2759720 GCs=5
+pair=4 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=305/s failed=0 uncaught=0 abort=16.04% elided=51984 p50=23.17ms p99=423.14ms max=4441.11ms allocs/op=17924 bytes/op=2681628 GCs=6
+pair=4 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=317/s failed=0 uncaught=0 abort=16.25% elided=53663 p50=22.12ms p99=414.28ms max=4138.31ms allocs/op=17179 bytes/op=2649546 GCs=6
+pair=5 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=327/s failed=0 uncaught=0 abort=16.05% elided=56615 p50=21.52ms p99=410.04ms max=4052.69ms allocs/op=17778 bytes/op=2675477 GCs=6
+pair=5 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=287/s failed=0 uncaught=0 abort=15.79% elided=52001 p50=22.29ms p99=547.47ms max=4441.69ms allocs/op=18051 bytes/op=2682189 GCs=5
+pair=6 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=286/s failed=0 uncaught=0 abort=16.75% elided=48569 p50=22.03ms p99=439.02ms max=4782.80ms allocs/op=17977 bytes/op=2689714 GCs=6
+pair=6 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=323/s failed=0 uncaught=0 abort=15.87% elided=55967 p50=20.51ms p99=405.71ms max=4369.45ms allocs/op=17761 bytes/op=2668411 GCs=6
+pair=7 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=312/s failed=0 uncaught=0 abort=16.35% elided=54478 p50=22.25ms p99=417.97ms max=4403.18ms allocs/op=17103 bytes/op=2646070 GCs=6
+pair=7 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=279/s failed=0 uncaught=0 abort=16.38% elided=48340 p50=21.26ms p99=670.81ms max=4385.39ms allocs/op=18038 bytes/op=2689651 GCs=5
+pair=8 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=318/s failed=0 uncaught=0 abort=15.76% elided=53001 p50=21.39ms p99=380.42ms max=4578.83ms allocs/op=17558 bytes/op=2634746 GCs=6
+pair=8 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=292/s failed=0 uncaught=0 abort=16.57% elided=50364 p50=22.82ms p99=446.31ms max=4639.41ms allocs/op=17893 bytes/op=2694598 GCs=6
+pair=9 side=candidate exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=341/s failed=0 uncaught=0 abort=15.61% elided=60069 p50=19.72ms p99=400.08ms max=3987.36ms allocs/op=17962 bytes/op=2678022 GCs=7
+pair=9 side=baseline exit=0
+    mongoose_real_bench_test.go:518: players=16 goodput=322/s failed=0 uncaught=0 abort=15.98% elided=54923 p50=20.91ms p99=405.33ms max=4436.98ms allocs/op=17881 bytes/op=2667596 GCs=6
