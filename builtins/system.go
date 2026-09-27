@@ -547,6 +547,8 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 	optionInfo := types.NewList([]types.Value{
 		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
 		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
+		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
+		versionPair("ONLY_32_BITS", types.NewObj(-1)),
 		versionPair("RUNTIME", types.NewStr(runtime.Version())),
 		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
 	})

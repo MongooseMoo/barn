@@ -47,6 +47,25 @@ func TestServerVersionReportsBooleanOptions(t *testing.T) {
 	}
 }
 
+// ToastStunt lists ONLY_32_BITS in every build's options group; a 64-bit build
+// leaves it undefined, which version_options.h reports as #-1.
+func TestServerVersionReportsOnly32BitsUndefined(t *testing.T) {
+	for _, key := range []string{"options.ONLY_32_BITS", "options/ONLY_32_BITS"} {
+		t.Run(key, func(t *testing.T) {
+			result := builtinServerVersion(runtimeOptionCtx(config.Options{}), []types.Value{types.NewStr(key)})
+			if !result.IsNormal() {
+				t.Fatalf("server_version(%q) returned error: %s", key, result.Error)
+			}
+			if got := result.Val.Type(); got != types.TYPE_OBJ {
+				t.Fatalf("server_version(%q) type = %s, want OBJ", key, got)
+			}
+			if got := result.Val.String(); got != "#-1" {
+				t.Errorf("server_version(%q) = %s, want #-1", key, got)
+			}
+		})
+	}
+}
+
 func TestServerVersionRejectsUnknownOption(t *testing.T) {
 	for _, key := range []string{"options.UNKNOWN", "options/UNKNOWN"} {
 		t.Run(key, func(t *testing.T) {
