@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -309,7 +310,10 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 	if n > int64(^uint(0)>>1) || ctx.CheckStringLimit(int(n)) != types.E_NONE {
 		return types.Err(types.E_QUOTA)
 	}
-	buf := make([]byte, int(n))
+	buf, pooled, pool := borrowFileReadBuffer(int(n))
+	if pool != nil {
+		defer pool.Put(pooled)
+	}
 	count, err := h.file.Read(buf)
 	if err != nil && err != io.EOF {
 		return types.Err(types.E_FILE)
@@ -322,6 +326,27 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewStr(encodeBinaryBytes(data)))
 	}
 	return types.Ok(types.NewStr(filterTextMode(data)))
+}
+
+// Pool only bounded buffers. The strings returned by both conversion paths own
+// their storage, so the read buffer can be returned after conversion finishes.
+var fileReadBufferPools [11]sync.Pool
+
+func borrowFileReadBuffer(n int) ([]byte, *[]byte, *sync.Pool) {
+	size, class := 64, 0
+	for size < n && class < len(fileReadBufferPools)-1 {
+		size *= 2
+		class++
+	}
+	if n == 0 || n > size {
+		return make([]byte, n), nil, nil
+	}
+	pool := &fileReadBufferPools[class]
+	if buf, ok := pool.Get().(*[]byte); ok {
+		return (*buf)[:n], buf, pool
+	}
+	buf := make([]byte, size)
+	return buf[:n], &buf, pool
 }
 
 func builtinFileReadline(ctx *Execution, args []types.Value) types.Result {
