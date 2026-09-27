@@ -1,0 +1,82 @@
+File: fileio-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\fileio-base.exe2026-09-26 22:14:30.0311072 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:14:37 MDT
+Showing nodes accounting for 87.14kB, 98.46% of 88.51kB total
+Dropped 123 nodes (cum <= 0.44kB)
+      flat  flat%   sum%        cum   cum%
+   64.02kB 72.34% 72.34%    64.02kB 72.34%  os.init.func1
+   17.62kB 19.91% 92.25%    17.62kB 19.91%  runtime.mallocgc
+    1.80kB  2.03% 94.28%     1.80kB  2.03%  regexp.onePassCopy
+    1.53kB  1.73% 96.01%     1.53kB  1.73%  sync.(*Pool).pinSlow
+    1.38kB  1.55% 97.56%     1.38kB  1.55%  regexp/syntax.(*compiler).inst (inline)
+    0.50kB  0.56% 98.13%     0.50kB  0.56%  syscall.(*DLL).FindProc
+    0.18kB   0.2% 98.33%     3.59kB  4.05%  regexp.compile
+    0.11kB  0.12% 98.46%    66.92kB 75.61%  testing.(*B).runN
+         0     0% 98.46%     0.80kB   0.9%  fmt.Sprintf
+         0     0% 98.46%     0.73kB  0.83%  fmt.newPrinter
+         0     0% 98.46%        1kB  1.13%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolFileRead
+         0     0% 98.46%     0.93kB  1.05%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolFileRead.func1
+         0     0% 98.46%     0.93kB  1.05%  github.com/MongooseMoo/barn/builtins.benchPoolRead
+         0     0% 98.46%     0.72kB  0.81%  github.com/MongooseMoo/barn/builtins.builtinFileRead
+         0     0% 98.46%     0.58kB  0.65%  internal/poll.(*FD).Read
+         0     0% 98.46%     0.66kB  0.74%  internal/poll.(*FD).execIO
+         0     0% 98.46%     4.07kB  4.60%  main.main
+         0     0% 98.46%     0.58kB  0.65%  os.(*File).Read
+         0     0% 98.46%    64.59kB 72.97%  os.(*File).Readdirnames
+         0     0% 98.46%     0.58kB  0.65%  os.(*File).read (inline)
+         0     0% 98.46%    64.59kB 72.97%  os.(*File).readdir
+         0     0% 98.46%    64.77kB 73.18%  os.RemoveAll (inline)
+         0     0% 98.46%    64.77kB 73.18%  os.removeAll
+         0     0% 98.46%    64.68kB 73.08%  os.removeAllFrom
+         0     0% 98.46%     3.59kB  4.05%  regexp.Compile (inline)
+         0     0% 98.46%     1.81kB  2.05%  regexp.compileOnePass
+         0     0% 98.46%     1.38kB  1.55%  regexp/syntax.(*compiler).compile
+         0     0% 98.46%     1.38kB  1.55%  regexp/syntax.(*compiler).rune
+         0     0% 98.46%     1.42kB  1.61%  regexp/syntax.Compile
+         0     0% 98.46%     4.98kB  5.62%  runtime.(*gcControllerState).enlistWorker
+         0     0% 98.46%    11.95kB 13.51%  runtime.allocm
+         0     0% 98.46%     2.22kB  2.51%  runtime.gcBgMarkWorker
+         0     0% 98.46%     4.98kB  5.62%  runtime.gcBgMarkWorker.func2
+         0     0% 98.46%     4.98kB  5.62%  runtime.gcDrain
+         0     0% 98.46%     4.98kB  5.62%  runtime.gcDrainMarkWorkerDedicated (inline)
+         0     0% 98.46%     4.50kB  5.08%  runtime.mProfStackInit (inline)
+         0     0% 98.46%     4.07kB  4.60%  runtime.main
+         0     0% 98.46%     4.50kB  5.08%  runtime.makeProfStackFP (inline)
+         0     0% 98.46%     4.50kB  5.08%  runtime.makeslice
+         0     0% 98.46%     4.22kB  4.77%  runtime.malg
+         0     0% 98.46%     4.98kB  5.62%  runtime.mcall
+         0     0% 98.46%     5.02kB  5.67%  runtime.mcommoninit
+         0     0% 98.46%        2kB  2.26%  runtime.mstart
+         0     0% 98.46%        2kB  2.26%  runtime.mstart0
+         0     0% 98.46%        2kB  2.26%  runtime.mstart1
+         0     0% 98.46%    11.95kB 13.51%  runtime.newm
+         0     0% 98.46%    12.95kB 14.64%  runtime.newobject
+         0     0% 98.46%     3.41kB  3.85%  runtime.newproc.func1
+         0     0% 98.46%     3.41kB  3.85%  runtime.newproc1
+         0     0% 98.46%     4.98kB  5.62%  runtime.park_m
+         0     0% 98.46%     6.98kB  7.88%  runtime.resetspinning
+         0     0% 98.46%     6.98kB  7.88%  runtime.schedule
+         0     0% 98.46%    11.95kB 13.51%  runtime.startm
+         0     0% 98.46%     8.38kB  9.47%  runtime.systemstack
+         0     0% 98.46%    11.95kB 13.51%  runtime.wakep
+         0     0% 98.46%    65.85kB 74.40%  sync.(*Pool).Get
+         0     0% 98.46%     1.53kB  1.73%  sync.(*Pool).pin
+         0     0% 98.46%     0.47kB  0.53%  syscall.(*LazyProc).Addr (inline)
+         0     0% 98.46%     0.52kB  0.59%  syscall.(*LazyProc).Find
+         0     0% 98.46%     0.47kB  0.53%  syscall.(*LazyProc).mustFind (inline)
+         0     0% 98.46%     1.11kB  1.25%  testing.(*B).Run
+         0     0% 98.46%     0.89kB  1.01%  testing.(*B).run
+         0     0% 98.46%    66.81kB 75.49%  testing.(*B).run1.func1
+         0     0% 98.46%    64.77kB 73.18%  testing.(*B).runN.func1
+         0     0% 98.46%     4.07kB  4.60%  testing.(*M).Run
+         0     0% 98.46%     0.84kB  0.95%  testing.(*benchState).processBench
+         0     0% 98.46%    64.77kB 73.18%  testing.(*common).Cleanup.func1
+         0     0% 98.46%    64.77kB 73.18%  testing.(*common).makeTempDir.func1
+         0     0% 98.46%    64.77kB 73.18%  testing.(*common).runCleanup
+         0     0% 98.46%     0.80kB   0.9%  testing.benchmarkName (inline)
+         0     0% 98.46%     3.61kB  4.08%  testing.newMatcher
+         0     0% 98.46%    64.77kB 73.18%  testing.removeAll
+         0     0% 98.46%     3.72kB  4.20%  testing.runBenchmarks
+         0     0% 98.46%     3.61kB  4.08%  testing.simpleMatch.verify
+         0     0% 98.46%     3.59kB  4.05%  testing/internal/testdeps.TestDeps.MatchString

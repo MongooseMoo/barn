@@ -26,3 +26,8 @@ Fast contracts passed: `go test ./builtins -run '^TestFileRead' -count=1` => `ok
 Committed raw stdout, top profiles, analysis JSON, and exact runner/analyzer scripts are in `2026-09-26-pool-fileio-evidence/`. Binary profiles and binaries remain outside tracked tree at the prereg path; all raw output was obtained on that same machine.
 Reproduce analysis: `python experiments/2026-09-26-pool-fileio-evidence/analyze.py fileio`. Run measurement script with Name=fileio and Bench=BenchmarkPoolFileRead after compiling both named binaries beside script. Profiles used 300ms each, not gate timings.
 Source commit: 0e5fdbaab0342b8117af0a669772e55709682b76; prereg d7b8c75. Recommendation: promote after independent retention/correctness review and sealed holdout. Worker has not run holdout or promoted source.
+
+## Retained-heap diagnostic
+
+Saved end-of-benchmark inuse_space: baseline total88.50KiB; candidate152.88KiB, of which borrowFileReadBuffer64.02KiB. This snapshot demonstrates the allocation-versus-retention tradeoff; it is neither peak live heap nor a global pool bound. Each class retains fixed-size buffers <=64KiB; concurrency and GC affect retained counts and duration.
+Command: `go tool pprof -top -inuse_space <binary> <before-or-after.pprof>` on original saved profiles. Full raw tables committed alongside allocation profiles; no new timing sample used.
