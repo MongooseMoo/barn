@@ -1,0 +1,26 @@
+File: unique-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\unique-candidate.exe2026-09-26 22:19:51.6478188 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:21:17 MDT
+Showing nodes accounting for 684.68kB, 99.15% of 690.52kB total
+Dropped 117 nodes (cum <= 3.45kB)
+      flat  flat%   sum%        cum   cum%
+  672.39kB 97.38% 97.38%   672.39kB 97.38%  github.com/MongooseMoo/barn/builtins.borrowUniqueScratch
+   12.07kB  1.75% 99.12%    12.07kB  1.75%  runtime.mallocgc
+    0.22kB 0.032% 99.15%   673.11kB 97.48%  github.com/MongooseMoo/barn/builtins.builtinUnique
+         0     0% 99.15%   673.11kB 97.48%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolUnique.func1
+         0     0% 99.15%     3.87kB  0.56%  main.main
+         0     0% 99.15%     6.98kB  1.01%  runtime.allocm
+         0     0% 99.15%     3.88kB  0.56%  runtime.main
+         0     0% 99.15%     4.98kB  0.72%  runtime.mcall
+         0     0% 99.15%     6.98kB  1.01%  runtime.newm
+         0     0% 99.15%     9.65kB  1.40%  runtime.newobject
+         0     0% 99.15%     4.98kB  0.72%  runtime.park_m
+         0     0% 99.15%     6.98kB  1.01%  runtime.resetspinning
+         0     0% 99.15%     6.98kB  1.01%  runtime.schedule
+         0     0% 99.15%     6.98kB  1.01%  runtime.startm
+         0     0% 99.15%     6.98kB  1.01%  runtime.wakep
+         0     0% 99.15%   674.56kB 97.69%  testing.(*B).run1.func1
+         0     0% 99.15%   674.67kB 97.71%  testing.(*B).runN
+         0     0% 99.15%     3.87kB  0.56%  testing.(*M).Run
+         0     0% 99.15%     3.47kB   0.5%  testing.runBenchmarks

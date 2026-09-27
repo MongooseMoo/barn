@@ -26,3 +26,8 @@ Fast contracts passed: `go test ./builtins -run 'Unique' -count=1` => `ok github
 Committed raw stdout, top profiles, analysis JSON, and exact runner/analyzer scripts are in `2026-09-26-pool-unique-evidence/`. Binary profiles and binaries remain outside tracked tree at the prereg path; all raw output was obtained on that same machine.
 Reproduce analysis: `python experiments/2026-09-26-pool-unique-evidence/analyze.py unique`. Run measurement script with Name=unique and Bench=BenchmarkPoolUnique after compiling both named binaries beside script. Profiles used 300ms each, not gate timings.
 Source commit: 7e0363d1c1d5db68eda7e25091e7d23c458217f4; prereg 7304918. Recommendation: promote after independent retention/correctness review and sealed holdout. Worker has not run holdout or promoted source.
+
+## Retained-heap diagnostic
+
+Saved end-of-benchmark inuse_space: baseline total24.46KiB; candidate690.52KiB, of which borrowUniqueScratch672.39KiB. This snapshot demonstrates the allocation-versus-retention tradeoff; it is neither peak live heap nor a global pool bound. Largest class still permits roughly2-3MiB map storage plus128KiB predecessor backing per item. Scheduler concurrency and GC affect retained counts; no lifetime guarantee is asserted.
+Command: `go tool pprof -top -inuse_space <binary> <before-or-after.pprof>` on original saved profiles. Full raw tables committed alongside allocation profiles; no new timing sample used.
