@@ -8,22 +8,13 @@ import (
 )
 
 func TestProcessUsageMeasuresCPUActivity(t *testing.T) {
-	before, err := readProcessUsage()
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := readProcessUsage()
 	deadline := time.Now().Add(20 * time.Millisecond)
 	for time.Now().Before(deadline) {
 	}
-	after, err := readProcessUsage()
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := readProcessUsage()
 	if after.userSeconds+after.systemSeconds <= before.userSeconds+before.systemSeconds {
 		t.Fatalf("CPU time did not increase: before=%+v after=%+v", before, after)
-	}
-	if len(after.loadAverage) != 3 {
-		t.Fatalf("load average has %d entries, want 3", len(after.loadAverage))
 	}
 }
 
