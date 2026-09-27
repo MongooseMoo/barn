@@ -1,0 +1,8 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPlainFrameFinalization-32     	 4423750	        82.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTemporaryFrameLifecycle/256-32         	  350545	      1000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTemporaryFrameLifecycle/7-32           	 4945285	        72.74 ns/op	       0 B/op	       0 allocs/op
+PASS
