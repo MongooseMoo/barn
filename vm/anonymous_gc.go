@@ -305,6 +305,15 @@ func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 	if !value.MayHoldFinalizable() {
 		return
 	}
+	if value.Type() != types.TYPE_WAIF {
+		// Small anonymous-only collections already keep their scratch on the
+		// stack. Preserve that path rather than paying pool overhead.
+		refs := make(map[types.ObjID]struct{})
+		var waifs []types.Value
+		collectDirectFinalizationRoots(value, refs, &waifs)
+		vm.appendPendingFinalizationRoots(refs, waifs)
+		return
+	}
 	scratch := pendingFinalizationScratchPool.Get().(*pendingFinalizationScratch)
 	collectDirectFinalizationRoots(value, scratch.refs, &scratch.waifs)
 	vm.appendPendingFinalizationRoots(scratch.refs, scratch.waifs)
