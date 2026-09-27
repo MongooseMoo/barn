@@ -10,7 +10,8 @@ import (
 
 func poolReadFixture(t testing.TB, size int, binary bool) (*Execution, *mooFileHandle, types.Value, string) {
 	t.Helper()
-	data := bytes.Repeat([]byte("abc DEF~\x00\n012345"), size/16+1)[:size]
+	pattern := []byte("abc DEF~\x00\n012345")
+	data := bytes.Repeat(pattern, size/len(pattern)+1)[:size]
 	path := filepath.Join(t.TempDir(), "read.dat")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
