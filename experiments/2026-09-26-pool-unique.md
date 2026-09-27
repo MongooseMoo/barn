@@ -17,3 +17,12 @@ Holdout: BenchmarkPoolUniqueHoldout, excluded from worker measurements and reser
 Fast contracts: existing unique/file_read tests plus new result-ownership tests. Source semantics remain unchanged; no oracle behavior changes.
 Instrumentation: Go alloc_space profile before and after, memprofilerate=1; binaries compiled using `go test -c -o <evidence>/<name>-{base,candidate}.exe ./builtins`. Profile command adds `-test.memprofile=<evidence>/<name>-{before,after}.pprof -test.memprofilerate=1` to benchmark command.
 Environment: go1.26.0 windows/amd64; AMD Ryzen 9 5950X; baseline profile outputs retained as unique-profile-before.txt. Profiles are diagnostic and excluded from timing gate.
+
+## Results
+
+Primary ratio 0.231535 (76.85% allocated-byte reduction), 95% interval [0.231191, 0.232757]. Runtime median ratios tiny8 1.0174, mixed128 0.7666, distinct10000 0.6374, duplicate4096 0.6969; every runtime interval upper bound <=1.028. Profile scratch allocation moved from dominant map allocation to result storage; borrowUniqueScratch accounts for 2.33% cumulative allocation after. Largest pooled item approximately 2-3MiB map storage plus 128KiB predecessor slice; size-class bounds are per item, not global bounds. Cleared string keys retain no caller data; returned lists are not pooled.
+Ten alternating AB/BA pairs completed with no exclusions. Host timing outliers remain in raw evidence; median/bootstrap analysis was frozen before measurement. This proves isolated builtin allocation improvement, not application-wide throughput.
+Fast contracts passed: `go test ./builtins -run 'Unique' -count=1` => `ok github.com/MongooseMoo/barn/builtins 0.292s`. Evaluator diff from prereg to source is empty.
+Committed raw stdout, top profiles, analysis JSON, and exact runner/analyzer scripts are in `2026-09-26-pool-unique-evidence/`. Binary profiles and binaries remain outside tracked tree at the prereg path; all raw output was obtained on that same machine.
+Reproduce analysis: `python experiments/2026-09-26-pool-unique-evidence/analyze.py unique`. Run measurement script with Name=unique and Bench=BenchmarkPoolUnique after compiling both named binaries beside script. Profiles used 300ms each, not gate timings.
+Source commit: 7e0363d1c1d5db68eda7e25091e7d23c458217f4; prereg 7304918. Recommendation: promote after independent retention/correctness review and sealed holdout. Worker has not run holdout or promoted source.
