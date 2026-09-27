@@ -46,7 +46,7 @@ type TaskController interface {
 	// cross the irreversible boundary only for a kill that will happen.
 	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
-	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool) types.ErrorCode
+	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.Task) types.ErrorCode
 	SuspendTask(task *task.Task, seconds float64)
 }
 

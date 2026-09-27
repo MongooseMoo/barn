@@ -123,7 +123,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 
 	// An explicit resume() must wake it and clear the sentinel so the
 	// runtime readiness gate (engine/runtime.go: !StartTime.After(now)) fires.
-	if ec := mgr.ResumeTask(tk.ID, types.NewInt(0), types.ObjNothing, true); ec != types.E_NONE {
+	if ec := mgr.ResumeTask(tk.ID, types.NewInt(0), types.ObjNothing, true, nil); ec != types.E_NONE {
 		t.Fatalf("ResumeTask returned %v, want E_NONE", ec)
 	}
 	if tk.StartTime.Equal(task.IndefiniteSuspendStartTime) {
