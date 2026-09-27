@@ -1,0 +1,15 @@
+File: finalization-baseline.test.exe
+Build ID: C:\Users\Q\code\barn-pool-finalization\.tmp\finalization-baseline.test.exe2026-09-26 22:14:58.6693082 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:16:20 MDT
+Showing nodes accounting for 1172.05MB, 99.34% of 1179.81MB total
+Dropped 50 nodes (cum <= 5.90MB)
+      flat  flat%   sum%        cum   cum%
+  513.82MB 43.55% 43.55%   513.82MB 43.55%  github.com/MongooseMoo/barn/vm.(*VM).appendPendingFinalizationRoots
+  510.68MB 43.28% 86.84%   510.68MB 43.28%  github.com/MongooseMoo/barn/vm.(*VM).collectDirectWaifsForGC
+     147MB 12.46% 99.30%      147MB 12.46%  github.com/MongooseMoo/barn/vm.collectDirectFinalizationRoots
+    0.55MB 0.046% 99.34%  1172.05MB 99.34%  github.com/MongooseMoo/barn/vm.BenchmarkPendingWaifLocals
+         0     0% 99.34%   660.83MB 56.01%  github.com/MongooseMoo/barn/vm.(*VM).collectPendingFinalizationsFromValue
+         0     0% 99.34%  1171.50MB 99.30%  github.com/MongooseMoo/barn/vm.(*VM).releaseLocal
+         0     0% 99.34%  1172.05MB 99.34%  testing.(*B).run1.func1
+         0     0% 99.34%  1172.55MB 99.39%  testing.(*B).runN

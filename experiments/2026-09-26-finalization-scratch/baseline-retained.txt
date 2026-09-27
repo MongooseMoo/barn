@@ -1,0 +1,40 @@
+File: finalization-baseline.test.exe
+Build ID: C:\Users\Q\code\barn-pool-finalization\.tmp\finalization-baseline.test.exe2026-09-26 22:14:58.6693082 -0600 MDT
+Type: inuse_space
+Time: 2026-09-26 22:16:20 MDT
+Showing nodes accounting for 3596.64kB, 100% of 3596.64kB total
+      flat  flat%   sum%        cum   cum%
+ 3084.60kB 85.76% 85.76%  3084.60kB 85.76%  runtime.mallocgc
+  512.03kB 14.24%   100%   512.03kB 14.24%  time.initLocalFromTZI
+         0     0%   100%  2564.56kB 71.30%  runtime.allocm
+         0     0%   100%   512.56kB 14.25%  runtime.mProfStackInit (inline)
+         0     0%   100%   512.56kB 14.25%  runtime.makeProfStackFP (inline)
+         0     0%   100%   512.56kB 14.25%  runtime.makeslice
+         0     0%   100%  1538.56kB 42.78%  runtime.mcall
+         0     0%   100%   512.56kB 14.25%  runtime.mcommoninit
+         0     0%   100%     1026kB 28.53%  runtime.mstart
+         0     0%   100%     1026kB 28.53%  runtime.mstart0
+         0     0%   100%     1026kB 28.53%  runtime.mstart1
+         0     0%   100%  2564.56kB 71.30%  runtime.newm
+         0     0%   100%  2572.04kB 71.51%  runtime.newobject
+         0     0%   100%  1538.56kB 42.78%  runtime.park_m
+         0     0%   100%   520.04kB 14.46%  runtime.procresize
+         0     0%   100%  2051.56kB 57.04%  runtime.resetspinning
+         0     0%   100%   520.04kB 14.46%  runtime.rt0_go
+         0     0%   100%   520.04kB 14.46%  runtime.schedinit
+         0     0%   100%  2564.56kB 71.30%  runtime.schedule
+         0     0%   100%  2564.56kB 71.30%  runtime.startm
+         0     0%   100%  2564.56kB 71.30%  runtime.wakep
+         0     0%   100%   512.03kB 14.24%  runtime/pprof.(*profileBuilder).readMapping
+         0     0%   100%   512.03kB 14.24%  runtime/pprof.newProfileBuilder
+         0     0%   100%   512.03kB 14.24%  runtime/pprof.peBuildID
+         0     0%   100%   512.03kB 14.24%  runtime/pprof.profileWriter
+         0     0%   100%   512.03kB 14.24%  sync.(*Once).Do (inline)
+         0     0%   100%   512.03kB 14.24%  sync.(*Once).doSlow
+         0     0%   100%   512.03kB 14.24%  time.(*Location).get
+         0     0%   100%   512.03kB 14.24%  time.Time.AppendFormat
+         0     0%   100%   512.03kB 14.24%  time.Time.Format
+         0     0%   100%   512.03kB 14.24%  time.Time.String
+         0     0%   100%   512.03kB 14.24%  time.Time.appendFormat
+         0     0%   100%   512.03kB 14.24%  time.Time.locabs
+         0     0%   100%   512.03kB 14.24%  time.initLocal
