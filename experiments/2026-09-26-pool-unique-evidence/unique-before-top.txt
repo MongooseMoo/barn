@@ -1,0 +1,19 @@
+File: unique-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\unique-base.exe2026-09-26 22:14:56.4095801 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:14:58 MDT
+Showing nodes accounting for 567593.90kB, 99.07% of 572910.07kB total
+Dropped 193 nodes (cum <= 2864.55kB)
+      flat  flat%   sum%        cum   cum%
+552994.01kB 96.52% 96.52% 557121.43kB 97.24%  github.com/MongooseMoo/barn/builtins.builtinUnique
+ 8775.14kB  1.53% 98.06% 14321.11kB  2.50%  github.com/MongooseMoo/barn/compiler.layoutFingerprint
+ 5539.92kB  0.97% 99.02%  5539.92kB  0.97%  strings.(*Builder).Write
+  134.94kB 0.024% 99.05% 14469.89kB  2.53%  github.com/MongooseMoo/barn/compiler.New
+      96kB 0.017% 99.06% 15234.83kB  2.66%  github.com/MongooseMoo/barn/builtins.NewRegistry
+   53.72kB 0.0094% 99.07% 15010.83kB  2.62%  github.com/MongooseMoo/barn/builtins.NewRegistryFromDescriptors
+    0.17kB 3e-05% 99.07% 572874.74kB   100%  testing.(*B).runN
+         0     0% 99.07%  5549.40kB  0.97%  fmt.Fprintf
+         0     0% 99.07% 572850.52kB   100%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolUnique.func1
+         0     0% 99.07% 15239.52kB  2.66%  github.com/MongooseMoo/barn/builtins.newTestExecution
+         0     0% 99.07% 15239.52kB  2.66%  github.com/MongooseMoo/barn/builtins.reviewDataCtx (inline)
+         0     0% 99.07% 572871.48kB   100%  testing.(*B).run1.func1
