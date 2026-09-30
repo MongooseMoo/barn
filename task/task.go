@@ -78,7 +78,7 @@ type Task struct {
 	WakeTime            time.Time
 	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
-	readier             *Task       // Task whose fork or resume() readied this one; cleared when it starts
+	readier             *Task       // Task whose fork or resume() readied this one; retained until physical handoff
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
@@ -311,6 +311,10 @@ func (t *Task) ReadyDeadline(now time.Time) time.Time {
 	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	return t.readyDeadlineLocked(now)
+}
+
+func (t *Task) readyDeadlineLocked(now time.Time) time.Time {
 	if t.executionActive || t.admissionPending || t.waitingForInput {
 		return time.Time{}
 	}
@@ -337,6 +341,7 @@ func (t *Task) SetExecutionActive(active bool) {
 	defer t.mu.Unlock()
 	t.executionActive = active
 	if !active {
+		t.readier = nil
 		t.notifyScheduleLocked()
 	}
 }
@@ -350,7 +355,6 @@ func (t *Task) StartExecution() bool {
 	}
 	t.executionActive = true
 	t.State = TaskRunning
-	t.readier = nil
 	return true
 }
 
@@ -581,6 +585,24 @@ func (t *Task) SetReadier(readier *Task) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.readier = readier
+}
+
+// PendingReadier identifies a task whose next slice must follow this readied
+// slice. Retain the relation through admission and physical execution, including
+// retries and logical suspension. A future delayed fork does not hold its parent.
+func (t *Task) PendingReadier(now time.Time) *Task {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.readier == nil || t.readier == t || t.readier.ID == 0 {
+		return nil
+	}
+	if t.executionActive || t.State == TaskRunning || (t.admissionPending && t.State == TaskQueued) {
+		return t.readier
+	}
+	if at := t.readyDeadlineLocked(now); !at.IsZero() && !at.After(now) {
+		return t.readier
+	}
+	return nil
 }
 
 // awaitingReadier reports whether the slice that forked or resumed this task

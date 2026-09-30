@@ -169,7 +169,7 @@ func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
 }
 
 func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	resumer := testTask(1, now)
@@ -196,8 +196,67 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != target {
 		t.Fatalf("resumed target did not run first: %v", batch)
 	}
+	if !target.StartExecution() {
+		t.Fatal("target did not start")
+	}
+	target.SuspendIndefinite()
+	s.ReleaseExecution(target)
 	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != resumer {
 		t.Fatalf("resumer did not follow the target: %v", batch)
+	}
+}
+
+func TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork(t *testing.T) {
+	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	parent, target, unrelated := testTask(1, now), testTask(2, now), testTask(3, now)
+	parent.SetBytecodeVM(struct{}{})
+	target.SetBytecodeVM(struct{}{})
+	target.SetReadier(parent)
+	s.Enqueue(target)
+	s.Enqueue(unrelated)
+	s.Enqueue(parent)
+	catalog := []*task.Task{parent, target, unrelated}
+	if batch := s.ReadyBatch(now, catalog); len(batch) != 2 || batch[0] != target || batch[1] != unrelated {
+		t.Fatalf("readied task and unrelated work should share a batch: %v", batch)
+	}
+	if !target.ReserveAdmission() {
+		t.Fatal("target did not reserve admission")
+	}
+	if batch := s.ReadyBatch(now, catalog); len(batch) != 0 {
+		t.Fatalf("resumer selected during readied task admission: %v", batch)
+	}
+	target.ReleaseAdmission()
+	if !target.StartExecution() {
+		t.Fatal("target did not start")
+	}
+	if at := s.NextWake(now, catalog); !at.IsZero() {
+		t.Fatalf("blocked resumer would spin the dispatch timer: %v", at)
+	}
+	if batch := s.ReadyBatch(now, catalog); len(batch) != 0 {
+		t.Fatalf("resumer selected while the readied slice executes: %v", batch)
+	}
+	target.SuspendIndefinite() // Logical suspension does not end physical ownership.
+	if batch := s.ReadyBatch(now, catalog); len(batch) != 0 {
+		t.Fatalf("resumer selected before the readied slice's physical handoff: %v", batch)
+	}
+	s.ReleaseExecution(target)
+	if batch := s.ReadyBatch(now, catalog); len(batch) != 1 || batch[0] != parent {
+		t.Fatalf("resumer not selected after the readied slice ended: %v", batch)
+	}
+}
+
+func TestDelayedReadiedTaskDoesNotHoldItsReadier(t *testing.T) {
+	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	parent, child := testTask(1, now), testTask(2, now.Add(time.Hour))
+	child.SetReadier(parent)
+	s.Enqueue(child)
+	s.Enqueue(parent)
+	if batch := s.ReadyBatch(now, []*task.Task{parent, child}); len(batch) != 1 || batch[0] != parent {
+		t.Fatalf("future fork held its readier: %v", batch)
 	}
 }
 
