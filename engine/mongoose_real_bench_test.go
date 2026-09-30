@@ -46,6 +46,7 @@ import (
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -172,7 +173,50 @@ func defaultRealShapes() []realShape {
 
 // --- per-command execution (mirrors input_processor.processCommand) ----------
 
+// A command is handled at its first suspension but is measured through its
+// terminal result. Retain the task before it runs, including across cleanup.
+type realCommandCompletion struct {
+	task   *task.Task
+	result chan types.Result
+}
+
+func (c *realCommandCompletion) capture(s *Runtime, id int64) {
+	c.task = s.GetTask(id)
+	c.result = make(chan types.Result, 1)
+	c.task.Done = make(chan struct{})
+	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
+}
+
+func (c *realCommandCompletion) wait(ctx context.Context, initial types.Result) (bool, string) {
+	if c.task == nil {
+		return false, "missing-command-task"
+	}
+	// A synchronous terminal invocation has already flushed output on return.
+	// A suspended invocation's scheduler closes Done after its final flush.
+	if initial.Flow == types.FlowSuspend {
+		select {
+		case <-c.task.Done:
+		case <-ctx.Done():
+			c.task.Kill()
+			return false, "completion:" + ctx.Err().Error()
+		}
+	}
+	select {
+	case result := <-c.result:
+		if result.Flow == types.FlowException {
+			return false, "uncaught:" + result.Error.String()
+		}
+		return true, ""
+	default:
+		return false, "killed-before-completion"
+	}
+}
+
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
+	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+	defer cancel()
+	var completion realCommandCompletion
+	onStart := func(id int64) { completion.capture(s, id) }
 	loc, ec := st.DirectTxn().Location(player)
 	if ec != types.E_NONE {
 		return false, "location:" + ec.String()
@@ -193,12 +237,12 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 	// hook is a real task; a truthy return, an uncaught error, or a suspend
 	// (Mongoose's `home` reaches suspend(0) inside a room enterfunc) all mean
 	// the hook handled the command and the native parser must not rerun it.
-	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, nil)
+	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, onStart)
 	if err != nil && !errors.Is(err, ErrServerVerbNotFound) {
 		return false, "do_command:" + err.Error()
 	}
 	if err == nil && (res.Flow == types.FlowSuspend || res.Flow == types.FlowException || res.Val.Truthy()) {
-		return true, ""
+		return completion.wait(ctx, res)
 	}
 	match := command.FindVerb(st, player, loc, cmd)
 	if match == nil {
@@ -206,17 +250,29 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 		// the huh verb. Several mongoose player classes (e.g. parent #410) have
 		// no `home` verb — that is legitimate dispatch, not a failure.
 		if huh := command.FindHuhVerb(st, player, loc, false); huh != nil {
-			if err := s.ExecuteVerbTaskSync(player, huh, cmd, ""); err != nil {
+			if err := s.ExecuteVerbTaskSyncWithStart(player, huh, cmd, "", onStart); err != nil {
 				return false, "huh-exec:" + err.Error()
 			}
-			return true, ""
+			return completion.waitCommand(ctx)
 		}
 		return false, "no-verb-match"
 	}
-	if err := s.ExecuteVerbTaskSync(player, match, cmd, ""); err != nil {
+	if err := s.ExecuteVerbTaskSyncWithStart(player, match, cmd, "", onStart); err != nil {
 		return false, "exec:" + err.Error()
 	}
-	return true, ""
+	return completion.waitCommand(ctx)
+}
+
+func (c *realCommandCompletion) waitCommand(ctx context.Context) (bool, string) {
+	// Terminal callbacks synchronize the result; never inspect task.Result while
+	// the scheduler may be resuming it. If it is still pending, await the flush.
+	select {
+	case result := <-c.result:
+		c.result <- result
+		return c.wait(ctx, result)
+	default:
+		return c.wait(ctx, types.Suspend(-1))
+	}
 }
 
 // --- the benchmark -----------------------------------------------------------
@@ -515,6 +571,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 			allocsPerOp = float64(m1.Mallocs-m0.Mallocs) / float64(committed)
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
+		t.Logf("cohort submitted=%d completed=%d failed=%d outstanding=0 elapsed=%s drain=%s", committed+failed, committed, failed, elapsed, max(time.Duration(0), elapsed-measure))
 		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
 			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
