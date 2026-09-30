@@ -94,8 +94,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	// that happened inside a nested verb-call VM, whose result went back to the
 	// builtin that ran it rather than to the runtime.
 	if result.Flow == types.FlowAbortAttempt || (vm.Context != nil && vm.Context.ConflictRetryRequested) {
-		vm.yielded = true
-		vm.yieldResult = types.Result{Flow: types.FlowAbortAttempt}
+		vm.abortAttempt()
 		return nil
 	}
 

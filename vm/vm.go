@@ -616,6 +616,9 @@ func (vm *VM) Resume() types.Result {
 				Val:   exceptionValue,
 			}
 		}
+		if vm.yielded {
+			return vm.yieldResult
+		}
 	}
 	return vm.executeLoop()
 }
@@ -1530,9 +1533,15 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
 				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
 			})
-			if result.Flow == types.FlowException {
+			switch result.Flow {
+			case types.FlowException:
 				errCode = result.Error
 				exceptionValue = result.Val
+			case types.FlowAbortAttempt:
+				// Stop unwinding: no handler may run on an abandoned attempt.
+				// Callers see the yield and return FlowAbortAttempt.
+				vm.abortAttempt()
+				return true, exceptionValue
 			}
 		}
 		// Continue searching in the caller frame
