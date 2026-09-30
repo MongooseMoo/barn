@@ -422,28 +422,48 @@ func (t *Task) ClearCallStack() {
 // RetryStateSnapshot returns the task fields needed to reconstruct a failed
 // optimistic execution attempt. Slice storage is copied before releasing the
 // lock so a concurrent observer never aliases a changing CallStack.
-func (t *Task) RetryStateSnapshot() (*kernel.TaskContext, []types.ActivationFrame, types.Value, types.Value, int64, float64) {
+type RetrySnapshot struct {
+	Context                              *kernel.TaskContext
+	CallStack                            []types.ActivationFrame
+	TaskLocal, WakeValue                 types.Value
+	WakeErrorAsValue                     bool
+	TicksLimit                           int64
+	SecondsLimit                         float64
+	WakeTime                             time.Time
+	ReadingPlayer                        types.ObjID
+	IsExecSuspended, IsHTTPReadSuspended bool
+	ExecCommandName                      string
+}
+
+func (t *Task) RetryStateSnapshot() RetrySnapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	stack := append([]types.ActivationFrame(nil), t.CallStack...)
-	return t.Context, stack, t.TaskLocal, t.WakeValue, t.TicksLimit, t.SecondsLimit
+	return RetrySnapshot{
+		Context: t.Context, CallStack: append([]types.ActivationFrame(nil), t.CallStack...),
+		TaskLocal: t.TaskLocal, WakeValue: t.WakeValue, WakeErrorAsValue: t.WakeErrorAsValue,
+		TicksLimit: t.TicksLimit, SecondsLimit: t.SecondsLimit, WakeTime: t.WakeTime,
+		ReadingPlayer: t.ReadingPlayer, IsExecSuspended: t.IsExecSuspended,
+		IsHTTPReadSuspended: t.IsHTTPReadSuspended, ExecCommandName: t.ExecCommandName,
+	}
 }
 
 // RestoreRetryState atomically publishes all task-owned state for a retry.
-func (t *Task) RestoreRetryState(ctx *kernel.TaskContext, stack []types.ActivationFrame, local, wake types.Value, ticks int64, seconds float64) {
+func (t *Task) RestoreRetryState(saved RetrySnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Result = types.Result{}
-	t.CallStack = stack
-	t.TaskLocal = local
-	t.WakeValue = wake
+	t.CallStack = saved.CallStack
+	t.TaskLocal = saved.TaskLocal
+	t.WakeValue = saved.WakeValue
+	t.WakeErrorAsValue = saved.WakeErrorAsValue
+	t.WakeTime = saved.WakeTime
+	t.ReadingPlayer = saved.ReadingPlayer
+	t.IsExecSuspended = saved.IsExecSuspended
+	t.IsHTTPReadSuspended = saved.IsHTTPReadSuspended
+	t.ExecCommandName = saved.ExecCommandName
 	t.CreatedForks = nil
-	t.TicksLimit = ticks
-	t.TicksUsed = 0
-	t.SecondsLimit = seconds
-	t.SecondsUsed = 0
-	t.StartTime = time.Now()
-	t.Context = ctx
+	// Retry consumes the same logical slice budget; only a new wake resets it.
+	t.Context = saved.Context
 }
 
 // ContextValue returns the current execution context pointer safely.

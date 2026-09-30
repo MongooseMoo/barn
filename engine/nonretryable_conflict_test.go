@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,13 +13,9 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// Issue #296: a slice that cannot be re-executed after a lost commit (a forked
-// task's first run, a resumed task, a forked task's inline suspend(0) yields)
-// used to fall through to `result = types.Err(E_INVARG)` and hand MOO code a
-// frameless E_INVARG no serial execution produces. Toast structurally cannot
-// produce it. These tests pin the two remedies: a forked first run is re-run
-// from the fork statement like a fresh task, and any slice that truly cannot be
-// re-run holds the exclusive commit gate so it cannot lose.
+// Issue #296: conflict retries must restore fresh, forked and resumed tasks
+// instead of surfacing a frameless E_INVARG. A yielded VM restores only the
+// current slice; earlier committed slices are never replayed.
 
 func newConflictTestStore(t *testing.T) *dbstore.Store {
 	t.Helper()
@@ -50,13 +47,17 @@ func readRootV(t *testing.T, store *dbstore.Store) int64 {
 // without the gate it publishes within microseconds and the slice's own read of
 // #0.v is stale at commit time, deterministically.
 type competingWriter struct {
-	done   chan struct{}
-	result types.ErrorCode
+	done    chan struct{}
+	result  types.ErrorCode
+	started atomic.Bool
 }
 
 func competingWriterDescriptor(store *dbstore.Store) (builtins.Descriptor, *competingWriter) {
 	c := &competingWriter{done: make(chan struct{})}
 	var callback builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
+		if c.started.Swap(true) {
+			return types.Ok(types.NewInt(0))
+		}
 		tx := store.BeginSnapshot(0)
 		cur, errCode := tx.PropertyValue(0, "v")
 		if errCode != types.E_NONE {
@@ -66,6 +67,7 @@ func competingWriterDescriptor(store *dbstore.Store) (builtins.Descriptor, *comp
 			return types.Err(errCode)
 		}
 		go func() {
+			defer tx.Release()
 			c.result = tx.Commit()
 			close(c.done)
 		}()
@@ -168,10 +170,8 @@ return 0;
 	}
 }
 
-// A resumed task's slice cannot be re-executed, so it holds the exclusive commit
-// gate: a competing commit-based writer waits, and it is the competitor that
-// loses validation afterwards, never the slice.
-func TestResumedSliceCannotLoseCommitToConcurrentWriter(t *testing.T) {
+// The competing writer commits first; the resumed slice restores and retries.
+func TestResumedSliceRetriesConcurrentWrite(t *testing.T) {
 	store := newConflictTestStore(t)
 	descriptor, competitor := competingWriterDescriptor(store)
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
@@ -196,24 +196,22 @@ return #0.v;
 	if queued.Result.Flow != types.FlowReturn {
 		t.Fatalf("resumed task = flow %v err %v, want return", queued.Result.Flow, queued.Result.Error)
 	}
-	if got := queued.Result.Val.Int(); got != 1 {
-		t.Fatalf("resumed task returned %d, want 1", got)
+	if got := queued.Result.Val.Int(); got != 101 {
+		t.Fatalf("resumed task returned %d, want 101 after retry", got)
 	}
-	if code := competitor.wait(t); code != types.E_INVARG {
-		t.Fatalf("competing commit = %v, want E_INVARG (it must be the one that loses)", code)
+	if code := competitor.wait(t); code != types.E_NONE {
+		t.Fatalf("competing commit = %v, want successful competing commit", code)
 	}
-	if got := readRootV(t, store); got != 1 {
-		t.Fatalf("#0.v = %d, want 1", got)
+	if got := readRootV(t, store); got != 101 {
+		t.Fatalf("#0.v = %d, want 101", got)
 	}
-	if got := store.CommitEscalations(); got == 0 {
-		t.Fatal("resumed slice did not take the commit gate")
+	if store.CommitRetries() != 1 || store.CommitEscalations() != 0 {
+		t.Fatalf("retries=%d escalations=%d, want 1 retry without escalation", store.CommitRetries(), store.CommitEscalations())
 	}
 }
 
-// A forked task's suspend(0) resumes inline inside the same runTask; those
-// slices are committed by a separate path that never retried. They hold the
-// gate too.
-func TestForkedInlineYieldCannotLoseCommitToConcurrentWriter(t *testing.T) {
+// Forked children retry their continuation after a committed suspend(0).
+func TestForkedContinuationRetriesConcurrentWrite(t *testing.T) {
 	store := newConflictTestStore(t)
 	descriptor, competitor := competingWriterDescriptor(store)
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
@@ -244,11 +242,11 @@ return 0;
 	if child.GetState() != task.TaskCompleted || child.Result.Flow == types.FlowException {
 		t.Fatalf("forked child = state %v flow %v err %v, want completed without exception", child.GetState(), child.Result.Flow, child.Result.Error)
 	}
-	if code := competitor.wait(t); code != types.E_INVARG {
-		t.Fatalf("competing commit = %v, want E_INVARG (it must be the one that loses)", code)
+	if code := competitor.wait(t); code != types.E_NONE {
+		t.Fatalf("competing commit = %v, want successful competing commit", code)
 	}
-	if got := readRootV(t, store); got != 1 {
-		t.Fatalf("#0.v = %d, want 1", got)
+	if got := readRootV(t, store); got != 101 {
+		t.Fatalf("#0.v = %d, want 101", got)
 	}
 }
 

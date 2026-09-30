@@ -328,7 +328,7 @@ func TestAdmissionCapOneInputNotStarvedByLongBackgroundSlice(t *testing.T) {
 	t.Logf("input latency %v; admission %+v", latency, rt.AdmissionStats())
 }
 
-// A resumed slice runs escalated, holding the exclusive commit gate. It must not
+// A resumed slice crossing an irreversible boundary holds the exclusive gate. It must not
 // lend its reservation: a committing input admitted in its place would wait on
 // the gate while the gate holder waited for readmission.
 func TestAdmissionCapOneEscalatedSliceDoesNotYieldIntoDeadlock(t *testing.T) {
@@ -336,13 +336,20 @@ func TestAdmissionCapOneEscalatedSliceDoesNotYieldIntoDeadlock(t *testing.T) {
 		`add_property(#1, "bg_seconds", 30, {player, "r"});`+
 		`add_property(#1, "v", 0, {player, "rw"});`+
 		`load_server_options();`)
-	rt := newRuntimeWithWorkerCount(store, config.Options{AdmissionLimit: 1}, 1)
+	gate := builtins.BuiltinFunc(func(ctx *builtins.Execution, _ []types.Value) types.Result {
+		if ctx.BeforeIrreversibleEffect() {
+			return types.Result{Flow: types.FlowAbortAttempt}
+		}
+		ctx.IrreversibleSideEffect = true
+		return types.Ok(types.NewInt(0))
+	})
+	rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 1}, 1, testBuiltinSlot("gate", 0, 0, nil, &gate))
 	defer rt.Stop()
 	if r := rt.CallVerb(1, "go", nil, 2); r.Flow == types.FlowException {
 		t.Fatalf("setup raised %s", r.Error)
 	}
 	id := rt.CreateBackgroundTask(2, compileTestProgram(t, rt.registry,
-		"suspend(0); t = ftime(1); while (ftime(1) - t < 0.5) endwhile #1.v = #1.v + 1; return 7;"), 0)
+		"suspend(0); gate(); t = ftime(1); while (ftime(1) - t < 0.5) endwhile #1.v = #1.v + 1; return 7;"), 0)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

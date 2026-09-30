@@ -138,6 +138,9 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 		return t.Result, err
 	}
 	s.flushTaskOutput(t)
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+		t.CloseDone()
+	}
 	return t.Result, nil
 }
 
@@ -444,6 +447,9 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 			slog.Any("err", err))
 	}
 	s.flushTaskOutput(t)
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+		t.CloseDone()
+	}
 	return true
 }
 

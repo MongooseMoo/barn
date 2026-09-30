@@ -421,6 +421,13 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 		Object: args[0], OldParents: oldParents, OldChildren: oldChildren,
 		OldContents: oldContents, OldLocation: oldLocation,
 	}
+	// A session-wide recycle reservation is observable by other tasks and
+	// cannot be undone by replaying a VM checkpoint. Validate before acquiring
+	// it, just as for the later live topology mutation.
+	if !beginIrreversible(ctx) {
+		return abortedAttempt()
+	}
+	ctx.IrreversibleSideEffect = true
 	if !beginRecycle(ctx, objID) {
 		return types.Err(types.E_INVARG)
 	}
@@ -434,6 +441,13 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 // FinishRecycleLifecycle applies topology cleanup after the object's recycle
 // verb has completed on either the owning VM or a synchronous test host.
 func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hookResult types.Result) types.Result {
+	// The reservation may have survived a committed suspension. A failed
+	// validation must leave it held for the restored continuation, including
+	// the early error paths that otherwise release it without a topology write.
+	if !beginIrreversible(ctx) {
+		return abortedAttempt()
+	}
+	ctx.IrreversibleSideEffect = true
 	defer endRecycle(ctx, request.Object.ID())
 	store := ctx.Store
 	tx := readTxn(ctx)
