@@ -2,7 +2,7 @@ package builtins
 
 import (
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
@@ -400,22 +400,36 @@ func sortCallback(list, keys types.Value, useKeys, natural, reverse bool) types.
 
 	// All sort-key elements must share the first element's type and be a scalar
 	// sortable value. LIST/MAP/ANON/WAIF (and any type mismatch) -> E_TYPE.
-	keyType := sortList.Get(1).Type()
-	for i := 1; i <= n; i++ {
-		t := sortList.Get(i).Type()
+	keysElements := sortList.Elements()
+	keyType := keysElements[0].Type()
+	for _, key := range keysElements {
+		t := key.Type()
 		if t != keyType || t == types.TYPE_LIST || t == types.TYPE_MAP ||
 			t == types.TYPE_ANON || t == types.TYPE_WAIF {
 			return types.NewErr(types.E_TYPE)
 		}
 	}
 
-	// Sort indices (1-based) so a keys-driven sort can map back into list.
+	// Sort indices so a keys-driven sort can map back into list.
 	idx := make([]int, n)
 	for i := range idx {
-		idx[i] = i + 1
+		idx[i] = i
 	}
-	sort.SliceStable(idx, func(i, j int) bool {
-		return sortLess(sortList.Get(idx[i]), sortList.Get(idx[j]), natural)
+	slices.SortStableFunc(idx, func(i, j int) int {
+		a, b := keysElements[i], keysElements[j]
+		if keyType == types.TYPE_STR {
+			if natural {
+				return strnatcasecmp(a.Str(), b.Str())
+			}
+			return strcasecmp(a.Str(), b.Str())
+		}
+		if sortLess(a, b, natural) {
+			return -1
+		}
+		if sortLess(b, a, natural) {
+			return 1
+		}
+		return 0
 	})
 	if reverse {
 		for i, j := 0, len(idx)-1; i < j; i, j = i+1, j-1 {
@@ -424,8 +438,9 @@ func sortCallback(list, keys types.Value, useKeys, natural, reverse bool) types.
 	}
 
 	result := make([]types.Value, n)
+	elements := list.Elements()
 	for p, it := range idx {
-		result[p] = list.Get(it)
+		result[p] = elements[it]
 	}
 	return types.NewList(result)
 }

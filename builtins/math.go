@@ -658,8 +658,7 @@ func builtinAllMembers(ctx *Execution, args []types.Value) types.Result {
 	// all_members() is a threaded builtin (see threaded.go).
 	return backgroundValue(ctx, func() types.Value {
 		result := make([]types.Value, 0)
-		for i := 1; i <= list.Len(); i++ {
-			item := list.Get(i)
+		for i, item := range list.Elements() {
 			matched := false
 			if !caseMatters {
 				if needle.Type() == types.TYPE_STR && item.Type() == types.TYPE_STR {
@@ -669,7 +668,7 @@ func builtinAllMembers(ctx *Execution, args []types.Value) types.Result {
 				matched = needle.Equal(item)
 			}
 			if matched {
-				result = append(result, types.NewInt(int64(i)))
+				result = append(result, types.NewInt(int64(i+1)))
 			}
 		}
 		return types.NewList(result)
