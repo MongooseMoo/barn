@@ -41,6 +41,7 @@ func dirtyVM(machine *VM) {
 	machine.framePool = []*StackFrame{{}}
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
 	machine.resumeError = types.E_INTRPT
+	machine.retryCheckpoint = &RetryCheckpoint{}
 }
 
 func TestDirtyVMTouchesEveryField(t *testing.T) {
@@ -111,6 +112,9 @@ func TestResetClearsUnexportedFields(t *testing.T) {
 	}
 	if machine.resumeError != types.E_NONE {
 		t.Errorf("resumeError not cleared: %v", machine.resumeError)
+	}
+	if machine.retryCheckpoint != nil {
+		t.Error("retryCheckpoint not cleared")
 	}
 	if len(machine.localStack) != 0 {
 		t.Errorf("localStack not released: len %d", len(machine.localStack))

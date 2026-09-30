@@ -62,11 +62,12 @@ type VM struct {
 	// pushed frame takes the next NumLocals slots and popFrame releases them
 	// LIFO, so a verb call no longer allocates its locals. framePool recycles
 	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
-	localStack  []types.Value
-	framePool   []*StackFrame
-	yielded     bool         // VM has yielded control (suspend/fork)
-	yieldResult types.Result // Why we yielded
-	resumeError types.ErrorCode
+	localStack      []types.Value
+	framePool       []*StackFrame
+	yielded         bool         // VM has yielded control (suspend/fork)
+	yieldResult     types.Result // Why we yielded
+	resumeError     types.ErrorCode
+	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
 }
 
 // pushFrame appends a call frame and updates the cached current-frame pointer.
