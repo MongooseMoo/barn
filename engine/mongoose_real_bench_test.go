@@ -187,18 +187,20 @@ func (c *realCommandCompletion) capture(s *Runtime, id int64) {
 	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
 }
 
-func (c *realCommandCompletion) wait(ctx context.Context, initial types.Result) (bool, string) {
+func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	if c.task == nil {
 		return false, "missing-command-task"
 	}
-	// A synchronous terminal invocation has already flushed output on return.
-	// A suspended invocation's scheduler closes Done after its final flush.
-	if initial.Flow == types.FlowSuspend {
+	// Both synchronous execution and the scheduler close Done after flushing.
+	select {
+	case <-c.task.Done:
+	case <-ctx.Done():
+		c.task.Kill()
 		select {
 		case <-c.task.Done:
-		case <-ctx.Done():
-			c.task.Kill()
-			return false, "completion:" + ctx.Err().Error()
+			return false, "timeout:" + ctx.Err().Error()
+		default:
+			return false, "unsettled:" + ctx.Err().Error()
 		}
 	}
 	select {
@@ -242,7 +244,7 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 		return false, "do_command:" + err.Error()
 	}
 	if err == nil && (res.Flow == types.FlowSuspend || res.Flow == types.FlowException || res.Val.Truthy()) {
-		return completion.wait(ctx, res)
+		return completion.wait(ctx)
 	}
 	match := command.FindVerb(st, player, loc, cmd)
 	if match == nil {
@@ -253,26 +255,14 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 			if err := s.ExecuteVerbTaskSyncWithStart(player, huh, cmd, "", onStart); err != nil {
 				return false, "huh-exec:" + err.Error()
 			}
-			return completion.waitCommand(ctx)
+			return completion.wait(ctx)
 		}
 		return false, "no-verb-match"
 	}
 	if err := s.ExecuteVerbTaskSyncWithStart(player, match, cmd, "", onStart); err != nil {
 		return false, "exec:" + err.Error()
 	}
-	return completion.waitCommand(ctx)
-}
-
-func (c *realCommandCompletion) waitCommand(ctx context.Context) (bool, string) {
-	// Terminal callbacks synchronize the result; never inspect task.Result while
-	// the scheduler may be resuming it. If it is still pending, await the flush.
-	select {
-	case result := <-c.result:
-		c.result <- result
-		return c.wait(ctx, result)
-	default:
-		return c.wait(ctx, types.Suspend(-1))
-	}
+	return completion.wait(ctx)
 }
 
 // --- the benchmark -----------------------------------------------------------
@@ -448,10 +438,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 			attempts, retries uint64
 		}
 		type gstat struct {
-			shapes   []shapeStat
-			lats     []time.Duration
-			seen     int64
-			failMsgs []string
+			shapes    []shapeStat
+			lats      []time.Duration
+			seen      int64
+			failMsgs  []string
+			unsettled int64
 		}
 		stats := make([]gstat, active)
 		for i := range stats {
@@ -507,6 +498,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 							}
 						} else {
 							ss.fail++
+							if strings.HasPrefix(failure, "unsettled:") {
+								st.unsettled++
+							}
 							if len(st.failMsgs) < 5 {
 								st.failMsgs = append(st.failMsgs,
 									realShapes[sh].name+" -> "+failure)
@@ -533,10 +527,12 @@ func TestMongooseRealWorkload(t *testing.T) {
 		runtime.ReadMemStats(&m1)
 
 		var committed, failed int64
+		var unsettled int64
 		var allLats []time.Duration
 		shapeAgg := make([]shapeStat, len(realShapes))
 		var failSamples []string
 		for i := range stats {
+			unsettled += stats[i].unsettled
 			for j := range stats[i].shapes {
 				shapeAgg[j].ok += stats[i].shapes[j].ok
 				shapeAgg[j].fail += stats[i].shapes[j].fail
@@ -571,7 +567,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 			allocsPerOp = float64(m1.Mallocs-m0.Mallocs) / float64(committed)
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
-		t.Logf("cohort submitted=%d completed=%d failed=%d outstanding=0 elapsed=%s drain=%s", committed+failed, committed, failed, elapsed, max(time.Duration(0), elapsed-measure))
+		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
+		if unsettled != 0 {
+			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
+		}
 		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
 			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),

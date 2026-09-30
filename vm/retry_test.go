@@ -123,7 +123,8 @@ func TestRetryCheckpointDetachesMutableFrameStorage(t *testing.T) {
 func TestRetryCheckpointRootsOutliveOverwrittenLocals(t *testing.T) {
 	machine := retryTestVM(t, `suspend(0); return 1;`)
 	frame := machine.CurrentFrame()
-	frame.Locals = append(frame.Locals, types.NewAnon(12345))
+	waif := types.NewWaif(12346, 0)
+	frame.Locals = append(frame.Locals, types.NewList([]types.Value{types.NewAnon(12345), waif}))
 	machine.CheckpointForRetry()
 	frame.Locals[len(frame.Locals)-1] = types.NewInt(0)
 	refs := make(map[types.ObjID]struct{})
@@ -131,10 +132,20 @@ func TestRetryCheckpointRootsOutliveOverwrittenLocals(t *testing.T) {
 	if _, ok := refs[12345]; !ok {
 		t.Fatal("lost checkpoint-only anonymous root")
 	}
+	var waifs []types.Value
+	CollectWaifsFromVM(machine, &waifs)
+	if !waifValueInList(waif, waifs) {
+		t.Fatal("lost checkpoint-only WAIF root")
+	}
 	machine.ReleaseRetryCheckpoint()
 	clear(refs)
 	CollectAnonymousRefsFromVM(machine, refs)
 	if _, ok := refs[12345]; ok {
 		t.Fatal("retained a released checkpoint")
+	}
+	waifs = nil
+	CollectWaifsFromVM(machine, &waifs)
+	if waifValueInList(waif, waifs) {
+		t.Fatal("retained a released checkpoint WAIF")
 	}
 }
