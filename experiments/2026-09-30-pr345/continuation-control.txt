@@ -1,0 +1,90 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1213	    198904 ns/op	      5028 commands/s	         4.000 escalations/command	         0 retries/command	   40485 B/op	     396 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     962	    260464 ns/op	      3839 commands/s	         4.000 escalations/command	         0 retries/command	   59478 B/op	     509 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      79	   2596415 ns/op	      6162 commands/s	         4.000 escalations/command	         0 retries/command	  650142 B/op	    5760 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      74	   3218632 ns/op	      4971 commands/s	         4.000 escalations/command	         0 retries/command	  954611 B/op	    7489 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	     967	    221951 ns/op	      4505 commands/s	         4.000 escalations/command	         0 retries/command	   40559 B/op	     404 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     913	    250808 ns/op	      3987 commands/s	         4.000 escalations/command	         0 retries/command	   59460 B/op	     507 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      88	   2573026 ns/op	      6218 commands/s	         4.000 escalations/command	         0 retries/command	  650029 B/op	    5762 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      74	   3126923 ns/op	      5117 commands/s	         4.000 escalations/command	         0 retries/command	  954158 B/op	    7488 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1036	    217810 ns/op	      4591 commands/s	         4.000 escalations/command	         0 retries/command	   40532 B/op	     402 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     958	    252427 ns/op	      3962 commands/s	         4.000 escalations/command	         0 retries/command	   59475 B/op	     508 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      99	   2526133 ns/op	      6334 commands/s	         4.000 escalations/command	         0 retries/command	  650168 B/op	    5764 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      74	   3226589 ns/op	      4959 commands/s	         4.000 escalations/command	         0 retries/command	  954520 B/op	    7489 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1098	    214416 ns/op	      4664 commands/s	         4.000 escalations/command	         0 retries/command	   40538 B/op	     401 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     950	    250304 ns/op	      3995 commands/s	         4.000 escalations/command	         0 retries/command	   59479 B/op	     509 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      97	   2637620 ns/op	      6066 commands/s	         4.000 escalations/command	         0 retries/command	  649882 B/op	    5763 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      75	   3178873 ns/op	      5033 commands/s	         4.000 escalations/command	         0 retries/command	  954351 B/op	    7489 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	     931	    247958 ns/op	      4033 commands/s	         4.000 escalations/command	         0 retries/command	   40599 B/op	     410 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     798	    296388 ns/op	      3374 commands/s	         4.000 escalations/command	         0 retries/command	   59579 B/op	     520 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      96	   2649272 ns/op	      6039 commands/s	         4.000 escalations/command	         0 retries/command	  650237 B/op	    5764 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      78	   3212619 ns/op	      4980 commands/s	         4.000 escalations/command	         0 retries/command	  954572 B/op	    7490 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1053	    233545 ns/op	      4282 commands/s	         4.000 escalations/command	         0 retries/command	   40572 B/op	     408 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     819	    284123 ns/op	      3520 commands/s	         4.000 escalations/command	         0 retries/command	   59565 B/op	     517 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      85	   2721026 ns/op	      5880 commands/s	         4.000 escalations/command	         0 retries/command	  650170 B/op	    5763 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      72	   3327797 ns/op	      4808 commands/s	         4.000 escalations/command	         0 retries/command	  954369 B/op	    7488 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	     943	    253009 ns/op	      3952 commands/s	         4.000 escalations/command	         0 retries/command	   40608 B/op	     411 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     730	    320419 ns/op	      3121 commands/s	         4.000 escalations/command	         0 retries/command	   59633 B/op	     527 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      96	   2678661 ns/op	      5973 commands/s	         4.000 escalations/command	         0 retries/command	  649989 B/op	    5763 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      70	   3265484 ns/op	      4900 commands/s	         4.000 escalations/command	         0 retries/command	  954451 B/op	    7488 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1004	    238523 ns/op	      4192 commands/s	         4.000 escalations/command	         0 retries/command	   40605 B/op	     409 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     775	    281635 ns/op	      3551 commands/s	         4.000 escalations/command	         0 retries/command	   59527 B/op	     514 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      88	   2769903 ns/op	      5776 commands/s	         4.000 escalations/command	         0 retries/command	  650073 B/op	    5763 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      73	   3100493 ns/op	      5160 commands/s	         4.000 escalations/command	         0 retries/command	  954630 B/op	    7489 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	     968	    224723 ns/op	      4450 commands/s	         4.000 escalations/command	         0 retries/command	   40571 B/op	     406 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     900	    267246 ns/op	      3742 commands/s	         4.000 escalations/command	         0 retries/command	   59525 B/op	     513 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      86	   2510095 ns/op	      6374 commands/s	         4.000 escalations/command	         0 retries/command	  650064 B/op	    5761 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      81	   3214740 ns/op	      4977 commands/s	         4.000 escalations/command	         0 retries/command	  954398 B/op	    7489 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkThreadedContinuations/players=1/writes=false-4         	     943	    264034 ns/op	      3787 commands/s	         4.000 escalations/command	         0 retries/command	   40614 B/op	     410 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	     628	    335415 ns/op	      2981 commands/s	         4.000 escalations/command	         0 retries/command	   59572 B/op	     520 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	      86	   2995769 ns/op	      5341 commands/s	         4.000 escalations/command	         0 retries/command	  650071 B/op	    5763 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	      61	   3710731 ns/op	      4312 commands/s	         4.000 escalations/command	         0 retries/command	  954527 B/op	    7486 allocs/op
+PASS

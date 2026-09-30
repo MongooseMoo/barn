@@ -1,0 +1,331 @@
+diff --git a/engine/continuation_bench_test.go b/engine/continuation_bench_test.go
+new file mode 100644
+index 0000000..10a47ee
+--- /dev/null
++++ b/engine/continuation_bench_test.go
+@@ -0,0 +1,83 @@
++package engine
++
++import (
++	"fmt"
++	"runtime"
++	"testing"
++	"time"
++
++	"github.com/MongooseMoo/barn/config"
++	dbstore "github.com/MongooseMoo/barn/db/store"
++	"github.com/MongooseMoo/barn/task"
++	"github.com/MongooseMoo/barn/types"
++)
++
++// Measure complete cohorts, including four threaded calls and the computation
++// after each call. The same source is compiled into the control executable.
++func BenchmarkThreadedContinuations(b *testing.B) {
++	for _, players := range []int{1, 16} {
++		for _, writes := range []bool{false, true} {
++			b.Run(fmt.Sprintf("players=%d/writes=%v", players, writes), func(b *testing.B) {
++				store := dbstore.NewStore()
++				root := dbstore.NewObjectBuilder(0)
++				root.SetOwner(0)
++				root.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer)
++				root.SetProperty("v", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
++				if err := store.Add(root.Build()); err != nil {
++					b.Fatal(err)
++				}
++				rt := newRuntimeWithWorkerCount(store, config.Options{}, 4)
++				defer rt.Stop()
++				write := ""
++				if writes {
++					write = "#0.v = #0.v + 1;"
++				}
++				program, diagnostics := rt.registry.Compiler().CompileMOO([]string{`sum = 0; for round in [1..4] sorted = sort({2, 1}); for i in [1..500] sum = sum + i; endfor ` + write + ` endfor return sum;`})
++				if len(diagnostics) != 0 {
++					b.Fatal(diagnostics)
++				}
++				stop, stopped := make(chan struct{}), make(chan struct{})
++				go func() {
++					defer close(stopped)
++					for {
++						select {
++						case <-stop:
++							return
++						default:
++						}
++						if rt.ProcessReadyTasks() == 0 {
++							runtime.Gosched()
++						}
++					}
++				}()
++				defer func() { close(stop); <-stopped }()
++				b.ReportAllocs()
++				for b.Loop() {
++					cohort := make([]*task.Task, players)
++					for i := range cohort {
++						ticks, seconds := foregroundTaskLimits(rt.session)
++						queued := task.NewTaskFull(rt.newTaskID(), types.ObjID(i+1), program, ticks, seconds)
++						queued.Context.IsWizard = true
++						queued.Done = make(chan struct{})
++						cohort[i] = queued
++						rt.QueueTask(queued)
++					}
++					for _, queued := range cohort {
++						select {
++						case <-queued.Done:
++						case <-time.After(10 * time.Second):
++							b.Fatal("cohort did not drain")
++						}
++						if queued.Result.Flow != types.FlowReturn || queued.Result.Val.Int() != 501000 {
++							b.Fatalf("terminal result=%+v", queued.Result)
++						}
++					}
++					rt.CleanupFinishedTasks()
++				}
++				b.ReportMetric(float64(b.N*players)/b.Elapsed().Seconds(), "commands/s")
++				b.ReportMetric(float64(store.CommitRetries())/float64(b.N*players), "retries/command")
++				b.ReportMetric(float64(store.CommitEscalations())/float64(b.N*players), "escalations/command")
++			})
++		}
++	}
++}
+diff --git a/engine/mongoose_completion_test.go b/engine/mongoose_completion_test.go
+new file mode 100644
+index 0000000..ae65729
+--- /dev/null
++++ b/engine/mongoose_completion_test.go
+@@ -0,0 +1,81 @@
++package engine
++
++import (
++	"context"
++	"strings"
++	"testing"
++
++	"github.com/MongooseMoo/barn/task"
++	"github.com/MongooseMoo/barn/types"
++)
++
++func TestRealCommandCompletionWaitsForFinalOutputFlush(t *testing.T) {
++	queued := task.NewTask(1, 0, 30000, 3)
++	queued.Done = make(chan struct{})
++	completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
++	completion.result <- types.Ok(types.NewInt(1))
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	returned := make(chan bool, 1)
++	go func() {
++		ok, _ := completion.wait(ctx)
++		returned <- ok
++	}()
++	// Even the terminal callback is insufficient: output has not flushed yet.
++	select {
++	case <-returned:
++		t.Fatal("credited a command before the final output flush")
++	default:
++	}
++	queued.CloseDone()
++	if !<-returned {
++		t.Fatal("completed command was not successful")
++	}
++}
++
++func TestRealCommandCompletionCannotCreditUnflushedCallback(t *testing.T) {
++	queued := task.NewTask(1, 0, 30000, 3)
++	queued.Done = make(chan struct{})
++	completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
++	completion.result <- types.Ok(types.NewInt(1))
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if ok, failure := completion.wait(ctx); ok || !strings.HasPrefix(failure, "unsettled:") {
++		t.Fatalf("unflushed callback credited: ok=%v failure=%s", ok, failure)
++	}
++}
++
++func TestRealCommandSynchronousCompletionClosesAfterFlush(t *testing.T) {
++	store := newConflictTestStore(t)
++	admissionVerb(t, store, "do_command", "return 1;")
++	rt := newTestRuntimeWithBuiltins(t, store)
++	defer rt.Stop()
++	var completion realCommandCompletion
++	_, err := rt.RunServerVerbTaskWithArgstr(0, "do_command", nil, 0, "", func(id int64) { completion.capture(rt, id) })
++	if err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case <-completion.task.Done:
++	default:
++		t.Fatal("synchronous terminal execution did not acknowledge its flush")
++	}
++	if ok, failure := completion.wait(context.Background()); !ok {
++		t.Fatal(failure)
++	}
++}
++
++func TestRealCommandCompletionRejectsTerminalErrorsAndKills(t *testing.T) {
++	for _, killed := range []bool{false, true} {
++		queued := task.NewTask(1, 0, 30000, 3)
++		queued.Done = make(chan struct{})
++		completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
++		if !killed {
++			completion.result <- types.Err(types.E_TYPE)
++		}
++		queued.CloseDone()
++		if ok, failure := completion.wait(context.Background()); ok || failure == "" {
++			t.Fatalf("killed=%v: ok=%v failure=%q", killed, ok, failure)
++		}
++	}
++}
+diff --git a/engine/mongoose_real_bench_test.go b/engine/mongoose_real_bench_test.go
+index 3ac942c..83e0350 100644
+--- a/engine/mongoose_real_bench_test.go
++++ b/engine/mongoose_real_bench_test.go
+@@ -21,0 +22 @@ package engine
++//   BARN_MONGOOSE_COMPLETION_TIMEOUT terminal-drain deadline per command (default 10s)
+@@ -48,0 +50 @@ import (
++	"github.com/MongooseMoo/barn/task"
+@@ -174,0 +177,56 @@ func defaultRealShapes() []realShape {
++// A command is handled at its first suspension but is measured through its
++// terminal result. Retain the task before it runs, including across cleanup.
++type realCommandCompletion struct {
++	runtime *Runtime
++	task    *task.Task
++	result  chan types.Result
++}
++
++func (c *realCommandCompletion) capture(s *Runtime, id int64) {
++	c.runtime = s
++	c.task = s.GetTask(id)
++	c.result = make(chan types.Result, 1)
++	c.task.Done = make(chan struct{})
++	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
++}
++
++func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
++	if c.task == nil {
++		return false, "missing-command-task"
++	}
++	// Both synchronous execution and the scheduler close Done after flushing.
++	select {
++	case <-c.task.Done:
++	case <-ctx.Done():
++		state := c.task.GetState()
++		ready := c.task.ReadyDeadline(time.Now())
++		lease := 0
++		if c.runtime != nil {
++			c.runtime.mu.Lock()
++			lease = c.runtime.lifecycle.ExecutingTasks[c.task.ID]
++			c.runtime.mu.Unlock()
++		}
++		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
++		frames := make([]string, len(stack))
++		for i, frame := range stack {
++			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
++		}
++		c.task.Kill()
++		select {
++		case <-c.task.Done:
++			return false, "timeout:" + ctx.Err().Error()
++		default:
++			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
++		}
++	}
++	select {
++	case result := <-c.result:
++		if result.Flow == types.FlowException {
++			return false, "uncaught:" + result.Error.String()
++		}
++		return true, ""
++	default:
++		return false, "killed-before-completion"
++	}
++}
++
+@@ -175,0 +234,4 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
++	ctx, cancel := context.WithTimeout(s.ctx, envDuration("BARN_MONGOOSE_COMPLETION_TIMEOUT", 10*time.Second))
++	defer cancel()
++	var completion realCommandCompletion
++	onStart := func(id int64) { completion.capture(s, id) }
+@@ -196 +258 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, nil)
++	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, onStart)
+@@ -201 +263 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-		return true, ""
++		return completion.wait(ctx)
+@@ -209 +271 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-			if err := s.ExecuteVerbTaskSync(player, huh, cmd, ""); err != nil {
++			if err := s.ExecuteVerbTaskSyncWithStart(player, huh, cmd, "", onStart); err != nil {
+@@ -212 +274 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-			return true, ""
++			return completion.wait(ctx)
+@@ -216 +278 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-	if err := s.ExecuteVerbTaskSync(player, match, cmd, ""); err != nil {
++	if err := s.ExecuteVerbTaskSyncWithStart(player, match, cmd, "", onStart); err != nil {
+@@ -219 +281 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line
+-	return true, ""
++	return completion.wait(ctx)
+@@ -295,2 +357,4 @@ func TestMongooseRealWorkload(t *testing.T) {
+-		ticker := time.NewTicker(10 * time.Millisecond) // server/input_processor.go:182
+-		defer ticker.Stop()
++		// Use bounded ready batches and wake hints, as the production dispatcher
++		// does, so one pass does not drain every ready startup task.
++		timer := time.NewTimer(time.Hour)
++		defer timer.Stop()
+@@ -297,0 +362,15 @@ func TestMongooseRealWorkload(t *testing.T) {
++			if schedCtx.Err() != nil {
++				return
++			}
++			if s.ProcessReadyBatch() != 0 {
++				s.CleanupFinishedTasks()
++				continue
++			}
++			changed := s.ScheduleChanged()
++			var due <-chan time.Time
++			if at := s.NextTaskWake(); !at.IsZero() {
++				timer.Reset(max(0, time.Until(at)))
++				due = timer.C
++			} else {
++				timer.Stop()
++			}
+@@ -301,2 +380,2 @@ func TestMongooseRealWorkload(t *testing.T) {
+-			case <-ticker.C:
+-				s.ProcessReadyTasks()
++			case <-changed:
++			case <-due:
+@@ -395,4 +474,5 @@ func TestMongooseRealWorkload(t *testing.T) {
+-			shapes   []shapeStat
+-			lats     []time.Duration
+-			seen     int64
+-			failMsgs []string
++			shapes    []shapeStat
++			lats      []time.Duration
++			seen      int64
++			failMsgs  []string
++			unsettled int64
+@@ -453,0 +534,3 @@ func TestMongooseRealWorkload(t *testing.T) {
++							if strings.HasPrefix(failure, "unsettled:") {
++								st.unsettled++
++							}
+@@ -479,0 +563 @@ func TestMongooseRealWorkload(t *testing.T) {
++		var unsettled int64
+@@ -483,0 +568 @@ func TestMongooseRealWorkload(t *testing.T) {
++			unsettled += stats[i].unsettled
+@@ -517,0 +603,4 @@ func TestMongooseRealWorkload(t *testing.T) {
++		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
++		if unsettled != 0 {
++			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
++		}
+diff --git a/engine/task_factory.go b/engine/task_factory.go
+index 0722f4d..fb4d473 100644
+--- a/engine/task_factory.go
++++ b/engine/task_factory.go
+@@ -140,0 +141,3 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
++	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
++		t.CloseDone()
++	}
+diff --git a/engine/task_runtime.go b/engine/task_runtime.go
+index 57ba378..ffe4a06 100644
+--- a/engine/task_runtime.go
++++ b/engine/task_runtime.go
+@@ -1070,0 +1071,3 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
++	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
++		t.CloseDone()
++	}

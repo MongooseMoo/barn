@@ -1,0 +1,47 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                             │ .tmp/perf-release/callback-control.txt │ .tmp/perf-release/callback-candidate.txt │
+                                             │                 sec/op                 │      sec/op       vs base                │
+SortCallbacks/n=32/natural=false-4                                       5.529µ ±  4%       4.437µ ±  2%  -19.75% (p=0.000 n=10)
+SortCallbacks/n=32/natural=true-4                                        9.790µ ±  1%       8.665µ ±  2%  -11.49% (p=0.001 n=10)
+SortCallbacks/n=1024/natural=false-4                                     349.6µ ±  2%       277.7µ ±  1%  -20.55% (p=0.000 n=10)
+SortCallbacks/n=1024/natural=true-4                                      613.9µ ±  1%       545.6µ ±  2%  -11.13% (p=0.000 n=10)
+SortScalarCallbacks/kind=int-4                                           178.5µ ±  2%       166.6µ ±  1%   -6.69% (p=0.000 n=10)
+SortScalarCallbacks/kind=float-4                                         192.7µ ±  2%       182.2µ ±  3%   -5.47% (p=0.000 n=10)
+SortScalarCallbacks/kind=tied_keys_reverse-4                             204.0µ ±  4%       158.0µ ±  3%  -22.53% (p=0.000 n=10)
+AllMembersCallbacks/step=0-4                                            10.680µ ±  2%       9.700µ ±  2%   -9.18% (p=0.000 n=10)
+AllMembersCallbacks/step=64-4                                            11.53µ ±  2%       10.35µ ±  2%  -10.28% (p=0.000 n=10)
+AllMembersCallbacks/step=1-4                                             48.23µ ± 27%       36.96µ ± 27%        ~ (p=0.123 n=10)
+geomean                                                                  58.69µ             50.30µ        -14.29%
+
+                                             │ .tmp/perf-release/callback-control.txt │ .tmp/perf-release/callback-candidate.txt │
+                                             │                  B/op                  │      B/op        vs base                 │
+SortCallbacks/n=32/natural=false-4                                       1.227Ki ± 0%      1.172Ki ± 0%  -4.46% (p=0.000 n=10)
+SortCallbacks/n=32/natural=true-4                                        1.227Ki ± 0%      1.172Ki ± 0%  -4.46% (p=0.000 n=10)
+SortCallbacks/n=1024/natural=false-4                                     34.73Ki ± 0%      34.67Ki ± 0%  -0.16% (p=0.000 n=10)
+SortCallbacks/n=1024/natural=true-4                                      34.73Ki ± 0%      34.67Ki ± 0%  -0.16% (p=0.000 n=10)
+SortScalarCallbacks/kind=int-4                                           34.73Ki ± 0%      34.67Ki ± 0%  -0.16% (p=0.000 n=10)
+SortScalarCallbacks/kind=float-4                                         34.73Ki ± 0%      34.67Ki ± 0%  -0.16% (p=0.000 n=10)
+SortScalarCallbacks/kind=tied_keys_reverse-4                             34.73Ki ± 0%      34.67Ki ± 0%  -0.16% (p=0.000 n=10)
+AllMembersCallbacks/step=0-4                                               112.0 ± 0%        112.0 ± 0%       ~ (p=1.000 n=10) ¹
+AllMembersCallbacks/step=64-4                                              856.0 ± 0%        856.0 ± 0%       ~ (p=1.000 n=10) ¹
+AllMembersCallbacks/step=1-4                                             58.09Ki ± 0%      58.09Ki ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                  7.254Ki           7.183Ki       -0.99%
+¹ all samples are equal
+
+                                             │ .tmp/perf-release/callback-control.txt │ .tmp/perf-release/callback-candidate.txt │
+                                             │               allocs/op                │   allocs/op     vs base                  │
+SortCallbacks/n=32/natural=false-4                                         5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortCallbacks/n=32/natural=true-4                                          5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortCallbacks/n=1024/natural=false-4                                       5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortCallbacks/n=1024/natural=true-4                                        5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortScalarCallbacks/kind=int-4                                             5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortScalarCallbacks/kind=float-4                                           5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+SortScalarCallbacks/kind=tied_keys_reverse-4                               5.000 ± 0%       3.000 ± 0%  -40.00% (p=0.000 n=10)
+AllMembersCallbacks/step=0-4                                               2.000 ± 0%       2.000 ± 0%        ~ (p=1.000 n=10) ¹
+AllMembersCallbacks/step=64-4                                              7.000 ± 0%       7.000 ± 0%        ~ (p=1.000 n=10) ¹
+AllMembersCallbacks/step=1-4                                               13.00 ± 0%       13.00 ± 0%        ~ (p=1.000 n=10) ¹
+geomean                                                                    5.191            3.631       -30.06%
+¹ all samples are equal
