@@ -187,7 +187,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 		}
 	}()
 	attempt := 0
-	var retryTicks int64
+	var sliceEntryTicks int64
 	escalated := false
 	var exclusive *commitgate.Grant
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
@@ -222,7 +222,6 @@ retryAttempt:
 		gateHeld = true
 	}
 	if attempt > 0 {
-		retryTicks = bcVM.Ticks
 		retryState.restore(t)
 		// A failed attempt may have recorded a logical suspend before its
 		// transaction conflict was detected. The physical lease remains held,
@@ -358,6 +357,9 @@ retryAttempt:
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
 	}
+	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); attempt == 0 && ok {
+		sliceEntryTicks = savedVM.Ticks
+	}
 
 	// Set up the VM execution deadline. The budget deadline must be anchored
 	// to when the task actually starts running, not its (possibly long-past)
@@ -419,7 +421,9 @@ retryAttempt:
 		bcVM.Resumable = true
 		if attempt > 0 {
 			bcVM.TickLimit = t.TicksLimit
-			bcVM.Ticks = retryTicks
+			// Failed attempts are unpublished. Replay the same logical instruction
+			// budget, while the seconds deadline remains anchored to this slice.
+			bcVM.Ticks = sliceEntryTicks
 		}
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
@@ -471,7 +475,7 @@ retryAttempt:
 		bcVM.Resumable = true
 		bcVM.TickLimit = t.TicksLimit
 		if attempt > 0 {
-			bcVM.Ticks = retryTicks
+			bcVM.Ticks = sliceEntryTicks
 		}
 		configureVMStackLimit(bcVM, s.session)
 

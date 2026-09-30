@@ -103,9 +103,11 @@ return sorted;
 func TestContinuationRetriesDiscardEffectsAndTaskLocalChanges(t *testing.T) {
 	store := newConflictTestStore(t)
 	attempts, effects, completions := 0, 0, 0
+	var remaining []int64
 	conflict := builtins.BuiltinFunc(func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		attempts++
-		if attempts <= 3 {
+		remaining = append(remaining, ctx.TicksRemaining)
+		if !ctx.StoreTxn.IsCommitGateExempt() {
 			if code := store.DirectTxn().SetPropertyValue(0, "v", types.NewInt(int64(attempts*10))); code != types.E_NONE {
 				return types.Err(code)
 			}
@@ -120,8 +122,13 @@ func TestContinuationRetriesDiscardEffectsAndTaskLocalChanges(t *testing.T) {
 	queued.Context.IsWizard = true
 	queued.SetOnComplete(func(types.Result) { completions++ })
 	runSQLiteTaskToCompletion(t, rt, queued)
-	if attempts != 4 || effects != 1 || completions != 1 || queued.Result.Val.Int() != 8 || readRootV(t, store) != 31 {
+	if attempts != maxConflictRetryAttempts || effects != 1 || completions != 1 || queued.Result.Val.Int() != 8 || readRootV(t, store) != int64(escalateAfterAttempts*10+1) || store.CommitEscalations() != 1 || store.CommitRetries() != uint64(escalateAfterAttempts) {
 		t.Fatalf("attempts=%d effects=%d completions=%d result=%+v v=%d", attempts, effects, completions, queued.Result, readRootV(t, store))
+	}
+	for i := 1; i < len(remaining); i++ {
+		if remaining[i] != remaining[0] {
+			t.Fatalf("failed attempts changed the replayed instruction budget: %v", remaining)
+		}
 	}
 }
 

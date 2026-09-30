@@ -462,7 +462,8 @@ func (t *Task) RestoreRetryState(saved RetrySnapshot) {
 	t.IsHTTPReadSuspended = saved.IsHTTPReadSuspended
 	t.ExecCommandName = saved.ExecCommandName
 	t.CreatedForks = nil
-	// Retry consumes the same logical slice budget; only a new wake resets it.
+	// The runtime replays the instruction budget, but retains this slice's
+	// seconds deadline. Only a real wake starts a new background time budget.
 	t.Context = saved.Context
 }
 

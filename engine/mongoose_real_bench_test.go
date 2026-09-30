@@ -19,6 +19,7 @@ package engine
 //   BARN_MONGOOSE_PLAYERS     comma list of concurrency levels (default 1,4,16)
 //   BARN_MONGOOSE_WARMUP      warm-up window   (default 2s)
 //   BARN_MONGOOSE_MEASURE     measure window   (default 8s)
+//   BARN_MONGOOSE_COMPLETION_TIMEOUT terminal-drain deadline per command (default 10s)
 //   BARN_MONGOOSE_PROMOTE     "0" disables PROMOTE_NUMBERS (default ON, as deployed)
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
@@ -176,11 +177,13 @@ func defaultRealShapes() []realShape {
 // A command is handled at its first suspension but is measured through its
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
-	task   *task.Task
-	result chan types.Result
+	runtime *Runtime
+	task    *task.Task
+	result  chan types.Result
 }
 
 func (c *realCommandCompletion) capture(s *Runtime, id int64) {
+	c.runtime = s
 	c.task = s.GetTask(id)
 	c.result = make(chan types.Result, 1)
 	c.task.Done = make(chan struct{})
@@ -195,12 +198,25 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	select {
 	case <-c.task.Done:
 	case <-ctx.Done():
+		state := c.task.GetState()
+		ready := c.task.ReadyDeadline(time.Now())
+		lease := 0
+		if c.runtime != nil {
+			c.runtime.mu.Lock()
+			lease = c.runtime.lifecycle.ExecutingTasks[c.task.ID]
+			c.runtime.mu.Unlock()
+		}
+		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
+		frames := make([]string, len(stack))
+		for i, frame := range stack {
+			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
+		}
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, "unsettled:" + ctx.Err().Error()
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
 		}
 	}
 	select {
@@ -215,7 +231,7 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 }
 
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
-	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.ctx, envDuration("BARN_MONGOOSE_COMPLETION_TIMEOUT", 10*time.Second))
 	defer cancel()
 	var completion realCommandCompletion
 	onStart := func(id int64) { completion.capture(s, id) }
@@ -338,14 +354,31 @@ func TestMongooseRealWorkload(t *testing.T) {
 	schedDone := make(chan struct{})
 	go func() {
 		defer close(schedDone)
-		ticker := time.NewTicker(10 * time.Millisecond) // server/input_processor.go:182
-		defer ticker.Stop()
+		// Use bounded ready batches and wake hints, as the production dispatcher
+		// does, so one pass does not drain every ready startup task.
+		timer := time.NewTimer(time.Hour)
+		defer timer.Stop()
 		for {
+			if schedCtx.Err() != nil {
+				return
+			}
+			if s.ProcessReadyBatch() != 0 {
+				s.CleanupFinishedTasks()
+				continue
+			}
+			changed := s.ScheduleChanged()
+			var due <-chan time.Time
+			if at := s.NextTaskWake(); !at.IsZero() {
+				timer.Reset(max(0, time.Until(at)))
+				due = timer.C
+			} else {
+				timer.Stop()
+			}
 			select {
 			case <-schedCtx.Done():
 				return
-			case <-ticker.C:
-				s.ProcessReadyTasks()
+			case <-changed:
+			case <-due:
 			}
 		}
 	}()
