@@ -95,7 +95,7 @@ type TaskContext struct {
 	// the attempt. Every later irreversible act in the attempt is refused, the
 	// VM unwinds at its next builtin boundary (including from inside a nested
 	// verb-call VM, whose result the calling builtin cannot act on), and the
-	// runtime re-runs the task from the top.
+	// runtime restores the task's unpublished slice.
 	ConflictRetryRequested bool
 
 	// DeferredGC marks a recycle activation owned by the runtime's deferred

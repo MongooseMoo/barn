@@ -122,6 +122,33 @@ func BenchmarkSortCallbacks(b *testing.B) {
 	}
 }
 
+func BenchmarkSortScalarCallbacks(b *testing.B) {
+	for _, kind := range []string{"int", "float", "tied_keys_reverse"} {
+		values, keys := make([]types.Value, 1024), make([]types.Value, 1024)
+		for i := range values {
+			n := int64((i * 7919) % 1024)
+			values[i] = types.NewInt(n)
+			if kind == "float" {
+				values[i] = types.NewFloat(float64(n))
+			}
+			keys[i] = types.NewStr(fmt.Sprintf("key%d", n%8))
+		}
+		list, keyList := types.NewList(values), types.NewList(keys)
+		for _, implementation := range []string{"control", "candidate"} {
+			b.Run(fmt.Sprintf("kind=%s/impl=%s", kind, implementation), func(b *testing.B) {
+				callback := originalSortCallback
+				if implementation == "candidate" {
+					callback = sortCallback
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					callbackBenchmarkResult = callback(list, keyList, kind == "tied_keys_reverse", false, kind == "tied_keys_reverse")
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkAllMembersCallbacks(b *testing.B) {
 	for _, step := range []int{0, 64, 1} {
 		values := make([]types.Value, 1024)
