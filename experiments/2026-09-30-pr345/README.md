@@ -12,7 +12,8 @@ its source from the published common merge `77e05a3` by applying
 at that exact revision. That patch contains the
 identical terminal-completion harness and cohort benchmark, plus the terminal
 output-flush completion signal used by the harness. It contains no continuation
-retry or callback optimization. Candidate engine source is `a3fcc7b`.
+retry or callback optimization. Initial candidate engine source is `a3fcc7b`;
+final `continuation-causal` samples use `903caeb`, including readied-slice ordering.
 
 Build the two engine test binaries in their respective worktrees with
 `go test -c -o <engine-binary> ./engine`. Build candidate callback/checkpoint

@@ -1,4 +1,4 @@
-Final source d5ae6a1 (same source as final local validation before commit)
+Pre-ordering-refinement source d5ae6a1 (local validation before commit)
 Commands: go test ./... -count=1 -timeout=240s; go vet ./...; staticcheck ./...
 Final focused race selector: TestContinuation|TestResumed|TestRetry|TestRealCommandCompletion|TestRealCommandSynchronous|TestCancelledCommit|TestRecycleContinuation|TestAdmissionKilledGateWaiter
 go_all_exit=0
@@ -89,3 +89,36 @@ ok  	github.com/MongooseMoo/barn/task	1.348s
 ok  	github.com/MongooseMoo/barn/engine	218.499s
 ok  	github.com/MongooseMoo/barn/builtins	60.359s
 ok  	github.com/MongooseMoo/barn/db/store	3.471s
+
+Final source 903caeb: go_all_exit=0 vet_exit=0 staticcheck_exit=0 build_exit=0
+--- FAIL: TestResumedTaskRunsBeforeResumerYield (0.00s)
+    scheduler_test.go:197: resumed target did not run first: [0x3616fde14e08 0x3616fde14a88]
+--- FAIL: TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork (0.00s)
+    scheduler_test.go:223: resumer selected while the readied slice executes: [0x3616fde15188]
+FAIL
+FAIL	github.com/MongooseMoo/barn/engine/internal/scheduler	0.486s
+FAIL
+ok  	github.com/MongooseMoo/barn/engine/internal/scheduler	1.633s
+ok  	github.com/MongooseMoo/barn/task	1.644s
+ok  	github.com/MongooseMoo/barn/engine	5.935s
+.tmp/oracle-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\oracle-ci-order.xml -
+========= 19 passed, 4 skipped, 13044 deselected, 1 warning in 11.99s =========
+.tmp/control-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\control-ci-order.xml -
+========= 19 passed, 4 skipped, 13044 deselected, 1 warning in 10.68s =========
+.tmp/candidate-ci-order.log
+=========================== short test summary info ===========================
+FAILED test_conformance.py::test_yaml_conformance[fork/fork_timing.yaml::suspend_zero_after_resume_observes_resumed_slice]
+==== 1 failed, 18 passed, 4 skipped, 13044 deselected, 1 warning in 10.93s ====
+.tmp/fixed-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\fixed-ci-order.xml -
+========= 27 passed, 4 skipped, 13036 deselected, 1 warning in 15.24s =========
+.tmp/fixed-original-threaded.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\fixed-original-threaded.xml -
+============== 47 passed, 13027 deselected, 1 warning in 14.44s ===============
+application inventories complete; invalid_runs=2

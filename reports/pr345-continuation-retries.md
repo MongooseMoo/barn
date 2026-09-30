@@ -24,6 +24,10 @@ the exclusive commit gate merely because they have a saved VM.
   exclusive gate. Recycle reservation acquisition/release crosses that boundary
   too; an aborted validation cannot lose an earlier reservation. Admission waits
   are cancellable, including shared commit admission.
+- Fork/resume dependencies retain their existing readier identity until the
+  readied slice's physical handoff. A dependent resumer waits through admission,
+  retries and logical suspension; unrelated tasks can still share a batch.
+  Delayed forks do not hold their parent. Wake timers exclude blocked resumers.
 
 `sort` uses stable generic sorting of zero-based indices and direct string
 comparisons. Numeric ordering retains the previous NaN/signed-zero behavior.
@@ -34,14 +38,16 @@ stable ties and whole-result reversal remain covered by differential tests.
 ## Measurement method
 
 Control `aefe85c` contains original PR head `b33a487`, merged master `ab78a08`,
-and the same completion harness/full-cohort benchmark used by candidate
-`a3fcc7b`. Callback control functions preserve the original implementations in
+and the same completion harness/full-cohort benchmark used by final candidate
+`903caeb`. Callback control functions preserve the original implementations in
 the differential benchmark. Callback and checkpoint code is unchanged from
 `4a4d12d`, where their test binaries were built.
 
 Go 1.26.0, Windows/amd64, Ryzen 9 5950X, `GOMAXPROCS=4`. The driver serializes
 its runs with `Global\BarnBenchmark`; host load and CPU frequency are not pinned.
-Ten continuation control/candidate pairs alternate order. Callback implementations
+Ten final continuation control/candidate pairs alternate order; their filenames
+contain `continuation-causal`. The initial `a3fcc7b` ten-pair measurements remain
+in the evidence directory without that component. Callback implementations
 run paired in one binary, with control first. Benchstat reports distributions;
 these short local measurements do not establish general production gains.
 
@@ -51,15 +57,15 @@ result. The shared-write variant updates the same property from all players.
 
 | Completed continuation workload | Control commands/s | Candidate commands/s | Change |
 | --- | ---: | ---: | ---: |
-| 1 player, read-only | 4,366 | 4,537 | inconclusive, p=0.393 |
-| 1 player, shared-write | 3,647 | 3,677 | inconclusive, p=0.739 |
-| 16 players, read-only | 6,053 | 10,716 | +77.06%, p<0.001 |
-| 16 players, shared-write | 4,974 | 4,038 | -18.81%, p<0.001 |
+| 1 player, read-only | 4,063 | 4,088 | inconclusive, p=0.631 |
+| 1 player, shared-write | 3,438 | 3,412 | inconclusive, p=0.631 |
+| 16 players, read-only | 5,588 | 9,905 | +77.26%, p<0.001 |
+| 16 players, shared-write | 4,668 | 3,805 | -18.49%, p<0.001 |
 
 All rows have ten samples. Read-only concurrency benefits from removing the
 exclusive gate. Shared-property contention performs more discarded work and
-allocates more: the 16-player write cohort increases from 932.1 KiB to 1,617 KiB
-and from 7,489 to 12,899 allocations. This is a material workload tradeoff.
+allocates more: the 16-player write cohort increases from 932.1 KiB to 1,626.8 KiB
+and from 7,487 to 12,983 allocations. This is a material workload tradeoff.
 An experimental escalation after two conflicts did not improve that workload
 and was rejected. No worker pool or whole-input membership preallocation was added.
 
@@ -86,7 +92,8 @@ The fixture is `mongoose.db.new`, 106,067,660 bytes, SHA-256
 Each run loads it read-only into memory and uses a fresh disposable file/SQLite
 workspace. The mix is look/say/inventory/who/home at 1, 4 and 16 players, with a
 one-second warm-up, three-second submission window and ten-second per-command
-completion deadline. All five alternating pairs are retained, including failures.
+completion deadline. The initial five alternating pairs on `a3fcc7b` are
+retained, including failures. Final-source inventory is recorded below separately.
 
 All five control processes fail the completion criterion; four of five candidate
 processes fail it. There is no clean full pair at all three player counts, so
@@ -111,14 +118,30 @@ all commands. These observations do not establish the underlying cause. All raw
 process logs and a structured [application inventory](../experiments/2026-09-30-pr345/application-inventory.json)
 are retained, without selecting successful runs to compute a ratio.
 
+After the ordering repair, a final bounded pair on `903caeb` also fails the
+completion criterion on both revisions. It verifies the final candidate's
+completion inventory; it is not a statistical throughput comparison. Raw final
+logs have `mongoose-causal` filenames, with structured counts in
+[application-causal-inventory.json](../experiments/2026-09-30-pr345/application-causal-inventory.json):
+
+| Final revision / players | Submitted | Completed | Failed / unsettled |
+| --- | ---: | ---: | ---: |
+| Control / 1 | 3 | 2 | 1 |
+| Candidate / 1 | 3 | 2 | 1 |
+| Control / 4 | 11 | 10 | 1 |
+| Candidate / 4 | 39 | 38 | 1 |
+| Control / 16 | 120 | 116 | 4 |
+| Candidate / 16 | 51 | 50 | 1 |
+
 ## Validation context
 
-Final source is `d5ae6a1`; engine measurements use `a3fcc7b`, with identical
-production code. The later source commit adds cancellation coverage and makes
-the measurement driver reject invalid comparisons after collecting every pair.
+Final source is `903caeb`. The final continuation benchmarks use that revision.
+The cancellation coverage and invalid-comparison handling were added in
+`d5ae6a1`, followed by the readied-slice ordering repair in `903caeb`.
 
 Final local commands: `go test ./... -count=1 -timeout=240s`, `go vet ./...`,
-`staticcheck ./...`, focused race tests across engine/builtins/VM/task/store, and
+`staticcheck ./...`, focused race tests across engine/builtins/VM/task/store and
+the scheduler (the final ordering repair repeats scheduler/task/engine), and
 `go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn` followed by a command build.
 Their terminal evidence is retained in
 [validation.txt](../experiments/2026-09-30-pr345/validation.txt):
@@ -168,3 +191,22 @@ The three shared failures are `memory_usage_returns_floats`,
 probe also reproduces `next_recycled_object_returns_zero_when_none` against the
 oracle itself; it is not treated as a candidate regression. Linux full managed
 conformance is supplied by the exact-head PR checks through `CI_RUNNER_LABELS`.
+
+CI initially exposed a resumed-child ordering regression at `e20c636` against
+the newer conformance revision `7f05b7070f2954a200f7e8c2a06c814ef7981c4e`:
+`suspend_zero_after_resume_observes_resumed_slice` returned zero instead of one.
+The exact unchanged assertion passes canonical WSL Toast and the PR control.
+Multi-worker Go regressions reproduce the initial candidate's batch/handoff gap;
+the final implementation retains readier ownership through physical release.
+Coverage also checks pending admission, unrelated concurrency, delayed forks and
+timer readiness. Final local evidence:
+
+```text
+Oracle ordering/provider selectors: 19 passed, 4 skipped
+Initial control selectors:          19 passed, 4 skipped
+Initial candidate selectors:        1 failed, 18 passed, 4 skipped
+Final fork/provider family:         27 passed, 4 skipped
+Final frozen threaded selectors:    47 passed
+Final go_all_exit=0, vet_exit=0, staticcheck_exit=0
+Final scheduler/task/engine focused race_exit=0
+```
