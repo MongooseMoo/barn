@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -145,5 +147,71 @@ func TestCommitGrantRejectsForeignOrReleasedOwnership(t *testing.T) {
 	assertPanic(func() { tx.Commit() })
 	if value, _ := first.DirectTxn().PropertyValue(0, "a"); value.Int() != 1 {
 		t.Fatal("released grant published writes")
+	}
+}
+
+func TestCancelledCommitWaitPreservesExclusiveOwnerAndDoesNotPublish(t *testing.T) {
+	for _, renew := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "renewed"}[renew], func(t *testing.T) {
+			store := newGateTestStore(t)
+			owner, err := store.AcquireExclusive(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner.Release()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tx := store.BeginSnapshot(0)
+			tx.SetCommitContext(ctx)
+			if renew {
+				var code types.ErrorCode
+				tx, _, code = tx.CommitAndRenewCarryingReads()
+				if code != types.E_NONE {
+					t.Fatal(code)
+				}
+			}
+			defer tx.Release()
+			if code := tx.SetPropertyValue(0, "a", types.NewInt(2)); code != types.E_NONE {
+				t.Fatal(code)
+			}
+			done := make(chan types.ErrorCode, 1)
+			finished := make(chan struct{})
+			go func() { defer close(finished); done <- tx.Commit() }()
+			defer func() { cancel(); owner.Release(); <-finished }()
+			deadline := time.Now().Add(3 * time.Second)
+			for store.commitGate.Queued() != 1 {
+				if time.Now().After(deadline) {
+					t.Fatal("commit did not queue behind the exclusive owner")
+				}
+				runtime.Gosched()
+			}
+			cancel()
+			select {
+			case code := <-done:
+				if code != types.E_INTRPT || tx.ValidationFailed() {
+					t.Fatalf("cancelled commit=%v validation=%v", code, tx.ValidationFailed())
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("cancelled shared commit wait did not return")
+			}
+			if !owner.Owns(&store.commitGate, commitgate.Exclusive) || store.commitGate.Queued() != 0 {
+				t.Fatal("cancellation changed exclusive ownership or retained its waiter")
+			}
+			if value, code := store.DirectTxn().PropertyValue(0, "a"); code != types.E_NONE || value.Int() != 1 {
+				t.Fatalf("cancelled commit published: value=%v code=%v", value, code)
+			}
+			owner.Release()
+			if code := tx.Commit(); code != types.E_INTRPT {
+				t.Fatalf("cancelled transaction became publishable: %v", code)
+			}
+			healthy := store.BeginSnapshot(0)
+			defer healthy.Release()
+			if code := healthy.SetPropertyValue(0, "a", types.NewInt(3)); code != types.E_NONE {
+				t.Fatal(code)
+			}
+			if code := healthy.Commit(); code != types.E_NONE {
+				t.Fatalf("gate unusable after cancellation: %v", code)
+			}
+		})
 	}
 }

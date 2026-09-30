@@ -171,8 +171,8 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	}
 }
 
-// A non-retryable task (resumed/forked: its mid-flight state cannot be re-run from
-// the original statements) must stay solo when its footprint is unknown, because an
+// A task lacking a replayable program or continuation must stay solo when its
+// footprint is unknown, because an
 // optimistic conflict could not be recovered by retry.
 func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)

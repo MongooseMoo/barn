@@ -1,0 +1,39 @@
+=== RUN   TestMongooseRealWorkload
+    mongoose_real_bench_test.go:304: loaded C:\Users\Q\code\barn\mongoose.db.new in 8.8989928s
+    mongoose_real_bench_test.go:314: players with valid location: 190
+2026/09/30 02:34:16 INFO Creating database schema for database 'news.sqlite'... task_id=0 player=0 verb="" src=server_log
+2026/09/30 02:34:23 INFO Creating database schema for database 'log.sqlite'... task_id=0 player=0 verb="" src=server_log
+    mongoose_real_bench_test.go:447: snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: {1, {1, 4, {1, 2, 3, 4}, 1, {#36, "r"}}}
+    mongoose_real_bench_test.go:460: GOMAXPROCS=4 warmup=1s measure=3s mix=[{look look 35} {say say Hello there, this is a benchmark message! 30} {inventory i 10} {who @who 10} {home home 15}]
+    mongoose_real_bench_test.go:603: cohort submitted=3 completed=2 failed=1 unsettled_at_return=1 elapsed=10.4744486s drain=7.4744486s
+    mongoose_real_bench_test.go:605: 1 commands left without terminal flush acknowledgement; measurement is invalid
+    mongoose_real_bench_test.go:607: players=1 goodput=0/s failed=1 uncaught=0 abort=1.56% elided=195 p50=455.17ms p99=455.17ms max=455.17ms allocs/op=15822824 bytes/op=754913568 GCs=1
+    mongoose_real_bench_test.go:617:   shape look       ok=0        fail=0      avg=0.00us attempts=0 retries=0
+    mongoose_real_bench_test.go:617:   shape say        ok=2        fail=0      avg=237.00ms attempts=8 retries=0
+    mongoose_real_bench_test.go:617:   shape inventory  ok=0        fail=0      avg=0.00us attempts=0 retries=0
+    mongoose_real_bench_test.go:617:   shape who        ok=0        fail=0      avg=0.00us attempts=0 retries=0
+    mongoose_real_bench_test.go:617:   shape home       ok=0        fail=1      avg=0.00us attempts=56 retries=1
+    mongoose_real_bench_test.go:627:   idle 2s: attempts=13 successes=13 retries=0
+    mongoose_real_bench_test.go:641:   failure sample (x1): home -> unsettled:context deadline exceeded task=128 state=queued reading=-1 ready=2026-09-30 02:34:38.726347 -0600 MDT m=+37.992036001 lease=0 saved=true stack=[home:15 teleport:49 moveto:10 moveto:8 moveto:2 exitfunc:6 exitfunc:56 exitfunc:4 loc_exit:7]
+    mongoose_real_bench_test.go:603: cohort submitted=39 completed=38 failed=1 unsettled_at_return=1 elapsed=10.4533514s drain=7.4533514s
+    mongoose_real_bench_test.go:605: 1 commands left without terminal flush acknowledgement; measurement is invalid
+    mongoose_real_bench_test.go:607: players=4 goodput=4/s failed=1 uncaught=0 abort=7.52% elided=2063 p50=8.19ms p99=5951.65ms max=5951.65ms allocs/op=853172 bytes/op=43665367 GCs=1
+    mongoose_real_bench_test.go:617:   shape look       ok=10       fail=0      avg=9.37ms attempts=53 retries=5
+    mongoose_real_bench_test.go:617:   shape say        ok=14       fail=0      avg=873.07ms attempts=177 retries=22
+    mongoose_real_bench_test.go:617:   shape inventory  ok=3        fail=0      avg=501.7us attempts=9 retries=0
+    mongoose_real_bench_test.go:617:   shape who        ok=4        fail=0      avg=4.72ms attempts=17 retries=1
+    mongoose_real_bench_test.go:617:   shape home       ok=7        fail=1      avg=862.98ms attempts=210 retries=12
+    mongoose_real_bench_test.go:627:   idle 2s: attempts=9 successes=9 retries=0
+    mongoose_real_bench_test.go:641:   failure sample (x1): home -> unsettled:context deadline exceeded task=245 state=queued reading=-1 ready=2026-09-30 02:34:52.8771398 -0600 MDT m=+52.142828801 lease=0 saved=true stack=[home:15 teleport:49 moveto:10 moveto:8 moveto:2 enterfunc:16 enterfunc:7 enterfunc:4 enterfunc:1 loc_enter:6 loc_enter:7]
+    mongoose_real_bench_test.go:603: cohort submitted=51 completed=50 failed=1 unsettled_at_return=1 elapsed=12.1957637s drain=9.1957637s
+    mongoose_real_bench_test.go:605: 1 commands left without terminal flush acknowledgement; measurement is invalid
+    mongoose_real_bench_test.go:607: players=16 goodput=4/s failed=1 uncaught=0 abort=11.79% elided=5652 p50=43.70ms p99=9646.60ms max=9646.60ms allocs/op=756996 bytes/op=38998628 GCs=1
+    mongoose_real_bench_test.go:617:   shape look       ok=11       fail=0      avg=9.45ms attempts=149 retries=8
+    mongoose_real_bench_test.go:617:   shape say        ok=21       fail=0      avg=3679.80ms attempts=1761 retries=304
+    mongoose_real_bench_test.go:617:   shape inventory  ok=5        fail=0      avg=12.23ms attempts=104 retries=5
+    mongoose_real_bench_test.go:617:   shape who        ok=7        fail=0      avg=340.68ms attempts=281 retries=48
+    mongoose_real_bench_test.go:617:   shape home       ok=6        fail=1      avg=1611.17ms attempts=261 retries=19
+    mongoose_real_bench_test.go:627:   idle 2s: attempts=13 successes=13 retries=0
+    mongoose_real_bench_test.go:641:   failure sample (x1): home -> unsettled:context deadline exceeded task=577 state=queued reading=-1 ready=2026-09-30 02:35:17.4437755 -0600 MDT m=+76.709464501 lease=0 saved=true stack=[home:15 teleport:49 moveto:10 moveto:8 moveto:2 enterfunc:7 enterfunc:4 enterfunc:1 loc_enter:6 loc_enter:6 loc_enter:6 loc_enter:6 loc_enter:7]
+--- FAIL: TestMongooseRealWorkload (78.77s)
+FAIL

@@ -36,6 +36,25 @@ func builtinCurl(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 	rawURL := args[0].Str()
+	request := func() types.Result {
+		return curlRequest(rawURL, includeHeaders, timeout)
+	}
+	// curl() is a threaded builtin (see threaded.go). Threaded, the request is
+	// issued after this slice commits and releases the commit gate; inline, it
+	// is an irreversible effect inside the slice.
+	if threadedCall(ctx) {
+		return runInBackground(ctx, request)
+	}
+	if ctx.TaskContext != nil {
+		if !beginIrreversible(ctx) {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
+	return request()
+}
+
+func curlRequest(rawURL string, includeHeaders bool, timeout time.Duration) types.Result {
 	parsed, err := neturl.Parse(rawURL)
 	if err != nil {
 		return curlErrorMap(err.Error())

@@ -161,7 +161,7 @@ func BaseDescriptors() []Descriptor {
 		{Name: "random_bytes", Implementation: builtinRandomBytes, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{0}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "argon2", Implementation: builtinArgon2, Signature: &Signature{MinArgs: 2, MaxArgs: 5, ArgTypes: []int64{2, 2, 0, 0, 0}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "argon2_verify", Implementation: builtinArgon2Verify, Signature: &Signature{MinArgs: 2, MaxArgs: 2, ArgTypes: []int64{2, 2}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
-		{Name: "curl", Implementation: builtinCurl, Signature: &Signature{MinArgs: 1, MaxArgs: 3, ArgTypes: []int64{2, -1, 0}}, Visibility: Public, Effect: Irreversible, Capability: config.Network},
+		{Name: "curl", Implementation: builtinCurl, Signature: &Signature{MinArgs: 1, MaxArgs: 3, ArgTypes: []int64{2, -1, 0}}, Visibility: Public, Effect: ImplementationOwned, Capability: config.Network},
 		{Name: "url_encode", Implementation: builtinUrlEncode, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "url_decode", Implementation: builtinUrlDecode, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		{Name: "pcre_cache_stats", Implementation: builtinPcreCacheStats, Signature: &Signature{MinArgs: 0, MaxArgs: 0, ArgTypes: []int64{}}, Visibility: Public, Effect: Transactional, Capability: config.Core},

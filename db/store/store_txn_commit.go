@@ -278,6 +278,7 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	tx.Release()
 	next = store.BeginSnapshot(0)
 	next.SetCommitWaitObserver(gateWait)
+	next.SetCommitContext(tx.commitContext)
 	if gateExempt {
 		next.BindExclusiveGrant(grant)
 	}
@@ -309,7 +310,14 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
 		started := time.Now()
-		grant, _ := tx.store.commitGate.Acquire(context.Background(), commitgate.Shared)
+		ctx := tx.commitContext
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		grant, err := tx.store.commitGate.Acquire(ctx, commitgate.Shared)
+		if err != nil {
+			return tx.markTerminal(types.E_INTRPT)
+		}
 		if tx.gateWait != nil {
 			tx.gateWait(time.Since(started))
 		}

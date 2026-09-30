@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ type StoreTxn struct {
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
 	gateWait                  func(time.Duration)
+	commitContext             context.Context
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -222,5 +224,13 @@ func (tx *StoreTxn) IsCommitGateExempt() bool {
 func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
 	if tx != nil {
 		tx.gateWait = waited
+	}
+}
+
+// SetCommitContext permits cancellation while waiting for shared admission.
+// Once admission succeeds, validation and publication run to completion.
+func (tx *StoreTxn) SetCommitContext(ctx context.Context) {
+	if tx != nil {
+		tx.commitContext = ctx
 	}
 }

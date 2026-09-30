@@ -186,6 +186,9 @@ func (vm *VM) Return(value types.Value) error {
 		case types.FlowNormal, types.FlowReturn:
 			vm.Push(result.Val)
 			return nil
+		case types.FlowAbortAttempt:
+			vm.abortAttempt()
+			return nil
 		default:
 			return fmt.Errorf("unexpected recycle continuation flow %d", result.Flow)
 		}
