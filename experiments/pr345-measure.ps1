@@ -19,6 +19,7 @@ $outputRoot = (New-Item -ItemType Directory -Path $OutputDirectory).FullName
 $benchmarkMutex = [Threading.Mutex]::new($false, 'Global\BarnBenchmark')
 if (!$benchmarkMutex.WaitOne(1000)) { $benchmarkMutex.Dispose(); throw 'Barn benchmark mutex is held.' }
 try {
+    $invalidApplicationRuns = 0
     $env:GOMAXPROCS = '4'
     $env:BARN_MONGOOSE_BENCH = ''
     if (!$ApplicationOnly) { foreach ($sample in 0..9) {
@@ -65,11 +66,14 @@ try {
                 $runExit = $LASTEXITCODE
             } finally { Pop-Location }
             Write-Output "mongoose pair=$pair side=$side exit=$runExit"
+            if ($runExit -ne 0) { $invalidApplicationRuns++ }
             $rows = Select-String -LiteralPath $log -Pattern 'players=\d+ goodput='
             if ($rows.Count -ne 3) { throw "Mongoose pair $pair $side did not produce its terminal inventory; see $log" }
             (Select-String -LiteralPath $log -Pattern 'cohort submitted=|players=\d+ goodput=').Line | Write-Output
         }
     }
+    Write-Output "application inventories complete; invalid_runs=$invalidApplicationRuns"
+    if ($invalidApplicationRuns -ne 0) { throw 'Application measurements are invalid; all terminal inventories were retained.' }
 } finally {
     $benchmarkMutex.ReleaseMutex()
     $benchmarkMutex.Dispose()

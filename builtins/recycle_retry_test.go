@@ -1,8 +1,9 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/types"
 	"testing"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestRecycleContinuationKeepsGuardWhenValidationRequestsRetry(t *testing.T) {
