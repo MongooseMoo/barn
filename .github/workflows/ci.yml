@@ -24,7 +24,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          # Persistent runners already retain Go's caches on disk.
+          cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
@@ -57,7 +58,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          # Persistent runners already retain Go's caches on disk.
+          cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Build barn
         run: go build -o bin/barn ./cmd/barn/

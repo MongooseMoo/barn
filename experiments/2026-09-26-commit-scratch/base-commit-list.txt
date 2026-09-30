@@ -1,0 +1,238 @@
+Total: 101.79MB
+ROUTINE ======================== github.com/MongooseMoo/barn/db/store.(*StoreTxn).commitDecentralized in C:\Users\Q\code\barn-pool-commit\db\store\store_cow.go
+    5.74MB    46.44MB (flat, cum) 45.62% of Total
+         .          .    344:func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
+         .          .    345:	s := tx.store
+         .          .    346:	s.mu.RLock()
+         .          .    347:	defer s.mu.RUnlock()
+         .          .    348:
+         .          .    349:	// Collect the distinct write footprint (one slot per object) across ALL the
+         .          .    350:	// decentralized write maps, in ascending ObjID order so slot locks are always
+         .          .    351:	// acquired in a total order (deadlock-free).
+         .          .    352:	seen := make(map[types.ObjID]bool)
+         .          .    353:	writeIDs := make([]types.ObjID, 0)
+         .          .    354:	addID := func(id types.ObjID) {
+         .          .    355:		if !seen[id] {
+         .          .    356:			seen[id] = true
+         .          .    357:			writeIDs = append(writeIDs, id)
+         .          .    358:		}
+         .          .    359:	}
+         .          .    360:	for id := range tx.scalarWrites {
+         .          .    361:		addID(id)
+         .          .    362:	}
+         .          .    363:	for id := range tx.relationshipWrites {
+         .          .    364:		addID(id)
+         .          .    365:	}
+         .          .    366:	for key := range tx.propertyDefines {
+         .          .    367:		addID(key.objID)
+         .          .    368:	}
+         .          .    369:	for key := range tx.propertyDefinitionDeletes {
+         .          .    370:		addID(key.objID)
+         .          .    371:	}
+         .          .    372:	for key := range tx.propertyWrites {
+         .   551.12kB    373:		addID(key.objID)
+         .          .    374:	}
+         .          .    375:	for key := range tx.propertyDeletes {
+         .          .    376:		addID(key.objID)
+         .          .    377:	}
+         .          .    378:	for key := range tx.verbWrites {
+         .          .    379:		addID(key.objID)
+         .          .    380:	}
+         .          .    381:	for _, deletion := range tx.verbDeletes {
+         .          .    382:		addID(deletion.objID)
+         .          .    383:	}
+         .          .    384:	// Newly-created objects are writes too (their slot is published here), even a bare
+         .          .    385:	// create with no self-writes on any existing map.
+         .          .    386:	for id := range tx.createdObjects {
+         .          .    387:		addID(id)
+         .          .    388:	}
+         .          .    389:	for id := range tx.recycleWrites {
+         .          .    390:		addID(id)
+         .          .    391:	}
+         .          .    392:	slices.Sort(writeIDs)
+         .          .    393:
+         .          .    394:	// Lock the union of read-set and write-set slots (ascending) for the whole
+         .          .    395:	// validate+build+publish interval. A read-only object with no numbered slot is
+         .          .    396:	// stable under store.mu.RLock and needs no slot lock; a missing write target is
+         .          .    397:	// still E_INVIND.
+  293.75kB   293.75kB    398:	lockIDs := append([]types.ObjID(nil), writeIDs...)
+         .          .    399:	lockedIDs := make(map[types.ObjID]bool, len(writeIDs))
+         .          .    400:	for _, id := range writeIDs {
+         .          .    401:		lockedIDs[id] = true
+         .          .    402:	}
+         .          .    403:	addLockID := func(id types.ObjID) {
+         .          .    404:		if !lockedIDs[id] {
+         .          .    405:			lockedIDs[id] = true
+         .          .    406:			lockIDs = append(lockIDs, id)
+         .          .    407:		}
+         .          .    408:	}
+         .          .    409:	for id := range tx.scalarReads {
+         .          .    410:		addLockID(id)
+         .          .    411:	}
+         .          .    412:	for id := range tx.relationshipReads {
+         .          .    413:		addLockID(id)
+         .          .    414:	}
+         .          .    415:	for key := range tx.propertyReads {
+         .          .    416:		addLockID(key.objID)
+         .          .    417:	}
+         .          .    418:	for id := range tx.propertyScans {
+         .          .    419:		addLockID(id)
+         .          .    420:	}
+         .          .    421:	for id := range tx.propertyShapeScans {
+         .          .    422:		addLockID(id)
+         .          .    423:	}
+         .          .    424:	for key := range tx.verbReads {
+         .          .    425:		addLockID(key.objID)
+         .          .    426:	}
+         .          .    427:	for id := range tx.verbScans {
+         .          .    428:		addLockID(id)
+         .          .    429:	}
+         .          .    430:	slices.Sort(lockIDs)
+         .          .    431:
+  293.75kB   293.75kB    432:	slots := make([]*objectSlot, 0, len(lockIDs))
+         .          .    433:	for _, id := range lockIDs {
+         .          .    434:		slot := s.dir.slot(id)
+         .          .    435:		if slot == nil {
+         .          .    436:			if tx.createdObjects[id] != nil {
+         .          .    437:				// Newly-created object: materialize (and lock) its empty slot so the
+         .          .    438:				// new image can be published into it.
+         .          .    439:				slot = s.dir.getOrCreate(id)
+         .          .    440:			} else {
+         .          .    441:				continue
+         .          .    442:			}
+         .          .    443:		}
+         .          .    444:		slot.mu.Lock()
+         .          .    445:		slots = append(slots, slot)
+         .          .    446:	}
+         .          .    447:	defer unlockSlots(slots)
+         .          .    448:
+         .          .    449:	// Validate the read set against the currently-published immutable images.
+         .          .    450:	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
+         .          .    451:		tx.validationFail = true
+         .          .    452:		return errCode
+         .          .    453:	}
+         .          .    454:	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+         .          .    455:		return errCode
+         .          .    456:	}
+         .          .    457:
+         .          .    458:	ts := s.bumpClock()
+         .          .    459:
+         .          .    460:	// Group property defines / definition-deletes by object. A define applies only to
+         .          .    461:	// the DEFINER's image (descendant clear-slots are already staged as propertyWrites
+         .          .    462:	// on the descendants' own images by propagateDefinedProperty); a definition-delete
+         .          .    463:	// applies only to the DEFINER's image (descendant removals are staged as
+         .          .    464:	// propertyDeletes by removeInheritedProperty).
+         .          .    465:	propDefinesByObj := tx.propertyDefinesByObject()
+         .          .    466:	propDefDeletesByObj := make(map[types.ObjID][]string)
+         .          .    467:	for key, actualName := range tx.propertyDefinitionDeletes {
+         .          .    468:		propDefDeletesByObj[key.objID] = append(propDefDeletesByObj[key.objID], actualName)
+         .          .    469:	}
+         .          .    470:
+         .          .    471:	// Group property-value writes by object so an object edited by multiple property
+         .          .    472:	// writes in one txn folds into a single new image.
+         .          .    473:	propWritesByObj := make(map[types.ObjID][]propertyWrite)
+         .          .    474:	for key, w := range tx.propertyWrites {
+    5.16MB     5.16MB    475:		propWritesByObj[key.objID] = append(propWritesByObj[key.objID], w)
+         .          .    476:	}
+         .          .    477:	propDeletesByObj := make(map[types.ObjID][]string)
+         .          .    478:	for key, actualName := range tx.propertyDeletes {
+         .          .    479:		propDeletesByObj[key.objID] = append(propDeletesByObj[key.objID], actualName)
+         .          .    480:	}
+         .          .    481:	verbWritesByObj := make(map[types.ObjID][]verbWrite2)
+         .          .    482:	for key, w := range tx.verbWrites {
+         .          .    483:		verbWritesByObj[key.objID] = append(verbWritesByObj[key.objID], verbWrite2{name: key.name, code: w.code})
+         .          .    484:	}
+         .          .    485:	verbDeletesByObj := make(map[types.ObjID][]int)
+         .          .    486:	for _, deletion := range tx.verbDeletes {
+         .          .    487:		verbDeletesByObj[deletion.objID] = append(verbDeletesByObj[deletion.objID], deletion.index)
+         .          .    488:	}
+         .          .    489:
+         .          .    490:	// Build one new immutable image per object, applying all its staged writes in a
+         .          .    491:	// fixed kind order, then publish. Detach every collection from the published old
+         .          .    492:	// image first: later coarse writers mutate the current image in place, so sharing
+         .          .    493:	// even an untouched map or slice here would let them corrupt the old image kept in
+         .          .    494:	// history. Builders may safely share untouched collections with this unpublished
+         .          .    495:	// detached image while composing the final replacement.
+         .          .    496:	waifRootsDirty := false
+         .          .    497:	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
+         .          .    498:	for _, id := range writeIDs {
+         .          .    499:		created := tx.createdObjects[id]
+         .          .    500:		old := s.load(id) // nil for a created id
+         .          .    501:		if tx.recycleWrites[id] && old != nil && !old.anonymous {
+         .          .    502:			verbShapeDirty = true // anonymous ids are never memoized, so their churn leaves the memo alone
+         .          .    503:		}
+         .          .    504:		if tx.recycleWrites[id] || len(propDefinesByObj[id])+len(propDefDeletesByObj[id])+len(propDeletesByObj[id]) > 0 {
+         .          .    505:			waifRootsDirty = true
+         .          .    506:		}
+         .          .    507:		var img *Object
+         .          .    508:		if created != nil {
+         .          .    509:			// Brand-new object: build from the PRISTINE creation-time base and stamp
+         .          .    510:			// every version to the commit ts (it exists entirely at this version). Its
+         .          .    511:			// own staged self-writes (o.name=..., etc.) are applied through the same
+         .          .    512:			// write-map loop below, so nothing is double-applied.
+         .          .    513:			img = cloneObjectForReadTxn(created)
+         .          .    514:			stampObjectAll(img, ts)
+         .          .    515:		} else {
+         .    39.01MB    516:			img = cloneObjectForReadTxn(old)
+         .          .    517:		}
+         .          .    518:		if w, ok := tx.scalarWrites[id]; ok {
+         .          .    519:			img = buildImageWithScalar(img, w, ts)
+         .          .    520:		}
+         .          .    521:		if w, ok := tx.relationshipWrites[id]; ok {
+         .          .    522:			img = buildImageWithRelationship(img, w, ts)
+         .          .    523:		}
+         .          .    524:		// Apply definition deletes before defines so delete-then-redefine of the
+         .          .    525:		// same name replaces the live definition and preserves insertion order.
+         .          .    526:		for _, actualName := range propDefDeletesByObj[id] {
+         .          .    527:			img = buildImageWithPropertyDefinitionDelete(img, actualName, ts)
+         .          .    528:		}
+         .          .    529:		for _, def := range propDefinesByObj[id] {
+         .          .    530:			img = buildImageWithPropertyDefine(img, def, ts)
+         .          .    531:		}
+         .          .    532:		for _, w := range propWritesByObj[id] {
+         .          .    533:			if !waifRootsDirty && (w.value.MayHoldFinalizable() || propertyValueMayHoldFinalizable(img, w.name)) {
+         .          .    534:				waifRootsDirty = true
+         .          .    535:			}
+         .          .    536:			// img descends from this commit's private clone, so its properties
+         .          .    537:			// map is unpublished and can take every write without recopying.
+         .          .    538:			applyPropertyValueOwned(img, w, ts)
+         .          .    539:		}
+         .          .    540:		for _, actualName := range propDeletesByObj[id] {
+         .          .    541:			img = buildImageWithPropertyDelete(img, actualName, ts)
+         .          .    542:		}
+         .          .    543:		for _, w := range verbWritesByObj[id] {
+         .          .    544:			img = buildImageWithVerbCode(img, w.name, w.code, ts)
+         .          .    545:		}
+         .          .    546:		for _, index := range verbDeletesByObj[id] {
+         .          .    547:			img = buildImageWithVerbDelete(img, index, ts)
+         .          .    548:		}
+         .          .    549:		if tx.recycleWrites[id] {
+         .          .    550:			// Recycle turns the object into a tombstone LAST, overriding any of its own
+         .          .    551:			// staged self-writes; the edges on OTHER objects (its location's contents,
+         .          .    552:			// its parents' children) were staged as deltas.
+         .          .    553:			img = buildImageRecycled(img, ts)
+         .          .    554:			s.appendRecycledID(id)
+         .          .    555:		}
+         .          .    556:		if created != nil {
+         .          .    557:			// No old image to remember; raise max_object (highWaterID was already
+         .          .    558:			// bumped at allocation).
+         .          .    559:			casMaxID(&s.maxObjID, id)
+         .          .    560:		} else {
+         .          .    561:			// The replaced image is immutable; stash it as the history node (no clone).
+         .     1.15MB    562:			s.rememberOldImageLocked(old)
+         .          .    563:		}
+         .          .    564:		s.publishLocked(id, img)
+         .          .    565:	}
+         .          .    566:
+         .          .    567:	// History GC (Phase 4): now that this commit appended a fresh newest version to
+ROUTINE ======================== github.com/MongooseMoo/barn/db/store.(*StoreTxn).commitDecentralized.func1 in C:\Users\Q\code\barn-pool-commit\db\store\store_cow.go
+  551.12kB   551.12kB (flat, cum)  0.53% of Total
+         .          .    354:	addID := func(id types.ObjID) {
+         .          .    355:		if !seen[id] {
+         .          .    356:			seen[id] = true
+  551.12kB   551.12kB    357:			writeIDs = append(writeIDs, id)
+         .          .    358:		}
+         .          .    359:	}
+         .          .    360:	for id := range tx.scalarWrites {
+         .          .    361:		addID(id)
+         .          .    362:	}

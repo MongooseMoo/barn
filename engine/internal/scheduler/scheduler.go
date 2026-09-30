@@ -73,6 +73,15 @@ func (s *Scheduler) Stop() { s.cancel(); s.wg.Wait() }
 // SetOrdering is configured at runtime construction, before dispatch starts.
 func (s *Scheduler) SetOrdering(order func([]*task.Task)) { s.order = order }
 
+// ReleaseExecution publishes a slice's physical handoff between readiness
+// scans. Otherwise a scan can hold its child while the parent is active, then
+// select the parent after its lease clears midway through the same scan.
+func (s *Scheduler) ReleaseExecution(t *task.Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t.SetExecutionActive(false)
+}
+
 // Enqueue adds a task to the ready-time heap and assigns its FIFO sequence.
 func (s *Scheduler) Enqueue(t *task.Task) {
 	s.mu.Lock()
@@ -89,6 +98,20 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 	s.queueSeq++
 	t.PrepareYieldRequeue(s.queueSeq, now)
 	heap.Push(&s.waiting, t)
+}
+
+// Resume applies resume() by readier and queues the task at now, behind work
+// that was already ready. The selection lock keeps the state change and its
+// queue position atomic with respect to readiness scans.
+func (s *Scheduler) Resume(t *task.Task, value types.Value, readier *task.Task, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !t.ResumeFrom(value, readier, s.queueSeq+1, now) {
+		return false
+	}
+	s.queueSeq++
+	heap.Push(&s.waiting, t)
+	return true
 }
 
 // Ready selects tasks ready at now, including resumed catalog tasks. Selection
@@ -287,7 +310,18 @@ func (q taskQueue) Less(i, j int) bool {
 }
 func (q taskQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
 func (q *taskQueue) Push(x any)   { *q = append(*q, x.(*task.Task)) }
-func (q *taskQueue) Pop() any     { old := *q; n := len(old); x := old[n-1]; *q = old[:n-1]; return x }
+
+// Pop hands the last task to container/heap and clears its slot. The scheduler
+// outlives any one drain, so a slot left populated past len would keep the
+// popped task, and everything it reaches, alive until a later push reuses it.
+func (q *taskQueue) Pop() any {
+	old := *q
+	n := len(old)
+	x := old[n-1]
+	old[n-1] = nil
+	*q = old[:n-1]
+	return x
+}
 func (q taskQueue) Peek() *task.Task {
 	if len(q) == 0 {
 		return nil

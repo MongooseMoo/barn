@@ -1,0 +1,25 @@
+File: commit-baseline.test.exe
+Build ID: C:\Users\Q\code\barn-pool-commit\.tmp\commit-baseline.test.exe2026-09-26 22:15:02.0730845 -0600 MDT
+Type: alloc_objects
+Time: 2026-09-26 22:17:42 MDT
+Showing nodes accounting for 688682, 99.85% of 689719 total
+Dropped 196 nodes (cum <= 3448)
+      flat  flat%   sum%        cum   cum%
+    451296 65.43% 65.43%     451296 65.43%  github.com/MongooseMoo/barn/db/store.cloneObjectForReadTxn
+     47000  6.81% 72.25%     326681 47.36%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).commitDecentralized
+     47000  6.81% 79.06%      47000  6.81%  github.com/MongooseMoo/barn/db/store.lazySet[go.shape.struct { github.com/MongooseMoo/barn/db/store.objID github.com/MongooseMoo/barn/types.ObjID; github.com/MongooseMoo/barn/db/store.name string },go.shape.struct { github.com/MongooseMoo/barn/db/store.name string; github.com/MongooseMoo/barn/db/store.value github.com/MongooseMoo/barn/types.Value; github.com/MongooseMoo/barn/db/store.prop github.com/MongooseMoo/barn/db/store.Property; github.com/MongooseMoo/barn/db/store.orig github.com/MongooseMoo/barn/db/store.Property; github.com/MongooseMoo/barn/db/store.hasOrig bool }] (inline)
+     42300  6.13% 85.19%      42366  6.14%  github.com/MongooseMoo/barn/db/store.(*Store).BeginSnapshot
+     37609  5.45% 90.65%      37609  5.45%  github.com/MongooseMoo/barn/db/store.(*Store).rememberOldImageLocked
+     23500  3.41% 94.05%     249100 36.12%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).privatizeCached
+     16472  2.39% 96.44%      16472  2.39%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).commitDecentralized.func1 (inline)
+     14100  2.04% 98.49%      14100  2.04%  github.com/MongooseMoo/barn/internal/commitgate.(*Gate).Acquire
+      4700  0.68% 99.17%       4700  0.68%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).markPropertyReadKey (inline)
+      4700  0.68% 99.85%       4700  0.68%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).object
+         5 0.00072% 99.85%     689264 99.93%  testing.(*B).runN
+         0     0% 99.85%     340781 49.41%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).Commit
+         0     0% 99.85%     305500 44.29%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).SetPropertyValue
+         0     0% 99.85%       4700  0.68%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).markPropertyRead
+         0     0% 99.85%     249100 36.12%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).mutableObject
+         0     0% 99.85%      47000  6.81%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).stagePropertyValue
+         0     0% 99.85%     688983 99.89%  github.com/MongooseMoo/barn/db/store.BenchmarkCommitScratch.func1
+         0     0% 99.85%     688723 99.86%  testing.(*B).launch

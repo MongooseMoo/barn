@@ -1,0 +1,9 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPoolFileRead/Text64-4         	   25768	     13831 ns/op	     360 B/op	       7 allocs/op
+BenchmarkPoolFileRead/Text4096-4       	   10000	     30705 ns/op	   16811 B/op	      15 allocs/op
+BenchmarkPoolFileRead/Binary4096-4     	    7216	     49174 ns/op	   29101 B/op	      17 allocs/op
+BenchmarkPoolFileRead/Text65536-4      	    1150	    303568 ns/op	  277476 B/op	      24 allocs/op
+PASS

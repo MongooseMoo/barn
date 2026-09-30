@@ -547,6 +547,8 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 	optionInfo := types.NewList([]types.Value{
 		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
 		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
+		// Barn integers are always 64-bit; Toast reports an undefined option as #-1.
+		versionPair("ONLY_32_BITS", types.NewObj(-1)),
 		versionPair("RUNTIME", types.NewStr(runtime.Version())),
 		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
 	})
@@ -772,13 +774,10 @@ func builtinUsage(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	stats, err := readProcessUsage()
-	if err != nil {
-		return types.Err(types.E_QUOTA)
-	}
+	stats := readProcessUsage()
 	loads := make([]types.Value, len(stats.loadAverage))
 	for i, load := range stats.loadAverage {
-		loads[i] = types.NewFloat(load)
+		loads[i] = types.NewInt(load)
 	}
 	result := []types.Value{
 		types.NewList(loads),
@@ -816,7 +815,7 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 	}
 	stats, err := readProcessMemory()
 	if err != nil {
-		return types.Err(types.E_QUOTA)
+		return types.Err(processMemoryErrorCode(err))
 	}
 	vals := []int64{
 		stats.total, stats.resident, stats.shared, stats.text, stats.data,

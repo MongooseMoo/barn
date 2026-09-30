@@ -147,3 +147,118 @@ func TestRunPreservesAssociationOrder(t *testing.T) {
 		t.Fatalf("results = %#v, want ordered task/result association", results)
 	}
 }
+
+func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	parent := testTask(1, now)
+	if !parent.StartExecution() {
+		t.Fatal("parent did not start")
+	}
+	child := testTask(2, now)
+	child.SetReadier(parent)
+	s.Enqueue(child)
+	if batch := s.ReadyBatch(now, nil); len(batch) != 0 {
+		t.Fatalf("child selected while its forking slice runs: %v", batch)
+	}
+	parent.SetExecutionActive(false)
+	if batch := s.ReadyBatch(time.Now(), nil); len(batch) != 1 || batch[0] != child {
+		t.Fatalf("child not selected after its forking slice ended: %v", batch)
+	}
+}
+
+func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	now := time.Now()
+	resumer := testTask(1, now)
+	target := testTask(2, now)
+	target.SetBytecodeVM(struct{}{}) // Readiness marker, never executed.
+	target.SuspendIndefinite()
+	if !resumer.StartExecution() {
+		t.Fatal("resumer did not start")
+	}
+	if !s.Resume(target, types.NewInt(0), resumer, now) {
+		t.Fatal("resume failed")
+	}
+	if batch := s.ReadyBatch(now, []*task.Task{target}); len(batch) != 0 {
+		t.Fatalf("target selected while the resuming slice runs: %v", batch)
+	}
+	// suspend(0) ends the resumer's slice and requeues it behind the target.
+	resumer.Suspend(0)
+	resumer.Resume(types.NewInt(0))
+	resumer.SetBytecodeVM(struct{}{})
+	s.RequeueYield(resumer, now.Add(time.Millisecond))
+	resumer.SetExecutionActive(false)
+	later := now.Add(2 * time.Millisecond)
+	catalog := []*task.Task{resumer, target}
+	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != target {
+		t.Fatalf("resumed target did not run first: %v", batch)
+	}
+	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != resumer {
+		t.Fatalf("resumer did not follow the target: %v", batch)
+	}
+}
+
+// assertQueueOwnsOnly checks the heap's whole backing array: the live region
+// holds exactly want, and every slot past len is nil so popped tasks are not
+// kept reachable by the long-lived scheduler.
+func assertQueueOwnsOnly(t *testing.T, q taskQueue, want ...*task.Task) {
+	t.Helper()
+	live := make(map[*task.Task]bool, len(q))
+	for _, queued := range q {
+		live[queued] = true
+	}
+	if len(live) != len(want) || len(q) != len(want) {
+		t.Fatalf("queue holds %d tasks, want %d", len(q), len(want))
+	}
+	for _, w := range want {
+		if !live[w] {
+			t.Fatalf("queue lost task %d", w.ID)
+		}
+	}
+	for i, stale := range q[len(q):cap(q)] {
+		if stale != nil {
+			t.Fatalf("spare slot %d retains popped task %d", len(q)+i, stale.ID)
+		}
+	}
+}
+
+func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
+	s := New(1, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	t.Cleanup(s.Stop)
+	base := time.Now()
+	// Enqueue out of time order so the drain exercises heap reordering.
+	offsets := []int{4, 1, 5, 0, 3, 2}
+	byOffset := make([]*task.Task, len(offsets))
+	for _, off := range offsets {
+		tk := testTask(int64(off+1), base.Add(time.Duration(off)*time.Second))
+		byOffset[off] = tk
+		s.Enqueue(tk)
+	}
+
+	ready := s.Ready(base.Add(2*time.Second), nil)
+	if len(ready) != 3 || ready[0] != byOffset[0] || ready[1] != byOffset[1] || ready[2] != byOffset[2] {
+		t.Fatalf("partial drain = %v, want offsets 0,1,2 in time order", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting, byOffset[3], byOffset[4], byOffset[5])
+
+	ready = s.Ready(base.Add(time.Hour), nil)
+	if len(ready) != 3 || ready[0] != byOffset[3] || ready[1] != byOffset[4] || ready[2] != byOffset[5] {
+		t.Fatalf("complete drain = %v, want offsets 3,4,5 in time order", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting)
+
+	// Reuse the drained backing array: ordering is unchanged and only the
+	// new tasks are owned.
+	late, early := testTask(10, base.Add(2*time.Hour)), testTask(11, base.Add(90*time.Minute))
+	s.Enqueue(late)
+	s.Enqueue(early)
+	assertQueueOwnsOnly(t, s.waiting, late, early)
+	ready = s.Ready(base.Add(3*time.Hour), nil)
+	if len(ready) != 2 || ready[0] != early || ready[1] != late {
+		t.Fatalf("push-after-drain order = %v, want [early late]", ready)
+	}
+	assertQueueOwnsOnly(t, s.waiting)
+}

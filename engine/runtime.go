@@ -188,6 +188,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	s.session = builtins.NewSession(registry, host)
 	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
+	manager.SetResumeScheduler(func(t *task.Task, value types.Value, readier *task.Task) bool {
+		return s.scheduler.Resume(t, value, readier, time.Now())
+	})
 	limit := options.AdmissionLimit
 	if limit == 0 {
 		limit = workerCount
@@ -258,7 +261,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 	} else {
 		delete(s.lifecycle.ExecutingTasks, taskID)
 		if t := s.leasedTasks[taskID]; t != nil {
-			t.SetExecutionActive(false)
+			s.scheduler.ReleaseExecution(t)
 		}
 		delete(s.leasedTasks, taskID)
 		s.taskManager.NotifyScheduleChange()

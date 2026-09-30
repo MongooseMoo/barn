@@ -344,6 +344,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 		LineNumber: firstLine,
 	})
 
+	t.SetReadier(parent)
 	childID := s.QueueTask(t)
 	if parent != nil {
 		parent.CreatedForks = append(parent.CreatedForks, childID)

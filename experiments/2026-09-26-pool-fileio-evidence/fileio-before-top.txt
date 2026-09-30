@@ -1,0 +1,25 @@
+File: fileio-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\fileio-base.exe2026-09-26 22:14:30.0311072 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:14:37 MDT
+Showing nodes accounting for 449309.22kB, 99.01% of 453786.98kB total
+Dropped 269 nodes (cum <= 2268.93kB)
+      flat  flat%   sum%        cum   cum%
+300770.77kB 66.28% 66.28% 300770.77kB 66.28%  strings.(*Builder).WriteByte (inline)
+   94345kB 20.79% 87.07% 437869.20kB 96.49%  github.com/MongooseMoo/barn/builtins.builtinFileRead
+39592.58kB  8.72% 95.80% 39592.58kB  8.72%  strings.(*Builder).WriteString (inline)
+ 8775.12kB  1.93% 97.73% 14318.66kB  3.16%  github.com/MongooseMoo/barn/compiler.layoutFingerprint
+ 5539.94kB  1.22% 98.95%  5539.94kB  1.22%  strings.(*Builder).Write
+  134.94kB  0.03% 98.98% 14467.44kB  3.19%  github.com/MongooseMoo/barn/compiler.New
+      96kB 0.021% 99.00% 15232.39kB  3.36%  github.com/MongooseMoo/barn/builtins.NewRegistry
+   53.72kB 0.012% 99.01% 15008.36kB  3.31%  github.com/MongooseMoo/barn/builtins.NewRegistryFromDescriptors
+    0.88kB 0.00019% 99.01% 15594.72kB  3.44%  github.com/MongooseMoo/barn/builtins.poolReadFixture
+    0.28kB 6.2e-05% 99.01% 453751.83kB   100%  testing.(*B).runN
+         0     0% 99.01%  5544.34kB  1.22%  fmt.Fprintf
+         0     0% 99.01% 453463.98kB 99.93%  github.com/MongooseMoo/barn/builtins.BenchmarkPoolFileRead.func1
+         0     0% 99.01% 453463.98kB 99.93%  github.com/MongooseMoo/barn/builtins.benchPoolRead
+         0     0% 99.01% 84726.59kB 18.67%  github.com/MongooseMoo/barn/builtins.encodeBinaryBytes
+         0     0% 99.01% 84726.59kB 18.67%  github.com/MongooseMoo/barn/builtins.encodeByte
+         0     0% 99.01% 255635.91kB 56.33%  github.com/MongooseMoo/barn/builtins.filterTextMode (inline)
+         0     0% 99.01% 15237.08kB  3.36%  github.com/MongooseMoo/barn/builtins.newTestExecution
+         0     0% 99.01% 453748.56kB   100%  testing.(*B).run1.func1

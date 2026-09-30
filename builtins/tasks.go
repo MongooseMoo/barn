@@ -212,7 +212,7 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	errCode := mgr.ResumeTask(taskID, value, ctx.Programmer, ctx.IsWizard)
+	errCode := mgr.ResumeTask(taskID, value, ctx.Programmer, ctx.IsWizard, ctx.Task)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

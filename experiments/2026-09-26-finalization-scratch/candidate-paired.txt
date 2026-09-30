@@ -1,0 +1,60 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     421	   2600124 ns/op	 1303523 B/op	     128 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     506	   2486394 ns/op	 1303559 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     462	   2429309 ns/op	 1303640 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     520	   2466104 ns/op	 1303609 B/op	     128 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     468	   2464009 ns/op	 1303584 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     426	   2716468 ns/op	 1303634 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     399	   2616890 ns/op	 1303652 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     439	   2427405 ns/op	 1303594 B/op	     128 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     439	   2655368 ns/op	 1303611 B/op	     129 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPendingWaifLocals-32    	     480	   2518986 ns/op	 1303596 B/op	     128 allocs/op
+PASS

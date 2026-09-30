@@ -1,0 +1,39 @@
+File: engine-candidate.exe
+Build ID: C:\Users\Q\code\barn-pool-campaign\.tmp\engine-candidate.exe2026-09-26 22:33:17.6490536 -0600 MDT
+Type: cpu
+Time: 2026-09-26 22:50:59 MDT
+Duration: 50.45s, Total samples = 58.34s (115.64%)
+Showing nodes accounting for 29.52s, 50.60% of 58.34s total
+Dropped 751 nodes (cum <= 0.29s)
+Showing top 30 nodes out of 214
+      flat  flat%   sum%        cum   cum%
+     2.73s  4.68%  4.68%     46.71s 80.07%  github.com/MongooseMoo/barn/vm.(*VM).executeLoop
+     2.62s  4.49%  9.17%      2.62s  4.49%  internal/runtime/maps.ctrlGroup.matchH2 (inline)
+     2.39s  4.10% 13.27%      2.39s  4.10%  runtime.asyncPreempt
+     1.72s  2.95% 16.22%      1.72s  2.95%  runtime.memclrNoHeapPointers
+     1.62s  2.78% 18.99%      4.91s  8.42%  runtime.mapaccess2_fast64
+     1.55s  2.66% 21.65%      2.97s  5.09%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Load
+     1.26s  2.16% 23.81%      1.26s  2.16%  aeshashbody
+     1.18s  2.02% 25.83%      2.42s  4.15%  runtime.tryDeferToSpanScan
+     1.07s  1.83% 27.67%      1.07s  1.83%  memeqbody
+     0.96s  1.65% 29.31%     11.25s 19.28%  github.com/MongooseMoo/barn/vm.(*VM).startVerbCall
+     0.95s  1.63% 30.94%      0.95s  1.63%  runtime.spanClass.sizeclass (inline)
+     0.93s  1.59% 32.53%      0.93s  1.59%  runtime.nextFreeFast (inline)
+     0.89s  1.53% 34.06%      1.39s  2.38%  runtime.mapaccess2_faststr
+     0.77s  1.32% 35.38%      0.77s  1.32%  runtime.memhash64
+     0.75s  1.29% 36.66%      2.25s  3.86%  runtime.scanObject
+     0.74s  1.27% 37.93%      0.74s  1.27%  runtime.semawakeup
+     0.73s  1.25% 39.18%     20.11s 34.47%  github.com/MongooseMoo/barn/builtins.(*Session).dispatch
+     0.68s  1.17% 40.35%      0.68s  1.17%  runtime.memmove
+     0.66s  1.13% 41.48%      0.84s  1.44%  github.com/MongooseMoo/barn/db/store.validLiveObject (inline)
+     0.59s  1.01% 42.49%      0.78s  1.34%  internal/runtime/maps.(*Iter).Next
+     0.57s  0.98% 43.47%      1.78s  3.05%  runtime.scanObjectsSmall
+     0.56s  0.96% 44.43%      4.34s  7.44%  runtime.mallocgcSmallScanNoHeader
+     0.48s  0.82% 45.25%     21.90s 37.54%  github.com/MongooseMoo/barn/vm.(*VM).executeCallBuiltin
+     0.48s  0.82% 46.07%      0.48s  0.82%  internal/runtime/maps.h1 (inline)
+     0.47s  0.81% 46.88%      3.25s  5.57%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).replayMemoPath
+     0.46s  0.79% 47.67%      6.46s 11.07%  runtime.mallocgc
+     0.44s  0.75% 48.42%      8.74s 14.98%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).lookupVerbDispatchMemo
+     0.43s  0.74% 49.16%      0.43s  0.74%  runtime.sysUsedOS
+     0.42s  0.72% 49.88%      1.36s  2.33%  github.com/MongooseMoo/barn/vm.(*StackFrame).visitFinalizableCandidates
+     0.42s  0.72% 50.60%      0.48s  0.82%  runtime.(*mspan).writeHeapBitsSmall

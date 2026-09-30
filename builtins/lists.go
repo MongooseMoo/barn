@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -501,8 +502,15 @@ func builtinUnique(ctx *Execution, args []types.Value) types.Result {
 	// use Equal inside each bucket. This preserves setadd's equality semantics
 	// without comparing every distinct scalar against every earlier value.
 	unique := make([]types.Value, 0, list.Len())
-	bucketHeads := make(map[uniqueBucketKey]int, list.Len())
-	previousInBucket := make([]int, 0, list.Len())
+	scratch, pool := borrowUniqueScratch(list.Len())
+	if pool != nil {
+		defer func() {
+			clear(scratch.heads)
+			pool.Put(scratch)
+		}()
+	}
+	bucketHeads := scratch.heads
+	previousInBucket := scratch.previous[:0]
 	for i, elem := range list.Elements() {
 		key := uniqueKey(elem, i)
 		dup := false
@@ -529,6 +537,33 @@ type uniqueBucketKey struct {
 	text      string
 	reference types.WaifIdentity
 	length    int
+}
+
+type uniqueScratch struct {
+	heads    map[uniqueBucketKey]int
+	previous []int
+}
+
+// Separate size classes keep large requests from lending oversized maps to
+// small calls. Requests above the largest class are never retained.
+var uniqueScratchPools [12]sync.Pool
+
+func borrowUniqueScratch(n int) (*uniqueScratch, *sync.Pool) {
+	size, class := 8, 0
+	for size < n && class < len(uniqueScratchPools)-1 {
+		size *= 2
+		class++
+	}
+	var pool *sync.Pool
+	if n <= size {
+		pool = &uniqueScratchPools[class]
+		if scratch, ok := pool.Get().(*uniqueScratch); ok {
+			return scratch, pool
+		}
+	} else {
+		size = n
+	}
+	return &uniqueScratch{heads: make(map[uniqueBucketKey]int, size), previous: make([]int, 0, size)}, pool
 }
 
 const (

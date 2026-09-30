@@ -1,0 +1,40 @@
+diff --git a/builtins/fileio.go b/builtins/fileio.go
+index fa0060d..a86fc0e 100644
+--- a/builtins/fileio.go
++++ b/builtins/fileio.go
+@@ -160,7 +160,17 @@ func getFileHandle(ctx *Execution, v types.Value) (*mooFileHandle, types.ErrorCo
+ // filterTextMode keeps only printable ASCII bytes (0x20-0x7E),
+ // matching Toast's raw_bytes_to_clean filter for text-mode reads.
+ func filterTextMode(data []byte) string {
++	size := 0
++	for _, c := range data {
++		if c >= 0x20 && c <= 0x7E {
++			size++
++		}
++	}
++	if size == 0 {
++		return ""
++	}
+ 	var b strings.Builder
++	b.Grow(size)
+ 	for _, c := range data {
+ 		if (c >= 0x21 && c <= 0x7E) || c == 0x20 {
+ 			b.WriteByte(c)
+@@ -171,6 +181,17 @@ func filterTextMode(data []byte) string {
+ 
+ func encodeBinaryBytes(data []byte) string {
+ 	var b strings.Builder
++	// Above this bound the reservation could overflow. Leave growth to Builder
++	// in that case, preserving the existing conversion path.
++	if len(data) <= int(^uint(0)>>1)/3 {
++		size := len(data)
++		for _, ch := range data {
++			if ch < 32 || ch > 126 || ch == '~' {
++				size += 2
++			}
++		}
++		b.Grow(size)
++	}
+ 	for _, ch := range data {
+ 		encodeByte(&b, ch)
+ 	}

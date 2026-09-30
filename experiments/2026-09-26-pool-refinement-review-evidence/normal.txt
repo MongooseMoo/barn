@@ -1,0 +1,2 @@
+ok  	github.com/MongooseMoo/barn/builtins	0.315s
+ok  	github.com/MongooseMoo/barn/vm	0.166s

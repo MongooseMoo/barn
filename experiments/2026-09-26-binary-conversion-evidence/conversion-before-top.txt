@@ -1,0 +1,15 @@
+File: conversion-base.exe
+Build ID: C:\Users\Q\code\barn-pool-evidence\conversion-base.exe2026-09-26 22:21:27.4365592 -0600 MDT
+Type: alloc_space
+Time: 2026-09-26 22:21:28 MDT
+Showing nodes accounting for 419935.62kB, 99.90% of 420348.64kB total
+Dropped 172 nodes (cum <= 2101.74kB)
+      flat  flat%   sum%        cum   cum%
+325931.84kB 77.54% 77.54% 325931.84kB 77.54%  strings.(*Builder).WriteByte (inline)
+94003.61kB 22.36% 99.90% 94003.61kB 22.36%  strings.(*Builder).WriteString (inline)
+    0.17kB 4.1e-05% 99.90% 420309.90kB   100%  testing.(*B).runN
+         0     0% 99.90% 420255.61kB   100%  github.com/MongooseMoo/barn/builtins.BenchmarkFileConversion.func1
+         0     0% 99.90% 177354.84kB 42.19%  github.com/MongooseMoo/barn/builtins.encodeBinaryBytes
+         0     0% 99.90% 177354.84kB 42.19%  github.com/MongooseMoo/barn/builtins.encodeByte
+         0     0% 99.90% 242580.45kB 57.71%  github.com/MongooseMoo/barn/builtins.filterTextMode
+         0     0% 99.90% 420306.63kB   100%  testing.(*B).run1.func1

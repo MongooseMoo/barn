@@ -1,0 +1,22 @@
+Total: 2.68s
+ROUTINE ======================== github.com/MongooseMoo/barn/builtins.encodeBinaryBytes in C:\Users\Q\code\barn-binary-conversion\builtins\fileio.go
+     810ms      2.23s (flat, cum) 83.21% of Total
+         .          .    172:func encodeBinaryBytes(data []byte) string {
+         .          .    173:	var b strings.Builder
+         .          .    174:	// Avoid overflow while reserving the exact escaped output size.
+         .          .    175:	if len(data) <= int(^uint(0)>>1)/3 {
+         .          .    176:		size := len(data)
+         .          .    177:		for _, ch := range data {
+     400ms      410ms    178:			if ch < 32 || ch > 126 || ch == '~' {
+         .          .    179:				size += 2
+         .          .    180:			}
+         .          .    181:		}
+         .       30ms    182:		b.Grow(size)
+         .          .    183:	}
+     370ms      370ms    184:	for _, ch := range data {
+      40ms      1.42s    185:		encodeByte(&b, ch)
+         .          .    186:	}
+         .          .    187:	return b.String()
+         .          .    188:}
+         .          .    189:
+         .          .    190:// EncodeRawToBinary converts raw bytes to MOO binary-string text (~XX for

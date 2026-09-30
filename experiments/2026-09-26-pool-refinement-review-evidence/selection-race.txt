@@ -1,0 +1,1 @@
+ok  	github.com/MongooseMoo/barn/vm	1.187s

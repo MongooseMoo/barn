@@ -1,0 +1,23 @@
+Total: 2.64s
+ROUTINE ======================== github.com/MongooseMoo/barn/builtins.filterTextMode in C:\Users\Q\code\barn-file-conversion\builtins\fileio.go
+     1.65s      2.27s (flat, cum) 85.98% of Total
+         .          .    162:func filterTextMode(data []byte) string {
+         .          .    163:	size := 0
+         .          .    164:	for _, c := range data {
+     670ms      670ms    165:		if c >= 0x20 && c <= 0x7E {
+         .          .    166:			size++
+         .          .    167:		}
+         .          .    168:	}
+         .          .    169:	if size == 0 {
+         .          .    170:		return ""
+         .          .    171:	}
+         .          .    172:	var b strings.Builder
+         .       30ms    173:	b.Grow(size)
+     250ms      250ms    174:	for _, c := range data {
+     630ms      640ms    175:		if (c >= 0x21 && c <= 0x7E) || c == 0x20 {
+     100ms      680ms    176:			b.WriteByte(c)
+         .          .    177:		}
+         .          .    178:	}
+         .          .    179:	return b.String()
+         .          .    180:}
+         .          .    181:

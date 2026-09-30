@@ -57,7 +57,7 @@ func (taskManagerStub) GetTask(int64) *task.Task                           { ret
 func (taskManagerStub) FindReadingTask(types.ObjID) *task.Task             { return nil }
 func (taskManagerStub) KillTask(int64, types.ObjID, bool) types.ErrorCode  { return types.E_NONE }
 func (taskManagerStub) CheckKill(int64, types.ObjID, bool) types.ErrorCode { return types.E_NONE }
-func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool) types.ErrorCode {
+func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool, *task.Task) types.ErrorCode {
 	return types.E_NONE
 }
 func (taskManagerStub) SuspendTask(*task.Task, float64) {}
