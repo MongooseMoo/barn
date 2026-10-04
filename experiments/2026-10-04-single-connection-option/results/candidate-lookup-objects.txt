@@ -1,0 +1,8 @@
+File: candidate.test
+Build ID: a105324bdf66e13308aabed27b4b3c877e074cf7
+Type: alloc_objects
+Time: 2026-10-03 21:49:29 MDT
+Active filters:
+   focus=ConnectionOptionTruthy
+Showing nodes accounting for 0, 0% of 77058 total
+      flat  flat%   sum%        cum   cum%

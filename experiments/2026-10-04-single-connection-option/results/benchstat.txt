@@ -1,0 +1,39 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                         │ experiments/2026-10-04-single-connection-option/results/baseline.txt │ experiments/2026-10-04-single-connection-option/results/candidate.txt │
+                                         │                                sec/op                                │                    sec/op                      vs base                │
+SingleConnectionOption/TruthyDefault-4                                                             638.75n ± 4%                                     11.99n ± 0%  -98.12% (p=0.000 n=12)
+SingleConnectionOption/HeldDefault-4                                                               641.45n ± 2%                                     11.99n ± 0%  -98.13% (p=0.000 n=12)
+SingleConnectionOption/SnapshotDefault-4                                                            629.1n ± 1%                                     626.9n ± 1%        ~ (p=0.755 n=12)
+SingleConnectionOption/TruthyStored-4                                                              408.25n ± 1%                                     27.15n ± 0%  -93.35% (p=0.000 n=12)
+SingleConnectionOption/HeldStored-4                                                                404.20n ± 0%                                     25.12n ± 0%  -93.79% (p=0.000 n=12)
+SingleConnectionOption/SnapshotStored-4                                                             387.9n ± 1%                                     389.0n ± 1%        ~ (p=0.452 n=12)
+geomean                                                                                             504.5n                                          53.67n       -89.36%
+
+                                         │ experiments/2026-10-04-single-connection-option/results/baseline.txt │ experiments/2026-10-04-single-connection-option/results/candidate.txt │
+                                         │                                 B/op                                 │                   B/op                    vs base                     │
+SingleConnectionOption/TruthyDefault-4                                                               896.0 ± 0%                                   0.0 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/HeldDefault-4                                                                 896.0 ± 0%                                   0.0 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/SnapshotDefault-4                                                             896.0 ± 0%                                 896.0 ± 0%         ~ (p=1.000 n=12) ¹
+SingleConnectionOption/TruthyStored-4                                                                400.0 ± 0%                                   0.0 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/HeldStored-4                                                                  400.0 ± 0%                                   0.0 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/SnapshotStored-4                                                              400.0 ± 0%                                 400.0 ± 0%         ~ (p=1.000 n=12) ¹
+geomean                                                                                              598.7                                                  ?                       ² ³
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean
+
+                                         │ experiments/2026-10-04-single-connection-option/results/baseline.txt │ experiments/2026-10-04-single-connection-option/results/candidate.txt │
+                                         │                              allocs/op                               │                allocs/op                  vs base                     │
+SingleConnectionOption/TruthyDefault-4                                                               9.000 ± 0%                                 0.000 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/HeldDefault-4                                                                 9.000 ± 0%                                 0.000 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/SnapshotDefault-4                                                             9.000 ± 0%                                 9.000 ± 0%         ~ (p=1.000 n=12) ¹
+SingleConnectionOption/TruthyStored-4                                                                2.000 ± 0%                                 0.000 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/HeldStored-4                                                                  2.000 ± 0%                                 0.000 ± 0%  -100.00% (p=0.000 n=12)
+SingleConnectionOption/SnapshotStored-4                                                              2.000 ± 0%                                 2.000 ± 0%         ~ (p=1.000 n=12) ¹
+geomean                                                                                              4.243                                                  ?                       ² ³
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean

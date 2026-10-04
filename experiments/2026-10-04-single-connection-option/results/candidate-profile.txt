@@ -1,0 +1,27 @@
+File: candidate.test
+Build ID: a105324bdf66e13308aabed27b4b3c877e074cf7
+Type: alloc_space
+Time: 2026-10-03 21:49:29 MDT
+Showing nodes accounting for 7580.03kB, 97.96% of 7738.07kB total
+Dropped 156 nodes (cum <= 38.69kB)
+      flat  flat%   sum%        cum   cum%
+ 4387.58kB 56.70% 56.70%  7160.91kB 92.54%  github.com/MongooseMoo/barn/compiler.layoutFingerprint
+ 2769.91kB 35.80% 92.50%  2769.91kB 35.80%  strings.(*Builder).Write
+  212.38kB  2.74% 95.24%   243.55kB  3.15%  github.com/MongooseMoo/barn/builtins.(*Registry).install
+   67.47kB  0.87% 96.11%  7235.33kB 93.50%  github.com/MongooseMoo/barn/compiler.New
+   62.28kB   0.8% 96.92%    62.28kB   0.8%  github.com/MongooseMoo/barn/builtins.BaseDescriptors
+      48kB  0.62% 97.54%  7617.75kB 98.45%  github.com/MongooseMoo/barn/builtins.NewRegistry
+   26.86kB  0.35% 97.89%  7505.73kB 97.00%  github.com/MongooseMoo/barn/builtins.NewRegistryFromDescriptors
+    2.67kB 0.035% 97.92%    89.67kB  1.16%  regexp.compile
+    2.41kB 0.031% 97.95%    73.07kB  0.94%  testing.(*B).Run
+    0.31kB 0.004% 97.96%    71.64kB  0.93%  github.com/MongooseMoo/barn/builtins.BenchmarkSingleConnectionOption
+    0.17kB 0.0022% 97.96%  7695.78kB 99.45%  testing.(*B).runN
+         0     0% 97.96%  2773.42kB 35.84%  fmt.Fprintf
+         0     0% 97.96%  7618.97kB 98.46%  github.com/MongooseMoo/barn/builtins.BenchmarkSingleConnectionOption.func1
+         0     0% 97.96%    89.67kB  1.16%  regexp.Compile (inline)
+         0     0% 97.96%    45.49kB  0.59%  regexp.compileOnePass
+         0     0% 97.96%  3809.78kB 49.23%  testing.(*B).launch
+         0     0% 97.96%  3883.03kB 50.18%  testing.(*B).run1.func1
+         0     0% 97.96%    82.98kB  1.07%  testing.(*matcher).fullName
+         0     0% 97.96%    77.33kB     1%  testing.simpleMatch.matches
+         0     0% 97.96%       92kB  1.19%  testing/internal/testdeps.TestDeps.MatchString
