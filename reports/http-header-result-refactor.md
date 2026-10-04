@@ -60,3 +60,9 @@ reached its fixed point: builtins owns the named result and parser, each caller
 handles the state directly, and no compatibility path remains. The kept commit
 is recorded below after committing. Full repository CI remains required before
 normal merge; the next iteration selects another issue.
+
+Kept implementation commit: `8a8949502fcc328acb77e9dde2308887333ee1be`
+(`refactor(http): name the header parser result and state`), based on the verified
+#350 merge `228b41bc8c7cd0774c769fbe0adeefb065e2c5ce`. Rebasing onto that merge
+left the tested Go files unchanged. This documentation-only follow-up records
+the final implementation commit.
