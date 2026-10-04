@@ -87,3 +87,9 @@ Profile either binary separately with `-test.run=^$`,
 `-test.memprofilerate=1`, using GOMAXPROCS=4 and taskset affinity 8-11.
 Use `go tool pprof -top -alloc_space` or `-alloc_objects`; focused attribution
 adds `-nodefraction=0 -focus=ConnectionOptionTruthy`.
+
+Kept implementation commit: `5ce95af7769baa96bf4739cd5d8ce9b8e5af1f90`.
+Rebasing onto `0ad7f10a404db84aed116110439648082c900459` changed none of the
+tested source, benchmark or experiment files. The focused semantic, concurrency,
+snapshot and scalar-allocation regressions passed again on Windows Go 1.26.0
+after rebase. This final paragraph is the only subsequent report change.
