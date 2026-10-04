@@ -14,6 +14,7 @@ import (
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 type censusIdentity struct {
@@ -121,8 +122,8 @@ func (report *databaseCensus) reject(identity censusIdentity, stage string, err 
 	failure := censusFailure{censusIdentity: identity, Stage: stage, Detail: err.Error()}
 	var parseError *parser.ParseError
 	if errors.As(err, &parseError) {
-		// ParseError exposes a line only; do not invent a column or offset.
-		failure.Line = parseError.Line
+		// The census groups failures by source line; ParseError retains the full position.
+		failure.Line = parseError.Position.Line
 		if parseError.Detail != nil {
 			failure.Detail = parseError.Detail.Error()
 		}
@@ -269,7 +270,7 @@ func TestDatabaseCensusRetainsParseErrorLineAndNormalizesDetail(t *testing.T) {
 	identity := censusIdentity{7, 3, "diagnostic"}
 	var report databaseCensus
 	report.reject(identity, "source_parse", fmt.Errorf("wrapped: %w", &parser.ParseError{
-		Line: 17, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
+		Position: verb.Position{Line: 17}, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
 	}))
 	want := censusFailure{censusIdentity: identity, Stage: "source_parse", Line: 17, Detail: "expected ';' after return statement"}
 	if !reflect.DeepEqual(report.Failures, []censusFailure{want}) {

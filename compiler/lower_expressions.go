@@ -248,7 +248,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	}
 	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
 	if !ok {
-		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
+		return &UnknownBuiltinError{Name: n.Name, Position: n.Pos}
 	}
 
 	// Special-case pass(): emit bytecode.OP_PASS instead of bytecode.OP_CALL_BUILTIN.

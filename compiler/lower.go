@@ -13,8 +13,8 @@ import (
 // and source line so callers (e.g. set_verb_code) can format the error exactly
 // as ToastStunt does: "Line N:  Unknown built-in function: NAME".
 type UnknownBuiltinError struct {
-	Name string
-	Line int
+	Name     string
+	Position verb.Position
 }
 
 func (e *UnknownBuiltinError) Error() string {
