@@ -61,3 +61,10 @@ staticcheck ./...                        completed
 go build ./...                           completed
 ACTIVE_DEPTH_FULL_RACE_STATIC_BUILD_OK
 ```
+
+Integration with #291's merged diagnostics frontend was verified again:
+`go test ./...`, parser/compiler/verb race tests (9.264s/2.150s/cached), vet,
+staticcheck, and build completed with
+`ACTIVE_DEPTH_INTEGRATED_FULL_RACE_STATIC_BUILD_OK`. The focused managed Barn
+selection passed again: 6 passed, 1578 deselected in 39.14s. Rebasing onto the
+normal PR386 merge preserved every tested file byte-for-byte.
