@@ -1,0 +1,15 @@
+File: baseline.test
+Build ID: f50f8317fae323e28d3db33f906e4a6a6056a62c
+Type: alloc_space
+Time: 2026-10-03 21:25:00 MDT
+Showing nodes accounting for 426075.23kB, 99.95% of 426306.02kB total
+Dropped 211 nodes (cum <= 2131.53kB)
+      flat  flat%   sum%        cum   cum%
+  360537kB 84.57% 84.57% 360539.64kB 84.57%  os.readFileContents
+65536.12kB 15.37% 99.95% 65541.10kB 15.37%  github.com/MongooseMoo/barn/db/format.sidecarHashFixture
+    1.38kB 0.00032% 99.95% 360597.91kB 84.59%  github.com/MongooseMoo/barn/db/format.readWaifIdentitySidecar
+    0.56kB 0.00013% 99.95% 426141.70kB   100%  github.com/MongooseMoo/barn/db/format.BenchmarkWaifIdentitySidecarHash.func1
+    0.17kB 4e-05% 99.95% 426254.14kB   100%  testing.(*B).runN
+         0     0% 99.95% 360541.98kB 84.57%  os.ReadFile
+         0     0% 99.95% 360598.13kB 84.59%  testing.(*B).launch
+         0     0% 99.95% 65652.85kB 15.40%  testing.(*B).run1.func1

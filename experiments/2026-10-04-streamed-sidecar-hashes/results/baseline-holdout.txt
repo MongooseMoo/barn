@@ -1,0 +1,23 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/format
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkWaifIdentitySidecarHash/Read/1MiB-4         	     327	    794085 ns/op	1320.48 MB/s	 1062067 B/op	      18 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/1MiB-4        	     134	   1759221 ns/op	 596.05 MB/s	 1057819 B/op	      16 allocs/op
+BenchmarkWaifIdentitySidecarHash/Read/8MiB-4         	      43	   5641081 ns/op	1487.06 MB/s	 8402566 B/op	      22 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/8MiB-4        	      28	   7581990 ns/op	1106.39 MB/s	 8398215 B/op	      18 allocs/op
+BenchmarkWaifIdentitySidecarHash/Read/32MiB-4        	       9	  24957812 ns/op	1344.45 MB/s	33568305 B/op	      21 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/32MiB-4       	       9	  26998596 ns/op	1242.82 MB/s	33564138 B/op	      19 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/format
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkWaifIdentitySidecarHash/Read/1MiB-4         	     316	    699830 ns/op	1498.33 MB/s	 1062026 B/op	      18 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/1MiB-4        	     136	   1767505 ns/op	 593.25 MB/s	 1057815 B/op	      15 allocs/op
+BenchmarkWaifIdentitySidecarHash/Read/8MiB-4         	      40	   6132999 ns/op	1367.78 MB/s	 8402496 B/op	      21 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/8MiB-4        	      32	   7106318 ns/op	1180.44 MB/s	 8398226 B/op	      18 allocs/op
+BenchmarkWaifIdentitySidecarHash/Read/32MiB-4        	       8	  25573582 ns/op	1312.07 MB/s	33568264 B/op	      21 allocs/op
+BenchmarkWaifIdentitySidecarHash/Write/32MiB-4       	       9	  26875277 ns/op	1248.52 MB/s	33563992 B/op	      18 allocs/op
+PASS
