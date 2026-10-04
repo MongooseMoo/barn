@@ -870,6 +870,28 @@ func taskIsConflictRetryable(t *task.Task) bool {
 	return !t.IsForked && t.ForkInfo == nil && t.Program != nil
 }
 
+// forkLane identifies the forks of one verb on one object.
+type forkLane struct {
+	this types.ObjID
+	verb string
+}
+
+// forkFirstRunLane narrows the solo batch of a fork's first run to its
+// siblings. Forks of one verb on one object contend on that object's state (a
+// scheduler's worker pool all rewrite its queue), so running them together only
+// repeats their slices. Forks of unrelated verbs are as independent as the
+// commands that made them, and a first run that does lose a commit is rebuilt
+// (forkFirstRunRebuilder).
+func forkFirstRunLane(t *task.Task) any {
+	if t == nil || !t.IsForked || t.ForkInfo == nil || forkBodyProgram(t.ForkInfo) == nil {
+		return nil
+	}
+	if saved, ok := t.BytecodeVMValue().(*vm.VM); !ok || saved == nil || saved.IsYielded() {
+		return nil
+	}
+	return forkLane{this: t.ForkInfo.ThisObj, verb: t.ForkInfo.Verb}
+}
+
 // forkFirstRunRebuilder returns a constructor for the pre-configured VM of a
 // forked task that has not yet run, or nil when t is not such a task. A forked
 // first run is as re-executable as a fresh task: its VM is a pure function of

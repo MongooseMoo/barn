@@ -39,9 +39,10 @@ type Scheduler struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 
-	// Slots taken by Dispatch. A solo task excludes only other solo tasks.
-	inFlight     int
-	soloInFlight bool
+	// Slots taken by Dispatch. A task in a lane excludes only that lane.
+	inFlight      int
+	lanesInFlight map[any]bool
+	lane          func(*task.Task) any
 }
 
 // New starts a scheduler with workerCount workers.
@@ -50,7 +51,7 @@ func New(workerCount int, retryable func(*task.Task) bool, run func(*task.Task) 
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Scheduler{workers: workerCount, retryable: retryable, run: run, work: make(chan workItem), ctx: ctx, cancel: cancel}
+	s := &Scheduler{workers: workerCount, retryable: retryable, run: run, work: make(chan workItem), ctx: ctx, cancel: cancel, lanesInFlight: make(map[any]bool)}
 	heap.Init(&s.waiting)
 	for range workerCount {
 		s.wg.Add(1)
@@ -158,7 +159,7 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*task.Task) bool, done func(Result)) int {
 	type started struct {
 		task *task.Task
-		solo bool
+		lane any
 	}
 	s.mu.Lock()
 	ready := s.readyLocked(now, catalog)
@@ -167,8 +168,8 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 	}
 	var starting []started
 	for _, t := range ready {
-		solo := !s.retryable(t)
-		if s.heldLocked(solo) {
+		lane := s.laneOf(t)
+		if s.heldLocked(lane) {
 			s.pending = append(s.pending, t)
 			continue
 		}
@@ -176,8 +177,10 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 			continue
 		}
 		s.inFlight++
-		s.soloInFlight = s.soloInFlight || solo
-		starting = append(starting, started{task: t, solo: solo})
+		if lane != nil {
+			s.lanesInFlight[lane] = true
+		}
+		starting = append(starting, started{task: t, lane: lane})
 	}
 	s.wg.Add(len(starting))
 	s.mu.Unlock()
@@ -187,9 +190,7 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 			err := s.run(item.task)
 			s.mu.Lock()
 			s.inFlight--
-			if item.solo {
-				s.soloInFlight = false
-			}
+			delete(s.lanesInFlight, item.lane)
 			s.mu.Unlock()
 			done(Result{Task: item.task, Err: err})
 		}()
@@ -197,11 +198,34 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 	return len(starting)
 }
 
-// heldLocked reports whether dispatched work in flight leaves no room for a
-// task now. Only Dispatch occupies these slots.
-func (s *Scheduler) heldLocked(solo bool) bool {
-	return s.inFlight >= s.workers || (solo && s.soloInFlight)
+// soloLane is shared by every task that cannot share a batch and names no
+// narrower lane of its own.
+type soloLane struct{}
+
+// laneOf returns nil for a task that runs beside any other work, and otherwise
+// the lane in which it runs one at a time.
+func (s *Scheduler) laneOf(t *task.Task) any {
+	if s.retryable(t) {
+		return nil
+	}
+	if s.lane != nil {
+		if lane := s.lane(t); lane != nil {
+			return lane
+		}
+	}
+	return soloLane{}
 }
+
+// heldLocked reports whether dispatched work in flight leaves no room for a
+// task in lane now. Only Dispatch occupies these slots.
+func (s *Scheduler) heldLocked(lane any) bool {
+	return s.inFlight >= s.workers || (lane != nil && s.lanesInFlight[lane])
+}
+
+// SetLane is configured at runtime construction, before dispatch starts. lane
+// narrows the exclusion of a task that cannot share a batch: tasks returning
+// the same non-nil key run one at a time, and different keys run side by side.
+func (s *Scheduler) SetLane(lane func(*task.Task) any) { s.lane = lane }
 
 func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
 	blocked := s.blockedReadiersLocked(now, catalog)
@@ -315,7 +339,7 @@ func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 	visit := func(t *task.Task) {
 		// A task held behind dispatched work is woken by that work's completion,
 		// not by a timer that would fire immediately and select nothing.
-		if blocked[t] || s.heldLocked(!s.retryable(t)) {
+		if blocked[t] || s.heldLocked(s.laneOf(t)) {
 			return
 		}
 		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
