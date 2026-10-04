@@ -75,12 +75,12 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	markLiveStoreMutated(ctx)
-	tx.MoveStagedProperties(oldID, newID)
+	tx.MoveStagedObjectWrites(oldID, newID)
 	tx.ForgetObject(oldID)
 	if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	tx.ApplyStagedProperties(newID)
+	tx.ApplyStagedObjectWrites(newID)
 	adoptIDs := append([]types.ObjID{newID}, oldParents...)
 	adoptIDs = append(adoptIDs, oldChildren...)
 	adoptIDs = append(adoptIDs, oldAnonymousChildren...)

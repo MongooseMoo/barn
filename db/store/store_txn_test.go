@@ -396,12 +396,12 @@ func TestTransactionAdoptLiveRelationshipsRefreshesAnonymousChildAfterRenumber(t
 	if err := store.Renumber(parent, freeID); err != nil {
 		t.Fatalf("Renumber failed: %v", err)
 	}
-	tx.MoveStagedProperties(parent, freeID)
+	tx.MoveStagedObjectWrites(parent, freeID)
 	tx.ForgetObject(parent)
 	if errCode := tx.AdoptLiveObject(freeID); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveObject renumbered parent failed: %v", errCode)
 	}
-	tx.ApplyStagedProperties(freeID)
+	tx.ApplyStagedObjectWrites(freeID)
 	if errCode := tx.AdoptLiveRelationships(freeID, anon); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
 	}
