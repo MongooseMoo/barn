@@ -1,0 +1,43 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                               │ experiments/2026-10-04-regex-cache-eviction/results/baseline.txt │ experiments/2026-10-04-regex-cache-eviction/results/candidate.txt │
+                               │                              sec/op                              │                  sec/op                    vs base                │
+RegexpEviction/HotSerial-4                                                            33.00n ± 1%                                43.24n ±  1%  +31.07% (p=0.000 n=12)
+RegexpEviction/HotParallel-4                                                          20.14n ± 5%                                33.13n ±  0%  +64.50% (p=0.000 n=12)
+RegexpEviction/ChurnSerial-4                                                          231.5n ± 1%                                258.2n ±  1%  +11.53% (p=0.000 n=12)
+RegexpEviction/ChurnParallel-4                                                        299.2n ± 8%                                433.0n ±  6%  +44.74% (p=0.000 n=12)
+RegexpEviction/BelowSerial-4                                                          37.50n ± 1%                                49.29n ±  0%  +31.44% (p=0.000 n=12)
+RegexpEviction/BelowParallel-4                                                        22.53n ± 6%                                33.37n ±  1%  +48.11% (p=0.000 n=12)
+RegexpEviction/AboveSerial-4                                                          3.078µ ± 1%                                3.484µ ±  2%  +13.19% (p=0.000 n=12)
+RegexpEviction/AboveParallel-4                                                       1605.5n ± 3%                                883.2n ± 14%  -44.99% (p=0.000 n=12)
+geomean                                                                               144.7n                                     173.2n        +19.72%
+
+                               │ experiments/2026-10-04-regex-cache-eviction/results/baseline.txt │ experiments/2026-10-04-regex-cache-eviction/results/candidate.txt │
+                               │                               B/op                               │                  B/op                    vs base                  │
+RegexpEviction/HotSerial-4                                                          0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/HotParallel-4                                                        0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/ChurnSerial-4                                                        155.0 ±  0%                                 141.0 ±  0%   -9.03% (p=0.000 n=12)
+RegexpEviction/ChurnParallel-4                                                      124.5 ± 14%                                 115.0 ±  8%        ~ (p=0.124 n=12)
+RegexpEviction/BelowSerial-4                                                        0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/BelowParallel-4                                                      0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/AboveSerial-4                                                      2.412Ki ±  0%                               2.352Ki ±  0%   -2.51% (p=0.000 n=12)
+RegexpEviction/AboveParallel-4                                                      809.5 ±  1%                                 299.0 ± 19%  -63.06% (p=0.000 n=12)
+geomean                                                                                         ²                                            -13.88%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                               │ experiments/2026-10-04-regex-cache-eviction/results/baseline.txt │ experiments/2026-10-04-regex-cache-eviction/results/candidate.txt │
+                               │                            allocs/op                             │                allocs/op                 vs base                  │
+RegexpEviction/HotSerial-4                                                          0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/HotParallel-4                                                        0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/ChurnSerial-4                                                        1.000 ±  0%                                 1.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/ChurnParallel-4                                                      1.000 ±  0%                                 1.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/BelowSerial-4                                                        0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/BelowParallel-4                                                      0.000 ±  0%                                 0.000 ±  0%        ~ (p=1.000 n=12) ¹
+RegexpEviction/AboveSerial-4                                                        24.00 ±  0%                                 25.00 ±  0%   +4.17% (p=0.000 n=12)
+RegexpEviction/AboveParallel-4                                                      7.000 ± 14%                                 2.500 ± 20%  -64.29% (p=0.000 n=12)
+geomean                                                                                         ²                                            -11.63%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean

@@ -1,0 +1,27 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkRegexpEviction/HotSerial-4         	 7331780	        32.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/HotParallel-4       	11834186	        20.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/ChurnSerial-4       	 1032721	       230.6 ns/op	     155 B/op	       1 allocs/op
+BenchmarkRegexpEviction/ChurnParallel-4     	  751365	       330.1 ns/op	     141 B/op	       1 allocs/op
+BenchmarkRegexpEviction/BelowSerial-4       	 6419038	        37.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/BelowParallel-4     	 9834424	        24.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/AboveSerial-4       	   76429	      3085 ns/op	    2470 B/op	      24 allocs/op
+BenchmarkRegexpEviction/AboveParallel-4     	  144762	      1541 ns/op	     815 B/op	       8 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkRegexpEviction/HotSerial-4         	 7308970	        33.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/HotParallel-4       	11694349	        20.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/ChurnSerial-4       	 1006570	       236.6 ns/op	     155 B/op	       1 allocs/op
+BenchmarkRegexpEviction/ChurnParallel-4     	  912973	       293.1 ns/op	     122 B/op	       1 allocs/op
+BenchmarkRegexpEviction/BelowSerial-4       	 6409591	        37.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/BelowParallel-4     	10293819	        23.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRegexpEviction/AboveSerial-4       	   77324	      3125 ns/op	    2471 B/op	      24 allocs/op
+BenchmarkRegexpEviction/AboveParallel-4     	  147273	      1599 ns/op	     798 B/op	       7 allocs/op
+PASS
