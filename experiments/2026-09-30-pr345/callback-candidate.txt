@@ -1,0 +1,150 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   28326	      4240 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   14218	      8442 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     434	    274520 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     222	    536387 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     732	    164972 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     662	    179049 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     770	    154103 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12721	      9440 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10175 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3910	     30984 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   27310	      4329 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   14142	      8466 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     433	    277944 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     219	    544984 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     720	    165355 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     657	    181162 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     765	    156023 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12504	      9573 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10338 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3285	     46845 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   27195	      4332 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   14091	      8666 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     430	    275495 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     218	    539293 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     726	    164804 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     668	    178933 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     765	    155631 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12512	      9613 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10259 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    4144	     45230 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   26872	      4503 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   10000	     12497 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     429	    277077 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     217	    572250 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     718	    168709 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     655	    179523 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     728	    161874 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12127	      9867 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10186 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3442	     30192 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   26844	      4414 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   13782	      8677 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     430	    279262 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     222	    539517 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     733	    164783 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     656	    183191 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     780	    157497 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12075	      9918 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10530 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3272	     65909 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   26215	      4491 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   13555	      8835 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     430	    277578 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     220	    541852 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     709	    166120 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     648	    183488 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     746	    160056 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12346	      9729 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10359 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3480	     37301 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   24316	      4684 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   13934	      8664 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     424	    283079 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     212	    556717 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     728	    167089 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     639	    189345 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     740	    162949 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12246	      9783 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10486 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3254	     36618 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   27504	      4500 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   14107	      8522 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     433	    276792 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     219	    549106 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     717	    170452 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     648	    183585 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     760	    158331 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12439	      9671 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10604 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3714	     36542 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   27106	      4460 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   13950	      8574 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     432	    281486 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     217	    555914 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     722	    168522 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     658	    180491 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     763	    157738 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12502	      9604 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10313 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    3448	     31679 ns/op	   59480 B/op	      13 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSortCallbacks/n=32/natural=false-4       	   27152	      4376 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=32/natural=true-4        	   13707	      8820 ns/op	    1200 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=false-4     	     429	    277920 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortCallbacks/n=1024/natural=true-4      	     219	    546131 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=int-4           	     700	    168148 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=float-4         	     634	    187811 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkSortScalarCallbacks/kind=tied_keys_reverse-4       	     732	    162944 ns/op	   35504 B/op	       3 allocs/op
+BenchmarkAllMembersCallbacks/step=0-4                       	   12259	      9808 ns/op	     112 B/op	       2 allocs/op
+BenchmarkAllMembersCallbacks/step=64-4                      	   10000	     10688 ns/op	     856 B/op	       7 allocs/op
+BenchmarkAllMembersCallbacks/step=1-4                       	    2684	     42575 ns/op	   59480 B/op	      13 allocs/op
+PASS

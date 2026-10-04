@@ -146,12 +146,13 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 }
 
 func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
+	blocked := s.blockedReadiersLocked(now, catalog)
 	var admitted []*task.Task
 	var held []*task.Task
 	seen := make(map[int64]bool, len(s.pending))
 	for _, t := range s.pending {
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			if t.ReadyDeadline(now).IsZero() {
+			if blocked[t] || t.ReadyDeadline(now).IsZero() {
 				held = append(held, t)
 			} else {
 				admitted = append(admitted, t)
@@ -169,7 +170,7 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 		}
 		heap.Pop(&s.waiting)
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
-			if t.ReadyDeadline(now).IsZero() {
+			if blocked[t] || t.ReadyDeadline(now).IsZero() {
 				s.pending = append(s.pending, t)
 			} else {
 				ready = append(ready, t)
@@ -178,7 +179,7 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 		}
 	}
 	for _, t := range catalog {
-		if t == nil || seen[t.ID] {
+		if t == nil || seen[t.ID] || blocked[t] {
 			continue
 		}
 		if deadline := t.ReadyDeadline(now); deadline.IsZero() || deadline.After(now) {
@@ -223,13 +224,40 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 	return append(admitted, ready...)
 }
 
+// A task that forked/resumed ready work and yielded must observe that work's
+// next completed slice. Unrelated tasks remain eligible for optimistic batches.
+func (s *Scheduler) blockedReadiersLocked(now time.Time, catalog []*task.Task) map[*task.Task]bool {
+	var blocked map[*task.Task]bool
+	visit := func(t *task.Task) {
+		if t == nil {
+			return
+		}
+		if readier := t.PendingReadier(now); readier != nil {
+			if blocked == nil {
+				blocked = make(map[*task.Task]bool)
+			}
+			blocked[readier] = true
+		}
+	}
+	for _, tasks := range [][]*task.Task{s.pending, s.waiting, catalog} {
+		for _, t := range tasks {
+			visit(t)
+		}
+	}
+	return blocked
+}
+
 // NextWake includes queued heap work, retained batches and timed/resumed VMs.
 // It does not mutate readiness or consume change notifications.
 func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	blocked := s.blockedReadiersLocked(now, catalog)
 	var next time.Time
 	visit := func(t *task.Task) {
+		if blocked[t] {
+			return
+		}
 		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
 			next = at
 		}

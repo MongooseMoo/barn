@@ -23,7 +23,7 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-// maxConflictRetryAttempts bounds how many times a fresh AST task re-runs after an
+// maxConflictRetryAttempts bounds how many times an unpublished task slice re-runs after an
 // MVCC commit conflict. Conflicts only arise between tasks committing inside the same
 // optimistic batch, and batches never exceed workerCount tasks, so retrying more than
 // the worker count is enough to guarantee the loser eventually commits against every
@@ -179,11 +179,15 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 
 	retryState := s.captureTaskRetryState(t)
 	defer func() {
+		if machine, ok := t.BytecodeVMValue().(*vm.VM); ok {
+			machine.ReleaseRetryCheckpoint()
+		}
 		if ctx := t.ContextValue(); ctx != nil {
 			ctx.StoreTxn.Release()
 		}
 	}()
 	attempt := 0
+	var sliceEntryTicks int64
 	escalated := false
 	var exclusive *commitgate.Grant
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
@@ -200,9 +204,8 @@ retryAttempt:
 		t.SetState(task.TaskKilled)
 		return err
 	}
-	// Two reasons to run this attempt under the exclusive commit gate: the
-	// optimistic-loss budget is spent, or the slice cannot be re-executed at all
-	// (a resumed task's VM carries mid-flight state no retry can rebuild). A
+	// Take the exclusive commit gate when the optimistic-loss budget is spent
+	// or the slice has no execution state that can be safely restored. A
 	// slice that cannot retry has exactly one defence against a lost commit —
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
@@ -253,6 +256,7 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	ctx.StoreTxn.SetCommitContext(taskCtx)
 	if escalated {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
@@ -275,7 +279,7 @@ retryAttempt:
 	// published, and the attempt continues on a read view taken under the gate
 	// (still carrying the validated reads, so the final commit checks them too),
 	// so nothing it reads from here on can be stale either. If the validation
-	// fails the effect has not happened yet, so the task is re-run from the top.
+	// fails the effect has not happened yet, so the current slice is restored.
 	// Once the renew succeeds no ordinary commit can interleave until this
 	// attempt's own commit, so it cannot lose. Coarse builtins that mutate the
 	// live store directly cross the same boundary first (beforeCoarse), so a
@@ -288,7 +292,12 @@ retryAttempt:
 			return false
 		}
 		waitStart := time.Now()
-		exclusive, _ = s.store.AcquireExclusive(context.Background())
+		var err error
+		exclusive, err = s.store.AcquireExclusive(taskCtx)
+		if err != nil {
+			ctx.ConflictRetryRequested = true
+			return true
+		}
 		gateWait := time.Since(waitStart)
 		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
@@ -342,11 +351,14 @@ retryAttempt:
 	// against the execution budget. Reset both the tick and second budgets (and
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
-	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
+	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); attempt == 0 && ok && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits(s.session)
 		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
+	}
+	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); attempt == 0 && ok {
+		sliceEntryTicks = savedVM.Ticks
 	}
 
 	// Set up the VM execution deadline. The budget deadline must be anchored
@@ -363,7 +375,9 @@ retryAttempt:
 		budgetAnchor = now
 	}
 	deadline := budgetAnchor.Add(time.Duration(secondsLimit * float64(time.Second)))
-	t.SetExecutionDeadline(deadline)
+	if attempt == 0 {
+		t.SetExecutionDeadline(deadline)
+	}
 	// The VM owns the seconds deadline so commit-gate waits can extend it.
 	// Cancellation separately handles shutdown and explicit task kills.
 
@@ -404,6 +418,13 @@ retryAttempt:
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.Preempt = preempt
+		bcVM.Resumable = true
+		if attempt > 0 {
+			bcVM.TickLimit = t.TicksLimit
+			// Failed attempts are unpublished. Replay the same logical instruction
+			// budget, while the seconds deadline remains anchored to this slice.
+			bcVM.Ticks = sliceEntryTicks
+		}
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -451,7 +472,11 @@ retryAttempt:
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.Preempt = preempt
+		bcVM.Resumable = true
 		bcVM.TickLimit = t.TicksLimit
+		if attempt > 0 {
+			bcVM.Ticks = sliceEntryTicks
+		}
 		configureVMStackLimit(bcVM, s.session)
 
 		if t.IntrinsicEval {
@@ -576,6 +601,7 @@ retryAttempt:
 			committed = false
 		}
 	}
+	bcVM.ReleaseRetryCheckpoint()
 	if committed {
 		t.CreatedForks = nil
 		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
@@ -820,40 +846,36 @@ retryAttempt:
 
 type taskRetryState struct {
 	canRetry bool
-	// rebuildVM is set for a forked task's first run: it rebuilds the
-	// pre-configured child VM so the attempt can start over from the fork
-	// statement. Nil for a fresh task, whose retry recompiles nothing and simply
-	// re-runs t.Program.
-	rebuildVM    func() *vm.VM
-	context      *kernel.TaskContext
-	callStack    []types.ActivationFrame
-	taskLocal    types.Value
-	wakeValue    types.Value
-	ticksLimit   int64
-	secondsLimit float64
+	// rebuildVM restores a continuation or reconstructs a fork's first run.
+	// A fresh task simply reruns its immutable Program.
+	rebuildVM func() *vm.VM
+	saved     task.RetrySnapshot
 }
 
-// taskIsConflictRetryable reports whether a task may be re-run from the top after
-// an MVCC commit conflict. Only fresh AST tasks qualify: a resumed/forked task has
-// a saved bytecode VM (or fork bookkeeping) whose mid-flight state cannot be
-// reconstructed from the original statements. Conflict retry re-executes the whole
-// body, so it is also the predicate for whether a task is safe to co-schedule
-// optimistically with other tasks: if two such tasks happen to conflict at commit,
-// the loser simply retries against the winner's committed writes.
+// taskIsConflictRetryable admits fresh programs and yielded continuations to
+// optimistic batches. A continuation's checkpoint restores only the current,
+// unpublished slice against the winner's committed writes.
 //
 // The runtime's own retry decision is wider than this scheduling predicate: a
 // forked task that has not yet run is also re-executable (forkFirstRunRebuilder),
 // but it keeps its solo batch here so co-scheduling behaviour is unchanged.
 func taskIsConflictRetryable(t *task.Task) bool {
-	return t != nil && t.BytecodeVMValue() == nil && !t.IsForked && t.ForkInfo == nil && t.Program != nil
+	if t == nil {
+		return false
+	}
+	if saved := t.BytecodeVMValue(); saved != nil {
+		machine, ok := saved.(*vm.VM)
+		return ok && machine.IsYielded()
+	}
+	return !t.IsForked && t.ForkInfo == nil && t.Program != nil
 }
 
 // forkFirstRunRebuilder returns a constructor for the pre-configured VM of a
 // forked task that has not yet run, or nil when t is not such a task. A forked
 // first run is as re-executable as a fresh task: its VM is a pure function of
-// t.ForkInfo, and nothing it does before a lost commit is published. Only a
-// slice whose VM has yielded (a resumed task) carries mid-flight state that
-// cannot be rebuilt. Without this, every `fork (0) ... endfork` body that lost a
+// t.ForkInfo, and nothing it does before a lost commit is published. Yielded
+// children instead use an in-memory continuation checkpoint. Without this,
+// every `fork (0) ... endfork` body that lost a
 // commit surfaced a frameless E_INVARG to MOO code (issue #296).
 func (s *Runtime) forkFirstRunRebuilder(t *task.Task, ticks int64) func() *vm.VM {
 	if t == nil || !t.IsForked || t.ForkInfo == nil {
@@ -880,17 +902,18 @@ func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
-	ctx, stack, local, wake, ticks, seconds := t.RetryStateSnapshot()
+	saved := t.RetryStateSnapshot()
+	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
 	state := taskRetryState{
-		canRetry:     taskIsConflictRetryable(t),
-		context:      cloneTaskContextForRetry(ctx),
-		callStack:    cloneActivationFramesForRetry(stack),
-		taskLocal:    local,
-		wakeValue:    wake,
-		ticksLimit:   ticks,
-		secondsLimit: seconds,
+		canRetry: taskIsConflictRetryable(t),
+		saved:    saved,
 	}
-	if rebuild := s.forkFirstRunRebuilder(t, ticks); rebuild != nil {
+	if machine, ok := t.BytecodeVMValue().(*vm.VM); ok && machine.IsYielded() {
+		checkpoint := machine.CheckpointForRetry()
+		checkpoint.RetainWakeValue(saved.WakeValue)
+		state.rebuildVM = func() *vm.VM { checkpoint.Restore(machine); return machine }
+	} else if rebuild := s.forkFirstRunRebuilder(t, saved.TicksLimit); rebuild != nil {
 		state.canRetry = true
 		state.rebuildVM = rebuild
 	}
@@ -906,11 +929,13 @@ func (state taskRetryState) restore(t *task.Task) {
 	} else {
 		t.SetBytecodeVM(nil)
 	}
-	ctx := cloneTaskContextForRetry(state.context)
-	if ctx != nil {
-		ctx.TaskID = t.ID
+	saved := state.saved
+	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
+	if saved.Context != nil {
+		saved.Context.TaskID = t.ID
 	}
-	t.RestoreRetryState(ctx, cloneActivationFramesForRetry(state.callStack), state.taskLocal, state.wakeValue, state.ticksLimit, state.secondsLimit)
+	t.RestoreRetryState(saved)
 }
 
 func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
@@ -1066,5 +1091,8 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	// Flush output buffer for the player
 	s.flushTaskOutput(t)
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+		t.CloseDone()
+	}
 	return err
 }

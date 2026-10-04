@@ -37,7 +37,11 @@ type VM struct {
 	// Preempt is set only on a root VM whose owner may lend its admission
 	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
 	// may run while their caller holds locks other invocations need.
-	Preempt      func()
+	Preempt func()
+	// Resumable is set only on the root VM the runtime saves and resumes when
+	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
+	// so a builtin running there must not suspend.
+	Resumable    bool
 	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
@@ -58,11 +62,12 @@ type VM struct {
 	// pushed frame takes the next NumLocals slots and popFrame releases them
 	// LIFO, so a verb call no longer allocates its locals. framePool recycles
 	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
-	localStack  []types.Value
-	framePool   []*StackFrame
-	yielded     bool         // VM has yielded control (suspend/fork)
-	yieldResult types.Result // Why we yielded
-	resumeError types.ErrorCode
+	localStack      []types.Value
+	framePool       []*StackFrame
+	yielded         bool         // VM has yielded control (suspend/fork)
+	yieldResult     types.Result // Why we yielded
+	resumeError     types.ErrorCode
+	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
 }
 
 // pushFrame appends a call frame and updates the cached current-frame pointer.
@@ -610,6 +615,9 @@ func (vm *VM) Resume() types.Result {
 				Error: errCode,
 				Val:   exceptionValue,
 			}
+		}
+		if vm.yielded {
+			return vm.yieldResult
 		}
 	}
 	return vm.executeLoop()
@@ -1525,9 +1533,15 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
 				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
 			})
-			if result.Flow == types.FlowException {
+			switch result.Flow {
+			case types.FlowException:
 				errCode = result.Error
 				exceptionValue = result.Val
+			case types.FlowAbortAttempt:
+				// Stop unwinding: no handler may run on an abandoned attempt.
+				// Callers see the yield and return FlowAbortAttempt.
+				vm.abortAttempt()
+				return true, exceptionValue
 			}
 		}
 		// Continue searching in the caller frame

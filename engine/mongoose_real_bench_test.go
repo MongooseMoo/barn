@@ -19,6 +19,7 @@ package engine
 //   BARN_MONGOOSE_PLAYERS     comma list of concurrency levels (default 1,4,16)
 //   BARN_MONGOOSE_WARMUP      warm-up window   (default 2s)
 //   BARN_MONGOOSE_MEASURE     measure window   (default 8s)
+//   BARN_MONGOOSE_COMPLETION_TIMEOUT terminal-drain deadline per command (default 10s)
 //   BARN_MONGOOSE_PROMOTE     "0" disables PROMOTE_NUMBERS (default ON, as deployed)
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
@@ -46,6 +47,7 @@ import (
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -172,7 +174,67 @@ func defaultRealShapes() []realShape {
 
 // --- per-command execution (mirrors input_processor.processCommand) ----------
 
+// A command is handled at its first suspension but is measured through its
+// terminal result. Retain the task before it runs, including across cleanup.
+type realCommandCompletion struct {
+	runtime *Runtime
+	task    *task.Task
+	result  chan types.Result
+}
+
+func (c *realCommandCompletion) capture(s *Runtime, id int64) {
+	c.runtime = s
+	c.task = s.GetTask(id)
+	c.result = make(chan types.Result, 1)
+	c.task.Done = make(chan struct{})
+	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
+}
+
+func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
+	if c.task == nil {
+		return false, "missing-command-task"
+	}
+	// Both synchronous execution and the scheduler close Done after flushing.
+	select {
+	case <-c.task.Done:
+	case <-ctx.Done():
+		state := c.task.GetState()
+		ready := c.task.ReadyDeadline(time.Now())
+		lease := 0
+		if c.runtime != nil {
+			c.runtime.mu.Lock()
+			lease = c.runtime.lifecycle.ExecutingTasks[c.task.ID]
+			c.runtime.mu.Unlock()
+		}
+		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
+		frames := make([]string, len(stack))
+		for i, frame := range stack {
+			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
+		}
+		c.task.Kill()
+		select {
+		case <-c.task.Done:
+			return false, "timeout:" + ctx.Err().Error()
+		default:
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
+		}
+	}
+	select {
+	case result := <-c.result:
+		if result.Flow == types.FlowException {
+			return false, "uncaught:" + result.Error.String()
+		}
+		return true, ""
+	default:
+		return false, "killed-before-completion"
+	}
+}
+
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
+	ctx, cancel := context.WithTimeout(s.ctx, envDuration("BARN_MONGOOSE_COMPLETION_TIMEOUT", 10*time.Second))
+	defer cancel()
+	var completion realCommandCompletion
+	onStart := func(id int64) { completion.capture(s, id) }
 	loc, ec := st.DirectTxn().Location(player)
 	if ec != types.E_NONE {
 		return false, "location:" + ec.String()
@@ -193,12 +255,12 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 	// hook is a real task; a truthy return, an uncaught error, or a suspend
 	// (Mongoose's `home` reaches suspend(0) inside a room enterfunc) all mean
 	// the hook handled the command and the native parser must not rerun it.
-	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, nil)
+	res, err := s.RunServerVerbTaskWithArgstr(0, "do_command", args, player, line, onStart)
 	if err != nil && !errors.Is(err, ErrServerVerbNotFound) {
 		return false, "do_command:" + err.Error()
 	}
 	if err == nil && (res.Flow == types.FlowSuspend || res.Flow == types.FlowException || res.Val.Truthy()) {
-		return true, ""
+		return completion.wait(ctx)
 	}
 	match := command.FindVerb(st, player, loc, cmd)
 	if match == nil {
@@ -206,17 +268,17 @@ func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line 
 		// the huh verb. Several mongoose player classes (e.g. parent #410) have
 		// no `home` verb — that is legitimate dispatch, not a failure.
 		if huh := command.FindHuhVerb(st, player, loc, false); huh != nil {
-			if err := s.ExecuteVerbTaskSync(player, huh, cmd, ""); err != nil {
+			if err := s.ExecuteVerbTaskSyncWithStart(player, huh, cmd, "", onStart); err != nil {
 				return false, "huh-exec:" + err.Error()
 			}
-			return true, ""
+			return completion.wait(ctx)
 		}
 		return false, "no-verb-match"
 	}
-	if err := s.ExecuteVerbTaskSync(player, match, cmd, ""); err != nil {
+	if err := s.ExecuteVerbTaskSyncWithStart(player, match, cmd, "", onStart); err != nil {
 		return false, "exec:" + err.Error()
 	}
-	return true, ""
+	return completion.wait(ctx)
 }
 
 // --- the benchmark -----------------------------------------------------------
@@ -292,14 +354,31 @@ func TestMongooseRealWorkload(t *testing.T) {
 	schedDone := make(chan struct{})
 	go func() {
 		defer close(schedDone)
-		ticker := time.NewTicker(10 * time.Millisecond) // server/input_processor.go:182
-		defer ticker.Stop()
+		// Use bounded ready batches and wake hints, as the production dispatcher
+		// does, so one pass does not drain every ready startup task.
+		timer := time.NewTimer(time.Hour)
+		defer timer.Stop()
 		for {
+			if schedCtx.Err() != nil {
+				return
+			}
+			if s.ProcessReadyBatch() != 0 {
+				s.CleanupFinishedTasks()
+				continue
+			}
+			changed := s.ScheduleChanged()
+			var due <-chan time.Time
+			if at := s.NextTaskWake(); !at.IsZero() {
+				timer.Reset(max(0, time.Until(at)))
+				due = timer.C
+			} else {
+				timer.Stop()
+			}
 			select {
 			case <-schedCtx.Done():
 				return
-			case <-ticker.C:
-				s.ProcessReadyTasks()
+			case <-changed:
+			case <-due:
 			}
 		}
 	}()
@@ -392,10 +471,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 			attempts, retries uint64
 		}
 		type gstat struct {
-			shapes   []shapeStat
-			lats     []time.Duration
-			seen     int64
-			failMsgs []string
+			shapes    []shapeStat
+			lats      []time.Duration
+			seen      int64
+			failMsgs  []string
+			unsettled int64
 		}
 		stats := make([]gstat, active)
 		for i := range stats {
@@ -451,6 +531,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 							}
 						} else {
 							ss.fail++
+							if strings.HasPrefix(failure, "unsettled:") {
+								st.unsettled++
+							}
 							if len(st.failMsgs) < 5 {
 								st.failMsgs = append(st.failMsgs,
 									realShapes[sh].name+" -> "+failure)
@@ -477,10 +560,12 @@ func TestMongooseRealWorkload(t *testing.T) {
 		runtime.ReadMemStats(&m1)
 
 		var committed, failed int64
+		var unsettled int64
 		var allLats []time.Duration
 		shapeAgg := make([]shapeStat, len(realShapes))
 		var failSamples []string
 		for i := range stats {
+			unsettled += stats[i].unsettled
 			for j := range stats[i].shapes {
 				shapeAgg[j].ok += stats[i].shapes[j].ok
 				shapeAgg[j].fail += stats[i].shapes[j].fail
@@ -514,6 +599,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 		if committed > 0 {
 			allocsPerOp = float64(m1.Mallocs-m0.Mallocs) / float64(committed)
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
+		}
+		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
+		if unsettled != 0 {
+			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
 		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,

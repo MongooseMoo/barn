@@ -1,0 +1,124 @@
+Pre-ordering-refinement source d5ae6a1 (local validation before commit)
+Commands: go test ./... -count=1 -timeout=240s; go vet ./...; staticcheck ./...
+Final focused race selector: TestContinuation|TestResumed|TestRetry|TestRealCommandCompletion|TestRealCommandSynchronous|TestCancelledCommit|TestRecycleContinuation|TestAdmissionKilledGateWaiter
+go_all_exit=0
+vet_exit=0
+staticcheck_exit=0
+focused_race_exit=0
+github.com/MongooseMoo/barn/cmd/barn main
+build_exit=0
+
+ok  	github.com/MongooseMoo/barn	7.211s
+ok  	github.com/MongooseMoo/barn/builtins	7.521s
+ok  	github.com/MongooseMoo/barn/bytecode	0.542s
+ok  	github.com/MongooseMoo/barn/cmd/barn	0.779s
+ok  	github.com/MongooseMoo/barn/cmd/barn_logs	0.686s
+ok  	github.com/MongooseMoo/barn/cmd/mongoose_tz	0.604s
+ok  	github.com/MongooseMoo/barn/cmd/moo_client	1.031s
+?   	github.com/MongooseMoo/barn/cmd/toast_oracle	[no test files]
+ok  	github.com/MongooseMoo/barn/command	0.685s
+ok  	github.com/MongooseMoo/barn/compiler	0.656s
+ok  	github.com/MongooseMoo/barn/config	0.578s
+ok  	github.com/MongooseMoo/barn/db/format	1.666s
+ok  	github.com/MongooseMoo/barn/db/store	1.805s
+ok  	github.com/MongooseMoo/barn/engine	22.913s
+ok  	github.com/MongooseMoo/barn/engine/internal/finalization	1.030s
+ok  	github.com/MongooseMoo/barn/engine/internal/scheduler	0.797s
+ok  	github.com/MongooseMoo/barn/internal/admission	0.713s
+ok  	github.com/MongooseMoo/barn/internal/app	0.570s
+ok  	github.com/MongooseMoo/barn/internal/buildinfo	0.524s
+ok  	github.com/MongooseMoo/barn/internal/commitgate	0.593s
+ok  	github.com/MongooseMoo/barn/internal/dbtool	0.735s
+ok  	github.com/MongooseMoo/barn/internal/listener	0.597s
+ok  	github.com/MongooseMoo/barn/kernel	0.721s
+ok  	github.com/MongooseMoo/barn/logging	0.736s
+?   	github.com/MongooseMoo/barn/metrics	[no test files]
+ok  	github.com/MongooseMoo/barn/parser	19.342s
+ok  	github.com/MongooseMoo/barn/profile	0.751s
+ok  	github.com/MongooseMoo/barn/server	2.194s
+ok  	github.com/MongooseMoo/barn/sourcekey	0.582s
+ok  	github.com/MongooseMoo/barn/task	0.766s
+?   	github.com/MongooseMoo/barn/trace	[no test files]
+ok  	github.com/MongooseMoo/barn/types	0.692s
+ok  	github.com/MongooseMoo/barn/verb	0.585s
+ok  	github.com/MongooseMoo/barn/vm	7.445s
+
+ok  	github.com/MongooseMoo/barn/engine	2.256s
+ok  	github.com/MongooseMoo/barn/builtins	1.347s
+ok  	github.com/MongooseMoo/barn/vm	1.951s
+ok  	github.com/MongooseMoo/barn/task	1.360s [no tests to run]
+ok  	github.com/MongooseMoo/barn/db/store	1.481s
+
+--- FAIL: TestCancelledCommitWaitPreservesExclusiveOwnerAndDoesNotPublish (6.00s)
+    --- FAIL: TestCancelledCommitWaitPreservesExclusiveOwnerAndDoesNotPublish/ordinary (3.00s)
+        escalation_gate_test.go:195: cancelled shared commit wait did not return
+    --- FAIL: TestCancelledCommitWaitPreservesExclusiveOwnerAndDoesNotPublish/renewed (3.00s)
+        escalation_gate_test.go:195: cancelled shared commit wait did not return
+FAIL
+FAIL	github.com/MongooseMoo/barn/db/store	6.604s
+FAIL
+
+mongoose pair=4 side=candidate exit=1
+players=1 goodput=0/s failed=1
+players=4 goodput=0/s failed=1
+players=16 goodput=0/s failed=1
+application inventories complete; invalid_runs=10
+
+test_conformance.py::test_yaml_conformance[generated_builtins/set_thread_mode.yaml::set_thread_mode_runtime_outcome_matches_inferred_types] PASSED [100%]
+
+==================== 47 passed, 13027 deselected in 16.73s ====================
+test_conformance.py::test_yaml_conformance[vm/tick_accounting.yaml::tick_try_finally] PASSED [100%]
+
+============= 223 passed, 29 skipped, 12822 deselected in 32.68s ==============
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test_conformance.py::test_yaml_conformance[audit/divergence_introspection_runtime.yaml::memory_usage_returns_floats]
+FAILED test_conformance.py::test_yaml_conformance[audit/time_server_builtins_toast_oracle.yaml::audit_memory_usage_windows_behavior]
+FAILED test_conformance.py::test_yaml_conformance[builtins/server_admin.yaml::memory_usage_returns_five_elements]
+3 failed, 12631 passed, 440 skipped, 1 warning in 333.33s (0:05:33)
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test_conformance.py::test_yaml_conformance[audit/divergence_introspection_runtime.yaml::memory_usage_returns_floats]
+FAILED test_conformance.py::test_yaml_conformance[audit/time_server_builtins_toast_oracle.yaml::audit_memory_usage_windows_behavior]
+FAILED test_conformance.py::test_yaml_conformance[builtins/server_admin.yaml::memory_usage_returns_five_elements]
+3 failed, 12631 passed, 440 skipped, 1 warning in 384.53s (0:06:24)
+
+Earlier full changed-package race run (before final tick-budget refinement):
+ok  	github.com/MongooseMoo/barn/vm	68.154s
+ok  	github.com/MongooseMoo/barn/task	1.348s
+ok  	github.com/MongooseMoo/barn/engine	218.499s
+ok  	github.com/MongooseMoo/barn/builtins	60.359s
+ok  	github.com/MongooseMoo/barn/db/store	3.471s
+
+Final source 903caeb: go_all_exit=0 vet_exit=0 staticcheck_exit=0 build_exit=0
+--- FAIL: TestResumedTaskRunsBeforeResumerYield (0.00s)
+    scheduler_test.go:197: resumed target did not run first: [0x3616fde14e08 0x3616fde14a88]
+--- FAIL: TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork (0.00s)
+    scheduler_test.go:223: resumer selected while the readied slice executes: [0x3616fde15188]
+FAIL
+FAIL	github.com/MongooseMoo/barn/engine/internal/scheduler	0.486s
+FAIL
+ok  	github.com/MongooseMoo/barn/engine/internal/scheduler	1.633s
+ok  	github.com/MongooseMoo/barn/task	1.644s
+ok  	github.com/MongooseMoo/barn/engine	5.935s
+.tmp/oracle-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\oracle-ci-order.xml -
+========= 19 passed, 4 skipped, 13044 deselected, 1 warning in 11.99s =========
+.tmp/control-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\control-ci-order.xml -
+========= 19 passed, 4 skipped, 13044 deselected, 1 warning in 10.68s =========
+.tmp/candidate-ci-order.log
+=========================== short test summary info ===========================
+FAILED test_conformance.py::test_yaml_conformance[fork/fork_timing.yaml::suspend_zero_after_resume_observes_resumed_slice]
+==== 1 failed, 18 passed, 4 skipped, 13044 deselected, 1 warning in 10.93s ====
+.tmp/fixed-ci-order.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\fixed-ci-order.xml -
+========= 27 passed, 4 skipped, 13036 deselected, 1 warning in 15.24s =========
+.tmp/fixed-original-threaded.log
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: C:\Users\Q\code\barn-pr345-retry\.tmp\fixed-original-threaded.xml -
+============== 47 passed, 13027 deselected, 1 warning in 14.44s ===============
+application inventories complete; invalid_runs=2

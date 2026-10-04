@@ -1,0 +1,55 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                                │ .tmp/perf-release/continuation-control.txt │ .tmp/perf-release/continuation-candidate.txt │
+                                                │                   sec/op                   │        sec/op         vs base                │
+ThreadedContinuations/players=1/writes=false-4                                  229.1µ ± 10%           220.5µ ± 10%        ~ (p=0.393 n=10)
+ThreadedContinuations/players=1/writes=true-4                                   274.4µ ± 17%           272.0µ ± 10%        ~ (p=0.739 n=10)
+ThreadedContinuations/players=16/writes=false-4                                 2.643m ±  5%           1.494m ± 10%  -43.49% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=true-4                                  3.217m ±  3%           3.962m ±  9%  +23.18% (p=0.000 n=10)
+geomean                                                                         855.1µ                 771.9µ         -9.74%
+
+                                                │ .tmp/perf-release/continuation-control.txt │ .tmp/perf-release/continuation-candidate.txt │
+                                                │                 commands/s                 │      commands/s       vs base                │
+ThreadedContinuations/players=1/writes=false-4                                  4.366k ±  9%           4.537k ±  9%        ~ (p=0.393 n=10)
+ThreadedContinuations/players=1/writes=true-4                                   3.647k ± 14%           3.677k ±  9%        ~ (p=0.739 n=10)
+ThreadedContinuations/players=16/writes=false-4                                 6.053k ±  5%          10.716k ± 11%  +77.06% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=true-4                                  4.974k ±  3%           4.038k ± 10%  -18.81% (p=0.000 n=10)
+geomean                                                                         4.679k                 5.183k        +10.78%
+
+                                                │ .tmp/perf-release/continuation-control.txt │   .tmp/perf-release/continuation-candidate.txt   │
+                                                │            escalations/command             │ escalations/command  vs base                     │
+ThreadedContinuations/players=1/writes=false-4                                    4.000 ± 0%            0.000 ± 0%  -100.00% (p=0.000 n=10)
+ThreadedContinuations/players=1/writes=true-4                                     4.000 ± 0%            0.000 ± 0%  -100.00% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=false-4                                   4.000 ± 0%            0.000 ± 0%  -100.00% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=true-4                                    4.000 ± 0%            0.000 ± 0%  -100.00% (p=0.000 n=10)
+geomean                                                                           4.000                             ?                       ¹ ²
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean
+
+                                                │ .tmp/perf-release/continuation-control.txt │ .tmp/perf-release/continuation-candidate.txt │
+                                                │              retries/command               │     retries/command       vs base            │
+ThreadedContinuations/players=1/writes=false-4                                  0.000 ± 0%                   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=1/writes=true-4                                   0.000 ± 0%                   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=false-4                                 0.000 ± 0%                   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=true-4                                  0.000 ± 0%                   5.443 ± 2%  ? (p=0.000 n=10)
+geomean                                                                                    ²                             ?                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                                                │ .tmp/perf-release/continuation-control.txt │ .tmp/perf-release/continuation-candidate.txt │
+                                                │                    B/op                    │         B/op          vs base                │
+ThreadedContinuations/players=1/writes=false-4                                  39.62Ki ± 0%           45.12Ki ± 0%  +13.88% (p=0.000 n=10)
+ThreadedContinuations/players=1/writes=true-4                                   58.13Ki ± 0%           64.42Ki ± 0%  +10.81% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=false-4                                 634.8Ki ± 0%           712.8Ki ± 0%  +12.28% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=true-4                                  932.1Ki ± 0%          1617.0Ki ± 1%  +73.48% (p=0.000 n=10)
+geomean                                                                         192.1Ki                240.6Ki       +25.21%
+
+                                                │ .tmp/perf-release/continuation-control.txt │ .tmp/perf-release/continuation-candidate.txt │
+                                                │                 allocs/op                  │      allocs/op        vs base                │
+ThreadedContinuations/players=1/writes=false-4                                    407.0 ± 1%             412.0 ± 1%   +1.23% (p=0.001 n=10)
+ThreadedContinuations/players=1/writes=true-4                                     513.5 ± 1%             534.0 ± 1%   +3.99% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=false-4                                  5.763k ± 0%            5.826k ± 0%   +1.09% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=true-4                                   7.489k ± 0%           12.899k ± 1%  +72.25% (p=0.000 n=10)
+geomean                                                                          1.733k                 2.016k       +16.36%

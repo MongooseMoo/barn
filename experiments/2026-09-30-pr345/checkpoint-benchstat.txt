@@ -1,0 +1,51 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                                     │ .tmp/perf-release/checkpoint.txt │
+                                                     │              sec/op              │
+ContinuationCheckpoint/depth=1/locals=8/capture-4                          1.270µ ±  9%
+ContinuationCheckpoint/depth=1/locals=8/restore-4                          757.9n ±  8%
+ContinuationCheckpoint/depth=1/locals=256/capture-4                        4.360µ ± 20%
+ContinuationCheckpoint/depth=1/locals=256/restore-4                        3.958µ ± 22%
+ContinuationCheckpoint/depth=8/locals=8/capture-4                          4.338µ ±  7%
+ContinuationCheckpoint/depth=8/locals=8/restore-4                          3.875µ ± 28%
+ContinuationCheckpoint/depth=8/locals=256/capture-4                        28.33µ ± 15%
+ContinuationCheckpoint/depth=8/locals=256/restore-4                        29.61µ ± 27%
+ContinuationCheckpoint/depth=32/locals=8/capture-4                         13.15µ ± 15%
+ContinuationCheckpoint/depth=32/locals=8/restore-4                         13.20µ ± 21%
+ContinuationCheckpoint/depth=32/locals=256/capture-4                       136.0µ ± 63%
+ContinuationCheckpoint/depth=32/locals=256/restore-4                       161.7µ ± 35%
+geomean                                                                    9.907µ
+
+                                                     │ .tmp/perf-release/checkpoint.txt │
+                                                     │               B/op               │
+ContinuationCheckpoint/depth=1/locals=8/capture-4                          1.578Ki ± 0%
+ContinuationCheckpoint/depth=1/locals=8/restore-4                            688.0 ± 0%
+ContinuationCheckpoint/depth=1/locals=256/capture-4                        7.766Ki ± 0%
+ContinuationCheckpoint/depth=1/locals=256/restore-4                        6.859Ki ± 0%
+ContinuationCheckpoint/depth=8/locals=8/capture-4                          6.117Ki ± 0%
+ContinuationCheckpoint/depth=8/locals=8/restore-4                          5.211Ki ± 0%
+ContinuationCheckpoint/depth=8/locals=256/capture-4                        55.62Ki ± 0%
+ContinuationCheckpoint/depth=8/locals=256/restore-4                        54.71Ki ± 0%
+ContinuationCheckpoint/depth=32/locals=8/capture-4                         21.68Ki ± 0%
+ContinuationCheckpoint/depth=32/locals=8/restore-4                         20.77Ki ± 0%
+ContinuationCheckpoint/depth=32/locals=256/capture-4                       219.7Ki ± 0%
+ContinuationCheckpoint/depth=32/locals=256/restore-4                       218.8Ki ± 0%
+geomean                                                                    14.89Ki
+
+                                                     │ .tmp/perf-release/checkpoint.txt │
+                                                     │            allocs/op             │
+ContinuationCheckpoint/depth=1/locals=8/capture-4                            8.000 ± 0%
+ContinuationCheckpoint/depth=1/locals=8/restore-4                            5.000 ± 0%
+ContinuationCheckpoint/depth=1/locals=256/capture-4                          8.000 ± 0%
+ContinuationCheckpoint/depth=1/locals=256/restore-4                          5.000 ± 0%
+ContinuationCheckpoint/depth=8/locals=8/capture-4                            22.00 ± 0%
+ContinuationCheckpoint/depth=8/locals=8/restore-4                            19.00 ± 0%
+ContinuationCheckpoint/depth=8/locals=256/capture-4                          22.00 ± 0%
+ContinuationCheckpoint/depth=8/locals=256/restore-4                          19.00 ± 0%
+ContinuationCheckpoint/depth=32/locals=8/capture-4                           70.00 ± 0%
+ContinuationCheckpoint/depth=32/locals=8/restore-4                           67.00 ± 0%
+ContinuationCheckpoint/depth=32/locals=256/capture-4                         70.00 ± 0%
+ContinuationCheckpoint/depth=32/locals=256/restore-4                         67.00 ± 0%
+geomean                                                                      20.69

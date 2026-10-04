@@ -78,7 +78,7 @@ type Task struct {
 	WakeTime            time.Time
 	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
-	readier             *Task       // Task whose fork or resume() readied this one; cleared when it starts
+	readier             *Task       // Task whose fork or resume() readied this one; retained until physical handoff
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
@@ -311,6 +311,10 @@ func (t *Task) ReadyDeadline(now time.Time) time.Time {
 	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	return t.readyDeadlineLocked(now)
+}
+
+func (t *Task) readyDeadlineLocked(now time.Time) time.Time {
 	if t.executionActive || t.admissionPending || t.waitingForInput {
 		return time.Time{}
 	}
@@ -337,6 +341,7 @@ func (t *Task) SetExecutionActive(active bool) {
 	defer t.mu.Unlock()
 	t.executionActive = active
 	if !active {
+		t.readier = nil
 		t.notifyScheduleLocked()
 	}
 }
@@ -350,7 +355,6 @@ func (t *Task) StartExecution() bool {
 	}
 	t.executionActive = true
 	t.State = TaskRunning
-	t.readier = nil
 	return true
 }
 
@@ -422,28 +426,49 @@ func (t *Task) ClearCallStack() {
 // RetryStateSnapshot returns the task fields needed to reconstruct a failed
 // optimistic execution attempt. Slice storage is copied before releasing the
 // lock so a concurrent observer never aliases a changing CallStack.
-func (t *Task) RetryStateSnapshot() (*kernel.TaskContext, []types.ActivationFrame, types.Value, types.Value, int64, float64) {
+type RetrySnapshot struct {
+	Context                              *kernel.TaskContext
+	CallStack                            []types.ActivationFrame
+	TaskLocal, WakeValue                 types.Value
+	WakeErrorAsValue                     bool
+	TicksLimit                           int64
+	SecondsLimit                         float64
+	WakeTime                             time.Time
+	ReadingPlayer                        types.ObjID
+	IsExecSuspended, IsHTTPReadSuspended bool
+	ExecCommandName                      string
+}
+
+func (t *Task) RetryStateSnapshot() RetrySnapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	stack := append([]types.ActivationFrame(nil), t.CallStack...)
-	return t.Context, stack, t.TaskLocal, t.WakeValue, t.TicksLimit, t.SecondsLimit
+	return RetrySnapshot{
+		Context: t.Context, CallStack: append([]types.ActivationFrame(nil), t.CallStack...),
+		TaskLocal: t.TaskLocal, WakeValue: t.WakeValue, WakeErrorAsValue: t.WakeErrorAsValue,
+		TicksLimit: t.TicksLimit, SecondsLimit: t.SecondsLimit, WakeTime: t.WakeTime,
+		ReadingPlayer: t.ReadingPlayer, IsExecSuspended: t.IsExecSuspended,
+		IsHTTPReadSuspended: t.IsHTTPReadSuspended, ExecCommandName: t.ExecCommandName,
+	}
 }
 
 // RestoreRetryState atomically publishes all task-owned state for a retry.
-func (t *Task) RestoreRetryState(ctx *kernel.TaskContext, stack []types.ActivationFrame, local, wake types.Value, ticks int64, seconds float64) {
+func (t *Task) RestoreRetryState(saved RetrySnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Result = types.Result{}
-	t.CallStack = stack
-	t.TaskLocal = local
-	t.WakeValue = wake
+	t.CallStack = saved.CallStack
+	t.TaskLocal = saved.TaskLocal
+	t.WakeValue = saved.WakeValue
+	t.WakeErrorAsValue = saved.WakeErrorAsValue
+	t.WakeTime = saved.WakeTime
+	t.ReadingPlayer = saved.ReadingPlayer
+	t.IsExecSuspended = saved.IsExecSuspended
+	t.IsHTTPReadSuspended = saved.IsHTTPReadSuspended
+	t.ExecCommandName = saved.ExecCommandName
 	t.CreatedForks = nil
-	t.TicksLimit = ticks
-	t.TicksUsed = 0
-	t.SecondsLimit = seconds
-	t.SecondsUsed = 0
-	t.StartTime = time.Now()
-	t.Context = ctx
+	// The runtime replays the instruction budget, but retains this slice's
+	// seconds deadline. Only a real wake starts a new background time budget.
+	t.Context = saved.Context
 }
 
 // ContextValue returns the current execution context pointer safely.
@@ -560,6 +585,24 @@ func (t *Task) SetReadier(readier *Task) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.readier = readier
+}
+
+// PendingReadier identifies a task whose next slice must follow this readied
+// slice. Retain the relation through admission and physical execution, including
+// retries and logical suspension. A future delayed fork does not hold its parent.
+func (t *Task) PendingReadier(now time.Time) *Task {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.readier == nil || t.readier == t || t.readier.ID == 0 {
+		return nil
+	}
+	if t.executionActive || t.State == TaskRunning || (t.admissionPending && t.State == TaskQueued) {
+		return t.readier
+	}
+	if at := t.readyDeadlineLocked(now); !at.IsZero() && !at.After(now) {
+		return t.readier
+	}
+	return nil
 }
 
 // awaitingReadier reports whether the slice that forked or resumed this task

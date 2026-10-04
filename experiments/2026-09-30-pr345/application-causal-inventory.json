@@ -1,0 +1,74 @@
+[
+  {
+    "side": "control",
+    "submitted": 3,
+    "completed": 2,
+    "failed": 1,
+    "unsettled": 1,
+    "elapsed": "10.9960843s",
+    "drain": "7.9960843s",
+    "test_terminal": "FAIL",
+    "players": 1,
+    "revision": "aefe85c"
+  },
+  {
+    "side": "control",
+    "submitted": 11,
+    "completed": 10,
+    "failed": 1,
+    "unsettled": 1,
+    "elapsed": "11.1347304s",
+    "drain": "8.1347304s",
+    "test_terminal": "FAIL",
+    "players": 4,
+    "revision": "aefe85c"
+  },
+  {
+    "side": "control",
+    "submitted": 120,
+    "completed": 116,
+    "failed": 4,
+    "unsettled": 4,
+    "elapsed": "12.2873956s",
+    "drain": "9.2873956s",
+    "test_terminal": "FAIL",
+    "players": 16,
+    "revision": "aefe85c"
+  },
+  {
+    "side": "candidate",
+    "submitted": 3,
+    "completed": 2,
+    "failed": 1,
+    "unsettled": 1,
+    "elapsed": "10.4744486s",
+    "drain": "7.4744486s",
+    "test_terminal": "FAIL",
+    "players": 1,
+    "revision": "903caeb"
+  },
+  {
+    "side": "candidate",
+    "submitted": 39,
+    "completed": 38,
+    "failed": 1,
+    "unsettled": 1,
+    "elapsed": "10.4533514s",
+    "drain": "7.4533514s",
+    "test_terminal": "FAIL",
+    "players": 4,
+    "revision": "903caeb"
+  },
+  {
+    "side": "candidate",
+    "submitted": 51,
+    "completed": 50,
+    "failed": 1,
+    "unsettled": 1,
+    "elapsed": "12.1957637s",
+    "drain": "9.1957637s",
+    "test_terminal": "FAIL",
+    "players": 16,
+    "revision": "903caeb"
+  }
+]

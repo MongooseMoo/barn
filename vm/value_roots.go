@@ -115,6 +115,12 @@ func (vm *VM) visitValues(visit valueVisitor) {
 	if vm == nil || visit == nil {
 		return
 	}
+	if checkpoint := vm.retryCheckpoint; checkpoint != nil {
+		checkpoint.state.visitValues(visit)
+		for _, value := range checkpoint.roots {
+			visit(value, valueRootLive)
+		}
+	}
 	for _, frame := range vm.Frames {
 		frame.visitValues(visit)
 	}
