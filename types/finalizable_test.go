@@ -15,12 +15,12 @@ func TestMayHoldFinalizableScalars(t *testing.T) {
 
 func TestMayHoldFinalizableListPropagation(t *testing.T) {
 	l := NewEmptyList()
-	if l.sliceList().finalizable != finalizableNone {
+	if l.sliceList().cachedFinalizableState() != finalizableNone {
 		t.Fatal("empty list should start proven-clean")
 	}
 	for i := 0; i < 100; i++ {
 		l = l.Append(NewInt(int64(i)))
-		if l.sliceList().finalizable != finalizableNone {
+		if l.sliceList().cachedFinalizableState() != finalizableNone {
 			t.Fatalf("append %d of an int lost the clean proof", i)
 		}
 	}
@@ -52,7 +52,7 @@ func TestMayHoldFinalizableListPropagation(t *testing.T) {
 
 	// Removing the anon leaves the cache unknown; a rescan must find it clean.
 	cleaned := tainted.DeleteAt(tainted.Len())
-	if cleaned.sliceList().finalizable != finalizableUnknown {
+	if cleaned.sliceList().cachedFinalizableState() != finalizableUnknown {
 		t.Fatal("DeleteAt from a tainted list should reset to unknown")
 	}
 	if cleaned.MayHoldFinalizable() {
@@ -70,7 +70,7 @@ func TestMayHoldFinalizableNestedAndLazy(t *testing.T) {
 	if clean.MayHoldFinalizable() {
 		t.Fatal("nested clean list reported finalizable")
 	}
-	if clean.sliceList().finalizable != finalizableNone {
+	if clean.sliceList().cachedFinalizableState() != finalizableNone {
 		t.Fatal("lazy scan result should be cached")
 	}
 }
@@ -81,12 +81,12 @@ func TestMayHoldFinalizableNestedAndLazy(t *testing.T) {
 // SET_VAR because each appended header inherited Unknown from its parent.
 func TestMayHoldFinalizableDerivedFromUnscannedSource(t *testing.T) {
 	l := NewList([]Value{NewInt(1)})
-	if l.sliceList().finalizable != finalizableUnknown {
+	if l.sliceList().cachedFinalizableState() != finalizableUnknown {
 		t.Fatal("NewList should start unscanned")
 	}
 	for i := 0; i < 100; i++ {
 		l = l.Append(NewInt(int64(i)))
-		if l.sliceList().finalizable != finalizableNone {
+		if l.sliceList().cachedFinalizableState() != finalizableNone {
 			t.Fatalf("append %d from an unscanned clean source did not yield a proven-clean header", i)
 		}
 	}
@@ -97,12 +97,12 @@ func TestMayHoldFinalizableDerivedFromUnscannedSource(t *testing.T) {
 		"InsertAt": NewList([]Value{NewInt(1)}).InsertAt(1, NewInt(0)),
 		"DeleteAt": NewList([]Value{NewInt(1), NewInt(2)}).DeleteAt(1),
 	} {
-		if derived.sliceList().finalizable != finalizableNone {
+		if derived.sliceList().cachedFinalizableState() != finalizableNone {
 			t.Fatalf("%s from an unscanned clean source should be proven clean", name)
 		}
 	}
 	dirty := NewList([]Value{NewAnon(1)}).Append(NewInt(2))
-	if dirty.sliceList().finalizable != finalizableMaybe {
+	if dirty.sliceList().cachedFinalizableState() != finalizableMaybe {
 		t.Fatal("append from an unscanned tainted source must resolve to tainted")
 	}
 

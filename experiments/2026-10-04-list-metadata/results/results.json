@@ -1,0 +1,1243 @@
+{
+  "toolchain": "/tmp/barn-355-tools/baseline.test: go1.24.6\n/tmp/barn-355-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "6d8011a45ca042b686cb29b3335d5c5454802caf18218510274f31808b0989b7",
+    "candidate": "67c29e87c12dca37cda314cb902843b237b2e317d92e37eaaa56458a8716ec52"
+  },
+  "seed": 355,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "300ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "summary": {
+    "BenchmarkListMetadata/Append1024": {
+      "percent": -0.31080177320159663,
+      "ci95_percent": [
+        -1.6387359557649361,
+        0.8994677094186887
+      ],
+      "holdout_percent": -1.146984740255319,
+      "B/op": {
+        "baseline": [
+          108656.0,
+          108657.0
+        ],
+        "candidate": [
+          108656.0,
+          108657.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1047.0
+        ],
+        "candidate": [
+          1047.0
+        ]
+      }
+    },
+    "BenchmarkListMetadata/Append32": {
+      "percent": 0.4070420106361272,
+      "ci95_percent": [
+        -0.20812848127396144,
+        1.0050673036896995
+      ],
+      "holdout_percent": -3.1799629277815433,
+      "B/op": {
+        "baseline": [
+          3272.0
+        ],
+        "candidate": [
+          3272.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          45.0
+        ],
+        "candidate": [
+          45.0
+        ]
+      }
+    },
+    "BenchmarkListMetadata/ColdReads": {
+      "percent": -0.5166074499662332,
+      "ci95_percent": [
+        -1.0827755911219983,
+        0.015479126043849156
+      ],
+      "holdout_percent": -3.078434441910727,
+      "B/op": {
+        "baseline": [
+          480.0
+        ],
+        "candidate": [
+          480.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          8.0
+        ],
+        "candidate": [
+          8.0
+        ]
+      }
+    },
+    "BenchmarkListMetadata/Constructor1024": {
+      "percent": -0.641429136565308,
+      "ci95_percent": [
+        -1.271914105142402,
+        0.04746909764865581
+      ],
+      "holdout_percent": -4.6602464284206,
+      "B/op": {
+        "baseline": [
+          48.0
+        ],
+        "candidate": [
+          48.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1.0
+        ],
+        "candidate": [
+          1.0
+        ]
+      },
+      "header-B": {
+        "baseline": [
+          48.0
+        ],
+        "candidate": [
+          48.0
+        ]
+      }
+    },
+    "BenchmarkListMetadata/Constructor8": {
+      "percent": -0.8869073686918583,
+      "ci95_percent": [
+        -1.5811647107184634,
+        -0.17268364790770097
+      ],
+      "holdout_percent": -2.2160965369498853,
+      "B/op": {
+        "baseline": [
+          48.0
+        ],
+        "candidate": [
+          48.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1.0
+        ],
+        "candidate": [
+          1.0
+        ]
+      },
+      "header-B": {
+        "baseline": [
+          48.0
+        ],
+        "candidate": [
+          48.0
+        ]
+      }
+    },
+    "BenchmarkListMetadata/WarmReads": {
+      "percent": 0.7213974874808793,
+      "ci95_percent": [
+        0.48631840605553034,
+        0.9569526343388146
+      ],
+      "holdout_percent": -1.4456910171479542,
+      "B/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.18,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.06,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2628.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73652.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.11,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 392.8,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.94,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.73,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2605.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 72477.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.993,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 392.7,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.65,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.67,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2620.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74592.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.08,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 393.2,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.18,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.92,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2601.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 72514.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 394.9,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.86,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.23,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2565.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73053.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.995,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 392.4,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.78,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.85,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2615.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 71714.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.07,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 392.8,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.56,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.21,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2599.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74668.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.999,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 393.9,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.27,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.29,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2590.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73756.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 393.4,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.63,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.35,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2592.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 72638.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.08,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 386.6,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.75,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.12,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2631.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 76782.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.981,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 393.3,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.53,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.55,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2641.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73456.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.07,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 397.7,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.56,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.98,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2621.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73089.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 400.8,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.08,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.49,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2657.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73585.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 395.3,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.98,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.3,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2635.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74569.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 397.7,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.42,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 39.95,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2626.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73884.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.08,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 394.3,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.53,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.38,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2613.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74761.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 401.6,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.14,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.36,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2706.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 72712.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 396.2,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.44,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.51,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2646.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74196.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.995,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 396.5,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.72,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.34,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2649.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73479.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 397.8,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.81,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.17,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2634.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74164.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.1,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 401.0,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.23,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.73,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2651.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 74987.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 399.8,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.72,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.42,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2665.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 75651.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.1,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 402.9,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.63,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 41.01,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2714.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 75869.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.11,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 405.1,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.91,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.21,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2684.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 77927.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.1,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 395.7,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.9,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.49,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2647.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 76270.0,
+          "B/op": 108656.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.658,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 399.2,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 40.17,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.59,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2626.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 75817.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 9.983,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 411.6,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 41.22,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 44.15,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2799.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 75877.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 407.1,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkListMetadata/Constructor8": {
+          "ns/op": 39.68,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Constructor1024": {
+          "ns/op": 40.23,
+          "header-B": 48.0,
+          "B/op": 48.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkListMetadata/Append32": {
+          "ns/op": 2603.0,
+          "B/op": 3272.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkListMetadata/Append1024": {
+          "ns/op": 73706.0,
+          "B/op": 108657.0,
+          "allocs/op": 1047.0
+        },
+        "BenchmarkListMetadata/WarmReads": {
+          "ns/op": 10.09,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkListMetadata/ColdReads": {
+          "ns/op": 394.3,
+          "B/op": 480.0,
+          "allocs/op": 8.0
+        }
+      }
+    }
+  ]
+}
