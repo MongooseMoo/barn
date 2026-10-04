@@ -100,3 +100,7 @@ passed. No test or Git configuration was weakened to bypass it.
 Merge the Barn implementation before the companion conformance PR so master’s
 required conformance gate remains clean. Both changes require their own final
 head CI and normal merge history.
+
+Kept implementation: `6607faa65ea69f757b7acbb9aa4e3044b39c7d02`.
+Companion tests: https://github.com/MongooseMoo/moo-conformance-tests/pull/118,
+head `4c6d705a48ba868eda7f478a634f6f9c32cd1ecc` (one YAML file).
