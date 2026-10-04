@@ -122,6 +122,7 @@ func (c *blockingWSConn) Read(ctx context.Context) (websocket.MessageType, []byt
 
 func (c *blockingWSConn) Write(context.Context, websocket.MessageType, []byte) error { return nil }
 func (c *blockingWSConn) Close(websocket.StatusCode, string) error                   { return nil }
+func (c *blockingWSConn) CloseNow() error                                            { return nil }
 
 // TestReview_WebSocketWakeInputReaderInterruptsBlockedRead asserts the real
 // lifecycle contract: after WakeInputReader, a WebSocket read that is parked in
