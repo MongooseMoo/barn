@@ -232,11 +232,29 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	tx.verbDeletes = keptDeletes
 }
 
-func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
+// MoveStagedObjectWrites transfers the object's pending non-topology writes
+// before ForgetObject drops its old identity. Renumber has already published
+// the live topology, so those writes must follow the adopted object.
+func (tx *StoreTxn) MoveStagedObjectWrites(oldID, newID types.ObjID) {
 	if tx == nil || tx.direct || oldID == newID {
 		return
 	}
 	tx.invalidateResolveCaches()
+	if write, ok := tx.scalarWrites[oldID]; ok {
+		delete(tx.scalarWrites, oldID)
+		if write.ownerSet && write.owner == oldID {
+			write.owner = newID
+		}
+		lazySet(&tx.scalarWrites, newID, write)
+	}
+	for key, write := range tx.verbWrites {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.verbWrites, key)
+		key.objID = newID
+		lazySet(&tx.verbWrites, key, write)
+	}
 	for key, prop := range tx.propertyDefines {
 		if key.objID != oldID {
 			continue
@@ -271,7 +289,8 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 	}
 }
 
-func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
+// ApplyStagedObjectWrites restores read-your-writes after adopting a live image.
+func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	if tx == nil || tx.direct {
 		return
 	}
@@ -284,6 +303,24 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 	// aliased shared image is never written. Lock-free: no store.mu held here.
 	if !tx.owned[objID] {
 		obj = tx.privatizeCached(objID, obj)
+	}
+	if write, ok := tx.scalarWrites[objID]; ok {
+		if write.nameSet {
+			obj.setName(write.name)
+		}
+		if write.ownerSet {
+			obj.owner = write.owner
+		}
+		if write.flagsSet {
+			obj.flags = write.flags
+		}
+	}
+	for key, write := range tx.verbWrites {
+		if key.objID == objID {
+			if verb := obj.verbs[key.name]; verb != nil {
+				verb.setCodeCopy(write.code)
+			}
+		}
 	}
 	for key, def := range tx.propertyDefines {
 		if key.objID != objID {
