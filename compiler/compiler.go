@@ -157,6 +157,10 @@ func syntaxDiagnostic(err error) Diagnostic {
 }
 
 func compileDiagnostic(err error) Diagnostic {
+	var validation *verb.ValidationError
+	if errors.As(err, &validation) {
+		return Diagnostic{Stage: BytecodeStage, Position: validation.Position, Message: validation.Error(), Detail: err}
+	}
 	var unknownBuiltin *UnknownBuiltinError
 	if errors.As(err, &unknownBuiltin) {
 		return Diagnostic{
