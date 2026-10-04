@@ -12,10 +12,11 @@ import (
 // fmt.Errorf detail is for Barn-internal diagnostics only and is not surfaced to
 // MOO callers). Line is the line of p.current at the point parsing failed; for
 // unexpected-EOF the lexer reports a phantom final line (numLines+1), matching
-// Toast.
+// Toast. Unterminated block comments retain Toast's explicit lexical diagnostic
+// and the opening comment's line instead of the generic parser message.
 type ParseError struct {
 	Line int    // 1-based source line of the offending token
-	Msg  string // generic message surfaced to MOO callers ("syntax error")
+	Msg  string // message surfaced to MOO callers (usually "syntax error")
 	// Detail preserves Barn's specific inner message (e.g. "expected ';'") for
 	// internal diagnostics; it is NOT part of the MOO-facing format.
 	Detail error
@@ -31,6 +32,9 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 
 	for p.current.Type != TOKEN_EOF {
 		stmt, err := p.parseStatement()
+		if p.lexer.commentError != nil {
+			return nil, p.lexer.commentError
+		}
 		if err != nil {
 			// Capture the line of the offending token and present Toast's
 			// generic "syntax error". p.current is the token parsing choked on.
@@ -41,6 +45,9 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 			}
 		}
 		statements = append(statements, stmt)
+	}
+	if p.lexer.commentError != nil {
+		return nil, p.lexer.commentError
 	}
 
 	program := &verb.Program{Statements: statements}
