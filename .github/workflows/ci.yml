@@ -45,6 +45,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Types race tests
+        run: go test -race ./types
+
       - name: Benchmark driver tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
 

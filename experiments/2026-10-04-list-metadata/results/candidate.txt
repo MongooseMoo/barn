@@ -1,0 +1,195 @@
+pair: 1
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8616664	        39.18 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8902244	        40.06 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  129391	      2628 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4858	     73652 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35811352	        10.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  918379	       392.8 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 2
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8546464	        40.65 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8547867	        40.67 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  127546	      2620 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4071	     74592 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35819262	        10.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  911557	       393.2 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 3
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8909137	        39.78 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8720298	        39.85 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  123562	      2615 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4782	     71714 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	36253370	        10.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  912294	       392.8 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 4
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8708896	        39.27 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8796270	        39.29 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  128398	      2590 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4771	     73756 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	36139461	        10.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  913250	       393.4 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 5
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8807596	        39.63 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8895950	        39.35 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  127530	      2592 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4893	     72638 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35565541	        10.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  912962	       386.6 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 6
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8643046	        39.53 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8705336	        39.55 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  124352	      2641 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4900	     73456 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35470149	        10.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  901567	       397.7 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 7
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8751867	        40.08 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8583721	        40.49 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  126104	      2657 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4899	     73585 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35357865	        10.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  905091	       395.3 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 8
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8757830	        39.42 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8833720	        39.95 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  123177	      2626 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4812	     73884 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35962573	        10.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  911139	       394.3 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 9
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8667760	        40.14 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8858668	        40.36 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  115987	      2706 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4744	     72712 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35548486	        10.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  920146	       396.2 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 10
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8169099	        39.81 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8577306	        40.17 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  124998	      2634 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4845	     74164 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35937374	        10.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  901299	       401.0 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 11
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8912185	        39.72 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8583286	        40.42 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  126126	      2665 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4821	     75651 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35495578	        10.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  912237	       402.9 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 12
+phase: main
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8620207	        40.91 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8529951	        40.21 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  121963	      2684 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4674	     77927 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35207558	        10.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  898231	       395.7 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 13
+phase: holdout
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8587214	        39.90 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8374576	        40.49 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  121454	      2647 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4704	     76270 ns/op	  108656 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35667128	         9.658 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  888417	       399.2 ns/op	     480 B/op	       8 allocs/op
+PASS
+
+pair: 14
+phase: holdout
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/types
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkListMetadata/Constructor8-4         	 8633298	        39.68 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Constructor1024-4      	 8676358	        40.23 ns/op	        48.00 header-B	      48 B/op	       1 allocs/op
+BenchmarkListMetadata/Append32-4             	  123280	      2603 ns/op	    3272 B/op	      45 allocs/op
+BenchmarkListMetadata/Append1024-4           	    4122	     73706 ns/op	  108657 B/op	    1047 allocs/op
+BenchmarkListMetadata/WarmReads-4            	35647244	        10.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkListMetadata/ColdReads-4            	  907803	       394.3 ns/op	     480 B/op	       8 allocs/op
+PASS

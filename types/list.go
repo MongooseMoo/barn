@@ -8,7 +8,8 @@ import (
 
 // sliceList is the heap payload behind a TYPE_LIST Value.
 //
-// byteSize caches ValueBytes(list); a negative value means "not yet computed".
+// byteSize atomically caches ValueBytes(list); zero means "not yet computed".
+// Normal list sizes are positive. An overflowed zero size is safe to recompute.
 //
 // watermark enables amortized-O(1) append without copying, safely under value
 // sharing (MOO lists are immutable values, but several sliceList headers can
@@ -21,11 +22,12 @@ import (
 // always copies, so any list not produced by Append's growth path is append-safe.
 type sliceList struct {
 	elements  []Value
-	byteSize  int
+	byteSize  atomic.Int64
 	watermark *atomic.Int64
-	// finalizable caches whether any element (transitively) is an anonymous
-	// object or WAIF; see finalizableUnknown/None/Maybe.
-	finalizable int8
+	// finalizableInitial is a constructor-supplied proof, immutable after
+	// publication. Unknown proofs are resolved through the atomic cache.
+	finalizableInitial int8
+	finalizable        atomic.Int32
 }
 
 // Tri-state cache for "may this container hold a finalizable value".
@@ -85,25 +87,33 @@ func (v Value) containerMayHoldFinalizable() bool {
 	return false
 }
 
-// finalizableState returns the cached tri-state, resolving finalizableUnknown
-// with a single scan. Every derived header (append/set/slice/concat/...) must
-// start from this resolved state rather than the raw field: otherwise a chain
-// of derivations from an unscanned list inherits Unknown at every step, and a
-// later scan of the *source* header never helps the header already derived
-// from it. That made the `l = {@l, x}` build idiom O(n^2) again (each SET_VAR
-// re-scanned the whole list) despite the cache.
-func (s *sliceList) finalizableState() int8 {
-	if s.finalizable == finalizableUnknown {
-		state := finalizableNone
-		for _, e := range s.elements {
-			if e.MayHoldFinalizable() {
-				state = finalizableMaybe
-				break
-			}
-		}
-		s.finalizable = state
+// cachedFinalizableState reads the immutable initial proof or its atomic cache
+// without triggering a scan. It also exposes the unknown state to tests.
+func (s *sliceList) cachedFinalizableState() int8 {
+	if s.finalizableInitial != finalizableUnknown {
+		return s.finalizableInitial
 	}
-	return s.finalizable
+	return int8(s.finalizable.Load())
+}
+
+// finalizableState resolves unknown metadata with an immutable scan. Derived
+// headers must start from this resolved state: propagating only the initial
+// unknown proof can make repeated append-and-assignment chains scan O(n^2).
+func (s *sliceList) finalizableState() int8 {
+	if state := s.cachedFinalizableState(); state != finalizableUnknown {
+		return state
+	}
+	state := finalizableNone
+	for _, e := range s.elements {
+		if e.MayHoldFinalizable() {
+			state = finalizableMaybe
+			break
+		}
+	}
+	// Concurrent cold readers may duplicate this immutable scan. They publish
+	// the same result without making unrelated lists wait for one another.
+	s.finalizable.Store(int32(state))
+	return state
 }
 
 func (s *sliceList) mayHoldFinalizable() bool {
@@ -112,13 +122,15 @@ func (s *sliceList) mayHoldFinalizable() bool {
 
 // newSliceList wraps elements with an uncomputed size cache (filled lazily).
 func newSliceList(elements []Value) *sliceList {
-	return &sliceList{elements: elements, byteSize: -1}
+	return &sliceList{elements: elements}
 }
 
 // newSliceListSized wraps elements with a known, pre-computed size cache. Used
 // on the append/concat hot path so size accounting stays O(1) per operation.
 func newSliceListSized(elements []Value, byteSize int) *sliceList {
-	return &sliceList{elements: elements, byteSize: byteSize}
+	s := &sliceList{elements: elements}
+	s.byteSize.Store(int64(byteSize))
+	return s
 }
 
 // listValue boxes a sliceList into a Value.
@@ -130,17 +142,18 @@ func (s *sliceList) Len() int {
 	return len(s.elements)
 }
 
-// ByteSize returns the cached ValueBytes of the list, computing it once on first
-// use. Lists are immutable, so the cached value never goes stale.
+// byteSizeOf resolves the cached ValueBytes of the immutable list. Concurrent
+// cold readers may duplicate the scan and atomically publish the same result.
 func (s *sliceList) byteSizeOf() int {
-	if s.byteSize < 0 {
-		size := listVarOverhead
-		for _, e := range s.elements {
-			size += ValueBytes(e)
-		}
-		s.byteSize = size
+	if size := s.byteSize.Load(); size != 0 {
+		return int(size)
 	}
-	return s.byteSize
+	size := listVarOverhead
+	for _, e := range s.elements {
+		size += ValueBytes(e)
+	}
+	s.byteSize.Store(int64(size))
+	return size
 }
 
 // get returns the 1-based element, or None when out of bounds (the old
@@ -160,12 +173,12 @@ func (s *sliceList) set(i int, v Value) *sliceList {
 	copy(newElems, s.elements)
 	newElems[i-1] = v
 	var out *sliceList
-	if s.byteSize >= 0 {
-		out = newSliceListSized(newElems, s.byteSize-ValueBytes(s.elements[i-1])+ValueBytes(v))
+	if size := int(s.byteSize.Load()); size > 0 {
+		out = newSliceListSized(newElems, size-ValueBytes(s.elements[i-1])+ValueBytes(v))
 	} else {
 		out = newSliceList(newElems)
 	}
-	out.finalizable = finalizableAfterAdd(finalizableAfterRemove(s.finalizableState()), v)
+	out.finalizableInitial = finalizableAfterAdd(finalizableAfterRemove(s.finalizableState()), v)
 	return out
 }
 
@@ -180,7 +193,10 @@ func (s *sliceList) append(v Value) *sliceList {
 		s.watermark.CompareAndSwap(int64(n), int64(n+1)) {
 		extended := s.elements[:n+1]
 		extended[n] = v
-		return &sliceList{elements: extended, byteSize: bs, watermark: s.watermark, finalizable: fin}
+		out := newSliceListSized(extended, bs)
+		out.watermark = s.watermark
+		out.finalizableInitial = fin
+		return out
 	}
 
 	// Copy path: reallocate with amortized growth (the [:n:n] cap forces a copy
@@ -188,7 +204,10 @@ func (s *sliceList) append(v Value) *sliceList {
 	newElems := append(s.elements[:n:n], v)
 	wm := new(atomic.Int64)
 	wm.Store(int64(n + 1))
-	return &sliceList{elements: newElems, byteSize: bs, watermark: wm, finalizable: fin}
+	out := newSliceListSized(newElems, bs)
+	out.watermark = wm
+	out.finalizableInitial = fin
+	return out
 }
 
 func (s *sliceList) slice(start, end int) *sliceList {
@@ -204,7 +223,7 @@ func (s *sliceList) slice(start, end int) *sliceList {
 	newElems := make([]Value, end-start+1)
 	copy(newElems, s.elements[start-1:end])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterRemove(s.finalizableState())
+	out.finalizableInitial = finalizableAfterRemove(s.finalizableState())
 	return out
 }
 
@@ -246,7 +265,7 @@ func NewList(elements []Value) Value {
 // NewEmptyList creates an empty list value.
 func NewEmptyList() Value {
 	sl := newSliceListSized([]Value{}, listVarOverhead)
-	sl.finalizable = finalizableNone
+	sl.finalizableInitial = finalizableNone
 	return listValue(sl)
 }
 
@@ -282,9 +301,9 @@ func (v Value) Concat(other Value) Value {
 	fa, fb := v.sliceList().finalizableState(), other.sliceList().finalizableState()
 	switch {
 	case fa == finalizableMaybe || fb == finalizableMaybe:
-		out.finalizable = finalizableMaybe
+		out.finalizableInitial = finalizableMaybe
 	case fa == finalizableNone && fb == finalizableNone:
-		out.finalizable = finalizableNone
+		out.finalizableInitial = finalizableNone
 	}
 	return listValue(out)
 }
@@ -304,7 +323,7 @@ func (v Value) InsertAt(index int, value Value) Value {
 	newElems[idx0] = value
 	copy(newElems[idx0+1:], elements[idx0:])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterAdd(v.sliceList().finalizableState(), value)
+	out.finalizableInitial = finalizableAfterAdd(v.sliceList().finalizableState(), value)
 	return listValue(out)
 }
 
@@ -319,7 +338,7 @@ func (v Value) DeleteAt(index int) Value {
 	copy(newElems[:idx0], elements[:idx0])
 	copy(newElems[idx0:], elements[idx0+1:])
 	out := newSliceList(newElems)
-	out.finalizable = finalizableAfterRemove(v.sliceList().finalizableState())
+	out.finalizableInitial = finalizableAfterRemove(v.sliceList().finalizableState())
 	return listValue(out)
 }
 
