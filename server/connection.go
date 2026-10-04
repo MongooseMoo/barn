@@ -143,6 +143,16 @@ func (c *Connection) Close() error {
 	return c.transport.Close()
 }
 
+// closeForShutdown cancels connection work and interrupts transport I/O without
+// a WebSocket close handshake extending the shared banner lifetime.
+func (c *Connection) closeForShutdown() error {
+	c.cancel()
+	if closer, ok := c.transport.(interface{ CloseNow() error }); ok {
+		return closer.CloseNow()
+	}
+	return c.transport.Close()
+}
+
 // RemoteAddr returns the remote address of the connection. After an accepted
 // PROXY prelude it reports the announced client IP with the real remote port.
 func (c *Connection) RemoteAddr() string {

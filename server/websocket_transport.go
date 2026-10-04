@@ -21,6 +21,7 @@ type wsConn interface {
 	Read(ctx context.Context) (websocket.MessageType, []byte, error)
 	Write(ctx context.Context, typ websocket.MessageType, p []byte) error
 	Close(code websocket.StatusCode, reason string) error
+	CloseNow() error
 }
 
 type WebSocketTransport struct {
@@ -90,6 +91,12 @@ func (t *WebSocketTransport) WriteOutput(message string, newline bool) error {
 
 func (t *WebSocketTransport) Close() error {
 	return t.conn.Close(websocket.StatusNormalClosure, "")
+}
+
+// CloseNow interrupts I/O without waiting for a peer's close acknowledgment.
+// Shutdown uses it after the best-effort banner; ordinary disconnects use Close.
+func (t *WebSocketTransport) CloseNow() error {
+	return t.conn.CloseNow()
 }
 
 func (t *WebSocketTransport) RemoteAddr() string {

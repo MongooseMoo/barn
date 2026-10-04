@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -53,6 +54,7 @@ type ConnectionManager struct {
 	mu                sync.Mutex
 	connectionWG      sync.WaitGroup
 	connectionSetupWG sync.WaitGroup
+	shutdownOnce      sync.Once
 	connectionHandler func(*Connection)
 	listeners         map[listenerKey]*listenerRecord
 	setupConns        map[net.Conn]struct{}
@@ -186,10 +188,20 @@ func (cm *ConnectionManager) CloseListeners() {
 	}
 }
 
-// CloseConnections sends the shutdown banner to every active connection and
-// closes its transport. Normal disconnect processing remains responsible for
-// removing connections from the manager maps.
+const shutdownBannerTimeout = time.Second
+
+// CloseConnections gives all shutdown banners one shared best-effort lifetime,
+// closes transports, and joins their writers and connection handlers. Concurrent
+// or repeated calls wait for the same shutdown; the first message wins. Normal
+// disconnect processing remains responsible for removing manager entries.
 func (cm *ConnectionManager) CloseConnections(message string) {
+	cm.shutdownOnce.Do(func() { cm.closeConnections(message) })
+}
+
+func (cm *ConnectionManager) closeConnections(message string) {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownBannerTimeout)
+	defer cancel()
+
 	cm.mu.Lock()
 	cm.closing = true
 	setupConns := make([]net.Conn, 0, len(cm.setupConns))
@@ -211,10 +223,29 @@ func (cm *ConnectionManager) CloseConnections(message string) {
 	cm.mu.Unlock()
 
 	line := fmt.Sprintf("*** Shutting down: %s ***", message)
+	var outputWG sync.WaitGroup
 	for _, conn := range connections {
-		_ = conn.Send(line)
-		_ = conn.Close()
+		outputWG.Add(1)
+		go func() {
+			defer outputWG.Done()
+			sent := make(chan struct{})
+			go func() {
+				if ctx.Err() == nil {
+					_ = conn.Send(line)
+				}
+				close(sent)
+			}()
+			select {
+			case <-sent:
+			case <-ctx.Done():
+			}
+			// Close interrupts a stalled writer, including one queued behind an
+			// existing output operation. Join it rather than abandoning it.
+			_ = conn.closeForShutdown()
+			<-sent
+		}()
 	}
+	outputWG.Wait()
 	cm.connectionWG.Wait()
 }
 

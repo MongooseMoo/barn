@@ -26,6 +26,7 @@ func (c *recordingOutputWSConn) Write(_ context.Context, typ websocket.MessageTy
 }
 
 func (*recordingOutputWSConn) Close(websocket.StatusCode, string) error { return nil }
+func (*recordingOutputWSConn) CloseNow() error                          { return nil }
 
 func TestWebSocketOutputRejectsInvalidNotification(t *testing.T) {
 	fake := &recordingOutputWSConn{}

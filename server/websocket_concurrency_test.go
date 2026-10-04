@@ -44,6 +44,7 @@ func (c *blockedOutputWSConn) Write(_ context.Context, typ websocket.MessageType
 }
 
 func (*blockedOutputWSConn) Close(websocket.StatusCode, string) error { return nil }
+func (*blockedOutputWSConn) CloseNow() error                          { return nil }
 
 func newBlockedOutputWS(t *testing.T) (*WebSocketTransport, *blockedOutputWSConn, *sync.WaitGroup) {
 	t.Helper()
