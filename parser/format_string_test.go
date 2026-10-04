@@ -56,5 +56,9 @@ func TestFormatMOOPreservesAllNonNULBytes(t *testing.T) {
 		if got != value {
 			t.Fatalf("byte preservation failed: got %q want %q", got, value)
 		}
+		again, err := formatMOOChecked(reparsed, fully)
+		if err != nil || strings.Join(again, "\n") != strings.Join(lines, "\n") {
+			t.Fatalf("byte-preserving formatter is not idempotent: first %q, second %q, error %v", lines, again, err)
+		}
 	}
 }
