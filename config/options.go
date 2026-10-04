@@ -16,8 +16,27 @@ type Options struct {
 	AdmissionLimit, AdmissionPrincipalLimit         int
 	AdmissionInputWeight, AdmissionBackgroundWeight int
 	AdmissionAnonymousWeight, AdmissionSystemWeight int
+	// Page cache given to each sqlite_open() handle, in KiB. Zero selects
+	// DefaultSQLiteCacheKiB. It bounds memory per handle and changes no result.
+	SQLiteCacheKiB int
 	// Nil uses Barn's default build capabilities; a pointer to zero disables all.
 	BuiltinCapabilities *Capabilities
+}
+
+// DefaultSQLiteCacheKiB is the page cache of a sqlite_open() handle. SQLite's
+// own default of 2 MiB makes every scan of a larger database reread it from the
+// operating system: the Mongoose sound database is 256 MB and is scanned on
+// every `say`, which cost about 125 ms of file reads per command.
+const DefaultSQLiteCacheKiB = 256 * 1024
+
+const maxSQLiteCacheKiB = 64 * 1024 * 1024
+
+// SQLiteCacheSizeKiB returns the configured page cache, or the default.
+func (o Options) SQLiteCacheSizeKiB() int {
+	if o.SQLiteCacheKiB == 0 {
+		return DefaultSQLiteCacheKiB
+	}
+	return o.SQLiteCacheKiB
 }
 
 // DefaultOptions returns Barn's default runtime options for normal operation.
@@ -34,6 +53,9 @@ func (o Options) Validate() error {
 		if value < 0 || value > 1000000 {
 			return fmt.Errorf("admission settings must be between 0 and 1000000")
 		}
+	}
+	if o.SQLiteCacheKiB < 0 || o.SQLiteCacheKiB > maxSQLiteCacheKiB {
+		return fmt.Errorf("SQLITE_CACHE_KIB must be between 0 and %d", maxSQLiteCacheKiB)
 	}
 	if o.Capabilities() & ^DefaultCapabilities() != 0 {
 		return fmt.Errorf("unknown builtin capabilities")

@@ -386,6 +386,13 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		_ = db.Close()
 		return sqliteOpenError(err.Error())
 	}
+	// Toast opens with SQLite's 2 MiB default. A larger cache changes no result;
+	// it stops each scan of a big database from rereading it through the OS.
+	if _, err := conn.ExecContext(context.Background(), fmt.Sprintf("PRAGMA cache_size = -%d", ctx.RuntimeOptions.SQLiteCacheSizeKiB())); err != nil {
+		_ = conn.Close()
+		_ = db.Close()
+		return sqliteOpenError(err.Error())
+	}
 
 	ctx.Session.runtime.sqlite.mu.Lock()
 	id := ctx.Session.runtime.sqlite.nextID
