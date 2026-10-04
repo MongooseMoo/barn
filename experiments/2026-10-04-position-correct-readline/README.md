@@ -134,3 +134,9 @@ then closes descriptors directly. The new position lock is never held while
 acquiring the registry lock; descriptor Close remains able to interrupt reads.
 The pool holds only bounded temporary buffers; output strings own their storage.
 No read-ahead or chunk buffer is stored on a handle.
+
+Kept implementation: `7b2bfb8f4cbe08c00dd52ea9657afeda79317195`.
+Rebased onto `2d3bbb3dbf442033e32a16ce8ba451093df9a1d2`; the intervening
+change affects held HTTP buffers, not file I/O or these experiments. Focused
+Windows tests after rebase passed (0.476s), and the final diff check passed.
+Raw benchmark rows were parsed and matched all fourteen stored pair records.
