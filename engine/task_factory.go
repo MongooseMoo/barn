@@ -315,6 +315,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	t.VerbLoc = forkInfo.VerbLoc
 	t.ForkCreator = s
 	t.TaskLocal = types.NewEmptyMap()
+	t.JoinForkFamily(parent)
 
 	// Set up child's context
 	t.Context.ThisObj = forkInfo.ThisObj

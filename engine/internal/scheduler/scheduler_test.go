@@ -148,6 +148,87 @@ func TestRunPreservesAssociationOrder(t *testing.T) {
 	}
 }
 
+// suspend(0) lets work the yielding task started finish its slice first. A
+// parent that forks, yields, and reads what the child wrote depends on it:
+// Toast's audit_task_local_not_inherited_by_fork failed when the parent
+// restarted beside its child's slice. A slice of an unrelated task must not
+// hold a yielding task: it can run for its whole seconds limit.
+func TestDispatchHoldsAYieldedTaskUntilItsFamilysRunningSlicesEnd(t *testing.T) {
+	const child, parent, stranger = 1, 2, 3
+	started, release := make(chan struct{}), make(chan struct{})
+	var s *Scheduler
+	runs := map[int64]int{}
+	s = New(4, func(*task.Task) bool { return true }, func(t *task.Task) error {
+		switch t.ID {
+		case child:
+			close(started)
+			<-release
+		case parent, stranger:
+			runs[t.ID]++
+			if runs[t.ID] == 1 {
+				<-started
+				s.RequeueYield(t, time.Now())
+			}
+		}
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	settled := make(chan int64, 4)
+	claim := func(*task.Task) bool { return true }
+	done := func(result Result) { settled <- result.Task.ID }
+	next := func(want int64) {
+		t.Helper()
+		select {
+		case id := <-settled:
+			if id != want {
+				t.Fatalf("task %d settled, want %d", id, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for task %d", want)
+		}
+	}
+
+	now := time.Now()
+	parentTask, childTask := testTask(parent, now), testTask(child, now)
+	childTask.JoinForkFamily(parentTask)
+	s.Enqueue(childTask)
+	s.Enqueue(parentTask)
+	if n := s.Dispatch(now, nil, claim, done); n != 2 {
+		t.Fatalf("dispatched %d, want parent and child", n)
+	}
+	next(parent)
+
+	later := time.Now()
+	if n := s.Dispatch(later, nil, claim, done); n != 0 {
+		t.Fatalf("dispatched %d, want the yielded parent held behind its child's slice", n)
+	}
+	if at := s.NextWake(later, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a held yielded task, want none", at)
+	}
+
+	// A task of another family yields while the child's slice is still running
+	// and restarts at once.
+	s.Enqueue(testTask(stranger, later))
+	if n := s.Dispatch(later, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the unrelated task beside the running slice", n)
+	}
+	next(stranger)
+	if n := s.Dispatch(time.Now(), nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the unrelated yielded task restarted beside the running slice", n)
+	}
+	next(stranger)
+
+	close(release)
+	next(child)
+	if n := s.Dispatch(time.Now(), nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the child's slice ended, want the yielded parent", n)
+	}
+	next(parent)
+	if runs[parent] != 2 || runs[stranger] != 2 {
+		t.Fatalf("runs = %v, want parent and stranger twice each", runs)
+	}
+}
+
 func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
 	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
 	t.Cleanup(s.Stop)

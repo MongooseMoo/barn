@@ -43,6 +43,15 @@ type Scheduler struct {
 	inFlight      int
 	lanesInFlight map[any]bool
 	lane          func(*task.Task) any
+
+	// suspend(0) lets work the yielding task started finish its slice before the
+	// task resumes. Each dispatched slice takes the next flight number; a
+	// yielding task records the newest one and waits for every slice at or
+	// below it that belongs to its fork family. Slices of unrelated tasks do
+	// not hold it: one of those can run for its whole seconds limit.
+	flightSeq     int64
+	flights       map[int64]*task.Task
+	yieldBarriers map[*task.Task]int64
 }
 
 // New starts a scheduler with workerCount workers.
@@ -51,7 +60,8 @@ func New(workerCount int, retryable func(*task.Task) bool, run func(*task.Task) 
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Scheduler{workers: workerCount, retryable: retryable, run: run, work: make(chan workItem), ctx: ctx, cancel: cancel, lanesInFlight: make(map[any]bool)}
+	s := &Scheduler{workers: workerCount, retryable: retryable, run: run, work: make(chan workItem), ctx: ctx, cancel: cancel, lanesInFlight: make(map[any]bool),
+		flights: make(map[int64]*task.Task), yieldBarriers: make(map[*task.Task]int64)}
 	heap.Init(&s.waiting)
 	for range workerCount {
 		s.wg.Add(1)
@@ -102,7 +112,24 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 	defer s.mu.Unlock()
 	s.queueSeq++
 	t.PrepareYieldRequeue(s.queueSeq, now)
+	s.yieldBarriers[t] = s.flightSeq
 	heap.Push(&s.waiting, t)
+}
+
+// yieldHeldLocked reports whether a slice of t's fork family that was running
+// when t yielded is still running.
+func (s *Scheduler) yieldHeldLocked(t *task.Task) bool {
+	barrier, yielded := s.yieldBarriers[t]
+	if !yielded {
+		return false
+	}
+	family := t.ForkFamily()
+	for flight, running := range s.flights {
+		if flight <= barrier && running.ForkFamily() == family {
+			return true
+		}
+	}
+	return false
 }
 
 // Resume applies resume() by readier and queues the task at now, behind work
@@ -158,10 +185,16 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 // slice, once the scheduler has released its slot.
 func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*task.Task) bool, done func(Result)) int {
 	type started struct {
-		task *task.Task
-		lane any
+		task   *task.Task
+		lane   any
+		flight int64
 	}
 	s.mu.Lock()
+	for t := range s.yieldBarriers {
+		if t.GetState() != task.TaskQueued {
+			delete(s.yieldBarriers, t)
+		}
+	}
 	ready := s.readyLocked(now, catalog)
 	if s.order != nil {
 		s.order(ready)
@@ -169,18 +202,21 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 	var starting []started
 	for _, t := range ready {
 		lane := s.laneOf(t)
-		if s.heldLocked(lane) {
+		if s.heldLocked(lane) || s.yieldHeldLocked(t) {
 			s.pending = append(s.pending, t)
 			continue
 		}
 		if !claim(t) {
 			continue
 		}
+		delete(s.yieldBarriers, t)
 		s.inFlight++
 		if lane != nil {
 			s.lanesInFlight[lane] = true
 		}
-		starting = append(starting, started{task: t, lane: lane})
+		s.flightSeq++
+		s.flights[s.flightSeq] = t
+		starting = append(starting, started{task: t, lane: lane, flight: s.flightSeq})
 	}
 	s.wg.Add(len(starting))
 	s.mu.Unlock()
@@ -191,6 +227,7 @@ func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*ta
 			s.mu.Lock()
 			s.inFlight--
 			delete(s.lanesInFlight, item.lane)
+			delete(s.flights, item.flight)
 			s.mu.Unlock()
 			done(Result{Task: item.task, Err: err})
 		}()
@@ -339,7 +376,7 @@ func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 	visit := func(t *task.Task) {
 		// A task held behind dispatched work is woken by that work's completion,
 		// not by a timer that would fire immediately and select nothing.
-		if blocked[t] || s.heldLocked(s.laneOf(t)) {
+		if blocked[t] || s.heldLocked(s.laneOf(t)) || s.yieldHeldLocked(t) {
 			return
 		}
 		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
