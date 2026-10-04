@@ -73,7 +73,7 @@ func FlushPendingEffects(ctx *Execution) {
 			if conn == nil {
 				continue
 			}
-			trace.Notify(note.Player, note.Message)
+			trace.Notify(note.Player)
 			if err := conn.SendNotification(note); err != nil {
 				setErr(types.E_INVARG)
 			}

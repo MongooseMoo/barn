@@ -164,7 +164,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 
 	// Trace nested verb calls when tracing is enabled.
-	trace.VerbCall(objID, lookupVerbName, args, player, callerObj)
+	trace.VerbCall(objID, lookupVerbName, len(args), player, callerObj)
 
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
@@ -498,7 +498,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Trace pass() target call.
-	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, frame.Caller)
+	trace.VerbCall(frame.This, verbName, len(passArgs), frame.Player, frame.Caller)
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {

@@ -171,7 +171,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	if result.Flow == types.FlowException {
 		trace.Exception(objID, verbName, result.Error)
 	} else {
-		trace.VerbReturn(objID, verbName, result.Val)
+		trace.VerbReturn(objID, verbName, result.Val.Type())
 	}
 	return result
 }
@@ -268,7 +268,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 
 	// Trace only after the direct path owns either a physical lease or the
 	// caller's sweep barrier.
-	trace.VerbCall(objID, verbName, args, player, player)
+	trace.VerbCall(objID, verbName, len(args), player, player)
 
 	// Look up the verb to get its owner for programmer permissions
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
@@ -406,7 +406,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		trace.Exception(objID, verbName, result.Error)
 	} else {
 		// Trace return value
-		trace.VerbReturn(objID, verbName, result.Val)
+		trace.VerbReturn(objID, verbName, result.Val.Type())
 	}
 
 	// Clean up call stack
