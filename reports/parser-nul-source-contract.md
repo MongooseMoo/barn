@@ -86,3 +86,9 @@ Go checks in the Windows-created linked worktree set matching Linux GIT_DIR and
 GIT_WORK_TREE paths. Managed Python uses the WSL-only environment outside the
 checkout at `/root/.cache/barn-287-conformance-venv`. No manual servers, tracked
 database mutations, or direct pytest collection probes were used.
+
+Kept implementation: `c404116212f7574fd8dfdbf2dbaf05cd5046d1ae`.
+Originally built on #287, then rebased onto its verified merge
+`856e11a67b6fc89a67c60748bf538a1870ee1470`. Focused Windows NUL/comment tests
+passed after rebase (0.556s). Companion #287 conformance PR #118 is merged;
+this issue introduces no new shared-server assertion for invalid canonical bytes.
