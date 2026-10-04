@@ -1,0 +1,18 @@
+=== RUN   TestReadlineReadCallBudget
+=== RUN   TestReadlineReadCallBudget/0
+    fileio_readline_buffer_test.go:223: bytes=1 Go_Read_calls=1
+=== RUN   TestReadlineReadCallBudget/1
+    fileio_readline_buffer_test.go:223: bytes=2 Go_Read_calls=2
+=== RUN   TestReadlineReadCallBudget/32
+    fileio_readline_buffer_test.go:223: bytes=33 Go_Read_calls=3
+=== RUN   TestReadlineReadCallBudget/1024
+    fileio_readline_buffer_test.go:223: bytes=1025 Go_Read_calls=3
+=== RUN   TestReadlineReadCallBudget/65536
+    fileio_readline_buffer_test.go:223: bytes=65537 Go_Read_calls=18
+--- PASS: TestReadlineReadCallBudget (0.08s)
+    --- PASS: TestReadlineReadCallBudget/0 (0.02s)
+    --- PASS: TestReadlineReadCallBudget/1 (0.02s)
+    --- PASS: TestReadlineReadCallBudget/32 (0.02s)
+    --- PASS: TestReadlineReadCallBudget/1024 (0.01s)
+    --- PASS: TestReadlineReadCallBudget/65536 (0.02s)
+PASS

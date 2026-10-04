@@ -1,0 +1,69 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                                    │ experiments/2026-10-04-position-correct-readline/results/baseline.txt │ experiments/2026-10-04-position-correct-readline/results/candidate.txt │
+                                                    │                                sec/op                                 │                     sec/op                      vs base                │
+ReadlineBuffered/bytes=0/lines=1/binary=false-4                                                                 2.671µ ± 1%                                      2.759µ ± 1%   +3.30% (p=0.000 n=12)
+ReadlineBuffered/bytes=0/lines=1/binary=true-4                                                                  2.814µ ± 1%                                      2.926µ ± 1%   +3.96% (p=0.000 n=12)
+ReadlineBuffered/bytes=1/lines=64/binary=false-4                                                                184.3µ ± 1%                                      193.5µ ± 1%   +4.99% (p=0.000 n=12)
+ReadlineBuffered/bytes=1/lines=64/binary=true-4                                                                 188.2µ ± 1%                                      195.7µ ± 1%   +3.99% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=false-4                                                               39.791µ ± 0%                                      5.530µ ± 1%  -86.10% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=true-4                                                                40.239µ ± 0%                                      5.661µ ± 1%  -85.93% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=false-4                                                              2479.2µ ± 1%                                      340.5µ ± 1%  -86.26% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=true-4                                                               2501.3µ ± 1%                                      350.9µ ± 1%  -85.97% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=false-4                                                           1187.664µ ± 1%                                      8.577µ ± 2%  -99.28% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=true-4                                                             1194.63µ ± 0%                                      11.15µ ± 1%  -99.07% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=false-4                                                           76984.8µ ± 1%                                      279.1µ ± 2%  -99.64% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=true-4                                                            77101.9µ ± 1%                                      440.3µ ± 4%  -99.43% (p=0.000 n=12)
+geomean                                                                                                         408.8µ                                           39.26µ       -90.40%
+
+                                                    │ experiments/2026-10-04-position-correct-readline/results/baseline.txt │ experiments/2026-10-04-position-correct-readline/results/candidate.txt │
+                                                    │                                  B/s                                  │                     B/s                      vs base                   │
+ReadlineBuffered/bytes=0/lines=1/binary=false-4                                                                361.3Ki ± 3%                                  351.6Ki ± 3%      -2.70% (p=0.000 n=12)
+ReadlineBuffered/bytes=0/lines=1/binary=true-4                                                                 351.6Ki ± 3%                                  332.0Ki ± 0%      -5.56% (p=0.000 n=12)
+ReadlineBuffered/bytes=1/lines=64/binary=false-4                                                               678.7Ki ± 1%                                  644.5Ki ± 2%      -5.04% (p=0.000 n=12)
+ReadlineBuffered/bytes=1/lines=64/binary=true-4                                                                664.1Ki ± 1%                                  634.8Ki ± 0%      -4.41% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=false-4                                                               810.5Ki ± 0%                                 5825.2Ki ± 1%    +618.67% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=true-4                                                                800.8Ki ± 0%                                 5693.4Ki ± 1%    +610.98% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=false-4                                                              830.1Ki ± 1%                                 6059.6Ki ± 1%    +630.00% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=true-4                                                               820.3Ki ± 1%                                 5878.9Ki ± 0%    +616.67% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=false-4                                                             839.8Ki ± 1%                               116704.1Ki ± 2%  +13795.93% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=true-4                                                              839.8Ki ± 1%                                89799.8Ki ± 1%  +10592.44% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=false-4                                                            830.1Ki ± 1%                               229335.9Ki ± 2%  +27528.24% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=true-4                                                             830.1Ki ± 1%                               145361.3Ki ± 3%  +17411.76% (p=0.000 n=12)
+geomean                                                                                                        693.1Ki                                       7.040Mi         +940.10%
+
+                                                    │ experiments/2026-10-04-position-correct-readline/results/baseline.txt │ experiments/2026-10-04-position-correct-readline/results/candidate.txt │
+                                                    │                                 B/op                                  │                     B/op                      vs base                  │
+ReadlineBuffered/bytes=0/lines=1/binary=false-4                                                                  8.000 ± 0%                                     8.000 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=0/lines=1/binary=true-4                                                                   80.00 ± 0%                                     80.00 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=1/lines=64/binary=false-4                                                               5.000Ki ± 0%                                   5.000Ki ± 0%        ~ (p=0.217 n=12)
+ReadlineBuffered/bytes=1/lines=64/binary=true-4                                                                5.000Ki ± 0%                                   5.000Ki ± 0%        ~ (p=1.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=false-4                                                                 240.0 ± 0%                                     176.0 ± 0%  -26.67% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=true-4                                                                  304.0 ± 0%                                     240.0 ± 0%  -21.05% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=false-4                                                              15.00Ki ± 0%                                   11.01Ki ± 0%  -26.58% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=true-4                                                               19.00Ki ± 0%                                   15.01Ki ± 0%  -20.98% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=false-4                                                             6.547Ki ± 0%                                   4.441Ki ± 0%  -32.17% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=true-4                                                              6.547Ki ± 0%                                   4.440Ki ± 0%  -32.17% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=false-4                                                            557.6Ki ± 0%                                   581.2Ki ± 0%   +4.25% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=true-4                                                             557.6Ki ± 0%                                   581.2Ki ± 0%   +4.23% (p=0.000 n=12)
+geomean                                                                                                        3.552Ki                                        3.061Ki       -13.82%
+¹ all samples are equal
+
+                                                    │ experiments/2026-10-04-position-correct-readline/results/baseline.txt │ experiments/2026-10-04-position-correct-readline/results/candidate.txt │
+                                                    │                               allocs/op                               │                  allocs/op                    vs base                  │
+ReadlineBuffered/bytes=0/lines=1/binary=false-4                                                                  1.000 ± 0%                                     1.000 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=0/lines=1/binary=true-4                                                                   3.000 ± 0%                                     3.000 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=1/lines=64/binary=false-4                                                                 192.0 ± 0%                                     192.0 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=1/lines=64/binary=true-4                                                                  192.0 ± 0%                                     192.0 ± 0%        ~ (p=1.000 n=12) ¹
+ReadlineBuffered/bytes=32/lines=1/binary=false-4                                                                 8.000 ± 0%                                     6.000 ± 0%  -25.00% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=1/binary=true-4                                                                  9.000 ± 0%                                     7.000 ± 0%  -22.22% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=false-4                                                                512.0 ± 0%                                     384.0 ± 0%  -25.00% (p=0.000 n=12)
+ReadlineBuffered/bytes=32/lines=64/binary=true-4                                                                 576.0 ± 0%                                     448.0 ± 0%  -22.22% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=false-4                                                               19.00 ± 0%                                     12.00 ± 0%  -36.84% (p=0.000 n=12)
+ReadlineBuffered/bytes=1024/lines=1/binary=true-4                                                                19.00 ± 0%                                     12.00 ± 0%  -36.84% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=false-4                                                              45.00 ± 0%                                     34.00 ± 0%  -24.44% (p=0.000 n=12)
+ReadlineBuffered/bytes=65536/lines=1/binary=true-4                                                               45.00 ± 0%                                     34.00 ± 0%  -24.44% (p=0.000 n=12)
+geomean                                                                                                          33.08                                          26.73       -19.20%
+¹ all samples are equal

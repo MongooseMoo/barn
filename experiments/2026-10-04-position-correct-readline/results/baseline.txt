@@ -1,0 +1,215 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89180	      2672 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85170	      2826 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1297	    186439 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1272	    189674 ns/op	   0.67 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6040	     39805 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5871	     40541 ns/op	   0.81 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      93	   2526360 ns/op	   0.84 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      93	   2525664 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     198	   1208895 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1198098 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  77458352 ns/op	   0.85 MB/s	  570928 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77721797 ns/op	   0.84 MB/s	  570928 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   88239	      2684 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85206	      2828 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1296	    185064 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1262	    189760 ns/op	   0.67 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5964	     39763 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5924	     40325 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      94	   2471438 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      94	   2505910 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1185579 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     199	   1197075 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  77168706 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76632537 ns/op	   0.86 MB/s	  570933 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   90394	      2642 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85816	      2796 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1302	    183749 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1281	    188645 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6055	     39759 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5862	     40308 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      97	   2470082 ns/op	   0.86 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2514186 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1184898 ns/op	   0.87 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1190135 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76753045 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76765455 ns/op	   0.85 MB/s	  570981 B/op	      46 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   90340	      2657 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85683	      2801 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1314	    184115 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1278	    187798 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6066	     40084 ns/op	   0.82 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5887	     39975 ns/op	   0.83 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      91	   2486253 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      94	   2496345 ns/op	   0.85 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1185278 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1192193 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  77292028 ns/op	   0.85 MB/s	  570928 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77736034 ns/op	   0.84 MB/s	  570933 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89724	      2669 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85258	      2815 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1220	    189544 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1262	    188173 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5914	     39777 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5984	     40198 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      94	   2471660 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2502065 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     202	   1183016 ns/op	   0.87 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     201	   1187273 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76800992 ns/op	   0.85 MB/s	  570928 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76488685 ns/op	   0.86 MB/s	  570928 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89712	      2676 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   84367	      2863 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1273	    187111 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1270	    190986 ns/op	   0.67 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5938	     39889 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5950	     40090 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      93	   2502621 ns/op	   0.84 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2500587 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1189748 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     198	   1204090 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76383527 ns/op	   0.86 MB/s	  570928 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77161815 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89766	      2675 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85664	      2805 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1310	    184029 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1278	    188196 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6042	     39540 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    6021	     39774 ns/op	   0.83 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      96	   2478620 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2492288 ns/op	   0.85 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     202	   1180490 ns/op	   0.87 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1190116 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76788154 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76573760 ns/op	   0.86 MB/s	  570933 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89538	      2665 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   86205	      2804 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1300	    183872 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1274	    188032 ns/op	   0.68 MB/s	    5124 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5997	     40064 ns/op	   0.82 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5936	     40281 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      93	   2479694 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      93	   2516192 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     200	   1197408 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     201	   1187738 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  77681518 ns/op	   0.84 MB/s	  570928 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  78255940 ns/op	   0.84 MB/s	  570949 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89216	      2676 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   83893	      2865 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1281	    185925 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1282	    188193 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5995	     39821 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5857	     40312 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      96	   2497373 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      97	   2498821 ns/op	   0.85 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     202	   1179915 ns/op	   0.87 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1191245 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76471354 ns/op	   0.86 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76632589 ns/op	   0.86 MB/s	  570933 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   89474	      2655 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   86362	      2808 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1309	    183509 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1293	    187893 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    5958	     39702 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5998	     40373 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      96	   2474533 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2493730 ns/op	   0.85 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     199	   1204075 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     199	   1200525 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76756443 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77041996 ns/op	   0.85 MB/s	  570928 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   90871	      2666 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85288	      2813 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1297	    184511 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1266	    188386 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6048	     39750 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5874	     40156 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      93	   2509688 ns/op	   0.84 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      93	   2528630 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     198	   1203224 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     198	   1206705 ns/op	   0.85 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  77568282 ns/op	   0.84 MB/s	  570981 B/op	      46 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77678506 ns/op	   0.84 MB/s	  570949 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   88988	      2693 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   84634	      2832 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1305	    183642 ns/op	   0.70 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1274	    187650 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6068	     39847 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5932	     40185 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      96	   2469638 ns/op	   0.86 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      94	   2497527 ns/op	   0.85 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1198634 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1198238 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  78175839 ns/op	   0.84 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77988410 ns/op	   0.84 MB/s	  570928 B/op	      45 allocs/op
+PASS

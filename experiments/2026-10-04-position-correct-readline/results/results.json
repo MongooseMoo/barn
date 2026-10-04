@@ -1,0 +1,2538 @@
+{
+  "toolchain": "/tmp/barn-361-tools/baseline.test: go1.24.6\n/tmp/barn-361-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "38140bc557d2b2b18400cc018890e66d6b60af9d8ba8301ace2e69f0b289e18d",
+    "candidate": "2732cd9abb41162b2c26fc3f63e88f48cf4c9ec6638e382da3fb715eaa931da0"
+  },
+  "seed": 361,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "200ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "summary": {
+    "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+      "percent": 3.468244807556964,
+      "ci95_percent": [
+        2.9433056123581602,
+        4.102374705649381
+      ],
+      "holdout_percent": 2.3908793604189515,
+      "B/op": {
+        "baseline": [
+          8.0
+        ],
+        "candidate": [
+          8.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1.0
+        ],
+        "candidate": [
+          1.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+      "percent": 4.300224135374342,
+      "ci95_percent": [
+        3.34696758367401,
+        5.515874788532926
+      ],
+      "holdout_percent": 3.567854723785313,
+      "B/op": {
+        "baseline": [
+          80.0
+        ],
+        "candidate": [
+          80.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          3.0
+        ],
+        "candidate": [
+          3.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+      "percent": 5.4006927509301805,
+      "ci95_percent": [
+        4.407321764825323,
+        6.747721050246214
+      ],
+      "holdout_percent": 4.248383498575148,
+      "B/op": {
+        "baseline": [
+          5120.0
+        ],
+        "candidate": [
+          5120.0,
+          5124.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          192.0
+        ],
+        "candidate": [
+          192.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+      "percent": 4.244900698613141,
+      "ci95_percent": [
+        3.7303923568192676,
+        4.777987067841494
+      ],
+      "holdout_percent": 3.509832477194652,
+      "B/op": {
+        "baseline": [
+          5120.0,
+          5124.0
+        ],
+        "candidate": [
+          5120.0,
+          5124.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          192.0
+        ],
+        "candidate": [
+          192.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+      "percent": -99.27543006701568,
+      "ci95_percent": [
+        -99.28047449309274,
+        -99.27021469139954
+      ],
+      "holdout_percent": -99.25865261541243,
+      "B/op": {
+        "baseline": [
+          6704.0
+        ],
+        "candidate": [
+          4547.0,
+          4548.0,
+          4549.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          19.0
+        ],
+        "candidate": [
+          12.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+      "percent": -99.06792874968225,
+      "ci95_percent": [
+        -99.07385060859339,
+        -99.06161960873561
+      ],
+      "holdout_percent": -99.03554259253885,
+      "B/op": {
+        "baseline": [
+          6704.0
+        ],
+        "candidate": [
+          4546.0,
+          4547.0,
+          4548.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          19.0
+        ],
+        "candidate": [
+          12.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+      "percent": -86.03454924223057,
+      "ci95_percent": [
+        -86.1167643058705,
+        -85.93038782461578
+      ],
+      "holdout_percent": -86.03498785031735,
+      "B/op": {
+        "baseline": [
+          240.0
+        ],
+        "candidate": [
+          176.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          8.0
+        ],
+        "candidate": [
+          6.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+      "percent": -85.80781870363138,
+      "ci95_percent": [
+        -85.93520226385122,
+        -85.6259867446425
+      ],
+      "holdout_percent": -85.90036141892968,
+      "B/op": {
+        "baseline": [
+          304.0
+        ],
+        "candidate": [
+          240.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          9.0
+        ],
+        "candidate": [
+          7.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+      "percent": -86.2152309952201,
+      "ci95_percent": [
+        -86.34181508565173,
+        -86.02800436136098
+      ],
+      "holdout_percent": -86.24358054659326,
+      "B/op": {
+        "baseline": [
+          15360.0
+        ],
+        "candidate": [
+          11272.0,
+          11277.0,
+          11278.0,
+          11283.0,
+          11284.0,
+          11289.0,
+          11290.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          512.0
+        ],
+        "candidate": [
+          384.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+      "percent": -85.9885044494968,
+      "ci95_percent": [
+        -86.05046151772007,
+        -85.91826918808924
+      ],
+      "holdout_percent": -86.02864636588521,
+      "B/op": {
+        "baseline": [
+          19456.0
+        ],
+        "candidate": [
+          15375.0,
+          15381.0,
+          15387.0,
+          15389.0,
+          15395.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          576.0
+        ],
+        "candidate": [
+          448.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+      "percent": -99.6359839333714,
+      "ci95_percent": [
+        -99.6400080457718,
+        -99.63171386078639
+      ],
+      "holdout_percent": -99.61040181229707,
+      "B/op": {
+        "baseline": [
+          570928.0,
+          570933.0,
+          570981.0
+        ],
+        "candidate": [
+          595121.0,
+          595140.0,
+          595143.0,
+          595152.0,
+          595166.0,
+          595174.0,
+          595175.0,
+          595176.0,
+          595182.0,
+          595183.0,
+          595193.0,
+          595209.0,
+          595277.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          45.0,
+          46.0
+        ],
+        "candidate": [
+          34.0
+        ]
+      }
+    },
+    "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+      "percent": -99.42654239771682,
+      "ci95_percent": [
+        -99.43586696402397,
+        -99.41553010818126
+      ],
+      "holdout_percent": -99.40062337426603,
+      "B/op": {
+        "baseline": [
+          570928.0,
+          570933.0,
+          570949.0,
+          570981.0
+        ],
+        "candidate": [
+          595058.0,
+          595061.0,
+          595064.0,
+          595069.0,
+          595082.0,
+          595085.0,
+          595103.0,
+          595104.0,
+          595110.0,
+          595112.0,
+          595118.0,
+          595120.0,
+          595122.0,
+          595178.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          45.0,
+          46.0
+        ],
+        "candidate": [
+          34.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2836.0,
+          "MB/s": 0.35,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 3107.0,
+          "MB/s": 0.32,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 208243.0,
+          "MB/s": 0.61,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 200655.0,
+          "MB/s": 0.64,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5578.0,
+          "MB/s": 5.92,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5725.0,
+          "MB/s": 5.76,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 340780.0,
+          "MB/s": 6.2,
+          "B/op": 11284.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 349987.0,
+          "MB/s": 6.03,
+          "B/op": 15387.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8784.0,
+          "MB/s": 116.69,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11303.0,
+          "MB/s": 90.68,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 294092.0,
+          "MB/s": 222.85,
+          "B/op": 595143.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 460050.0,
+          "MB/s": 142.46,
+          "B/op": 595103.0,
+          "allocs/op": 34.0
+        }
+      },
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2672.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2826.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 186439.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 189674.0,
+          "MB/s": 0.67,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39805.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40541.0,
+          "MB/s": 0.81,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2526360.0,
+          "MB/s": 0.84,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2525664.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1208895.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1198098.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 77458352.0,
+          "MB/s": 0.85,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77721797.0,
+          "MB/s": 0.84,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2684.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2828.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 185064.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 189760.0,
+          "MB/s": 0.67,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39763.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40325.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2471438.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2505910.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1185579.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1197075.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 77168706.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76632537.0,
+          "MB/s": 0.86,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2765.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2940.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193651.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 196309.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5534.0,
+          "MB/s": 5.96,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5651.0,
+          "MB/s": 5.84,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 340922.0,
+          "MB/s": 6.19,
+          "B/op": 11289.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 351913.0,
+          "MB/s": 6.0,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8836.0,
+          "MB/s": 116.0,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11065.0,
+          "MB/s": 92.64,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 275988.0,
+          "MB/s": 237.46,
+          "B/op": 595166.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 424708.0,
+          "MB/s": 154.31,
+          "B/op": 595104.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2642.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2796.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 183749.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188645.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39759.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40308.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2470082.0,
+          "MB/s": 0.86,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2514186.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1184898.0,
+          "MB/s": 0.87,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1190135.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76753045.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76765455.0,
+          "MB/s": 0.85,
+          "B/op": 570981.0,
+          "allocs/op": 46.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2748.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2921.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193043.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195335.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5521.0,
+          "MB/s": 5.98,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5628.0,
+          "MB/s": 5.86,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 339447.0,
+          "MB/s": 6.22,
+          "B/op": 11290.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 348536.0,
+          "MB/s": 6.06,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8534.0,
+          "MB/s": 120.11,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11200.0,
+          "MB/s": 91.52,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 273301.0,
+          "MB/s": 239.8,
+          "B/op": 595175.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 437843.0,
+          "MB/s": 149.68,
+          "B/op": 595178.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2657.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2801.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 184115.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 187798.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 40084.0,
+          "MB/s": 0.82,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 39975.0,
+          "MB/s": 0.83,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2486253.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2496345.0,
+          "MB/s": 0.85,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1185278.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1192193.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 77292028.0,
+          "MB/s": 0.85,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77736034.0,
+          "MB/s": 0.84,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2774.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2941.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 197173.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 197059.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5599.0,
+          "MB/s": 5.89,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5724.0,
+          "MB/s": 5.76,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 343251.0,
+          "MB/s": 6.15,
+          "B/op": 11278.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 353157.0,
+          "MB/s": 5.98,
+          "B/op": 15389.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8631.0,
+          "MB/s": 118.76,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11180.0,
+          "MB/s": 91.68,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 278250.0,
+          "MB/s": 235.53,
+          "B/op": 595121.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 442762.0,
+          "MB/s": 148.02,
+          "B/op": 595061.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2777.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2952.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 196098.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 198712.0,
+          "MB/s": 0.64,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5729.0,
+          "MB/s": 5.76,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 6067.0,
+          "MB/s": 5.44,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 364293.0,
+          "MB/s": 5.8,
+          "B/op": 11272.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 357607.0,
+          "MB/s": 5.91,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8583.0,
+          "MB/s": 119.42,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11337.0,
+          "MB/s": 90.41,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 281007.0,
+          "MB/s": 233.22,
+          "B/op": 595209.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 435871.0,
+          "MB/s": 150.36,
+          "B/op": 595120.0,
+          "allocs/op": 34.0
+        }
+      },
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2669.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2815.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 189544.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188173.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39777.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40198.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2471660.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2502065.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1183016.0,
+          "MB/s": 0.87,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1187273.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76800992.0,
+          "MB/s": 0.85,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76488685.0,
+          "MB/s": 0.86,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2676.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2863.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 187111.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 190986.0,
+          "MB/s": 0.67,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39889.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40090.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2502621.0,
+          "MB/s": 0.84,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2500587.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1189748.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1204090.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76383527.0,
+          "MB/s": 0.86,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77161815.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2756.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2914.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193469.0,
+          "MB/s": 0.66,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195744.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5507.0,
+          "MB/s": 5.99,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5690.0,
+          "MB/s": 5.8,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 339869.0,
+          "MB/s": 6.21,
+          "B/op": 11284.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 351607.0,
+          "MB/s": 6.01,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8571.0,
+          "MB/s": 119.59,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11114.0,
+          "MB/s": 92.23,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 284785.0,
+          "MB/s": 230.13,
+          "B/op": 595277.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 477774.0,
+          "MB/s": 137.17,
+          "B/op": 595085.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2738.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2923.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 192951.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195335.0,
+          "MB/s": 0.66,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5535.0,
+          "MB/s": 5.96,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5658.0,
+          "MB/s": 5.83,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 339994.0,
+          "MB/s": 6.21,
+          "B/op": 11278.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 348381.0,
+          "MB/s": 6.06,
+          "B/op": 15381.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8547.0,
+          "MB/s": 119.92,
+          "B/op": 4549.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11042.0,
+          "MB/s": 92.83,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 285987.0,
+          "MB/s": 229.16,
+          "B/op": 595183.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 430790.0,
+          "MB/s": 152.13,
+          "B/op": 595110.0,
+          "allocs/op": 34.0
+        }
+      },
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2675.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2805.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 184029.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188196.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39540.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 39774.0,
+          "MB/s": 0.83,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2478620.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2492288.0,
+          "MB/s": 0.85,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1180490.0,
+          "MB/s": 0.87,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1190116.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76788154.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76573760.0,
+          "MB/s": 0.86,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2738.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2928.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 192177.0,
+          "MB/s": 0.67,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195546.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5525.0,
+          "MB/s": 5.97,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5654.0,
+          "MB/s": 5.84,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 341593.0,
+          "MB/s": 6.18,
+          "B/op": 11278.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 350891.0,
+          "MB/s": 6.02,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8539.0,
+          "MB/s": 120.03,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11001.0,
+          "MB/s": 93.18,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 274875.0,
+          "MB/s": 238.42,
+          "B/op": 595174.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 432456.0,
+          "MB/s": 151.55,
+          "B/op": 595112.0,
+          "allocs/op": 34.0
+        }
+      },
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2665.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2804.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 183872.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188032.0,
+          "MB/s": 0.68,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 40064.0,
+          "MB/s": 0.82,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40281.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2479694.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2516192.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1197408.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1187738.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 77681518.0,
+          "MB/s": 0.84,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 78255940.0,
+          "MB/s": 0.84,
+          "B/op": 570949.0,
+          "allocs/op": 45.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2676.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2865.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 185925.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188193.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39821.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40312.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2497373.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2498821.0,
+          "MB/s": 0.85,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1179915.0,
+          "MB/s": 0.87,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1191245.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76471354.0,
+          "MB/s": 0.86,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76632589.0,
+          "MB/s": 0.86,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2748.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2920.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 192800.0,
+          "MB/s": 0.66,
+          "B/op": 5124.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195495.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5522.0,
+          "MB/s": 5.98,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5652.0,
+          "MB/s": 5.84,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 340124.0,
+          "MB/s": 6.21,
+          "B/op": 11277.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 349029.0,
+          "MB/s": 6.05,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8522.0,
+          "MB/s": 120.28,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 10987.0,
+          "MB/s": 93.29,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 277668.0,
+          "MB/s": 236.03,
+          "B/op": 595193.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 425253.0,
+          "MB/s": 154.11,
+          "B/op": 595122.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2655.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2808.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 183509.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 187893.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39702.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40373.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2474533.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2493730.0,
+          "MB/s": 0.85,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1204075.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1200525.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76756443.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77041996.0,
+          "MB/s": 0.85,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2731.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2906.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193566.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195458.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5512.0,
+          "MB/s": 5.99,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5657.0,
+          "MB/s": 5.83,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 339363.0,
+          "MB/s": 6.22,
+          "B/op": 11284.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 349745.0,
+          "MB/s": 6.04,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8520.0,
+          "MB/s": 120.31,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 10990.0,
+          "MB/s": 93.27,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 278444.0,
+          "MB/s": 235.37,
+          "B/op": 595176.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 455795.0,
+          "MB/s": 143.79,
+          "B/op": 595064.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2666.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2813.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 184511.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188386.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39750.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40156.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2509688.0,
+          "MB/s": 0.84,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2528630.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1203224.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1206705.0,
+          "MB/s": 0.85,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 77568282.0,
+          "MB/s": 0.84,
+          "B/op": 570981.0,
+          "allocs/op": 46.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77678506.0,
+          "MB/s": 0.84,
+          "B/op": 570949.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2770.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2944.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 195517.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 198186.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5643.0,
+          "MB/s": 5.85,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5723.0,
+          "MB/s": 5.77,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 343825.0,
+          "MB/s": 6.14,
+          "B/op": 11278.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 351860.0,
+          "MB/s": 6.0,
+          "B/op": 15387.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8796.0,
+          "MB/s": 116.52,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11206.0,
+          "MB/s": 91.47,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 284714.0,
+          "MB/s": 230.19,
+          "B/op": 595140.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 447144.0,
+          "MB/s": 146.57,
+          "B/op": 595058.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2693.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2832.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 183642.0,
+          "MB/s": 0.7,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 187650.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39847.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40185.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2469638.0,
+          "MB/s": 0.86,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2497527.0,
+          "MB/s": 0.85,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1198634.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1198238.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 78175839.0,
+          "MB/s": 0.84,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77988410.0,
+          "MB/s": 0.84,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2761.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2920.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193219.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 195681.0,
+          "MB/s": 0.65,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5526.0,
+          "MB/s": 5.97,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5663.0,
+          "MB/s": 5.83,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 340269.0,
+          "MB/s": 6.21,
+          "B/op": 11278.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 350868.0,
+          "MB/s": 6.02,
+          "B/op": 15387.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8765.0,
+          "MB/s": 116.94,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11272.0,
+          "MB/s": 90.93,
+          "B/op": 4546.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 279703.0,
+          "MB/s": 234.31,
+          "B/op": 595166.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 446470.0,
+          "MB/s": 146.79,
+          "B/op": 595069.0,
+          "allocs/op": 34.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2737.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2918.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193698.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 194918.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5549.0,
+          "MB/s": 5.95,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5681.0,
+          "MB/s": 5.81,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 342405.0,
+          "MB/s": 6.17,
+          "B/op": 11283.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 353271.0,
+          "MB/s": 5.98,
+          "B/op": 15375.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8913.0,
+          "MB/s": 115.0,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11513.0,
+          "MB/s": 89.03,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 318028.0,
+          "MB/s": 206.07,
+          "B/op": 595152.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 485900.0,
+          "MB/s": 134.88,
+          "B/op": 595082.0,
+          "allocs/op": 34.0
+        }
+      },
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2691.0,
+          "MB/s": 0.37,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2829.0,
+          "MB/s": 0.35,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 186074.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 188442.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39775.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40269.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2482751.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2526023.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1192153.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1193619.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76697343.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 76610280.0,
+          "MB/s": 0.86,
+          "B/op": 570928.0,
+          "allocs/op": 45.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2665.0,
+          "MB/s": 0.38,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2806.0,
+          "MB/s": 0.36,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 185513.0,
+          "MB/s": 0.69,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 187937.0,
+          "MB/s": 0.68,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 39645.0,
+          "MB/s": 0.83,
+          "B/op": 240.0,
+          "allocs/op": 8.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 40194.0,
+          "MB/s": 0.82,
+          "B/op": 304.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 2488002.0,
+          "MB/s": 0.85,
+          "B/op": 15360.0,
+          "allocs/op": 512.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 2506001.0,
+          "MB/s": 0.84,
+          "B/op": 19456.0,
+          "allocs/op": 576.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 1186219.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 1189897.0,
+          "MB/s": 0.86,
+          "B/op": 6704.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 76793487.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 77075283.0,
+          "MB/s": 0.85,
+          "B/op": 570933.0,
+          "allocs/op": 45.0
+        }
+      },
+      "candidate": {
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false": {
+          "ns/op": 2747.0,
+          "MB/s": 0.36,
+          "B/op": 8.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true": {
+          "ns/op": 2918.0,
+          "MB/s": 0.34,
+          "B/op": 80.0,
+          "allocs/op": 3.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false": {
+          "ns/op": 193675.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true": {
+          "ns/op": 194671.0,
+          "MB/s": 0.66,
+          "B/op": 5120.0,
+          "allocs/op": 192.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false": {
+          "ns/op": 5542.0,
+          "MB/s": 5.96,
+          "B/op": 176.0,
+          "allocs/op": 6.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true": {
+          "ns/op": 5664.0,
+          "MB/s": 5.83,
+          "B/op": 240.0,
+          "allocs/op": 7.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false": {
+          "ns/op": 341393.0,
+          "MB/s": 6.19,
+          "B/op": 11283.0,
+          "allocs/op": 384.0
+        },
+        "BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true": {
+          "ns/op": 349774.0,
+          "MB/s": 6.04,
+          "B/op": 15395.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false": {
+          "ns/op": 8720.0,
+          "MB/s": 117.55,
+          "B/op": 4547.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true": {
+          "ns/op": 11475.0,
+          "MB/s": 89.32,
+          "B/op": 4548.0,
+          "allocs/op": 12.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false": {
+          "ns/op": 281108.0,
+          "MB/s": 233.14,
+          "B/op": 595182.0,
+          "allocs/op": 34.0
+        },
+        "BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true": {
+          "ns/op": 436571.0,
+          "MB/s": 150.12,
+          "B/op": 595118.0,
+          "allocs/op": 34.0
+        }
+      }
+    }
+  ]
+}

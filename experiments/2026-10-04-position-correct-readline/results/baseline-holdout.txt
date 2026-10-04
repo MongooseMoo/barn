@@ -1,0 +1,35 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   87642	      2691 ns/op	   0.37 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   84321	      2829 ns/op	   0.35 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1296	    186074 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1255	    188442 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6019	     39775 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5995	     40269 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      96	   2482751 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2526023 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     200	   1192153 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     201	   1193619 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76697343 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  76610280 ns/op	   0.86 MB/s	  570928 B/op	      45 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=false-4         	   86761	      2665 ns/op	   0.38 MB/s	       8 B/op	       1 allocs/op
+BenchmarkReadlineBuffered/bytes=0/lines=1/binary=true-4          	   85449	      2806 ns/op	   0.36 MB/s	      80 B/op	       3 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=false-4        	    1305	    185513 ns/op	   0.69 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=1/lines=64/binary=true-4         	    1288	    187937 ns/op	   0.68 MB/s	    5120 B/op	     192 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=false-4        	    6007	     39645 ns/op	   0.83 MB/s	     240 B/op	       8 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=1/binary=true-4         	    5968	     40194 ns/op	   0.82 MB/s	     304 B/op	       9 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=false-4       	      94	   2488002 ns/op	   0.85 MB/s	   15360 B/op	     512 allocs/op
+BenchmarkReadlineBuffered/bytes=32/lines=64/binary=true-4        	      96	   2506001 ns/op	   0.84 MB/s	   19456 B/op	     576 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=false-4      	     201	   1186219 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=1024/lines=1/binary=true-4       	     200	   1189897 ns/op	   0.86 MB/s	    6704 B/op	      19 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=false-4     	       3	  76793487 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+BenchmarkReadlineBuffered/bytes=65536/lines=1/binary=true-4      	       3	  77075283 ns/op	   0.85 MB/s	  570933 B/op	      45 allocs/op
+PASS
