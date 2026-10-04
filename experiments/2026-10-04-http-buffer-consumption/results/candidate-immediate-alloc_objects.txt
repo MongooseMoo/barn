@@ -1,0 +1,30 @@
+File: candidate.test
+Build ID: b8a226fb0dd4ad29ce6d216822d2b7c257bc2b05
+Type: alloc_objects
+Time: 2026-10-03 22:31:46 MDT
+Active filters:
+   focus=(prepareHTTPRead|collectHTTPWakeupsLocked)
+Showing nodes accounting for 39426, 33.09% of 119136 total
+      flat  flat%   sum%        cum   cum%
+     15488 13.00% 13.00%      15488 13.00%  github.com/MongooseMoo/barn/types.NewStr (inline)
+      4224  3.55% 16.55%       4224  3.55%  github.com/MongooseMoo/barn/types.newMapIndexBranch (inline)
+      2817  2.36% 18.91%      39426 33.09%  github.com/MongooseMoo/barn/builtins.parseHTTPRequest
+      2816  2.36% 21.27%       8037  6.75%  github.com/MongooseMoo/barn/builtins.parseHTTPHeaders
+      2816  2.36% 23.64%       2816  2.36%  github.com/MongooseMoo/barn/types.(*mapBuilder).leaf (inline)
+      2816  2.36% 26.00%       2816  2.36%  github.com/MongooseMoo/barn/types.(*mapBuilder).order (inline)
+      2816  2.36% 28.37%      14080 11.82%  github.com/MongooseMoo/barn/types.NewMap
+      1409  1.18% 29.55%       1409  1.18%  strings.(*Builder).WriteByte (inline)
+      1408  1.18% 30.73%       1408  1.18%  bytes.Fields
+      1408  1.18% 31.91%       1408  1.18%  github.com/MongooseMoo/barn/types.foldASCII (inline)
+      1408  1.18% 33.09%       1408  1.18%  strings.(*Builder).grow
+         0     0% 33.09%      39426 33.09%  github.com/MongooseMoo/barn/builtins.(*Session).prepareHTTPRead
+         0     0% 33.09%      39426 33.09%  github.com/MongooseMoo/barn/builtins.BenchmarkHTTPBufferDrain.func1
+         0     0% 33.09%       1409  1.18%  github.com/MongooseMoo/barn/builtins.encodeBinaryStr
+         0     0% 33.09%      39426 33.09%  github.com/MongooseMoo/barn/builtins.parseHTTPMessage
+         0     0% 33.09%       7040  5.91%  github.com/MongooseMoo/barn/types.(*mapBuilder).put
+         0     0% 33.09%       1408  1.18%  github.com/MongooseMoo/barn/types.keyHash
+         0     0% 33.09%       1408  1.18%  strings.(*Builder).Grow
+         0     0% 33.09%       1408  1.18%  strings.ToLower
+         0     0% 33.09%      35842 30.08%  testing.(*B).launch
+         0     0% 33.09%       3584  3.01%  testing.(*B).run1.func1
+         0     0% 33.09%      39426 33.09%  testing.(*B).runN

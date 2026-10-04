@@ -1,0 +1,3018 @@
+{
+  "toolchain": "/tmp/barn-351-tools/baseline.test: go1.24.6\n/tmp/barn-351-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "50afc5c7526b370d725d535517165a3e86849bcaf8c0071a1ecaa05589deedc5",
+    "candidate": "b4ed510680539be3671455509fc7e01be8031f6185aa4fa4203e187f60e1eba4"
+  },
+  "seed": 351,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "200ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "summary": {
+    "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+      "percent": -0.08846980950908412,
+      "ci95_percent": [
+        -1.1575424956387415,
+        0.8476005322529678
+      ],
+      "holdout_percent": -1.0678230465585803,
+      "B/op": {
+        "baseline": [
+          517525.0,
+          517526.0,
+          517527.0,
+          517528.0,
+          517529.0,
+          517685.0,
+          517686.0,
+          517687.0,
+          517688.0
+        ],
+        "candidate": [
+          517526.0,
+          517527.0,
+          517528.0,
+          517541.0,
+          517687.0,
+          517688.0,
+          517689.0,
+          517846.0,
+          517848.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          53.0,
+          54.0
+        ],
+        "candidate": [
+          53.0,
+          54.0,
+          55.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+      "percent": 1.4776291531285013,
+      "ci95_percent": [
+        -1.2399406179604444,
+        4.275308952914281
+      ],
+      "holdout_percent": 0.6997647352021019,
+      "B/op": {
+        "baseline": [
+          2704.0,
+          2864.0
+        ],
+        "candidate": [
+          2704.0,
+          2864.0,
+          3024.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          29.0,
+          30.0
+        ],
+        "candidate": [
+          29.0,
+          30.0,
+          31.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+      "percent": -32.24849191364939,
+      "ci95_percent": [
+        -33.80067433294879,
+        -30.678788275778878
+      ],
+      "holdout_percent": -33.5265435384278,
+      "B/op": {
+        "baseline": [
+          723937.0,
+          723938.0,
+          723939.0,
+          723941.0,
+          744418.0,
+          744419.0,
+          744420.0
+        ],
+        "candidate": [
+          346119.0,
+          346126.0,
+          366600.0,
+          387079.0,
+          387080.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          3839.0,
+          3967.0
+        ],
+        "candidate": [
+          3712.0,
+          3840.0,
+          3968.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+      "percent": -6.674639546876692,
+      "ci95_percent": [
+        -9.242658689366213,
+        -3.9386010675008576
+      ],
+      "holdout_percent": -7.512000441553967,
+      "B/op": {
+        "baseline": [
+          48592.0,
+          48593.0,
+          48594.0,
+          51153.0,
+          51154.0
+        ],
+        "candidate": [
+          43264.0,
+          43265.0,
+          45824.0,
+          48384.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          479.0,
+          495.0
+        ],
+        "candidate": [
+          464.0,
+          480.0,
+          496.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+      "percent": 0.19762216477585692,
+      "ci95_percent": [
+        -1.8801359167726073,
+        1.9975292837689285
+      ],
+      "holdout_percent": -3.4484190091153444,
+      "B/op": {
+        "baseline": [
+          517557.0,
+          517558.0,
+          517559.0,
+          517560.0,
+          517562.0,
+          517717.0,
+          517718.0,
+          517719.0
+        ],
+        "candidate": [
+          517558.0,
+          517559.0,
+          517560.0,
+          517561.0,
+          517718.0,
+          517719.0,
+          517720.0,
+          517733.0,
+          517878.0,
+          517879.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          54.0,
+          55.0
+        ],
+        "candidate": [
+          54.0,
+          55.0,
+          56.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+      "percent": 0.017227334173353093,
+      "ci95_percent": [
+        -2.499983610345946,
+        2.52919014854307
+      ],
+      "holdout_percent": 0.47950919968706707,
+      "B/op": {
+        "baseline": [
+          2736.0,
+          2896.0
+        ],
+        "candidate": [
+          2736.0,
+          2896.0,
+          3056.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          30.0,
+          31.0
+        ],
+        "candidate": [
+          30.0,
+          31.0,
+          32.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+      "percent": -34.68080643277601,
+      "ci95_percent": [
+        -37.627720040944155,
+        -31.934963142943673
+      ],
+      "holdout_percent": -34.66529181809322,
+      "B/op": {
+        "baseline": [
+          733250.0,
+          733251.0,
+          733252.0,
+          733255.0,
+          753732.0,
+          753733.0,
+          753734.0
+        ],
+        "candidate": [
+          355431.0,
+          355432.0,
+          355433.0,
+          375912.0,
+          375913.0,
+          396392.0,
+          396393.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          3847.0,
+          3975.0
+        ],
+        "candidate": [
+          3720.0,
+          3848.0,
+          3976.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+      "percent": -8.042601531488769,
+      "ci95_percent": [
+        -10.001312861509259,
+        -6.042985049493687
+      ],
+      "holdout_percent": -9.057155015027563,
+      "B/op": {
+        "baseline": [
+          49584.0,
+          49585.0,
+          52145.0
+        ],
+        "candidate": [
+          44256.0,
+          46816.0,
+          49376.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          484.0,
+          500.0
+        ],
+        "candidate": [
+          469.0,
+          485.0,
+          501.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+      "percent": -0.05872003057724173,
+      "ci95_percent": [
+        -3.293427205456445,
+        1.9278303558341925
+      ],
+      "holdout_percent": -0.8205903652270141,
+      "B/op": {
+        "baseline": [
+          517457.0,
+          517458.0,
+          517459.0,
+          517460.0,
+          517616.0,
+          517617.0,
+          517618.0,
+          517777.0,
+          517938.0
+        ],
+        "candidate": [
+          517458.0,
+          517459.0,
+          517460.0,
+          517461.0,
+          517617.0,
+          517618.0,
+          517619.0,
+          517620.0,
+          517779.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          51.0,
+          52.0,
+          53.0,
+          54.0
+        ],
+        "candidate": [
+          51.0,
+          52.0,
+          53.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+      "percent": 0.9034900788862377,
+      "ci95_percent": [
+        -2.2877412138767594,
+        4.395227608347163
+      ],
+      "holdout_percent": -5.976143757333407,
+      "B/op": {
+        "baseline": [
+          2640.0,
+          2800.0,
+          2960.0,
+          3120.0
+        ],
+        "candidate": [
+          2640.0,
+          2800.0,
+          2960.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          27.0,
+          28.0,
+          29.0,
+          30.0
+        ],
+        "candidate": [
+          27.0,
+          28.0,
+          29.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+      "percent": -32.74275769424104,
+      "ci95_percent": [
+        -34.55320989378421,
+        -30.917581492153936
+      ],
+      "holdout_percent": -37.67332730807907,
+      "B/op": {
+        "baseline": [
+          702576.0,
+          702577.0,
+          702578.0,
+          723057.0,
+          743536.0,
+          764019.0
+        ],
+        "candidate": [
+          337926.0,
+          337927.0,
+          358406.0,
+          358407.0,
+          358408.0,
+          378887.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          3583.0,
+          3711.0,
+          3839.0,
+          3967.0
+        ],
+        "candidate": [
+          3456.0,
+          3584.0,
+          3712.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+      "percent": -8.108250552161477,
+      "ci95_percent": [
+        -10.613915656030837,
+        -5.837840363314307
+      ],
+      "holdout_percent": -11.242488120967742,
+      "B/op": {
+        "baseline": [
+          47520.0,
+          47521.0,
+          50080.0,
+          52641.0,
+          55201.0
+        ],
+        "candidate": [
+          42240.0,
+          44800.0,
+          47360.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          447.0,
+          463.0,
+          479.0,
+          495.0
+        ],
+        "candidate": [
+          432.0,
+          448.0,
+          464.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+      "percent": -1.1457171434549496,
+      "ci95_percent": [
+        -2.8939455498296907,
+        0.5751953817754396
+      ],
+      "holdout_percent": -1.7211013183700996,
+      "B/op": {
+        "baseline": [
+          517489.0,
+          517490.0,
+          517491.0,
+          517492.0,
+          517648.0,
+          517650.0,
+          517814.0,
+          517971.0
+        ],
+        "candidate": [
+          517488.0,
+          517489.0,
+          517490.0,
+          517491.0,
+          517650.0,
+          517651.0,
+          517652.0,
+          517810.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          52.0,
+          53.0,
+          54.0,
+          55.0
+        ],
+        "candidate": [
+          52.0,
+          53.0,
+          54.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+      "percent": 1.1263070142085274,
+      "ci95_percent": [
+        -2.3509148756402642,
+        4.736120298662527
+      ],
+      "holdout_percent": -4.952019934817342,
+      "B/op": {
+        "baseline": [
+          2672.0,
+          2832.0,
+          2992.0,
+          3152.0
+        ],
+        "candidate": [
+          2672.0,
+          2832.0,
+          2992.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          28.0,
+          29.0,
+          30.0,
+          31.0
+        ],
+        "candidate": [
+          28.0,
+          29.0,
+          30.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+      "percent": -33.61625072582496,
+      "ci95_percent": [
+        -36.291537839623125,
+        -31.07144599800682
+      ],
+      "holdout_percent": -36.63187931698263,
+      "B/op": {
+        "baseline": [
+          711887.0,
+          711888.0,
+          711889.0,
+          711890.0,
+          732367.0,
+          732368.0,
+          732369.0,
+          752849.0,
+          773329.0
+        ],
+        "candidate": [
+          347238.0,
+          347239.0,
+          367719.0,
+          367720.0,
+          388200.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          3591.0,
+          3719.0,
+          3847.0,
+          3975.0
+        ],
+        "candidate": [
+          3464.0,
+          3592.0,
+          3720.0
+        ]
+      }
+    },
+    "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+      "percent": -9.750061144656573,
+      "ci95_percent": [
+        -13.33376842679509,
+        -6.497424488457937
+      ],
+      "holdout_percent": -14.721891590952296,
+      "B/op": {
+        "baseline": [
+          48512.0,
+          51072.0,
+          51073.0,
+          53633.0,
+          56193.0
+        ],
+        "candidate": [
+          43232.0,
+          45792.0,
+          48352.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          452.0,
+          468.0,
+          484.0,
+          500.0
+        ],
+        "candidate": [
+          437.0,
+          453.0,
+          469.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2352.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42311.0,
+          "B/op": 48593.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 458303.0,
+          "B/op": 723937.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 615836.0,
+          "B/op": 517526.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2476.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 41560.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 472551.0,
+          "B/op": 733252.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 606154.0,
+          "B/op": 517558.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2314.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 41219.0,
+          "B/op": 47521.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 489610.0,
+          "B/op": 702576.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 608838.0,
+          "B/op": 517459.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2467.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 46100.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 580584.0,
+          "B/op": 711890.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 639880.0,
+          "B/op": 517492.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2449.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40022.0,
+          "B/op": 43265.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 309883.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 619230.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2464.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 40196.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 329977.0,
+          "B/op": 355433.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 637779.0,
+          "B/op": 517558.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2654.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 40114.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 329380.0,
+          "B/op": 358407.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 619624.0,
+          "B/op": 517618.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2699.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40708.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 338962.0,
+          "B/op": 367719.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 674556.0,
+          "B/op": 517650.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2458.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 43982.0,
+          "B/op": 48594.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 504348.0,
+          "B/op": 723938.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 638748.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2564.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 42613.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 560419.0,
+          "B/op": 733250.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 620728.0,
+          "B/op": 517559.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2512.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 43667.0,
+          "B/op": 50080.0,
+          "allocs/op": 463.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 486221.0,
+          "B/op": 723057.0,
+          "allocs/op": 3711.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 612233.0,
+          "B/op": 517616.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2677.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 48154.0,
+          "B/op": 51073.0,
+          "allocs/op": 468.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 526250.0,
+          "B/op": 732369.0,
+          "allocs/op": 3719.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 622925.0,
+          "B/op": 517648.0,
+          "allocs/op": 53.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2530.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40632.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 323337.0,
+          "B/op": 346126.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 623360.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2749.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 39266.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 318265.0,
+          "B/op": 355433.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 607484.0,
+          "B/op": 517561.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2313.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 37325.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 302787.0,
+          "B/op": 337926.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 621506.0,
+          "B/op": 517458.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2391.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 37502.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 304595.0,
+          "B/op": 347239.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 598257.0,
+          "B/op": 517490.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2455.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 43914.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 502748.0,
+          "B/op": 744420.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 603590.0,
+          "B/op": 517685.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2597.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 42788.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 481555.0,
+          "B/op": 753733.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 601001.0,
+          "B/op": 517718.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2322.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 42600.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 448055.0,
+          "B/op": 702577.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 599598.0,
+          "B/op": 517458.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2425.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40604.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 457687.0,
+          "B/op": 711889.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 605206.0,
+          "B/op": 517489.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2360.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 38398.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 319770.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 605137.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2453.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 37763.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 315840.0,
+          "B/op": 355431.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 610994.0,
+          "B/op": 517560.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2313.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 36699.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 298242.0,
+          "B/op": 337926.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 613167.0,
+          "B/op": 517461.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2413.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 37619.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 316129.0,
+          "B/op": 347239.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 599025.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2514.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42462.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 467452.0,
+          "B/op": 744418.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 621893.0,
+          "B/op": 517685.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2632.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 43428.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 564374.0,
+          "B/op": 753732.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 665140.0,
+          "B/op": 517717.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2343.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 40107.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 445371.0,
+          "B/op": 702576.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 601518.0,
+          "B/op": 517460.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2387.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40566.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 451998.0,
+          "B/op": 711887.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 595861.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2306.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 36766.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 303794.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 593489.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2425.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 37564.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 315939.0,
+          "B/op": 355432.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 609870.0,
+          "B/op": 517559.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2332.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 37505.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 300267.0,
+          "B/op": 337926.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 609961.0,
+          "B/op": 517459.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2425.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 37207.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 314309.0,
+          "B/op": 347239.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 602626.0,
+          "B/op": 517489.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2443.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42035.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 458860.0,
+          "B/op": 744419.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 591518.0,
+          "B/op": 517686.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2563.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 42523.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 485050.0,
+          "B/op": 753734.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 602829.0,
+          "B/op": 517718.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2387.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 41686.0,
+          "B/op": 50080.0,
+          "allocs/op": 463.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 448724.0,
+          "B/op": 723057.0,
+          "allocs/op": 3711.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 593414.0,
+          "B/op": 517618.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2544.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 42916.0,
+          "B/op": 51073.0,
+          "allocs/op": 468.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 479725.0,
+          "B/op": 732369.0,
+          "allocs/op": 3719.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 602546.0,
+          "B/op": 517650.0,
+          "allocs/op": 53.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2568.0,
+          "B/op": 3024.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40703.0,
+          "B/op": 48384.0,
+          "allocs/op": 496.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 331763.0,
+          "B/op": 387080.0,
+          "allocs/op": 3968.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 592869.0,
+          "B/op": 517846.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2689.0,
+          "B/op": 3056.0,
+          "allocs/op": 32.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 41212.0,
+          "B/op": 49376.0,
+          "allocs/op": 501.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 339102.0,
+          "B/op": 396392.0,
+          "allocs/op": 3976.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 600860.0,
+          "B/op": 517879.0,
+          "allocs/op": 56.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2502.0,
+          "B/op": 2960.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39992.0,
+          "B/op": 47360.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 328443.0,
+          "B/op": 378887.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 601185.0,
+          "B/op": 517779.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2649.0,
+          "B/op": 2992.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 41115.0,
+          "B/op": 48352.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 342230.0,
+          "B/op": 388200.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 594464.0,
+          "B/op": 517810.0,
+          "allocs/op": 54.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2350.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40369.0,
+          "B/op": 48592.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 456623.0,
+          "B/op": 723939.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 594012.0,
+          "B/op": 517529.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2409.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 40832.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 470526.0,
+          "B/op": 733251.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 590416.0,
+          "B/op": 517558.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2392.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 41662.0,
+          "B/op": 50080.0,
+          "allocs/op": 463.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 465971.0,
+          "B/op": 723057.0,
+          "allocs/op": 3711.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 594536.0,
+          "B/op": 517617.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2521.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 42569.0,
+          "B/op": 51072.0,
+          "allocs/op": 468.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 476289.0,
+          "B/op": 732368.0,
+          "allocs/op": 3719.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 591166.0,
+          "B/op": 517650.0,
+          "allocs/op": 53.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2353.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 37305.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 307563.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 597618.0,
+          "B/op": 517526.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2396.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 37510.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 309083.0,
+          "B/op": 355432.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 606018.0,
+          "B/op": 517561.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2370.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 38413.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 311367.0,
+          "B/op": 358408.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 597945.0,
+          "B/op": 517617.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2471.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 39217.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 331779.0,
+          "B/op": 367720.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 599718.0,
+          "B/op": 517651.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2426.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42135.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 477775.0,
+          "B/op": 744419.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 597968.0,
+          "B/op": 517686.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2555.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 43578.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 484867.0,
+          "B/op": 753734.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 588530.0,
+          "B/op": 517719.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2307.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 40088.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 450132.0,
+          "B/op": 702577.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 614612.0,
+          "B/op": 517458.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2452.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 41232.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 481617.0,
+          "B/op": 711888.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 603396.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2511.0,
+          "B/op": 3024.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40870.0,
+          "B/op": 48384.0,
+          "allocs/op": 496.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 339643.0,
+          "B/op": 387079.0,
+          "allocs/op": 3968.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 601805.0,
+          "B/op": 517848.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2646.0,
+          "B/op": 3056.0,
+          "allocs/op": 32.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 40662.0,
+          "B/op": 49376.0,
+          "allocs/op": 501.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 338155.0,
+          "B/op": 396393.0,
+          "allocs/op": 3976.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 587703.0,
+          "B/op": 517878.0,
+          "allocs/op": 56.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2339.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 38372.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 315986.0,
+          "B/op": 358406.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 629465.0,
+          "B/op": 517619.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2791.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40223.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 328334.0,
+          "B/op": 367719.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 589971.0,
+          "B/op": 517652.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2354.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 37487.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 301961.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 587266.0,
+          "B/op": 517541.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2420.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 37918.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 310688.0,
+          "B/op": 355432.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 591678.0,
+          "B/op": 517560.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2432.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 37733.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 307522.0,
+          "B/op": 358407.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 591623.0,
+          "B/op": 517618.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2506.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 39132.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 327384.0,
+          "B/op": 367720.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 594223.0,
+          "B/op": 517651.0,
+          "allocs/op": 53.0
+        }
+      },
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2416.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42714.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 461913.0,
+          "B/op": 744418.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 587155.0,
+          "B/op": 517688.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2520.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 42883.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 497202.0,
+          "B/op": 753733.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 588394.0,
+          "B/op": 517719.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2276.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39863.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 438643.0,
+          "B/op": 702576.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 594993.0,
+          "B/op": 517459.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2394.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40423.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 451197.0,
+          "B/op": 711888.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 611191.0,
+          "B/op": 517492.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2324.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40525.0,
+          "B/op": 48593.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 455653.0,
+          "B/op": 723941.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 594976.0,
+          "B/op": 517525.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2473.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 41524.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 466161.0,
+          "B/op": 733255.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 593765.0,
+          "B/op": 517562.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2379.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 42320.0,
+          "B/op": 50080.0,
+          "allocs/op": 463.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 462097.0,
+          "B/op": 723057.0,
+          "allocs/op": 3711.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 589066.0,
+          "B/op": 517616.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2486.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 42168.0,
+          "B/op": 51073.0,
+          "allocs/op": 468.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 477903.0,
+          "B/op": 732367.0,
+          "allocs/op": 3719.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 600967.0,
+          "B/op": 517648.0,
+          "allocs/op": 53.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2601.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42080.0,
+          "B/op": 45824.0,
+          "allocs/op": 480.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 324737.0,
+          "B/op": 366600.0,
+          "allocs/op": 3840.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 593219.0,
+          "B/op": 517687.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2497.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 39746.0,
+          "B/op": 46816.0,
+          "allocs/op": 485.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 340521.0,
+          "B/op": 375912.0,
+          "allocs/op": 3848.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 618944.0,
+          "B/op": 517719.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2437.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39316.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 323786.0,
+          "B/op": 358406.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 611029.0,
+          "B/op": 517619.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2583.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 40017.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 328371.0,
+          "B/op": 367719.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 599459.0,
+          "B/op": 517652.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2418.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 41411.0,
+          "B/op": 51154.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 471849.0,
+          "B/op": 744418.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 599612.0,
+          "B/op": 517686.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2540.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 43788.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 507256.0,
+          "B/op": 753733.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 600287.0,
+          "B/op": 517718.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2658.0,
+          "B/op": 3120.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 45786.0,
+          "B/op": 55201.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 488996.0,
+          "B/op": 764019.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 600912.0,
+          "B/op": 517938.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2786.0,
+          "B/op": 3152.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 46991.0,
+          "B/op": 56193.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 508821.0,
+          "B/op": 773329.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 604911.0,
+          "B/op": 517971.0,
+          "allocs/op": 55.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2466.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 39477.0,
+          "B/op": 45824.0,
+          "allocs/op": 480.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 321335.0,
+          "B/op": 366600.0,
+          "allocs/op": 3840.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 618630.0,
+          "B/op": 517688.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2585.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 39243.0,
+          "B/op": 46816.0,
+          "allocs/op": 485.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 333879.0,
+          "B/op": 375912.0,
+          "allocs/op": 3848.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 613677.0,
+          "B/op": 517718.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2425.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 38688.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 321415.0,
+          "B/op": 358407.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 606629.0,
+          "B/op": 517620.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2581.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 39331.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 325551.0,
+          "B/op": 367719.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 605566.0,
+          "B/op": 517650.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2462.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 40247.0,
+          "B/op": 45824.0,
+          "allocs/op": 480.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 319067.0,
+          "B/op": 366600.0,
+          "allocs/op": 3840.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 598599.0,
+          "B/op": 517689.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2560.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 39577.0,
+          "B/op": 46816.0,
+          "allocs/op": 485.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 332329.0,
+          "B/op": 375913.0,
+          "allocs/op": 3848.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 600818.0,
+          "B/op": 517720.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2333.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 37235.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 297807.0,
+          "B/op": 337926.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 601845.0,
+          "B/op": 517460.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2432.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 38578.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 310413.0,
+          "B/op": 347239.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 609281.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      },
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2381.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 41799.0,
+          "B/op": 48594.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 457532.0,
+          "B/op": 723938.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 598745.0,
+          "B/op": 517528.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2436.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 41316.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 499113.0,
+          "B/op": 733250.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 606647.0,
+          "B/op": 517557.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2323.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 40009.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 446008.0,
+          "B/op": 702578.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 595462.0,
+          "B/op": 517457.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2423.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 42275.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 468950.0,
+          "B/op": 711890.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 622532.0,
+          "B/op": 517490.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2344.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 41573.0,
+          "B/op": 48593.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 457916.0,
+          "B/op": 723937.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 608370.0,
+          "B/op": 517528.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2592.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 43062.0,
+          "B/op": 49585.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 493801.0,
+          "B/op": 733252.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 608282.0,
+          "B/op": 517560.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2410.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 42748.0,
+          "B/op": 47520.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 519966.0,
+          "B/op": 702576.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 708924.0,
+          "B/op": 517458.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2638.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 47781.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 520004.0,
+          "B/op": 711890.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 661741.0,
+          "B/op": 517490.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2361.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 37780.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 312095.0,
+          "B/op": 346126.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 614187.0,
+          "B/op": 517528.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2496.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 38340.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 319311.0,
+          "B/op": 355432.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 598480.0,
+          "B/op": 517558.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2428.0,
+          "B/op": 2800.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39495.0,
+          "B/op": 44800.0,
+          "allocs/op": 448.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 320114.0,
+          "B/op": 358408.0,
+          "allocs/op": 3584.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 598320.0,
+          "B/op": 517618.0,
+          "allocs/op": 52.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2600.0,
+          "B/op": 2832.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 39516.0,
+          "B/op": 45792.0,
+          "allocs/op": 453.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 328030.0,
+          "B/op": 367720.0,
+          "allocs/op": 3592.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 611518.0,
+          "B/op": 517651.0,
+          "allocs/op": 53.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2380.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 41352.0,
+          "B/op": 48593.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 449093.0,
+          "B/op": 723939.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 603079.0,
+          "B/op": 517527.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2439.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 41988.0,
+          "B/op": 49584.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 473077.0,
+          "B/op": 733252.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 622142.0,
+          "B/op": 517559.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2313.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39902.0,
+          "B/op": 47521.0,
+          "allocs/op": 447.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 453161.0,
+          "B/op": 702576.0,
+          "allocs/op": 3583.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 602529.0,
+          "B/op": 517457.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2436.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 41439.0,
+          "B/op": 48512.0,
+          "allocs/op": 452.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 468516.0,
+          "B/op": 711888.0,
+          "allocs/op": 3591.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 603662.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2444.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 39302.0,
+          "B/op": 45824.0,
+          "allocs/op": 480.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 317876.0,
+          "B/op": 366600.0,
+          "allocs/op": 3840.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 604274.0,
+          "B/op": 517688.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2591.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 40640.0,
+          "B/op": 46816.0,
+          "allocs/op": 485.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 335211.0,
+          "B/op": 375912.0,
+          "allocs/op": 3848.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 598717.0,
+          "B/op": 517733.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2344.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 36945.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 301232.0,
+          "B/op": 337926.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 607277.0,
+          "B/op": 517460.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2524.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 37462.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 316487.0,
+          "B/op": 347239.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 600254.0,
+          "B/op": 517491.0,
+          "allocs/op": 52.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2478.0,
+          "B/op": 2864.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 42869.0,
+          "B/op": 51153.0,
+          "allocs/op": 495.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 506020.0,
+          "B/op": 744418.0,
+          "allocs/op": 3967.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 616317.0,
+          "B/op": 517687.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2600.0,
+          "B/op": 2896.0,
+          "allocs/op": 31.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 44802.0,
+          "B/op": 52145.0,
+          "allocs/op": 500.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 532664.0,
+          "B/op": 753732.0,
+          "allocs/op": 3975.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 622473.0,
+          "B/op": 517719.0,
+          "allocs/op": 55.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2601.0,
+          "B/op": 2960.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 46166.0,
+          "B/op": 52641.0,
+          "allocs/op": 479.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 510853.0,
+          "B/op": 743536.0,
+          "allocs/op": 3839.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 617012.0,
+          "B/op": 517777.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2795.0,
+          "B/op": 2992.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 47392.0,
+          "B/op": 53633.0,
+          "allocs/op": 484.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 540326.0,
+          "B/op": 752849.0,
+          "allocs/op": 3847.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 625830.0,
+          "B/op": 517814.0,
+          "allocs/op": 54.0
+        }
+      },
+      "candidate": {
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=1": {
+          "ns/op": 2447.0,
+          "B/op": 2704.0,
+          "allocs/op": 29.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=16": {
+          "ns/op": 38583.0,
+          "B/op": 43264.0,
+          "allocs/op": 464.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=128": {
+          "ns/op": 315895.0,
+          "B/op": 346119.0,
+          "allocs/op": 3712.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=false/messages=0": {
+          "ns/op": 602032.0,
+          "B/op": 517526.0,
+          "allocs/op": 53.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=1": {
+          "ns/op": 2471.0,
+          "B/op": 2736.0,
+          "allocs/op": 30.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=16": {
+          "ns/op": 38283.0,
+          "B/op": 44256.0,
+          "allocs/op": 469.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=128": {
+          "ns/op": 320889.0,
+          "B/op": 355432.0,
+          "allocs/op": 3720.0
+        },
+        "BenchmarkHTTPBufferDrain/request/queued=true/messages=0": {
+          "ns/op": 602986.0,
+          "B/op": 517558.0,
+          "allocs/op": 54.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=1": {
+          "ns/op": 2269.0,
+          "B/op": 2640.0,
+          "allocs/op": 27.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=16": {
+          "ns/op": 39280.0,
+          "B/op": 42240.0,
+          "allocs/op": 432.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=128": {
+          "ns/op": 298535.0,
+          "B/op": 337927.0,
+          "allocs/op": 3456.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=false/messages=0": {
+          "ns/op": 602182.0,
+          "B/op": 517459.0,
+          "allocs/op": 51.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=1": {
+          "ns/op": 2437.0,
+          "B/op": 2672.0,
+          "allocs/op": 28.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=16": {
+          "ns/op": 38124.0,
+          "B/op": 43232.0,
+          "allocs/op": 437.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=128": {
+          "ns/op": 321193.0,
+          "B/op": 347238.0,
+          "allocs/op": 3464.0
+        },
+        "BenchmarkHTTPBufferDrain/response/queued=true/messages=0": {
+          "ns/op": 607905.0,
+          "B/op": 517488.0,
+          "allocs/op": 52.0
+        }
+      }
+    }
+  ]
+}

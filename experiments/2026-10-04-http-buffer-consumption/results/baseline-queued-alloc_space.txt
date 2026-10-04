@@ -1,0 +1,30 @@
+File: baseline.test
+Build ID: aa0d08a4d17558da809aa4382ace7d1fe3270344
+Type: alloc_space
+Time: 2026-10-03 22:31:44 MDT
+Active filters:
+   focus=(prepareHTTPRead|collectHTTPWakeupsLocked)
+Showing nodes accounting for 7.91MB, 49.55% of 15.96MB total
+      flat  flat%   sum%        cum   cum%
+    4.06MB 25.45% 25.45%     7.91MB 49.55%  github.com/MongooseMoo/barn/builtins.(*Session).collectHTTPWakeupsLocked
+    1.12MB  7.00% 32.45%     1.12MB  7.00%  github.com/MongooseMoo/barn/types.(*mapBuilder).leaf (inline)
+    0.95MB  5.92% 38.38%     0.95MB  5.92%  github.com/MongooseMoo/barn/types.NewStr (inline)
+    0.47MB  2.96% 41.34%     0.47MB  2.96%  github.com/MongooseMoo/barn/types.(*mapBuilder).order (inline)
+    0.43MB  2.69% 44.03%     0.43MB  2.69%  github.com/MongooseMoo/barn/types.newMapIndexBranch (inline)
+    0.41MB  2.56% 46.59%     3.85MB 24.10%  github.com/MongooseMoo/barn/builtins.parseHTTPRequest
+    0.21MB  1.35% 47.94%     2.26MB 14.14%  github.com/MongooseMoo/barn/types.NewMap
+    0.11MB  0.67% 48.61%     0.11MB  0.67%  bytes.Fields
+    0.09MB  0.54% 49.15%     0.29MB  1.84%  github.com/MongooseMoo/barn/builtins.parseHTTPHeaders
+    0.02MB  0.13% 49.28%     0.02MB  0.13%  strings.(*Builder).WriteByte (inline)
+    0.02MB  0.13% 49.42%     0.02MB  0.13%  github.com/MongooseMoo/barn/types.foldASCII (inline)
+    0.02MB  0.13% 49.55%     0.02MB  0.13%  strings.(*Builder).grow
+         0     0% 49.55%     7.91MB 49.55%  github.com/MongooseMoo/barn/builtins.BenchmarkHTTPBufferDrain.func1
+         0     0% 49.55%     0.02MB  0.13%  github.com/MongooseMoo/barn/builtins.encodeBinaryStr
+         0     0% 49.55%     3.85MB 24.10%  github.com/MongooseMoo/barn/builtins.parseHTTPMessage
+         0     0% 49.55%     1.55MB  9.69%  github.com/MongooseMoo/barn/types.(*mapBuilder).put
+         0     0% 49.55%     0.02MB  0.13%  github.com/MongooseMoo/barn/types.keyHash
+         0     0% 49.55%     0.02MB  0.13%  strings.(*Builder).Grow
+         0     0% 49.55%     0.02MB  0.13%  strings.ToLower
+         0     0% 49.55%     7.19MB 45.05%  testing.(*B).launch
+         0     0% 49.55%     0.72MB  4.50%  testing.(*B).run1.func1
+         0     0% 49.55%     7.91MB 49.55%  testing.(*B).runN

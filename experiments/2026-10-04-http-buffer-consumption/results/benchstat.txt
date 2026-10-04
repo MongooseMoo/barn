@@ -1,0 +1,63 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                                     │ experiments/2026-10-04-http-buffer-consumption/results/baseline.txt │ experiments/2026-10-04-http-buffer-consumption/results/candidate.txt │
+                                                     │                               sec/op                                │                    sec/op                     vs base                │
+HTTPBufferDrain/request/queued=false/messages=1-4                                                             2.417µ ±  3%                                    2.456µ ± 4%        ~ (p=0.219 n=12)
+HTTPBufferDrain/request/queued=false/messages=16-4                                                            42.09µ ±  2%                                    39.75µ ± 6%   -5.55% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=128-4                                                           460.4µ ±  4%                                    319.4µ ± 4%  -30.62% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=0-4                                                             599.2µ ±  3%                                    600.2µ ± 3%        ~ (p=0.977 n=12)
+HTTPBufferDrain/request/queued=true/messages=1-4                                                              2.548µ ±  3%                                    2.497µ ± 6%        ~ (p=0.755 n=12)
+HTTPBufferDrain/request/queued=true/messages=16-4                                                             42.70µ ±  3%                                    39.25µ ± 4%   -8.07% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=128-4                                                            489.4µ ±  4%                                    324.6µ ± 4%  -33.67% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=0-4                                                              601.9µ ±  2%                                    606.8µ ± 1%        ~ (p=0.514 n=12)
+HTTPBufferDrain/response/queued=false/messages=1-4                                                            2.361µ ±  2%                                    2.398µ ± 3%        ~ (p=0.434 n=12)
+HTTPBufferDrain/response/queued=false/messages=16-4                                                           41.67µ ±  4%                                    38.39µ ± 3%   -7.87% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=false/messages=128-4                                                          456.1µ ±  7%                                    313.7µ ± 4%  -31.23% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=false/messages=0-4                                                            600.3µ ±  2%                                    608.3µ ± 2%        ~ (p=0.198 n=12)
+HTTPBufferDrain/response/queued=true/messages=1-4                                                             2.477µ ±  7%                                    2.544µ ± 5%        ~ (p=0.524 n=12)
+HTTPBufferDrain/response/queued=true/messages=16-4                                                            42.42µ ± 11%                                    39.27µ ± 4%   -7.42% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=true/messages=128-4                                                           478.8µ ±  9%                                    327.7µ ± 4%  -31.56% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=true/messages=0-4                                                             605.1µ ±  3%                                    599.6µ ± 2%        ~ (p=0.178 n=12)
+geomean                                                                                                       73.57µ                                          65.83µ       -10.52%
+
+                                                     │ experiments/2026-10-04-http-buffer-consumption/results/baseline.txt │ experiments/2026-10-04-http-buffer-consumption/results/candidate.txt │
+                                                     │                                B/op                                 │                     B/op                      vs base                │
+HTTPBufferDrain/request/queued=false/messages=1-4                                                             2.719Ki ± 3%                                   2.641Ki ± 6%        ~ (p=1.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=16-4                                                            48.70Ki ± 3%                                   42.25Ki ± 6%  -13.25% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=128-4                                                           717.0Ki ± 1%                                   338.0Ki ± 6%  -52.86% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=0-4                                                             505.5Ki ± 0%                                   505.4Ki ± 0%        ~ (p=0.658 n=12)
+HTTPBufferDrain/request/queued=true/messages=1-4                                                              2.750Ki ± 3%                                   2.672Ki ± 6%        ~ (p=1.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=16-4                                                             49.67Ki ± 3%                                   43.22Ki ± 6%  -12.99% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=128-4                                                            726.1Ki ± 1%                                   347.1Ki ± 6%  -52.19% (p=0.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=0-4                                                              505.5Ki ± 0%                                   505.4Ki ± 0%        ~ (p=0.577 n=12)
+HTTPBufferDrain/response/queued=false/messages=1-4                                                            2.578Ki ± 6%                                   2.734Ki ± 6%        ~ (p=0.373 n=12)
+HTTPBufferDrain/response/queued=false/messages=16-4                                                           46.41Ki ± 5%                                   43.75Ki ± 6%   -5.72% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=false/messages=128-4                                                          686.1Ki ± 3%                                   350.0Ki ± 6%  -48.99% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=false/messages=0-4                                                            505.3Ki ± 0%                                   505.5Ki ± 0%   +0.03% (p=0.048 n=12)
+HTTPBufferDrain/response/queued=true/messages=1-4                                                             2.609Ki ± 6%                                   2.766Ki ± 6%        ~ (p=0.373 n=12)
+HTTPBufferDrain/response/queued=true/messages=16-4                                                            47.38Ki ± 5%                                   44.72Ki ± 6%   -5.61% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=true/messages=128-4                                                           695.2Ki ± 3%                                   359.1Ki ± 6%  -48.35% (p=0.000 n=12)
+HTTPBufferDrain/response/queued=true/messages=0-4                                                             505.4Ki ± 0%                                   505.5Ki ± 0%        ~ (p=0.161 n=12)
+geomean                                                                                                       82.19Ki                                        67.45Ki       -17.93%
+
+                                                     │ experiments/2026-10-04-http-buffer-consumption/results/baseline.txt │ experiments/2026-10-04-http-buffer-consumption/results/candidate.txt │
+                                                     │                              allocs/op                              │                   allocs/op                    vs base               │
+HTTPBufferDrain/request/queued=false/messages=1-4                                                               29.50 ± 2%                                      29.00 ± 3%       ~ (p=1.000 n=12)
+HTTPBufferDrain/request/queued=false/messages=16-4                                                              487.0 ± 2%                                      464.0 ± 3%       ~ (p=0.074 n=12)
+HTTPBufferDrain/request/queued=false/messages=128-4                                                            3.903k ± 2%                                     3.712k ± 3%       ~ (p=0.074 n=12)
+HTTPBufferDrain/request/queued=false/messages=0-4                                                               53.50 ± 1%                                      53.00 ± 2%       ~ (p=1.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=1-4                                                                30.50 ± 2%                                      30.00 ± 3%       ~ (p=1.000 n=12)
+HTTPBufferDrain/request/queued=true/messages=16-4                                                               492.0 ± 2%                                      469.0 ± 3%       ~ (p=0.074 n=12)
+HTTPBufferDrain/request/queued=true/messages=128-4                                                             3.911k ± 2%                                     3.720k ± 3%       ~ (p=0.074 n=12)
+HTTPBufferDrain/request/queued=true/messages=0-4                                                                54.50 ± 1%                                      54.00 ± 2%       ~ (p=1.000 n=12)
+HTTPBufferDrain/response/queued=false/messages=1-4                                                              27.00 ± 4%                                      28.00 ± 4%       ~ (p=0.373 n=12)
+HTTPBufferDrain/response/queued=false/messages=16-4                                                             447.0 ± 4%                                      448.0 ± 4%       ~ (p=0.504 n=12)
+HTTPBufferDrain/response/queued=false/messages=128-4                                                           3.583k ± 4%                                     3.584k ± 4%       ~ (p=0.504 n=12)
+HTTPBufferDrain/response/queued=false/messages=0-4                                                              51.00 ± 2%                                      52.00 ± 2%       ~ (p=0.373 n=12)
+HTTPBufferDrain/response/queued=true/messages=1-4                                                               28.00 ± 4%                                      29.00 ± 3%       ~ (p=0.373 n=12)
+HTTPBufferDrain/response/queued=true/messages=16-4                                                              452.0 ± 4%                                      453.0 ± 4%       ~ (p=0.504 n=12)
+HTTPBufferDrain/response/queued=true/messages=128-4                                                            3.591k ± 4%                                     3.592k ± 4%       ~ (p=0.504 n=12)
+HTTPBufferDrain/response/queued=true/messages=0-4                                                               52.00 ± 2%                                      53.00 ± 2%       ~ (p=0.373 n=12)
+geomean                                                                                                         227.1                                           225.2       -0.83%
