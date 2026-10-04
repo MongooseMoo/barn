@@ -882,8 +882,11 @@ type forkLane struct {
 // repeats their slices. Forks of unrelated verbs are as independent as the
 // commands that made them, and a first run that does lose a commit is rebuilt
 // (forkFirstRunRebuilder).
+//
+// The scheduler asks this for every ready task on every scan, so it must not
+// extract the fork body: CreateForkedTask already refused a fork without one.
 func forkFirstRunLane(t *task.Task) any {
-	if t == nil || !t.IsForked || t.ForkInfo == nil || forkBodyProgram(t.ForkInfo) == nil {
+	if t == nil || !t.IsForked || t.ForkInfo == nil {
 		return nil
 	}
 	if saved, ok := t.BytecodeVMValue().(*vm.VM); !ok || saved == nil || saved.IsYielded() {
