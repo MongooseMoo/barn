@@ -19,18 +19,21 @@ const (
 )
 
 // FormatMOO converts a semantic verb program back to MOO source lines.
+// Invalid input returns nil; use FormatMOOChecked to obtain the error.
 func FormatMOO(program *verb.Program) []string {
 	lines, _ := formatMOOChecked(program, false)
 	return lines
 }
 
 // FormatMOOFullyParenthesized emits Toast's fully-parenthesized decompile form.
+// Invalid input returns nil rather than partial source.
 func FormatMOOFullyParenthesized(program *verb.Program) []string {
 	lines, _ := formatMOOChecked(program, true)
 	return lines
 }
 
 // FormatMOOChecked validates recursive formatter input before producing output.
+// Canonical MOO source cannot contain NUL. Rejection returns nil source lines.
 func FormatMOOChecked(program *verb.Program) ([]string, error) {
 	return formatMOOChecked(program, false)
 }
@@ -46,6 +49,9 @@ func formatMOOChecked(program *verb.Program, fullyParenthesized bool) ([]string,
 	var lines []string
 	for _, stmt := range program.Statements {
 		line := unparseStmt(stmt, 0, fullyParenthesized)
+		if strings.IndexByte(line, 0) >= 0 {
+			return nil, ErrNULInSource
+		}
 		lines = append(lines, strings.Split(line, "\n")...)
 	}
 	return lines, nil
@@ -456,7 +462,8 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 
 // quoteMOOString emits a string literal using MOO's escape rules. A backslash
 // only quotes the byte immediately following it, so only quotes and backslashes
-// need escaping; all other bytes must be preserved verbatim.
+// need escaping; representable non-NUL bytes are preserved verbatim. Public
+// formatter paths reject NUL before returning any source.
 func quoteMOOString(value string) string {
 	var quoted strings.Builder
 	quoted.Grow(len(value) + 2)

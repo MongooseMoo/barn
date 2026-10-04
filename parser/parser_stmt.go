@@ -14,6 +14,7 @@ import (
 // unexpected-EOF the lexer reports a phantom final line (numLines+1), matching
 // Toast. Unterminated block comments retain Toast's explicit lexical diagnostic
 // and the opening comment's line instead of the generic parser message.
+// Invalid canonical-source NUL bytes likewise retain their explicit diagnostic.
 type ParseError struct {
 	Line int    // 1-based source line of the offending token
 	Msg  string // message surfaced to MOO callers (usually "syntax error")
@@ -32,8 +33,8 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 
 	for p.current.Type != TOKEN_EOF {
 		stmt, err := p.parseStatement()
-		if p.lexer.commentError != nil {
-			return nil, p.lexer.commentError
+		if p.lexer.lexicalError != nil {
+			return nil, p.lexer.lexicalError
 		}
 		if err != nil {
 			// Capture the line of the offending token and present Toast's
@@ -46,8 +47,8 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 		}
 		statements = append(statements, stmt)
 	}
-	if p.lexer.commentError != nil {
-		return nil, p.lexer.commentError
+	if p.lexer.lexicalError != nil {
+		return nil, p.lexer.lexicalError
 	}
 
 	program := &verb.Program{Statements: statements}

@@ -1,9 +1,13 @@
 package parser
 
 import (
+	"errors"
 	"github.com/MongooseMoo/barn/verb"
 	"unicode"
 )
+
+// ErrNULInSource identifies bytes that canonical MOO source cannot represent.
+var ErrNULInSource = errors.New("NUL byte is not representable in MOO source")
 
 // Lexer tokenizes MOO source code
 type Lexer struct {
@@ -13,7 +17,7 @@ type Lexer struct {
 	ch           byte // current char under examination
 	line         int
 	column       int
-	commentError *ParseError
+	lexicalError *ParseError
 }
 
 // NewLexer creates a new Lexer instance
@@ -67,6 +71,16 @@ func (l *Lexer) skipWhitespace() {
 	}
 }
 
+func (l *Lexer) readNULToken() Token {
+	tok := Token{Type: TOKEN_ILLEGAL, Value: ErrNULInSource.Error(),
+		Position: verb.Position{Line: l.line, Column: l.column, Offset: l.position}}
+	if l.lexicalError == nil {
+		l.lexicalError = &ParseError{Line: l.line, Msg: tok.Value, Detail: ErrNULInSource}
+	}
+	l.readChar() // A raw NUL is invalid input, not the end-of-input sentinel.
+	return tok
+}
+
 // NextToken returns the next token from the input
 func (l *Lexer) NextToken() Token {
 	var tok Token
@@ -83,8 +97,13 @@ func (l *Lexer) NextToken() Token {
 		l.readChar()
 		for !(l.ch == '*' && l.peekChar() == '/') {
 			if l.ch == 0 {
+				if l.position < len(l.input) {
+					return l.readNULToken()
+				}
 				const message = "End of program while in a comment"
-				l.commentError = &ParseError{Line: start.Line, Msg: message}
+				if l.lexicalError == nil {
+					l.lexicalError = &ParseError{Line: start.Line, Msg: message}
+				}
 				return Token{Type: TOKEN_ILLEGAL, Value: message, Position: start}
 			}
 			l.readChar()
@@ -101,6 +120,9 @@ func (l *Lexer) NextToken() Token {
 
 	switch l.ch {
 	case 0:
+		if l.position < len(l.input) {
+			return l.readNULToken()
+		}
 		tok.Type = TOKEN_EOF
 		tok.Value = ""
 		// Toast reports unexpected-EOF errors on a phantom final line

@@ -35,6 +35,9 @@ func (l *Lexer) readString() Token {
 		}
 	}
 
+	if l.ch == 0 && l.position < len(l.input) {
+		return l.readNULToken()
+	}
 	if l.ch == '"' {
 		l.readChar() // skip closing "
 	}
