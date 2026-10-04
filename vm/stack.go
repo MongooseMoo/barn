@@ -142,7 +142,7 @@ func (vm *VM) Return(value types.Value) error {
 
 	// If this was a verb-call frame, restore context and pop activation frame
 	if frame.IsVerbCall && vm.Context != nil {
-		trace.VerbReturn(frame.This, frame.Verb, value)
+		trace.VerbReturn(frame.This, frame.Verb, value.Type())
 		vm.Context.ThisObj = frame.SavedThisObj
 		vm.Context.ThisValue = frame.SavedThisValue
 		vm.Context.Verb = frame.SavedVerb

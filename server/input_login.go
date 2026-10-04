@@ -265,9 +265,9 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 
 	// Trace login event
 	if reconnection {
-		trace.Connection("RECONNECT", conn.ID, player, "")
+		trace.Connection("RECONNECT", conn.ID, player)
 	} else {
-		trace.Connection("LOGIN", conn.ID, player, "")
+		trace.Connection("LOGIN", conn.ID, player)
 	}
 
 	// Call hooks on the runtime goroutine.

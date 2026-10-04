@@ -1,197 +1,77 @@
 # Barn Execution Tracing Guide
 
-## Quick Start
-
-Enable tracing when starting the server:
+`--trace` writes execution metadata to stderr. Calls report argument counts;
+returns report MOO type names. Notifications report their recipient, and
+connection events report connection/player IDs. Argument values, return values,
+notification text, input lines, and remote addresses are omitted.
 
 ```bash
-./bin/barn -db MyGame.db -port 7777 --trace 2> trace.log
+./bin/barn --db game.db --port 7777 --trace 2> trace.log
 ```
 
-## Command-Line Flags
+Tracing is disabled by default. There is no raw-payload trace mode.
+`--trace-filter`, debug log levels, and configuration defaults cannot enable
+payload capture.
 
-### `--trace`
-Enable execution tracing (logs to stderr by default).
+## Verb filters
 
-### `--trace-filter <pattern>`
-Filter traced verbs using glob patterns. Multiple patterns can be comma-separated.
+`--trace-filter` accepts comma-separated Go `filepath.Match` glob patterns.
+An empty filter traces every verb. Surrounding whitespace and empty entries
+are ignored. Nonempty patterns select call, return, and exception events only;
+notifications and connection lifecycle events remain visible.
 
-Examples:
 ```bash
-# Trace all verbs
-./bin/barn --trace
-
-# Trace only login-related verbs
-./bin/barn --trace --trace-filter "do_login*,user_*"
-
-# Trace only a specific verb
-./bin/barn --trace --trace-filter "look"
-
-# Multiple patterns
-./bin/barn --trace --trace-filter "do_*,user_*,get_*"
+./bin/barn --db game.db --trace --trace-filter "look,@describe"
+./bin/barn --db game.db --trace --trace-filter "do_*,user_*,get_*"
 ```
 
-## Output Format
+`*` matches a sequence, `?` matches one character, and `[a-g]` matches a range.
+Filters change event selection without exposing arguments or results.
 
-### Connection Events
-```
-[TRACE] CONN NEW conn=2 player=#-2 127.0.0.1:54321
+## Output format
+
+```text
+[TRACE] CONN NEW conn=2 player=#-2
+[TRACE] CALL #0:"do_login_command" argc=3 player=#-2 caller=#-2
+[TRACE] RETURN #0:"do_login_command" type=OBJ
 [TRACE] CONN LOGIN conn=2 player=#8
+[TRACE] CALL #8:"look" argc=0 player=#8 caller=#8
+[TRACE]   NOTIFY #8
+[TRACE] RETURN #8:"look" type=INT
+[TRACE] EXCEPTION #8:"look" E_VERBNF
 [TRACE] CONN DISCONNECT conn=2 player=#8
 ```
 
-### Verb Calls
-```
-[TRACE] CALL #0:do_login_command args=["connect", "wizard"] player=#-2 caller=#-2
-[TRACE] RETURN #0:do_login_command => #8
-```
+Verb identities are quoted so embedded newlines cannot forge records. Return
+types are fixed names such as `INT`, `OBJ`, `STR`, `LIST`, `MAP`, and `WAIF`.
+Exceptions contain a bounded error-code name, with `E_UNKNOWN` for an unknown
+code. Notification messages still reach their recipients normally.
 
-### Exceptions
-```
-[TRACE] CALL #0:user_connected args=[#8] player=#8 caller=#8
-[TRACE] EXCEPTION #0:user_connected E_VERBNF
-```
+The login example shows an argument count only. A password supplied to the
+login verb is never included in these trace records. No special verb-name
+redaction rule is needed: the same metadata-only contract applies to every verb.
 
-### Notify Calls
-```
-[TRACE]   NOTIFY #8 "Welcome to the game!"
-[TRACE]   NOTIFY #8 "You are in a dark room."
-```
-
-Note: Notify calls are indented to show they occurred during verb execution.
-
-## Use Cases
-
-### Debug Login Issues
-```bash
-./bin/barn -db game.db --trace --trace-filter "do_login*,user_*" 2> login_trace.log
-```
-
-This traces:
-- `do_login_command` - Initial connection handler
-- `user_connected` - Post-login hook
-- `user_reconnected` - Reconnection handler
-- `user_disconnected` - Disconnect hook
-
-### Debug Command Processing
-```bash
-./bin/barn -db game.db --trace --trace-filter "look,@describe" 2> command_trace.log
-```
-
-### Full Execution Trace
-```bash
-./bin/barn -db game.db --trace 2> full_trace.log
-```
-
-Warning: Full traces can be very verbose in active databases.
-
-### Real-Time Monitoring
-```bash
-# Terminal 1: Start server with trace
-./bin/barn -db game.db --trace
-
-# Terminal 2: Connect and test
-telnet localhost 7777
-```
-
-The trace output will appear in terminal 1 as commands execute.
-
-## Pattern Matching
-
-Trace filters use Go's `filepath.Match` glob syntax:
-
-- `*` - Matches any sequence of characters
-- `?` - Matches any single character
-- `[abc]` - Matches any character in the set
-- `[a-z]` - Matches any character in the range
-
-Examples:
-```bash
-# Match all "do_" verbs
---trace-filter "do_*"
-
-# Match all "user_" verbs
---trace-filter "user_*"
-
-# Match verbs starting with any single letter followed by "ook"
---trace-filter "?ook"  # Matches: look, book, cook, etc.
-
-# Match verbs starting with letters a-g
---trace-filter "[a-g]*"
-```
-
-## Performance
-
-When tracing is **disabled** (default):
-- Zero overhead (simple boolean check)
-- No string formatting or I/O
-
-When tracing is **enabled**:
-- Minimal overhead (mutex lock + fprintf)
-- Output is buffered by OS
-- Filter checks are fast (glob pattern matching)
-
-## Tips
-
-1. **Always redirect stderr to a file** for later analysis:
-   ```bash
-   ./bin/barn --trace 2> trace.log
-   ```
-
-2. **Use filters to reduce noise** in busy databases:
-   ```bash
-   ./bin/barn --trace --trace-filter "do_*,user_*"
-   ```
-
-3. **Grep for specific events**:
-   ```bash
-   grep "EXCEPTION" trace.log
-   grep "CONN" trace.log
-   grep "do_login_command" trace.log
-   ```
-
-4. **Watch for patterns**:
-   ```bash
-   tail -f trace.log | grep "EXCEPTION"
-   ```
-
-5. **Count verb invocations**:
-   ```bash
-   grep "CALL" trace.log | cut -d: -f2 | cut -d' ' -f1 | sort | uniq -c
-   ```
-
-## Example Session
+## Reading traces
 
 ```bash
-$ ./bin/barn -db toastcore.db --trace 2> trace.log &
-$ telnet localhost 7777
-Trying 127.0.0.1...
-Connected to localhost.
-connect wizard
-*** Connected ***
-look
-You see a room.
-quit
-*** Disconnected ***
-$ grep "^\[TRACE\]" trace.log
-[TRACE] CONN NEW conn=2 player=#-2 127.0.0.1:54321
-[TRACE] CALL #0:do_login_command args=[] player=#-2 caller=#-2
-[TRACE]   NOTIFY #-2 "Welcome to ToastCore."
-[TRACE] RETURN #0:do_login_command => 0
-[TRACE] CALL #0:do_login_command args=["connect", "wizard"] player=#-2 caller=#-2
-[TRACE] RETURN #0:do_login_command => #8
-[TRACE] CONN LOGIN conn=2 player=#8
-[TRACE] CALL #0:user_connected args=[#8] player=#8 caller=#8
-[TRACE] RETURN #0:user_connected => 0
-[TRACE] CALL #8:look args=[] player=#8 caller=#8
-[TRACE]   NOTIFY #8 "You see a room."
-[TRACE] RETURN #8:look => 0
-[TRACE] CONN DISCONNECT conn=2 player=#8
-[TRACE] CALL #0:user_disconnected args=[#8] player=#8 caller=#8
-[TRACE] RETURN #0:user_disconnected => 0
+grep 'EXCEPTION' trace.log
+grep 'CONN' trace.log
+grep 'CALL' trace.log
 ```
 
-## See Also
+Object, verb, player, caller, and connection identities remain useful for
+following execution. Call records identify the callee and caller; connection
+IDs link lifecycle events. Records have no new duration or task-correlation
+fields because those were not part of the existing tracer API.
 
-- [Implementation Report](reports/build-barn-trace.md) - Technical details
-- [CLAUDE.md](CLAUDE.md) - Project documentation
+## Cost and log handling
+
+Disabled tracing performs a boolean check and no formatting or I/O. Enabled
+tracing formats metadata under a mutex and writes one record per event. The
+formatter does not traverse argument containers or render return payloads.
+Its allocation cost does not grow per MOO argument.
+
+Trace output can be verbose. Select relevant verbs and keep trace files under
+the operator's usual access and retention policy. Stderr can also contain
+ordinary server logs; the trace contract does not redefine their fields or
+MOO-visible tracebacks.

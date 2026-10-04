@@ -903,7 +903,7 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	trace.Notify(player, message)
+	trace.Notify(player)
 	if err := conn.SendNotification(note); err != nil {
 		return types.Err(types.E_INVARG)
 	}

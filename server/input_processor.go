@@ -102,7 +102,7 @@ func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 // HandleConnection reads transport input and serializes it onto the input queue.
 // Each connection's worker executes its input in order.
 func (p *InputProcessor) HandleConnection(conn *Connection) {
-	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
+	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID))
 
 	defer func() {
 		done := make(chan struct{})
@@ -553,9 +553,9 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	}
 
 	if wasLoggedIn {
-		trace.Connection("DISCONNECT", conn.ID, player, "")
+		trace.Connection("DISCONNECT", conn.ID, player)
 	} else {
-		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID), "unlogged")
+		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID))
 	}
 
 	if wasLoggedIn {
