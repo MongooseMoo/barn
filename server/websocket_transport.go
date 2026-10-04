@@ -28,6 +28,7 @@ type WebSocketTransport struct {
 	remoteAddr string
 	mu         sync.Mutex
 	readMu     sync.Mutex
+	writeMu    sync.Mutex // Output serialization is independent of read state.
 	deadline   time.Time
 	// readCancel cancels the context of the read currently blocked in
 	// conn.Read, or nil when no read is in flight. Guarded by mu. readMu
@@ -82,8 +83,8 @@ func (t *WebSocketTransport) WriteOutput(message string, newline bool) error {
 	if err := t.ValidateOutput(message); err != nil {
 		return err
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
 	return t.conn.Write(context.Background(), websocket.MessageText, []byte(message))
 }
 
