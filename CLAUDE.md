@@ -171,7 +171,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'   # bench driver tests
 - Race: `go test -race ./db/store ./engine` (the concurrency/MVCC tests are the ones that matter)
 - Binaries: `make build` (`go build -o bin/ ./cmd/...`) puts every `cmd/` tool in the gitignored `bin/`; Go adds `.exe` on Windows. Never build into the repo root. For one tool, `go build -o bin/ ./cmd/barn`; verify the package first with `go list ./cmd/barn`, since the repo root is not a command.
 - Deployment build: `make build-linux-amd64` (GOAMD64=v3, writes `bin/barn-linux-amd64`). `cmd/barn/default.pgo` is applied automatically; `-pgo=off` gives a baseline.
-- The `conformance*` Makefile targets point at the retired cow_py suite. Don't use them.
+- On Linux/WSL, `make conformance` builds Barn and runs the managed suite below. `conformance-v` is verbose, `conformance-x` stops on the first failure, and `conformance-k K=pattern` keeps canonical admission alongside the selection. `make conformance-toast` runs the stock WSL Toast oracle. Set `CONFORMANCE_SUITE` for a differently located harness checkout; `CONFORMANCE_ENV` names a Linux-only uv environment outside the checkout. `CONFORMANCE_PATHS` can narrow packaged files. The harness owns server and disposable database lifecycles; no pre-launched server is needed.
 
 CI's managed conformance invocation, which is the canonical Linux form:
 
