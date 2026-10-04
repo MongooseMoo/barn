@@ -190,6 +190,41 @@ func (c *realCommandCompletion) capture(s *Runtime, id int64) {
 	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
 }
 
+// blockers names every task whose pending slice holds this task back as its
+// readier, following the chain so a blocker that is itself held is visible.
+func (c *realCommandCompletion) blockers(now time.Time) string {
+	if c.runtime == nil {
+		return ""
+	}
+	catalog := c.runtime.taskManager.Snapshot()
+	var out []string
+	seen := map[int64]bool{c.task.ID: true}
+	held := []*task.Task{c.task}
+	for len(held) != 0 {
+		target := held[0]
+		held = held[1:]
+		for _, other := range catalog {
+			if other == nil || other.PendingReadier(now) != target {
+				continue
+			}
+			c.runtime.mu.Lock()
+			lease := c.runtime.lifecycle.ExecutingTasks[other.ID]
+			c.runtime.mu.Unlock()
+			stack := other.GetCallStack()
+			top := ""
+			if len(stack) != 0 {
+				top = fmt.Sprintf("%s:%d", stack[len(stack)-1].Verb, stack[len(stack)-1].LineNumber)
+			}
+			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.BytecodeVMValue() != nil, other.VerbName, top))
+			if !seen[other.ID] {
+				seen[other.ID] = true
+				held = append(held, other)
+			}
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	if c.task == nil {
 		return false, "missing-command-task"
@@ -210,6 +245,12 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 		frames := make([]string, len(stack))
 		for i, frame := range stack {
 			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
+		}
+		if blockers := c.blockers(time.Now()); blockers != "" {
+			frames = append(frames, "blocked-by:"+blockers)
+		}
+		if blockers := c.blockers(time.Now()); blockers != "" {
+			frames = append(frames, "blocked-by:"+blockers)
 		}
 		c.task.Kill()
 		select {
@@ -362,7 +403,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 			if schedCtx.Err() != nil {
 				return
 			}
-			if s.ProcessReadyBatch() != 0 {
+			if s.DispatchReady() != 0 {
 				s.CleanupFinishedTasks()
 				continue
 			}

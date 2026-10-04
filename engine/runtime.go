@@ -567,6 +567,17 @@ func (s *Runtime) ProcessReadyBatch() int {
 	return count
 }
 
+// DispatchReady starts the ready tasks that can run beside work already in
+// flight and returns how many it started. It does not wait for them: each
+// task's completion requests a fresh scan through ScheduleChanged.
+func (s *Runtime) DispatchReady() int {
+	return s.scheduler.Dispatch(time.Now(), s.taskManager.Snapshot(), (*task.Task).ReserveAdmission, func(result scheduler.Result) {
+		s.settleTaskResult(result)
+		s.flushDeferredGC()
+		s.taskManager.NotifyScheduleChange()
+	})
+}
+
 func (s *Runtime) ScheduleChanged() <-chan struct{} { return s.taskManager.ScheduleChanged() }
 
 // NextTaskWake is zero when no timer is needed. ScheduleChanged must be
@@ -597,24 +608,28 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
 
 func (s *Runtime) runTaskBatch(readyTasks []*task.Task) {
 	for _, result := range s.scheduler.Run(readyTasks) {
-		t := result.Task
-		if result.Err != nil {
-			slog.Error("task error",
-				slog.Int64("task_id", t.ID),
-				slog.Int64("this", int64(t.This)),
-				slog.String("verb", t.VerbName),
-				slog.Any("err", result.Err))
-		}
+		s.settleTaskResult(result)
+	}
+}
 
-		s.flushTaskOutput(t)
+func (s *Runtime) settleTaskResult(result scheduler.Result) {
+	t := result.Task
+	if result.Err != nil {
+		slog.Error("task error",
+			slog.Int64("task_id", t.ID),
+			slog.Int64("this", int64(t.This)),
+			slog.String("verb", t.VerbName),
+			slog.Any("err", result.Err))
+	}
 
-		// runTask returns nil for both suspend/yield and terminal completion.
-		// Only signal Done when the task has actually terminated (Completed or
-		// Killed); a merely suspended task is still alive and will be closed
-		// later when it truly finishes. CloseDone guards against double-close.
-		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-			t.CloseDone()
-		}
+	s.flushTaskOutput(t)
+
+	// runTask returns nil for both suspend/yield and terminal completion.
+	// Only signal Done when the task has actually terminated (Completed or
+	// Killed); a merely suspended task is still alive and will be closed
+	// later when it truly finishes. CloseDone guards against double-close.
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+		t.CloseDone()
 	}
 }
 

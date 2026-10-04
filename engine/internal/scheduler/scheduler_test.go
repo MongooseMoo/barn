@@ -321,3 +321,72 @@ func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
 	}
 	assertQueueOwnsOnly(t, s.waiting)
 }
+
+// A continuation whose external call finished must start while an unrelated
+// long slice is still running. Joining each batch made every such resumption
+// wait for the longest slice in flight (issue #395, #396).
+func TestDispatchRunsBatchableWorkBesideALongSoloSlice(t *testing.T) {
+	const soloLong, batchable, soloNext = 1, 2, 3
+	started, release := make(chan struct{}), make(chan struct{})
+	ran := make(chan int64, 3)
+	s := New(4, func(t *task.Task) bool { return t.ID == batchable }, func(t *task.Task) error {
+		if t.ID == soloLong {
+			close(started)
+			<-release
+		}
+		ran <- t.ID
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	claim := func(*task.Task) bool { return true }
+	settled := make(chan int64, 3)
+	done := func(result Result) { settled <- result.Task.ID }
+	next := func(from <-chan int64, what string) int64 {
+		t.Helper()
+		select {
+		case id := <-from:
+			return id
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+			return 0
+		}
+	}
+
+	now := time.Now()
+	s.Enqueue(testTask(soloLong, now))
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the long solo task", n)
+	}
+	<-started
+
+	s.Enqueue(testTask(batchable, now))
+	s.Enqueue(testTask(soloNext, now))
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d beside the long slice, want only the batchable task", n)
+	}
+	if id := next(ran, "the batchable task to run beside the long slice"); id != batchable {
+		t.Fatalf("task %d ran beside the long slice, want %d", id, batchable)
+	}
+	if id := next(settled, "the batchable task to settle"); id != batchable {
+		t.Fatalf("task %d settled, want %d", id, batchable)
+	}
+	// The held solo task is woken by the long slice's completion. A wake time
+	// of now would spin the selector on work it cannot start.
+	if at := s.NextWake(now, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a task held behind dispatched work, want none", at)
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 0 {
+		t.Fatalf("dispatched %d while a solo task was in flight, want 0", n)
+	}
+
+	close(release)
+	if id := next(settled, "the long solo task to settle"); id != soloLong {
+		t.Fatalf("task %d settled, want %d", id, soloLong)
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the long slice ended, want the held solo task", n)
+	}
+	if id := next(settled, "the held solo task to settle"); id != soloNext {
+		t.Fatalf("task %d settled, want %d", id, soloNext)
+	}
+}

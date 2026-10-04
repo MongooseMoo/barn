@@ -38,6 +38,10 @@ type Scheduler struct {
 	wg        sync.WaitGroup
 	ctx       context.Context
 	cancel    context.CancelFunc
+
+	// Slots taken by Dispatch. A solo task excludes only other solo tasks.
+	inFlight     int
+	soloInFlight bool
 }
 
 // New starts a scheduler with workerCount workers.
@@ -143,6 +147,60 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 	s.pending = append(s.pending, ready[n:]...)
 	// Give the caller separate storage: claiming a batch compacts its slice.
 	return append([]*task.Task(nil), ready[:n]...)
+}
+
+// Dispatch starts every ready task that can run beside the work already in
+// flight and returns how many it started, without waiting for any of them. A
+// task that cannot share a batch still runs one at a time, but it no longer
+// holds back batchable work: a continuation whose external call finished must
+// not wait for an unrelated long slice to end. done runs after each task's
+// slice, once the scheduler has released its slot.
+func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*task.Task) bool, done func(Result)) int {
+	type started struct {
+		task *task.Task
+		solo bool
+	}
+	s.mu.Lock()
+	ready := s.readyLocked(now, catalog)
+	if s.order != nil {
+		s.order(ready)
+	}
+	var starting []started
+	for _, t := range ready {
+		solo := !s.retryable(t)
+		if s.heldLocked(solo) {
+			s.pending = append(s.pending, t)
+			continue
+		}
+		if !claim(t) {
+			continue
+		}
+		s.inFlight++
+		s.soloInFlight = s.soloInFlight || solo
+		starting = append(starting, started{task: t, solo: solo})
+	}
+	s.wg.Add(len(starting))
+	s.mu.Unlock()
+	for _, item := range starting {
+		go func() {
+			defer s.wg.Done()
+			err := s.run(item.task)
+			s.mu.Lock()
+			s.inFlight--
+			if item.solo {
+				s.soloInFlight = false
+			}
+			s.mu.Unlock()
+			done(Result{Task: item.task, Err: err})
+		}()
+	}
+	return len(starting)
+}
+
+// heldLocked reports whether dispatched work in flight leaves no room for a
+// task now. Only Dispatch occupies these slots.
+func (s *Scheduler) heldLocked(solo bool) bool {
+	return s.inFlight >= s.workers || (solo && s.soloInFlight)
 }
 
 func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
@@ -255,7 +313,9 @@ func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 	blocked := s.blockedReadiersLocked(now, catalog)
 	var next time.Time
 	visit := func(t *task.Task) {
-		if blocked[t] {
+		// A task held behind dispatched work is woken by that work's completion,
+		// not by a timer that would fire immediately and select nothing.
+		if blocked[t] || s.heldLocked(!s.retryable(t)) {
 			return
 		}
 		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
