@@ -89,7 +89,7 @@ func (p *Parser) parseStatement() (verb.Stmt, error) {
 		// Empty statement
 		pos := p.current.Position
 		p.nextToken()
-		return &verb.ExprStmt{Pos: pos, Expr: nil}, nil
+		return &verb.EmptyStmt{Pos: pos}, nil
 	default:
 		// Expression statement
 		return p.parseExpressionStatement()

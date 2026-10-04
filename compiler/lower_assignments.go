@@ -426,11 +426,6 @@ func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 }
 
 func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
-	// Guard against nil expression (e.g. bare semicolons)
-	if n.Expr == nil {
-		return nil
-	}
-
 	// Effect-context fast path: a simple variable assignment used as a statement
 	// does not need its value. Emit the store directly, skipping the assignment's
 	// value-preserving bytecode.OP_DUP and the trailing bytecode.OP_POP (dead value shuffling that

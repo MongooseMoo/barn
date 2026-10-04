@@ -16,16 +16,21 @@ var ErrMaxNestingDepth = errors.New("maximum nesting depth exceeded (max 256)")
 // controlled data. Siblings retain the same depth, so wide programs are not
 // penalized. Leaf nodes are allowed beneath the deepest construct.
 func ValidateNesting(program *Program) error {
-	return validateNesting(reflect.ValueOf(program), -2)
+	return validateGraph(reflect.ValueOf(program), -2, false)
 }
 
-// ValidateNode applies the same limit to direct compiler inputs that do not
-// pass through a Program.
+// ValidateNode checks shape and depth for semantic inputs outside a Program.
 func ValidateNode(node Node) error {
-	return validateNesting(reflect.ValueOf(node), -1)
+	if nilNode(node) {
+		return invalid(Position{}, "Node", "must not be nil")
+	}
+	return validateGraph(reflect.ValueOf(node), -1, true)
 }
 
-func validateNesting(root reflect.Value, initialDepth int) error {
+// validateGraph combines shape and depth checks before following node fields.
+// Unknown families can embed non-semantic cycles, so full validation must not
+// run a separate depth-only traversal first. Reverse pushes preserve order.
+func validateGraph(root reflect.Value, initialDepth int, full bool) error {
 	type item struct {
 		value reflect.Value
 		depth int
@@ -39,6 +44,16 @@ func validateNesting(root reflect.Value, initialDepth int) error {
 		stack = stack[:len(stack)-1]
 		v := current.value
 		if v.IsValid() && v.Type().Implements(nodeType) {
+			if full && v.CanInterface() {
+				if node, ok := v.Interface().(Node); ok {
+					if nilNode(node) {
+						return invalid(Position{}, "Node", "must not be nil")
+					}
+					if err := validateNodeShape(node); err != nil {
+						return err
+					}
+				}
+			}
 			current.depth++
 			if current.depth > MaxNestingDepth {
 				return ErrMaxNestingDepth
@@ -56,12 +71,12 @@ func validateNesting(root reflect.Value, initialDepth int) error {
 		}
 		switch v.Kind() {
 		case reflect.Struct:
-			for i := 0; i < v.NumField(); i++ {
+			for i := v.NumField() - 1; i >= 0; i-- {
 				f := v.Field(i)
 				stack = append(stack, item{f, current.depth})
 			}
 		case reflect.Slice:
-			for i := 0; i < v.Len(); i++ {
+			for i := v.Len() - 1; i >= 0; i-- {
 				stack = append(stack, item{v.Index(i), current.depth})
 			}
 		}
@@ -466,6 +481,13 @@ type MapPair struct {
 
 func (e *MapExpr) Position() Position { return e.Pos }
 func (e *MapExpr) exprNode()          {}
+
+// EmptyStmt represents an explicit empty statement. ExprStmt always has an
+// expression; absence is not an alternative executable form.
+type EmptyStmt struct{ Pos Position }
+
+func (s *EmptyStmt) Position() Position { return s.Pos }
+func (s *EmptyStmt) stmtNode()          {}
 
 type ExprStmt struct {
 	Pos  Position

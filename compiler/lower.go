@@ -62,7 +62,7 @@ func newLowerer(registry map[string]int) *lowerer {
 // (from break expr or default 0) is used as the implicit return value.
 // VarNames is populated from the compiler's variable table.
 func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, error) {
-	if err := verb.ValidateNesting(program); err != nil {
+	if err := verb.Validate(program); err != nil {
 		return nil, err
 	}
 	stmts := program.Statements
@@ -121,7 +121,7 @@ func (c *lowerer) compileNode(node verb.Node) error {
 		return c.err
 	}
 
-	// Guard against nil nodes (e.g. an empty expression statement).
+	// Program validation supplies non-nil nodes; keep this internal guard.
 	if node == nil {
 		return fmt.Errorf("nil semantic node")
 	}
@@ -167,6 +167,8 @@ func (c *lowerer) compileNode(node verb.Node) error {
 		return c.compileMap(n)
 
 	// Statements
+	case *verb.EmptyStmt:
+		return nil
 	case *verb.ExprStmt:
 		return c.compileExprStmt(n)
 	case *verb.IfStmt:

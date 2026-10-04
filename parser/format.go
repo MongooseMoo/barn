@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -26,7 +27,7 @@ func FormatMOO(program *verb.Program) []string {
 }
 
 // FormatMOOFullyParenthesized emits Toast's fully-parenthesized decompile form.
-// Invalid input returns nil rather than partial source.
+// Invalid input returns nil; use FormatMOOFullyParenthesizedChecked for the error.
 func FormatMOOFullyParenthesized(program *verb.Program) []string {
 	lines, _ := formatMOOChecked(program, true)
 	return lines
@@ -38,53 +39,80 @@ func FormatMOOChecked(program *verb.Program) ([]string, error) {
 	return formatMOOChecked(program, false)
 }
 
+// FormatMOOFullyParenthesizedChecked returns complete source or an error.
+func FormatMOOFullyParenthesizedChecked(program *verb.Program) ([]string, error) {
+	return formatMOOChecked(program, true)
+}
+
+// FormattingError is a frontend representability failure. No output is returned
+// when any nested formatter records one; Unwrap preserves its specific cause.
+type FormattingError struct {
+	Position verb.Position
+	Cause    error
+}
+
+func (e *FormattingError) Error() string { return e.Cause.Error() }
+func (e *FormattingError) Unwrap() error { return e.Cause }
+
+type mooFormatter struct{ err error }
+
+func (f *mooFormatter) fail(pos verb.Position, cause error) string {
+	if f.err == nil {
+		f.err = &FormattingError{Position: pos, Cause: cause}
+	}
+	return ""
+}
+
 func formatMOOChecked(program *verb.Program, fullyParenthesized bool) ([]string, error) {
-	if err := verb.ValidateNesting(program); err != nil {
+	if err := verb.Validate(program); err != nil {
 		return nil, err
 	}
 	if len(program.Statements) == 0 {
 		return []string{}, nil
 	}
 
+	f := &mooFormatter{}
 	var lines []string
 	for _, stmt := range program.Statements {
-		line := unparseStmt(stmt, 0, fullyParenthesized)
+		line := f.stmt(stmt, 0, fullyParenthesized)
 		if strings.IndexByte(line, 0) >= 0 {
-			return nil, ErrNULInSource
+			return nil, &FormattingError{Position: stmt.Position(), Cause: ErrNULInSource}
+		}
+		if f.err != nil {
+			return nil, f.err
 		}
 		lines = append(lines, strings.Split(line, "\n")...)
 	}
 	return lines, nil
 }
 
-// unparseStmt converts a statement to source code
-func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
+// stmt converts a statement to source code
+func (f *mooFormatter) stmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 	indentStr := strings.Repeat("  ", indent)
 
 	switch s := stmt.(type) {
+	case *verb.EmptyStmt:
+		return indentStr + ";"
 	case *verb.ExprStmt:
-		if s.Expr == nil {
-			return indentStr + ";"
-		}
-		return indentStr + unparseExpr(s.Expr, precedenceLowest, fullyParenthesized) + ";"
+		return indentStr + f.expr(s.Expr, precedenceLowest, fullyParenthesized) + ";"
 
 	case *verb.ReturnStmt:
 		if s.Value == nil {
 			return indentStr + "return;"
 		}
-		return indentStr + "return " + unparseExpr(s.Value, precedenceLowest, fullyParenthesized) + ";"
+		return indentStr + "return " + f.expr(s.Value, precedenceLowest, fullyParenthesized) + ";"
 
 	case *verb.IfStmt:
 		var sb strings.Builder
-		sb.WriteString(indentStr + "if (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+		sb.WriteString(indentStr + "if (" + f.expr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 		current := s
 		for {
 			for _, bodyStmt := range current.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 			if len(current.Else) == 1 {
 				if next, ok := current.Else[0].(*verb.IfStmt); ok {
-					sb.WriteString(indentStr + "elseif (" + unparseExpr(next.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+					sb.WriteString(indentStr + "elseif (" + f.expr(next.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 					current = next
 					continue
 				}
@@ -92,7 +120,7 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 			if len(current.Else) > 0 {
 				sb.WriteString(indentStr + "else\n")
 				for _, bodyStmt := range current.Else {
-					sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+					sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 				}
 			}
 			break
@@ -103,12 +131,12 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 	case *verb.WhileStmt:
 		var sb strings.Builder
 		if s.Label != "" {
-			sb.WriteString(indentStr + "while " + s.Label + " (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+			sb.WriteString(indentStr + "while " + f.name(s.Pos, s.Label) + " (" + f.expr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 		} else {
-			sb.WriteString(indentStr + "while (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+			sb.WriteString(indentStr + "while (" + f.expr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 		}
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+			sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endwhile")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -117,15 +145,15 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 		var sb strings.Builder
 		sb.WriteString(indentStr + "for ")
 		if s.Label != "" {
-			sb.WriteString(s.Label + " ")
+			sb.WriteString(f.name(s.Pos, s.Label) + " ")
 		}
 		if s.Index != "" {
-			sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
+			sb.WriteString(f.name(s.Pos, s.Value) + ", " + f.name(s.Pos, s.Index) + " in (" + f.expr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
 		} else {
-			sb.WriteString(s.Value + " in (" + unparseExpr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
+			sb.WriteString(f.name(s.Pos, s.Value) + " in (" + f.expr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
 		}
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+			sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfor")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -134,24 +162,24 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 		var sb strings.Builder
 		sb.WriteString(indentStr + "for ")
 		if s.Label != "" {
-			sb.WriteString(s.Label + " ")
+			sb.WriteString(f.name(s.Pos, s.Label) + " ")
 		}
-		sb.WriteString(s.Value + " in [" + unparseExpr(s.Start, precedenceLowest, fullyParenthesized) + ".." + unparseExpr(s.End, precedenceLowest, fullyParenthesized) + "]\n")
+		sb.WriteString(f.name(s.Pos, s.Value) + " in [" + f.expr(s.Start, precedenceLowest, fullyParenthesized) + ".." + f.expr(s.End, precedenceLowest, fullyParenthesized) + "]\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+			sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfor")
 		return strings.TrimSuffix(sb.String(), "\n")
 
 	case *verb.BreakStmt:
 		if s.Label != "" {
-			return indentStr + "break " + s.Label + ";"
+			return indentStr + "break " + f.name(s.Pos, s.Label) + ";"
 		}
 		return indentStr + "break;"
 
 	case *verb.ContinueStmt:
 		if s.Label != "" {
-			return indentStr + "continue " + s.Label + ";"
+			return indentStr + "continue " + f.name(s.Pos, s.Label) + ";"
 		}
 		return indentStr + "continue;"
 
@@ -159,12 +187,12 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 		var sb strings.Builder
 		sb.WriteString(indentStr + "try\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+			sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		for _, handler := range s.Handlers {
 			sb.WriteString(indentStr + "except ")
 			if handler.Variable != "" {
-				sb.WriteString(handler.Variable + " ")
+				sb.WriteString(f.name(handler.Pos, handler.Variable) + " ")
 			}
 			sb.WriteString("(")
 			if handler.IsAny {
@@ -174,18 +202,18 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(code)
+					sb.WriteString(f.errorName(handler.Pos, code))
 				}
 			}
 			sb.WriteString(")\n")
 			for _, bodyStmt := range handler.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 		}
 		if s.Finalizer != nil {
 			sb.WriteString(indentStr + "finally\n")
 			for _, bodyStmt := range s.Finalizer.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 		}
 		sb.WriteString(indentStr + "endtry")
@@ -195,32 +223,32 @@ func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 		var sb strings.Builder
 		sb.WriteString(indentStr + "fork ")
 		if s.VarName != "" {
-			sb.WriteString(s.VarName + " ")
+			sb.WriteString(f.name(s.Pos, s.VarName) + " ")
 		}
-		sb.WriteString("(" + unparseExpr(s.Delay, precedenceLowest, fullyParenthesized) + ")\n")
+		sb.WriteString("(" + f.expr(s.Delay, precedenceLowest, fullyParenthesized) + ")\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+			sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfork")
 		return strings.TrimSuffix(sb.String(), "\n")
 
 	default:
-		return indentStr + fmt.Sprintf("<unknown statement: %T>", stmt)
+		return f.fail(verb.Position{}, fmt.Errorf("unsupported statement %T", stmt))
 	}
 }
 
-// unparseExpr converts an expression to source code
-func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) string {
+// expr converts an expression to source code
+func (f *mooFormatter) expr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *verb.LiteralExpr:
-		return unparseLiteral(e)
+		return f.literal(e)
 
 	case *verb.IdentifierExpr:
-		return canonicalIdentifierName(e.Name)
+		return canonicalIdentifierName(f.name(e.Pos, e.Name))
 
 	case *verb.UnaryExpr:
-		op := unparseUnaryOp(e.Operator)
-		operand := unparseExpr(e.Operand, precedenceUnary, fullyParenthesized)
+		op := f.unaryOp(e.Operator)
+		operand := f.expr(e.Operand, precedenceUnary, fullyParenthesized)
 		result := op + operand
 		if fullyParenthesized && parentPrecedence != precedenceLowest {
 			return "(" + result + ")"
@@ -228,13 +256,13 @@ func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) 
 		return result
 
 	case *verb.BinaryExpr:
-		return unparseBinaryExpr(e, parentPrecedence, fullyParenthesized)
+		return f.binary(e, parentPrecedence, fullyParenthesized)
 
 	case *verb.TernaryExpr:
 		prec := precedenceTernary
-		cond := unparseExpr(e.Condition, prec+1, fullyParenthesized)
-		then := unparseExpr(e.ThenExpr, prec+1, fullyParenthesized)
-		els := unparseExpr(e.ElseExpr, prec+1, fullyParenthesized)
+		cond := f.expr(e.Condition, prec+1, fullyParenthesized)
+		then := f.expr(e.ThenExpr, prec+1, fullyParenthesized)
+		els := f.expr(e.ElseExpr, prec+1, fullyParenthesized)
 		result := cond + " ? " + then + " | " + els
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -248,40 +276,40 @@ func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) 
 		return "$"
 
 	case *verb.IndexExpr:
-		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
-		index := unparseExpr(e.Index, precedenceLowest, fullyParenthesized)
+		base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
+		index := f.expr(e.Index, precedenceLowest, fullyParenthesized)
 		return base + "[" + index + "]"
 
 	case *verb.RangeExpr:
-		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
-		start := unparseExpr(e.Start, precedenceLowest, fullyParenthesized)
-		end := unparseExpr(e.End, precedenceLowest, fullyParenthesized)
+		base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
+		start := f.expr(e.Start, precedenceLowest, fullyParenthesized)
+		end := f.expr(e.End, precedenceLowest, fullyParenthesized)
 		// NO spaces around ..
 		return base + "[" + start + ".." + end + "]"
 
 	case *verb.PropertyExpr:
-		return unparsePropertyExpr(e, fullyParenthesized)
+		return f.property(e, fullyParenthesized)
 
 	case *verb.VerbCallExpr:
-		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
+		base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
 		var verb string
 		if e.Verb != "" {
-			verb = e.Verb
+			verb = f.name(e.Pos, e.Verb)
 		} else {
-			verb = "(" + unparseExpr(e.VerbExpr, precedenceLowest, fullyParenthesized) + ")"
+			verb = "(" + f.expr(e.VerbExpr, precedenceLowest, fullyParenthesized) + ")"
 		}
-		args := unparseArgs(e.Args, fullyParenthesized)
+		args := f.args(e.Args, fullyParenthesized)
 		return base + ":" + verb + "(" + args + ")"
 
 	case *verb.BuiltinCallExpr:
-		args := unparseArgs(e.Args, fullyParenthesized)
-		return e.Name + "(" + args + ")"
+		args := f.args(e.Args, fullyParenthesized)
+		return f.name(e.Pos, e.Name) + "(" + args + ")"
 
 	case *verb.SpliceExpr:
-		return "@" + unparseExpr(e.Expr, precedenceUnary, fullyParenthesized)
+		return "@" + f.expr(e.Expr, precedenceUnary, fullyParenthesized)
 
 	case *verb.CatchExpr:
-		result := "`" + unparseExpr(e.Expr, precedenceTernary, fullyParenthesized)
+		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
 		result += " ! "
 		if e.IsAny {
 			result += "ANY"
@@ -290,18 +318,18 @@ func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) 
 				if i > 0 {
 					result += ", "
 				}
-				result += code
+				result += f.errorName(e.Pos, code)
 			}
 		}
 		if e.Default != nil {
-			result += " => " + unparseExpr(e.Default, precedenceTernary, fullyParenthesized)
+			result += " => " + f.expr(e.Default, precedenceTernary, fullyParenthesized)
 		}
 		return result + "'"
 
 	case *verb.AssignExpr:
 		prec := precedenceAssign
-		target := unparseTarget(e.Target, fullyParenthesized)
-		value := unparseExpr(e.Value, prec, fullyParenthesized)
+		target := f.target(e.Target, fullyParenthesized)
+		value := f.expr(e.Value, prec, fullyParenthesized)
 		result := target + " = " + value
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -311,60 +339,60 @@ func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) 
 	case *verb.ListExpr:
 		var elements []string
 		for _, elem := range e.Elements {
-			elements = append(elements, unparseExpr(elem, precedenceLowest, fullyParenthesized))
+			elements = append(elements, f.expr(elem, precedenceLowest, fullyParenthesized))
 		}
 		return "{" + strings.Join(elements, ", ") + "}"
 
 	case *verb.ListRangeExpr:
-		start := unparseExpr(e.Start, precedenceLowest, fullyParenthesized)
-		end := unparseExpr(e.End, precedenceLowest, fullyParenthesized)
+		start := f.expr(e.Start, precedenceLowest, fullyParenthesized)
+		end := f.expr(e.End, precedenceLowest, fullyParenthesized)
 		return "{" + start + ".." + end + "}"
 
 	case *verb.MapExpr:
 		var pairs []string
 		for _, pair := range e.Pairs {
-			key := unparseExpr(pair.Key, precedenceLowest, fullyParenthesized)
-			val := unparseExpr(pair.Value, precedenceLowest, fullyParenthesized)
+			key := f.expr(pair.Key, precedenceLowest, fullyParenthesized)
+			val := f.expr(pair.Value, precedenceLowest, fullyParenthesized)
 			pairs = append(pairs, key+" -> "+val)
 		}
 		return "[" + strings.Join(pairs, ", ") + "]"
 
 	default:
-		return fmt.Sprintf("<unknown expr: %T>", expr)
+		return f.fail(verb.Position{}, fmt.Errorf("unsupported expression %T", expr))
 	}
 }
 
-// unparsePropertyExpr handles property access with #0.prop → $prop conversion
-func unparsePropertyExpr(e *verb.PropertyExpr, fullyParenthesized bool) string {
+// property handles property access with #0.prop → $prop conversion
+func (f *mooFormatter) property(e *verb.PropertyExpr, fullyParenthesized bool) string {
 	// Check if base is #0 (system object)
 	if lit, ok := e.Expr.(*verb.LiteralExpr); ok {
 		if lit.Kind == verb.LiteralObj && lit.ObjID == 0 && e.Property != "" {
 			// Use $property syntax for system object
-			return "$" + e.Property
+			return "$" + f.name(e.Pos, e.Property)
 		}
 	}
 
 	// Otherwise use obj.property syntax
-	base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
+	base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
 	if e.Property != "" {
-		return base + "." + e.Property
+		return base + "." + f.name(e.Pos, e.Property)
 	}
 	// Dynamic property
-	return base + ".(" + unparseExpr(e.PropertyExpr, precedenceLowest, fullyParenthesized) + ")"
+	return base + ".(" + f.expr(e.PropertyExpr, precedenceLowest, fullyParenthesized) + ")"
 }
 
-// unparseBinaryExpr handles binary expressions with proper precedence
-func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int, fullyParenthesized bool) string {
+// binary handles binary expressions with proper precedence
+func (f *mooFormatter) binary(e *verb.BinaryExpr, parentPrecedence int, fullyParenthesized bool) string {
 	spec, ok := binaryOperatorBySemantic(e.Operator)
 	if !ok {
-		return "<unknown binary expression>"
+		return f.fail(e.Pos, fmt.Errorf("unsupported binary operator %d", e.Operator))
 	}
 	leftPrecedence, rightPrecedence := spec.precedence, spec.precedence+1
 	if spec.associativity == associateRight {
 		leftPrecedence, rightPrecedence = spec.precedence+1, spec.precedence
 	}
-	left := unparseExpr(e.Left, leftPrecedence, fullyParenthesized)
-	right := unparseExpr(e.Right, rightPrecedence, fullyParenthesized)
+	left := f.expr(e.Left, leftPrecedence, fullyParenthesized)
+	right := f.expr(e.Right, rightPrecedence, fullyParenthesized)
 
 	result := left + " " + spec.spelling + " " + right
 
@@ -374,8 +402,8 @@ func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int, fullyParenthesi
 	return result
 }
 
-// unparseUnaryOp converts a unary operator to its string representation
-func unparseUnaryOp(op verb.UnaryOperator) string {
+// unaryOp converts a unary operator to its string representation
+func (f *mooFormatter) unaryOp(op verb.UnaryOperator) string {
 	switch op {
 	case verb.UnaryNegate:
 		return "-"
@@ -384,43 +412,45 @@ func unparseUnaryOp(op verb.UnaryOperator) string {
 	case verb.UnaryBitwiseNot:
 		return "~"
 	default:
-		return "<unknown unary op>"
+		return f.fail(verb.Position{}, fmt.Errorf("unsupported unary operator %d", op))
 	}
 }
 
-// unparseLiteral converts a literal syntax node to source representation.
-func unparseTarget(target verb.Target, fullyParenthesized bool) string {
+// target formats the sealed assignment target family.
+func (f *mooFormatter) target(target verb.Target, fullyParenthesized bool) string {
 	switch target := target.(type) {
 	case *verb.VariableTarget:
-		return canonicalIdentifierName(target.Name)
+		return canonicalIdentifierName(f.name(target.Pos, target.Name))
 	case *verb.PropertyTarget:
-		object := unparseExpr(target.Object, precedenceProperty, fullyParenthesized)
+		object := f.expr(target.Object, precedenceProperty, fullyParenthesized)
 		if target.Name != "" {
-			return object + "." + target.Name
+			return object + "." + f.name(target.Pos, target.Name)
 		}
-		return object + ".(" + unparseExpr(target.NameExpr, precedenceLowest, fullyParenthesized) + ")"
+		return object + ".(" + f.expr(target.NameExpr, precedenceLowest, fullyParenthesized) + ")"
 	case *verb.IndexTarget:
-		return unparseTarget(target.Collection, fullyParenthesized) + "[" + unparseExpr(target.Index, precedenceLowest, fullyParenthesized) + "]"
+		return f.target(target.Collection, fullyParenthesized) + "[" + f.expr(target.Index, precedenceLowest, fullyParenthesized) + "]"
 	case *verb.RangeTarget:
-		return unparseTarget(target.Collection, fullyParenthesized) + "[" + unparseExpr(target.Start, precedenceLowest, fullyParenthesized) + ".." + unparseExpr(target.End, precedenceLowest, fullyParenthesized) + "]"
+		return f.target(target.Collection, fullyParenthesized) + "[" + f.expr(target.Start, precedenceLowest, fullyParenthesized) + ".." + f.expr(target.End, precedenceLowest, fullyParenthesized) + "]"
 	case *verb.DestructuringTarget:
 		bindings := make([]string, len(target.Bindings))
 		for i, binding := range target.Bindings {
 			switch binding := binding.(type) {
 			case *verb.RequiredBinding:
-				bindings[i] = binding.Name
+				bindings[i] = f.name(binding.Pos, binding.Name)
 			case *verb.OptionalBinding:
-				bindings[i] = "?" + binding.Name
+				bindings[i] = "?" + f.name(binding.Pos, binding.Name)
 				if binding.Default != nil {
-					bindings[i] += " = " + unparseExpr(binding.Default, precedenceLowest, fullyParenthesized)
+					bindings[i] += " = " + f.expr(binding.Default, precedenceLowest, fullyParenthesized)
 				}
 			case *verb.RestBinding:
-				bindings[i] = "@" + binding.Name
+				bindings[i] = "@" + f.name(binding.Pos, binding.Name)
+			default:
+				return f.fail(verb.Position{}, fmt.Errorf("unsupported binding %T", binding))
 			}
 		}
 		return "{" + strings.Join(bindings, ", ") + "}"
 	default:
-		return "<unknown target>"
+		return f.fail(verb.Position{}, fmt.Errorf("unsupported target %T", target))
 	}
 }
 
@@ -434,17 +464,23 @@ func canonicalIdentifierName(name string) string {
 	}
 }
 
-func unparseLiteral(v *verb.LiteralExpr) string {
+func (f *mooFormatter) literal(v *verb.LiteralExpr) string {
 	switch v.Kind {
 	case verb.LiteralInt:
 		return strconv.FormatInt(v.IntValue, 10)
 	case verb.LiteralFloat:
+		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
+			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))
+		}
 		formatted := strconv.FormatFloat(v.FloatValue, 'f', -1, 64)
 		if !strings.ContainsAny(formatted, ".eE") {
 			formatted += ".0"
 		}
 		return formatted
 	case verb.LiteralString:
+		if strings.IndexByte(v.StringValue, 0) >= 0 {
+			return f.fail(v.Pos, ErrNULInSource)
+		}
 		return quoteMOOString(v.StringValue)
 	case verb.LiteralBool:
 		if v.BoolValue {
@@ -454,10 +490,34 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 	case verb.LiteralObj:
 		return fmt.Sprintf("#%d", v.ObjID)
 	case verb.LiteralErr:
-		return v.ErrorName
+		return f.errorName(v.Pos, v.ErrorName)
 	default:
-		return "<unknown literal>"
+		return f.fail(v.Pos, fmt.Errorf("unsupported literal kind %d", v.Kind))
 	}
+}
+
+// name keeps MOO lexical representability in the frontend. Semantic validation
+// requires a name but does not embed this language-specific token grammar.
+func (f *mooFormatter) name(pos verb.Position, name string) string {
+	if strings.IndexByte(name, 0) >= 0 {
+		return f.fail(pos, ErrNULInSource)
+	}
+	lexer := NewLexer(name)
+	token := lexer.NextToken()
+	if token.Type != TOKEN_IDENTIFIER || token.Value != name || lexer.NextToken().Type != TOKEN_EOF {
+		return f.fail(pos, fmt.Errorf("name %q has no MOO identifier spelling", name))
+	}
+	return name
+}
+
+func (f *mooFormatter) errorName(pos verb.Position, name string) string {
+	if strings.IndexByte(name, 0) >= 0 {
+		return f.fail(pos, ErrNULInSource)
+	}
+	if !isErrorName(name) {
+		return f.fail(pos, fmt.Errorf("unknown MOO error name %q", name))
+	}
+	return name
 }
 
 // quoteMOOString emits a string literal using MOO's escape rules. A backslash
@@ -478,14 +538,14 @@ func quoteMOOString(value string) string {
 	return quoted.String()
 }
 
-// unparseArgs converts argument expressions to a comma-separated string
-func unparseArgs(args []verb.Expr, fullyParenthesized bool) string {
+// args converts argument expressions to a comma-separated string
+func (f *mooFormatter) args(args []verb.Expr, fullyParenthesized bool) string {
 	if len(args) == 0 {
 		return ""
 	}
 	var parts []string
 	for _, arg := range args {
-		parts = append(parts, unparseExpr(arg, precedenceLowest, fullyParenthesized))
+		parts = append(parts, f.expr(arg, precedenceLowest, fullyParenthesized))
 	}
 	return strings.Join(parts, ", ")
 }
