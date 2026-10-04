@@ -733,6 +733,9 @@ func builtinVerbCacheStats(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 
 	stats := store.ConsumeVerbCacheStats()
 	statsVals := make([]types.Value, len(stats))
@@ -831,6 +834,10 @@ func builtinLogCacheStats(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	ctx.Store.LogVerbCacheStats(ctx.Logger())
 	return types.Ok(types.NewInt(0))
 }
 

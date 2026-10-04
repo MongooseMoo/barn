@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"log/slog"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()
@@ -110,6 +114,29 @@ func (s *Store) ConsumeVerbCacheStats() []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	stats := s.verbCacheStatsLocked()
+	s.verbCacheClears = 0
+	s.verbCacheMisses = 0
+	return stats
+}
+
+// VerbCacheStatsSnapshot reads the current observation window without resetting
+// it. The returned vector is owned by the caller.
+func (s *Store) VerbCacheStatsSnapshot() []int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.verbCacheStatsLocked()
+}
+
+// LogVerbCacheStats emits real counters using the caller's task-scoped logger.
+// Snapshotting finishes before invoking external logging handlers.
+func (s *Store) LogVerbCacheStats(logger *slog.Logger) {
+	stats := s.VerbCacheStatsSnapshot()
+	logger.Info("Verb cache stat summary",
+		slog.Int64("clear", stats[0]), slog.Int64("misses", stats[1]), slog.Any("stats", stats))
+}
+
+func (s *Store) verbCacheStatsLocked() []int64 {
 	stats := make([]int64, 17)
 	// Compatibility behavior: expose clear activity as a 0/1 interval flag.
 	// This avoids cross-test accumulation noise and matches conformance expectations.
@@ -117,9 +144,6 @@ func (s *Store) ConsumeVerbCacheStats() []int64 {
 		stats[0] = 1
 	}
 	stats[1] = s.verbCacheMisses
-
-	s.verbCacheClears = 0
-	s.verbCacheMisses = 0
 
 	return stats
 }
