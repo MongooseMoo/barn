@@ -22,6 +22,7 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
 	}
+	database.DeclaredPrograms = verbCount
 
 	// Line 3: dummy line
 	if _, err := readLine(r); err != nil {
