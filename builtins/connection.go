@@ -177,7 +177,6 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	options := ctx.Session.getConnectionOptions(target)
 	if len(args) == 2 {
 		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
@@ -186,13 +185,14 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		if !validConnectionOption(name) {
 			return types.Err(types.E_INVARG)
 		}
-		value, ok := options[name]
+		value, ok := ctx.Session.getConnectionOption(target, name)
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(value)
 	}
 
+	options := ctx.Session.getConnectionOptions(target)
 	names := make([]string, 0, len(options))
 	for name := range options {
 		names = append(names, name)

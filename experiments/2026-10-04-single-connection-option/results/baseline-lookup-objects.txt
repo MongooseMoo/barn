@@ -1,0 +1,19 @@
+File: baseline.test
+Build ID: e3562e5783c085a41c3e3d56c86750e8a6160ff5
+Type: alloc_objects
+Time: 2026-10-03 21:49:27 MDT
+Active filters:
+   focus=ConnectionOptionTruthy
+Showing nodes accounting for 90009, 53.88% of 167070 total
+      flat  flat%   sum%        cum   cum%
+     50005 29.93% 29.93%      50005 29.93%  github.com/MongooseMoo/barn/types.NewStr (inline)
+     20002 11.97% 41.90%      90009 53.88%  github.com/MongooseMoo/barn/builtins.defaultConnectionOptions
+     10001  5.99% 47.89%      70007 41.90%  github.com/MongooseMoo/barn/builtins.defaultIntrinsicCommands
+     10001  5.99% 53.88%      10001  5.99%  github.com/MongooseMoo/barn/types.newSliceList (inline)
+         0     0% 53.88%      90009 53.88%  github.com/MongooseMoo/barn/builtins.(*Session).ConnectionOptionTruthy
+         0     0% 53.88%      90009 53.88%  github.com/MongooseMoo/barn/builtins.(*Session).getConnectionOptions
+         0     0% 53.88%      90009 53.88%  github.com/MongooseMoo/barn/builtins.BenchmarkSingleConnectionOption.func1
+         0     0% 53.88%      10001  5.99%  github.com/MongooseMoo/barn/types.NewList (inline)
+         0     0% 53.88%      90000 53.87%  testing.(*B).launch
+         0     0% 53.88%          9 0.0054%  testing.(*B).run1.func1
+         0     0% 53.88%      90009 53.88%  testing.(*B).runN

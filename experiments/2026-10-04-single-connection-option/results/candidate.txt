@@ -1,0 +1,143 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19868348	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19843839	        11.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  383679	       655.7 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8825409	        27.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9582392	        25.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  632240	       388.7 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19879437	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19979462	        11.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  385592	       617.6 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8847655	        27.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9528351	        25.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  527685	       387.2 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19884141	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20128923	        11.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  365492	       627.1 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8813612	        27.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9617961	        25.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  549360	       395.5 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20176015	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19984964	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  385492	       636.2 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8852629	        27.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9614461	        25.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  625976	       389.4 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19955012	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19859094	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  389516	       619.5 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8894596	        27.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9550515	        25.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  569018	       393.2 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20189008	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20141461	        11.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  400050	       616.0 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8884765	        26.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9544149	        25.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  652880	       387.8 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20119197	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20155408	        12.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  366202	       634.2 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8871165	        27.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9539212	        25.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  640688	       387.6 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19958769	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20015304	        11.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  370657	       625.4 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8801499	        27.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9527301	        25.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  621379	       393.7 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	19775971	        12.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19535534	        12.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  367620	       638.2 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8791094	        27.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9485076	        25.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  609098	       404.3 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20172550	        11.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20043726	        12.01 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  399182	       629.0 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8890476	        27.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9579530	        24.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  585549	       386.0 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20243083	        11.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	20017788	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  400929	       626.7 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8834010	        27.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9536757	        25.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  589374	       385.0 ns/op	     400 B/op	       2 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkSingleConnectionOption/TruthyDefault-4         	20076920	        12.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldDefault-4           	19829222	        12.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotDefault-4       	  363816	       625.8 ns/op	     896 B/op	       9 allocs/op
+BenchmarkSingleConnectionOption/TruthyStored-4          	 8844448	        27.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/HeldStored-4            	 9594562	        25.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSingleConnectionOption/SnapshotStored-4        	  614668	       392.9 ns/op	     400 B/op	       2 allocs/op
+PASS

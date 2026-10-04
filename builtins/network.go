@@ -150,6 +150,32 @@ func (r *Session) getConnectionOptions(player types.ObjID) map[string]types.Valu
 	return out
 }
 
+// getConnectionOption copies one immutable value under the read lock. Resolve
+// only its default after unlocking; scalar reads need no map or intrinsic list.
+func (r *Session) getConnectionOption(player types.ObjID, name string) (types.Value, bool) {
+	state := &r.runtime.connectionOptions
+	state.mu.RLock()
+	if existing, ok := state.byPlayer[player]; ok {
+		value, found := existing[name]
+		state.mu.RUnlock()
+		return value, found
+	}
+	state.mu.RUnlock()
+
+	switch name {
+	case "hold-input", "disable-oob", "binary", "keep-alive":
+		return types.NewInt(0), true
+	case "client-echo":
+		return types.NewInt(1), true
+	case "flush-command":
+		return types.NewStr(""), true
+	case "intrinsic-commands":
+		return defaultIntrinsicCommands(), true
+	default:
+		return types.None, false
+	}
+}
+
 func (r *Session) setConnectionOption(player types.ObjID, name string, value types.Value) {
 	state := &r.runtime.connectionOptions
 	state.mu.Lock()
@@ -173,12 +199,11 @@ func (r *Session) drainHeldCommands(player types.ObjID) []string {
 }
 
 func (r *Session) heldInputEnabled(player types.ObjID) bool {
-	return r.getConnectionOptions(player)["hold-input"].Truthy()
+	return r.ConnectionOptionTruthy(player, "hold-input")
 }
 
 func (r *Session) ConnectionOptionTruthy(player types.ObjID, name string) bool {
-	options := r.getConnectionOptions(player)
-	value, ok := options[name]
+	value, ok := r.getConnectionOption(player, name)
 	return ok && value.Truthy()
 }
 
@@ -519,8 +544,8 @@ func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldIn
 }
 
 func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
-	options := r.getConnectionOptions(player)
-	if flush := options["flush-command"]; flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
+	flush, _ := r.getConnectionOption(player, "flush-command")
+	if flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
 		lines := r.drainHeldCommands(player)
 		if lines == nil {
 			lines = []string{}
@@ -1336,8 +1361,7 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	options := ctx.Session.getConnectionOptions(player)
-	value, ok := options[name]
+	value, ok := ctx.Session.getConnectionOption(player, name)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

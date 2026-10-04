@@ -1,0 +1,1169 @@
+{
+  "toolchain": "/tmp/barn-360-tools/baseline.test: go1.24.6\n/tmp/barn-360-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "9ad613a458ed9ef3087a27cdf517afcdac29e6e90bdd60dc48e756deaffd0529",
+    "candidate": "568dcdb637b2efba5286f52e22104cfacdc75d631076c62d3d4e7aa96638c826"
+  },
+  "seed": 360,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "200ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "summary": {
+    "BenchmarkSingleConnectionOption/HeldDefault": {
+      "percent": -98.13331982130302,
+      "ci95_percent": [
+        -98.14552386261025,
+        -98.12288375716325
+      ],
+      "holdout_percent": -98.12613680850355,
+      "B/op": {
+        "baseline": [
+          896.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          9.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkSingleConnectionOption/HeldStored": {
+      "percent": -93.79955606227301,
+      "ci95_percent": [
+        -93.8364426962258,
+        -93.76650410119939
+      ],
+      "holdout_percent": -93.77958326207259,
+      "B/op": {
+        "baseline": [
+          400.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          2.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkSingleConnectionOption/SnapshotDefault": {
+      "percent": -0.15207613649079743,
+      "ci95_percent": [
+        -1.306524938015896,
+        0.9987110400297983
+      ],
+      "holdout_percent": 1.3149910748788018,
+      "B/op": {
+        "baseline": [
+          896.0
+        ],
+        "candidate": [
+          896.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          9.0
+        ],
+        "candidate": [
+          9.0
+        ]
+      }
+    },
+    "BenchmarkSingleConnectionOption/SnapshotStored": {
+      "percent": 0.012465222710122958,
+      "ci95_percent": [
+        -1.5668189734108218,
+        1.37993338563287
+      ],
+      "holdout_percent": 1.4802672907895387,
+      "B/op": {
+        "baseline": [
+          400.0
+        ],
+        "candidate": [
+          400.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          2.0
+        ],
+        "candidate": [
+          2.0
+        ]
+      }
+    },
+    "BenchmarkSingleConnectionOption/TruthyDefault": {
+      "percent": -98.14722006476153,
+      "ci95_percent": [
+        -98.17795438527021,
+        -98.12084080776951
+      ],
+      "holdout_percent": -98.0698810808398,
+      "B/op": {
+        "baseline": [
+          896.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          9.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkSingleConnectionOption/TruthyStored": {
+      "percent": -93.36433760494856,
+      "ci95_percent": [
+        -93.41328593240603,
+        -93.31927993902065
+      ],
+      "holdout_percent": -93.34805041234817,
+      "B/op": {
+        "baseline": [
+          400.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          2.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.97,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 655.7,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 388.7,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 627.6,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 636.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 630.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 417.8,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 405.7,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 389.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 633.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 633.1,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 625.1,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 403.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 404.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.96,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 617.6,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.14,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.2,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.96,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 627.1,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.14,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.17,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 395.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 633.3,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 657.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 633.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 408.4,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 404.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 383.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 636.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.09,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 389.4,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 634.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 639.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 639.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 417.8,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 400.8,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.4,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 619.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.16,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.2,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 393.2,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 693.9,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 643.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 621.7,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 403.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 401.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.97,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 616.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 26.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.8,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 661.7,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 645.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 617.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 408.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 407.2,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.8,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 12.02,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 634.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.21,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.14,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 633.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 641.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 618.3,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 413.4,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 402.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 387.0,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.99,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 625.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.25,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.36,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 393.7,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 650.3,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 652.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 655.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 413.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 414.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 421.4,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 12.54,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 12.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 638.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.3,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.28,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 404.3,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 687.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 651.2,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 630.6,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 410.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 403.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 388.3,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.95,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 12.01,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 629.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.12,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 24.57,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 386.0,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 635.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 635.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 635.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 403.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 405.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 384.7,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.97,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 626.7,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.18,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.1,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 385.0,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 642.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 637.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 628.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 407.2,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 402.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 397.0,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 660.9,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 641.1,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 627.6,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 404.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 403.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 390.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 12.0,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 12.0,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 625.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.14,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 392.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 642.9,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 646.0,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 625.5,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 405.9,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 403.0,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 382.1,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 11.94,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 11.96,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 621.7,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.39,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.17,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 411.7,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 12.94,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 12.07,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 633.9,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 27.18,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 25.19,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 382.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkSingleConnectionOption/TruthyDefault": {
+          "ns/op": 645.1,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/HeldDefault": {
+          "ns/op": 636.4,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotDefault": {
+          "ns/op": 613.8,
+          "B/op": 896.0,
+          "allocs/op": 9.0
+        },
+        "BenchmarkSingleConnectionOption/TruthyStored": {
+          "ns/op": 414.5,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/HeldStored": {
+          "ns/op": 406.6,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        },
+        "BenchmarkSingleConnectionOption/SnapshotStored": {
+          "ns/op": 400.3,
+          "B/op": 400.0,
+          "allocs/op": 2.0
+        }
+      }
+    }
+  ]
+}

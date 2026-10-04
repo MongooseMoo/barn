@@ -1,0 +1,28 @@
+File: baseline.test
+Build ID: e3562e5783c085a41c3e3d56c86750e8a6160ff5
+Type: alloc_objects
+Time: 2026-10-03 21:49:27 MDT
+Showing nodes accounting for 164927, 98.72% of 167070 total
+Dropped 162 nodes (cum <= 835)
+      flat  flat%   sum%        cum   cum%
+     67842 40.61% 40.61%      72368 43.32%  github.com/MongooseMoo/barn/compiler.layoutFingerprint
+     50005 29.93% 70.54%      50005 29.93%  github.com/MongooseMoo/barn/types.NewStr (inline)
+     20002 11.97% 82.51%      90009 53.88%  github.com/MongooseMoo/barn/builtins.defaultConnectionOptions
+     10001  5.99% 88.50%      70007 41.90%  github.com/MongooseMoo/barn/builtins.defaultIntrinsicCommands
+     10001  5.99% 94.48%      10001  5.99%  github.com/MongooseMoo/barn/types.newSliceList (inline)
+      4511  2.70% 97.18%       4511  2.70%  strings.(*Builder).Write
+      1168   0.7% 97.88%       2028  1.21%  github.com/MongooseMoo/barn/builtins.(*Registry).install
+       842   0.5% 98.39%        842   0.5%  github.com/MongooseMoo/barn/builtins.BaseDescriptors
+       516  0.31% 98.69%        860  0.51%  github.com/MongooseMoo/barn/builtins.cloneSignature
+        20 0.012% 98.71%      72806 43.58%  github.com/MongooseMoo/barn/compiler.New
+        12 0.0072% 98.71%      74846 44.80%  github.com/MongooseMoo/barn/builtins.NewRegistryFromDescriptors
+         5 0.003% 98.72%     166465 99.64%  testing.(*B).runN
+         2 0.0012% 98.72%      75716 45.32%  github.com/MongooseMoo/barn/builtins.NewRegistry
+         0     0% 98.72%       4533  2.71%  fmt.Fprintf
+         0     0% 98.72%      90009 53.88%  github.com/MongooseMoo/barn/builtins.(*Session).ConnectionOptionTruthy
+         0     0% 98.72%      90009 53.88%  github.com/MongooseMoo/barn/builtins.(*Session).getConnectionOptions
+         0     0% 98.72%     165743 99.21%  github.com/MongooseMoo/barn/builtins.BenchmarkSingleConnectionOption.func1
+         0     0% 98.72%      10001  5.99%  github.com/MongooseMoo/barn/types.NewList (inline)
+         0     0% 98.72%     127869 76.54%  testing.(*B).launch
+         0     0% 98.72%      38576 23.09%  testing.(*B).run1.func1
+         0     0% 98.72%       1020  0.61%  testing.(*matcher).fullName
