@@ -13,6 +13,7 @@ type Lexer struct {
 	ch           byte // current char under examination
 	line         int
 	column       int
+	commentError *ParseError
 }
 
 // NewLexer creates a new Lexer instance
@@ -66,26 +67,30 @@ func (l *Lexer) skipWhitespace() {
 	}
 }
 
-// skipComment skips over a comment (// to end of line)
-func (l *Lexer) skipComment() {
-	if l.ch == '/' && l.peekChar() == '/' {
-		// Skip until end of line
-		for l.ch != '\n' && l.ch != 0 {
-			l.readChar()
-		}
-	}
-}
-
 // NextToken returns the next token from the input
 func (l *Lexer) NextToken() Token {
 	var tok Token
 
-	l.skipWhitespace()
-
-	// Check for comments
-	if l.ch == '/' && l.peekChar() == '/' {
-		l.skipComment()
+	// Consume whitespace and consecutive block comments to a fixed point.
+	// Comments do not nest; a slash followed by anything else remains division.
+	for {
 		l.skipWhitespace()
+		if l.ch != '/' || l.peekChar() != '*' {
+			break
+		}
+		start := verb.Position{Line: l.line, Column: l.column, Offset: l.position}
+		l.readChar()
+		l.readChar()
+		for !(l.ch == '*' && l.peekChar() == '/') {
+			if l.ch == 0 {
+				const message = "End of program while in a comment"
+				l.commentError = &ParseError{Line: start.Line, Msg: message}
+				return Token{Type: TOKEN_ILLEGAL, Value: message, Position: start}
+			}
+			l.readChar()
+		}
+		l.readChar()
+		l.readChar()
 	}
 
 	tok.Position = verb.Position{
