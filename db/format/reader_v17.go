@@ -69,6 +69,7 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
 	}
+	database.DeclaredPrograms = verbCount
 
 	for i := 0; i < verbCount; i++ {
 		if err := database.readVerbCode(r); err != nil {

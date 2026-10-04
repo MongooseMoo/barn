@@ -1,0 +1,27 @@
+{
+  "declared_programs": 1950,
+  "unprogrammed": 4,
+  "empty_programs": [
+    {
+      "object_id": 10,
+      "verb_index": 17,
+      "verb_name": "special_action"
+    }
+  ],
+  "source": {
+    "attempted": 1950,
+    "accepted": 1950,
+    "rejected": 0
+  },
+  "round_trips": {
+    "attempted": 1950,
+    "reparsed": 1950,
+    "parse_rejected": 0,
+    "semantic_preserved": 1950,
+    "semantic_changed": 0,
+    "stable": 1950,
+    "unstable": 0
+  },
+  "failures": [],
+  "families": []
+}

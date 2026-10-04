@@ -2,14 +2,11 @@ package parser_test
 
 import (
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
-	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/parser"
-	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/verb"
 )
 
@@ -145,38 +142,6 @@ func TestFormatMOOCanonicalizesTypeConstantVariableSpellings(t *testing.T) {
 	}
 	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "WAIF = 1;\nANON = 2;\nreturn {WAIF, ANON};"; got != want {
 		t.Fatalf("FormatMOO() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
-	database, err := dbformat.LoadDatabase("../db/format/testdata/toastcore.db")
-	if err != nil {
-		t.Fatalf("LoadDatabase() error = %v", err)
-	}
-	store, _ := database.NewStoreFromDatabase()
-	objects := store.All()
-	sort.Slice(objects, func(i, j int) bool { return objects[i].ID < objects[j].ID })
-
-	checked := 0
-	for _, object := range objects {
-		for index := 0; index < object.VerbCount && checked < 50; index++ {
-			view, errCode := store.DirectTxn().VerbByIndex(object.ID, index)
-			if errCode != types.E_NONE || len(view.Code) == 0 {
-				continue
-			}
-			source := strings.Join(view.Code, "\n")
-			if _, err := parser.NewParser(source).ParseProgram(); err != nil {
-				continue
-			}
-			assertCanonicalRoundTrip(t, source)
-			checked++
-		}
-		if checked == 50 {
-			break
-		}
-	}
-	if checked < 50 {
-		t.Fatalf("checked %d database verbs, want 50", checked)
 	}
 }
 

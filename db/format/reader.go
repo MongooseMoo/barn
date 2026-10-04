@@ -13,6 +13,9 @@ import (
 
 // Database represents a loaded MOO database
 type Database struct {
+	// DeclaredPrograms is the input dump's verb-program section count, including
+	// empty programs. It permits coverage audits against loaded HasProgram verbs.
+	DeclaredPrograms     int
 	Version              int
 	Objects              map[types.ObjID]*store.ObjectBuilder
 	AnonymousObjs        []*store.ObjectBuilder
