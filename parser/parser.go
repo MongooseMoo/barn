@@ -10,17 +10,16 @@ import (
 
 // Parser parses MOO source code into language-neutral verb semantics.
 type Parser struct {
-	lexer            *Lexer
-	current          Token
-	peek             Token
-	previous         Token
-	parenthesisDepth int
-	statementCalls   int
-	collecting       bool
-	diagnostics      []*ParseError
-	checkBuiltin     func(string, verb.Position) error
-	sourceLoops      []sourceLoop
-	indexDepth       int
+	lexer        *Lexer
+	current      Token
+	peek         Token
+	previous     Token
+	syntaxDepth  int
+	collecting   bool
+	diagnostics  []*ParseError
+	checkBuiltin func(string, verb.Position) error
+	sourceLoops  []sourceLoop
+	indexDepth   int
 }
 
 // MaxNestingDepth is shared with semantic IR consumers.
@@ -104,6 +103,21 @@ func semanticBinaryOperator(token TokenType) verb.BinaryOperator {
 
 // ParseExpression parses an expression
 func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
+	// Recursive expression calls and enclosing block statements share one
+	// budget. A terminal operand is allowed beneath construct 256; another
+	// prefix construct is rejected before consuming its token.
+	if p.syntaxDepth > MaxNestingDepth {
+		return nil, p.limitError()
+	}
+	if p.syntaxDepth == MaxNestingDepth {
+		switch p.current.Type {
+		case TOKEN_MINUS, TOKEN_NOT, TOKEN_BITNOT, TOKEN_LPAREN,
+			TOKEN_LBRACE, TOKEN_LBRACKET, TOKEN_AT, TOKEN_BACKTICK:
+			return nil, p.limitError()
+		}
+	}
+	p.syntaxDepth++
+	defer func() { p.syntaxDepth-- }()
 	// Parse prefix expression
 	var left verb.Expr
 	var err error
@@ -246,11 +260,6 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		}
 
 	case TOKEN_LPAREN:
-		p.parenthesisDepth++
-		if p.parenthesisDepth > MaxNestingDepth {
-			return nil, p.limitError()
-		}
-		defer func() { p.parenthesisDepth-- }()
 		// Parse parenthesized expression
 		p.nextToken()
 		expr, err := p.ParseExpression(PREC_LOWEST)
