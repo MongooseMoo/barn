@@ -1,0 +1,1449 @@
+{
+  "toolchain": "/tmp/barn-359-tools/baseline.test: go1.24.6\n/tmp/barn-359-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "124fcd98a49ee70ca6ace6b51b017151fe1ae68666b38716e084613d2f4fe1a4",
+    "candidate": "aa01d89546f7ceefe2609cce600231947b96de5b46f7b409d62d82138d2fca43"
+  },
+  "seed": 359,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "200ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "workload_digests": {
+    "1MiB": {
+      "database_sha256": "06b7bbfb7824aa03382051691630eb26de85102d1b08a81e907ec0744cd8a286",
+      "sidecar_sha256": "f67951e1dfb1732cdbfd6109e7381d0ef3a15d39339416e3783c2f6c8c896cdb"
+    },
+    "8MiB": {
+      "database_sha256": "0ff4d6c068be24637e84ea9f481c3c29f7afcdef1e06e1f40a68e5de85dcbb5b",
+      "sidecar_sha256": "7fb50490e0a904a5cba31f8b16840e9b14133d3aa9d838101fd145160ef74f15"
+    },
+    "32MiB": {
+      "database_sha256": "b1ef2080b7d65133586bd09a53db3aa0839754e9e256e7958f953604ebcc5783",
+      "sidecar_sha256": "e79540244502bb70123f5886c8efcbeb50749776c53749beeadf44eeafda9809"
+    }
+  },
+  "summary": {
+    "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+      "percent": -17.978225067092147,
+      "ci95_percent": [
+        -20.175676783975362,
+        -15.877477650731365
+      ],
+      "holdout_percent": -19.810979432744837,
+      "B/op": {
+        "baseline": [
+          1062019.0,
+          1062026.0,
+          1062028.0,
+          1062032.0,
+          1062042.0,
+          1062050.0,
+          1062056.0,
+          1062057.0,
+          1062060.0,
+          1062067.0,
+          1062070.0,
+          1062071.0,
+          1062088.0
+        ],
+        "candidate": [
+          37805.0,
+          37806.0,
+          37807.0,
+          37808.0,
+          37809.0,
+          37810.0,
+          37820.0,
+          37823.0,
+          37825.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          18.0
+        ],
+        "candidate": [
+          21.0
+        ]
+      }
+    },
+    "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+      "percent": -26.857438455738315,
+      "ci95_percent": [
+        -27.989032979398022,
+        -25.331666743525005
+      ],
+      "holdout_percent": -26.870466633390876,
+      "B/op": {
+        "baseline": [
+          33568264.0,
+          33568276.0,
+          33568305.0,
+          33568311.0,
+          33568323.0,
+          33568358.0,
+          33568370.0,
+          33568405.0,
+          33568417.0,
+          33568476.0
+        ],
+        "candidate": [
+          37800.0,
+          37831.0,
+          37837.0,
+          37862.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          21.0,
+          22.0,
+          23.0
+        ],
+        "candidate": [
+          21.0
+        ]
+      }
+    },
+    "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+      "percent": -18.489521363288453,
+      "ci95_percent": [
+        -21.82836730381886,
+        -14.23002791615552
+      ],
+      "holdout_percent": -22.012660126758888,
+      "B/op": {
+        "baseline": [
+          8402490.0,
+          8402493.0,
+          8402496.0,
+          8402511.0,
+          8402518.0,
+          8402523.0,
+          8402529.0,
+          8402541.0,
+          8402543.0,
+          8402550.0,
+          8402555.0,
+          8402566.0,
+          8402578.0,
+          8402585.0
+        ],
+        "candidate": [
+          37800.0,
+          37801.0,
+          37807.0,
+          37808.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          21.0,
+          22.0
+        ],
+        "candidate": [
+          21.0
+        ]
+      }
+    },
+    "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+      "percent": -6.1895982467719435,
+      "ci95_percent": [
+        -15.483525568334622,
+        1.477648719350766
+      ],
+      "holdout_percent": -3.470663604581603,
+      "B/op": {
+        "baseline": [
+          1057815.0,
+          1057818.0,
+          1057819.0,
+          1057820.0,
+          1057822.0,
+          1057824.0,
+          1057827.0,
+          1057841.0,
+          1057843.0,
+          1057845.0,
+          1057863.0,
+          1057915.0
+        ],
+        "candidate": [
+          33532.0,
+          33533.0,
+          33535.0,
+          33536.0,
+          33537.0,
+          33540.0,
+          33544.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          15.0,
+          16.0
+        ],
+        "candidate": [
+          18.0
+        ]
+      }
+    },
+    "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+      "percent": -27.229855533894465,
+      "ci95_percent": [
+        -29.249385669854345,
+        -25.747659929921973
+      ],
+      "holdout_percent": -26.944732044489474,
+      "B/op": {
+        "baseline": [
+          33563992.0,
+          33564033.0,
+          33564044.0,
+          33564059.0,
+          33564133.0,
+          33564138.0,
+          33564145.0,
+          33564169.0
+        ],
+        "candidate": [
+          33528.0,
+          33559.0,
+          33565.0,
+          33594.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          18.0,
+          19.0
+        ],
+        "candidate": [
+          18.0
+        ]
+      }
+    },
+    "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+      "percent": -21.876871434246027,
+      "ci95_percent": [
+        -24.572614598160737,
+        -19.125209691355305
+      ],
+      "holdout_percent": -21.170363288853224,
+      "B/op": {
+        "baseline": [
+          8398191.0,
+          8398202.0,
+          8398215.0,
+          8398218.0,
+          8398224.0,
+          8398226.0,
+          8398233.0,
+          8398262.0,
+          8398265.0,
+          8398271.0,
+          8398273.0,
+          8398309.0
+        ],
+        "candidate": [
+          33528.0,
+          33537.0,
+          33538.0,
+          33540.0,
+          33542.0,
+          33547.0,
+          33548.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          18.0,
+          19.0
+        ],
+        "candidate": [
+          18.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 593295.0,
+          "MB/s": 1767.38,
+          "B/op": 37805.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1829742.0,
+          "MB/s": 573.07,
+          "B/op": 33532.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4751491.0,
+          "MB/s": 1765.47,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6156393.0,
+          "MB/s": 1362.58,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18883465.0,
+          "MB/s": 1776.92,
+          "B/op": 37862.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 20845968.0,
+          "MB/s": 1609.64,
+          "B/op": 33565.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 780814.0,
+          "MB/s": 1342.93,
+          "B/op": 1062070.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1844090.0,
+          "MB/s": 568.61,
+          "B/op": 1057815.0,
+          "allocs/op": 15.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5837517.0,
+          "MB/s": 1437.02,
+          "B/op": 8402550.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 8175681.0,
+          "MB/s": 1026.04,
+          "B/op": 8398202.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 26774220.0,
+          "MB/s": 1253.24,
+          "B/op": 33568405.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 28276626.0,
+          "MB/s": 1186.65,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 713410.0,
+          "MB/s": 1469.81,
+          "B/op": 1062050.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1865099.0,
+          "MB/s": 562.21,
+          "B/op": 1057818.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5913538.0,
+          "MB/s": 1418.54,
+          "B/op": 8402541.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7586986.0,
+          "MB/s": 1105.66,
+          "B/op": 8398262.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25985922.0,
+          "MB/s": 1291.25,
+          "B/op": 33568311.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 28456940.0,
+          "MB/s": 1179.13,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      },
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 590298.0,
+          "MB/s": 1776.35,
+          "B/op": 37823.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1834486.0,
+          "MB/s": 571.59,
+          "B/op": 33532.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4746484.0,
+          "MB/s": 1767.33,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6000128.0,
+          "MB/s": 1398.07,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18657330.0,
+          "MB/s": 1798.46,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 20004164.0,
+          "MB/s": 1677.37,
+          "B/op": 33565.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 701661.0,
+          "MB/s": 1494.42,
+          "B/op": 1062056.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1829911.0,
+          "MB/s": 573.02,
+          "B/op": 1057822.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 6076780.0,
+          "MB/s": 1380.44,
+          "B/op": 8402543.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7962374.0,
+          "MB/s": 1053.53,
+          "B/op": 8398271.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25786071.0,
+          "MB/s": 1301.26,
+          "B/op": 33568264.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 27470381.0,
+          "MB/s": 1221.48,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      },
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 595548.0,
+          "MB/s": 1760.69,
+          "B/op": 37806.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1781431.0,
+          "MB/s": 588.61,
+          "B/op": 33536.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4800063.0,
+          "MB/s": 1747.6,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6304037.0,
+          "MB/s": 1330.67,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 19494944.0,
+          "MB/s": 1721.19,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 20229935.0,
+          "MB/s": 1658.65,
+          "B/op": 33565.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 791767.0,
+          "MB/s": 1324.35,
+          "B/op": 1062057.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 3093804.0,
+          "MB/s": 338.93,
+          "B/op": 1057915.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 6082254.0,
+          "MB/s": 1379.19,
+          "B/op": 8402518.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 8313192.0,
+          "MB/s": 1009.07,
+          "B/op": 8398233.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 26446434.0,
+          "MB/s": 1268.77,
+          "B/op": 33568323.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 32140004.0,
+          "MB/s": 1044.01,
+          "B/op": 33564169.0,
+          "allocs/op": 19.0
+        }
+      },
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 614900.0,
+          "MB/s": 1705.28,
+          "B/op": 37825.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1805005.0,
+          "MB/s": 580.93,
+          "B/op": 33532.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4801978.0,
+          "MB/s": 1746.91,
+          "B/op": 37801.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5937432.0,
+          "MB/s": 1412.83,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 19368325.0,
+          "MB/s": 1732.44,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 20495047.0,
+          "MB/s": 1637.2,
+          "B/op": 33565.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 713555.0,
+          "MB/s": 1469.51,
+          "B/op": 1062028.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1822399.0,
+          "MB/s": 575.38,
+          "B/op": 1057841.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5877002.0,
+          "MB/s": 1427.36,
+          "B/op": 8402578.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7268103.0,
+          "MB/s": 1154.17,
+          "B/op": 8398262.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 26332168.0,
+          "MB/s": 1274.28,
+          "B/op": 33568264.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 29091104.0,
+          "MB/s": 1153.43,
+          "B/op": 33564059.0,
+          "allocs/op": 18.0
+        }
+      },
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 605210.0,
+          "MB/s": 1732.58,
+          "B/op": 37809.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1820965.0,
+          "MB/s": 575.84,
+          "B/op": 33535.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4765452.0,
+          "MB/s": 1760.3,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5874343.0,
+          "MB/s": 1428.01,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 19226548.0,
+          "MB/s": 1745.21,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 21225368.0,
+          "MB/s": 1580.86,
+          "B/op": 33528.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 642022.0,
+          "MB/s": 1633.24,
+          "B/op": 37806.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 2076773.0,
+          "MB/s": 504.91,
+          "B/op": 33544.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5309168.0,
+          "MB/s": 1580.02,
+          "B/op": 37808.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6380604.0,
+          "MB/s": 1314.7,
+          "B/op": 33548.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 21386393.0,
+          "MB/s": 1568.96,
+          "B/op": 37837.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 21562819.0,
+          "MB/s": 1556.12,
+          "B/op": 33565.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 831184.0,
+          "MB/s": 1261.54,
+          "B/op": 1062088.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1766431.0,
+          "MB/s": 593.61,
+          "B/op": 1057827.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5216051.0,
+          "MB/s": 1608.23,
+          "B/op": 8402511.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7393162.0,
+          "MB/s": 1134.64,
+          "B/op": 8398215.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 26569909.0,
+          "MB/s": 1262.87,
+          "B/op": 33568417.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 28190783.0,
+          "MB/s": 1190.26,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 590288.0,
+          "MB/s": 1776.38,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1805477.0,
+          "MB/s": 580.78,
+          "B/op": 33533.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4650915.0,
+          "MB/s": 1803.65,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5672987.0,
+          "MB/s": 1478.69,
+          "B/op": 33537.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18549895.0,
+          "MB/s": 1808.87,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19891871.0,
+          "MB/s": 1686.84,
+          "B/op": 33559.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 683751.0,
+          "MB/s": 1533.56,
+          "B/op": 1062019.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1862102.0,
+          "MB/s": 563.11,
+          "B/op": 1057863.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5709798.0,
+          "MB/s": 1469.16,
+          "B/op": 8402523.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7563089.0,
+          "MB/s": 1109.15,
+          "B/op": 8398224.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25914507.0,
+          "MB/s": 1294.81,
+          "B/op": 33568476.0,
+          "allocs/op": 23.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 27404995.0,
+          "MB/s": 1224.39,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 587679.0,
+          "MB/s": 1784.27,
+          "B/op": 37808.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1745560.0,
+          "MB/s": 600.71,
+          "B/op": 33532.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4501920.0,
+          "MB/s": 1863.34,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5706155.0,
+          "MB/s": 1470.1,
+          "B/op": 33547.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18495699.0,
+          "MB/s": 1814.17,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19949693.0,
+          "MB/s": 1681.95,
+          "B/op": 33528.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 696050.0,
+          "MB/s": 1506.47,
+          "B/op": 1062042.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1733075.0,
+          "MB/s": 605.04,
+          "B/op": 1057845.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5603660.0,
+          "MB/s": 1496.99,
+          "B/op": 8402529.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7311933.0,
+          "MB/s": 1147.25,
+          "B/op": 8398191.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25723167.0,
+          "MB/s": 1304.44,
+          "B/op": 33568276.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26793460.0,
+          "MB/s": 1252.34,
+          "B/op": 33564033.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 584192.0,
+          "MB/s": 1794.92,
+          "B/op": 37808.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1702132.0,
+          "MB/s": 616.04,
+          "B/op": 33537.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4522290.0,
+          "MB/s": 1854.95,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5837216.0,
+          "MB/s": 1437.09,
+          "B/op": 33540.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18561034.0,
+          "MB/s": 1807.79,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19648013.0,
+          "MB/s": 1707.78,
+          "B/op": 33594.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 681170.0,
+          "MB/s": 1539.38,
+          "B/op": 1062032.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1729459.0,
+          "MB/s": 606.3,
+          "B/op": 1057820.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5904993.0,
+          "MB/s": 1420.6,
+          "B/op": 8402490.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 8248900.0,
+          "MB/s": 1016.94,
+          "B/op": 8398265.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25842697.0,
+          "MB/s": 1298.41,
+          "B/op": 33568358.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26298971.0,
+          "MB/s": 1275.88,
+          "B/op": 33564044.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 588898.0,
+          "MB/s": 1780.57,
+          "B/op": 37809.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1717820.0,
+          "MB/s": 610.41,
+          "B/op": 33533.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4731057.0,
+          "MB/s": 1773.09,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6000764.0,
+          "MB/s": 1397.92,
+          "B/op": 33538.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18633515.0,
+          "MB/s": 1800.76,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19854638.0,
+          "MB/s": 1690.0,
+          "B/op": 33559.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 722160.0,
+          "MB/s": 1452.0,
+          "B/op": 1062071.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1784443.0,
+          "MB/s": 587.62,
+          "B/op": 1057815.0,
+          "allocs/op": 15.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5286492.0,
+          "MB/s": 1586.8,
+          "B/op": 8402555.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7082101.0,
+          "MB/s": 1184.48,
+          "B/op": 8398273.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25778932.0,
+          "MB/s": 1301.62,
+          "B/op": 33568311.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26786511.0,
+          "MB/s": 1252.66,
+          "B/op": 33564044.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 589359.0,
+          "MB/s": 1779.18,
+          "B/op": 37820.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1681232.0,
+          "MB/s": 623.7,
+          "B/op": 33533.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4484220.0,
+          "MB/s": 1870.69,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5686526.0,
+          "MB/s": 1475.17,
+          "B/op": 33542.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18466837.0,
+          "MB/s": 1817.01,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 20209919.0,
+          "MB/s": 1660.3,
+          "B/op": 33559.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 757406.0,
+          "MB/s": 1384.43,
+          "B/op": 1062060.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 2132212.0,
+          "MB/s": 491.78,
+          "B/op": 1057843.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 6256131.0,
+          "MB/s": 1340.86,
+          "B/op": 8402585.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7608647.0,
+          "MB/s": 1102.51,
+          "B/op": 8398218.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25299840.0,
+          "MB/s": 1326.27,
+          "B/op": 33568370.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 27234784.0,
+          "MB/s": 1232.04,
+          "B/op": 33564145.0,
+          "allocs/op": 19.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 680677.0,
+          "MB/s": 1540.49,
+          "B/op": 1062028.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1713417.0,
+          "MB/s": 611.98,
+          "B/op": 1057824.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5652041.0,
+          "MB/s": 1484.17,
+          "B/op": 8402493.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 6929721.0,
+          "MB/s": 1210.53,
+          "B/op": 8398309.0,
+          "allocs/op": 19.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25627666.0,
+          "MB/s": 1309.31,
+          "B/op": 33568276.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26885408.0,
+          "MB/s": 1248.05,
+          "B/op": 33564133.0,
+          "allocs/op": 19.0
+        }
+      },
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 585982.0,
+          "MB/s": 1789.43,
+          "B/op": 37810.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1675400.0,
+          "MB/s": 625.87,
+          "B/op": 33535.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4497011.0,
+          "MB/s": 1865.37,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5812770.0,
+          "MB/s": 1443.13,
+          "B/op": 33547.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18695502.0,
+          "MB/s": 1794.79,
+          "B/op": 37862.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19655446.0,
+          "MB/s": 1707.13,
+          "B/op": 33559.0,
+          "allocs/op": 18.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 607948.0,
+          "MB/s": 1724.78,
+          "B/op": 37823.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1718222.0,
+          "MB/s": 610.27,
+          "B/op": 33540.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4556740.0,
+          "MB/s": 1840.92,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5857777.0,
+          "MB/s": 1432.05,
+          "B/op": 33528.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18420489.0,
+          "MB/s": 1821.58,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19687486.0,
+          "MB/s": 1704.35,
+          "B/op": 33528.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 794085.0,
+          "MB/s": 1320.48,
+          "B/op": 1062067.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1759221.0,
+          "MB/s": 596.05,
+          "B/op": 1057819.0,
+          "allocs/op": 16.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 5641081.0,
+          "MB/s": 1487.06,
+          "B/op": 8402566.0,
+          "allocs/op": 22.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7581990.0,
+          "MB/s": 1106.39,
+          "B/op": 8398215.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 24957812.0,
+          "MB/s": 1344.45,
+          "B/op": 33568305.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26998596.0,
+          "MB/s": 1242.82,
+          "B/op": 33564138.0,
+          "allocs/op": 19.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 587791.0,
+          "MB/s": 1783.93,
+          "B/op": 37807.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1686244.0,
+          "MB/s": 621.84,
+          "B/op": 33532.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 4617737.0,
+          "MB/s": 1816.61,
+          "B/op": 37800.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 5715761.0,
+          "MB/s": 1467.63,
+          "B/op": 33537.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 18530303.0,
+          "MB/s": 1810.79,
+          "B/op": 37831.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 19670117.0,
+          "MB/s": 1705.86,
+          "B/op": 33559.0,
+          "allocs/op": 18.0
+        }
+      },
+      "baseline": {
+        "BenchmarkWaifIdentitySidecarHash/Read/1MiB": {
+          "ns/op": 699830.0,
+          "MB/s": 1498.33,
+          "B/op": 1062026.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/1MiB": {
+          "ns/op": 1767505.0,
+          "MB/s": 593.25,
+          "B/op": 1057815.0,
+          "allocs/op": 15.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/8MiB": {
+          "ns/op": 6132999.0,
+          "MB/s": 1367.78,
+          "B/op": 8402496.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/8MiB": {
+          "ns/op": 7106318.0,
+          "MB/s": 1180.44,
+          "B/op": 8398226.0,
+          "allocs/op": 18.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Read/32MiB": {
+          "ns/op": 25573582.0,
+          "MB/s": 1312.07,
+          "B/op": 33568264.0,
+          "allocs/op": 21.0
+        },
+        "BenchmarkWaifIdentitySidecarHash/Write/32MiB": {
+          "ns/op": 26875277.0,
+          "MB/s": 1248.52,
+          "B/op": 33563992.0,
+          "allocs/op": 18.0
+        }
+      }
+    }
+  ]
+}

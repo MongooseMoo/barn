@@ -1,0 +1,15 @@
+File: candidate.test
+Build ID: 35033e784fa56640cc163fffb1204bd0db0b8470
+Type: alloc_space
+Time: 2026-10-03 21:25:00 MDT
+Active filters:
+   focus=os.readFileContents
+Showing nodes accounting for 1.41kB, 0.0021% of 66108.55kB total
+      flat  flat%   sum%        cum   cum%
+       1kB 0.0015% 0.0015%     1.41kB 0.0021%  os.readFileContents
+    0.41kB 0.00061% 0.0021%     0.41kB 0.00061%  os.(*File).Stat
+         0     0% 0.0021%     1.41kB 0.0021%  github.com/MongooseMoo/barn/db/format.BenchmarkWaifIdentitySidecarHash.func1
+         0     0% 0.0021%     1.41kB 0.0021%  os.ReadFile
+         0     0% 0.0021%     0.70kB 0.0011%  testing.(*B).launch
+         0     0% 0.0021%     0.70kB 0.0011%  testing.(*B).run1.func1
+         0     0% 0.0021%     1.41kB 0.0021%  testing.(*B).runN

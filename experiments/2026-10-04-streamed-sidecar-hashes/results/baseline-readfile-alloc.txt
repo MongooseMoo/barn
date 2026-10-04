@@ -1,0 +1,16 @@
+File: baseline.test
+Build ID: f50f8317fae323e28d3db33f906e4a6a6056a62c
+Type: alloc_space
+Time: 2026-10-03 21:25:00 MDT
+Active filters:
+   focus=os.readFileContents
+Showing nodes accounting for 360539.64kB, 84.57% of 426306.02kB total
+      flat  flat%   sum%        cum   cum%
+  360537kB 84.57% 84.57% 360539.64kB 84.57%  os.readFileContents
+    2.64kB 0.00062% 84.57%     2.64kB 0.00062%  os.(*File).Stat
+         0     0% 84.57% 360539.64kB 84.57%  github.com/MongooseMoo/barn/db/format.BenchmarkWaifIdentitySidecarHash.func1
+         0     0% 84.57% 360538.23kB 84.57%  github.com/MongooseMoo/barn/db/format.readWaifIdentitySidecar
+         0     0% 84.57% 360539.64kB 84.57%  os.ReadFile
+         0     0% 84.57% 327762.73kB 76.88%  testing.(*B).launch
+         0     0% 84.57% 32776.91kB  7.69%  testing.(*B).run1.func1
+         0     0% 84.57% 360539.64kB 84.57%  testing.(*B).runN

@@ -1,0 +1,43 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/format
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+                                      │ experiments/2026-10-04-streamed-sidecar-hashes/results/baseline.txt │ experiments/2026-10-04-streamed-sidecar-hashes/results/candidate.txt │
+                                      │                               sec/op                                │                    sec/op                     vs base                │
+WaifIdentitySidecarHash/Read/1MiB-4                                                             713.5µ ± 9%                                    590.3µ ± 3%  -17.27% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/1MiB-4                                                            1.826m ± 5%                                    1.793m ± 5%        ~ (p=0.143 n=12)
+WaifIdentitySidecarHash/Read/8MiB-4                                                             5.857m ± 4%                                    4.739m ± 5%  -19.10% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/8MiB-4                                                            7.575m ± 8%                                    5.906m ± 4%  -22.03% (p=0.000 n=12)
+WaifIdentitySidecarHash/Read/32MiB-4                                                            25.88m ± 2%                                    18.68m ± 4%  -27.83% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/32MiB-4                                                           27.44m ± 4%                                    20.11m ± 4%  -26.72% (p=0.000 n=12)
+geomean                                                                                         5.873m                                         4.725m       -19.55%
+
+                                      │ experiments/2026-10-04-streamed-sidecar-hashes/results/baseline.txt │ experiments/2026-10-04-streamed-sidecar-hashes/results/candidate.txt │
+                                      │                                 B/s                                 │                     B/s                       vs base                │
+WaifIdentitySidecarHash/Read/1MiB-4                                                            1.369Gi ± 9%                                   1.654Gi ± 2%  +20.87% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/1MiB-4                                                           547.6Mi ± 5%                                   557.7Mi ± 5%        ~ (p=0.143 n=12)
+WaifIdentitySidecarHash/Read/8MiB-4                                                            1.334Gi ± 5%                                   1.649Gi ± 5%  +23.60% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/8MiB-4                                                           1.031Gi ± 7%                                   1.323Gi ± 4%  +28.27% (p=0.000 n=12)
+WaifIdentitySidecarHash/Read/32MiB-4                                                           1.208Gi ± 2%                                   1.673Gi ± 4%  +38.56% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/32MiB-4                                                          1.139Gi ± 4%                                   1.554Gi ± 4%  +36.46% (p=0.000 n=12)
+geomean                                                                                        1.056Gi                                        1.312Gi       +24.31%
+
+                                      │ experiments/2026-10-04-streamed-sidecar-hashes/results/baseline.txt │ experiments/2026-10-04-streamed-sidecar-hashes/results/candidate.txt │
+                                      │                                B/op                                 │                     B/op                      vs base                │
+WaifIdentitySidecarHash/Read/1MiB-4                                                          1037.16Ki ± 0%                                   36.92Ki ± 0%  -96.44% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/1MiB-4                                                         1033.03Ki ± 0%                                   32.75Ki ± 0%  -96.83% (p=0.000 n=12)
+WaifIdentitySidecarHash/Read/8MiB-4                                                          8205.60Ki ± 0%                                   36.92Ki ± 0%  -99.55% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/8MiB-4                                                         8201.41Ki ± 0%                                   32.76Ki ± 0%  -99.60% (p=0.000 n=12)
+WaifIdentitySidecarHash/Read/32MiB-4                                                        32781.56Ki ± 0%                                   36.94Ki ± 0%  -99.89% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/32MiB-4                                                       32777.38Ki ± 0%                                   32.78Ki ± 0%  -99.90% (p=0.000 n=12)
+geomean                                                                                        6.376Mi                                        34.78Ki       -99.47%
+
+                                      │ experiments/2026-10-04-streamed-sidecar-hashes/results/baseline.txt │ experiments/2026-10-04-streamed-sidecar-hashes/results/candidate.txt │
+                                      │                              allocs/op                              │                  allocs/op                    vs base                │
+WaifIdentitySidecarHash/Read/1MiB-4                                                              18.00 ± 0%                                     21.00 ± 0%  +16.67% (p=0.000 n=12)
+WaifIdentitySidecarHash/Write/1MiB-4                                                             16.00 ± 0%                                     18.00 ± 0%  +12.50% (p=0.000 n=12)
+WaifIdentitySidecarHash/Read/8MiB-4                                                              21.50 ± 2%                                     21.00 ± 0%   -2.33% (p=0.014 n=12)
+WaifIdentitySidecarHash/Write/8MiB-4                                                             18.50 ± 3%                                     18.00 ± 0%   -2.70% (p=0.014 n=12)
+WaifIdentitySidecarHash/Read/32MiB-4                                                             21.00 ± 5%                                     21.00 ± 0%    0.00% (p=0.037 n=12)
+WaifIdentitySidecarHash/Write/32MiB-4                                                            18.00 ± 6%                                     18.00 ± 0%        ~ (p=0.217 n=12)
+geomean                                                                                          18.74                                          19.44        +3.75%
