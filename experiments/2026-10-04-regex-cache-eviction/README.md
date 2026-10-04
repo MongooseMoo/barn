@@ -142,3 +142,11 @@ GOMAXPROCS=4 and taskset affinity 8-11. Profile each timed binary with
 `-test.run=^$`, `-test.bench=^BenchmarkRegexpEviction$/^ChurnParallel$`,
 `-test.benchtime=100000x` and one profile/rate pair at a time. Read using
 `go tool pprof -top -nodefraction=0 -focus=cachedMOOPattern`.
+
+Kept evaluation commit: `e03b2284cdc0837fcafe9ab3c4f2105af6f07071`.
+The final overlay script reproduced all four measured binary SHA-256 hashes
+exactly. After restoring the original production policy, full builtins race
+tests passed (57.180s), followed by vet and staticcheck. Rebasing onto
+`8a41aedc660651a0576e0e19b52344fa3b18738f` changed no evaluation files; focused
+cache regressions passed again on Windows Go 1.26.0 (0.214s). This final
+paragraph is the only subsequent report change.
