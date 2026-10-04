@@ -494,6 +494,7 @@ func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldIn
 		waiter := state.waiters[0]
 		if state.invalidCount > 0 {
 			state.invalidCount--
+			state.waiters[0] = httpReadWaiter{}
 			state.waiters = state.waiters[1:]
 			wakes = append(wakes, httpWake{task: waiter.task, value: types.NewInt(0)})
 			continue
@@ -506,6 +507,7 @@ func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldIn
 		if consumed > 0 {
 			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
 		}
+		state.waiters[0] = httpReadWaiter{}
 		state.waiters = state.waiters[1:]
 		wakes = append(wakes, httpWake{task: waiter.task, value: value})
 	}
@@ -622,6 +624,7 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 			kept = append(kept, waiter)
 		}
 	}
+	clear(state.waiters[len(kept):])
 	state.waiters = kept
 }
 
@@ -656,6 +659,7 @@ func (r *Session) CancelHTTPReadTask(taskID int64) {
 			}
 			kept = append(kept, waiter)
 		}
+		clear(state.waiters[len(kept):])
 		state.waiters = kept
 		if removed {
 			state.buffer = nil
