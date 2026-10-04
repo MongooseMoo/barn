@@ -117,6 +117,7 @@ func (c *Connection) flushLocked() error {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
+		c.outputBuffer[i] = kernel.PendingNotification{}
 	}
 	c.outputBuffer = c.outputBuffer[:0]
 	return nil
