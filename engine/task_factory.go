@@ -243,17 +243,11 @@ func forkBodyProgram(forkInfo *types.ForkInfo) *bytecode.Program {
 	if forkInfo == nil {
 		return nil
 	}
-	bcFork, ok := forkInfo.Body.([3]interface{})
+	body, ok := forkInfo.Body.(*bytecode.ForkBody)
 	if !ok {
 		return nil
 	}
-	parentProg, ok1 := bcFork[0].(*bytecode.Program)
-	bodyIP, ok2 := bcFork[1].(int)
-	bodyLen, ok3 := bcFork[2].(int)
-	if !ok1 || !ok2 || !ok3 {
-		return nil
-	}
-	return parentProg.ExtractForkBody(bodyIP, bodyLen)
+	return body.ExtractProgram()
 }
 
 // newForkVM builds the pre-configured VM a forked child's first run executes:

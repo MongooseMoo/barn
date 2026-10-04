@@ -200,13 +200,9 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		if t.Program != nil {
 			variableNames = append(variableNames, t.Program.VarNames...)
 			firstLine = t.Program.LineForIP(0)
-		} else if body, ok := t.ForkInfo.Body.([3]interface{}); ok {
-			if program, ok := body[0].(*bytecode.Program); ok {
-				variableNames = append(variableNames, program.VarNames...)
-				if bodyIP, ok := body[1].(int); ok {
-					firstLine = program.LineForIP(bodyIP)
-				}
-			}
+		} else if body := t.ForkInfo.Body; body != nil {
+			variableNames = append(variableNames, body.VariableNames()...)
+			firstLine = body.FirstLine()
 		}
 		snapshot.Fork = &ForkSnapshot{
 			Variables:     cloneValueMap(t.ForkInfo.Variables),

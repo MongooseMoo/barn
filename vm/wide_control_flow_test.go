@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -70,7 +71,7 @@ func TestOversizedForkParentSkipsCompleteBody(t *testing.T) {
 }
 
 func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
-	code := "padding = 0; fork (0) " + oversizedAssignments("padding = 1;") +
+	code := oversizedAssignments("padding = 0;") + "fork (0) " + oversizedAssignments("padding = 1;") +
 		"return 70; endfork return 0;"
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
@@ -86,17 +87,14 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 	if result.Flow != types.FlowFork || result.ForkInfo == nil {
 		t.Fatalf("parent result = flow %v, error %v, want fork", result.Flow, result.Error)
 	}
-	body, ok := result.ForkInfo.Body.([3]interface{})
+	body, ok := result.ForkInfo.Body.(*bytecode.ForkBody)
 	if !ok {
-		t.Fatalf("fork body = %T, want bytecode tuple", result.ForkInfo.Body)
+		t.Fatalf("fork body = %T, want bytecode descriptor", result.ForkInfo.Body)
 	}
-	parentProgram, okProgram := body[0].(*bytecode.Program)
-	bodyIP, okIP := body[1].(int)
-	bodyLen, okLen := body[2].(int)
-	if !okProgram || !okIP || !okLen {
-		t.Fatalf("fork body tuple = %#v, want program, IP, length", body)
+	if body.Parent != program || body.Offset <= math.MaxUint16 || body.Length <= math.MaxUint16 {
+		t.Fatalf("fork descriptor does not retain wide offset/length: %+v", body)
 	}
-	childProgram := parentProgram.ExtractForkBody(bodyIP, bodyLen)
+	childProgram := body.ExtractProgram()
 	if childProgram == nil {
 		t.Fatal("ExtractForkBody rejected compiler-produced fork range")
 	}

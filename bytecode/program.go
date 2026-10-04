@@ -122,17 +122,14 @@ type Handler struct {
 // existing program. The sub-program shares the same constants and variable
 // names but has its own code slice (the fork body + OP_RETURN_NONE).
 func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
-	bodyEnd := bodyIP + bodyLen
-	if bodyIP < 0 || bodyLen < 0 || bodyIP > len(p.Code) || bodyEnd < bodyIP || bodyEnd > len(p.Code) {
-		return nil
-	}
-	if !instructionRangeHasBoundaries(p.Code, bodyIP, bodyEnd) {
+	bodyEnd, ok := p.forkBodyEnd(bodyIP, bodyLen)
+	if !ok {
 		return nil
 	}
 
 	// Extract the fork body bytecode
 	code := make([]byte, bodyLen+1) // +1 for OP_RETURN_NONE
-	copy(code, p.Code[bodyIP:bodyIP+bodyLen])
+	copy(code, p.Code[bodyIP:bodyEnd])
 	code[bodyLen] = byte(OP_RETURN_NONE) // Implicit return at end of fork body
 
 	// OP_TRY_EXCEPT / OP_TRY_FINALLY / OP_END_FINALLY operands are ABSOLUTE
@@ -147,7 +144,7 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	// Adjust line info for the sub-program
 	var lineInfo []LineEntry
 	for _, entry := range p.LineInfo {
-		if entry.StartIP >= bodyIP && entry.StartIP < bodyIP+bodyLen {
+		if entry.StartIP >= bodyIP && entry.StartIP < bodyEnd {
 			lineInfo = append(lineInfo, LineEntry{
 				StartIP: entry.StartIP - bodyIP,
 				Line:    entry.Line,
@@ -165,6 +162,18 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		BuiltinSlots:  p.BuiltinSlots,
 		BuiltinLayout: p.BuiltinLayout,
 	}
+}
+
+// forkBodyEnd is the common validation path for extraction and fork metadata.
+func (p *Program) forkBodyEnd(bodyIP, bodyLen int) (int, bool) {
+	if p == nil || bodyIP < 0 || bodyLen < 0 || bodyIP > len(p.Code) || bodyLen > len(p.Code)-bodyIP {
+		return 0, false
+	}
+	bodyEnd := bodyIP + bodyLen
+	if !instructionRangeHasBoundaries(p.Code, bodyIP, bodyEnd) {
+		return 0, false
+	}
+	return bodyEnd, true
 }
 
 func instructionRangeHasBoundaries(code []byte, start, end int) bool {

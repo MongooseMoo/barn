@@ -455,10 +455,10 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 		Verb:       "tick",
 	})
 	queued.ForkInfo = &types.ForkInfo{
-		Body: [3]interface{}{&bytecode.Program{
+		Body: &bytecode.ForkBody{Parent: &bytecode.Program{
 			VarNames: []string{"z", "a"},
 			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
-		}, 0, 0},
+		}, Offset: 0, Length: 0},
 		Variables: map[string]types.Value{
 			"z": types.NewInt(1),
 			"a": types.NewInt(2),
@@ -499,9 +499,9 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 		Verb:       "tick",
 	})
 	queued.ForkInfo = &types.ForkInfo{
-		Body: [3]interface{}{&bytecode.Program{
+		Body: &bytecode.ForkBody{Parent: &bytecode.Program{
 			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
-		}, 0, 0},
+		}, Offset: 0, Length: 0},
 		SourceLines: []string{"return this;"},
 		ThisObj:     4,
 		ThisValue:   types.NewAnon(44),
@@ -539,9 +539,10 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 		LineNumber: 99,
 	})
 	queued.ForkInfo = &types.ForkInfo{
-		Body: [3]interface{}{&bytecode.Program{
+		Body: &bytecode.ForkBody{Parent: &bytecode.Program{
+			Code:     []byte{byte(bytecode.OP_RETURN_NONE)},
 			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 17}},
-		}, 0, 1},
+		}, Offset: 0, Length: 1},
 		SourceLines: []string{"return 1;"},
 	}
 

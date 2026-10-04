@@ -97,7 +97,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	forkInfo := &types.ForkInfo{
 		Delay:       time.Duration(delaySeconds * float64(time.Second)),
 		VarName:     varName,
-		Body:        [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
+		Body:        &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen},
 		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),
 		ThisObj:     thisObj,
 		ThisValue:   thisValue,
