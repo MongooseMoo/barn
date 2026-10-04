@@ -1,9 +1,5 @@
 package types
 
-import (
-	"time"
-)
-
 // ControlFlow represents the control flow state of evaluation
 type ControlFlow int
 
@@ -20,22 +16,6 @@ const (
 	FlowBuiltinPush                     // a builtin pushed a resumable verb frame on the calling VM
 	FlowAbortAttempt                    // the runtime abandons this attempt at its irreversible-effect boundary and re-runs the task
 )
-
-// ForkInfo contains information needed to create a forked task.
-// Body carries the bytecode VM fork payload without importing the vm package.
-type ForkInfo struct {
-	Body        interface{}      // [3]interface{}{*vm.Program, bodyIP, bodyLen}
-	SourceLines []string         // Original source lines (for database serialization)
-	Delay       time.Duration    // Delay before execution
-	VarName     string           // Variable to store task ID (empty = anonymous)
-	Variables   map[string]Value // Deep copy of variable environment
-	ThisObj     ObjID            // this context
-	ThisValue   Value            // concrete this value for waif/primitive/anonymous contexts
-	Player      ObjID            // player context
-	Caller      ObjID            // caller context
-	Verb        string           // verb context
-	VerbLoc     ObjID            // object where the enclosing verb is defined
-}
 
 // Result represents the outcome of evaluating an expression or statement
 // This unifies normal values, control flow (return/break/continue), and errors

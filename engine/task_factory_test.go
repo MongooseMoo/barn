@@ -104,7 +104,7 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 	parent.Context.Programmer = 2
 
 	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
-		Body:      [3]interface{}{program, 0, len(program.Code)},
+		Body:      &bytecode.ForkBody{Parent: program, Offset: 0, Length: len(program.Code)},
 		ThisObj:   0,
 		ThisValue: types.NewObj(0),
 		Player:    3,
@@ -180,7 +180,7 @@ func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
 	parent := task.NewTaskFull(6102, 3, program, 1000, 1)
 
 	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
-		Body:      [3]interface{}{program, 0, len(program.Code)},
+		Body:      &bytecode.ForkBody{Parent: program, Offset: 0, Length: len(program.Code)},
 		ThisObj:   0,
 		ThisValue: types.NewObj(0),
 		Player:    3,
