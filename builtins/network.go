@@ -72,9 +72,42 @@ type httpReadWaiter struct {
 }
 
 type httpHeldInput struct {
-	buffer       []byte
-	invalidCount int
-	waiters      []httpReadWaiter
+	buffer         []byte
+	bufferCapacity int // capacity of the owned allocation before advancing buffer
+	invalidCount   int
+	waiters        []httpReadWaiter
+}
+
+// consumeHTTPBuffer advances only unread bytes. Both immediate and queued reads
+// release an empty allocation; callers compact surviving input at their boundary.
+// The held-input mutex protects the buffer and its ownership metadata.
+func consumeHTTPBuffer(state *httpHeldInput, consumed int) {
+	if consumed <= 0 {
+		return
+	}
+	if state.bufferCapacity == 0 {
+		state.bufferCapacity = cap(state.buffer)
+	}
+	state.buffer = state.buffer[consumed:]
+	if len(state.buffer) == 0 {
+		state.buffer = nil
+		state.bufferCapacity = 0
+	}
+}
+
+func compactHTTPBuffer(state *httpHeldInput) {
+	if len(state.buffer) == 0 {
+		state.buffer = nil
+		state.bufferCapacity = 0
+		return
+	}
+	// Small allocations may remain until the next message completes. Large
+	// allocations are released once three quarters have been consumed. Immediate
+	// reads then copy geometrically; queued drains copy at most once, after looping.
+	if state.bufferCapacity >= 64<<10 && len(state.buffer) <= state.bufferCapacity/4 {
+		state.buffer = append([]byte(nil), state.buffer...)
+		state.bufferCapacity = cap(state.buffer)
+	}
 }
 
 type httpWake struct {
@@ -529,14 +562,13 @@ func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldIn
 		if !complete {
 			break
 		}
-		if consumed > 0 {
-			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
-		}
+		consumeHTTPBuffer(state, consumed)
 		state.waiters[0] = httpReadWaiter{}
 		state.waiters = state.waiters[1:]
 		wakes = append(wakes, httpWake{task: waiter.task, value: value})
 	}
 
+	compactHTTPBuffer(state)
 	if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
 		delete(r.runtime.heldHTTPInput.byPlayer, player)
 	}
@@ -580,8 +612,13 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 			state.invalidCount++
 		} else if atFront {
 			state.buffer = append(append([]byte(nil), decoded...), state.buffer...)
+			state.bufferCapacity = cap(state.buffer)
 		} else {
+			allocated := len(decoded) > cap(state.buffer)-len(state.buffer)
 			state.buffer = append(state.buffer, decoded...)
+			if allocated || state.bufferCapacity == 0 {
+				state.bufferCapacity = cap(state.buffer)
+			}
 		}
 
 		return hadWaiter, r.collectHTTPWakeupsLocked(player, state), true
@@ -626,9 +663,8 @@ func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task)
 
 	value, consumed, complete := parseHTTPMessage(kind, state.buffer)
 	if complete {
-		if consumed > 0 {
-			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
-		}
+		consumeHTTPBuffer(state, consumed)
+		compactHTTPBuffer(state)
 		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
 			delete(stateSet.byPlayer, player)
 		}
@@ -688,6 +724,7 @@ func (r *Session) CancelHTTPReadTask(taskID int64) {
 		state.waiters = kept
 		if removed {
 			state.buffer = nil
+			state.bufferCapacity = 0
 			state.invalidCount = 0
 		}
 		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {

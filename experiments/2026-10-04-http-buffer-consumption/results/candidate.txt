@@ -1,0 +1,263 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   97479	      2449 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5796	     40022 ns/op	   43265 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     748	    309883 ns/op	  346119 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     391	    619230 ns/op	  517527 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   92800	      2464 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6210	     40196 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     720	    329977 ns/op	  355433 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     384	    637779 ns/op	  517558 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   86335	      2654 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    5952	     40114 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     718	    329380 ns/op	  358407 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     360	    619624 ns/op	  517618 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   87574	      2699 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6075	     40708 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     688	    338962 ns/op	  367719 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     374	    674556 ns/op	  517650 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	  101612	      2530 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5612	     40632 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     748	    323337 ns/op	  346126 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     391	    623360 ns/op	  517527 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   85126	      2749 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6170	     39266 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     752	    318265 ns/op	  355433 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     391	    607484 ns/op	  517561 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  105841	      2313 ns/op	    2640 B/op	      27 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6216	     37325 ns/op	   42240 B/op	     432 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     789	    302787 ns/op	  337926 B/op	    3456 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     375	    621506 ns/op	  517458 B/op	      51 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   98119	      2391 ns/op	    2672 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6172	     37502 ns/op	   43232 B/op	     437 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     733	    304595 ns/op	  347239 B/op	    3464 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     391	    598257 ns/op	  517490 B/op	      52 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   97113	      2360 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5334	     38398 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     724	    319770 ns/op	  346119 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     404	    605137 ns/op	  517527 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   98328	      2453 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6603	     37763 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     762	    315840 ns/op	  355431 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     374	    610994 ns/op	  517560 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  107317	      2313 ns/op	    2640 B/op	      27 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6565	     36699 ns/op	   42240 B/op	     432 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     793	    298242 ns/op	  337926 B/op	    3456 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     391	    613167 ns/op	  517461 B/op	      51 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   97854	      2413 ns/op	    2672 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6654	     37619 ns/op	   43232 B/op	     437 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     744	    316129 ns/op	  347239 B/op	    3464 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     397	    599025 ns/op	  517491 B/op	      52 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	  100819	      2306 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5972	     36766 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     780	    303794 ns/op	  346119 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     400	    593489 ns/op	  517527 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   98797	      2425 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6534	     37564 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     704	    315939 ns/op	  355432 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     402	    609870 ns/op	  517559 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  104216	      2332 ns/op	    2640 B/op	      27 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6715	     37505 ns/op	   42240 B/op	     432 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     769	    300267 ns/op	  337926 B/op	    3456 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     390	    609961 ns/op	  517459 B/op	      51 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   96075	      2425 ns/op	    2672 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6618	     37207 ns/op	   43232 B/op	     437 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     778	    314309 ns/op	  347239 B/op	    3464 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     399	    602626 ns/op	  517489 B/op	      52 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   91632	      2568 ns/op	    3024 B/op	      31 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    6199	     40703 ns/op	   48384 B/op	     496 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     735	    331763 ns/op	  387080 B/op	    3968 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     405	    592869 ns/op	  517846 B/op	      55 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   94352	      2689 ns/op	    3056 B/op	      32 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    5680	     41212 ns/op	   49376 B/op	     501 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     691	    339102 ns/op	  396392 B/op	    3976 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     396	    600860 ns/op	  517879 B/op	      56 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   90530	      2502 ns/op	    2960 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6277	     39992 ns/op	   47360 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     733	    328443 ns/op	  378887 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     410	    601185 ns/op	  517779 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   95914	      2649 ns/op	    2992 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    5920	     41115 ns/op	   48352 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     720	    342230 ns/op	  388200 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     398	    594464 ns/op	  517810 B/op	      54 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   97336	      2353 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5800	     37305 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     780	    307563 ns/op	  346119 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     403	    597618 ns/op	  517526 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	  100881	      2396 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6379	     37510 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     776	    309083 ns/op	  355432 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     396	    606018 ns/op	  517561 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   96706	      2370 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6477	     38413 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     752	    311367 ns/op	  358408 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     387	    597945 ns/op	  517617 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   96034	      2471 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6218	     39217 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     741	    331779 ns/op	  367720 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     393	    599718 ns/op	  517651 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   94334	      2511 ns/op	    3024 B/op	      31 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    6180	     40870 ns/op	   48384 B/op	     496 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     740	    339643 ns/op	  387079 B/op	    3968 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     406	    601805 ns/op	  517848 B/op	      55 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   86276	      2646 ns/op	    3056 B/op	      32 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6002	     40662 ns/op	   49376 B/op	     501 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     702	    338155 ns/op	  396393 B/op	    3976 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     402	    587703 ns/op	  517878 B/op	      56 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  102049	      2339 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6270	     38372 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     739	    315986 ns/op	  358406 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     391	    629465 ns/op	  517619 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   80702	      2791 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    5718	     40223 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     733	    328334 ns/op	  367719 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     403	    589971 ns/op	  517652 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	  100951	      2354 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    6685	     37487 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     808	    301961 ns/op	  346119 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     403	    587266 ns/op	  517541 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	  100027	      2420 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    6664	     37918 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     805	    310688 ns/op	  355432 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     406	    591678 ns/op	  517560 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  102268	      2432 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6062	     37733 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     783	    307522 ns/op	  358407 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     393	    591623 ns/op	  517618 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   94790	      2506 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6874	     39132 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     715	    327384 ns/op	  367720 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     403	    594223 ns/op	  517651 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   91434	      2601 ns/op	    2864 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5691	     42080 ns/op	   45824 B/op	     480 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     748	    324737 ns/op	  366600 B/op	    3840 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     398	    593219 ns/op	  517687 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   98032	      2497 ns/op	    2896 B/op	      31 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    5823	     39746 ns/op	   46816 B/op	     485 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     723	    340521 ns/op	  375912 B/op	    3848 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     399	    618944 ns/op	  517719 B/op	      55 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   98190	      2437 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6058	     39316 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     741	    323786 ns/op	  358406 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     386	    611029 ns/op	  517619 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   89373	      2583 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6354	     40017 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     747	    328371 ns/op	  367719 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     405	    599459 ns/op	  517652 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   92670	      2466 ns/op	    2864 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5593	     39477 ns/op	   45824 B/op	     480 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     727	    321335 ns/op	  366600 B/op	    3840 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     390	    618630 ns/op	  517688 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   92710	      2585 ns/op	    2896 B/op	      31 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    5901	     39243 ns/op	   46816 B/op	     485 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     691	    333879 ns/op	  375912 B/op	    3848 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     394	    613677 ns/op	  517718 B/op	      55 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   96849	      2425 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6673	     38688 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     732	    321415 ns/op	  358407 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     394	    606629 ns/op	  517620 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   93495	      2581 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    5533	     39331 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     702	    325551 ns/op	  367719 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     381	    605566 ns/op	  517650 B/op	      53 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   95005	      2462 ns/op	    2864 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    5980	     40247 ns/op	   45824 B/op	     480 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     744	    319067 ns/op	  366600 B/op	    3840 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     404	    598599 ns/op	  517689 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   91456	      2560 ns/op	    2896 B/op	      31 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    5781	     39577 ns/op	   46816 B/op	     485 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     710	    332329 ns/op	  375913 B/op	    3848 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     392	    600818 ns/op	  517720 B/op	      55 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	  101095	      2333 ns/op	    2640 B/op	      27 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    6108	     37235 ns/op	   42240 B/op	     432 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     780	    297807 ns/op	  337926 B/op	    3456 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     399	    601845 ns/op	  517460 B/op	      51 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	  100024	      2432 ns/op	    2672 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    6336	     38578 ns/op	   43232 B/op	     437 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     778	    310413 ns/op	  347239 B/op	    3464 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     397	    609281 ns/op	  517491 B/op	      52 allocs/op
+PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor
+BenchmarkHTTPBufferDrain/request/queued=false/messages=1-4         	   99763	      2361 ns/op	    2704 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=16-4        	    6073	     37780 ns/op	   43264 B/op	     464 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=128-4       	     730	    312095 ns/op	  346126 B/op	    3712 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=false/messages=0-4         	     391	    614187 ns/op	  517528 B/op	      53 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=1-4          	   98070	      2496 ns/op	    2736 B/op	      30 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=16-4         	    5764	     38340 ns/op	   44256 B/op	     469 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=128-4        	     751	    319311 ns/op	  355432 B/op	    3720 allocs/op
+BenchmarkHTTPBufferDrain/request/queued=true/messages=0-4          	     400	    598480 ns/op	  517558 B/op	      54 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=1-4        	   98428	      2428 ns/op	    2800 B/op	      28 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=16-4       	    5976	     39495 ns/op	   44800 B/op	     448 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=128-4      	     722	    320114 ns/op	  358408 B/op	    3584 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=false/messages=0-4        	     380	    598320 ns/op	  517618 B/op	      52 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=1-4         	   91530	      2600 ns/op	    2832 B/op	      29 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=16-4        	    5727	     39516 ns/op	   45792 B/op	     453 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=128-4       	     714	    328030 ns/op	  367720 B/op	    3592 allocs/op
+BenchmarkHTTPBufferDrain/response/queued=true/messages=0-4         	     380	    611518 ns/op	  517651 B/op	      53 allocs/op
+PASS
