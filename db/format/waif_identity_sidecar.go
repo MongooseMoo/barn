@@ -45,6 +45,12 @@ func readWaifIdentitySidecar(databasePath string) ([]types.WaifIdentity, error) 
 	if err != nil {
 		return nil, fmt.Errorf("hash database for WAIF identity sidecar: %w", err)
 	}
+	return parseWaifIdentitySidecar(file, digest)
+}
+
+// A caller that has already hashed a checkpoint can validate its sidecar
+// without another full database scan.
+func parseWaifIdentitySidecar(file io.Reader, digest [sha256.Size]byte) ([]types.WaifIdentity, error) {
 	wantHeader := fmt.Sprintf("barn-waif-identities-v1 %x", digest)
 	var identities []types.WaifIdentity
 	scanner := bufio.NewScanner(file)

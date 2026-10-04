@@ -94,6 +94,14 @@ type ActiveConnection struct {
 
 // LoadDatabase reads a MOO database from file
 func LoadDatabase(path string) (*Database, error) {
+	release, err := lockCheckpointPath(path)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if err := recoverCheckpointPair(path, checkpointIO{rename: renameCheckpointFile, syncDirectory: syncParentDirectory}); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)

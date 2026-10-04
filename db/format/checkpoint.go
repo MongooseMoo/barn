@@ -40,6 +40,17 @@ func writeCheckpoint(
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
 	}
+	release, err := lockCheckpointPath(outPath)
+	if err != nil {
+		return err
+	}
+	defer release()
+	fs := checkpointIO{rename: renameCheckpointFile, syncDirectory: syncParentDirectory}
+	// Recover before reusing the staging names, which may still be linked to
+	// the saved generation of an interrupted first publication.
+	if err := recoverCheckpointPair(outPath, fs); err != nil {
+		return err
+	}
 
 	taskRoots := make([]types.Value, 0)
 	collectRoot := func(value types.Value) types.Value {
@@ -91,15 +102,5 @@ func writeCheckpoint(
 		return err
 	}
 
-	if err := os.Rename(tempPath, outPath); err != nil {
-		os.Remove(sidecarTempPath)
-		return fmt.Errorf("rename temp to output: %w", err)
-	}
-	if err := os.Rename(sidecarTempPath, outPath+waifIdentitySidecarSuffix); err != nil {
-		return fmt.Errorf("rename WAIF identity sidecar to output: %w", err)
-	}
-	if err := syncParentDirectory(outPath); err != nil {
-		return fmt.Errorf("sync output directory: %w", err)
-	}
-	return nil
+	return publishCheckpointPair(outPath, tempPath, fs)
 }
