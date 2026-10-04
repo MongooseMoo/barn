@@ -8,10 +8,15 @@ import (
 
 // parseStatement parses a single statement
 func (p *Parser) parseStatement() (verb.Stmt, error) {
-	p.statementCalls++
-	defer func() { p.statementCalls-- }()
-	if p.statementCalls > MaxNestingDepth+1 {
-		return nil, p.limitError()
+	// Only enclosing block constructs consume statement depth. Terminal
+	// statements and sibling statements do not accumulate the budget.
+	switch p.current.Type {
+	case TOKEN_IF, TOKEN_WHILE, TOKEN_FOR, TOKEN_FORK, TOKEN_TRY:
+		if p.syntaxDepth >= MaxNestingDepth {
+			return nil, p.limitError()
+		}
+		p.syntaxDepth++
+		defer func() { p.syntaxDepth-- }()
 	}
 	switch p.current.Type {
 	case TOKEN_IF:

@@ -24,12 +24,15 @@ func TestNestedCollectionParseErrorDetailIsBounded(t *testing.T) {
 			shallow := parseErrorDetail(t, strings.Repeat(test.open, shallowDepth)+";")
 			deep := parseErrorDetail(t, strings.Repeat(test.open, deepDepth)+";")
 
-			if deep != shallow {
-				t.Fatalf("detail grows with nesting depth: len(depth %d) = %d, len(depth %d) = %d",
-					shallowDepth, len(shallow), deepDepth, len(deep))
+			// Over-limit input now stops before reaching the malformed terminal
+			// token. Compare like failures while retaining the bounded-detail
+			// assertion for both the shallow grammar error and depth rejection.
+			limited := parseErrorDetail(t, strings.Repeat(test.open, 1024)+";")
+			if deep != limited {
+				t.Fatalf("depth-limit detail grows with nesting: %q versus %q", limited, deep)
 			}
-			if len(deep) > maxDetailLength {
-				t.Fatalf("detail length = %d, want at most %d", len(deep), maxDetailLength)
+			if len(deep) > maxDetailLength || len(shallow) > maxDetailLength {
+				t.Fatalf("detail lengths = %d, %d, want at most %d", len(shallow), len(deep), maxDetailLength)
 			}
 		})
 	}
