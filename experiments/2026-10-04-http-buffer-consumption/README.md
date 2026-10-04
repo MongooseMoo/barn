@@ -130,3 +130,12 @@ Profile each frozen binary separately with `-test.run=^$`,
 `-test.memprofilerate=1`, using GOMAXPROCS=4 and affinity 8-11. Read with
 `go tool pprof -top -nodefraction=0 -focus='(prepareHTTPRead|collectHTTPWakeupsLocked)'`
 and `-alloc_space` or `-alloc_objects`.
+
+Kept implementation commit: `46352be1ee89dcd970fe8e2ed58bdeb9b66728bf`.
+Parser/header/body/message source and the read_http authorization function are
+identical to baseline. All raw benchmark rows match their JSON pair records.
+Rebasing onto `5c68c8b748128bd7a1748a79556bd15583348e67` changed no tested
+source, benchmark or experiment files. Focused HTTP regressions passed again on
+Windows Go 1.26.0 (0.532s); this final paragraph is the only subsequent report
+change. Earlier complete race/static checks preceded the final test-only
+large-append regression, which passed the expanded HTTP race selector (3.501s).
