@@ -97,3 +97,7 @@ candidate is `aa01d89546f7ceefe2609cce600231947b96de5b46f7b409d62d82138d2fca43`.
 The baseline binary uses an exact-source Go overlay for the published production
 file and the same new test source. Checkpoint publication and portable dump
 serialization are unchanged. Full repository and merge-group CI gate merge.
+
+Kept implementation: `38ae7618e537303abcfd08586b5ada2db006b326`, on published
+base `7221a6cb690ab2f61c6a922381bd3fbeb70377cd`. The rebase changed none of the
+tested format or experiment files.
