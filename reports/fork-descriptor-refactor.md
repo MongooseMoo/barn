@@ -108,3 +108,7 @@ point: execution, metadata, validation, and persistence have distinct owners,
 and all old tuple surfaces are gone. The kept implementation commit is recorded
 below after committing this slice. Subsequent work will select another open
 issue rather than extend fork scope.
+
+Kept implementation commit: `17946c59add386c6db5f4668529e21ba9f4bacce`
+(`refactor(fork): use a typed bytecode body descriptor`). This documentation-only
+follow-up records that commit without changing the verified implementation.
