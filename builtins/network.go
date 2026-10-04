@@ -256,7 +256,23 @@ func newHTTPErrorValue(code string) types.Value {
 	})
 }
 
-func parseHTTPHeaders(data []byte, start int) ([][2]types.Value, int, int, bool, bool, bool) {
+type httpHeaderParseState uint8
+
+const (
+	httpHeadersIncomplete httpHeaderParseState = iota
+	httpHeadersComplete
+	httpHeadersInvalid
+)
+
+type httpHeaderParseResult struct {
+	headers       [][2]types.Value
+	bodyStart     int
+	contentLength int
+	chunked       bool
+	state         httpHeaderParseState
+}
+
+func parseHTTPHeaders(data []byte, start int) httpHeaderParseResult {
 	headers := make([][2]types.Value, 0)
 	lastHeader := -1
 	contentLength := -1
@@ -265,16 +281,19 @@ func parseHTTPHeaders(data []byte, start int) ([][2]types.Value, int, int, bool,
 	for pos := start; ; {
 		line, next, ok := readHTTPCRLFLine(data, pos)
 		if !ok {
-			return nil, 0, 0, false, false, true
+			return httpHeaderParseResult{state: httpHeadersIncomplete}
 		}
 		pos = next
 		if len(line) == 0 {
-			return headers, pos, contentLength, chunked, false, false
+			return httpHeaderParseResult{
+				headers: headers, bodyStart: pos, contentLength: contentLength,
+				chunked: chunked, state: httpHeadersComplete,
+			}
 		}
 
 		if line[0] == ' ' || line[0] == '\t' {
 			if lastHeader < 0 {
-				return nil, pos, 0, false, true, false
+				return httpHeaderParseResult{bodyStart: pos, state: httpHeadersInvalid}
 			}
 			continued := encodeBinaryStr(trimHTTPLeadingWhitespace(line))
 			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].Str() + continued)
@@ -283,7 +302,7 @@ func parseHTTPHeaders(data []byte, start int) ([][2]types.Value, int, int, bool,
 
 		colon := bytes.IndexByte(line, ':')
 		if colon <= 0 || !isValidHTTPToken(line[:colon]) {
-			return nil, pos, 0, false, true, false
+			return httpHeaderParseResult{bodyStart: pos, state: httpHeadersInvalid}
 		}
 
 		name := string(line[:colon])
@@ -369,36 +388,36 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 		return newHTTPErrorValue("INVALID_PATH"), pos, true
 	}
 
-	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
-	if incomplete {
+	header := parseHTTPHeaders(data, pos)
+	switch header.state {
+	case httpHeadersIncomplete:
 		return types.None, 0, false
-	}
-	if badHeader {
-		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
+	case httpHeadersInvalid:
+		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), header.bodyStart, true
 	}
 
 	pairs := [][2]types.Value{
 		{types.NewStr("method"), types.NewStr(string(parts[0]))},
 		{types.NewStr("uri"), types.NewStr(string(parts[1]))},
-		{types.NewStr("headers"), types.NewMap(headers)},
+		{types.NewStr("headers"), types.NewMap(header.headers)},
 	}
 	if len(parts) == 3 {
 		pairs = append(pairs, [2]types.Value{types.NewStr("version"), types.NewStr(string(parts[2]))})
 	}
-	consumed := bodyStart
-	if chunked {
-		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
+	consumed := header.bodyStart
+	if header.chunked {
+		body, next, complete := parseHTTPChunkedBody(data, header.bodyStart)
 		if !complete {
 			return types.None, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
 		consumed = next
-	} else if contentLength >= 0 {
-		if len(data[bodyStart:]) < contentLength {
+	} else if header.contentLength >= 0 {
+		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
-		consumed = bodyStart + contentLength
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true
 }
@@ -426,37 +445,37 @@ func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 	}
 	status, _ := strconv.Atoi(string(statusToken))
 
-	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
-	if incomplete {
+	header := parseHTTPHeaders(data, pos)
+	switch header.state {
+	case httpHeadersIncomplete:
 		return types.None, 0, false
-	}
-	if badHeader {
-		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
+	case httpHeadersInvalid:
+		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), header.bodyStart, true
 	}
 
 	pairs := [][2]types.Value{
 		{types.NewStr("version"), types.NewStr(string(parts[0]))},
 		{types.NewStr("status"), types.NewInt(int64(status))},
-		{types.NewStr("headers"), types.NewMap(headers)},
+		{types.NewStr("headers"), types.NewMap(header.headers)},
 	}
 	if len(parts) >= 3 {
 		pairs = append(pairs, [2]types.Value{types.NewStr("reason"), types.NewStr(string(parts[2]))})
 	}
 
-	consumed := bodyStart
-	if chunked {
-		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
+	consumed := header.bodyStart
+	if header.chunked {
+		body, next, complete := parseHTTPChunkedBody(data, header.bodyStart)
 		if !complete {
 			return types.None, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
 		consumed = next
-	} else if contentLength >= 0 {
-		if len(data[bodyStart:]) < contentLength {
+	} else if header.contentLength >= 0 {
+		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
-		consumed = bodyStart + contentLength
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true
 }
