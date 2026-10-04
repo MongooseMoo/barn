@@ -13,8 +13,14 @@ type Parser struct {
 	lexer            *Lexer
 	current          Token
 	peek             Token
+	previous         Token
 	parenthesisDepth int
 	statementCalls   int
+	collecting       bool
+	diagnostics      []*ParseError
+	checkBuiltin     func(string, verb.Position) error
+	sourceLoops      []sourceLoop
+	indexDepth       int
 }
 
 // MaxNestingDepth is shared with semantic IR consumers.
@@ -35,6 +41,7 @@ func NewParser(input string) *Parser {
 
 // nextToken advances to the next token
 func (p *Parser) nextToken() {
+	p.previous = p.current
 	p.current = p.peek
 	p.peek = p.lexer.NextToken()
 }
@@ -114,7 +121,7 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		// list literal. Toast's '{' scatter '}' '=' expr production (which needs
 		// a '?' item) is an operand at any precedence; any other scatter is a
 		// list lowered by '=', so it applies only where '=' may follow.
-		if scatter, optional := p.scatterAhead(); scatter && (optional || prec <= PREC_ASSIGNMENT) {
+		if scatter, optional := p.scatterAhead(); scatter && optional {
 			left, err = p.parseScatterAssign(PREC_ASSIGNMENT)
 			if err != nil {
 				return nil, err
@@ -145,6 +152,11 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		p.nextToken()
 
 	case TOKEN_CARET:
+		if p.indexDepth == 0 {
+			if err := p.report(p.current.Position, "Illegal context for `^' expression.", nil); err != nil {
+				return nil, err
+			}
+		}
 		// Parse ^ index marker (first)
 		left = &verb.IndexBoundaryExpr{
 			Pos:      p.current.Position,
@@ -207,6 +219,11 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			}
 		} else {
 			// Just $ alone - index marker (last)
+			if p.indexDepth == 0 {
+				if err := p.report(pos, "Illegal context for `$' expression.", nil); err != nil {
+					return nil, err
+				}
+			}
 			left = &verb.IndexBoundaryExpr{
 				Pos:      pos,
 				Boundary: verb.IndexLast,
@@ -348,7 +365,6 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			if !ok {
 				return nil, fmt.Errorf("cannot call non-identifier")
 			}
-			pos := p.current.Position
 			p.nextToken() // consume '('
 
 			// Parse arguments
@@ -372,54 +388,26 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			if p.current.Type != TOKEN_RPAREN {
 				return nil, fmt.Errorf("expected ')' after function args, got %s", p.current.Type)
 			}
-			p.nextToken() // consume ')'
-
-			left = &verb.BuiltinCallExpr{
-				Pos:  pos,
-				Name: ident.Name,
-				Args: args,
+			if p.checkBuiltin != nil {
+				if cause := p.checkBuiltin(ident.Name, p.current.Position); cause != nil {
+					if err := p.report(p.current.Position, cause.Error(), cause); err != nil {
+						return nil, err
+					}
+				}
 			}
+			p.nextToken() // consume ')'
+			left = &verb.BuiltinCallExpr{Pos: ident.Pos, Name: ident.Name, Args: args}
 
 		case TOKEN_LBRACKET:
-			// Indexing or range: expr[index] or expr[start..end]
 			pos := p.current.Position
-			p.nextToken() // consume '['
-
-			// Parse first expression (index or start)
-			first, err := p.ParseExpression(PREC_LOWEST)
+			first, end, err := p.parseIndexOperands()
 			if err != nil {
 				return nil, err
 			}
-
-			// Check for range operator
-			if p.current.Type == TOKEN_RANGE {
-				// Range expression
-				p.nextToken() // consume '..'
-				end, err := p.ParseExpression(PREC_LOWEST)
-				if err != nil {
-					return nil, err
-				}
-				if p.current.Type != TOKEN_RBRACKET {
-					return nil, fmt.Errorf("expected ']' after range, got %s", p.current.Type)
-				}
-				p.nextToken() // consume ']'
-				left = &verb.RangeExpr{
-					Pos:   pos,
-					Expr:  left,
-					Start: first,
-					End:   end,
-				}
+			if end != nil {
+				left = &verb.RangeExpr{Pos: pos, Expr: left, Start: first, End: end}
 			} else {
-				// Simple index
-				if p.current.Type != TOKEN_RBRACKET {
-					return nil, fmt.Errorf("expected ']' after index, got %s", p.current.Type)
-				}
-				p.nextToken() // consume ']'
-				left = &verb.IndexExpr{
-					Pos:   pos,
-					Expr:  left,
-					Index: first,
-				}
+				left = &verb.IndexExpr{Pos: pos, Expr: left, Index: first}
 			}
 
 		case TOKEN_DOT:
@@ -562,14 +550,20 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			// Assignment: target = value
 			// Assignment is right-associative with lowest precedence
 			pos := p.current.Position
-			target, err := lowerAssignmentTarget(left)
-			if err != nil {
-				return nil, err
-			}
 			p.nextToken()
 			value, err := p.ParseExpression(PREC_ASSIGNMENT) // Right-associative
 			if err != nil {
 				return nil, err
+			}
+			target, err := p.lowerAssignmentTarget(left)
+			if err != nil {
+				return nil, err
+			}
+			if target == nil {
+				// Consume the diagnosed LHS and its RHS without syntax recovery.
+				// Any diagnostic prevents this temporary expression escaping.
+				left = &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralInt}
+				continue
 			}
 			left = &verb.AssignExpr{
 				Pos:    pos,
@@ -585,54 +579,75 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 	return left, err
 }
 
-func lowerAssignmentTarget(expr verb.Expr) (verb.Target, error) {
+func (p *Parser) parseIndexOperands() (verb.Expr, verb.Expr, error) {
+	p.indexDepth++
+	defer func() { p.indexDepth-- }()
+	p.nextToken()
+	first, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, nil, err
+	}
+	var end verb.Expr
+	if p.current.Type == TOKEN_RANGE {
+		p.nextToken()
+		end, err = p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if p.current.Type != TOKEN_RBRACKET {
+		return nil, nil, fmt.Errorf("expected ']' after index or range, got %s", p.current.Type)
+	}
+	p.nextToken()
+	return first, end, nil
+}
+
+func (p *Parser) lowerAssignmentTarget(expr verb.Expr) (verb.Target, error) {
 	switch target := expr.(type) {
 	case *verb.IdentifierExpr:
 		return &verb.VariableTarget{Pos: target.Pos, Name: target.Name}, nil
 	case *verb.PropertyExpr:
-		return &verb.PropertyTarget{
-			Pos:      target.Pos,
-			Object:   target.Expr,
-			Name:     target.Property,
-			NameExpr: target.PropertyExpr,
-		}, nil
+		return &verb.PropertyTarget{Pos: target.Pos, Object: target.Expr, Name: target.Property, NameExpr: target.PropertyExpr}, nil
 	case *verb.IndexExpr:
-		collection, err := lowerCollectionAssignmentTarget(target.Expr)
-		if err != nil {
+		collection, err := p.lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil || collection == nil {
 			return nil, err
 		}
 		return &verb.IndexTarget{Pos: target.Pos, Collection: collection, Index: target.Index}, nil
 	case *verb.RangeExpr:
-		collection, err := lowerCollectionAssignmentTarget(target.Expr)
-		if err != nil {
+		collection, err := p.lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil || collection == nil {
 			return nil, err
 		}
 		return &verb.RangeTarget{Pos: target.Pos, Collection: collection, Start: target.Start, End: target.End}, nil
 	case *verb.ListExpr:
-		bindings := make([]verb.Binding, len(target.Elements))
-		for i, element := range target.Elements {
-			identifier, ok := element.(*verb.IdentifierExpr)
-			if !ok {
-				return nil, fmt.Errorf("invalid assignment target: %T", element)
-			}
-			bindings[i] = &verb.RequiredBinding{Pos: identifier.Pos, Name: identifier.Name}
+		if len(target.Elements) == 0 {
+			return nil, p.report(p.previous.Position, "Empty list in scattering assignment.", nil)
+		}
+		bindings, err := p.scatterBindings(target.Elements)
+		if err != nil || bindings == nil {
+			return nil, err
+		}
+		if err := p.validateScatterBindings(bindings); err != nil {
+			return nil, err
 		}
 		return &verb.DestructuringTarget{Pos: target.Pos, Bindings: bindings}, nil
 	default:
-		return nil, fmt.Errorf("invalid assignment target: %T", expr)
+		return nil, p.report(p.previous.Position, "Illegal expression on left side of assignment.", fmt.Errorf("invalid assignment target: %T", expr))
 	}
 }
 
-func lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, error) {
-	target, err := lowerAssignmentTarget(expr)
-	if err != nil {
-		return nil, err
+func (p *Parser) lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, error) {
+	switch expr.(type) {
+	case *verb.IdentifierExpr, *verb.PropertyExpr, *verb.IndexExpr:
+		target, err := p.lowerAssignmentTarget(expr)
+		if err != nil || target == nil {
+			return nil, err
+		}
+		return target.(verb.CollectionTarget), nil
+	default:
+		return nil, p.report(p.previous.Position, "Illegal expression on left side of assignment.", fmt.Errorf("invalid collection assignment target: %T", expr))
 	}
-	collection, ok := target.(verb.CollectionTarget)
-	if !ok {
-		return nil, fmt.Errorf("invalid collection assignment target: %T", expr)
-	}
-	return collection, nil
 }
 
 func systemObjectLiteral(pos verb.Position) *verb.LiteralExpr {
@@ -691,7 +706,14 @@ func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
 	case TOKEN_FLOAT:
 		val, err := strconv.ParseFloat(p.current.Value, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse float: %w", err)
+			if numError, ok := err.(*strconv.NumError); ok && numError.Err == strconv.ErrRange {
+				if diagnostic := p.report(pos, "Floating-point literal out of range", err); diagnostic != nil {
+					return nil, diagnostic
+				}
+				val = 0
+			} else {
+				return nil, fmt.Errorf("failed to parse float: %w", err)
+			}
 		}
 		p.nextToken()
 		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralFloat, FloatValue: val}, nil

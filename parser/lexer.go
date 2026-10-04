@@ -75,7 +75,7 @@ func (l *Lexer) readNULToken() Token {
 	tok := Token{Type: TOKEN_ILLEGAL, Value: ErrNULInSource.Error(),
 		Position: verb.Position{Line: l.line, Column: l.column, Offset: l.position}}
 	if l.lexicalError == nil {
-		l.lexicalError = &ParseError{Line: l.line, Msg: tok.Value, Detail: ErrNULInSource}
+		l.lexicalError = &ParseError{Position: tok.Position, Msg: tok.Value, Detail: ErrNULInSource}
 	}
 	l.readChar() // A raw NUL is invalid input, not the end-of-input sentinel.
 	return tok
@@ -102,7 +102,7 @@ func (l *Lexer) NextToken() Token {
 				}
 				const message = "End of program while in a comment"
 				if l.lexicalError == nil {
-					l.lexicalError = &ParseError{Line: start.Line, Msg: message}
+					l.lexicalError = &ParseError{Position: start, Msg: message}
 				}
 				return Token{Type: TOKEN_ILLEGAL, Value: message, Position: start}
 			}

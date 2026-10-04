@@ -129,9 +129,18 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 }
 
 func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []Diagnostic) {
-	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram()
-	if err != nil {
-		return nil, []Diagnostic{syntaxDiagnostic(err)}
+	program, parseErrors := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgramWithDiagnostics(func(name string, pos verb.Position) error {
+		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; !ok {
+			return &UnknownBuiltinError{Name: name, Position: pos}
+		}
+		return nil
+	})
+	if len(parseErrors) != 0 {
+		diagnostics := make([]Diagnostic, len(parseErrors))
+		for i, err := range parseErrors {
+			diagnostics[i] = syntaxDiagnostic(err)
+		}
+		return nil, diagnostics
 	}
 
 	compiled, err := newLowerer(c.builtinIDs).compileProgram(program)
@@ -146,9 +155,13 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 func syntaxDiagnostic(err error) Diagnostic {
 	var parseError *parser.ParseError
 	if errors.As(err, &parseError) {
+		var unknownBuiltin *UnknownBuiltinError
+		if errors.As(parseError.Detail, &unknownBuiltin) {
+			return compileDiagnostic(unknownBuiltin)
+		}
 		return Diagnostic{
 			Stage:    SyntaxStage,
-			Position: verb.Position{Line: parseError.Line},
+			Position: parseError.Position,
 			Message:  parseError.Msg,
 			Detail:   parseError.Detail,
 		}
@@ -165,7 +178,7 @@ func compileDiagnostic(err error) Diagnostic {
 	if errors.As(err, &unknownBuiltin) {
 		return Diagnostic{
 			Stage:    BytecodeStage,
-			Position: verb.Position{Line: unknownBuiltin.Line},
+			Position: unknownBuiltin.Position,
 			Message:  "Unknown built-in function: " + unknownBuiltin.Name,
 			Detail:   err,
 		}

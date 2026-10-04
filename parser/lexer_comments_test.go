@@ -42,8 +42,8 @@ func TestBlockCommentProgramContract(t *testing.T) {
 			t.Fatalf("program=%v error=%v; want lexical comment diagnostic", program, err)
 		}
 		wantLine := 1 + strings.Count(source[:strings.Index(source, "/*")], "\n")
-		if syntax.Line != wantLine {
-			t.Fatalf("line=%d want %d", syntax.Line, wantLine)
+		if syntax.Position.Line != wantLine {
+			t.Fatalf("line=%d want %d", syntax.Position.Line, wantLine)
 		}
 	}
 }

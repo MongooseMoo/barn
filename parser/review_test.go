@@ -70,13 +70,9 @@ func TestReview_UnparseForWithIndexVar(t *testing.T) {
 	}
 }
 
-// TestReview_BreakLabelAsIdentExpr confirms the asymmetry between break and
-// continue label handling. `break myloop;` inside a labeled while loop should
-// break out of the named loop. The parser sets BreakStmt.Label="" and places
-// the identifier in BreakStmt.Value instead, leaving disambiguation entirely
-// to the compiler. Meanwhile continue correctly populates ContinueStmt.Label.
+// Both loop exits retain the explicit name of an enclosing labeled loop.
 func TestReview_BreakLabelAsIdentExpr(t *testing.T) {
-	breakSrc := "while (1)\nbreak myloop;\nendwhile"
+	breakSrc := "while myloop (1)\nbreak myloop;\nendwhile"
 	bp := NewParser(breakSrc)
 	bStmts, err := bp.ParseProgram()
 	if err != nil {

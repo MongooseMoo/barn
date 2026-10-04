@@ -24,7 +24,7 @@ func TestRawNULSourceRejected(t *testing.T) {
 		t.Run(tc.source, func(t *testing.T) {
 			program, err := NewParser(tc.source).ParseProgram()
 			var syntax *ParseError
-			if program != nil || !errors.As(err, &syntax) || !errors.Is(err, ErrNULInSource) || syntax.Line != tc.line || syntax.Msg != "NUL byte is not representable in MOO source" {
+			if program != nil || !errors.As(err, &syntax) || !errors.Is(err, ErrNULInSource) || syntax.Position.Line != tc.line || syntax.Msg != "NUL byte is not representable in MOO source" {
 				t.Fatalf("program=%v error=%+v; want explicit NUL error on line %d without partial program", program, err, tc.line)
 			}
 			l := NewLexer(tc.source)

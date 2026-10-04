@@ -6,58 +6,6 @@ import (
 	"github.com/MongooseMoo/barn/verb"
 )
 
-// ParseError is a syntax error carrying the source line of the offending token.
-// ToastStunt collapses essentially all parse errors to the generic message
-// "syntax error" and reports them as "Line N:  syntax error" (the inner
-// fmt.Errorf detail is for Barn-internal diagnostics only and is not surfaced to
-// MOO callers). Line is the line of p.current at the point parsing failed; for
-// unexpected-EOF the lexer reports a phantom final line (numLines+1), matching
-// Toast. Unterminated block comments retain Toast's explicit lexical diagnostic
-// and the opening comment's line instead of the generic parser message.
-// Invalid canonical-source NUL bytes likewise retain their explicit diagnostic.
-type ParseError struct {
-	Line int    // 1-based source line of the offending token
-	Msg  string // message surfaced to MOO callers (usually "syntax error")
-	// Detail preserves Barn's specific inner message (e.g. "expected ';'") for
-	// internal diagnostics; it is NOT part of the MOO-facing format.
-	Detail error
-}
-
-func (e *ParseError) Error() string { return e.Msg }
-
-func (e *ParseError) Unwrap() error { return e.Detail }
-
-// ParseProgram parses a complete MOO program (sequence of statements)
-func (p *Parser) ParseProgram() (*verb.Program, error) {
-	var statements []verb.Stmt
-
-	for p.current.Type != TOKEN_EOF {
-		stmt, err := p.parseStatement()
-		if p.lexer.lexicalError != nil {
-			return nil, p.lexer.lexicalError
-		}
-		if err != nil {
-			// Capture the line of the offending token and present Toast's
-			// generic "syntax error". p.current is the token parsing choked on.
-			return nil, &ParseError{
-				Line:   p.current.Position.Line,
-				Msg:    "syntax error",
-				Detail: err,
-			}
-		}
-		statements = append(statements, stmt)
-	}
-	if p.lexer.lexicalError != nil {
-		return nil, p.lexer.lexicalError
-	}
-
-	program := &verb.Program{Statements: statements}
-	if err := verb.ValidateNesting(program); err != nil {
-		return nil, &ParseError{Line: p.current.Position.Line, Msg: "syntax error", Detail: err}
-	}
-	return program, nil
-}
-
 // parseStatement parses a single statement
 func (p *Parser) parseStatement() (verb.Stmt, error) {
 	p.statementCalls++
@@ -84,7 +32,7 @@ func (p *Parser) parseStatement() (verb.Stmt, error) {
 		return p.parseContinueStatement()
 	case TOKEN_LBRACE:
 		// Could be scatter assignment or list expression
-		return p.parseScatterOrExprStatement()
+		return p.parseExpressionStatement()
 	case TOKEN_SEMICOLON:
 		// Empty statement
 		pos := p.current.Position
@@ -213,6 +161,9 @@ func (p *Parser) parseWhileStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ')'
 
+	loopDepth := len(p.sourceLoops)
+	p.sourceLoops = append(p.sourceLoops, sourceLoop{names: []string{label}})
+	defer func() { p.sourceLoops = p.sourceLoops[:loopDepth] }()
 	// Parse body
 	body, err := p.parseBody(TOKEN_ENDWHILE)
 	if err != nil {
@@ -326,6 +277,9 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 		return nil, fmt.Errorf("expected '[' or '(' after 'in' in for loop")
 	}
 
+	loopDepth := len(p.sourceLoops)
+	p.sourceLoops = append(p.sourceLoops, sourceLoop{names: []string{label, value, index}})
+	defer func() { p.sourceLoops = p.sourceLoops[:loopDepth] }()
 	// Parse body
 	body, err := p.parseBody(TOKEN_ENDFOR)
 	if err != nil {
@@ -388,6 +342,9 @@ func (p *Parser) parseForkStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ')'
 
+	outerLoops := p.sourceLoops
+	p.sourceLoops = nil // A fork body cannot exit loops in its parent task.
+	defer func() { p.sourceLoops = outerLoops }()
 	// Parse fork body
 	body, err := p.parseBody(TOKEN_ENDFORK)
 	if err != nil {
@@ -453,6 +410,9 @@ func (p *Parser) parseBreakStatement() (verb.Stmt, error) {
 	if p.current.Type != TOKEN_SEMICOLON {
 		return nil, fmt.Errorf("expected ';' after break statement")
 	}
+	if err := p.checkLoopExit(p.current.Position, label, "break"); err != nil {
+		return nil, err
+	}
 	p.nextToken() // consume ';'
 
 	return &verb.BreakStmt{
@@ -475,6 +435,9 @@ func (p *Parser) parseContinueStatement() (verb.Stmt, error) {
 	// Expect semicolon
 	if p.current.Type != TOKEN_SEMICOLON {
 		return nil, fmt.Errorf("expected ';' after continue statement")
+	}
+	if err := p.checkLoopExit(p.current.Position, label, "continue"); err != nil {
+		return nil, err
 	}
 	p.nextToken() // consume ';'
 
@@ -553,6 +516,11 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 	// Parse except clauses (zero or more)
 	for p.current.Type == TOKEN_EXCEPT {
 		exceptPos := p.current.Position
+		if len(handlers) > 0 && handlers[len(handlers)-1].IsAny {
+			if err := p.report(exceptPos, "Unreachable EXCEPT clause", nil); err != nil {
+				return nil, err
+			}
+		}
 		p.nextToken() // consume 'except'
 
 		// Optional variable to bind the error
@@ -640,16 +608,6 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 	return &verb.TryStmt{Pos: pos, Body: body, Handlers: handlers, Finalizer: finalizer}, nil
 }
 
-// parseScatterOrExprStatement decides if {... is scatter assignment or expression
-func (p *Parser) parseScatterOrExprStatement() (verb.Stmt, error) {
-	// Simple heuristic: if we see { followed by identifier/? /@, likely scatter
-	// Otherwise, parse as expression
-	if scatter, _ := p.scatterAhead(); scatter {
-		return p.parseScatterStatement()
-	}
-	return p.parseExpressionStatement()
-}
-
 // scatterAhead reports whether the leading '{' begins a scatter-assignment
 // target rather than a list-literal expression, and whether that target has an
 // optional ('?') item.
@@ -706,23 +664,6 @@ func (p *Parser) scatterAhead() (scatter, optional bool) {
 	}
 }
 
-// parseScatterStatement parses a scatter assignment
-func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
-	pos := p.current.Position
-	assign, err := p.parseScatterAssign(PREC_LOWEST)
-	if err != nil {
-		return nil, err
-	}
-
-	// Consume semicolon
-	if p.current.Type != TOKEN_SEMICOLON {
-		return nil, fmt.Errorf("expected ';' after scatter assignment")
-	}
-	p.nextToken() // consume ';'
-
-	return &verb.ExprStmt{Pos: pos, Expr: assign}, nil
-}
-
 // parseScatterAssign parses '{' scatter '}' '=' expr, the scatter production
 // that admits optional and rest targets. It is an expression in Toast's
 // grammar, so statements and expression prefixes share it.
@@ -731,20 +672,30 @@ func (p *Parser) parseScatterAssign(valuePrec int) (*verb.AssignExpr, error) {
 	p.nextToken() // consume '{'
 
 	var bindings []verb.Binding
-	hasRest := false
+	var prefix []verb.Expr
+	optionalSeen := false
 
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
-		binding, err := p.parseScatterBinding()
-		if err != nil {
-			return nil, err
-		}
-		if _, rest := binding.(*verb.RestBinding); rest {
-			if hasRest {
-				return nil, fmt.Errorf("more than one '@' target in scattering assignment")
+		if !optionalSeen && p.current.Type != TOKEN_QUESTION {
+			element, err := p.ParseExpression(PREC_LOWEST)
+			if err != nil {
+				return nil, err
 			}
-			hasRest = true
+			prefix = append(prefix, element)
+		} else {
+			binding, err := p.parseScatterBinding()
+			if err != nil {
+				return nil, err
+			}
+			if !optionalSeen {
+				optionalSeen = true
+				bindings, err = p.scatterBindings(prefix)
+				if err != nil {
+					return nil, err
+				}
+			}
+			bindings = append(bindings, binding)
 		}
-		bindings = append(bindings, binding)
 
 		if p.current.Type == TOKEN_COMMA {
 			p.nextToken() // consume ','
@@ -767,6 +718,10 @@ func (p *Parser) parseScatterAssign(valuePrec int) (*verb.AssignExpr, error) {
 	// Parse value expression
 	value, err := p.ParseExpression(valuePrec)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := p.validateScatterBindings(bindings); err != nil {
 		return nil, err
 	}
 
