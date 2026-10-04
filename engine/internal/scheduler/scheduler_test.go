@@ -148,6 +148,87 @@ func TestRunPreservesAssociationOrder(t *testing.T) {
 	}
 }
 
+// suspend(0) lets work the yielding task started finish its slice first. A
+// parent that forks, yields, and reads what the child wrote depends on it:
+// Toast's audit_task_local_not_inherited_by_fork failed when the parent
+// restarted beside its child's slice. A slice of an unrelated task must not
+// hold a yielding task: it can run for its whole seconds limit.
+func TestDispatchHoldsAYieldedTaskUntilItsFamilysRunningSlicesEnd(t *testing.T) {
+	const child, parent, stranger = 1, 2, 3
+	started, release := make(chan struct{}), make(chan struct{})
+	var s *Scheduler
+	runs := map[int64]int{}
+	s = New(4, func(*task.Task) bool { return true }, func(t *task.Task) error {
+		switch t.ID {
+		case child:
+			close(started)
+			<-release
+		case parent, stranger:
+			runs[t.ID]++
+			if runs[t.ID] == 1 {
+				<-started
+				s.RequeueYield(t, time.Now())
+			}
+		}
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	settled := make(chan int64, 4)
+	claim := func(*task.Task) bool { return true }
+	done := func(result Result) { settled <- result.Task.ID }
+	next := func(want int64) {
+		t.Helper()
+		select {
+		case id := <-settled:
+			if id != want {
+				t.Fatalf("task %d settled, want %d", id, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for task %d", want)
+		}
+	}
+
+	now := time.Now()
+	parentTask, childTask := testTask(parent, now), testTask(child, now)
+	childTask.JoinForkFamily(parentTask)
+	s.Enqueue(childTask)
+	s.Enqueue(parentTask)
+	if n := s.Dispatch(now, nil, claim, done); n != 2 {
+		t.Fatalf("dispatched %d, want parent and child", n)
+	}
+	next(parent)
+
+	later := time.Now()
+	if n := s.Dispatch(later, nil, claim, done); n != 0 {
+		t.Fatalf("dispatched %d, want the yielded parent held behind its child's slice", n)
+	}
+	if at := s.NextWake(later, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a held yielded task, want none", at)
+	}
+
+	// A task of another family yields while the child's slice is still running
+	// and restarts at once.
+	s.Enqueue(testTask(stranger, later))
+	if n := s.Dispatch(later, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the unrelated task beside the running slice", n)
+	}
+	next(stranger)
+	if n := s.Dispatch(time.Now(), nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the unrelated yielded task restarted beside the running slice", n)
+	}
+	next(stranger)
+
+	close(release)
+	next(child)
+	if n := s.Dispatch(time.Now(), nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the child's slice ended, want the yielded parent", n)
+	}
+	next(parent)
+	if runs[parent] != 2 || runs[stranger] != 2 {
+		t.Fatalf("runs = %v, want parent and stranger twice each", runs)
+	}
+}
+
 func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
 	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
 	t.Cleanup(s.Stop)
@@ -320,4 +401,122 @@ func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
 		t.Fatalf("push-after-drain order = %v, want [early late]", ready)
 	}
 	assertQueueOwnsOnly(t, s.waiting)
+}
+
+// Solo tasks in one lane run one at a time; a solo task in another lane must
+// not wait for them. One queue for every fork's first run made each player's
+// forks wait behind every other fork in the server.
+func TestDispatchSerializesWithinALaneOnly(t *testing.T) {
+	const first, sibling, other = 1, 2, 3
+	release := make(chan struct{})
+	ran := make(chan int64, 3)
+	s := New(4, func(*task.Task) bool { return false }, func(t *task.Task) error {
+		ran <- t.ID
+		<-release
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	s.SetLane(func(t *task.Task) any {
+		if t.ID == other {
+			return "other"
+		}
+		return "siblings"
+	})
+	settled := make(chan int64, 3)
+	claim := func(*task.Task) bool { return true }
+	done := func(result Result) { settled <- result.Task.ID }
+
+	now := time.Now()
+	for _, id := range []int64{first, sibling, other} {
+		s.Enqueue(testTask(id, now))
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 2 {
+		t.Fatalf("dispatched %d, want one task from each lane", n)
+	}
+	started := map[int64]bool{<-ran: true, <-ran: true}
+	if !started[first] || !started[other] {
+		t.Fatalf("started %v, want tasks %d and %d", started, first, other)
+	}
+	if at := s.NextWake(now, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a task held behind its lane, want none", at)
+	}
+
+	close(release)
+	<-settled
+	<-settled
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the lane cleared, want the held sibling", n)
+	}
+	if id := <-settled; id != sibling {
+		t.Fatalf("task %d settled, want %d", id, sibling)
+	}
+}
+
+// A continuation whose external call finished must start while an unrelated
+// long slice is still running. Joining each batch made every such resumption
+// wait for the longest slice in flight (issue #395, #396).
+func TestDispatchRunsBatchableWorkBesideALongSoloSlice(t *testing.T) {
+	const soloLong, batchable, soloNext = 1, 2, 3
+	started, release := make(chan struct{}), make(chan struct{})
+	ran := make(chan int64, 3)
+	s := New(4, func(t *task.Task) bool { return t.ID == batchable }, func(t *task.Task) error {
+		if t.ID == soloLong {
+			close(started)
+			<-release
+		}
+		ran <- t.ID
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	claim := func(*task.Task) bool { return true }
+	settled := make(chan int64, 3)
+	done := func(result Result) { settled <- result.Task.ID }
+	next := func(from <-chan int64, what string) int64 {
+		t.Helper()
+		select {
+		case id := <-from:
+			return id
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+			return 0
+		}
+	}
+
+	now := time.Now()
+	s.Enqueue(testTask(soloLong, now))
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d, want the long solo task", n)
+	}
+	<-started
+
+	s.Enqueue(testTask(batchable, now))
+	s.Enqueue(testTask(soloNext, now))
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d beside the long slice, want only the batchable task", n)
+	}
+	if id := next(ran, "the batchable task to run beside the long slice"); id != batchable {
+		t.Fatalf("task %d ran beside the long slice, want %d", id, batchable)
+	}
+	if id := next(settled, "the batchable task to settle"); id != batchable {
+		t.Fatalf("task %d settled, want %d", id, batchable)
+	}
+	// The held solo task is woken by the long slice's completion. A wake time
+	// of now would spin the selector on work it cannot start.
+	if at := s.NextWake(now, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a task held behind dispatched work, want none", at)
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 0 {
+		t.Fatalf("dispatched %d while a solo task was in flight, want 0", n)
+	}
+
+	close(release)
+	if id := next(settled, "the long solo task to settle"); id != soloLong {
+		t.Fatalf("task %d settled, want %d", id, soloLong)
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the long slice ended, want the held solo task", n)
+	}
+	if id := next(settled, "the held solo task to settle"); id != soloNext {
+		t.Fatalf("task %d settled, want %d", id, soloNext)
+	}
 }

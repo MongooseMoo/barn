@@ -138,8 +138,13 @@ func TestRuntimeTickAdmitsBackgroundWorkWithQueuedInput(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("background dispatch did not finish")
 	}
-	if state := rt.GetTask(id).GetState(); state != task.TaskCompleted {
-		t.Fatalf("background task state = %v", state)
+	// The tick starts the task without joining it.
+	deadline := time.Now().Add(5 * time.Second)
+	for rt.GetTask(id).GetState() != task.TaskCompleted {
+		if time.Now().After(deadline) {
+			t.Fatalf("background task state = %v", rt.GetTask(id).GetState())
+		}
+		time.Sleep(time.Millisecond)
 	}
 	<-done
 }

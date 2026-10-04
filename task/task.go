@@ -79,6 +79,7 @@ type Task struct {
 	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
 	readier             *Task       // Task whose fork or resume() readied this one; retained until physical handoff
+	forkFamily          int64       // ID of the unforked task this one descends from; zero for that task itself
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
@@ -578,6 +579,26 @@ func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
 		t.WakeTime = now
 	}
 	t.QueueSeq = sequence
+}
+
+// ForkFamily identifies a task together with every task forked from it,
+// directly or through its forks. suspend(0) lets work a task started finish
+// its slice first, and that is the work in its family.
+func (t *Task) ForkFamily() int64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.forkFamily != 0 {
+		return t.forkFamily
+	}
+	return t.ID
+}
+
+// JoinForkFamily records that t was forked by parent.
+func (t *Task) JoinForkFamily(parent *Task) {
+	family := parent.ForkFamily()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.forkFamily = family
 }
 
 // SetReadier records the task whose fork made this task ready.

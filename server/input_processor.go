@@ -271,15 +271,14 @@ func (p *InputProcessor) processRuntimeTick() <-chan int {
 		p.dispatch(input)
 	default:
 	}
-	// The scheduler already executes tasks on worker goroutines. Joining a
-	// background pass on the input dispatcher prevents even unrelated login
-	// events from reaching their connection lanes until that pass completes.
-	// Keep just one batch in flight, and join it during Stop via the wait group.
+	// Start what can run now without joining it. A joined pass made every
+	// continuation whose external call had finished wait for the longest slice
+	// already running; each completion requests the next scan instead.
 	done := make(chan int, 1)
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		done <- p.runtime.ProcessReadyBatch()
+		done <- p.runtime.DispatchReady()
 	}()
 	return done
 }
