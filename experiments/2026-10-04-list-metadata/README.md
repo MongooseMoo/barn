@@ -96,5 +96,7 @@ action findings. Normalized rule/severity/annotation/route comparisons have zero
 differences. These existing workflow findings remain outside the list-cache
 change; no audit suppression was added.
 
-Full repository CI is required before normal merge. The final kept implementation
-will be recorded after committing this slice.
+Kept implementation: `4f0ed8ea47ca0cc577c0530d93eae6073ab23ad1`, on published
+base `a78c3c7a73f64ccaa2ebdf08987cf08baf83786f`. Rebasing changed none of the
+tested implementation, workflow, regression, or experiment files. Full
+repository CI is required before normal merge.
