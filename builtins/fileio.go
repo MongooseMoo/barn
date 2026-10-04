@@ -15,11 +15,15 @@ import (
 )
 
 type mooFileHandle struct {
-	id     int64
-	file   *os.File
-	name   string
-	mode   string
-	binary bool
+	// Serialize position-changing operations, including a chunk read and its rewind.
+	// Close deliberately bypasses this lock so it can interrupt blocked pipe reads.
+	positionMu sync.Mutex
+	regular    bool
+	id         int64
+	file       *os.File
+	name       string
+	mode       string
+	binary     bool
 }
 
 func (h *mooFileHandle) canRead() bool {
@@ -214,10 +218,12 @@ func builtinFileOpen(ctx *Execution, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
+	info, statErr := f.Stat()
+	regular := statErr == nil && info.Mode().IsRegular()
 	ctx.Session.runtime.files.mu.Lock()
 	id := ctx.Session.runtime.files.nextID
 	ctx.Session.runtime.files.nextID++
-	ctx.Session.runtime.files.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary}
+	ctx.Session.runtime.files.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary, regular: regular}
 	ctx.Session.runtime.files.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }
@@ -289,6 +295,8 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 	if n < 0 {
 		return types.Err(types.E_INVARG)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	position, err := h.file.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return types.Err(types.E_FILE)
@@ -363,21 +371,46 @@ func builtinFileReadline(ctx *Execution, args []types.Value) types.Result {
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	var buf []byte
-	tmp := make([]byte, 1)
+	var first [1]byte
+	tmp := first[:]
+	var pooled *[]byte
+	var pool *sync.Pool
+	defer func() {
+		if pool != nil {
+			pool.Put(pooled)
+		}
+	}()
 	for {
 		n, err := h.file.Read(tmp)
 		if n > 0 {
-			buf = append(buf, tmp[0])
-			if tmp[0] == '\n' {
+			data := tmp[:n]
+			if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
+				buf = append(buf, data[:newline+1]...)
+				// No unread bytes survive a call: reads, writes and external changes
+				// continue at the consumed position, without a stale read-ahead cache.
+				if unread := n - newline - 1; unread > 0 {
+					if _, seekErr := h.file.Seek(-int64(unread), io.SeekCurrent); seekErr != nil {
+						return types.Err(types.E_FILE)
+					}
+				}
 				break
 			}
+			buf = append(buf, data...)
 		}
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			return types.Err(types.E_FILE)
+		}
+		// Keep one-byte reads for special/nonseekable files. Two initial byte
+		// probes avoid borrowing a chunk or rewinding for empty and
+		// one-character lines.
+		if h.regular && pool == nil && len(buf) >= 2 {
+			tmp, pooled, pool = borrowFileReadBuffer(4096)
 		}
 	}
 	if len(buf) == 0 {
@@ -412,6 +445,8 @@ func builtinFileReadlines(ctx *Execution, args []types.Value) types.Result {
 	if start < 1 || start > end {
 		return types.Err(types.E_INVARG)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	cur, _ := h.file.Seek(0, io.SeekCurrent)
 	defer h.file.Seek(cur, io.SeekStart)
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
@@ -477,6 +512,8 @@ func builtinFileWrite(ctx *Execution, args []types.Value) types.Result {
 	} else {
 		data = []byte(s.Str())
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	n, err := h.file.Write(data)
 	if err != nil {
 		return types.Err(types.E_FILE)
@@ -512,6 +549,8 @@ func builtinFileWriteline(ctx *Execution, args []types.Value) types.Result {
 	} else {
 		data = []byte(s.Str() + "\n")
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	if _, err := h.file.Write(data); err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -583,6 +622,8 @@ func builtinFileSeek(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(code2)
 		}
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	pos, err := h.file.Seek(offset, whence)
 	if err != nil {
 		return types.Err(types.E_FILE)
@@ -601,6 +642,8 @@ func builtinFileTell(ctx *Execution, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	pos, err := h.file.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return types.Err(types.E_FILE)
@@ -619,6 +662,8 @@ func builtinFileEOF(ctx *Execution, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	pos, err := h.file.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return types.Err(types.E_FILE)
@@ -971,6 +1016,8 @@ func builtinFileCountLines(ctx *Execution, args []types.Value) types.Result {
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -1005,6 +1052,8 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
+	h.positionMu.Lock()
+	defer h.positionMu.Unlock()
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
