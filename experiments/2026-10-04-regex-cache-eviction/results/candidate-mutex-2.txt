@@ -1,0 +1,17 @@
+File: candidate.test
+Build ID: ee143448c84db9351c3675d5777bd2466f64b328
+Type: delay
+Time: 2026-10-03 22:04:59 MDT
+Active filters:
+   focus=cachedMOOPattern
+Showing nodes accounting for 79.64ms, 98.55% of 80.81ms total
+      flat  flat%   sum%        cum   cum%
+   71.93ms 89.00% 89.00%    71.93ms 89.00%  sync.(*Mutex).Unlock (inline)
+    5.03ms  6.23% 95.23%     5.03ms  6.23%  sync.(*RWMutex).RUnlock (inline)
+    2.68ms  3.32% 98.55%    74.61ms 92.32%  sync.(*RWMutex).Unlock
+         0     0% 98.55%    79.64ms 98.55%  github.com/MongooseMoo/barn/builtins.BenchmarkRegexpEviction.func1.1
+         0     0% 98.55%    79.64ms 98.55%  github.com/MongooseMoo/barn/builtins.cachedMOOPattern
+         0     0% 98.55%     5.03ms  6.23%  github.com/MongooseMoo/barn/builtins.lookupRegexpCache
+         0     0% 98.55%    74.61ms 92.32%  github.com/MongooseMoo/barn/builtins.storeRegexpCache
+         0     0% 98.55%    74.61ms 92.32%  github.com/MongooseMoo/barn/builtins.storeRegexpCache.deferwrap1
+         0     0% 98.55%    79.64ms 98.55%  testing.(*B).RunParallel.func1

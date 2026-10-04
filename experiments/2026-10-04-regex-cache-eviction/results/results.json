@@ -1,0 +1,1546 @@
+{
+  "toolchain": "/tmp/barn-362-tools/baseline.test: go1.24.6\n/tmp/barn-362-tools/candidate.test: go1.24.6",
+  "binary_sha256": {
+    "baseline": "e4db22e6c03c0606a0aa894f21a62a7eb0ab8afbc048a6dbb81952080d0d6985",
+    "candidate": "cfe5be871524413b914dd39c02ac0050437fa70e5ecdf71738174f1bad1f1b5b"
+  },
+  "seed": 362,
+  "gomaxprocs": 4,
+  "affinity": "8-11",
+  "duration": "200ms",
+  "main_pairs": 12,
+  "holdout_pairs": 2,
+  "summary": {
+    "BenchmarkRegexpEviction/AboveParallel": {
+      "percent": -44.91543082890954,
+      "ci95_percent": [
+        -50.187481440111185,
+        -39.19307859244903
+      ],
+      "holdout_percent": -41.9366176692713,
+      "B/op": {
+        "baseline": [
+          798.0,
+          800.0,
+          804.0,
+          806.0,
+          807.0,
+          808.0,
+          811.0,
+          812.0,
+          815.0,
+          817.0
+        ],
+        "candidate": [
+          203.0,
+          231.0,
+          251.0,
+          255.0,
+          257.0,
+          276.0,
+          285.0,
+          313.0,
+          344.0,
+          355.0,
+          358.0,
+          375.0,
+          389.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          7.0,
+          8.0
+        ],
+        "candidate": [
+          2.0,
+          3.0,
+          4.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/AboveSerial": {
+      "percent": 12.395876631709847,
+      "ci95_percent": [
+        5.642483893235295,
+        18.695014274368592
+      ],
+      "holdout_percent": 14.214286361541362,
+      "B/op": {
+        "baseline": [
+          2470.0,
+          2471.0
+        ],
+        "candidate": [
+          2408.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          24.0
+        ],
+        "candidate": [
+          25.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/BelowParallel": {
+      "percent": 45.382048885701124,
+      "ci95_percent": [
+        38.661523546768215,
+        52.35769219783983
+      ],
+      "holdout_percent": 40.21363195135348,
+      "B/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/BelowSerial": {
+      "percent": 31.488157853093888,
+      "ci95_percent": [
+        30.727333413802093,
+        32.312822824017175
+      ],
+      "holdout_percent": 31.65337297897459,
+      "B/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/ChurnParallel": {
+      "percent": 41.92181804831172,
+      "ci95_percent": [
+        30.67756002206947,
+        53.225500191141826
+      ],
+      "holdout_percent": 43.396254466121945,
+      "B/op": {
+        "baseline": [
+          104.0,
+          108.0,
+          116.0,
+          118.0,
+          119.0,
+          122.0,
+          124.0,
+          125.0,
+          126.0,
+          134.0,
+          141.0,
+          142.0,
+          146.0,
+          156.0
+        ],
+        "candidate": [
+          106.0,
+          108.0,
+          109.0,
+          110.0,
+          111.0,
+          115.0,
+          117.0,
+          120.0,
+          121.0,
+          124.0,
+          132.0,
+          137.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1.0
+        ],
+        "candidate": [
+          1.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/ChurnSerial": {
+      "percent": 12.399014106572448,
+      "ci95_percent": [
+        10.969508566183128,
+        14.231368858810999
+      ],
+      "holdout_percent": 11.904795701915582,
+      "B/op": {
+        "baseline": [
+          155.0
+        ],
+        "candidate": [
+          141.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          1.0
+        ],
+        "candidate": [
+          1.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/HotParallel": {
+      "percent": 61.10096187136258,
+      "ci95_percent": [
+        57.19249024981197,
+        64.17070609690829
+      ],
+      "holdout_percent": 63.13617784134993,
+      "B/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    },
+    "BenchmarkRegexpEviction/HotSerial": {
+      "percent": 30.977196992354816,
+      "ci95_percent": [
+        29.59142042353131,
+        32.55902695611943
+      ],
+      "holdout_percent": 30.213239744958553,
+      "B/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      },
+      "allocs/op": {
+        "baseline": [
+          0.0
+        ],
+        "candidate": [
+          0.0
+        ]
+      }
+    }
+  },
+  "pairs": [
+    {
+      "pair": 1,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.69,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.44,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 232.0,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 319.8,
+          "B/op": 118.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.71,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 23.48,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3082.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1604.0,
+          "B/op": 815.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 42.97,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 32.82,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 256.6,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 444.9,
+          "B/op": 121.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.65,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.64,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3519.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 998.2,
+          "B/op": 344.0,
+          "allocs/op": 3.0
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.14,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 255.3,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 469.1,
+          "B/op": 108.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.33,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.79,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3461.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 987.9,
+          "B/op": 355.0,
+          "allocs/op": 3.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.81,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 21.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 228.8,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 256.0,
+          "B/op": 104.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.51,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 23.88,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3062.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1651.0,
+          "B/op": 798.0,
+          "allocs/op": 7.0
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.8,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.04,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 234.2,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 337.2,
+          "B/op": 124.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.57,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.5,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3091.0,
+          "B/op": 2471.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1626.0,
+          "B/op": 815.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.29,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.16,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 254.9,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 380.1,
+          "B/op": 106.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 50.66,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 35.48,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 4290.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 834.0,
+          "B/op": 255.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 4,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 34.38,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 21.33,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 233.5,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 291.8,
+          "B/op": 146.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.42,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 26.58,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3084.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1564.0,
+          "B/op": 800.0,
+          "allocs/op": 7.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.52,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 255.0,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 455.0,
+          "B/op": 110.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.08,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.89,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3457.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 694.8,
+          "B/op": 231.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 5,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.03,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 233.8,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 280.1,
+          "B/op": 108.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.46,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.55,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3045.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1567.0,
+          "B/op": 817.0,
+          "allocs/op": 8.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 42.9,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.19,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 259.2,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 426.4,
+          "B/op": 124.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.25,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.59,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3455.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 604.3,
+          "B/op": 203.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 6,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.96,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.07,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 229.3,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 293.8,
+          "B/op": 116.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.39,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 23.5,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3069.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1622.0,
+          "B/op": 808.0,
+          "allocs/op": 7.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 45.19,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 258.6,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 423.0,
+          "B/op": 115.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3522.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 800.6,
+          "B/op": 276.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 7,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.32,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.19,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 229.0,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 320.0,
+          "B/op": 119.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.72,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.48,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3073.0,
+          "B/op": 2471.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1533.0,
+          "B/op": 812.0,
+          "allocs/op": 7.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.38,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.12,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 257.9,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 458.7,
+          "B/op": 111.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.17,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.82,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3476.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1156.0,
+          "B/op": 389.0,
+          "allocs/op": 4.0
+        }
+      }
+    },
+    {
+      "pair": 8,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.58,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.08,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 229.7,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 341.8,
+          "B/op": 134.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.49,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.52,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3066.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1557.0,
+          "B/op": 806.0,
+          "allocs/op": 7.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.09,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.17,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 260.5,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 369.1,
+          "B/op": 137.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.51,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.15,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3548.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1057.0,
+          "B/op": 358.0,
+          "allocs/op": 3.0
+        }
+      }
+    },
+    {
+      "pair": 9,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 44.19,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 264.5,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 421.9,
+          "B/op": 132.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 48.93,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3583.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 793.3,
+          "B/op": 251.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.71,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 22.93,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 233.4,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 323.6,
+          "B/op": 125.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 38.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 25.98,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 4188.0,
+          "B/op": 2471.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1556.0,
+          "B/op": 804.0,
+          "allocs/op": 7.0
+        }
+      }
+    },
+    {
+      "pair": 10,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.49,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.25,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 283.3,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 439.6,
+          "B/op": 115.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.44,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 30.94,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3478.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1007.0,
+          "B/op": 344.0,
+          "allocs/op": 3.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.35,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.09,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 234.4,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 304.5,
+          "B/op": 142.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.59,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 23.79,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3066.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1607.0,
+          "B/op": 811.0,
+          "allocs/op": 7.0
+        }
+      }
+    },
+    {
+      "pair": 11,
+      "phase": "main",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.32,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 227.9,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 292.1,
+          "B/op": 126.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.44,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.51,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3095.0,
+          "B/op": 2471.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1615.0,
+          "B/op": 807.0,
+          "allocs/op": 7.0
+        }
+      },
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.2,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.12,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 259.8,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 410.5,
+          "B/op": 120.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 48.94,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.13,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3476.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 835.2,
+          "B/op": 285.0,
+          "allocs/op": 2.0
+        }
+      }
+    },
+    {
+      "pair": 12,
+      "phase": "main",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 42.57,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 32.96,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 256.9,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 460.3,
+          "B/op": 109.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.51,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.11,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3489.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 931.3,
+          "B/op": 313.0,
+          "allocs/op": 3.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.77,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.5,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 231.1,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 277.2,
+          "B/op": 156.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.33,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 21.58,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3202.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1630.0,
+          "B/op": 812.0,
+          "allocs/op": 7.0
+        }
+      }
+    },
+    {
+      "pair": 13,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 43.03,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 33.03,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 263.9,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 468.0,
+          "B/op": 117.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.48,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3586.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 769.9,
+          "B/op": 257.0,
+          "allocs/op": 2.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 32.8,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.05,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 230.6,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 330.1,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.43,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 24.06,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3085.0,
+          "B/op": 2470.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1541.0,
+          "B/op": 815.0,
+          "allocs/op": 8.0
+        }
+      }
+    },
+    {
+      "pair": 14,
+      "phase": "holdout",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "candidate": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 42.78,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 32.94,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 258.9,
+          "B/op": 141.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 425.1,
+          "B/op": 108.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 49.52,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 33.47,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3507.0,
+          "B/op": 2408.0,
+          "allocs/op": 25.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1079.0,
+          "B/op": 375.0,
+          "allocs/op": 3.0
+        }
+      },
+      "baseline": {
+        "BenchmarkRegexpEviction/HotSerial": {
+          "ns/op": 33.1,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/HotParallel": {
+          "ns/op": 20.39,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/ChurnSerial": {
+          "ns/op": 236.6,
+          "B/op": 155.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/ChurnParallel": {
+          "ns/op": 293.1,
+          "B/op": 122.0,
+          "allocs/op": 1.0
+        },
+        "BenchmarkRegexpEviction/BelowSerial": {
+          "ns/op": 37.44,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/BelowParallel": {
+          "ns/op": 23.69,
+          "B/op": 0.0,
+          "allocs/op": 0.0
+        },
+        "BenchmarkRegexpEviction/AboveSerial": {
+          "ns/op": 3125.0,
+          "B/op": 2471.0,
+          "allocs/op": 24.0
+        },
+        "BenchmarkRegexpEviction/AboveParallel": {
+          "ns/op": 1599.0,
+          "B/op": 798.0,
+          "allocs/op": 7.0
+        }
+      }
+    }
+  ]
+}

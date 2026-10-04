@@ -1,0 +1,248 @@
+package builtins
+
+import (
+	"fmt"
+	"regexp"
+	"sync"
+	"sync/atomic"
+	"testing"
+)
+
+func TestRegexpCacheHeldPatternSurvivesEviction(t *testing.T) {
+	resetRegexpCacheForTest()
+	t.Cleanup(resetRegexpCacheForTest)
+	hot, err := cachedMOOPattern("hot[0-9]+", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < regexpCacheCap*3; i++ {
+		if _, err := cachedMOOPattern(fmt.Sprintf("cold%d", i), true, false); err != nil {
+			t.Fatal(err)
+		}
+		if !hot.MatchString("hot123") {
+			t.Fatalf("caller-held pattern invalidated at cold insertion %d", i)
+		}
+		if regexpCacheLenForTest() > regexpCacheCap {
+			t.Fatal("cache exceeded capacity")
+		}
+	}
+}
+
+func TestRegexpCacheEvictionPreservesInFlightAndNegativeEntries(t *testing.T) {
+	resetRegexpCacheForTest()
+	t.Cleanup(resetRegexpCacheForTest)
+	moo, err := cachedMOOPattern("%(a%)+", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, suffix, err := cachedMOORightmostPattern("a+", true)
+	if err != nil || suffix {
+		t.Fatalf("rightmost=%v suffix=%v", err, suffix)
+	}
+	pcre, err := cachedPCREPattern(`(?P<a>a+)`, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, mooErr := cachedMOOPattern("[", true, false)
+	_, pcreErr := cachedPCREPattern("[", true)
+	if mooErr == nil || pcreErr == nil {
+		t.Fatal("negative-cache premise failed")
+	}
+	for i := 0; i < regexpCacheCap*3; i++ {
+		_, _ = cachedMOOPattern(fmt.Sprintf("negative-churn%d", i), true, false)
+		_, gotMOO := cachedMOOPattern("[", true, false)
+		_, gotPCRE := cachedPCREPattern("[", true)
+		if gotMOO == nil || gotPCRE == nil || gotMOO.Error() != mooErr.Error() || gotPCRE.Error() != pcreErr.Error() {
+			t.Fatal("eviction changed compile failures")
+		}
+		_, repeatedMOO := cachedMOOPattern("[", true, false)
+		_, repeatedPCRE := cachedPCREPattern("[", true)
+		if repeatedMOO != gotMOO || repeatedPCRE != gotPCRE {
+			t.Fatal("adjacent negative lookups did not reuse cached errors")
+		}
+	}
+	if !moo.MatchString("aaa") || !right.MatchString("zaaa") || !pcre.MatchString("aaa") {
+		t.Fatal("eviction invalidated a caller's compiled pattern")
+	}
+}
+
+func TestRegexpCacheConcurrentMixedEviction(t *testing.T) {
+	resetRegexpCacheForTest()
+	t.Cleanup(resetRegexpCacheForTest)
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		workers.Add(1)
+		go func(worker int) {
+			defer workers.Done()
+			<-start
+			for i := 0; i < 400; i++ {
+				pattern := fmt.Sprintf("mixed%d-%d", worker, i)
+				moo, err := cachedMOOPattern(pattern, true, false)
+				if err != nil || !moo.MatchString(pattern) {
+					t.Errorf("MOO pattern: %v", err)
+					return
+				}
+				pcre, err := cachedPCREPattern(pattern, true)
+				if err != nil || !pcre.MatchString(pattern) {
+					t.Errorf("PCRE pattern: %v", err)
+					return
+				}
+				_, _, err = cachedMOORightmostPattern("^a", false)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if regexpCacheLenForTest() > regexpCacheCap {
+					t.Error("concurrent cache exceeded capacity")
+					return
+				}
+			}
+		}(worker)
+	}
+	close(start)
+	workers.Wait()
+}
+
+// Separate instrumented binaries set this through a source overlay. Timed
+// benchmark binaries leave it nil and contain no production compile counters.
+var regexpCompileCountProbe func() uint64
+
+func regexEvictionPatterns() []string {
+	patterns := make([]string, regexpCacheCap*4)
+	for i := range patterns {
+		patterns[i] = fmt.Sprintf("bench%04d[0-9]+", i)
+	}
+	return patterns
+}
+
+func regexEvictionIndex(workload string, i uint64) int {
+	switch workload {
+	case "Hot":
+		return int(i % 64)
+	case "Churn":
+		if i%17 == 0 {
+			return 64 + int(i/17)%(regexpCacheCap*4-64)
+		}
+		return int(i % 64)
+	case "Below":
+		return int(i % (regexpCacheCap - 1))
+	case "Above":
+		return int(i % (regexpCacheCap + 1))
+	default:
+		panic("unknown regex workload")
+	}
+}
+
+func warmRegexEviction(workload string, patterns []string) error {
+	resetRegexpCacheForTest()
+	n := 64
+	if workload == "Below" {
+		n = regexpCacheCap - 1
+	}
+	if workload == "Above" {
+		n = regexpCacheCap + 1
+	}
+	for range 2 {
+		for _, pattern := range patterns[:n] {
+			if _, err := cachedMOOPattern(pattern, true, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+var regexEvictionSink *regexp.Regexp
+
+func BenchmarkRegexpEviction(b *testing.B) {
+	patterns := regexEvictionPatterns()
+	for _, workload := range []string{"Hot", "Churn", "Below", "Above"} {
+		for _, parallel := range []bool{false, true} {
+			mode := "Serial"
+			if parallel {
+				mode = "Parallel"
+			}
+			b.Run(workload+mode, func(b *testing.B) {
+				if err := warmRegexEviction(workload, patterns); err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				if parallel {
+					var workers atomic.Uint64
+					b.RunParallel(func(pb *testing.PB) {
+						// Local sequences avoid adding a shared atomic to every lookup.
+						i := workers.Add(1) * 10007
+						var last *regexp.Regexp
+						for pb.Next() {
+							var err error
+							last, err = cachedMOOPattern(patterns[regexEvictionIndex(workload, i)], true, false)
+							if err != nil {
+								b.Error(err)
+								return
+							}
+							i++
+						}
+						if last != nil && !last.MatchString(last.String()[:9]+"1") {
+							b.Error("parallel pattern changed")
+						}
+					})
+				} else {
+					for i := 0; i < b.N; i++ {
+						var err error
+						regexEvictionSink, err = cachedMOOPattern(patterns[regexEvictionIndex(workload, uint64(i))], true, false)
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+				b.StopTimer()
+				if !parallel && regexEvictionSink != nil && !regexEvictionSink.MatchString(regexEvictionSink.String()[:9]+"1") {
+					b.Fatal("serial pattern changed")
+				}
+				if regexpCacheLenForTest() > regexpCacheCap {
+					b.Fatal("benchmark cache exceeded capacity")
+				}
+			})
+		}
+	}
+}
+
+func TestRegexpEvictionCompileCounts(t *testing.T) {
+	if regexpCompileCountProbe == nil {
+		t.Skip("requires the separate compile-count overlay")
+	}
+	patterns := regexEvictionPatterns()
+	for _, workload := range []string{"Hot", "Churn", "Below", "Above"} {
+		for _, parallel := range []bool{false, true} {
+			if err := warmRegexEviction(workload, patterns); err != nil {
+				t.Fatal(err)
+			}
+			before := regexpCompileCountProbe()
+			workers := 1
+			if parallel {
+				workers = 4
+			}
+			var group sync.WaitGroup
+			start := make(chan struct{})
+			for worker := 0; worker < workers; worker++ {
+				group.Add(1)
+				go func(worker int) {
+					defer group.Done()
+					<-start
+					for i := 0; i < 65536/workers; i++ {
+						index := uint64(i + worker*10007)
+						if _, err := cachedMOOPattern(patterns[regexEvictionIndex(workload, index)], true, false); err != nil {
+							t.Error(err)
+							return
+						}
+					}
+				}(worker)
+			}
+			close(start)
+			group.Wait()
+			t.Logf("workload=%s parallel=%v lookups=65536 compiles=%d retained=%d", workload, parallel, regexpCompileCountProbe()-before, regexpCacheLenForTest())
+		}
+	}
+}

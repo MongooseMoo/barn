@@ -1,0 +1,14 @@
+File: baseline.test
+Build ID: ced3b477d80d8d33f5a9c8c0fc7bf7d35df7316f
+Type: delay
+Time: 2026-10-03 22:04:58 MDT
+Active filters:
+   focus=cachedMOOPattern
+Showing nodes accounting for 60.54ms, 98.32% of 61.58ms total
+      flat  flat%   sum%        cum   cum%
+   56.23ms 91.32% 91.32%    56.23ms 91.32%  sync.(*Mutex).Unlock (inline)
+    2.76ms  4.48% 95.80%     2.76ms  4.48%  sync.(*RWMutex).RUnlock (inline)
+    1.55ms  2.52% 98.32%    57.78ms 93.84%  sync.(*RWMutex).Unlock
+         0     0% 98.32%    60.54ms 98.32%  github.com/MongooseMoo/barn/builtins.BenchmarkRegexpEviction.func1.1
+         0     0% 98.32%    60.54ms 98.32%  github.com/MongooseMoo/barn/builtins.cachedMOOPattern
+         0     0% 98.32%    60.54ms 98.32%  testing.(*B).RunParallel.func1

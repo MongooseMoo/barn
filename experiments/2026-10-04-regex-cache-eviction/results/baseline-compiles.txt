@@ -1,0 +1,31 @@
+=== RUN   TestRegexpEvictionCompileCounts
+    regexcache_eviction_test.go:243: workload=Hot parallel=false lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Hot parallel=true lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Churn parallel=false lookups=65536 compiles=4112 retained=80
+    regexcache_eviction_test.go:243: workload=Churn parallel=true lookups=65536 compiles=4152 retained=80
+    regexcache_eviction_test.go:243: workload=Below parallel=false lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Below parallel=true lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Above parallel=false lookups=65536 compiles=65536 retained=2
+    regexcache_eviction_test.go:243: workload=Above parallel=true lookups=65536 compiles=21553 retained=458
+--- PASS: TestRegexpEvictionCompileCounts (0.38s)
+=== RUN   TestRegexpEvictionCompileCounts
+    regexcache_eviction_test.go:243: workload=Hot parallel=false lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Hot parallel=true lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Churn parallel=false lookups=65536 compiles=4112 retained=80
+    regexcache_eviction_test.go:243: workload=Churn parallel=true lookups=65536 compiles=4122 retained=80
+    regexcache_eviction_test.go:243: workload=Below parallel=false lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Below parallel=true lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Above parallel=false lookups=65536 compiles=65536 retained=2
+    regexcache_eviction_test.go:243: workload=Above parallel=true lookups=65536 compiles=21700 retained=898
+--- PASS: TestRegexpEvictionCompileCounts (0.39s)
+=== RUN   TestRegexpEvictionCompileCounts
+    regexcache_eviction_test.go:243: workload=Hot parallel=false lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Hot parallel=true lookups=65536 compiles=0 retained=64
+    regexcache_eviction_test.go:243: workload=Churn parallel=false lookups=65536 compiles=4112 retained=80
+    regexcache_eviction_test.go:243: workload=Churn parallel=true lookups=65536 compiles=4122 retained=80
+    regexcache_eviction_test.go:243: workload=Below parallel=false lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Below parallel=true lookups=65536 compiles=0 retained=1023
+    regexcache_eviction_test.go:243: workload=Above parallel=false lookups=65536 compiles=65536 retained=2
+    regexcache_eviction_test.go:243: workload=Above parallel=true lookups=65536 compiles=21833 retained=763
+--- PASS: TestRegexpEvictionCompileCounts (0.39s)
+PASS
