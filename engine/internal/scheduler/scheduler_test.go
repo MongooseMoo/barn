@@ -322,6 +322,55 @@ func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
 	assertQueueOwnsOnly(t, s.waiting)
 }
 
+// Solo tasks in one lane run one at a time; a solo task in another lane must
+// not wait for them. One queue for every fork's first run made each player's
+// forks wait behind every other fork in the server.
+func TestDispatchSerializesWithinALaneOnly(t *testing.T) {
+	const first, sibling, other = 1, 2, 3
+	release := make(chan struct{})
+	ran := make(chan int64, 3)
+	s := New(4, func(*task.Task) bool { return false }, func(t *task.Task) error {
+		ran <- t.ID
+		<-release
+		return nil
+	})
+	t.Cleanup(s.Stop)
+	s.SetLane(func(t *task.Task) any {
+		if t.ID == other {
+			return "other"
+		}
+		return "siblings"
+	})
+	settled := make(chan int64, 3)
+	claim := func(*task.Task) bool { return true }
+	done := func(result Result) { settled <- result.Task.ID }
+
+	now := time.Now()
+	for _, id := range []int64{first, sibling, other} {
+		s.Enqueue(testTask(id, now))
+	}
+	if n := s.Dispatch(now, nil, claim, done); n != 2 {
+		t.Fatalf("dispatched %d, want one task from each lane", n)
+	}
+	started := map[int64]bool{<-ran: true, <-ran: true}
+	if !started[first] || !started[other] {
+		t.Fatalf("started %v, want tasks %d and %d", started, first, other)
+	}
+	if at := s.NextWake(now, nil); !at.IsZero() {
+		t.Fatalf("NextWake = %v for a task held behind its lane, want none", at)
+	}
+
+	close(release)
+	<-settled
+	<-settled
+	if n := s.Dispatch(now, nil, claim, done); n != 1 {
+		t.Fatalf("dispatched %d after the lane cleared, want the held sibling", n)
+	}
+	if id := <-settled; id != sibling {
+		t.Fatalf("task %d settled, want %d", id, sibling)
+	}
+}
+
 // A continuation whose external call finished must start while an unrelated
 // long slice is still running. Joining each batch made every such resumption
 // wait for the longest slice in flight (issue #395, #396).

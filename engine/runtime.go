@@ -188,6 +188,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	s.session = builtins.NewSession(registry, host)
 	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
+	s.scheduler.SetLane(forkFirstRunLane)
 	manager.SetResumeScheduler(func(t *task.Task, value types.Value, readier *task.Task) bool {
 		return s.scheduler.Resume(t, value, readier, time.Now())
 	})
