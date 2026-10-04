@@ -528,6 +528,7 @@ func (cm *ConnectionManager) removePlayerHistoryConnLocked(player types.ObjID, t
 			kept = append(kept, conn)
 		}
 	}
+	clear(history[len(kept):])
 
 	if len(kept) == 0 {
 		delete(cm.playerConnHistory, player)
@@ -540,6 +541,7 @@ func (cm *ConnectionManager) restorePreviousPlayerConnLocked(player types.ObjID,
 	history := cm.playerConnHistory[player]
 	for len(history) > 0 {
 		candidate := history[len(history)-1]
+		history[len(history)-1] = nil
 		history = history[:len(history)-1]
 		if candidate == nil || candidate == closing {
 			continue
