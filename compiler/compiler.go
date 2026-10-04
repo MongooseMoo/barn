@@ -116,7 +116,19 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 	if program, ok := c.cache.get(key); ok {
 		return program, nil
 	}
+	program, call, owner := c.cache.beginCompile(key)
+	if program != nil {
+		return program, nil
+	}
+	if !owner {
+		return call.wait()
+	}
+	return c.cache.runCompile(key, call, func() (*bytecode.Program, []Diagnostic) {
+		return c.compileUncached(sourceLines)
+	})
+}
 
+func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []Diagnostic) {
 	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram()
 	if err != nil {
 		return nil, []Diagnostic{syntaxDiagnostic(err)}
@@ -128,7 +140,6 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 	}
 	compiled.Source = append([]string(nil), sourceLines...)
 	compiled.BuiltinLayout = c.layout
-	c.cache.put(key, compiled)
 	return compiled, nil
 }
 
