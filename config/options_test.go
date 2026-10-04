@@ -33,6 +33,24 @@ func TestAdmissionConfiguration(t *testing.T) {
 	}
 }
 
+func TestSQLiteCacheConfiguration(t *testing.T) {
+	if got := DefaultOptions().SQLiteCacheSizeKiB(); got != DefaultSQLiteCacheKiB {
+		t.Fatalf("default cache = %d KiB, want %d", got, DefaultSQLiteCacheKiB)
+	}
+	options, err := Parse(strings.NewReader("SQLITE_CACHE_KIB = 4096\n"), "sqlite.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options.SQLiteCacheSizeKiB(); got != 4096 {
+		t.Fatalf("configured cache = %d KiB, want 4096", got)
+	}
+	for _, value := range []string{"-1", "67108865", "big", "1.5"} {
+		if _, err := Parse(strings.NewReader("SQLITE_CACHE_KIB = "+value), "sqlite.conf"); err == nil {
+			t.Fatalf("accepted %q", value)
+		}
+	}
+}
+
 func TestFeatureMap(t *testing.T) {
 	on := Options{OutboundNetwork: true, PromoteNumbers: true}.FeatureMap()
 	if on[FeatureOutboundNetwork] != true {

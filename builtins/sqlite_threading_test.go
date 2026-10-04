@@ -40,6 +40,33 @@ func TestSqliteErrorStringsMatchToastErrmsg(t *testing.T) {
 	}
 }
 
+// SQLite's 2 MiB default cache made every scan of a large database reread it
+// from the operating system. Each handle must open with the configured cache.
+func TestSqliteOpenAppliesConfiguredPageCache(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	for _, tc := range []struct {
+		name       string
+		configured int
+		want       string
+	}{
+		{"default", 0, "{{-262144}}"},
+		{"configured", 4096, "{{-4096}}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := sqliteWizardCtx()
+			ctx.RuntimeOptions.SQLiteCacheKiB = tc.configured
+			handle := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")})))
+			defer sqliteCloseAllHandles(ctx)
+			rows := sqliteMustResult(t, builtinSqliteQuery(ctx, []types.Value{types.NewInt(handle), types.NewStr("PRAGMA cache_size")}))
+			if got := rows.String(); got != tc.want {
+				t.Fatalf("PRAGMA cache_size = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 // With set_thread_mode(0) Toast's background_thread() runs the callback inline
 // and returns its value; the task never suspends (background.cc).
 func TestSqliteUnthreadedModeRunsInlineWithoutSuspending(t *testing.T) {
