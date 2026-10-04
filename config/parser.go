@@ -72,6 +72,14 @@ func Parse(r io.Reader, source string) (Options, error) {
 			*target = parsed
 			continue
 		}
+		if key == "SQLITE_CACHE_KIB" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return Options{}, parseError(source, lineNumber, "SQLITE_CACHE_KIB must be an integer")
+			}
+			options.SQLiteCacheKiB = parsed
+			continue
+		}
 		parsed, err := parseBool01(value)
 		if err != nil {
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("%s must be 0 or 1", key))
