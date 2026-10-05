@@ -31,12 +31,18 @@ the in-process harness's stub listener does.
 Login (the hard part)
 ---------------------
 Mongoose players have unknown passwords, and the login is a read()-driven
-account conversation ($account_login:login). This script needs ONE real
-wizard login, supplied through the environment variable MONGOOSE_LOGIN_SCRIPT
-(same contract as scripts/benchmark-mongoose.ps1: three newline-separated
-lines -- the trusted-proxy prelude with a literal {port}, the account
-username, the password; credentials are never written to disk by this
-script). With that control connection it mutates the DISPOSABLE copy:
+account conversation ($account_login:login). The script needs one wizard
+control connection, and it makes its own: before any server starts it runs
+the pinned Toast in emergency mode on the DISPOSABLE copy and creates a
+`benchboot` account bound to the database's first wizard, with a random
+password that exists only for that run. No real credentials are needed.
+
+Setting MONGOOSE_LOGIN_SCRIPT (same contract as
+scripts/benchmark-mongoose.ps1: three newline-separated lines -- the
+trusted-proxy prelude with a literal {port}, the account username, the
+password) uses that existing account instead and skips the offline step.
+
+With the control connection the script mutates the DISPOSABLE copy:
 
   * computes the roster the Barn harness would pick: players() whose
     .location is > #0, sorted ascending, first N;
@@ -76,8 +82,6 @@ any polling scheduler delay; command-created background tasks are not included.
 
 Usage
 -----
-  set MONGOOSE_LOGIN_SCRIPT (3 lines) in the environment, then
-
   python scripts/bench_players.py --engine toast --players 1,16
   python scripts/bench_players.py --engine barn  --players 1,16 --barn-exe bin/barn.exe
   python scripts/bench_players.py --engine toast --players 1 --warmup 1 --measure 3   # smoke
@@ -824,7 +828,7 @@ def apply_repair(ctl: Control) -> dict:
     return last or {}
 
 
-ROSTER_PAGE = 150  # players per eval; results must stay under the ~6000-char output cap
+ROSTER_PAGE = 50  # players per eval; the first wizard's eval output is cut near 1000 chars
 
 
 def compute_roster(ctl: Control) -> list[dict]:
@@ -978,13 +982,51 @@ def ms(x: float) -> str:
 # --------------------------------------------------------------------------
 
 
-def load_login_script(port: int) -> tuple[str, str, str]:
+def load_login_script(port: int) -> tuple[str, str, str] | None:
+    """Return the supplied control login, or None when the run makes its own."""
     raw = os.environ.get("MONGOOSE_LOGIN_SCRIPT", "")
     lines = [ln for ln in raw.replace("\r", "").split("\n") if ln.strip()]
+    if not lines:
+        return None
     if len(lines) != 3:
         sys.exit("MONGOOSE_LOGIN_SCRIPT must hold exactly three non-empty lines: "
                  "PROXY prelude (with {port}), wizard account username, password")
     return lines[0].replace("{port}", str(port)), lines[1], lines[2]
+
+
+BOOTSTRAP_USER = "benchboot"
+
+
+def bootstrap_control_account(run_dir: Path, db_copy: Path, port: int) -> tuple[str, str, str]:
+    """Create the control account offline, in the disposable copy only.
+
+    Toast's emergency mode evaluates as the database's first wizard with no
+    listener and no login, and saves on `quit`. create_account stores the
+    account and then fails looking up the caller's connection, which emergency
+    mode does not have, so that error is expected and the stored account is
+    finished by hand.
+    """
+    password = uuid.uuid4().hex
+    script = run_dir / "bootstrap.moo"
+    script.write_text(
+        ";set_thread_mode(0)\n"
+        ";;for p in (players()) if (p.wizard && valid(p.location)) w = p; break; endif endfor "
+        f'try $account_manager:create_account("", "{BOOTSTRAP_USER}", "{password}"); except e (ANY) endtry '
+        f'a = $account_manager.accounts["{BOOTSTRAP_USER}"]; a.players = {{w}}; a.default_player = w; '
+        f'a.email_verified = 1; return {{"bootstrap", a.username, a:validate_password("{password}")}};\n'
+        "quit\n",
+        encoding="ascii", newline="\n")
+    try:
+        db_wsl = wsl("wslpath", "-u", db_copy.resolve().as_posix()).strip()
+        script_wsl = wsl("wslpath", "-u", script.resolve().as_posix()).strip()
+        out = wsl("bash", "-c", '"$1" -e "$2" "$2.boot" < "$3" 2>"$2.boot.log"',
+                  "bench-bootstrap", TOAST_MOO, db_wsl, script_wsl, timeout=600.0)
+        if f'=> {{"bootstrap", "{BOOTSTRAP_USER}", 1}}' not in out:
+            raise RuntimeError(f"offline control account was not created: {out[-600:]!r}")
+        wsl("mv", db_wsl + ".boot", db_wsl)
+    finally:
+        script.unlink(missing_ok=True)
+    return f"PROXY TCP4 127.0.0.1 127.0.0.1 40000 {port}", BOOTSTRAP_USER, password
 
 
 def connect_control(server: Server, proxy: str, user: str, password: str, proxy_mode: str,
@@ -1020,7 +1062,7 @@ def main() -> int:
     if not levels:
         sys.exit("--players needs at least one level")
     max_level = max(levels)
-    proxy_line, ctl_user, ctl_pass = load_login_script(args.port)
+    supplied_login = load_login_script(args.port)
 
     # --- fixture -----------------------------------------------------------
     src = args.db.resolve()
@@ -1040,6 +1082,14 @@ def main() -> int:
                "copy_path": str(db_copy), "copy_sha256": copy_sha}
     log(f"fixture {src} size={fixture['size_bytes']} sha256={src_sha}")
     log(f"run dir {run_dir}")
+    if supplied_login is None:
+        proxy_line, ctl_user, ctl_pass = bootstrap_control_account(run_dir, db_copy, args.port)
+        fixture["control_account"] = "created offline in the copy by Toast emergency mode"
+        fixture["copy_sha256_after_bootstrap"] = sha256_file(db_copy)
+        log(f"control account {ctl_user!r} created offline in the disposable copy")
+    else:
+        proxy_line, ctl_user, ctl_pass = supplied_login
+        fixture["control_account"] = "MONGOOSE_LOGIN_SCRIPT"
 
     record: dict = {
         "issue": 265, "engine": args.engine, "started_utc": stamp, "fixture": fixture,
