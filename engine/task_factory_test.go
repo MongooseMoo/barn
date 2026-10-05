@@ -129,6 +129,36 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 	}
 }
 
+// The scheduler asks for a task's lane on every scan. Extracting the fork body
+// to answer cost 4.8% of all CPU on the Mongoose workload.
+func TestForkFirstRunLaneDoesNotExtractTheForkBody(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewRuntime(store)
+	defer s.Stop()
+
+	program := compileTestProgram(t, s.registry, "x = 1; y = 2; return x + y;")
+	parent := task.NewTaskFull(6102, 3, program, 1000, 1)
+	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
+		Body:      &bytecode.ForkBody{Parent: program, Offset: 0, Length: len(program.Code)},
+		ThisObj:   7,
+		ThisValue: types.NewObj(7),
+		Player:    3,
+		Caller:    3,
+		Verb:      "tick",
+		VerbLoc:   7,
+	})
+	defer s.taskManager.RemoveTask(forkID)
+	forked := s.taskManager.GetTask(forkID)
+
+	if got, want := forkFirstRunLane(forked), any(forkLane{this: 7, verb: "tick"}); got != want {
+		t.Fatalf("lane = %v, want %v", got, want)
+	}
+	// Boxing the key is the one allocation; extracting a program is many.
+	if allocs := testing.AllocsPerRun(100, func() { forkFirstRunLane(forked) }); allocs > 1 {
+		t.Fatalf("forkFirstRunLane allocates %.0f times per call, want at most 1", allocs)
+	}
+}
+
 func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
