@@ -437,6 +437,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.propertyShapeScans = make(map[types.ObjID]uint64)
 	tx.verbReads = make(map[verbReadKey]uint64)
 	tx.verbScans = make(map[types.ObjID]uint64)
+	tx.verbMemoSeen = nil
 
 	// Drop the object cache too: the flush advanced live (a staged property define bumped
 	// the definer's version), but the cache still holds the pre-flush images. A post-flush

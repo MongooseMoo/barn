@@ -158,6 +158,52 @@ func TestVerbDispatchMemoFollowsShapeChanges(t *testing.T) {
 	}
 }
 
+// A verb called in a loop resolves through the memo every time. What the txn
+// must hold for that resolution is recorded once: the hit list must not grow
+// per call, and a txn that starts writing still gets the walk's scan marks for
+// a verb it had already resolved before its first write.
+func TestVerbDispatchMemoHitIsRecordedOncePerTxn(t *testing.T) {
+	s := testChainStore(t)
+	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
+	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(2, "look", false)
+	warm.Release()
+
+	user := s.BeginSnapshot(0)
+	defer user.Release()
+	for i := 0; i < 100; i++ {
+		if _, definer, err := user.findVerb(2, "look", false); err != nil || definer != 0 {
+			t.Fatalf("reading lookup %d: definer=%d err=%v", i, definer, err)
+		}
+	}
+	if !user.usedVerbMemo || len(user.verbMemoHits) != 1 {
+		t.Fatalf("100 memo hits recorded %d list entries (used=%v), want 1", len(user.verbMemoHits), user.usedVerbMemo)
+	}
+	if len(user.verbScans) != 0 {
+		t.Fatalf("a txn without writes recorded scan marks: %v", user.verbScans)
+	}
+
+	if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue: %v", ec)
+	}
+	for i := 0; i < 100; i++ {
+		if _, definer, err := user.findVerb(2, "look", false); err != nil || definer != 0 {
+			t.Fatalf("writing lookup %d: definer=%d err=%v", i, definer, err)
+		}
+	}
+	for _, id := range []types.ObjID{0, 1, 2} {
+		if _, marked := user.verbScans[id]; !marked {
+			t.Fatalf("writing txn holds no scan mark for #%d on the walk path: %v", id, user.verbScans)
+		}
+	}
+	if len(user.verbMemoHits) != 1 {
+		t.Fatalf("hit list grew to %d after the txn started writing", len(user.verbMemoHits))
+	}
+}
+
 // A transaction that dispatched through the memo loses validation if a
 // verb-shape change committed after its snapshot.
 func TestVerbDispatchMemoUserConflictsWithShapeChange(t *testing.T) {

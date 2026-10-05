@@ -52,8 +52,11 @@ type StoreTxn struct {
 	// property-value writes leave store-level verb dispatch valid.
 	privateVerbShape bool
 	verbMemoHits     []verbResolveKey
-	terminalErr      types.ErrorCode
-	liveMutated      bool
+	// verbMemoSeen holds, per memo entry, what recordVerbMemoHit has already
+	// recorded for this txn. It is dropped wherever the scan marks are.
+	verbMemoSeen map[*verbDispatchMemoEntry]uint8
+	terminalErr  types.ErrorCode
+	liveMutated  bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
 	// than aliases of a shared immutable published image. Reads (tx.object) may cache
 	// an alias; the first staged write to an object must materialize a private copy
