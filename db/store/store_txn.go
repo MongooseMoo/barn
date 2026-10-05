@@ -90,6 +90,12 @@ type StoreTxn struct {
 	parentWalk  plainScratch
 	verbResolve map[verbResolveKey]verbResolveEntry
 	propResolve map[propResolveKey]propResolveEntry
+
+	// trackNewReads is set for the one lookup FindPropertyRenewing makes;
+	// newReads then lists the property slots that lookup read for the first
+	// time in this txn. See store_hot_read.go.
+	trackNewReads bool
+	newReads      []propertyReadKey
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The

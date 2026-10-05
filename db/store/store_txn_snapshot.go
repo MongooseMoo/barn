@@ -143,7 +143,13 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 	if _, staged := tx.propertyWrites[wkey]; staged {
 		return
 	}
-	tx.propertyReads[propertyReadKey{objID: objID, name: key}] = prop.version
+	rkey := propertyReadKey{objID: objID, name: key}
+	if tx.trackNewReads {
+		if _, seen := tx.propertyReads[rkey]; !seen {
+			tx.newReads = append(tx.newReads, rkey)
+		}
+	}
+	tx.propertyReads[rkey] = prop.version
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {

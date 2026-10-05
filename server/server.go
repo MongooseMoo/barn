@@ -139,6 +139,10 @@ func (s *Server) LoadDatabase() error {
 	metrics.PublishGauge("barn.commit_conflicts", func() int64 { return int64(store.CommitConflicts()) })
 	metrics.PublishGauge("barn.commit_retries", func() int64 { return int64(store.CommitRetries()) })
 	metrics.PublishGauge("barn.commit_escalations", func() int64 { return int64(store.CommitEscalations()) })
+	// What happened at reads of a hot property that found the snapshot stale.
+	metrics.PublishGauge("barn.hot_read_renewals", func() int64 { renewed, _, _ := store.HotReadStats(); return int64(renewed) })
+	metrics.PublishGauge("barn.hot_read_refusals", func() int64 { _, refused, _ := store.HotReadStats(); return int64(refused) })
+	metrics.PublishGauge("barn.hot_read_declines", func() int64 { _, _, declined := store.HotReadStats(); return int64(declined) })
 
 	s.input.SetConnectionManager(s.connManager)
 	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
