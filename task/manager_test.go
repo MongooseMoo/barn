@@ -39,6 +39,30 @@ func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 	}
 }
 
+// Finished tasks stay registered until the periodic cleanup. A scheduling scan
+// that walked them cost most of the dispatcher's time under load: 2,400
+// registered tasks for 23 live ones.
+func TestUnfinishedLeavesOutCompletedAndKilledTasks(t *testing.T) {
+	manager := NewManager()
+	states := map[int64]TaskState{1: TaskQueued, 2: TaskRunning, 3: TaskSuspended, 4: TaskCompleted, 5: TaskKilled}
+	for id, state := range states {
+		registered := NewTask(id, 2, 100, 5)
+		registered.SetState(state)
+		manager.RegisterTask(registered)
+	}
+
+	got := map[int64]bool{}
+	for _, unfinished := range manager.Unfinished() {
+		got[unfinished.ID] = true
+	}
+	if len(got) != 3 || !got[1] || !got[2] || !got[3] {
+		t.Fatalf("Unfinished() = %v, want tasks 1, 2 and 3", got)
+	}
+	if n := len(manager.Snapshot()); n != len(states) {
+		t.Fatalf("Snapshot() has %d tasks, want all %d still registered", n, len(states))
+	}
+}
+
 func TestFindReadingTaskBreaksEqualQueueSequenceByTaskID(t *testing.T) {
 	const player types.ObjID = 7
 	manager := NewManager()

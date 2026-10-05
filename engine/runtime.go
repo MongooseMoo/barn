@@ -549,7 +549,7 @@ func (s *Runtime) flushTaskOutput(t *task.Task) {
 // still observe or kill siblings that have not started. The pass visits every
 // selected batch; it does not abandon unclaimed siblings on an early return.
 func (s *Runtime) ProcessReadyTasks() int {
-	readyTasks := s.scheduler.Ready(time.Now(), s.taskManager.Snapshot())
+	readyTasks := s.scheduler.Ready(time.Now(), s.taskManager.Unfinished())
 
 	s.runReadyTasks(readyTasks)
 	// Every task in the pass has joined by now (runTaskBatch waits on all of them),
@@ -562,7 +562,7 @@ func (s *Runtime) ProcessReadyTasks() int {
 // ProcessReadyBatch executes one bounded batch, retaining undispatched tasks
 // for the next selection. Server loops can reconsider input between batches.
 func (s *Runtime) ProcessReadyBatch() int {
-	readyTasks := s.scheduler.ReadyBatch(time.Now(), s.taskManager.Snapshot())
+	readyTasks := s.scheduler.ReadyBatch(time.Now(), s.taskManager.Unfinished())
 	count := s.runReadyTasks(readyTasks)
 	s.flushDeferredGC()
 	return count
@@ -572,7 +572,7 @@ func (s *Runtime) ProcessReadyBatch() int {
 // flight and returns how many it started. It does not wait for them: each
 // task's completion requests a fresh scan through ScheduleChanged.
 func (s *Runtime) DispatchReady() int {
-	return s.scheduler.Dispatch(time.Now(), s.taskManager.Snapshot(), (*task.Task).ReserveAdmission, func(result scheduler.Result) {
+	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*task.Task).ReserveAdmission, func(result scheduler.Result) {
 		s.settleTaskResult(result)
 		s.flushDeferredGC()
 		s.taskManager.NotifyScheduleChange()
@@ -584,7 +584,7 @@ func (s *Runtime) ScheduleChanged() <-chan struct{} { return s.taskManager.Sched
 // NextTaskWake is zero when no timer is needed. ScheduleChanged must be
 // observed alongside it; a change racing this scan stays buffered for selection.
 func (s *Runtime) NextTaskWake() time.Time {
-	return s.scheduler.NextWake(time.Now(), s.taskManager.Snapshot())
+	return s.scheduler.NextWake(time.Now(), s.taskManager.Unfinished())
 }
 
 func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
