@@ -613,6 +613,12 @@ func (cm *ConnectionManager) ConnectedPlayers(showAll bool) []types.ObjID {
 		if !showAll && conn.ConnectionTime.IsZero() {
 			continue
 		}
+		// A booted connection is closed at once but leaves playerConns only
+		// when its disconnect event is processed. Toast stops listing the
+		// player immediately, and a task that boots and then yields checks.
+		if conn.ctx.Err() != nil {
+			continue
+		}
 		connected = append(connected, connectedPlayer{player: player, conn: conn})
 	}
 
