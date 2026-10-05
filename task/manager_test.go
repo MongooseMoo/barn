@@ -1,7 +1,14 @@
 package task
 
 import (
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -60,6 +67,129 @@ func TestUnfinishedLeavesOutCompletedAndKilledTasks(t *testing.T) {
 	}
 	if n := len(manager.Snapshot()); n != len(states) {
 		t.Fatalf("Snapshot() has %d tasks, want all %d still registered", n, len(states))
+	}
+}
+
+// Unfinished ran on every scheduling tick and took the lock of every task in
+// the catalog, finished ones included. With a few thousand finished tasks
+// waiting for cleanup that was a tenth of the server's CPU, plus the lock
+// traffic it caused in the tasks that were running. It must answer from the
+// index without touching a task.
+func TestUnfinishedTakesNoTaskLock(t *testing.T) {
+	manager := NewManager()
+	finished := NewTask(1, 2, 100, 5)
+	finished.SetState(TaskCompleted)
+	running := NewTask(2, 2, 100, 5)
+	running.SetState(TaskRunning)
+	manager.RegisterTask(finished)
+	manager.RegisterTask(running)
+
+	finished.mu.Lock()
+	running.mu.Lock()
+	done := make(chan []*Task, 1)
+	go func() { done <- manager.Unfinished() }()
+	var got []*Task
+	select {
+	case got = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Unfinished() waited for a task's lock")
+	}
+	running.mu.Unlock()
+	finished.mu.Unlock()
+	if len(got) != 1 || got[0] != running {
+		t.Fatalf("Unfinished() = %v, want only the running task", got)
+	}
+}
+
+// The index must equal the catalog's unfinished tasks after every kind of
+// change, including a killed task that is suspended again, a task removed from
+// the catalog, and a task replaced by another with the same ID.
+func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
+	manager := NewManager()
+	check := func(step string) {
+		t.Helper()
+		want := map[int64]*Task{}
+		for _, registered := range manager.Snapshot() {
+			if !registered.GetState().finished() {
+				want[registered.ID] = registered
+			}
+		}
+		got := map[int64]*Task{}
+		for _, unfinished := range manager.Unfinished() {
+			got[unfinished.ID] = unfinished
+		}
+		if !maps.Equal(got, want) {
+			t.Fatalf("after %s: Unfinished() = %v, want %v", step, got, want)
+		}
+	}
+
+	a, b, c := NewTask(1, 2, 100, 5), NewTask(2, 2, 100, 5), NewTask(3, 2, 100, 5)
+	for _, registered := range []*Task{a, b, c} {
+		manager.RegisterTask(registered)
+	}
+	check("registering three new tasks")
+
+	steps := []struct {
+		name string
+		do   func()
+	}{
+		{"SetState(TaskQueued)", func() { a.SetState(TaskQueued) }},
+		{"TryClaimQueued", func() { a.TryClaimQueued() }},
+		{"SetState(TaskCompleted)", func() { a.SetState(TaskCompleted) }},
+		{"Suspend", func() { b.Suspend(time.Hour) }},
+		{"Kill", func() { b.Kill() }},
+		{"Kill twice", func() { b.Kill() }},
+		{"Suspend of a killed task", func() { b.Suspend(0) }},
+		{"SuspendIndefinite", func() { c.SuspendIndefinite() }},
+		{"Resume", func() { c.Resume(types.NewInt(0)) }},
+		{"StartExecution", func() { c.StartExecution() }},
+		{"SetState(TaskKilled)", func() { c.SetState(TaskKilled) }},
+		{"RemoveTask of an unfinished task", func() { manager.RemoveTask(b.ID) }},
+		{"a state change after removal", func() { b.SetState(TaskQueued) }},
+		{"RemoveTaskIf", func() { manager.RemoveTaskIf(c.ID, c) }},
+		{"replacing a task under the same ID", func() {
+			manager.RegisterTask(NewTask(a.ID, 2, 100, 5))
+			a.SetState(TaskQueued)
+		}},
+		{"CleanupCompletedTasks", func() {
+			manager.GetTask(a.ID).SetState(TaskCompleted)
+			manager.CleanupCompletedTasks()
+		}},
+	}
+	for _, step := range steps {
+		step.do()
+		check(step.name)
+	}
+	if n := len(manager.Unfinished()); n != 0 {
+		t.Fatalf("Unfinished() has %d tasks at the end, want none", n)
+	}
+}
+
+// A state written anywhere but setStateLocked would leave the index wrong, and
+// nothing else would notice.
+func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := regexp.MustCompile(`\.State\s*=[^=]`)
+	var sites []string
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for number, line := range strings.Split(string(source), "\n") {
+			if write.MatchString(line) {
+				sites = append(sites, fmt.Sprintf("%s:%d: %s", file, number+1, strings.TrimSpace(line)))
+			}
+		}
+	}
+	if len(sites) != 1 || !strings.Contains(sites[0], "t.State = state") {
+		t.Fatalf("task state is assigned outside setStateLocked:\n%s", strings.Join(sites, "\n"))
 	}
 }
 

@@ -138,6 +138,10 @@ type Task struct {
 	waitingForInput  bool // only a zero-delay continuation observes this fence
 	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
 
+	// catalog is the manager the task is registered with. It is told when the
+	// task finishes, and when a finished task is made runnable again.
+	catalog *Manager
+
 	mu sync.RWMutex
 }
 
@@ -289,9 +293,23 @@ func (t *Task) SetState(state TaskState) {
 	if state == TaskKilled && t.State != TaskKilled {
 		metrics.TasksKilled.Add(1)
 	}
-	t.State = state
+	t.setStateLocked(state)
 	if state != TaskRunning {
 		t.notifyScheduleLocked()
+	}
+}
+
+func (s TaskState) finished() bool {
+	return s == TaskCompleted || s == TaskKilled
+}
+
+// setStateLocked is the only place a registered task's state changes, so the
+// manager's index of unfinished tasks stays exact. The caller holds t.mu.
+func (t *Task) setStateLocked(state TaskState) {
+	was := t.State.finished()
+	t.State = state
+	if now := state.finished(); now != was && t.catalog != nil {
+		t.catalog.noteFinished(t, now)
 	}
 }
 
@@ -355,7 +373,7 @@ func (t *Task) StartExecution() bool {
 		return false
 	}
 	t.executionActive = true
-	t.State = TaskRunning
+	t.setStateLocked(TaskRunning)
 	return true
 }
 
@@ -368,7 +386,7 @@ func (t *Task) TryClaimQueued() bool {
 	if t.State != TaskQueued || t.executionActive || t.waitingForInput {
 		return false
 	}
-	t.State = TaskRunning
+	t.setStateLocked(TaskRunning)
 	return true
 }
 
@@ -755,7 +773,7 @@ var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 func (t *Task) Suspend(duration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.State = TaskSuspended
+	t.setStateLocked(TaskSuspended)
 	t.suspendGen++
 	t.WakeTime = time.Time{}
 	if duration > 0 {
@@ -775,7 +793,7 @@ func (t *Task) Suspend(duration time.Duration) {
 func (t *Task) SuspendIndefinite() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.State = TaskSuspended
+	t.setStateLocked(TaskSuspended)
 	t.suspendGen++
 	t.WakeTime = time.Time{}
 	t.StartTime = IndefiniteSuspendStartTime
@@ -821,7 +839,7 @@ func (t *Task) resumeLocked(value types.Value) bool {
 	if t.IsExecSuspended {
 		return false
 	}
-	t.State = TaskQueued
+	t.setStateLocked(TaskQueued)
 	t.notifyScheduleLocked()
 	t.WakeValue = value
 	t.IsHTTPReadSuspended = false
@@ -862,7 +880,7 @@ func (t *Task) ResumeAndClaim(value types.Value) bool {
 	if t.State != TaskSuspended || t.IsExecSuspended {
 		return false
 	}
-	t.State = TaskRunning
+	t.setStateLocked(TaskRunning)
 	t.WakeValue = value
 	t.IsHTTPReadSuspended = false
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
@@ -883,7 +901,7 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	t.IsExecSuspended = false
 	t.ExecCancelFunc = nil
 	t.ExecCommandName = ""
-	t.State = TaskQueued
+	t.setStateLocked(TaskQueued)
 	t.notifyScheduleLocked()
 	t.execReadyAt = time.Now()
 	t.WakeValue = value
@@ -921,7 +939,7 @@ func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.cancelRequested = true
-	t.State = TaskKilled
+	t.setStateLocked(TaskKilled)
 	t.notifyScheduleLocked()
 	if t.CancelFunc != nil {
 		t.CancelFunc()

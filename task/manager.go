@@ -13,6 +13,12 @@ type Manager struct {
 	mu              sync.RWMutex
 	scheduleChanged chan struct{}
 	resume          func(t *Task, value types.Value, readier *Task) bool
+
+	// unfinished is the catalog's tasks that are neither completed nor killed,
+	// kept exact by Task.setStateLocked. unfinishedMu is a leaf lock: it is
+	// taken under a task's lock and never the other way round.
+	unfinishedMu sync.Mutex
+	unfinished   map[int64]*Task
 }
 
 // SetResumeScheduler routes resume() through the runtime scheduler, which
@@ -24,7 +30,11 @@ func (m *Manager) SetResumeScheduler(resume func(t *Task, value types.Value, rea
 
 // NewManager creates an empty task manager for one execution engine.
 func NewManager() *Manager {
-	return &Manager{tasks: make(map[int64]*Task), scheduleChanged: make(chan struct{}, 1)}
+	return &Manager{
+		tasks:           make(map[int64]*Task),
+		unfinished:      make(map[int64]*Task),
+		scheduleChanged: make(chan struct{}, 1),
+	}
 }
 
 // ScheduleChanged requests a fresh readiness scan. Notifications coalesce; the
@@ -51,17 +61,48 @@ func (m *Manager) GetTask(id int64) *Task {
 func (m *Manager) RegisterTask(t *Task) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if replaced := m.tasks[t.ID]; replaced != nil && replaced != t {
+		m.forget(replaced)
+	}
 	m.tasks[t.ID] = t
 	t.mu.Lock()
 	t.scheduleChanged = m.scheduleChanged
+	t.catalog = m
+	m.noteFinished(t, t.State.finished())
 	t.mu.Unlock()
 	m.NotifyScheduleChange()
+}
+
+// noteFinished records that t finished, or that it is unfinished. The caller
+// holds t's lock.
+func (m *Manager) noteFinished(t *Task, finished bool) {
+	m.unfinishedMu.Lock()
+	defer m.unfinishedMu.Unlock()
+	if !finished {
+		m.unfinished[t.ID] = t
+	} else if m.unfinished[t.ID] == t {
+		delete(m.unfinished, t.ID)
+	}
+}
+
+// forget detaches a task that has left the catalog, so a later state change
+// does not put it back among the unfinished. The caller holds m.mu.
+func (m *Manager) forget(t *Task) {
+	t.mu.Lock()
+	if t.catalog == m {
+		t.catalog = nil
+	}
+	m.noteFinished(t, true)
+	t.mu.Unlock()
 }
 
 // RemoveTask removes a task from the manager
 func (m *Manager) RemoveTask(id int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if t := m.tasks[id]; t != nil {
+		m.forget(t)
+	}
 	delete(m.tasks, id)
 }
 
@@ -72,6 +113,9 @@ func (m *Manager) RemoveTaskIf(id int64, expected *Task) bool {
 	defer m.mu.Unlock()
 	if m.tasks[id] != expected {
 		return false
+	}
+	if expected != nil {
+		m.forget(expected)
 	}
 	delete(m.tasks, id)
 	return true
@@ -91,15 +135,14 @@ func (m *Manager) Snapshot() []*Task {
 // Unfinished returns the tasks that can still run: every task that is neither
 // completed nor killed. Finished tasks stay in the catalog until the periodic
 // cleanup, and under load they outnumber live ones a hundred to one, so a
-// scheduling scan must not walk them.
+// scheduling scan must not walk them: this reads the index and touches no
+// finished task and no task lock.
 func (m *Manager) Unfinished() []*Task {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var tasks []*Task
-	for _, t := range m.tasks {
-		if state := t.GetState(); state != TaskCompleted && state != TaskKilled {
-			tasks = append(tasks, t)
-		}
+	m.unfinishedMu.Lock()
+	defer m.unfinishedMu.Unlock()
+	tasks := make([]*Task, 0, len(m.unfinished))
+	for _, t := range m.unfinished {
+		tasks = append(tasks, t)
 	}
 	return tasks
 }
@@ -257,6 +300,7 @@ func (m *Manager) CleanupCompletedTasks() {
 		if state == TaskCompleted || state == TaskKilled {
 			// Keep tasks for a while for debugging, but eventually remove them
 			// For now, remove immediately
+			m.forget(task)
 			delete(m.tasks, id)
 		}
 	}
