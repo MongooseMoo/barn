@@ -97,6 +97,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 				lv = prop.version
 			}
 			debugConflict("property", key.objID, key.name, version, lv)
+			tx.store.noteHotProperty(key)
 			return types.E_INVARG
 		}
 	}

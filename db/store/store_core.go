@@ -124,6 +124,13 @@ type Store struct {
 	verbShapeChangeTS    atomic.Uint64
 	commitConflicts      atomic.Uint64
 	commitRetries        atomic.Uint64
+	// hotProps tracks the properties whose reads keep losing validation, and
+	// the hotRead counters what renewing a transaction at such a read did. See
+	// store_hot_read.go.
+	hotProps        hotProperties
+	hotReadRenewals atomic.Uint64
+	hotReadRefusals atomic.Uint64
+	hotReadDeclines atomic.Uint64
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any

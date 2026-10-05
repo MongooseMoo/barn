@@ -78,7 +78,15 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
-	prop, errCode := findPropertyForRead(txn, objID, propName)
+	var prop dbstore.PropertyView
+	var errCode types.ErrorCode
+	if vm.Resumable {
+		// Only the root VM may be handed a renewed transaction: nothing above
+		// it on the Go stack holds the one it replaces.
+		prop, errCode, vm.Context.StoreTxn = txn.FindPropertyRenewing(objID, propName)
+	} else {
+		prop, errCode = findPropertyForRead(txn, objID, propName)
+	}
 	if errCode == types.E_NONE {
 		// Check read permission
 		if err := vm.checkPropertyReadPerm(prop); err != nil {
