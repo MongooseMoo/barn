@@ -323,12 +323,8 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	// clock, which every coarse commit advances.
 	precise := len(tx.owned) > 0
 	if !entry.found {
-		if precise {
-			if !tx.replayMemoPath(entry.path) {
-				return nil, types.ObjNothing, false, false
-			}
-		} else {
-			tx.noteVerbMemoHit(key)
+		if !tx.recordVerbMemoHit(key, entry, precise) {
+			return nil, types.ObjNothing, false, false
 		}
 		return nil, types.ObjNothing, false, true
 	}
@@ -343,15 +339,47 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, defi
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
 		return nil, types.ObjNothing, false, false
 	}
-	if precise {
-		if !tx.replayMemoPath(entry.path) {
-			return nil, types.ObjNothing, false, false
-		}
-	} else {
-		tx.noteVerbMemoHit(key)
+	if !tx.recordVerbMemoHit(key, entry, precise) {
+		return nil, types.ObjNothing, false, false
 	}
 	tx.markVerbRead(entry.definer, verb)
 	return verb, entry.definer, true, true
+}
+
+const (
+	verbMemoNoted    uint8 = 1 // listed in verbMemoHits
+	verbMemoReplayed uint8 = 2 // its walk path's scan marks are recorded
+)
+
+// recordVerbMemoHit gives the txn what it must hold for a memo resolution:
+// the walk's scan marks when precise, otherwise a place in verbMemoHits. Both
+// last for the txn, so each is recorded the first time an entry is used. A verb
+// called in a loop used to replay its whole ancestor path, or grow the hit
+// list, on every call. It reports false when the path cannot be replayed.
+func (tx *StoreTxn) recordVerbMemoHit(key verbResolveKey, entry *verbDispatchMemoEntry, precise bool) bool {
+	seen := tx.verbMemoSeen[entry]
+	if precise {
+		if seen == verbMemoReplayed {
+			return true
+		}
+		if !tx.replayMemoPath(entry.path) {
+			return false
+		}
+		tx.setVerbMemoSeen(entry, verbMemoReplayed)
+		return true
+	}
+	if seen == 0 {
+		tx.noteVerbMemoHit(key)
+		tx.setVerbMemoSeen(entry, verbMemoNoted)
+	}
+	return true
+}
+
+func (tx *StoreTxn) setVerbMemoSeen(entry *verbDispatchMemoEntry, state uint8) {
+	if tx.verbMemoSeen == nil {
+		tx.verbMemoSeen = make(map[*verbDispatchMemoEntry]uint8)
+	}
+	tx.verbMemoSeen[entry] = state
 }
 
 // replayMemoPath records a verb-scan mark for every object on a memoized walk
@@ -396,6 +424,7 @@ func (tx *StoreTxn) materializeVerbMemoMarks() {
 	}
 	hits := tx.verbMemoHits
 	tx.verbMemoHits = nil
+	tx.verbMemoSeen = nil
 	tx.usedVerbMemo = false
 	for _, key := range hits {
 		tx.walkVerb(key.objID, key.name, key.requireExecute)
