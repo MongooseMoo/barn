@@ -15,6 +15,25 @@ func historyTestConnection(t *testing.T, cm *ConnectionManager, player types.Obj
 	return conn
 }
 
+// A task that boots a player and then yields must not see the player as
+// connected. The disconnect event that removes the connection is processed
+// later, so the listing itself has to leave a closed connection out
+// (audit_set_player_flag_false_boots_active_player).
+func TestBootedPlayerIsNotListedAsConnected(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	conn := historyTestConnection(t, cm, 8)
+	cm.playerConns[8] = conn
+	if !slices.Contains(cm.ConnectedPlayers(true), 8) {
+		t.Fatal("connected player is not listed")
+	}
+	if err := cm.BootPlayer(8); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(cm.ConnectedPlayers(true), 8) {
+		t.Fatal("booted player is still listed before its disconnect event is processed")
+	}
+}
+
 func assertHistorySlotsCleared(t *testing.T, backing []*Connection) {
 	t.Helper()
 	for i, conn := range backing {
