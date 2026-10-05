@@ -88,6 +88,22 @@ func (m *Manager) Snapshot() []*Task {
 	return tasks
 }
 
+// Unfinished returns the tasks that can still run: every task that is neither
+// completed nor killed. Finished tasks stay in the catalog until the periodic
+// cleanup, and under load they outnumber live ones a hundred to one, so a
+// scheduling scan must not walk them.
+func (m *Manager) Unfinished() []*Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var tasks []*Task
+	for _, t := range m.tasks {
+		if state := t.GetState(); state != TaskCompleted && state != TaskKilled {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
+}
+
 // Len returns the number of tasks in the catalog.
 func (m *Manager) Len() int {
 	m.mu.RLock()
