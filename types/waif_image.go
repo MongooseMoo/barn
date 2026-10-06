@@ -64,8 +64,9 @@ func (v Value) PublishWaifImage(domain *WaifDomain, timestamp uint64, properties
 }
 
 // PruneWaifImages retains the newest image at or below the live reader floor
-// and all later images. It reports whether historical images remain.
-func (v Value) PruneWaifImages(domain *WaifDomain, floor uint64) bool {
+// and all later images. It reports whether historical images remain and, when
+// they do, the lowest floor at which another call would drop one.
+func (v Value) PruneWaifImages(domain *WaifDomain, floor uint64) (uint64, bool) {
 	w := v.waifRep()
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -88,7 +89,10 @@ func (v Value) PruneWaifImages(domain *WaifDomain, floor uint64) bool {
 		}
 		w.images = append([]*WaifImage(nil), w.images[keep:]...)
 	}
-	return len(w.images) > 1
+	if len(w.images) < 2 {
+		return 0, false
+	}
+	return w.images[1].timestamp, true
 }
 
 func waifImageReferencesEqual(a, b *WaifImage) bool {
