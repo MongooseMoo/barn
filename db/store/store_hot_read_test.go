@@ -280,8 +280,8 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"propertyScans": carried, "propertyShapeScans": carried, "verbReads": carried,
 		"verbScans": carried, "waifs": carried, "usedVerbMemo": carried,
 		"verbMemoDisabled": carried, "verbMemoHits": carried, "gateWait": carried,
-		"commitContext": carried,
-		"direct":        declines, "gateExempt": declines, "exclusiveGrant": declines,
+		"commitContext": carried, "conflictLabel": carried,
+		"direct": declines, "gateExempt": declines, "exclusiveGrant": declines,
 		"scalarWrites": declines, "relationshipWrites": declines, "propertyDefines": declines,
 		"propertyDefinitionDeletes": declines, "propertyDeletes": declines, "verbWrites": declines,
 		"verbDeletes": declines, "validationFail": declines, "privateVerbShape": declines,
@@ -289,6 +289,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines,
 		"verbMemoSeen": fresh, "verbWalk": fresh, "propWalk": fresh, "parentWalk": fresh,
 		"verbResolve": fresh, "propResolve": fresh, "trackNewReads": fresh, "newReads": fresh,
+		"conflicts": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
 	}
 	typ := reflect.TypeFor[StoreTxn]()
 	seen := make(map[string]bool, typ.NumField())

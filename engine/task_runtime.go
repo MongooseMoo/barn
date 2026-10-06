@@ -255,6 +255,7 @@ retryAttempt:
 	// promptly (the runtime finalizer is only a backstop).
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	ctx.StoreTxn.SetCommitContext(taskCtx)
 	if escalated {

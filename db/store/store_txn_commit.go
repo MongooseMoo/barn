@@ -127,7 +127,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 		return tx, false, tx.terminalErr
 	}
 	if errCode := tx.validateReads(); errCode != types.E_NONE {
-		tx.validationFail = true
+		tx.lostValidation()
 		return tx, false, errCode
 	}
 	// Preserve memoized ancestry dependencies as ordinary scan marks before
@@ -279,6 +279,7 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	next = store.BeginSnapshot(0)
 	next.SetCommitWaitObserver(gateWait)
 	next.SetCommitContext(tx.commitContext)
+	next.conflictLabel = tx.conflictLabel
 	if gateExempt {
 		next.BindExclusiveGrant(grant)
 	}
@@ -388,7 +389,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	defer tx.store.mu.Unlock()
 
 	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
+		tx.lostValidation()
 		return errCode
 	}
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
