@@ -101,6 +101,27 @@ func TestProtectedBuiltinRedirectFollowsMidTaskChanges(t *testing.T) {
 	runMidTask(t, protectValidSetup, body, "{11, 11, 11, 21, 21, 1, 1, 21, 21, 1, 1, 30, 30}")
 }
 
+// The callee's `verb` is the name it was called by, and is the callee's own
+// value: appending to it must not reach the caller's variable holding a
+// computed name, a later call through the same call site, or the next
+// redirect of a protected builtin to the same wrapper.
+func TestCalleeVerbVariableIsItsOwnValue(t *testing.T) {
+	report := `{"v = verb; verb = verb + \"!\"; return {v, verb};"}`
+	setup := protectValidSetup +
+		`set_verb_code(#0, "bf_valid", ` + report + `);` +
+		`add_property(#1, "kid", create(#-1), {player, "rw"});` +
+		`add_verb(#1.kid, {player, "rxd", "foo bar*baz"}, {"this", "none", "this"});` +
+		`set_verb_code(#1.kid, "foo", ` + report + `);`
+	body := `o = #1.kid; n = "fo"; n = n + "o"; m = n; r = {};` +
+		`for i in [1..2] r = {@r, o:foo()}; endfor ` +
+		`for i in [1..2] r = {@r, o:(n)()}; endfor ` +
+		`r = {@r, o:("bar" + "ba")(), n, m};` +
+		`for i in [1..2] r = {@r, valid(#0)}; endfor ` +
+		`return r;`
+	runMidTask(t, setup, body, `{{"foo", "foo!"}, {"foo", "foo!"}, {"foo", "foo!"}, {"foo", "foo!"}, `+
+		`{"barba", "barba!"}, "foo", "foo", {"bf_valid", "bf_valid!"}, {"bf_valid", "bf_valid!"}}`)
+}
+
 // A verb called in a loop must follow the task's own changes to which verb the
 // call resolves to: one added on the object itself, that one deleted again, a
 // reparent, and the execute bit cleared on the definition.

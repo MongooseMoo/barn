@@ -30,31 +30,32 @@ func (vm *VM) executeCallVerb() error {
 	if verbNameIdx == 0xFF {
 		return vm.executeCallVerbDynamic()
 	}
-	verbName, err := vm.staticNameFromConstant(int(verbNameIdx), "verb")
-	if err != nil {
-		return err
-	}
-	return vm.executeCallVerbNamed(verbName, int(vm.FetchByte()))
+	return vm.executeCallVerbStatic(int(verbNameIdx))
 }
 
 func (vm *VM) executeCallVerbWide() error {
-	verbName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "verb")
-	if err != nil {
+	return vm.executeCallVerbStatic(int(vm.ReadShort()))
+}
+
+func (vm *VM) executeCallVerbStatic(nameIdx int) error {
+	if _, err := vm.staticNameFromConstant(nameIdx, "verb"); err != nil {
 		return err
 	}
-	return vm.executeCallVerbNamed(verbName, int(vm.FetchByte()))
+	return vm.executeCallVerbNamed(vm.CurrentFrame().Program.Constants[nameIdx], int(vm.FetchByte()))
 }
 
 func (vm *VM) executeCallVerbDynamic() error {
 	argc := int(vm.FetchByte())
-	verbName, err := vm.popDynamicName("verb")
-	if err != nil {
-		return err
+	name := vm.Pop()
+	if name.Type() != types.TYPE_STR {
+		return newMooError(types.E_TYPE, "dynamic verb name must be a string")
 	}
-	return vm.executeCallVerbNamed(verbName, argc)
+	return vm.executeCallVerbNamed(name, argc)
 }
 
-func (vm *VM) executeCallVerbNamed(verbName string, argc int) error {
+// executeCallVerbNamed takes the verb name as the string value the program
+// already holds, which becomes the callee's `verb` without a copy.
+func (vm *VM) executeCallVerbNamed(name types.Value, argc int) error {
 	// Pop arguments
 	var args []types.Value
 	if argc == 0xFF {
@@ -73,11 +74,11 @@ func (vm *VM) executeCallVerbNamed(verbName string, argc int) error {
 
 	// Pop the object
 	objVal := vm.Pop()
-	return vm.startVerbCall(objVal, verbName, args)
+	return vm.startVerbCallResolved(objVal, name.Str(), name, args, nil)
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
-	return vm.startVerbCallResolved(objVal, verbName, args, nil)
+	return vm.startVerbCallResolved(objVal, verbName, types.None, args, nil)
 }
 
 // resolvedVerb is a call target the caller has already looked up, through the
@@ -89,8 +90,9 @@ type resolvedVerb struct {
 }
 
 // startVerbCallResolved is startVerbCall with the verb lookup optionally done
-// by the caller: a nil resolved looks the verb up here.
-func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, args []types.Value, resolved *resolvedVerb) error {
+// by the caller: a nil resolved looks the verb up here. nameValue is verbName
+// as a string value when the caller has one, and None otherwise.
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, resolved *resolvedVerb) error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
@@ -138,6 +140,7 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, args []
 	lookupVerbName := verbName
 	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
 		lookupVerbName = ":" + lookupVerbName
+		nameValue = types.None
 	}
 	// A verb without the execute flag does not shadow a same-named, executable
 	// verb defined further up the ancestry chain — ToastStunt's call dispatch
@@ -235,7 +238,10 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, args []
 	} else {
 		SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(objID))
 	}
-	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(lookupVerbName))
+	if nameValue.IsNone() {
+		nameValue = types.NewStr(lookupVerbName)
+	}
+	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, nameValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
@@ -309,10 +315,10 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, args []
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
 // suspension with the calling VM. args is owned by the builtin dispatcher, which
 // has just resolved #0:name to verb on definer.
-func (vm *VM) pushProtectedVerb(name string, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
+func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	if err := vm.startVerbCallResolved(types.NewObj(0), name, args, &resolved); err != nil {
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, &resolved); err != nil {
 		return types.Err(errorCode(err))
 	}
 	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread

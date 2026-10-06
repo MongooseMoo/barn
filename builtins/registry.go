@@ -21,8 +21,9 @@ type Execution struct {
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
 	// PushProtectedVerb runs an executable #0 wrapper on the calling VM. The
-	// verb and its definer are the dispatcher's own resolution of that name.
-	PushProtectedVerb    func(string, dbstore.VerbView, types.ObjID, []types.Value) types.Result
+	// verb and its definer are the dispatcher's own resolution of the name,
+	// which is passed as a string value.
+	PushProtectedVerb    func(types.Value, dbstore.VerbView, types.ObjID, []types.Value) types.Result
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
@@ -68,7 +69,7 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
 	name       string
-	bfName     string      // "bf_" + name, the #0 wrapper verb of a protected call
+	bfName     types.Value // "bf_" + name, the #0 wrapper verb of a protected call
 	id         int         // index in Registry.entries; keys protectedSet.byID
 	fn         BuiltinFunc // builtin plus replay-safety marker; validation stays inline
 	sig        Signature
@@ -124,7 +125,7 @@ func (r *Registry) install(d Descriptor) {
 	}
 	entry := &builtinEntry{
 		name:       name,
-		bfName:     "bf_" + name,
+		bfName:     types.NewStr("bf_" + name),
 		fn:         invoke,
 		lineSync:   d.LineSync,
 		visibility: d.Visibility,
@@ -262,7 +263,7 @@ func (s *Session) maybeProtectedRedirect(e *builtinEntry, ctx *Execution, args [
 	if store == nil {
 		return types.Result{}, false
 	}
-	bfName := e.bfName
+	bfName := e.bfName.Str()
 	verb, definer, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
@@ -270,7 +271,7 @@ func (s *Session) maybeProtectedRedirect(e *builtinEntry, ctx *Execution, args [
 		if ctx.PushProtectedVerb != nil {
 			// The VM activates the verb just resolved rather than looking it
 			// up again; nothing has touched the transaction in between.
-			return ctx.PushProtectedVerb(bfName, verb, definer, verbArgs), true
+			return ctx.PushProtectedVerb(e.bfName, verb, definer, verbArgs), true
 		}
 		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
 	}
