@@ -37,7 +37,10 @@ const readTSShardCount = 16
 type readTSShard struct {
 	mu     sync.Mutex
 	counts map[uint64]int
-	_      [40]byte // pad: Mutex(8) + map ptr(8) + pad(40) = 56; rounded clear of a line
+	// oldest is the smallest key in counts plus one, or zero when counts is
+	// empty. It is written under mu and read without it by oldestLiveReadTS.
+	oldest atomic.Uint64
+	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56; rounded clear of a line
 }
 
 type Store struct {

@@ -191,9 +191,17 @@ func (s *Store) advertiseWaifHistoryLocked() {
 
 // pruneWaifHistory avoids the publication lock when the reader floor is below
 // every tracked history's due timestamp, so there is no image it could drop.
+// Most releases leave an older reader live; seeing one below due proves the
+// floor has not reached it, without the floor scan's exclusive lock.
 func (s *Store) pruneWaifHistory() {
-	floor := s.historyFloor()
-	if due := s.waifHistoryDue.Load(); due == 0 || floor < due {
+	due := s.waifHistoryDue.Load()
+	if due == 0 {
+		return
+	}
+	if oldest, live := s.oldestLiveReadTS(); live && oldest < due {
+		return
+	}
+	if s.historyFloor() < due {
 		return
 	}
 	s.mu.Lock()
