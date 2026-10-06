@@ -53,6 +53,9 @@ func (s *Store) registerReadTSInShard(readTS uint64) {
 		sh.counts = make(map[uint64]int)
 	}
 	sh.counts[readTS]++
+	if oldest := sh.oldest.Load(); oldest == 0 || readTS+1 < oldest {
+		sh.oldest.Store(readTS + 1)
+	}
 	sh.mu.Unlock()
 }
 
@@ -67,8 +70,36 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 		sh.counts[readTS] = n - 1
 	} else if n == 1 {
 		delete(sh.counts, readTS)
+		if sh.oldest.Load() == readTS+1 {
+			oldest := uint64(0)
+			for ts := range sh.counts {
+				if oldest == 0 || ts+1 < oldest {
+					oldest = ts + 1
+				}
+			}
+			sh.oldest.Store(oldest)
+		}
 	}
 	sh.mu.Unlock()
+}
+
+// oldestLiveReadTS returns a readTS that was registered at some moment during
+// the call and is the smallest this lock-free pass saw, or false if it saw
+// none. It is not the floor: it can miss a reader that is still registering,
+// and its shards are sampled at different moments. It only ever proves that
+// the floor was at or below the value returned, which is all a caller needs to
+// decide that the floor has not reached some timestamp.
+func (s *Store) oldestLiveReadTS() (uint64, bool) {
+	oldest := uint64(0)
+	for i := range s.readTSShards {
+		if seen := s.readTSShards[i].oldest.Load(); seen != 0 && (oldest == 0 || seen < oldest) {
+			oldest = seen
+		}
+	}
+	if oldest == 0 {
+		return 0, false
+	}
+	return oldest - 1, true
 }
 
 // historyFloor returns the minimum readTS of any currently-live transaction, or
@@ -90,11 +121,9 @@ func (s *Store) historyFloor() uint64 {
 	for i := range s.readTSShards {
 		sh := &s.readTSShards[i]
 		sh.mu.Lock()
-		for ts := range sh.counts {
-			if !have || ts < min {
-				min = ts
-				have = true
-			}
+		if oldest := sh.oldest.Load(); oldest != 0 && (!have || oldest-1 < min) {
+			min = oldest - 1
+			have = true
 		}
 		sh.mu.Unlock()
 	}
