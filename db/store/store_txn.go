@@ -99,9 +99,11 @@ type StoreTxn struct {
 
 	// conflicts is what the last validation found stale, and conflictLabel the
 	// task this txn runs for. With sampleReadClocks set, readClocks holds the
-	// store clock at the first read of each property slot. See
+	// store clock at the first read of each property slot. lossCounted is set
+	// once the census has counted this txn as lost. See
 	// store_conflict_census.go.
 	conflicts        []ReadConflict
+	lossCounted      bool
 	conflictLabel    ConflictLabel
 	sampleReadClocks bool
 	readClocks       map[propertyReadKey]uint64

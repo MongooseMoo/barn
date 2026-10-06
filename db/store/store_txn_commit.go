@@ -415,7 +415,8 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 	// deliberately participates in the validation-conflict retry contract.
 	for id := range tx.createdObjects {
 		if slot := s.dir.slot(id); slot != nil && slot.ptr.Load() != nil {
-			tx.validationFail = true
+			tx.conflicts = append(tx.conflicts[:0], ReadConflict{Kind: ConflictObjectID, ObjID: id})
+			tx.lostValidation()
 			return types.E_INVARG
 		}
 	}

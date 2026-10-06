@@ -60,6 +60,9 @@ const (
 	ConflictVerbShape
 	// ConflictWaif is a WAIF's properties.
 	ConflictWaif
+	// ConflictObjectID is an object id the transaction allocated and another
+	// commit took first. It is not a read, but it loses and retries like one.
+	ConflictObjectID
 )
 
 var conflictKindNames = [...]string{
@@ -72,6 +75,7 @@ var conflictKindNames = [...]string{
 	ConflictVerbScan:      "verb-scan",
 	ConflictVerbShape:     "verb-shape",
 	ConflictWaif:          "waif",
+	ConflictObjectID:      "object-id",
 }
 
 func (k ConflictKind) String() string {
@@ -183,9 +187,15 @@ func (count *ConflictCount) addLabel(label ConflictLabel) {
 }
 
 // lostValidation marks tx as having lost a commit to validation and publishes
-// what it was stale on.
+// what it was stale on. A transaction is published once: one that loses at the
+// irreversible-effect boundary and cannot be re-run loses again, on the same
+// reads, at its final commit.
 func (tx *StoreTxn) lostValidation() {
 	tx.validationFail = true
+	if tx.lossCounted {
+		return
+	}
+	tx.lossCounted = true
 	census := &tx.store.conflicts
 	census.mu.Lock()
 	defer census.mu.Unlock()
@@ -294,10 +304,19 @@ func (tx *StoreTxn) SetConflictLabel(obj types.ObjID, verb string) {
 // rewritten when tx first read it at version read. It walks the object's
 // images oldest first, past the one holding the version read, to the first
 // image in which the slot differs; that image's publication is the first
-// rewrite. Every image newer than tx's snapshot is still in history, because
-// tx's read timestamp holds the history floor at or below it. The caller holds
-// store.mu, as validation does. An anonymous object has no history and is not
-// counted.
+// rewrite. The rewrite is dated by the image's version, not the slot's: a
+// chparent reseeds an inherited slot with its new ancestor's slot version,
+// which says nothing about when this object changed. Every image newer than
+// tx's snapshot is still in history, because tx's read timestamp holds the
+// history floor at or below it. The caller holds store.mu, as validation does.
+// An anonymous object has no history and is not counted.
+//
+// A committer draws its timestamp before it publishes, so a read that samples
+// the clock inside that window sees the rewrite's timestamp without its image
+// and is counted stale although a read at the current clock would have
+// returned the same version. Counting only rewrites strictly before the sample
+// would instead miss every read made while the rewriting commit was still the
+// newest in the store, which is the common case.
 func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) bool {
 	sampled, ok := tx.readClocks[key]
 	if !ok {
@@ -310,24 +329,16 @@ func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) boo
 
 	passedRead := false
 	rewrittenAt := func(image *Object) (uint64, bool) {
-		version, present := uint64(0), false
 		if validLiveObject(image) {
-			var prop Property
-			if _, prop, present = propertyByName(image.properties, key.name); present {
-				version = prop.version
+			if _, prop, present := propertyByName(image.properties, key.name); present && prop.version == read {
+				passedRead = true
+				return 0, false
 			}
-		}
-		if present && version == read {
-			passedRead = true
-			return 0, false
 		}
 		if !passedRead {
 			return 0, false
 		}
-		if !present {
-			version = objectVersion(image)
-		}
-		return version, true
+		return objectVersion(image), true
 	}
 	for i := range history {
 		if at, found := rewrittenAt(history[i].obj); found {

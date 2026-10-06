@@ -497,6 +497,7 @@ retryAttempt:
 	// take their next execution snapshot when the scheduler resumes them.
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	// Every suspension yields the commit gate along with execution.
 	releaseEscalation()
@@ -738,6 +739,7 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
+		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	}
 	// Save VM state for later Resume() via the thread-safe setter, so a

@@ -319,6 +319,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	ctx.StoreTxn.SetConflictLabel(objID, verbName)
 	ctx.Admission = scope
 	if scope != nil {
 		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)

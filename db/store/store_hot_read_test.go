@@ -289,7 +289,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines,
 		"verbMemoSeen": fresh, "verbWalk": fresh, "propWalk": fresh, "parentWalk": fresh,
 		"verbResolve": fresh, "propResolve": fresh, "trackNewReads": fresh, "newReads": fresh,
-		"conflicts": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
+		"conflicts": fresh, "lossCounted": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
 	}
 	typ := reflect.TypeFor[StoreTxn]()
 	seen := make(map[string]bool, typ.NumField())
