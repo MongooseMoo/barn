@@ -68,13 +68,13 @@ func (m *Manager) RegisterTask(t *Task) {
 	t.mu.Lock()
 	t.scheduleChanged = m.scheduleChanged
 	t.catalog = m
-	m.noteFinished(t, t.State.finished())
+	m.noteFinished(t, t.settledLocked())
 	t.mu.Unlock()
 	m.NotifyScheduleChange()
 }
 
-// noteFinished records that t finished, or that it is unfinished. The caller
-// holds t's lock.
+// noteFinished records that scheduling is done with t, or that it is not. The
+// caller holds t's lock.
 func (m *Manager) noteFinished(t *Task, finished bool) {
 	m.unfinishedMu.Lock()
 	defer m.unfinishedMu.Unlock()
@@ -132,11 +132,12 @@ func (m *Manager) Snapshot() []*Task {
 	return tasks
 }
 
-// Unfinished returns the tasks that can still run: every task that is neither
-// completed nor killed. Finished tasks stay in the catalog until the periodic
-// cleanup, and under load they outnumber live ones a hundred to one, so a
-// scheduling scan must not walk them: this reads the index and touches no
-// finished task and no task lock.
+// Unfinished returns the tasks scheduling still has to consider: every task
+// that is neither completed nor killed, and every finished task whose slice is
+// still executing, because PendingReadier holds its readier until that slice
+// ends. The rest stay in the catalog until the periodic cleanup, and under load
+// they outnumber live ones a hundred to one, so a scheduling scan must not walk
+// them: this reads the index and takes no task lock.
 func (m *Manager) Unfinished() []*Task {
 	m.unfinishedMu.Lock()
 	defer m.unfinishedMu.Unlock()
