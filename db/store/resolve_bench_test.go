@@ -72,6 +72,54 @@ func BenchmarkTxnFindVerbMissing(b *testing.B) {
 	}
 }
 
+// The *MemoHit variants resolve in a transaction that did not do the walk
+// itself: an earlier transaction published it to the store-level dispatch
+// memo, which is how a task meets nearly every verb it calls.
+func benchMemoHitTxn(b *testing.B, name string) (*StoreTxn, types.ObjID) {
+	b.Helper()
+	const depth = 6
+	s := benchChainStore(b, depth, 8)
+	leaf := types.ObjID(depth - 1)
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(leaf, name, true)
+	warm.Release()
+	tx := s.BeginSnapshot(0)
+	b.Cleanup(tx.Release)
+	return tx, leaf
+}
+
+func BenchmarkTxnFindVerbMemoHit(b *testing.B) {
+	tx, leaf := benchMemoHitTxn(b, "target")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := tx.findVerb(leaf, "target", true); err != nil {
+			b.Fatalf("findVerb: %v", err)
+		}
+	}
+}
+
+func BenchmarkTxnFindVerbMemoHitWriting(b *testing.B) {
+	tx, leaf := benchMemoHitTxn(b, "target")
+	tx.mutableObject(leaf)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := tx.findVerb(leaf, "target", true); err != nil {
+			b.Fatalf("findVerb: %v", err)
+		}
+	}
+}
+
+func BenchmarkTxnFindVerbMemoHitMissing(b *testing.B) {
+	tx, leaf := benchMemoHitTxn(b, "absent")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tx.findVerb(leaf, "absent", true)
+	}
+}
+
 // The *NoMemo variants privatize an object first, which is what every writing
 // task does and what permanently disables the resolution memo. They therefore
 // measure the reusable-scratch change on its own, with no memoization at all —

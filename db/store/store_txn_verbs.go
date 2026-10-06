@@ -149,7 +149,8 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	cacheable := tx.verbMemoActive()
 	key := verbResolveKey{objID: objID, name: verbName, requireExecute: requireExecute}
-	if entry, ok := tx.verbResolve[key]; ok && tx.verbStepsCurrent(entry.steps) {
+	entry, ok := tx.verbResolve[key]
+	if ok && entry.memo == nil && tx.verbStepsCurrent(entry.steps) {
 		tx.replayVerbSteps(entry.steps)
 		if entry.verb == nil {
 			return nil, types.ObjNothing, entry.err
@@ -161,11 +162,8 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 
 	if cacheable {
-		if verb, definer, found, hit := tx.lookupVerbDispatchMemo(key); hit {
-			if !found {
-				return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
-			}
-			return verb, definer, nil
+		if verb, definer, err, hit := tx.lookupVerbDispatchMemo(key, entry); hit {
+			return verb, definer, err
 		}
 	}
 

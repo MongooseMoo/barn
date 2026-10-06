@@ -1,6 +1,7 @@
 package store
 
 import (
+	"maps"
 	"sync"
 	"testing"
 
@@ -201,6 +202,234 @@ func TestVerbDispatchMemoHitIsRecordedOncePerTxn(t *testing.T) {
 	}
 	if len(user.verbMemoHits) != 1 {
 		t.Fatalf("hit list grew to %d after the txn started writing", len(user.verbMemoHits))
+	}
+}
+
+// memoUserTxn returns a store whose (2, "look") resolution, defined on #0, is
+// already in the dispatch memo, and a fresh transaction to resolve it through.
+func memoUserTxn(t *testing.T) (*Store, *StoreTxn) {
+	t.Helper()
+	s := testChainStore(t)
+	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
+	if ec := s.DirectTxn().DefineProperty(2, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(2, "look", true)
+	warm.findVerb(2, "nosuch", true)
+	warm.Release()
+	user := s.BeginSnapshot(0)
+	t.Cleanup(user.Release)
+	return s, user
+}
+
+// lookTimes resolves (2, "look") n times and returns the last answer.
+func lookTimes(t *testing.T, tx *StoreTxn, n int) (*Verb, types.ObjID) {
+	t.Helper()
+	var verb *Verb
+	var definer types.ObjID
+	for i := 0; i < n; i++ {
+		var err error
+		if verb, definer, err = tx.findVerb(2, "look", true); err != nil {
+			t.Fatalf("lookup %d: %v", i, err)
+		}
+	}
+	return verb, definer
+}
+
+// Repeat hits are answered from the txn's own record of the first. They must
+// leave exactly the read set the first hit produced, and a txn that resolved
+// this way must still lose its commit to a concurrent edit of the verb's code.
+func TestVerbDispatchMemoRepeatHitKeepsVerbReadMark(t *testing.T) {
+	s, user := memoUserTxn(t)
+	first, _ := lookTimes(t, user, 1)
+	want := snapshotReadSet(user)
+	if _, marked := want.verbReads[verbReadKey{objID: 0, name: first.mapKey()}]; !marked {
+		t.Fatalf("first hit left no read mark: %v", want.verbReads)
+	}
+	if again, definer := lookTimes(t, user, 50); again != first || definer != 0 {
+		t.Fatalf("repeat hit = (%p, #%d), want (%p, #0)", again, definer, first)
+	}
+	requireSameReadSet(t, "repeat hits", want, snapshotReadSet(user))
+
+	if ec := s.setVerbCodeByIndex(0, 0, []string{"return 2;"}); ec != types.E_NONE {
+		t.Fatalf("concurrent code edit: %v", ec)
+	}
+	if again, _ := lookTimes(t, user, 1); again != first || again.code[0] != "return 1;" {
+		t.Fatalf("snapshot saw a later code edit: %v", again.code)
+	}
+	if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue: %v", ec)
+	}
+	if ec := user.Commit(); ec == types.E_NONE {
+		t.Fatal("commit ignored a concurrent edit of a verb resolved through repeat memo hits")
+	}
+}
+
+// A verb added on a nearer ancestor, or a reparent, that commits while a txn is
+// resolving through its memo record is not seen by the snapshot and fails the
+// txn's commit, however many repeat hits came before and after it.
+func TestVerbDispatchMemoRepeatHitConflictsWithShapeChange(t *testing.T) {
+	for _, change := range []string{"nearer verb", "chparent"} {
+		t.Run(change, func(t *testing.T) {
+			s, user := memoUserTxn(t)
+			lookTimes(t, user, 20)
+			if !user.usedVerbMemo || len(user.verbScans) != 0 {
+				t.Fatalf("expected clock-validated hits, got used=%v scans=%v", user.usedVerbMemo, user.verbScans)
+			}
+
+			switch change {
+			case "nearer verb":
+				addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
+			case "chparent":
+				other, ec := s.DirectTxn().CreateObject(nil, 0, false)
+				if ec != types.E_NONE {
+					t.Fatalf("CreateObject: %v", ec)
+				}
+				addVerbT(t, s, other, []string{"look"}, VerbRead|VerbExecute)
+				if ec := s.ChangeParents(2, []types.ObjID{other}); ec != types.E_NONE {
+					t.Fatalf("ChangeParents: %v", ec)
+				}
+			}
+			if _, definer := lookTimes(t, user, 5); definer != 0 {
+				t.Fatalf("snapshot resolved to #%d after a concurrent %s, want #0", definer, change)
+			}
+			// Past the shape change the memo no longer speaks for this snapshot,
+			// nor does the txn's record of it: the lookups above walked.
+			for _, id := range []types.ObjID{0, 1, 2} {
+				if _, marked := user.verbScans[id]; !marked {
+					t.Fatalf("lookup after a concurrent %s left no scan mark on #%d: %v", change, id, user.verbScans)
+				}
+			}
+			if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+				t.Fatalf("SetPropertyValue: %v", ec)
+			}
+			if _, definer := lookTimes(t, user, 5); definer != 0 {
+				t.Fatalf("writing snapshot resolved to #%d after a concurrent %s, want #0", definer, change)
+			}
+			if ec := user.Commit(); ec == types.E_NONE {
+				t.Fatalf("commit ignored a concurrent %s on the dispatch path", change)
+			}
+		})
+	}
+}
+
+// A writing txn gets the walk's scan marks from its first hit and keeps exactly
+// those through repeat hits, so a verb added on a scanned ancestor meanwhile
+// fails its commit.
+func TestVerbDispatchMemoRepeatHitWritingTxnKeepsScanMarks(t *testing.T) {
+	s, user := memoUserTxn(t)
+	reference := referenceVerbReadSet(t, s, 2, "look")
+	if ec := user.SetPropertyValue(2, "p", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue: %v", ec)
+	}
+	for i := 0; i < 3; i++ {
+		lookTimes(t, user, 20)
+		got := snapshotReadSet(user)
+		if !maps.Equal(got.verbScans, reference.verbScans) || !maps.Equal(got.verbReads, reference.verbReads) {
+			t.Fatalf("pass %d: scans=%v reads=%v, want scans=%v reads=%v", i, got.verbScans, got.verbReads, reference.verbScans, reference.verbReads)
+		}
+	}
+	if user.usedVerbMemo {
+		t.Fatal("writing txn took a clock-validated memo resolution")
+	}
+	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
+	if _, definer := lookTimes(t, user, 5); definer != 0 {
+		t.Fatalf("snapshot resolved to #%d after a concurrent verb add, want #0", definer)
+	}
+	if ec := user.Commit(); ec == types.E_NONE {
+		t.Fatal("commit ignored a verb added on a scanned ancestor")
+	}
+}
+
+// The txn's record of a hit must not outlive the txn's own changes to what it
+// resolved: staged code is read back, also when the definer was already
+// private, and a staged delete uncovers the next definition.
+func TestVerbDispatchMemoRepeatHitSeesOwnStagedVerbChanges(t *testing.T) {
+	s, user := memoUserTxn(t)
+	shared, _ := lookTimes(t, user, 10)
+
+	if ec := user.SetVerbCode(2, "look", []string{"return 2;"}); ec != types.E_NONE {
+		t.Fatalf("SetVerbCode: %v", ec)
+	}
+	private, definer := lookTimes(t, user, 10)
+	if private == shared || definer != 0 || private.code[0] != "return 2;" {
+		t.Fatalf("after staged code write: shared=%v definer=#%d code=%v", private == shared, definer, private.code)
+	}
+	// #0 is private now, so this write replaces no binding in the txn.
+	if ec := user.SetVerbCode(2, "look", []string{"return 3;"}); ec != types.E_NONE {
+		t.Fatalf("second SetVerbCode: %v", ec)
+	}
+	if again, _ := lookTimes(t, user, 10); again.code[0] != "return 3;" {
+		t.Fatalf("after second staged code write: code=%v", again.code)
+	}
+	if ec := user.Commit(); ec != types.E_NONE {
+		t.Fatalf("commit: %v", ec)
+	}
+
+	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(2, "look", true)
+	warm.Release()
+	deleter := s.BeginSnapshot(0)
+	defer deleter.Release()
+	if _, definer := lookTimes(t, deleter, 10); definer != 1 {
+		t.Fatalf("nearer definition: definer #%d, want #1", definer)
+	}
+	resolved, err := deleter.ResolveVerbOnObject(1, "look")
+	if err != nil {
+		t.Fatalf("ResolveVerbOnObject: %v", err)
+	}
+	if ec := deleter.DeleteResolvedVerb(resolved); ec != types.E_NONE {
+		t.Fatalf("DeleteResolvedVerb: %v", ec)
+	}
+	if verb, definer := lookTimes(t, deleter, 10); definer != 0 || verb.code[0] != "return 3;" {
+		t.Fatalf("after staged delete: definer #%d code=%v, want #0 return 3;", definer, verb.code)
+	}
+}
+
+// A task's own live verb-shape change (add_verb, chparent) is visible to its
+// next call even though earlier calls were answered from the memo record.
+func TestVerbDispatchMemoRepeatHitSeesOwnLiveShapeChange(t *testing.T) {
+	s, user := memoUserTxn(t)
+	lookTimes(t, user, 10)
+	for i := 0; i < 10; i++ {
+		if _, _, err := user.findVerb(2, "nosuch", true); err == nil || err.Error() != "verb not found: nosuch" {
+			t.Fatalf("missing verb lookup %d: err=%v", i, err)
+		}
+	}
+
+	user.PrepareLiveMutation()
+	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
+	addVerbT(t, s, 1, []string{"nosuch"}, VerbRead|VerbExecute)
+	user.MarkLiveMutated()
+	if ec := user.AdoptLiveVerbs(1); ec != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs: %v", ec)
+	}
+	if _, definer := lookTimes(t, user, 3); definer != 1 {
+		t.Fatalf("after own add_verb on a nearer ancestor: definer #%d, want #1", definer)
+	}
+	if _, definer, err := user.findVerb(2, "nosuch", true); err != nil || definer != 1 {
+		t.Fatalf("after own add_verb of a missing verb: definer #%d err=%v", definer, err)
+	}
+
+	other, ec := s.DirectTxn().CreateObject(nil, 0, false)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject: %v", ec)
+	}
+	addVerbT(t, s, other, []string{"look"}, VerbRead|VerbExecute)
+	if ec := s.ChangeParents(2, []types.ObjID{other}); ec != types.E_NONE {
+		t.Fatalf("ChangeParents: %v", ec)
+	}
+	user.MarkLiveMutated()
+	if ec := user.AdoptLiveObject(other); ec != types.E_NONE {
+		t.Fatalf("AdoptLiveObject: %v", ec)
+	}
+	if ec := user.AdoptLiveRelationships(2, 1, other); ec != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships: %v", ec)
+	}
+	if _, definer := lookTimes(t, user, 3); definer != other {
+		t.Fatalf("after own chparent: definer #%d, want #%d", definer, other)
 	}
 }
 
