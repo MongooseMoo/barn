@@ -1,6 +1,10 @@
 package store
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"container/heap"
+
+	"github.com/MongooseMoo/barn/types"
+)
 
 type waifTxnImage struct {
 	value  types.Value
@@ -115,28 +119,81 @@ func (tx *StoreTxn) validateWaifsLocked() types.ErrorCode {
 	return types.E_NONE
 }
 
+// waifHistoryEntry tracks one WAIF that still holds superseded images. due is
+// the timestamp of the oldest image that supersedes another: a reader floor
+// below it drops nothing, and one at or above it drops at least one image.
+type waifHistoryEntry struct {
+	identity types.WaifIdentity
+	weak     types.WeakWaif
+	due      uint64
+	index    int // position in waifHistoryQueue
+}
+
+// waifHistoryQueue is a container/heap ordered by due, so a floor advance
+// visits only the histories it can prune.
+type waifHistoryQueue []*waifHistoryEntry
+
+func (q waifHistoryQueue) Len() int           { return len(q) }
+func (q waifHistoryQueue) Less(i, j int) bool { return q[i].due < q[j].due }
+func (q waifHistoryQueue) Swap(i, j int) {
+	q[i], q[j] = q[j], q[i]
+	q[i].index, q[j].index = i, j
+}
+func (q *waifHistoryQueue) Push(x any) {
+	entry := x.(*waifHistoryEntry)
+	entry.index = len(*q)
+	*q = append(*q, entry)
+}
+func (q *waifHistoryQueue) Pop() any {
+	old := *q
+	n := len(old)
+	entry := old[n-1]
+	old[n-1] = nil
+	*q = old[:n-1]
+	return entry
+}
+
 func (s *Store) publishWaifLocked(image *waifTxnImage, ts uint64) {
-	s.waifPrunedFloor.Store(0)
 	image.value.PublishWaifImage(s.waifDomain, ts, image.staged)
 	image.base, _ = image.value.WaifImageAt(s.waifDomain, ts)
 	image.staged = nil
 	// Advertise history before sampling the reader floor. A last reader that
 	// deregisters after its shard was sampled must see pending work and prune
 	// after this publication releases store.mu, rather than miss cleanup forever.
+	// An untracked WAIF held one image, so this publication is what it is due at.
 	identity := image.value.WaifIdentity()
-	lazySet(&s.waifHistory, identity, image.value.WeakWaif())
-	s.waifHistoryPending.Store(true)
-	if !image.value.PruneWaifImages(s.waifDomain, s.historyFloor()) {
-		delete(s.waifHistory, identity)
+	entry := s.waifHistory[identity]
+	if entry == nil {
+		entry = &waifHistoryEntry{identity: identity, due: ts}
+		lazySet(&s.waifHistory, identity, entry)
+		heap.Push(&s.waifHistoryQueue, entry)
 	}
-	s.waifHistoryPending.Store(len(s.waifHistory) != 0)
+	entry.weak = image.value.WeakWaif()
+	s.advertiseWaifHistoryLocked()
+	if due, retained := image.value.PruneWaifImages(s.waifDomain, s.historyFloor()); !retained {
+		delete(s.waifHistory, identity)
+		heap.Remove(&s.waifHistoryQueue, entry.index)
+	} else if due != entry.due {
+		entry.due = due
+		heap.Fix(&s.waifHistoryQueue, entry.index)
+	}
+	s.advertiseWaifHistoryLocked()
 }
 
-// pruneWaifHistory avoids the publication lock when a complete scan already
-// visited this exact floor and no publication has invalidated that result.
+func (s *Store) advertiseWaifHistoryLocked() {
+	due := uint64(0)
+	if len(s.waifHistoryQueue) != 0 {
+		due = s.waifHistoryQueue[0].due
+	}
+	s.waifHistoryDue.Store(due)
+	s.waifHistoryPending.Store(due != 0)
+}
+
+// pruneWaifHistory avoids the publication lock when the reader floor is below
+// every tracked history's due timestamp, so there is no image it could drop.
 func (s *Store) pruneWaifHistory() {
 	floor := s.historyFloor()
-	if floor != 0 && floor == s.waifPrunedFloor.Load() {
+	if due := s.waifHistoryDue.Load(); due == 0 || floor < due {
 		return
 	}
 	s.mu.Lock()
@@ -144,22 +201,26 @@ func (s *Store) pruneWaifHistory() {
 	s.pruneWaifHistoryLocked()
 }
 
+// pruneWaifHistoryLocked visits the histories due at the current floor and no
+// others. A history that keeps superseded images is due again above the floor.
 func (s *Store) pruneWaifHistoryLocked() {
-	if len(s.waifHistory) == 0 {
-		return
-	}
 	floor := s.historyFloor()
-	if floor != 0 && floor == s.waifPrunedFloor.Load() {
-		return
-	}
-	for identity, weak := range s.waifHistory {
-		value, alive := weak.Value()
-		if !alive || !value.PruneWaifImages(s.waifDomain, floor) {
-			delete(s.waifHistory, identity)
+	for len(s.waifHistoryQueue) != 0 && s.waifHistoryQueue[0].due <= floor {
+		entry := s.waifHistoryQueue[0]
+		s.waifPruneVisits++
+		due, retained := uint64(0), false
+		if value, alive := entry.weak.Value(); alive {
+			due, retained = value.PruneWaifImages(s.waifDomain, floor)
+		}
+		if retained {
+			entry.due = due
+			heap.Fix(&s.waifHistoryQueue, 0)
+		} else {
+			heap.Pop(&s.waifHistoryQueue)
+			delete(s.waifHistory, entry.identity)
 		}
 	}
-	s.waifHistoryPending.Store(len(s.waifHistory) != 0)
-	s.waifPrunedFloor.Store(floor)
+	s.advertiseWaifHistoryLocked()
 }
 
 // VisitWaifValues includes private and historical values in task root capture.

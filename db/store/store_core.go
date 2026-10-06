@@ -59,11 +59,15 @@ type Store struct {
 	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
 	history            map[types.ObjID][]objectHistory
 	waifDomain         *types.WaifDomain
-	waifHistory        map[types.WaifIdentity]types.WeakWaif
+	waifHistory        map[types.WaifIdentity]*waifHistoryEntry
+	waifHistoryQueue   waifHistoryQueue // the same entries, ordered by due
 	waifHistoryPending atomic.Bool
-	// waifPrunedFloor is the last completed full history-prune floor. Zero is
-	// invalid; every publication invalidates it before announcing new history.
-	waifPrunedFloor atomic.Uint64
+	// waifHistoryDue is the smallest due timestamp in waifHistoryQueue, or zero
+	// when it is empty. A reader floor below it can prune nothing; every
+	// publication lowers it to cover new history before sampling that floor.
+	waifHistoryDue atomic.Uint64
+	// waifPruneVisits counts the entries pruneWaifHistoryLocked has examined.
+	waifPruneVisits uint64
 
 	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
 	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
