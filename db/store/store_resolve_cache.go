@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/MongooseMoo/barn/types"
@@ -191,6 +192,12 @@ type verbResolveEntry struct {
 	// which is part of the key — reusing the value is indistinguishable from
 	// rebuilding it, minus three allocations per probe.
 	err error
+	// memo, when set, makes this a record of a store-level dispatch memo hit
+	// rather than of a walk: steps is empty, memoSeen is what recordVerbMemoHit
+	// has recorded for memo in this txn, and verb is the resolved verb once its
+	// read mark is recorded from an unowned definer (see lookupVerbDispatchMemo).
+	memo     *verbDispatchMemoEntry
+	memoSeen uint8
 }
 
 type propResolveKey struct {
@@ -299,51 +306,100 @@ type verbDispatchMemoEntry struct {
 // dependency on verbShapeChangeTS (validated at commit) plus the usual read
 // mark on the resolved verb, which is re-fetched from this txn's view of the
 // definer so a concurrent code edit is seen exactly as it would be by a walk.
-func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey) (verb *Verb, definer types.ObjID, found, hit bool) {
+// err is the "verb not found" error of a negative resolution.
+//
+// local is the txn's own record of an earlier hit on this key, if any. A verb
+// called in a loop used to pay the shared map's lookup and both marks on every
+// call; the record carries the memo entry and which of the marks this txn
+// already holds, so a repeat hit only re-checks the clock and the definer. The
+// record lives in tx.verbResolve, which is dropped wherever a binding in
+// tx.objects is replaced or a read mark is removed, so what it says is recorded
+// still is.
+func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolveEntry) (verb *Verb, definer types.ObjID, err error, hit bool) {
 	s := tx.store
 	if s == nil || tx.verbMemoDisabled || tx.liveMutated {
 		// A live-mutated txn commits through the coarse path, which validates
 		// scan marks, not the clock; it must never hold mark-less resolutions.
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
 	last := s.verbShapeChangeTS.Load()
 	if tx.readTS < last {
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
-	raw, ok := s.verbMemo().Load(key)
-	if !ok {
-		return nil, types.ObjNothing, false, false
+	entry := local.memo
+	if entry == nil {
+		raw, ok := s.verbMemo().Load(key)
+		if !ok {
+			return nil, types.ObjNothing, nil, false
+		}
+		entry = raw.(*verbDispatchMemoEntry)
+		local = verbResolveEntry{} // a stale walk record says nothing about entry
 	}
-	entry := raw.(*verbDispatchMemoEntry)
 	if entry.readTS < last {
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
 	// A txn that has staged writes will be validated at commit; give it the
 	// walk's exact scan marks rather than a dependency on the global shape
 	// clock, which every coarse commit advances.
 	precise := len(tx.owned) > 0
+	need := verbMemoNoted
+	if precise {
+		need = verbMemoReplayed
+	}
 	if !entry.found {
-		if !tx.recordVerbMemoHit(key, entry, precise) {
-			return nil, types.ObjNothing, false, false
+		if local.memoSeen < need {
+			if !tx.recordVerbMemoHit(key, entry, precise) {
+				return nil, types.ObjNothing, nil, false
+			}
+			if local.err == nil {
+				local.err = fmt.Errorf("verb not found: %s", key.name)
+			}
+			local.memo, local.memoSeen, local.definer = entry, need, types.ObjNothing
+			tx.storeVerbMemoUse(key, local)
 		}
-		return nil, types.ObjNothing, false, true
+		return nil, types.ObjNothing, local.err, true
 	}
 	obj := tx.object(entry.definer)
 	if !validLiveObject(obj) {
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
 	if entry.index < 0 || entry.index >= len(obj.verbList) {
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
 	verb = obj.verbList[entry.index]
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
-		return nil, types.ObjNothing, false, false
+		return nil, types.ObjNothing, nil, false
 	}
-	if !tx.recordVerbMemoHit(key, entry, precise) {
-		return nil, types.ObjNothing, false, false
+	if local.memoSeen < need && !tx.recordVerbMemoHit(key, entry, precise) {
+		return nil, types.ObjNothing, nil, false
 	}
-	tx.markVerbRead(entry.definer, verb)
-	return verb, entry.definer, true, true
+	// An unowned definer is an immutable image, so the same *Verb yields the
+	// same read mark; a private copy can be edited in place and is re-marked.
+	marked := verb
+	if precise && tx.owned[entry.definer] {
+		marked = nil
+	}
+	if marked == nil || local.verb != marked {
+		tx.markVerbRead(entry.definer, verb)
+	}
+	if local.memoSeen < need || local.verb != marked {
+		local.memo, local.verb, local.definer = entry, marked, entry.definer
+		local.memoSeen = max(local.memoSeen, need)
+		tx.storeVerbMemoUse(key, local)
+	}
+	return verb, entry.definer, nil, true
+}
+
+// storeVerbMemoUse files the txn's record of a dispatch memo hit.
+func (tx *StoreTxn) storeVerbMemoUse(key verbResolveKey, use verbResolveEntry) {
+	if tx.verbResolve == nil {
+		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
+	} else if len(tx.verbResolve) >= resolveCacheCap {
+		if _, present := tx.verbResolve[key]; !present {
+			tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
+		}
+	}
+	tx.verbResolve[key] = use
 }
 
 const (
@@ -505,7 +561,13 @@ func (tx *StoreTxn) storePropResolve(key propResolveKey, steps []propWalkStep, p
 	}
 }
 
-// resolveCacheLenForTest exposes the memo sizes to in-package tests.
+// resolveCacheLenForTest exposes the memo sizes to in-package tests. Verbs
+// counts recorded walks; a record of a dispatch memo hit holds no walk.
 func (tx *StoreTxn) resolveCacheLenForTest() (verbs, props int) {
-	return len(tx.verbResolve), len(tx.propResolve)
+	for _, entry := range tx.verbResolve {
+		if entry.memo == nil {
+			verbs++
+		}
+	}
+	return verbs, len(tx.propResolve)
 }

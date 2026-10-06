@@ -4,6 +4,7 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -19,8 +20,9 @@ type Execution struct {
 	Registry *Registry
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
-	// PushProtectedVerb runs an executable #0 wrapper on the calling VM.
-	PushProtectedVerb    func(string, []types.Value) types.Result
+	// PushProtectedVerb runs an executable #0 wrapper on the calling VM. The
+	// verb and its definer are the dispatcher's own resolution of that name.
+	PushProtectedVerb    func(string, dbstore.VerbView, types.ObjID, []types.Value) types.Result
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
@@ -66,6 +68,7 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
 	name       string
+	bfName     string      // "bf_" + name, the #0 wrapper verb of a protected call
 	id         int         // index in Registry.entries; keys protectedSet.byID
 	fn         BuiltinFunc // builtin plus replay-safety marker; validation stays inline
 	sig        Signature
@@ -121,6 +124,7 @@ func (r *Registry) install(d Descriptor) {
 	}
 	entry := &builtinEntry{
 		name:       name,
+		bfName:     "bf_" + name,
 		fn:         invoke,
 		lineSync:   d.LineSync,
 		visibility: d.Visibility,
@@ -224,7 +228,7 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 	// redirect helper so the common case never builds and copies its 88-byte
 	// Result. The helper repeats these checks; they are the same predicate.
 	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e) {
-		if redirect, ok := s.maybeProtectedRedirect(e.name, ctx, args); ok {
+		if redirect, ok := s.maybeProtectedRedirect(e, ctx, args); ok {
 			return redirect
 		}
 	}
@@ -243,28 +247,30 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 //
 // Returns (result, true) when the call was handled by the redirect path, or
 // (_, false) when the caller should run the real builtin normally.
-func (s *Session) maybeProtectedRedirect(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
-	if ctx == nil || name == "" {
+func (s *Session) maybeProtectedRedirect(e *builtinEntry, ctx *Execution, args []types.Value) (types.Result, bool) {
+	if ctx == nil || e.name == "" {
 		return types.Result{}, false
 	}
 	// caller() == #0 (the bf_ wrapper, or any #0 verb) runs the real builtin.
 	if ctx.ThisObj == types.ObjID(0) {
 		return types.Result{}, false
 	}
-	if !s.isProtectedNameFor(ctx, name) {
+	if !s.isProtectedNameFor(ctx, e.name) {
 		return types.Result{}, false
 	}
 	store := ctx.Store
 	if store == nil {
 		return types.Result{}, false
 	}
-	bfName := "bf_" + name
-	_, _, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
+	bfName := e.bfName
+	verb, definer, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
 		verbArgs := append([]types.Value(nil), args...)
 		if ctx.PushProtectedVerb != nil {
-			return ctx.PushProtectedVerb(bfName, verbArgs), true
+			// The VM activates the verb just resolved rather than looking it
+			// up again; nothing has touched the transaction in between.
+			return ctx.PushProtectedVerb(bfName, verb, definer, verbArgs), true
 		}
 		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
 	}

@@ -77,6 +77,20 @@ func (vm *VM) executeCallVerbNamed(verbName string, argc int) error {
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
+	return vm.startVerbCallResolved(objVal, verbName, args, nil)
+}
+
+// resolvedVerb is a call target the caller has already looked up, through the
+// task's transaction, for the object and name it passes to
+// startVerbCallResolved.
+type resolvedVerb struct {
+	verb    dbstore.VerbView
+	definer types.ObjID
+}
+
+// startVerbCallResolved is startVerbCall with the verb lookup optionally done
+// by the caller: a nil resolved looks the verb up here.
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, args []types.Value, resolved *resolvedVerb) error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
@@ -129,10 +143,17 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	// verb defined further up the ancestry chain — ToastStunt's call dispatch
 	// (obj:verb() syntax) skips past it and keeps searching. Only when no
 	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
-	verb, defObjID, err := findCallableVerbForRead(txn, objID, lookupVerbName)
-	if err != nil {
-		vm.Store.NoteVerbCacheMiss()
-		return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
+	var verb dbstore.VerbView
+	var defObjID types.ObjID
+	if resolved != nil {
+		verb, defObjID = resolved.verb, resolved.definer
+	} else {
+		var err error
+		verb, defObjID, err = findCallableVerbForRead(txn, objID, lookupVerbName)
+		if err != nil {
+			vm.Store.NoteVerbCacheMiss()
+			return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
+		}
 	}
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
@@ -286,10 +307,12 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 }
 
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
-// suspension with the calling VM. args is owned by the builtin dispatcher.
-func (vm *VM) pushProtectedVerb(name string, args []types.Value) types.Result {
+// suspension with the calling VM. args is owned by the builtin dispatcher, which
+// has just resolved #0:name to verb on definer.
+func (vm *VM) pushProtectedVerb(name string, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
 	threadMode := vm.Context.ThreadMode
-	if err := vm.startVerbCall(types.NewObj(0), name, args); err != nil {
+	resolved := resolvedVerb{verb: verb, definer: definer}
+	if err := vm.startVerbCallResolved(types.NewObj(0), name, args, &resolved); err != nil {
 		return types.Err(errorCode(err))
 	}
 	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread
