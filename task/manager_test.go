@@ -110,7 +110,10 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 		t.Helper()
 		want := map[int64]*Task{}
 		for _, registered := range manager.Snapshot() {
-			if !registered.GetState().finished() {
+			registered.mu.RLock()
+			settled := registered.settledLocked()
+			registered.mu.RUnlock()
+			if !settled {
 				want[registered.ID] = registered
 			}
 		}
@@ -144,6 +147,7 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 		{"Resume", func() { c.Resume(types.NewInt(0)) }},
 		{"StartExecution", func() { c.StartExecution() }},
 		{"SetState(TaskKilled)", func() { c.SetState(TaskKilled) }},
+		{"SetExecutionActive(false)", func() { c.SetExecutionActive(false) }},
 		{"RemoveTask of an unfinished task", func() { manager.RemoveTask(b.ID) }},
 		{"a state change after removal", func() { b.SetState(TaskQueued) }},
 		{"RemoveTaskIf", func() { manager.RemoveTaskIf(c.ID, c) }},
@@ -165,14 +169,55 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 	}
 }
 
-// A state written anywhere but setStateLocked would leave the index wrong, and
-// nothing else would notice.
+// A task that dies with an error is killed before #0:handle_uncaught_error
+// runs. PendingReadier keeps holding the task that forked it until the slice
+// ends, so a scheduling scan must still be handed the killed task: dropping it
+// at the state change let a parent that forked and yielded resume before the
+// hook's writes (tick_exhaustion_extended_opcode_does_not_test_the_budget read
+// the probe one write early).
+func TestUnfinishedKeepsFinishedTaskUntilItsSliceEnds(t *testing.T) {
+	for _, final := range []TaskState{TaskKilled, TaskCompleted} {
+		manager := NewManager()
+		parent, child := NewTask(1, 2, 100, 5), NewTask(2, 2, 100, 5)
+		manager.RegisterTask(parent)
+		manager.RegisterTask(child)
+		child.SetReadier(parent)
+		if !child.StartExecution() {
+			t.Fatal("child did not start")
+		}
+		child.SetState(final)
+
+		holds := func() bool {
+			for _, unfinished := range manager.Unfinished() {
+				if unfinished.PendingReadier(time.Now()) == parent {
+					return true
+				}
+			}
+			return false
+		}
+		if !holds() {
+			t.Fatalf("state %v: Unfinished() dropped a task whose slice is still executing, releasing its readier", final)
+		}
+		child.SetExecutionActive(false)
+		if holds() {
+			t.Fatalf("state %v: readier still held after the slice ended", final)
+		}
+		for _, unfinished := range manager.Unfinished() {
+			if unfinished == child {
+				t.Fatalf("state %v: finished task still listed after its slice ended", final)
+			}
+		}
+	}
+}
+
+// A state or execution lease written anywhere but its one setter would leave
+// the index wrong, and nothing else would notice.
 func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	write := regexp.MustCompile(`\.State\s*=[^=]`)
+	write := regexp.MustCompile(`\.(State|executionActive)\s*=[^=]`)
 	var sites []string
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -188,8 +233,8 @@ func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
 			}
 		}
 	}
-	if len(sites) != 1 || !strings.Contains(sites[0], "t.State = state") {
-		t.Fatalf("task state is assigned outside setStateLocked:\n%s", strings.Join(sites, "\n"))
+	if len(sites) != 2 || !strings.Contains(sites[0], "t.State = state") || !strings.Contains(sites[1], "t.executionActive = active") {
+		t.Fatalf("task state or execution lease is assigned outside its setter:\n%s", strings.Join(sites, "\n"))
 	}
 }
 

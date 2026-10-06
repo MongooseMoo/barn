@@ -303,12 +303,32 @@ func (s TaskState) finished() bool {
 	return s == TaskCompleted || s == TaskKilled
 }
 
+// settledLocked reports whether scheduling is done with t: it has finished and
+// its slice is no longer executing. A task that dies with an error is killed
+// before its uncaught-error hook runs, and the task that forked it stays held
+// until that slice ends, so the state alone does not settle it.
+func (t *Task) settledLocked() bool {
+	return t.State.finished() && !t.executionActive
+}
+
 // setStateLocked is the only place a registered task's state changes, so the
 // manager's index of unfinished tasks stays exact. The caller holds t.mu.
 func (t *Task) setStateLocked(state TaskState) {
-	was := t.State.finished()
+	was := t.settledLocked()
 	t.State = state
-	if now := state.finished(); now != was && t.catalog != nil {
+	t.noteSettledLocked(was)
+}
+
+// setExecutionActiveLocked is the only place the execution lease changes, for
+// the same reason. The caller holds t.mu.
+func (t *Task) setExecutionActiveLocked(active bool) {
+	was := t.settledLocked()
+	t.executionActive = active
+	t.noteSettledLocked(was)
+}
+
+func (t *Task) noteSettledLocked(was bool) {
+	if now := t.settledLocked(); now != was && t.catalog != nil {
 		t.catalog.noteFinished(t, now)
 	}
 }
@@ -358,7 +378,7 @@ func (t *Task) readyDeadlineLocked(now time.Time) time.Time {
 func (t *Task) SetExecutionActive(active bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.executionActive = active
+	t.setExecutionActiveLocked(active)
 	if !active {
 		t.readier = nil
 		t.notifyScheduleLocked()
@@ -372,7 +392,7 @@ func (t *Task) StartExecution() bool {
 	if t.State == TaskKilled {
 		return false
 	}
-	t.executionActive = true
+	t.setExecutionActiveLocked(true)
 	t.setStateLocked(TaskRunning)
 	return true
 }
