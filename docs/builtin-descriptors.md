@@ -32,7 +32,7 @@ OUTBOUND_NETWORK = 0
 | Capability | Builtins |
 | --- | --- |
 | `core` | Standard base functions, including VM-owned `eval` and `pass` |
-| `barn-extensions` | `upcase`, `downcase`, `capitalize`, `implode`, `trim`, `ltrim`, `rtrim`, `unique`, `mapmerge`, `connection_option`, `finished_tasks` |
+| `barn-extensions` | `upcase`, `downcase`, `capitalize`, `implode`, `trim`, `ltrim`, `rtrim`, `unique`, `mapmerge`, `connection_option`, `finished_tasks`, `tz_offset` |
 | `background-tasks` | `background_test` |
 | `allocator-stats` | `malloc_stats` |
 | `process-stdin` | `read_stdin` |
@@ -51,6 +51,19 @@ The canonical stock WSL Toast oracle does not register `background_test`,
 these implementations is an explicit extension policy, not a stock Toast claim.
 `builtins/testdata/descriptor_oracle/contracts.yaml` records that oracle census
 and independent JSON contracts, including issue #238's third argument.
+
+## Named time zone offsets
+
+`tz_offset(STR zone [, INT time]) => STR` returns a named IANA zone's UTC offset
+as a sign and four digits, for example `"-0700"`. The optional time is a Unix
+timestamp; when omitted, the builtin uses the current time. Daylight saving is
+resolved for that timestamp. An embedded `time/tzdata` database supplies zones
+even on hosts without zoneinfo, including Windows.
+
+Unknown zones raise `E_INVARG`, wrong argument types raise `E_TYPE`, and wrong
+argument counts raise `E_ARGS`. The builtin belongs to `barn-extensions` and
+performs no irreversible effect. The existing `cmd/mongoose_tz` helper remains
+available for Mongoose databases that still invoke it through `exec()`.
 
 ## Admission and effects
 

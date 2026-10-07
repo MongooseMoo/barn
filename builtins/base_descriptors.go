@@ -274,5 +274,6 @@ func AppendedDescriptors() []Descriptor {
 		{Name: "decode_chars", Implementation: builtinDecodeChars, Signature: &Signature{MinArgs: 2, MaxArgs: 3, ArgTypes: []int64{2, 2, -1}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
 		{Name: "string_width", Implementation: builtinStringWidth, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
 		{Name: "graphemes", Implementation: builtinGraphemes, Signature: &Signature{MinArgs: 1, MaxArgs: 1, ArgTypes: []int64{2}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
+		{Name: "tz_offset", Implementation: builtinTZOffset, Signature: &Signature{MinArgs: 1, MaxArgs: 2, ArgTypes: []int64{2, 0}}, Visibility: Public, Effect: Transactional, Capability: config.BarnExtensions},
 	}
 }
