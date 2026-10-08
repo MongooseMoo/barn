@@ -1,0 +1,5 @@
+=== RUN   TestDeferredGCProgressMeasurement
+    deferred_gc_progress_test.go:182: gc_progress allocations=1000 retained_after_idle=0 observation_ms=500
+--- PASS: TestDeferredGCProgressMeasurement (0.53s)
+PASS
+ok  	github.com/MongooseMoo/barn/engine	0.663s

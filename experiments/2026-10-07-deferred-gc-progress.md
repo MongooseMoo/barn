@@ -60,3 +60,81 @@ that managed restart adopts `{db}.new`. The Makefile output was corrected;
 the same selected run is being repeated. No conformance assertions changed.
 An attempted positional YAML-file narrowing was rejected by the CLI and ran
 no tests; use the supported `-k` selection for this run.
+
+## Implementation and review
+
+Contracts/measurement plan: `274419e`. Production and safety tests: `5ae0bc6`.
+Harness blob in both measurement trees:
+`21c7e32da501a8a975d755f4ad654129553e4ebc`.
+
+The runtime starts one maintenance goroutine and joins it on Stop. Enqueue
+records the first pending time; cheap collections allow ordinary boundaries
+first, while expensive collections retain the previous two-second cadence.
+The worker requests admission Pause outside all task reservations and leases.
+It then uses the existing root/sweep barriers. Opportunistic sweeps use TryLock
+so a borrowed reservation cannot block a maintenance drain. Contended barriers
+leave a retry deadline, release admission, and remain cancellable. Timed wakes
+recheck the pending work before pausing, avoiding maintenance on a stale timer.
+
+Safety checks cover cancellation during admission drain, checkpoint barrier
+contention, startup/shutdown transfer, and suspended anonymous roots. Existing
+nested sweep/reentrant run_gc, eval/server-hook exclusion, panic cleanup, and
+lifecycle checks hold. Two old shutdown fixtures directly assigned pending
+queues without locking or registration; they now use AdoptPendingFinalizations
+with their assertions preserved. The new shutdown fixture was also corrected
+to use that loaded-root path rather than a task-owned request without a VM.
+
+The manual review checked acquisition order (admission drain before sweep and
+VM-start barriers), lease publication, preempted-owner readmission, startup
+holds, shutdown ownership, and cancellation. The implementation retains the
+tracing collector and asynchronous dispatcher; it changes the opportunity to
+run collection rather than ignoring live VM roots or redefining MOO behavior.
+No subagents were requested or dispatched.
+
+## Paired results
+
+Go `go1.27.1 windows/amd64`, AMD Ryzen 9 5950X, GOMAXPROCS=4.
+Five sequential alternating base/candidate pairs, with the source/harness above.
+All workloads returned the required result. Raw samples are the twenty
+`*-retention.txt` / `*-latency.txt` files in
+`experiments/2026-10-07-deferred-gc-progress-evidence/`.
+
+| Pair | Base retained | Candidate retained | Base plain ns/op | Candidate plain ns/op | Base anonymous ns/op | Candidate anonymous ns/op |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1000 | 0 | 16239 | 14589 | 287735 | 292559 |
+| 2 | 1000 | 0 | 15328 | 14160 | 293105 | 301754 |
+| 3 | 1000 | 0 | 15092 | 15871 | 319178 | 331992 |
+| 4 | 1000 | 0 | 15639 | 15900 | 313285 | 326088 |
+| 5 | 1000 | 0 | 16701 | 14054 | 283353 | 302707 |
+
+The primary retention criterion holds in every pair: 1,000 allocations,
+500–501 ms observation, 1,000 retained on the baseline and none on the candidate.
+Median paired command-cost ratio: plain 0.92380, anonymous 1.04015. The anonymous
+case incurs about 4% added service time in this synthetic comparison, within
+the stated 10% investigation threshold. Allocations stay 82/op plain and 198/op
+anonymous. Candidate anonymous p99 ranges 1.568–1.896 ms versus 1.565–1.595 ms
+on the baseline; pair four's tail is worse and is retained in the evidence.
+The plain-case lower timing is not a claimed speedup. These small workloads
+establish collection progress and its observed cost, not Mongoose throughput.
+
+## Verification so far
+
+Canonical managed WSL Toast, after the output-name repair:
+`make conformance-toast K="anonymous or waif or shutdown" CONFORMANCE_ENV=/root/.cache/barn-270-conformance-linux CONFORMANCE_ARGS=--tb=short`
+returned `135 passed, 61 skipped, 12894 deselected`.
+
+Conformance repository: clean tracked tree at `7f05b70`.
+Linux Barn SHA-256:
+`343bb689834f91489a3c35012e75d3cc1e6c6bc50cd9ba5bf78ff2b017722cc2`.
+
+- `go test ./... -count=1 -timeout=300s`: exit 0.
+- `go vet ./...`: exit 0.
+- `go build ./...`: exit 0.
+- Changed Go files: gofmt output empty.
+- `python -m unittest discover -s scripts -p 'test_*.py'`: exit 0.
+- Installed staticcheck v0.7.0 cannot decode Go 1.27 export data; the repository
+  pin `go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...` returns exit 0.
+
+Race and full managed Barn conformance runs are still active at this checkpoint.
+Their generated logs/XML are local diagnostics, not part of the committed
+measurement sample set. Final results will be appended after terminal output.
