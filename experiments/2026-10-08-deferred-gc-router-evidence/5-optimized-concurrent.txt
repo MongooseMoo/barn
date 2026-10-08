@@ -1,0 +1,17 @@
+=== RUN   TestDeferredGCConcurrentMeasurement
+=== RUN   TestDeferredGCConcurrentMeasurement/1000
+    deferred_gc_concurrent_measure_test.go:140: gc_concurrent iterations=1000 samples=1200 completed=28231 elapsed_ms=6002 anonymous_snapshot=6205 sweep_service_ms=976.629
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=command p99_ms=0.543 p999_ms=1.062 max_ms=561.711
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=lateness p99_ms=502.653 p999_ms=552.130 max_ms=562.130
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=admission p99_ms=0.000 p999_ms=0.534 max_ms=0.550
+=== RUN   TestDeferredGCConcurrentMeasurement/100000
+    deferred_gc_concurrent_measure_test.go:140: gc_concurrent iterations=100000 samples=1200 completed=1437 elapsed_ms=5995 anonymous_snapshot=52 sweep_service_ms=12.234
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=command p99_ms=0.000 p999_ms=1.594 max_ms=8.664
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=lateness p99_ms=1.470 p999_ms=4.274 max_ms=8.724
+    deferred_gc_concurrent_measure_test.go:149: gc_concurrent metric=admission p99_ms=0.000 p999_ms=0.000 max_ms=4.918
+--- PASS: TestDeferredGCConcurrentMeasurement (12.43s)
+    --- PASS: TestDeferredGCConcurrentMeasurement/1000 (6.40s)
+    --- PASS: TestDeferredGCConcurrentMeasurement/100000 (6.03s)
+PASS
+ok  	github.com/MongooseMoo/barn/engine	12.597s
+sample_exit=0

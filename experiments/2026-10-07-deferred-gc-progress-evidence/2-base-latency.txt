@@ -1,0 +1,8 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkDeferredGCCommands/plain-4         	   90968	     15328 ns/op	    527400 p99-ns	   14149 B/op	      82 allocs/op
+BenchmarkDeferredGCCommands/anonymous-4     	   10000	    293105 ns/op	   1567500 p99-ns	  194636 B/op	     198 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	4.688s

@@ -1,0 +1,23 @@
+Total: 12.53s
+ROUTINE ======================== github.com/MongooseMoo/barn/vm.recycleFrozenAnonymousCandidates in C:\Users\Q\code\barn-issue-270\vm\anonymous_gc.go
+     120ms      1.85s (flat, cum) 14.76% of Total
+         .          .    473:func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(AnonGCRequest, types.ObjID)) {
+         .          .    474:	recycled := make(map[types.ObjID]struct{}, len(frozenCandidates))
+         .          .    475:	for _, req := range requests {
+         .          .    476:		if req.Ctx == nil {
+         .          .    477:			continue
+         .          .    478:		}
+      20ms       20ms    479:		for _, id := range frozenCandidates {
+      40ms       40ms    480:			if id < req.MinID {
+         .          .    481:				continue
+         .          .    482:			}
+      60ms      1.09s    483:			if _, done := recycled[id]; done {
+         .          .    484:				continue
+         .          .    485:			}
+         .          .    486:			recycled[id] = struct{}{}
+         .      700ms    487:			recycle(req, id)
+         .          .    488:		}
+         .          .    489:	}
+         .          .    490:}
+         .          .    491:
+         .          .    492:// AutoRecycleOrphanAnonymousSince performs orphan-anonymous collection but only

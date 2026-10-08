@@ -473,6 +473,11 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, session *builtins.Session
 func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(AnonGCRequest, types.ObjID)) {
 	recycled := make(map[types.ObjID]struct{}, len(frozenCandidates))
 	for _, req := range requests {
+		// Later requests cannot route another callback once the frozen list is
+		// exhausted. Avoid rescanning every handled ID for each pending request.
+		if len(recycled) == len(frozenCandidates) {
+			return
+		}
 		if req.Ctx == nil {
 			continue
 		}

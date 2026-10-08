@@ -210,6 +210,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 			tasks[i] = before[j]
 		}
 	})
+	go s.runDeferredGCMaintenance()
 
 	return s
 }
@@ -388,6 +389,7 @@ func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 func (s *Runtime) Stop() {
 	s.cancel()
 	s.scheduler.Stop()
+	<-s.lifecycle.MaintenanceDone
 }
 
 // BeginShutdown closes ordinary finalization ownership and returns a channel
@@ -514,6 +516,7 @@ func (s *Runtime) HoldFinalizationUntilStarted() {
 func (s *Runtime) ReleaseStartupFinalization() {
 	s.lifecycle.Mu.Lock()
 	s.lifecycle.FinalizationHeld = false
+	s.wakeDeferredGCMaintenanceLocked()
 	s.lifecycle.Mu.Unlock()
 	s.flushDeferredGC()
 }

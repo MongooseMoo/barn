@@ -50,6 +50,10 @@ type Coordinator struct {
 	PendingAnonGC               []vm.AnonGCRequest
 	LastGCSweep                 time.Time
 	LastGCCost                  time.Duration
+	PendingSince                time.Time
+	RetryAfter                  time.Time
+	MaintenanceWake             chan struct{}
+	MaintenanceDone             chan struct{}
 }
 
 // NewCoordinator creates an empty coordinator.
@@ -59,5 +63,7 @@ func NewCoordinator() Coordinator {
 		ExecutionContexts: make(map[*kernel.TaskContext]map[int64]int),
 		SweepContexts:     make(map[*kernel.TaskContext]int),
 		ShutdownReady:     make(chan struct{}),
+		MaintenanceWake:   make(chan struct{}, 1),
+		MaintenanceDone:   make(chan struct{}),
 	}
 }
