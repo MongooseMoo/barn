@@ -123,7 +123,7 @@ The remaining bulk-recycling cost is a distinct optimization question.
 The binary/profile remain local; readable profile output is committed with the
 sample evidence. No scheduler safepoint change is warranted by this bounded result.
 
-## Final verification in progress
+## Final verification
 
 The full Go suite, vet, build, pinned staticcheck v0.8.1, and Python benchmark
 driver gate exited 0 on the optimized production tree. Relevant race checks
@@ -131,8 +131,38 @@ driver gate exited 0 on the optimized production tree. Relevant race checks
 also exited 0 (engine 126.591s; VM 56.303s). Canonical managed WSL Toast with
 `K="anonymous or waif or shutdown"`, retaining capability admission, returned
 `135 passed, 61 skipped, 12894 deselected in 386.54s`; managed oracle exit 0.
-The full managed Barn conformance run is still in progress. Its terminal output
-will be recorded before finalizing the recommendation.
+The full managed Barn conformance command (Debian WSL, from this worktree) was:
+
+```text
+make conformance CONFORMANCE_ENV=/root/.cache/barn-270-conformance-linux CONFORMANCE_ARGS="--tb=short --junitxml=/mnt/c/Users/Q/code/barn-issue-270/experiments/2026-10-08-deferred-gc-router-evidence/conformance-results.xml"
+```
+
+Terminal output:
+
+```text
+12670 passed, 420 skipped, 1 warning in 1325.40s (0:22:05)
+managed_conformance_exit=0
+```
+
+JUnit contains 13,090 cases, zero failures/errors, and 420 skips. The warning is
+pytest's existing `record_property`/xunit2 format warning. Canonical capability
+admission, strict markers, and unexpected-skip enforcement were enabled. The
+tracked conformance suite is `7f05b7070f2954a200f7e8c2a06c814ef7981c4e`;
+its existing untracked material was preserved. Linux Barn SHA-256:
+`c7dbae3be4627f332aba652afd0af51db17562231d308a21fa40db82b5ac93a0`.
+
+All gates cover optimized production `0aa7805`; subsequent changes are records
+and measurement outputs. Source/configuration comparison against that tree exits
+0, and the changed Go files have empty gofmt output. Complete commands also
+included `go test ./... -count=1 -timeout=300s`, `go vet ./...`, `go build ./...`,
+`go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...`, and
+`python -m unittest discover -s scripts -p 'test_*.py'`.
+
+Decision: accept this bounded optimization and proceed toward a PR. The local
+correctness gates and defined synthetic regression guard pass; the shared-host
+and bulk-recycle limits above remain relevant. Exact-head CI is still required
+before an authorized merge. No broader scheduler change, PR publication, or merge
+was performed as part of this scoped implementation.
 
 Raw benchmark output retains Windows CRLF and Go's padded CPU description.
 Strict whitespace checks apply to source/records; raw-output checks account for
