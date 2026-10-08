@@ -138,3 +138,38 @@ Linux Barn SHA-256:
 Race and full managed Barn conformance runs are still active at this checkpoint.
 Their generated logs/XML are local diagnostics, not part of the committed
 measurement sample set. Final results will be appended after terminal output.
+
+## Final verification
+
+`go test -race ./db/store ./engine/... ./types -count=1 -timeout=600s`
+returned exit 0 (engine 234.511 seconds). This includes every engine internal
+package, the store, and the value types.
+
+Full managed Barn command (Debian WSL, from the implementation worktree):
+
+```text
+make conformance CONFORMANCE_ENV=/root/.cache/barn-270-conformance-linux CONFORMANCE_ARGS="--tb=short --junitxml=/mnt/c/Users/Q/code/barn-issue-270/experiments/2026-10-07-deferred-gc-progress-evidence/conformance-results.xml"
+```
+
+Terminal output:
+
+```text
+12670 passed, 420 skipped, 1 warning in 933.18s (0:15:33)
+managed_conformance_exit=0
+```
+
+Canonical capability admission ran in this session; strict marker and
+unexpected-skip enforcement were enabled. The warning concerns pytest's
+record_property with xunit2 JUnit output; the gate exited successfully.
+
+The complete Go, static, race, and managed gates cover the production tree at
+`5ae0bc6`. The later commits contain documentation/measurement outputs only;
+`git diff --quiet 5ae0bc6 HEAD -- engine Makefile` returns exit 0. Source diff
+whitespace checks pass; captured raw text files preserve native Windows CRLF
+and Go's padding and are intentionally excluded from that whitespace check.
+
+Outcome: implemented and verified locally, with the liveness fix and the
+observed synthetic cost recorded. No CI was triggered and no branch/PR was
+published or merged. #270 remains open. The original checkout and unrelated
+worktrees were preserved; the baseline measurement worktree and generated gate
+logs/XML remain available locally.
