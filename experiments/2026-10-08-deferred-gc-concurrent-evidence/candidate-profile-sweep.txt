@@ -1,0 +1,22 @@
+File: engine-profile-absolute.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build2857880413\b001\engine.test.exe2026-10-08 01:20:18.1797689 -0600 MDT
+Type: cpu
+Time: 2026-10-08 01:20:18 MDT
+Duration: 6.02s, Total samples = 12.53s (208.27%)
+Active filters:
+   focus=flushDeferredGC
+Showing nodes accounting for 0.65s, 5.19% of 12.53s total
+Showing top 12 nodes out of 135
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).flushDeferredGC
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).runTask
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskAdmitted.func4
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskSliceAdmitted
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.(*Runtime).runTaskSliceAdmitted.func2
+         0     0%     0%      1.94s 15.48%  github.com/MongooseMoo/barn/engine.TestDeferredGCConcurrentMeasurement.func1.3
+         0     0%     0%      1.94s 15.48%  runtime/pprof.Do
+         0     0%     0%      1.91s 15.24%  github.com/MongooseMoo/barn/vm.RecycleOrphanAnonymousBatch
+     0.12s  0.96%  0.96%      1.85s 14.76%  github.com/MongooseMoo/barn/vm.recycleFrozenAnonymousCandidates (inline)
+     0.52s  4.15%  5.11%      1.05s  8.38%  runtime.mapaccess2_fast64
+     0.01s  0.08%  5.19%      0.70s  5.59%  github.com/MongooseMoo/barn/vm.RecycleOrphanAnonymousBatch.func1 (inline)

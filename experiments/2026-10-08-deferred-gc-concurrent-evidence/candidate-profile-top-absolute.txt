@@ -1,0 +1,24 @@
+File: engine-profile-absolute.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build2857880413\b001\engine.test.exe2026-10-08 01:20:18.1797689 -0600 MDT
+Type: cpu
+Time: 2026-10-08 01:20:18 MDT
+Duration: 6.02s, Total samples = 12530ms (208.27%)
+Showing nodes accounting for 8720ms, 69.59% of 12530ms total
+Dropped 339 nodes (cum <= 62.65ms)
+Showing top 15 nodes out of 145
+      flat  flat%   sum%        cum   cum%
+    1410ms 11.25% 11.25%     2460ms 19.63%  runtime.scanObject
+    1210ms  9.66% 20.91%     2920ms 23.30%  runtime.scanObjectsSmall
+    1080ms  8.62% 29.53%     1080ms  8.62%  runtime.memmove
+     940ms  7.50% 37.03%      940ms  7.50%  runtime.spanClass.sizeclass (inline)
+     750ms  5.99% 43.02%     3150ms 25.14%  github.com/MongooseMoo/barn/vm.(*VM).executeLoop
+     650ms  5.19% 48.20%     1760ms 14.05%  runtime.tryDeferToSpanScan
+     530ms  4.23% 52.43%     1080ms  8.62%  runtime.mapaccess2_fast64
+     510ms  4.07% 56.50%      560ms  4.47%  runtime.findObject
+     350ms  2.79% 59.30%      350ms  2.79%  internal/runtime/maps.ctrlGroup.matchH2 (inline)
+     280ms  2.23% 61.53%      280ms  2.23%  runtime.semawakeup
+     270ms  2.15% 63.69%      510ms  4.07%  runtime.scanObjectSmall
+     230ms  1.84% 65.52%      230ms  1.84%  runtime.extractHeapBitsSmall
+     210ms  1.68% 67.20%     3720ms 29.69%  runtime.scanSpan
+     160ms  1.28% 68.48%      160ms  1.28%  runtime.memclrNoHeapPointers
+     140ms  1.12% 69.59%     5760ms 45.97%  runtime.gcDrain
