@@ -163,8 +163,8 @@ unexpected-skip enforcement were enabled. The warning concerns pytest's
 record_property with xunit2 JUnit output; the gate exited successfully.
 
 The complete Go, static, race, and managed gates cover the production tree at
-`5ae0bc6`. The later commits contain documentation/measurement outputs only;
-`git diff --quiet 5ae0bc6 HEAD -- engine Makefile` returns exit 0. Source diff
+`5ae0bc6`. The commits through `e46c433` contain documentation/measurement outputs only;
+`git diff --quiet 5ae0bc6 e46c433 -- engine Makefile` returns exit 0. Source diff
 whitespace checks pass; captured raw text files preserve native Windows CRLF
 and Go's padding and are intentionally excluded from that whitespace check.
 
@@ -173,3 +173,7 @@ observed synthetic cost recorded. No CI was triggered and no branch/PR was
 published or merged. #270 remains open. The original checkout and unrelated
 worktrees were preserved; the baseline measurement worktree and generated gate
 logs/XML remain available locally.
+
+The later concurrent assessment and authorized router optimization are recorded
+in `2026-10-08-deferred-gc-concurrent.md` and `2026-10-08-deferred-gc-router.md`.
+Their results supersede this phase's performance and final-tree status.

@@ -40,3 +40,100 @@ expanding scheduler scope. Keep merge on hold rather than weaken collection
 progress. Verification includes focused routing/root/lifecycle tests, full Go
 and static gates, relevant race checks, and the documented managed conformance
 gate on the final production tree.
+
+## Implementation and scope review
+
+Contracts/plan: `90a6183`. Production: `0aa7805`. A five-line guard exits the
+request loop when the number of handled unique IDs equals the frozen list size.
+No callback remains possible at that point. Routing still visits requests and
+candidates in their original order and records an ID before calling recycle.
+Nil contexts, later lower floors, callback errors and hook-created objects retain
+their earlier behavior. No locks, tracing roots, cadence, or scheduler paths change.
+The store supplies unique candidates; duplicate input would merely prevent the
+early exit, retaining the previous exactly-once behavior.
+
+The contract tests pass both before and after this performance-only change;
+there is no invented red timing assertion. The fixed microbenchmark captures
+the original request-count scaling and acknowledges every callback. Existing
+allocation and hook-created-object tests and focused engine GC/shutdown tests
+also passed. The review was local; no independent agents were dispatched.
+
+## Five-triple results
+
+Concurrent harness blob in all three worktrees:
+`121d034527dfa4aeef15fc330d35e731dfe64b1e`.
+Routing contract/benchmark blob: `bb5e2216aebb0707ddcd080505b494982a6a0f31`.
+Pre-router worktree is detached at `90a6183`; optimized production is `0aa7805`.
+All fifteen concurrent samples and fifteen microbenchmark samples exited 0.
+Both complete CSV inventories and all thirty raw text samples are preserved in
+`2026-10-08-deferred-gc-router-evidence/`.
+
+| Triple | Short base max ms | Short pre max ms | Short optimized max ms | Long base max ms | Long pre max ms | Long optimized max ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 3223.780 | 2633.997 | 632.580 | 0.536 | 13.664 | 8.844 |
+| 2 | 846.970 | 2794.308 | 698.861 | 247.211 | 6.450 | 5.332 |
+| 3 | 1204.937 | 1056.111 | 688.721 | 19.533 | 34.609 | 4.748 |
+| 4 | 2193.087 | 2509.686 | 499.742 | 0.000 | 8.061 | 16.518 |
+| 5 | 2708.527 | 2495.206 | 561.711 | 0.301 | 10.172 | 8.664 |
+
+The declared regression guard has zero optimized crossings against original
+baseline in both scenarios. Longer-slice optimized admission maxima are
+3.704/5.128/0.532/6.192/4.918 ms. Rapid-allocation command stalls are shorter
+than both matched controls in every triple, but remain 500–699 ms; this change
+does not eliminate bulk recycle cost. Some cheap readings round to zero with
+the observed Windows clock resolution.
+
+Median paired short-case maximum-latency ratio versus pre-router is 0.24016;
+long-case ratio is 0.82667, with one optimized maximum higher than its pre-router
+control. These are descriptive synthetic results, not a production speedup or
+a product responsiveness guarantee. Background completion counts and candidate
+snapshots are retained in the CSV rather than assumed equal between policies.
+
+| Triple | Pre 4096-request ns/op | Optimized 4096-request ns/op |
+| --- | ---: | ---: |
+| 1 | 53300260 | 36441 |
+| 2 | 60627720 | 33298 |
+| 3 | 67834660 | 35182 |
+| 4 | 54383800 | 35695 |
+| 5 | 54023660 | 36220 |
+
+With the same 1,024 candidates, optimized 1/128/4,096-request runs remain around
+33–39 microseconds/op. All variants use five allocations/op. Median paired
+optimized/pre time ratios for 1/128/4,096 requests are
+1.00617/0.02024/0.00065635. The claim is removal of redundant scans after list
+exhaustion; worst-case routing before exhaustion can still scan multiple times.
+
+A live one-second CPU snapshot during sampling showed unrelated work (including
+Docker 1.41 CPU seconds and several Node processes near one CPU second). No
+user process was changed. This shared-host interference and the elevated long
+task quota limit any inference about production latency, particularly the large
+original-baseline outlier in triple two. All samples remain included.
+
+## Profile holdout
+
+A separate optimized rapid-allocation profile, excluded from the triples,
+processed 27,030 background invocations in the observation window. The routing
+profile shows 10 ms cumulative at the already-handled check, versus 1.09 seconds
+in the earlier separate unoptimized profile. Recycle callbacks now account for
+900 ms of the router's 910 ms cumulative CPU. Work counts/host conditions differ,
+so this is attribution supporting the fixed microbenchmark, not a paired CPU
+speedup estimate. Maximum command delay was 660.957 ms; sweep service 985.434 ms.
+The remaining bulk-recycling cost is a distinct optimization question.
+
+The binary/profile remain local; readable profile output is committed with the
+sample evidence. No scheduler safepoint change is warranted by this bounded result.
+
+## Final verification in progress
+
+The full Go suite, vet, build, pinned staticcheck v0.8.1, and Python benchmark
+driver gate exited 0 on the optimized production tree. Relevant race checks
+(`go test -race ./db/store ./engine/... ./vm ./types -count=1 -timeout=600s`)
+also exited 0 (engine 126.591s; VM 56.303s). Canonical managed WSL Toast with
+`K="anonymous or waif or shutdown"`, retaining capability admission, returned
+`135 passed, 61 skipped, 12894 deselected in 386.54s`; managed oracle exit 0.
+The full managed Barn conformance run is still in progress. Its terminal output
+will be recorded before finalizing the recommendation.
+
+Raw benchmark output retains Windows CRLF and Go's padded CPU description.
+Strict whitespace checks apply to source/records; raw-output checks account for
+those captured formatting characters rather than rewriting measurement evidence.

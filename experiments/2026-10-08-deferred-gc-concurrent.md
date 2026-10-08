@@ -119,8 +119,11 @@ harness_race_exit=0
 ```
 
 Race-instrumented measurements are diagnostic and are excluded from the paired
-performance samples. Production engine/VM source and the managed gate configuration
-remain unchanged. The earlier full Go/race/managed evidence covers that production
-tree; the concurrent assessment does not replace exact-head CI before merge.
+performance samples. Through assessment commit `cb4c607`, production engine/VM
+source and the managed gate configuration remained unchanged. The earlier full
+Go/race/managed evidence covers that production tree; the concurrent assessment
+does not replace exact-head CI before merge. Subsequent router implementation and
+verification are recorded in `2026-10-08-deferred-gc-router.md`.
 No collector optimization, scheduler redesign, publication, or merge is included
-in this assessment. The next implementation step is the measured router optimization.
+in this assessment. The router optimization was subsequently authorized and
+implemented in the next recorded phase.

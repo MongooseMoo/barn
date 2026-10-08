@@ -1,0 +1,10 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkRecycleFrozenAnonymousCandidates/requests_1-4         	    8955	     34775 ns/op	   36944 B/op	       5 allocs/op
+BenchmarkRecycleFrozenAnonymousCandidates/requests_128-4       	     176	   1715005 ns/op	   36944 B/op	       5 allocs/op
+BenchmarkRecycleFrozenAnonymousCandidates/requests_4096-4      	       5	  54023660 ns/op	   36944 B/op	       5 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/vm	1.705s
+benchmark_exit=0
