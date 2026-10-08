@@ -77,7 +77,7 @@ conformance conformance-v conformance-x conformance-k: conformance-build
 conformance-toast:
 	test -x "$(TOAST_MOO)"
 	$(MANAGED_CONFORMANCE) \
-		--server-command='"$(TOAST_MOO)" {db} {db}.out -p {port}' \
+		--server-command='"$(TOAST_MOO)" {db} {db}.new -p {port}' \
 		--target-profile-manifest="$(CURDIR)/profiles/toast/stock-wsl-testdb.json" -q
 
 # Help
