@@ -58,6 +58,27 @@ func BenchmarkTxnFindVerbAncestry(b *testing.B) {
 	}
 }
 
+// BenchmarkTxnHasAncestor is isa() and occupants() from a leaf: once to the
+// root (a hit after the whole chain) and once to an unrelated object (a miss).
+func BenchmarkTxnHasAncestor(b *testing.B) {
+	const depth = 6
+	s := benchChainStore(b, depth, 0)
+	if err := s.Add(NewObject(depth, 0)); err != nil {
+		b.Fatalf("Add unrelated: %v", err)
+	}
+	leaf := types.ObjID(depth - 1)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if !tx.HasAncestor(leaf, 0) || tx.HasAncestor(leaf, depth) {
+			b.Fatal("HasAncestor gave the wrong answer")
+		}
+	}
+}
+
 func BenchmarkTxnFindVerbMissing(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)

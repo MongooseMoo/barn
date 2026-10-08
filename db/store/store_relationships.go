@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"time"
 
 	"github.com/MongooseMoo/barn/types"
@@ -218,15 +219,13 @@ func (s *Store) hasAncestor(objID, ancestorID types.ObjID) bool {
 		return true
 	}
 
-	seen := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), obj.parents...)
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if seen[currentID] {
+	var buf [ancestorWalkInline]types.ObjID
+	queue := append(buf[:0], obj.parents...)
+	for head := 0; head < len(queue); head++ {
+		currentID := queue[head]
+		if slices.Contains(queue[:head], currentID) {
 			continue
 		}
-		seen[currentID] = true
 		if currentID == ancestorID {
 			return true
 		}
@@ -237,6 +236,10 @@ func (s *Store) hasAncestor(objID, ancestorID types.ObjID) bool {
 	}
 	return false
 }
+
+// ancestorWalkInline is how many queued parent ids a HasAncestor walk holds on
+// the stack before it spills to the heap.
+const ancestorWalkInline = 32
 
 func (s *Store) HasDescendant(objID, descendantID types.ObjID) bool {
 	s.mu.RLock()

@@ -307,30 +307,29 @@ func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
 	if tx.direct {
 		return tx.store.hasAncestor(objID, ancestorID)
 	}
-	if !validLiveObject(tx.object(objID)) || !validLiveObject(tx.object(ancestorID)) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) || !validLiveObject(tx.object(ancestorID)) {
 		return false
 	}
 	if objID == ancestorID {
 		return true
 	}
-	seen := make(map[types.ObjID]bool)
-	parents, ec := tx.Parents(objID)
-	if ec != types.E_NONE {
-		return false
-	}
-	queue := append([]types.ObjID(nil), parents...)
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if seen[currentID] {
+	tx.markObjectRelationshipRead(objID, obj)
+	// The queue keeps the ids already visited ahead of head, so it doubles as the
+	// seen set and an ordinary ancestry is walked without allocating.
+	var buf [ancestorWalkInline]types.ObjID
+	queue := append(buf[:0], obj.parents...)
+	for head := 0; head < len(queue); head++ {
+		currentID := queue[head]
+		if slices.Contains(queue[:head], currentID) {
 			continue
 		}
-		seen[currentID] = true
 		if currentID == ancestorID {
 			return true
 		}
-		if p, ec := tx.Parents(currentID); ec == types.E_NONE {
-			queue = append(queue, p...)
+		if current := tx.object(currentID); validLiveObject(current) {
+			tx.markObjectRelationshipRead(currentID, current)
+			queue = append(queue, current.parents...)
 		}
 	}
 	return false

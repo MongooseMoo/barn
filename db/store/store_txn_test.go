@@ -175,6 +175,66 @@ func TestTransactionChildrenTracksRelationshipRead(t *testing.T) {
 	}
 }
 
+func TestHasAncestorWalksMultipleInheritanceAndTracksReads(t *testing.T) {
+	store := NewStore()
+	// #0 root; #1 and #2 under it; #3 under both; #4 unrelated; #5.. a chain
+	// under #3 longer than the walk's inline queue.
+	const last = types.ObjID(5 + 2*ancestorWalkInline)
+	for id := types.ObjID(0); id <= last; id++ {
+		if err := store.Add(NewObject(id, 0)); err != nil {
+			t.Fatalf("Add #%d failed: %v", id, err)
+		}
+	}
+	parents := map[types.ObjID][]types.ObjID{1: {0}, 2: {0}, 3: {1, 2}}
+	for id := types.ObjID(5); id <= last; id++ {
+		parents[id] = []types.ObjID{id - 1}
+	}
+	parents[5] = []types.ObjID{3}
+	for id := types.ObjID(1); id <= last; id++ {
+		if p := parents[id]; p != nil {
+			if errCode := store.ChangeParents(id, p); errCode != types.E_NONE {
+				t.Fatalf("ChangeParents #%d failed: %v", id, errCode)
+			}
+		}
+	}
+
+	cases := []struct {
+		obj, ancestor types.ObjID
+		want          bool
+	}{
+		{3, 3, true}, {3, 1, true}, {3, 2, true}, {3, 0, true},
+		{3, 4, false}, {0, 3, false}, {4, 0, false},
+		{last, 0, true}, {last, 2, true}, {last, 4, false},
+		{3, last + 1, false}, {last + 1, 0, false},
+	}
+	for _, tc := range cases {
+		tx := store.BeginSnapshot(0)
+		if got := tx.HasAncestor(tc.obj, tc.ancestor); got != tc.want {
+			t.Errorf("snapshot HasAncestor(#%d, #%d) = %v, want %v", tc.obj, tc.ancestor, got, tc.want)
+		}
+		tx.Release()
+		if got := store.DirectTxn().HasAncestor(tc.obj, tc.ancestor); got != tc.want {
+			t.Errorf("direct HasAncestor(#%d, #%d) = %v, want %v", tc.obj, tc.ancestor, got, tc.want)
+		}
+	}
+
+	// A hit reads the parents of every object walked before the ancestor turned
+	// up, and not the ancestor's own.
+	tx := store.BeginSnapshot(0)
+	defer tx.Release()
+	if !tx.HasAncestor(3, 0) {
+		t.Fatal("HasAncestor(#3, #0) = false, want true")
+	}
+	for _, id := range []types.ObjID{3, 1, 2} {
+		if _, ok := tx.relationshipReads[id]; !ok {
+			t.Errorf("walk did not record a relationship read of #%d", id)
+		}
+	}
+	if got := len(tx.relationshipReads); got != 3 {
+		t.Errorf("walk recorded %d relationship reads, want 3", got)
+	}
+}
+
 func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
