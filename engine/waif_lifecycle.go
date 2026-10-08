@@ -96,6 +96,7 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 			Waif: waif, Ctx: ctx, Task: owner, OwnRefs: ownRefs, DirectRoots: direct,
 		})
 	}
+	s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
 }
 
@@ -134,6 +135,7 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 	s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{
 		Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil, Task: owner,
 	})
+	s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
 }
 
@@ -208,9 +210,16 @@ func (s *Runtime) flushDeferredGC() {
 	// Serialize sweeps, then stop new VM starts before testing quiescence. Both
 	// locks remain held through root capture, batch drain, and every recycle hook.
 	// This makes the captured VM roots valid for the complete sweep.
-	s.lifecycle.SweepMu.Lock()
+	// A task may still borrow an outer admission reservation here. Never wait
+	// behind a maintenance owner while retaining that reservation; the separate
+	// worker will retry a skipped opportunistic sweep.
+	if !s.lifecycle.SweepMu.TryLock() {
+		return
+	}
 	defer s.lifecycle.SweepMu.Unlock()
-	s.lifecycle.VMStartMu.Lock()
+	if !s.lifecycle.VMStartMu.TryLock() {
+		return
+	}
 	defer s.lifecycle.VMStartMu.Unlock()
 
 	// Another flush may have settled the batch while this goroutine waited.
@@ -238,6 +247,8 @@ func (s *Runtime) flushDeferredGC() {
 	anonBatch := s.lifecycle.PendingAnonGC
 	s.lifecycle.PendingWaifs = nil
 	s.lifecycle.PendingAnonGC = nil
+	s.lifecycle.PendingSince = time.Time{}
+	s.lifecycle.RetryAfter = time.Time{}
 	s.lifecycle.LastGCSweep = time.Now()
 	s.lifecycle.GCRunning = true
 	s.lifecycle.Mu.Unlock()
@@ -251,6 +262,7 @@ func (s *Runtime) flushDeferredGC() {
 		s.lifecycle.Mu.Lock()
 		s.lifecycle.LastGCCost = cost
 		s.lifecycle.GCRunning = false
+		s.wakeDeferredGCMaintenanceLocked()
 		publish := s.canPublishShutdownLocked()
 		if publish {
 			s.lifecycle.ShutdownPublishing = true
@@ -393,6 +405,7 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 		ctx.DeferredGC = true
 		s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: id})
 	}
+	s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
 }
 
