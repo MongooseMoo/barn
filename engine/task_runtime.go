@@ -120,12 +120,12 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	execReadyAt := t.TakeExecReadyTime()
 	var bcVM *vm.VM
 	var sliceTicks int64
-	gateHeld := false
+	var gate sliceGate
 	defer func() {
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
 			slog.Debug("slow task slice", slog.Int64("task_id", t.ID),
 				slog.Int64("this", int64(t.This)), slog.String("verb", t.VerbName),
-				slog.Int64("ticks", sliceTicks), slog.Bool("gate_held", gateHeld),
+				slog.Int64("ticks", sliceTicks), slog.Bool("gate_held", gate.everHeld),
 				slog.Duration("elapsed", elapsed), slog.Any("err", retErr))
 		}
 	}()
@@ -188,16 +188,10 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	}()
 	attempt := 0
 	var sliceEntryTicks int64
-	escalated := false
-	var exclusive *commitgate.Grant
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
 	// gate must never outlive this invocation. The common path releases it
 	// explicitly right after the attempt's commit resolves.
-	defer func() {
-		if escalated {
-			exclusive.Release()
-		}
-	}()
+	defer gate.drop()
 
 retryAttempt:
 	if err := taskCtx.Err(); err != nil {
@@ -209,17 +203,13 @@ retryAttempt:
 	// slice that cannot retry has exactly one defence against a lost commit —
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
-	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !escalated {
-		waitStart := time.Now()
-		var err error
-		exclusive, err = s.store.AcquireExclusive(taskCtx)
-		scope.Waited(time.Since(waitStart))
+	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !gate.held() {
+		gateWait, err := gate.acquire(taskCtx, s.store)
+		scope.Waited(gateWait)
 		if err != nil {
 			t.SetState(task.TaskKilled)
 			return err
 		}
-		escalated = true
-		gateHeld = true
 	}
 	if attempt > 0 {
 		retryState.restore(t)
@@ -257,12 +247,12 @@ retryAttempt:
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	ctx.StoreTxn.SetCommitContext(taskCtx)
-	if escalated {
+	if gate.held() {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
 		// validation to one. The txn must skip the shared gate or it would
 		// deadlock against our own exclusive hold.
-		ctx.StoreTxn.BindExclusiveGrant(exclusive)
+		gate.bind(ctx.StoreTxn)
 	}
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
@@ -288,22 +278,17 @@ retryAttempt:
 	// concurrent readers before its second half exists; none of them can commit
 	// on that view until this attempt has.
 	ctx.BeforeIrreversibleEffect = func() bool {
-		if escalated {
+		if gate.held() {
 			return false
 		}
-		waitStart := time.Now()
-		var err error
-		exclusive, err = s.store.AcquireExclusive(taskCtx)
+		gateWait, err := gate.acquire(taskCtx, s.store)
 		if err != nil {
 			ctx.ConflictRetryRequested = true
 			return true
 		}
-		gateWait := time.Since(waitStart)
 		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
-		escalated = true
-		gateHeld = true
-		ctx.StoreTxn.BindExclusiveGrant(exclusive)
+		gate.bind(ctx.StoreTxn)
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
 		slog.Debug("irreversible-effect boundary",
@@ -332,19 +317,6 @@ retryAttempt:
 		return false
 	}
 	ctx.RuntimeOptions = s.options
-
-	// releaseEscalation hands the commit gate back once this attempt's commits
-	// are decided. Everything after it — completion hooks, the suspend hand-off,
-	// a failure-path txn that lives on — takes the gate normally. Checkpoint
-	// requests are handled independently by the server loop.
-	releaseEscalation := func() {
-		if !escalated {
-			return
-		}
-		ctx.StoreTxn.ClearCommitGateExemption()
-		exclusive.Release()
-		escalated = false
-	}
 
 	// A task resuming after suspend runs under background limits: Toast treats
 	// resumed tasks as background tasks, and time spent suspended does not count
@@ -386,7 +358,7 @@ retryAttempt:
 	// commit gate would deadlock every admitted committer. A borrowed scope is
 	// its owner's to lend.
 	preempt := func() {
-		if !ownsScope || escalated {
+		if !ownsScope || gate.held() {
 			return
 		}
 		if wait := scope.Yield(); wait > 0 {
@@ -424,11 +396,7 @@ retryAttempt:
 		// body issues before reaching the boundary. The bounded escalation above
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
-		if escalated {
-			ctx.StoreTxn.ClearCommitGateExemption()
-			exclusive.Release()
-			escalated = false
-		}
+		gate.release(ctx.StoreTxn)
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 		s.store.NoteCommitRetry()
@@ -497,8 +465,11 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
-	// Every suspension yields the commit gate along with execution.
-	releaseEscalation()
+	// Every suspension yields the commit gate along with execution. Everything
+	// after this point (completion hooks, the suspend hand-off, a failure-path
+	// txn that lives on) takes the gate normally. Checkpoint requests are
+	// handled independently by the server loop.
+	gate.release(ctx.StoreTxn)
 
 	// Check context deadline
 	select {
@@ -512,7 +483,7 @@ retryAttempt:
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
-		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, releaseEscalation)
+		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, &gate)
 		return nil
 	}
 
@@ -701,7 +672,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 // slice's garbage for the next flush, commits what the slice wrote since its
 // main commit, and saves the VM for the scheduler to resume. A failed commit
 // kills the task instead.
-func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, releaseEscalation func()) {
+func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
 	// A suspend is a waif liveness boundary as well as an anonymous-object
 	// boundary. Values overwritten before the yield are no longer live in the
 	// saved VM, so queue them now; the flush-time scan of the registered VM
@@ -727,7 +698,7 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 			t.SetBytecodeVM(nil)
 			s.discardCreatedForks(t)
 			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
-			releaseEscalation()
+			gate.release(ctx.StoreTxn)
 			return
 		}
 		// The commit published this slice's forks; the runtime owns them now.
@@ -872,6 +843,57 @@ func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, 
 	}
 	// Clean up call stack after traceback has been sent
 	t.ClearCallStack()
+}
+
+// sliceGate is one task slice's hold on the store's exclusive commit gate. A
+// slice takes it when it can no longer afford to lose a commit and gives it
+// back once that attempt's commit is decided.
+type sliceGate struct {
+	grant *commitgate.Grant // nil while the gate is not held
+	// everHeld records that the slice held the gate at some point, for the
+	// slow-slice log.
+	everHeld bool
+}
+
+func (g *sliceGate) held() bool { return g.grant != nil }
+
+// acquire takes the gate and reports how long that took, whether or not it
+// succeeded.
+func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store) (time.Duration, error) {
+	waitStart := time.Now()
+	grant, err := store.AcquireExclusive(ctx)
+	wait := time.Since(waitStart)
+	if err != nil {
+		return wait, err
+	}
+	g.grant = grant
+	g.everHeld = true
+	return wait, nil
+}
+
+// bind lets txn commit under this slice's own exclusive hold, where taking
+// the shared gate would deadlock.
+func (g *sliceGate) bind(txn *dbstore.StoreTxn) {
+	txn.BindExclusiveGrant(g.grant)
+}
+
+// release hands the gate back and re-arms the shared gate on txn. It does
+// nothing when the gate is not held.
+func (g *sliceGate) release(txn *dbstore.StoreTxn) {
+	if g.grant == nil {
+		return
+	}
+	txn.ClearCommitGateExemption()
+	g.drop()
+}
+
+// drop hands the gate back without touching any transaction.
+func (g *sliceGate) drop() {
+	if g.grant == nil {
+		return
+	}
+	g.grant.Release()
+	g.grant = nil
 }
 
 type taskRetryState struct {
