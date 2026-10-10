@@ -118,6 +118,11 @@ func (s *Server) LoadDatabase() error {
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
 
+	// Loading allocates several times what the store keeps. Collect it and
+	// return the freed memory to the system now, once, instead of leaving the
+	// process at its load-time size until the runtime releases it gradually.
+	debug.FreeOSMemory()
+
 	// Counters are incremented where the events happen; these two are read on
 	// demand because "how many right now" is a question about live state.
 	metrics.PublishGauge("barn.tasks_live", s.runtime.LiveTaskCount)
