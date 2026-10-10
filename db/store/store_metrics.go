@@ -7,9 +7,10 @@ import (
 )
 
 // PropertySlotCensus counts the property slots held by live objects: how many
-// objects, how many slots in all, and how many of those slots are clear
-// (inheriting their value).
-func (s *Store) PropertySlotCensus() (objects, slots, clearSlots int) {
+// objects, how many slots in all, how many of those slots are clear
+// (inheriting their value), and how many slots objects store privately
+// instead of reading them from a shared base.
+func (s *Store) PropertySlotCensus() (objects, slots, clearSlots, privateSlots int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -20,6 +21,7 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots int) {
 		}
 		objects++
 		slots += obj.properties.count()
+		privateSlots += obj.properties.privateCount()
 		for _, prop := range obj.properties.all() {
 			if prop.clear {
 				clearSlots++
@@ -27,7 +29,28 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots int) {
 		}
 		return true
 	})
-	return objects, slots, clearSlots
+	return objects, slots, clearSlots, privateSlots
+}
+
+// ShareLoadedPropertySlots moves every numbered object's property slots onto
+// shared bases: objects with the same slot names and the same owner and perms
+// on each slot point at one base and keep privately only the slots they set.
+// What any object's properties read as does not change.
+//
+// Call it once, after the last loaded object is added and before the store is
+// served. Objects created afterwards are not shared.
+func (s *Store) ShareLoadedPropertySlots() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pool := newPropSharePool()
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
+		obj := slot.ptr.Load()
+		if obj != nil && !obj.recycled {
+			obj.properties.share(pool)
+		}
+		return true
+	})
 }
 
 func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
