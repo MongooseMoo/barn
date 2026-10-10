@@ -50,10 +50,10 @@ func evaluateExpression(binPath, dbPath, expr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to copy db to scratch: %w", err)
 	}
-	defer os.Remove(scratchDB)
+	defer func() { _ = os.Remove(scratchDB) }()
 
 	outDB := scratchDB + ".out"
-	defer os.Remove(outDB)
+	defer func() { _ = os.Remove(outDB) }()
 
 	cmd := exec.Command(binPath, "-e", scratchDB, outDB)
 
@@ -97,7 +97,7 @@ func copyToScratch(dbPath string) (string, error) {
 	defer dst.Close()
 
 	if _, err := dst.ReadFrom(src); err != nil {
-		os.Remove(dst.Name())
+		_ = os.Remove(dst.Name())
 		return "", err
 	}
 	return dst.Name(), nil

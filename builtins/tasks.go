@@ -203,7 +203,7 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	taskID := args[0].Int()
 
 	// Get the value to pass to the resumed task
-	var value types.Value = types.NewInt(0)
+	value := types.NewInt(0)
 	if len(args) == 2 {
 		value = args[1]
 	}

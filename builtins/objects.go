@@ -397,7 +397,7 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	var oldParents []types.ObjID
 	var oldChildren []types.ObjID
 	var oldContents []types.ObjID
-	oldLocation := types.ObjNothing
+	var oldLocation types.ObjID
 	tx := readTxn(ctx)
 	var errCode types.ErrorCode
 	oldParents, errCode = tx.Parents(objID)

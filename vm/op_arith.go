@@ -261,7 +261,7 @@ func (vm *VM) executeMod() error {
 	aIsFloat := a.Type() == types.TYPE_FLOAT
 	bIsFloat := b.Type() == types.TYPE_FLOAT
 
-	if !(aIsInt || aIsFloat) || !(bIsInt || bIsFloat) {
+	if (!aIsInt && !aIsFloat) || (!bIsInt && !bIsFloat) {
 		return newMooError(types.E_TYPE, "invalid operands for %")
 	}
 	// PROMOTE_NUMBERS: mixed int/float -> promote both to float, then run the

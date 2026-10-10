@@ -165,7 +165,7 @@ func pruneRuns(dir string) {
 	}
 	sort.Strings(matches)
 	for _, stale := range matches[:len(matches)-runsRetained] {
-		os.Remove(stale)
+		_ = os.Remove(stale)
 	}
 }
 

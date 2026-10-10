@@ -253,7 +253,8 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
-	if ownership == vmOwnershipNone {
+	switch ownership {
+	case vmOwnershipNone:
 		if !s.acquireTaskExecution(t) {
 			return types.Err(types.E_INTRPT)
 		}
@@ -261,7 +262,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		leasedTask = t
 		ownership = vmOwnershipExecution
 		ownerTaskID = t.ID
-	} else if ownership == vmOwnershipExecution {
+	case vmOwnershipExecution:
 		s.acquireInheritedTaskExecution(ownerTaskID)
 		inheritedLease = true
 	}

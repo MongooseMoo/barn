@@ -464,10 +464,11 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			// Verb name can be static or dynamic
 			var verbName string
 			var verbExpr verb.Expr
-			if p.current.Type == TOKEN_IDENTIFIER {
+			switch p.current.Type {
+			case TOKEN_IDENTIFIER:
 				verbName = p.current.Value
 				p.nextToken()
-			} else if p.current.Type == TOKEN_LPAREN {
+			case TOKEN_LPAREN:
 				// Dynamic verb name: expr:(expr)(args)
 				p.nextToken() // consume '('
 				var err error
@@ -479,7 +480,7 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 					return nil, fmt.Errorf("expected ')' after dynamic verb name, got %s", p.current.Type)
 				}
 				p.nextToken() // consume ')'
-			} else {
+			default:
 				return nil, fmt.Errorf("expected verb name after ':', got %s", p.current.Type)
 			}
 

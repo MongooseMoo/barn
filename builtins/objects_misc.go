@@ -45,7 +45,7 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 	var oldChildren []types.ObjID
 	var oldAnonymousChildren []types.ObjID
 	var oldContents []types.ObjID
-	oldLocation := types.ObjNothing
+	var oldLocation types.ObjID
 	tx := readTxn(ctx)
 	var errCode types.ErrorCode
 	oldParents, errCode = tx.Parents(oldID)

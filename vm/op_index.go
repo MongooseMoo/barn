@@ -152,7 +152,7 @@ func (vm *VM) executeRangeSet() error {
 		length := coll.Len()
 
 		// Bounds check
-		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > int64(length)+1 {
+		if (startIdx < 1 && (startIdx != 0 || endIdx != 0)) || startIdx > int64(length)+1 {
 			return newMooError(types.E_RANGE, "list range start out of bounds")
 		}
 		if endIdx < 0 {
@@ -195,7 +195,7 @@ func (vm *VM) executeRangeSet() error {
 		strLen := int64(coll.StrCharLen())
 
 		// Bounds check
-		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > strLen+1 {
+		if (startIdx < 1 && (startIdx != 0 || endIdx != 0)) || startIdx > strLen+1 {
 			return newMooError(types.E_RANGE, "string range start out of bounds")
 		}
 		if endIdx < 0 {
@@ -441,21 +441,23 @@ func (vm *VM) executeIndexMarker() error {
 
 	switch coll.Type() {
 	case types.TYPE_LIST:
-		if marker == bytecode.IndexMarkerFirst {
+		switch marker {
+		case bytecode.IndexMarkerFirst:
 			vm.Push(types.NewInt(1))
-		} else if marker == bytecode.IndexMarkerLast {
+		case bytecode.IndexMarkerLast:
 			vm.Push(types.NewInt(int64(coll.Len())))
-		} else {
+		default:
 			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil
 
 	case types.TYPE_STR:
-		if marker == bytecode.IndexMarkerFirst {
+		switch marker {
+		case bytecode.IndexMarkerFirst:
 			vm.Push(types.NewInt(1))
-		} else if marker == bytecode.IndexMarkerLast {
+		case bytecode.IndexMarkerLast:
 			vm.Push(types.NewInt(int64(coll.StrCharLen())))
-		} else {
+		default:
 			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil
@@ -464,22 +466,24 @@ func (vm *VM) executeIndexMarker() error {
 		keys := coll.Keys()
 		if len(keys) == 0 {
 			// Preserve empty-collection marker shape; downstream index ops return E_RANGE.
-			if marker == bytecode.IndexMarkerFirst {
+			switch marker {
+			case bytecode.IndexMarkerFirst:
 				vm.Push(types.NewInt(1))
-			} else if marker == bytecode.IndexMarkerLast {
+			case bytecode.IndexMarkerLast:
 				vm.Push(types.NewInt(0))
-			} else {
+			default:
 				return newMooError(types.E_INVARG, "invalid index marker")
 			}
 			return nil
 		}
 
 		// Keys() is already rbtree traversal order (Toast's first/last).
-		if marker == bytecode.IndexMarkerFirst {
+		switch marker {
+		case bytecode.IndexMarkerFirst:
 			vm.Push(keys[0])
-		} else if marker == bytecode.IndexMarkerLast {
+		case bytecode.IndexMarkerLast:
 			vm.Push(keys[len(keys)-1])
-		} else {
+		default:
 			return newMooError(types.E_INVARG, "invalid index marker")
 		}
 		return nil

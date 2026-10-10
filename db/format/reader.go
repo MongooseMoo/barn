@@ -152,11 +152,12 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	}
 
 	// Version-specific parsing
-	if database.Version == 4 {
+	switch database.Version {
+	case 4:
 		database, err = database.parseV4(r)
-	} else if database.Version == 5 {
+	case 5:
 		database, err = database.parseV5(r)
-	} else {
+	default:
 		database, err = database.parseV17(r)
 	}
 	if err != nil {

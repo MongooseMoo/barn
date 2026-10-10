@@ -299,9 +299,9 @@ func isValidBinaryString(s string) bool {
 			}
 			// Check if next two characters are valid hex digits
 			c1, c2 := s[i+1], s[i+2]
-			// isHexDigit is defined in strings.go
-			if !((c1 >= '0' && c1 <= '9') || (c1 >= 'A' && c1 <= 'F') || (c1 >= 'a' && c1 <= 'f')) ||
-				!((c2 >= '0' && c2 <= '9') || (c2 >= 'A' && c2 <= 'F') || (c2 >= 'a' && c2 <= 'f')) {
+			hex1 := (c1 >= '0' && c1 <= '9') || (c1 >= 'A' && c1 <= 'F') || (c1 >= 'a' && c1 <= 'f')
+			hex2 := (c2 >= '0' && c2 <= '9') || (c2 >= 'A' && c2 <= 'F') || (c2 >= 'a' && c2 <= 'f')
+			if !hex1 || !hex2 {
 				return false
 			}
 			i += 3

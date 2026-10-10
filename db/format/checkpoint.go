@@ -81,24 +81,24 @@ func writeCheckpoint(
 	writer.SetActiveConnections(activeConnections)
 	if err := writer.WriteDatabase(); err != nil {
 		tempFile.Close()
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("write database: %w", err)
 	}
 
 	if err := tempFile.Sync(); err != nil {
 		tempFile.Close()
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("sync temp file: %w", err)
 	}
 
 	if err := tempFile.Close(); err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("close temp file: %w", err)
 	}
 	sidecarTempPath := tempPath + waifIdentitySidecarSuffix
 	if err := writeWaifIdentitySidecar(sidecarTempPath, tempPath, writer.waifIdentities); err != nil {
-		os.Remove(tempPath)
-		os.Remove(sidecarTempPath)
+		_ = os.Remove(tempPath)
+		_ = os.Remove(sidecarTempPath)
 		return err
 	}
 

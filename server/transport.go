@@ -138,18 +138,19 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 
 		case telnetStateIAC:
 			t.tCommand = append(t.tCommand, b)
-			if b == tnIAC {
+			switch b {
+			case tnIAC:
 				// Escaped IAC (0xFF 0xFF) -> literal 0xFF in input
 				t.tState = telnetStateNormal
 				t.tCommand = t.tCommand[:0]
 				// Don't add to line - literal 0xFF in text is unusual
-			} else if b == tnSB {
+			case tnSB:
 				// Start of subnegotiation
 				t.tState = telnetStateSubneg
-			} else if b == tnWILL || b == tnWONT || b == tnDO || b == tnDONT {
+			case tnWILL, tnWONT, tnDO, tnDONT:
 				// Two-byte command (WILL/WONT/DO/DONT + option byte)
 				t.tState = telnetStateCommand
-			} else {
+			default:
 				// Unknown command byte - consume and return to normal
 				oob := formatTelnetCommand(t.tCommand)
 				t.tCommand = t.tCommand[:0]
@@ -176,16 +177,17 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 
 		case telnetStateSubnegIAC:
 			t.tCommand = append(t.tCommand, b)
-			if b == tnSE {
+			switch b {
+			case tnSE:
 				// End of subnegotiation
 				oob := formatTelnetCommand(t.tCommand)
 				t.tCommand = t.tCommand[:0]
 				t.tState = telnetStateNormal
 				return oob, true, nil
-			} else if b == tnIAC {
+			case tnIAC:
 				// Escaped IAC within subnegotiation - stay in subneg
 				t.tState = telnetStateSubneg
-			} else {
+			default:
 				// Unexpected byte after IAC in subneg - back to subneg
 				t.tState = telnetStateSubneg
 			}

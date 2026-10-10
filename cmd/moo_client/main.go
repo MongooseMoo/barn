@@ -113,7 +113,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error opening event log: %v\n", err)
 		os.Exit(1)
 	}
-	defer events.close()
+	defer func() { _ = events.close() }()
 
 	// Load commands from file if specified
 	if file != "" {
@@ -136,7 +136,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if maxDuration > 0 {
 		timer := startMaxDuration(conn, time.Duration(maxDuration)*time.Second, events)
 		defer timer.Stop()
@@ -230,11 +230,11 @@ func readOutput(conn net.Conn, done chan struct{}, idle time.Duration, events *e
 
 	buf := make([]byte, 4096)
 	for {
-		conn.SetReadDeadline(time.Now().Add(idle))
+		_ = conn.SetReadDeadline(time.Now().Add(idle))
 		n, err := conn.Read(buf)
 		if n > 0 {
 			events.record(clientEvent{Event: "receive", Bytes: n, Text: string(buf[:n])}, time.Now())
-			os.Stdout.Write(buf[:n])
+			_, _ = os.Stdout.Write(buf[:n])
 			prompts.feed(string(buf[:n]))
 		}
 		if err != nil {

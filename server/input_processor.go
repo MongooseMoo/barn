@@ -112,7 +112,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			Done:         done,
 		})
 		<-done
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	connectTimeout := 5 * time.Minute
@@ -376,7 +376,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		}
 		return
 	}
-	if !(oob && !disableOOB) {
+	if !oob || disableOOB {
 		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.Line, false)
 		if handled {
 			if flushed != nil && p.connManager != nil {
@@ -458,7 +458,7 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool, onProcessed func()) {
 	oob := strings.HasPrefix(line, "#$#")
 	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
-	if !(oob && !disableOOB) {
+	if !oob || disableOOB {
 		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
 		if handled {
 			if onProcessed != nil {
@@ -740,7 +740,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			return
 		}
 		conn.SetLastInputTaskID(0)
-		conn.Send("I couldn't understand that.")
+		_ = conn.Send("I couldn't understand that.")
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
@@ -753,14 +753,14 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
 	err := p.runtime.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, conn.SetLastInputTaskID)
 	if errors.Is(err, engine.ErrCommandVerbNoCode) {
-		conn.Send(emptyMessage)
+		_ = conn.Send(emptyMessage)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return
 	}
 	if err != nil {
-		conn.Send(err.Error())
+		_ = conn.Send(err.Error())
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
@@ -826,18 +826,18 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 	conn.mu.Unlock()
 
 	if !p.store.FindLocalVerbForProgramming(target, verbName) {
-		conn.Send("Verb not found")
+		_ = conn.Send("Verb not found")
 		return true
 	}
 	_, diagnostics := p.runtime.Registry().Compiler().CompileMOO(lines)
 	if len(diagnostics) > 0 {
 		for _, diagnostic := range diagnostics {
-			conn.Send(diagnostic.Error())
+			_ = conn.Send(diagnostic.Error())
 		}
 		return true
 	}
 	if errCode := p.store.DirectTxn().SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
-		conn.Send("Verb not found")
+		_ = conn.Send("Verb not found")
 		return true
 	}
 	return true
@@ -846,7 +846,7 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 func (p *InputProcessor) startProgrammingMode(conn *Connection, player, location types.ObjID, spec string) {
 	target, verbName, ok := p.parseProgramTarget(player, location, spec)
 	if !ok {
-		conn.Send("Verb not found")
+		_ = conn.Send("Verb not found")
 		return
 	}
 	conn.mu.Lock()

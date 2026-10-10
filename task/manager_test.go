@@ -25,9 +25,10 @@ func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 		candidate.SetReadingPlayer(player)
 		candidate.SetState(TaskSuspended)
 		manager.RegisterTask(candidate)
-		if sequence == 1 {
+		switch sequence {
+		case 1:
 			oldest = candidate
-		} else if sequence == 2 {
+		case 2:
 			nextOldest = candidate
 		}
 	}
