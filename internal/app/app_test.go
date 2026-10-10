@@ -3,11 +3,15 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	dbformat "github.com/MongooseMoo/barn/db/format"
 )
 
 func TestRunListsProfilesToConfiguredOutput(t *testing.T) {
@@ -93,5 +97,40 @@ func TestRunInspectionReturnsErrorRatherThanExiting(t *testing.T) {
 	err := Run(context.Background(), cfg, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("Run inspection succeeded, want parse error")
+	}
+}
+
+func TestRunInspectionRefusesPendingCheckpointPublication(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "Test_fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"eval", "dump"} {
+		t.Run(flag, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "x.db")
+			if err := os.WriteFile(path, source, 0600); err != nil {
+				t.Fatal(err)
+			}
+			journal := path + ".publication"
+			if err := os.WriteFile(journal, []byte("{}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := DefaultConfig()
+			cfg.DatabasePath = path
+			cfg.DebugAddr = "off"
+			if flag == "eval" {
+				cfg.Eval = "1 + 2"
+			} else {
+				cfg.DumpPath = filepath.Join(directory, "copy.db")
+			}
+			err := Run(context.Background(), cfg, &bytes.Buffer{}, &bytes.Buffer{})
+			if !errors.Is(err, dbformat.ErrCheckpointRecoveryPending) {
+				t.Fatalf("Run error = %v, want ErrCheckpointRecoveryPending", err)
+			}
+			if _, err := os.Stat(journal); err != nil {
+				t.Fatalf("inspection removed the publication journal: %v", err)
+			}
+		})
 	}
 }

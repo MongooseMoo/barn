@@ -96,11 +96,14 @@ func writeCheckpoint(
 		return fmt.Errorf("close temp file: %w", err)
 	}
 	sidecarTempPath := tempPath + waifIdentitySidecarSuffix
-	if err := writeWaifIdentitySidecar(sidecarTempPath, tempPath, writer.waifIdentities); err != nil {
-		_ = os.Remove(tempPath)
-		_ = os.Remove(sidecarTempPath)
-		return err
+	database, err := writeHashedWaifIdentitySidecar(sidecarTempPath, tempPath, writer.waifIdentities)
+	if err == nil {
+		var staged checkpointGeneration
+		if staged, err = hashCheckpointSidecar(tempPath, database); err == nil {
+			return publishHashedCheckpointPair(outPath, tempPath, staged, fs)
+		}
 	}
-
-	return publishCheckpointPair(outPath, tempPath, fs)
+	_ = os.Remove(tempPath)
+	_ = os.Remove(sidecarTempPath)
+	return err
 }
