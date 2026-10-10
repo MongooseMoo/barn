@@ -202,6 +202,46 @@ func TestPropTableRangeAllowsWritingTheVisitedSlot(t *testing.T) {
 	}
 }
 
+// A shared table keeps the slots it sets in a sorted slice. Writing the
+// visited slot during a range inserts into or deletes from that slice; every
+// slot must still be yielded once with the value it had before the range.
+func TestPropTableRangeYieldsEachSlotsValueWhileTheBodyWrites(t *testing.T) {
+	for _, write := range []string{"put", "remove", "alternate"} {
+		set := make(map[string]Property)
+		for i := 0; i < 40; i += 3 {
+			set[fmt.Sprintf("p%02d", i)] = Property{value: types.NewInt(int64(i)), owner: 9, perms: PropRead}
+		}
+		table, want := classTable(set)
+		table.share(newPropSharePool())
+		before := make(map[string]Property, len(want))
+		for key, prop := range want {
+			before[key] = prop
+		}
+
+		visited := 0
+		for key, prop := range table.all() {
+			if !sameProperty(prop, before[key]) {
+				t.Fatalf("%s: range yielded %q = %+v, want %+v", write, key, prop, before[key])
+			}
+			delete(before, key)
+			doPut := write == "put" || (write == "alternate" && visited%2 == 0)
+			if doPut {
+				prop.version = 7
+				table.put(key, prop)
+				want[key] = prop
+			} else {
+				table.remove(key)
+				delete(want, key)
+			}
+			visited++
+		}
+		if len(before) != 0 {
+			t.Fatalf("%s: range missed %d slots", write, len(before))
+		}
+		requireTableMatches(t, table, want, write+": after the range")
+	}
+}
+
 // TestPropTableBehavesAsAMap drives a table and a plain map with the same
 // random puts and removes, sharing the table part-way, and compares every
 // read path after each step.

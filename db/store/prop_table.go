@@ -33,13 +33,34 @@ type propTable struct {
 
 type propState struct {
 	base *propBase
-	// over holds every slot that is not exactly its base placeholder, and
-	// every slot whose name is not in the base.
+	// set holds the base slots this table stores itself, sorted by base
+	// index: every base slot that is not exactly its placeholder.
+	set []setSlot
+	// over holds every slot whose name is not in the base. Without a base
+	// that is every slot.
 	over map[string]Property
 	// gone names base slots removed from this table.
 	gone map[string]struct{}
-	// extra counts keys of over that are not names of the base.
-	extra int
+}
+
+// setSlot is a base slot a table stores itself.
+type setSlot struct {
+	idx  int32
+	prop Property
+}
+
+// findSet returns the position in set of base slot idx, or where it would go.
+func (s *propState) findSet(idx int32) (int, bool) {
+	lo, hi := 0, len(s.set)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if s.set[mid].idx < idx {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return lo, lo < len(s.set) && s.set[lo].idx == idx
 }
 
 // propShape is the ordered set of slot names shared by a class of objects.
@@ -73,7 +94,7 @@ func newPropTable(capacity int) propTable {
 
 // propTableFromMap wraps m without copying.
 func propTableFromMap(m map[string]Property) propTable {
-	return propTable{s: &propState{over: m, extra: len(m)}}
+	return propTable{s: &propState{over: m}}
 }
 
 // adopt makes the table hold exactly the slots of m, without copying m and,
@@ -83,7 +104,7 @@ func (t *propTable) adopt(m map[string]Property) {
 		*t = propTableFromMap(m)
 		return
 	}
-	*t.s = propState{over: m, extra: len(m)}
+	*t.s = propState{over: m}
 }
 
 func (s *propState) baseIndex(key string) (int32, bool) {
@@ -100,18 +121,21 @@ func (t propTable) lookup(key string) (Property, bool) {
 	if s == nil {
 		return Property{}, false
 	}
-	if len(s.over) > 0 {
-		if prop, ok := s.over[key]; ok {
-			return prop, true
-		}
-	}
 	if i, ok := s.baseIndex(key); ok {
 		if len(s.gone) > 0 {
 			if _, removed := s.gone[key]; removed {
 				return Property{}, false
 			}
 		}
+		if j, found := s.findSet(i); found {
+			return s.set[j].prop, true
+		}
 		return s.base.slot(i), true
+	}
+	if len(s.over) > 0 {
+		if prop, ok := s.over[key]; ok {
+			return prop, true
+		}
 	}
 	return Property{}, false
 }
@@ -137,17 +161,19 @@ func (t propTable) find(name string) (string, Property, bool) {
 // put stores prop under key. It panics on the zero propTable.
 func (t propTable) put(key string, prop Property) {
 	s := t.s
-	_, inBase := s.baseIndex(key)
-	if _, had := s.over[key]; !had && !inBase {
-		s.extra++
+	if i, inBase := s.baseIndex(key); inBase {
+		if j, found := s.findSet(i); found {
+			s.set[j].prop = prop
+		} else {
+			s.set = slices.Insert(s.set, j, setSlot{idx: i, prop: prop})
+		}
+		delete(s.gone, key)
+		return
 	}
 	if s.over == nil {
 		s.over = make(map[string]Property)
 	}
 	s.over[key] = prop
-	if inBase {
-		delete(s.gone, key)
-	}
 }
 
 // remove deletes the slot stored under key, if any.
@@ -156,19 +182,17 @@ func (t propTable) remove(key string) {
 	if s == nil {
 		return
 	}
-	_, inBase := s.baseIndex(key)
-	if _, had := s.over[key]; had {
-		delete(s.over, key)
-		if !inBase {
-			s.extra--
+	if i, inBase := s.baseIndex(key); inBase {
+		if j, found := s.findSet(i); found {
+			s.set = slices.Delete(s.set, j, j+1)
 		}
-	}
-	if inBase {
 		if s.gone == nil {
 			s.gone = make(map[string]struct{})
 		}
 		s.gone[key] = struct{}{}
+		return
 	}
+	delete(s.over, key)
 }
 
 // count returns the number of slots.
@@ -177,7 +201,7 @@ func (t propTable) count() int {
 	if s == nil {
 		return 0
 	}
-	n := s.extra
+	n := len(s.over)
 	if s.base != nil {
 		n += len(s.base.shape.keys) - len(s.gone)
 	}
@@ -190,7 +214,7 @@ func (t propTable) privateCount() int {
 	if t.s == nil {
 		return 0
 	}
-	return len(t.s.over)
+	return len(t.s.set) + len(t.s.over)
 }
 
 // all ranges the slots in unspecified order. As with a map, the body may put
@@ -203,27 +227,30 @@ func (t propTable) all() iter.Seq2[string, Property] {
 			return
 		}
 		if base := s.base; base != nil {
+			// j follows set alongside i. The body may insert or delete set
+			// entries, so j is brought back into step before each use.
+			j := 0
 			for i, key := range base.shape.keys {
-				if _, removed := s.gone[key]; removed {
-					continue
+				if len(s.gone) > 0 {
+					if _, removed := s.gone[key]; removed {
+						continue
+					}
 				}
-				prop, ok := s.over[key]
-				if !ok {
-					prop = base.slot(int32(i))
+				j = min(j, len(s.set))
+				for j > 0 && s.set[j-1].idx >= int32(i) {
+					j--
+				}
+				for j < len(s.set) && s.set[j].idx < int32(i) {
+					j++
+				}
+				prop := base.slot(int32(i))
+				if j < len(s.set) && s.set[j].idx == int32(i) {
+					prop = s.set[j].prop
 				}
 				if !yield(key, prop) {
 					return
 				}
 			}
-			for key, prop := range s.over {
-				if _, inBase := base.shape.index[key]; inBase {
-					continue
-				}
-				if !yield(key, prop) {
-					return
-				}
-			}
-			return
 		}
 		for key, prop := range s.over {
 			if !yield(key, prop) {
@@ -239,7 +266,7 @@ func (t propTable) clone() propTable {
 	if s == nil {
 		return newPropTable(0)
 	}
-	next := &propState{base: s.base, extra: s.extra}
+	next := &propState{base: s.base, set: slices.Clone(s.set)}
 	next.over = make(map[string]Property, len(s.over))
 	for key, prop := range s.over {
 		next.over[key] = prop
@@ -383,16 +410,16 @@ func (p *propSharePool) tableFromLayout(layout *SlotLayout, slots []Property) pr
 			private++
 		}
 	}
-	var over map[string]Property
+	var set []setSlot
 	if private > 0 {
-		over = make(map[string]Property, private)
+		set = make([]setSlot, 0, private)
 		for i, at := range layout.from {
 			if !isBasePlaceholder(slots[at]) {
-				over[layout.shape.keys[i]] = slots[at]
+				set = append(set, setSlot{idx: int32(i), prop: slots[at]})
 			}
 		}
 	}
-	return propTable{s: &propState{base: p.baseForSlots(layout, slots), over: over}}
+	return propTable{s: &propState{base: p.baseForSlots(layout, slots), set: set}}
 }
 
 // baseForSlots returns the shared base for a layout's shape and the owner and
@@ -466,17 +493,17 @@ func (t propTable) share(pool *propSharePool) {
 	}
 	base := pool.base(shape, owners, perms)
 
-	var over map[string]Property
+	var set []setSlot
 	if private > 0 {
-		over = make(map[string]Property, private)
-		for key, prop := range s.over {
-			if !isBasePlaceholder(prop) {
-				over[key] = prop
+		set = make([]setSlot, 0, private)
+		for i, key := range shape.keys {
+			if prop := s.over[key]; !isBasePlaceholder(prop) {
+				set = append(set, setSlot{idx: int32(i), prop: prop})
 			}
 		}
 	}
 	s.base = base
-	s.over = over
+	s.set = set
+	s.over = nil
 	s.gone = nil
-	s.extra = 0
 }
