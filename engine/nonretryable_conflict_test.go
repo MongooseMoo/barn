@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"runtime/debug"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -207,6 +208,44 @@ return #0.v;
 	}
 	if store.CommitRetries() != 1 || store.CommitEscalations() != 0 {
 		t.Fatalf("retries=%d escalations=%d, want 1 retry without escalation", store.CommitRetries(), store.CommitEscalations())
+	}
+}
+
+// A retry replaces the task's context. The attempt that lost must release its
+// snapshot then, not leave it registered until a collection finalizes it: a
+// registered snapshot holds the history floor.
+func TestRetriedAttemptReleasesItsSnapshot(t *testing.T) {
+	// With the collector off, only an explicit release can deregister.
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+
+	store := newConflictTestStore(t)
+	descriptor, competitor := competingWriterDescriptor(store)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptor)
+	defer s.Stop()
+
+	owner := types.ObjID(7803)
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	queued := task.NewTaskFull(3103, owner, compileTestProgram(t, s.registry, `
+suspend(0);
+start_competitor();
+#0.v = #0.v + 1;
+return #0.v;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	defer removeTasksForOwner(s, owner)
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	runUntilTerminal(t, s, queued)
+	if code := competitor.wait(t); code != types.E_NONE {
+		t.Fatalf("competing commit = %v, want successful competing commit", code)
+	}
+	if store.CommitRetries() != 1 {
+		t.Fatalf("retries=%d, want 1", store.CommitRetries())
+	}
+	if readers := store.HistoryStats().Readers; readers != 0 {
+		t.Fatalf("%d snapshots are still registered after the task finished, want 0", readers)
 	}
 }
 
