@@ -31,6 +31,15 @@ func randomSlots(rng *rand.Rand, count int) ([]string, []Property) {
 	return names, slots
 }
 
+// loadedSlots holds slots the way a reader hands them to a builder.
+func loadedSlots(slots []Property) *LoadedSlots {
+	loaded := &LoadedSlots{}
+	for _, prop := range slots {
+		loaded.Append(prop)
+	}
+	return loaded
+}
+
 // tableByName is the table the loader used to build: every slot stored under
 // its name in position order, a later slot replacing an earlier one of the
 // same name.
@@ -48,7 +57,7 @@ func TestTableFromLayoutReadsAsSlotsStoredByName(t *testing.T) {
 		names, slots := randomSlots(rng, rng.IntN(60))
 		pool := newPropSharePool()
 
-		table := pool.tableFromLayout(pool.Layout(names), slots)
+		table := pool.tableFromLayout(pool.Layout(names), loadedSlots(slots))
 
 		want := tableByName(names, slots)
 		requireTableMatches(t, table, want, fmt.Sprintf("seed %d", seed))
@@ -72,7 +81,7 @@ func TestTableFromLayoutSharesWithTablesSharedFromMaps(t *testing.T) {
 	fromMap := propTableFromMap(tableByName(names, slots))
 	fromMap.share(pool)
 	layout := pool.Layout(names)
-	fromLayout := pool.tableFromLayout(layout, slots)
+	fromLayout := pool.tableFromLayout(layout, loadedSlots(slots))
 
 	if fromLayout.s.base != fromMap.s.base {
 		t.Fatalf("the same slots built two bases: one from a map, one from a layout")
@@ -82,12 +91,12 @@ func TestTableFromLayoutSharesWithTablesSharedFromMaps(t *testing.T) {
 	// shares the base; one with a different owner does not.
 	sibling := append([]Property(nil), slots...)
 	sibling[0].value, sibling[0].clear = types.NewStr("set"), false
-	if got := pool.tableFromLayout(layout, sibling); got.s.base != fromLayout.s.base {
+	if got := pool.tableFromLayout(layout, loadedSlots(sibling)); got.s.base != fromLayout.s.base {
 		t.Fatalf("a sibling with the same owners and perms got its own base")
 	}
 	stranger := append([]Property(nil), slots...)
 	stranger[layout.from[0]].owner += 100
-	if got := pool.tableFromLayout(layout, stranger); got.s.base == fromLayout.s.base {
+	if got := pool.tableFromLayout(layout, loadedSlots(stranger)); got.s.base == fromLayout.s.base {
 		t.Fatalf("a table with a different slot owner shares the base")
 	}
 }
@@ -102,7 +111,7 @@ func TestLayoutLastSlotOfARepeatedNameWins(t *testing.T) {
 	}
 
 	layout := pool.Layout(names)
-	table := pool.tableFromLayout(layout, slots)
+	table := pool.tableFromLayout(layout, loadedSlots(slots))
 
 	if layout.Slots() != 3 || table.count() != 2 {
 		t.Fatalf("layout covers %d slots and the table holds %d, want 3 and 2", layout.Slots(), table.count())
@@ -131,10 +140,10 @@ func TestResolveLoadedSlotsBuildsTheObjectsTable(t *testing.T) {
 	builder := NewObjectBuilder(5)
 	builder.SetPropDefsCount(1)
 	builder.SetPropOrder([]string{"Mine"})
-	builder.SetLoadedSlots([]Property{
+	builder.SetLoadedSlots(loadedSlots([]Property{
 		NewProperty(types.NewInt(1), 5, PropRead, false, true),
 		NewProperty(types.None, 2, PropRead, true, false),
-	})
+	}))
 	if builder.LoadedSlotCount() != 2 {
 		t.Fatalf("LoadedSlotCount = %d, want 2", builder.LoadedSlotCount())
 	}

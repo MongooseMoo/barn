@@ -15,11 +15,11 @@ func loadedObject(id types.ObjID, parents []types.ObjID, definitions []string, s
 	obj.SetParents(parents)
 	obj.SetPropDefsCount(len(definitions))
 	obj.SetPropOrder(definitions)
-	slots := make([]store.Property, slotCount)
-	for i := range slots {
-		slots[i] = store.NewProperty(types.NewInt(int64(i)), id, store.PropRead, false, i < len(definitions))
+	var slots store.LoadedSlots
+	for i := range slotCount {
+		slots.Append(store.NewProperty(types.NewInt(int64(i)), id, store.PropRead, false, i < len(definitions)))
 	}
-	obj.SetLoadedSlots(slots)
+	obj.SetLoadedSlots(&slots)
 	return obj
 }
 

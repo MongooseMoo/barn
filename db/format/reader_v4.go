@@ -267,7 +267,8 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 
 	// Store PropDefsCount for later name resolution
 	obj.SetPropDefsCount(propDefCount)
-	slots := make([]store.Property, 0, min(totalPropCount, maxTrustedSlotCount))
+	slots := &database.loadedSlots
+	slots.Reset(min(totalPropCount, maxTrustedSlotCount))
 
 	// Read property values, kept by position until names are resolved.
 	for i := 0; i < totalPropCount; i++ {
@@ -298,7 +299,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			return nil, err
 		}
 
-		slots = append(slots, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		slots.Append(store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
 	obj.SetPropOrder(propDefs[:min(propDefCount, totalPropCount)])
 	obj.SetLoadedSlots(slots)
