@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        # Diagnostic and report output: a failed write has nowhere to be reported.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Closing a handle after its writes were synced or after a read.
+        - (*os.File).Close
+  exclusions:
+    rules:
+      # Tests discard errors from warm-up calls and cleanup.
+      - path: _test\.go
+        linters:
+          - errcheck
+      # golangci-lint does not read staticcheck's //lint:ignore directives. Each
+      # rule below mirrors one that already carries its reason in the source.
+      - path: builtins/crypto\.go
+        text: "SA1019: golang.org/x/crypto/ripemd160"
+      - path: compiler/lower_control\.go
+        text: "ST1005: error strings should not be capitalized"
+      - path: db/store/store_verbs\.go
+        text: "SA4006: this value of verb is never used"
+
+issues:
+  # Report everything; the defaults stop at 50 per linter and 3 per message.
+  max-issues-per-linter: 0
+  max-same-issues: 0

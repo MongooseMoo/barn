@@ -162,11 +162,13 @@ CI (`.github/workflows/ci.yml`) is what counts. Run the same gates locally:
 test -z "$(gofmt -l .)"          # formatting (pass only .go paths to gofmt)
 go vet ./...
 staticcheck ./...                # honnef.co/go/tools/cmd/staticcheck@v0.8.1
+golangci-lint run ./...          # github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0, config in .golangci.yml
 go build ./...
 go test ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'   # bench driver tests
 ```
 
+- After a Go toolchain bump, reinstall `staticcheck` and `golangci-lint` with the new toolchain. A `staticcheck` built with an older Go prints internal import errors and exits 0, so it checks nothing; `golangci-lint` refuses to run.
 - Single test: `go test ./vm -run 'TestName$' -count=1`
 - Race: `go test -race ./db/store ./engine` (the concurrency/MVCC tests are the ones that matter)
 - Binaries: `make build` (`go build -o bin/ ./cmd/...`) puts every `cmd/` tool in the gitignored `bin/`; Go adds `.exe` on Windows. Never build into the repo root. For one tool, `go build -o bin/ ./cmd/barn`; verify the package first with `go list ./cmd/barn`, since the repo root is not a command.
