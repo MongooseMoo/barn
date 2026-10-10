@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,27 +198,29 @@ func DumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	return nil
 }
 
-// evalSession evaluates MOO source over a loaded database the way Toast's
+// EvalSession evaluates MOO source over a loaded database the way Toast's
 // emergency mode does: as the database's first wizard, through the same engine
 // runtime and eval path a live ";" command uses. That is what makes
 // protected-builtin redirection (#0:bf_<name>), callers(), task_id(), fork and
 // suspend behave in the tool exactly as they do on the server.
-type evalSession struct {
+type EvalSession struct {
 	runtime *engine.Runtime
 	wizard  types.ObjID
 }
 
-func newEvalSession(store *dbstore.Store, options config.Options) (*evalSession, error) {
+// NewEvalSession starts a runtime over store. Evaluation mutates the store in
+// memory only; the caller must Close the session to stop the runtime.
+func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession, error) {
 	wizard, ok := firstWizard(store)
 	if !ok {
 		return nil, errors.New("database has no wizard to evaluate as")
 	}
 	runtime := engine.NewRuntimeWithOptions(store, options)
 	runtime.Session().LoadServerOptionsFromStore(store)
-	return &evalSession{runtime: runtime, wizard: wizard}, nil
+	return &EvalSession{runtime: runtime, wizard: wizard}, nil
 }
 
-func (s *evalSession) close() { s.runtime.Stop() }
+func (s *EvalSession) Close() { s.runtime.Stop() }
 
 // firstWizard mirrors Toast's emergency mode (server.cc emergency_mode): the
 // lowest-numbered object carrying the wizard flag.
@@ -232,26 +235,45 @@ func firstWizard(store *dbstore.Store) (types.ObjID, bool) {
 	return types.ObjNothing, false
 }
 
-// eval runs one input. The input is compiled as a statement list first, so
-// "x = 1; return x + 1;" runs every statement; input that is not a statement
-// list is evaluated as an expression, the way Toast's ";expr" wraps it in
-// "return expr;". When neither form compiles the returned error carries the
-// diagnostic for the form the input most resembles.
-func (s *evalSession) eval(input string) (engine.EvalOutcome, error) {
-	outcome := s.runtime.Eval(s.wizard, []string{input})
+// eval runs one input: the lines of one program. The input is compiled as a
+// statement list first, so "x = 1; return x + 1;" runs every statement; input
+// that is not a statement list is evaluated as an expression, the way Toast's
+// ";expr" wraps it in "return expr;". When neither form compiles the returned
+// error carries the diagnostic for the form the input most resembles.
+func (s *EvalSession) eval(source []string) (engine.EvalOutcome, error) {
+	outcome := s.runtime.Eval(s.wizard, source)
 	if len(outcome.Diagnostics) == 0 {
 		return outcome, nil
 	}
 	statementDiag := outcome.Diagnostics[0]
-	outcome = s.runtime.Eval(s.wizard, []string{"return " + input + ";"})
+	outcome = s.runtime.Eval(s.wizard, asExpression(source))
 	if len(outcome.Diagnostics) == 0 {
 		return outcome, nil
 	}
 	diag := outcome.Diagnostics[0]
-	if strings.Contains(input, ";") {
+	if slices.ContainsFunc(source, func(line string) bool { return strings.Contains(line, ";") }) {
 		diag = statementDiag
 	}
 	return outcome, errors.New(diag.Error())
+}
+
+// asExpression wraps source in "return ...;" without moving any of it to
+// another line, so line numbers still point into the input.
+func asExpression(source []string) []string {
+	if len(source) == 0 {
+		return source
+	}
+	wrapped := slices.Clone(source)
+	wrapped[0] = "return " + wrapped[0]
+	wrapped[len(wrapped)-1] += ";"
+	return wrapped
+}
+
+// completed reports whether an evaluation ran to its end, rather than stopping
+// on an uncaught error or an internal panic.
+func completed(outcome engine.EvalOutcome) bool {
+	flow := outcome.Result.Flow
+	return outcome.Panic == nil && (flow == types.FlowReturn || flow == types.FlowNormal)
 }
 
 // resultLine renders an evaluation the way the tool prints it: "=> VALUE" for
@@ -262,7 +284,7 @@ func resultLine(outcome engine.EvalOutcome) string {
 		return fmt.Sprintf("Error: internal error: %v", outcome.Panic)
 	}
 	result := outcome.Result
-	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
+	if completed(outcome) {
 		if result.Val.IsNone() {
 			return "=> 0"
 		}
@@ -271,21 +293,32 @@ func resultLine(outcome engine.EvalOutcome) string {
 	return "Error: " + result.Error.String()
 }
 
+// Print evaluates one input and writes its result line to out. Input that does
+// not compile has no result line; its "Compile error: ..." goes to diagOut
+// instead. Print reports whether the input compiled and, if it did, whether
+// the program completed.
+func (s *EvalSession) Print(out, diagOut io.Writer, source []string) (compiled, ran bool) {
+	outcome, err := s.eval(source)
+	if err != nil {
+		fmt.Fprintf(diagOut, "Compile error: %v\n", err)
+		return false, false
+	}
+	fmt.Fprintln(out, resultLine(outcome))
+	return true, completed(outcome)
+}
+
 // EvalExpression evaluates one MOO input (a statement list, or an expression)
 // as the database's first wizard and prints its result line.
 func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
-	session, err := newEvalSession(store, options)
+	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.close()
-	outcome, err := session.eval(expr)
-	if err != nil {
-		fmt.Fprintf(errOut, "Compile error: %v\n", err)
+	defer session.Close()
+	if compiled, _ := session.Print(out, errOut, []string{expr}); !compiled {
 		return errors.New("inspection failed")
 	}
-	fmt.Fprintln(out, resultLine(outcome))
 	return nil
 }
 
@@ -301,27 +334,27 @@ func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options 
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	session, err := newEvalSession(store, options)
+	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.close()
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	for _, line := range lines {
+	defer session.Close()
+	for _, line := range SourceLines(data) {
 		input := strings.TrimSpace(line)
 		if input == "" || strings.HasPrefix(input, "##") {
 			fmt.Fprintln(out, "-- skipped")
 			continue
 		}
-		outcome, err := session.eval(input)
-		if err != nil {
-			fmt.Fprintf(out, "Compile error: %v\n", err)
-			continue
-		}
-		fmt.Fprintln(out, resultLine(outcome))
+		session.Print(out, out, []string{input})
 	}
 	return nil
+}
+
+// SourceLines splits the contents of a MOO source file into its lines,
+// whichever line ending it was saved with.
+func SourceLines(data []byte) []string {
+	return strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 }
 
 // DumpObjRawCommand dumps raw database fields for debugging
