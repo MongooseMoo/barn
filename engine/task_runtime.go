@@ -695,113 +695,7 @@ retryAttempt:
 		t.SetState(task.TaskKilled)
 		t.ClearCallStack()
 	} else if result.Flow == types.FlowException {
-		t.SetState(task.TaskKilled)
-		handled := false
-		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
-		} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
-			handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
-		}
-		// Prefer the activation stack snapshotted at raise time (carried on the
-		// result): the live call stack has already unwound, so it would report the
-		// eval frame instead of the verb where the error occurred, and it carries
-		// no source lines. The log and the player see the same stack.
-		stack := result.CallStack
-		if len(stack) == 0 {
-			stack = t.GetCallStack()
-		}
-
-		// Toast gives #0:handle_uncaught_error the first opportunity to handle
-		// every uncaught task exception. A truthy return or a suspended handler
-		// suppresses the fallback traceback. The handler itself runs with database
-		// traceback dispatch disabled, so an error there falls back to the original
-		// task's traceback instead of recursively invoking the same hook.
-		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
-		if !handled && !isUncaughtHandler {
-			// Count every uncaught task exception here, before #0:handle_uncaught_error
-			// gets its chance: a handled error is still an uncaught one, and on the real
-			// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
-			metrics.UncaughtExceptions.Add(1)
-			if os.Getenv("BARN_DEBUG_RETRY") != "" {
-				top := ""
-				if len(stack) > 0 {
-					f := stack[len(stack)-1]
-					top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
-				}
-				caller := ""
-				if len(stack) > 1 {
-					f := stack[len(stack)-2]
-					caller = fmt.Sprintf("#%d:%s line %d (this=%d)", f.VerbLoc, f.Verb, f.LineNumber, f.This)
-				}
-				msg := result.Error.Message()
-				if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-					if m := result.Val.Get(2); m.Type() == types.TYPE_STR {
-						msg = m.Str()
-					}
-				}
-				full := ""
-				if result.Error == types.E_PROPNF {
-					full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
-				}
-				slog.Warn("DEBUG-UNCAUGHT",
-					slog.String("msg", msg),
-					slog.String("full", full),
-					slog.String("caller_frame", caller),
-					slog.String("error", types.NewErr(result.Error).String()),
-					slog.String("task_verb", t.VerbName),
-					slog.String("top_frame", top),
-					slog.Int("frames", len(stack)))
-			}
-			stackValues := make([]types.Value, 0, len(stack))
-			for i := len(stack) - 1; i >= 0; i-- {
-				frame := stack[i].ToList()
-				if s.session.IncludeRTVars(t.Context) {
-					frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-				}
-				stackValues = append(stackValues, frame)
-			}
-			formattedLines := task.FormatTraceback(stack, result.Error)
-			formattedValues := make([]types.Value, 0, len(formattedLines))
-			for _, line := range formattedLines {
-				formattedValues = append(formattedValues, types.NewStr(line))
-			}
-			handlerMessage := types.NewStr(result.Error.Message())
-			handlerValue := types.NewInt(0)
-			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-				if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
-					handlerMessage = message
-				}
-				handlerValue = result.Val.Get(3)
-			}
-			handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
-				types.NewErr(result.Error),
-				handlerMessage,
-				handlerValue,
-				types.NewList(stackValues),
-				types.NewList(formattedValues),
-			}, t.Owner, "", nil, scope, true)
-			if handlerErr == nil {
-				handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
-			}
-		}
-
-		if !handled && !isUncaughtHandler {
-			// Preserve the existing structured task log for foreground failures.
-			// Toast does not write forked-task tracebacks directly to stderr.
-			if !t.IsForked {
-				s.logTraceback(t, result.Error, stack)
-			}
-			// When a database's eval verb catches the error itself — e.g. Test.db
-			// wraps results as {status, result} — the task completes normally and
-			// never reaches this branch. Tick exhaustion keeps its friendlier line.
-			if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-				s.sendTaskLine(t.Owner, "Task ran out of ticks")
-			} else {
-				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
-			}
-		}
-		// Clean up call stack after traceback has been sent
-		t.ClearCallStack()
+		s.reportUncaughtException(t, scope, result)
 	} else {
 		t.SetState(task.TaskCompleted)
 	}
@@ -842,6 +736,121 @@ retryAttempt:
 	t.SetBytecodeVM(nil) // Release VM after completion
 
 	return nil
+}
+
+// reportUncaughtException kills a task whose slice ended in an uncaught
+// exception and reports it: the timeout hook for an exhausted fork, then
+// #0:handle_uncaught_error, then the fallback traceback. The slice's own
+// writes are already committed and the commit gate released by the time it
+// runs.
+func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, result types.Result) {
+	t.SetState(task.TaskKilled)
+	handled := false
+	if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+		handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
+	} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
+		handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
+	}
+	// Prefer the activation stack snapshotted at raise time (carried on the
+	// result): the live call stack has already unwound, so it would report the
+	// eval frame instead of the verb where the error occurred, and it carries
+	// no source lines. The log and the player see the same stack.
+	stack := result.CallStack
+	if len(stack) == 0 {
+		stack = t.GetCallStack()
+	}
+
+	// Toast gives #0:handle_uncaught_error the first opportunity to handle
+	// every uncaught task exception. A truthy return or a suspended handler
+	// suppresses the fallback traceback. The handler itself runs with database
+	// traceback dispatch disabled, so an error there falls back to the original
+	// task's traceback instead of recursively invoking the same hook.
+	isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
+	if !handled && !isUncaughtHandler {
+		// Count every uncaught task exception here, before #0:handle_uncaught_error
+		// gets its chance: a handled error is still an uncaught one, and on the real
+		// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
+		metrics.UncaughtExceptions.Add(1)
+		if os.Getenv("BARN_DEBUG_RETRY") != "" {
+			top := ""
+			if len(stack) > 0 {
+				f := stack[len(stack)-1]
+				top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
+			}
+			caller := ""
+			if len(stack) > 1 {
+				f := stack[len(stack)-2]
+				caller = fmt.Sprintf("#%d:%s line %d (this=%d)", f.VerbLoc, f.Verb, f.LineNumber, f.This)
+			}
+			msg := result.Error.Message()
+			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
+				if m := result.Val.Get(2); m.Type() == types.TYPE_STR {
+					msg = m.Str()
+				}
+			}
+			full := ""
+			if result.Error == types.E_PROPNF {
+				full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
+			}
+			slog.Warn("DEBUG-UNCAUGHT",
+				slog.String("msg", msg),
+				slog.String("full", full),
+				slog.String("caller_frame", caller),
+				slog.String("error", types.NewErr(result.Error).String()),
+				slog.String("task_verb", t.VerbName),
+				slog.String("top_frame", top),
+				slog.Int("frames", len(stack)))
+		}
+		stackValues := make([]types.Value, 0, len(stack))
+		for i := len(stack) - 1; i >= 0; i-- {
+			frame := stack[i].ToList()
+			if s.session.IncludeRTVars(t.Context) {
+				frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
+			}
+			stackValues = append(stackValues, frame)
+		}
+		formattedLines := task.FormatTraceback(stack, result.Error)
+		formattedValues := make([]types.Value, 0, len(formattedLines))
+		for _, line := range formattedLines {
+			formattedValues = append(formattedValues, types.NewStr(line))
+		}
+		handlerMessage := types.NewStr(result.Error.Message())
+		handlerValue := types.NewInt(0)
+		if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
+			if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
+				handlerMessage = message
+			}
+			handlerValue = result.Val.Get(3)
+		}
+		handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
+			types.NewErr(result.Error),
+			handlerMessage,
+			handlerValue,
+			types.NewList(stackValues),
+			types.NewList(formattedValues),
+		}, t.Owner, "", nil, scope, true)
+		if handlerErr == nil {
+			handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+		}
+	}
+
+	if !handled && !isUncaughtHandler {
+		// Preserve the existing structured task log for foreground failures.
+		// Toast does not write forked-task tracebacks directly to stderr.
+		if !t.IsForked {
+			s.logTraceback(t, result.Error, stack)
+		}
+		// When a database's eval verb catches the error itself — e.g. Test.db
+		// wraps results as {status, result} — the task completes normally and
+		// never reaches this branch. Tick exhaustion keeps its friendlier line.
+		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+			s.sendTaskLine(t.Owner, "Task ran out of ticks")
+		} else {
+			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+		}
+	}
+	// Clean up call stack after traceback has been sent
+	t.ClearCallStack()
 }
 
 type taskRetryState struct {
