@@ -204,7 +204,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
 	}
 	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
-		database, err := dbformat.LoadDatabase(cfg.DatabasePath)
+		database, err := dbformat.LoadDatabaseReadOnly(cfg.DatabasePath)
 		if err != nil {
 			return fmt.Errorf("load database: %w", err)
 		}

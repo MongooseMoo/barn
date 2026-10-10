@@ -584,7 +584,7 @@ func AncestryCommand(out, errOut io.Writer, store *dbstore.Store, spec string) e
 }
 
 func DumpDatabase(source, target string) error {
-	return dumpDatabase(source, target, dbformat.LoadDatabase)
+	return dumpDatabase(source, target, dbformat.LoadDatabaseReadOnly)
 }
 
 type databaseLoader func(string) (*dbformat.Database, error)

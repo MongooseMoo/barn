@@ -132,3 +132,58 @@ func TestFreezeCheckpointFileCopyRejectsChangedContents(t *testing.T) {
 		t.Fatal("copied a file whose bytes do not match the hashed digest")
 	}
 }
+
+func TestReadOnlyLoadRefusesPendingPublicationWithoutRecovering(t *testing.T) {
+	directory := t.TempDir()
+	old := []types.Value{types.NewWaif(9, 3)}
+	fresh := []types.Value{types.NewWaif(9, 3), types.NewWaif(9, 3)}
+	out := publicationFixture(t, filepath.Join(directory, "out"), old)
+	staged := publicationFixture(t, filepath.Join(directory, "next"), fresh)
+	publicationFailed := false
+	fs := checkpointIO{rename: func(from, to string) error {
+		if to == out+waifIdentitySidecarSuffix {
+			publicationFailed = true
+			return os.ErrPermission
+		}
+		if publicationFailed && to == out {
+			return errors.New("injected rollback failure")
+		}
+		return renameCheckpointFile(from, to)
+	}, syncDirectory: syncParentDirectory}
+	if err := publishCheckpointPair(out, staged, fs); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("publication error = %v", err)
+	}
+	before, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadDatabaseReadOnly(out); !errors.Is(err, ErrCheckpointRecoveryPending) {
+		t.Fatalf("read-only load error = %v, want ErrCheckpointRecoveryPending", err)
+	}
+	after, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("read-only load changed the directory: %v -> %v", before, after)
+	}
+	for i := range before {
+		if before[i].Name() != after[i].Name() {
+			t.Fatalf("read-only load changed the directory: %v -> %v", before, after)
+		}
+	}
+	if _, err := os.Stat(out + checkpointJournalSuffix); err != nil {
+		t.Fatalf("read-only load removed the journal: %v", err)
+	}
+
+	// The owning load still recovers, and a clean database loads read-only.
+	assertCheckpointIdentities(t, out, old)
+	loaded, err := LoadDatabaseReadOnly(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.PendingFinalizations) != len(old) {
+		t.Fatalf("WAIF count = %d, want %d", len(loaded.PendingFinalizations), len(old))
+	}
+}

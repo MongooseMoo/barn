@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
@@ -92,15 +93,37 @@ type ActiveConnection struct {
 	Listener types.ObjID
 }
 
-// LoadDatabase reads a MOO database from file
+// ErrCheckpointRecoveryPending reports an interrupted checkpoint publication
+// that a read-only load will not repair.
+var ErrCheckpointRecoveryPending = errors.New("checkpoint publication journal present; start the server on this database to recover it")
+
+// LoadDatabase reads a MOO database from file, first completing or rolling
+// back any interrupted checkpoint publication at path.
 func LoadDatabase(path string) (*Database, error) {
+	return loadDatabase(path, true)
+}
+
+// LoadDatabaseReadOnly reads a MOO database without changing any file. It
+// refuses a database with a pending publication journal instead of recovering.
+func LoadDatabaseReadOnly(path string) (*Database, error) {
+	return loadDatabase(path, false)
+}
+
+func loadDatabase(path string, recoverPublication bool) (*Database, error) {
 	release, err := lockCheckpointPath(path)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	if err := recoverCheckpointPair(path, checkpointIO{rename: renameCheckpointFile, syncDirectory: syncParentDirectory}); err != nil {
-		return nil, err
+	if recoverPublication {
+		if err := recoverCheckpointPair(path, checkpointIO{rename: renameCheckpointFile, syncDirectory: syncParentDirectory}); err != nil {
+			return nil, err
+		}
+	} else if _, err := os.Lstat(path + checkpointJournalSuffix); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			err = ErrCheckpointRecoveryPending
+		}
+		return nil, fmt.Errorf("%s: %w", path+checkpointJournalSuffix, err)
 	}
 	f, err := os.Open(path)
 	if err != nil {
