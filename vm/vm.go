@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -68,6 +69,7 @@ type VM struct {
 	yieldResult     types.Result // Why we yielded
 	resumeError     types.ErrorCode
 	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
+	prof            profileState     // MOO profile sampling baseline (profile.go)
 }
 
 // pushFrame appends a call frame and updates the cached current-frame pointer.
@@ -228,7 +230,10 @@ func (vm *VM) checkFrameLimit() error {
 // and FlowFork when a fork statement yields control.
 func (vm *VM) Run(prog *bytecode.Program) types.Result {
 	vm.beginProgram(prog)
-	return vm.executeLoop()
+	vm.profileEnter()
+	result := vm.executeLoop()
+	vm.profileExit()
+	return result
 }
 
 // beginProgram pushes the initial (non-verb) frame for prog and primes the
@@ -272,7 +277,10 @@ func (vm *VM) RunWithVerbContext(prog *bytecode.Program, thisObj types.ObjID, pl
 	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
 	vm.syncContextTicks()
 
-	return vm.executeLoop()
+	vm.profileEnter()
+	result := vm.executeLoop()
+	vm.profileExit()
+	return result
 }
 
 func (vm *VM) syncContextTicks() {
@@ -408,11 +416,17 @@ func (vm *VM) fastTickUnchecked() bool {
 	return true
 }
 
-// tickCheckpoint is the amortized boundary where a root VM may lend its
-// admission reservation before the seconds budget is checked.
+// tickCheckpoint is the amortized boundary where a MOO profile sample is
+// taken (when a session is active) and a root VM may lend its admission
+// reservation before the seconds budget is checked.
 func (vm *VM) tickCheckpoint() bool {
+	profiling := vm.profileCheckpoint()
 	if vm.Preempt != nil {
 		vm.Preempt()
+		if profiling {
+			// Time spent waiting to be readmitted is not billed.
+			vm.prof.time = time.Now()
+		}
 	}
 	return vm.Task != nil && vm.Task.SecondsLeft() <= 0
 }
@@ -582,7 +596,10 @@ func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, play
 // to begin execution after setting up initial variables.
 func (vm *VM) ExecuteLoop() types.Result {
 	vm.ensureContextDependencies()
-	return vm.executeLoop()
+	vm.profileEnter()
+	result := vm.executeLoop()
+	vm.profileExit()
+	return result
 }
 
 // IsYielded returns whether the VM has yielded (suspended or forked) and needs Resume().
@@ -593,6 +610,13 @@ func (vm *VM) IsYielded() bool {
 // Resume continues execution after a yield (suspend or fork).
 // The VM's PC and stack are still intact from the yield point.
 func (vm *VM) Resume() types.Result {
+	vm.profileEnter()
+	result := vm.resume()
+	vm.profileExit()
+	return result
+}
+
+func (vm *VM) resume() types.Result {
 	vm.yielded = false
 	vm.yieldResult = types.Result{}
 	if vm.resumeError != types.E_NONE {

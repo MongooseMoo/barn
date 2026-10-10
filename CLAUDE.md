@@ -297,6 +297,8 @@ The debug endpoint binds an **ephemeral port**; find the real address in the log
 ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
 curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
 curl -s "http://$ADDR/debug/pprof/heap" > heap.out
+curl -s "http://$ADDR/debug/pprof/moo?seconds=30" > moo.pprof  # MOO verb stacks, not Go functions
+go tool pprof -top moo.pprof                                    # values: ticks, wall; label moo.verb
 curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
 ```
 

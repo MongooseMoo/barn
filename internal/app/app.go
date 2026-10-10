@@ -65,6 +65,7 @@ func debugMux() *http.ServeMux {
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/debug/pprof/moo", mooProfileHandler)
 
 	return mux
 }

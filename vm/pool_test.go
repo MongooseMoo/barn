@@ -42,6 +42,7 @@ func dirtyVM(machine *VM) {
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
 	machine.resumeError = types.E_INTRPT
 	machine.retryCheckpoint = &RetryCheckpoint{}
+	machine.prof = profileState{parent: NewVM(nil, nil), ticks: 7, entry: "#1:x"}
 }
 
 func TestDirtyVMTouchesEveryField(t *testing.T) {

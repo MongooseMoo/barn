@@ -31,6 +31,10 @@ type Execution struct {
 	// CanSuspend reports that a FlowSuspend returned now is honored: the call
 	// runs on the task's root VM, which the runtime saves and later resumes.
 	CanSuspend bool
+	// CallingVM is the VM running this builtin (a *vm.VM, opaque here). A verb
+	// the builtin runs on a nested VM links to it so MOO profile samples carry
+	// the caller's frames.
+	CallingVM any
 }
 
 // NewExecution binds task state and an optional concrete task to this session.
