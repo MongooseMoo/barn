@@ -26,6 +26,14 @@ package engine
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
+//   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
+//                             otherwise runs at Go's default, which the log line states)
+//   BARN_MONGOOSE_MEMLIMIT_MIB soft memory limit in MiB (cmd/barn -gomemlimit-mib)
+//   BARN_MONGOOSE_MEMSTATS    non-empty returns load garbage to the system after load,
+//                             as server.LoadDatabase does, logs memory before the
+//                             workload, and samples it every second of each measure window
+//   BARN_MONGOOSE_IDLE        with MEMSTATS, wait this long after each window with no
+//                             commands, collect, and log memory again
 
 import (
 	"context"
@@ -34,8 +42,11 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"runtime/debug"
+	rtmetrics "runtime/metrics"
 	"runtime/pprof"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -338,6 +349,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 	warmup := envDuration("BARN_MONGOOSE_WARMUP", 2*time.Second)
 	measure := envDuration("BARN_MONGOOSE_MEASURE", 8*time.Second)
 	levels := envIntList("BARN_MONGOOSE_PLAYERS", []int{1, 4, 16})
+	memStats := os.Getenv("BARN_MONGOOSE_MEMSTATS") != ""
+	applyBenchGCSettings(t)
 
 	loadStart := time.Now()
 	database, err := dbformat.LoadDatabase(dbPath)
@@ -346,6 +359,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 	}
 	store, _ := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
+	if memStats {
+		debug.FreeOSMemory()
+	}
 
 	// Pick real player objects with a valid location.
 	var candidates []types.ObjID
@@ -442,6 +458,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 		t.Fatalf("chdir to repo root: %v", err)
 	}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
+	if memStats {
+		t.Logf("memory MiB after load: %s", readMemSample(t, s))
+	}
 	if store.HasLocalVerb(0, "server_started") {
 		if _, err := s.RunServerVerbTask(0, "server_started", nil, 0); err != nil {
 			t.Logf("#0:server_started failed: %v", err)
@@ -512,6 +531,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 
 	t.Logf("GOMAXPROCS=%d warmup=%s measure=%s stale_reads=%v mix=%v",
 		runtime.GOMAXPROCS(0), warmup, measure, staleReads, realShapes)
+	if memStats {
+		t.Logf("memory MiB after server_started, before workload: %s", readMemSample(t, s))
+		t.Logf("holders before workload: %s", holders(s, store))
+	}
 
 	for _, active := range levels {
 		players := candidates[:active]
@@ -607,9 +630,37 @@ func TestMongooseRealWorkload(t *testing.T) {
 		renewed0, refused0, declined0 := store.HotReadStats()
 		before := sampleCommitCounters(store)
 		uncaught0 := metrics.UncaughtExceptions.Value()
+		var samples []memSample
+		var held []string
+		stopSampling, sampled := make(chan struct{}), make(chan struct{})
+		cpu0 := readGCCPU()
+		if memStats {
+			samples = append(samples, readHeapSample())
+			go func() {
+				defer close(sampled)
+				tick := time.NewTicker(time.Second)
+				defer tick.Stop()
+				for {
+					select {
+					case <-stopSampling:
+						return
+					case <-tick.C:
+						samples = append(samples, readHeapSample())
+						if len(samples)%10 == 0 {
+							held = append(held, holders(s, store))
+						}
+					}
+				}
+			}()
+		} else {
+			close(sampled)
+		}
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
+		close(stopSampling)
+		<-sampled
+		cpu1 := readGCCPU()
 		delta := sampleCommitCounters(store).sub(before)
 		census := store.ConflictCensus()
 		renewed, refused, declined := store.HotReadStats()
@@ -665,6 +716,28 @@ func TestMongooseRealWorkload(t *testing.T) {
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
 			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
+		if memStats {
+			logMemSamples(t, samples)
+			busy := (cpu1.total - cpu1.idle) - (cpu0.total - cpu0.idle)
+			t.Logf("  gc: cycles=%d pause_total=%s gc_cpu=%.2fs busy_cpu=%.2fs gc_share=%.1f%% alloc_rate=%.0fMiB/s",
+				m1.NumGC-m0.NumGC, time.Duration(m1.PauseTotalNs-m0.PauseTotalNs),
+				cpu1.gc-cpu0.gc, busy, (cpu1.gc-cpu0.gc)/busy*100,
+				float64(m1.TotalAlloc-m0.TotalAlloc)/(1<<20)/elapsed.Seconds())
+			for _, line := range held {
+				t.Logf("  holders every 10s: %s", line)
+			}
+			t.Logf("  holders at the end of the window: %s", holders(s, store))
+			runtime.GC()
+			t.Logf("  memory MiB after the window and a forced GC: %s", readMemSample(t, s))
+			t.Logf("  holders after the forced GC: %s", holders(s, store))
+			// With no commands running, does what the window retained get released?
+			if idle := envDuration("BARN_MONGOOSE_IDLE", 0); idle > 0 {
+				time.Sleep(idle)
+				runtime.GC()
+				t.Logf("  memory MiB after %s idle and a forced GC: %s", idle, readMemSample(t, s))
+				t.Logf("  holders after %s idle: %s", idle, holders(s, store))
+			}
+		}
 		for j, sh := range realShapes {
 			agg := shapeAgg[j]
 			avg := time.Duration(0)
@@ -716,6 +789,128 @@ func TestMongooseRealWorkload(t *testing.T) {
 		f.Close()
 	}
 	_ = strings.TrimSpace("")
+}
+
+// --- memory and GC measurement ----------------------------------------------
+
+// applyBenchGCSettings sets the collector knobs cmd/barn sets from its flags,
+// then logs what the runtime reports, so a run states the settings it measured.
+func applyBenchGCSettings(t *testing.T) {
+	if v := os.Getenv("BARN_MONGOOSE_GOGC"); v != "" {
+		percent, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatalf("BARN_MONGOOSE_GOGC=%q: %v", v, err)
+		}
+		debug.SetGCPercent(percent)
+	}
+	if v := os.Getenv("BARN_MONGOOSE_MEMLIMIT_MIB"); v != "" {
+		mib, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatalf("BARN_MONGOOSE_MEMLIMIT_MIB=%q: %v", v, err)
+		}
+		debug.SetMemoryLimit(int64(mib) << 20)
+	}
+	settings := []rtmetrics.Sample{{Name: "/gc/gogc:percent"}, {Name: "/gc/gomemlimit:bytes"}}
+	rtmetrics.Read(settings)
+	t.Logf("gc settings in effect: percent=%d memlimit_bytes=%d (GOGC=%q GOMEMLIMIT=%q)",
+		settings[0].Value.Uint64(), settings[1].Value.Uint64(), os.Getenv("GOGC"), os.Getenv("GOMEMLIMIT"))
+}
+
+// memSample is one reading of the Go heap and the process. retained is
+// Sys - HeapReleased, the memory the runtime holds from the system; live is
+// the heap the last completed GC cycle marked; resident is memory_usage()'s
+// resident set size.
+type memSample struct {
+	heapAlloc, heapInuse, heapSys, sys, retained, nextGC, live, resident uint64
+}
+
+func (m memSample) fields() [8]uint64 {
+	return [8]uint64{m.heapAlloc, m.heapInuse, m.heapSys, m.sys, m.retained, m.nextGC, m.live, m.resident}
+}
+
+var memSampleNames = [8]string{"heap_alloc", "heap_inuse", "heap_sys", "sys", "retained", "next_gc", "live_after_gc", "resident"}
+
+func (m memSample) String() string {
+	var b strings.Builder
+	for i, v := range m.fields() {
+		fmt.Fprintf(&b, "%s=%.0f ", memSampleNames[i], float64(v)/(1<<20))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// holders names what could be keeping the heap alive: task records, retained
+// object history, how far the live-read floor trails the store clock, and the
+// waifs and anonymous-object sweeps queued for the next deferred flush.
+func holders(s *Runtime, store *dbstore.Store) string {
+	h := store.HistoryStats()
+	s.lifecycle.Mu.Lock()
+	pendingWaifs, pendingAnon := len(s.lifecycle.PendingWaifs), len(s.lifecycle.PendingAnonGC)
+	sinceSweep := time.Since(s.lifecycle.LastGCSweep)
+	s.lifecycle.Mu.Unlock()
+	return fmt.Sprintf("tasks=%d history_objects=%d history_entries=%d most=#%d:%d readers=%d clock=%d floor_lag=%d pending_waifs=%d pending_anon_gc=%d since_sweep=%s",
+		s.LiveTaskCount(), h.Objects, h.Entries, h.MostObject, h.MostEntries, h.Readers, h.Clock, h.Clock-h.Floor,
+		pendingWaifs, pendingAnon, sinceSweep.Round(time.Millisecond))
+}
+
+// readHeapSample reads the Go runtime only, so it can run during a measure
+// window without adding a task to the workload. resident is left zero.
+func readHeapSample() memSample {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	live := []rtmetrics.Sample{{Name: "/gc/heap/live:bytes"}}
+	rtmetrics.Read(live)
+	return memSample{
+		heapAlloc: m.HeapAlloc, heapInuse: m.HeapInuse, heapSys: m.HeapSys, sys: m.Sys,
+		retained: m.Sys - m.HeapReleased, nextGC: m.NextGC, live: live[0].Value.Uint64(),
+	}
+}
+
+// readMemSample adds the process's resident size. The builtin is the repo's
+// one reader of it, and evaluating it runs a task and drives the scheduler
+// from this goroutine, so this is for the points between windows only.
+func readMemSample(t *testing.T, s *Runtime) memSample {
+	sample := readHeapSample()
+	out := s.EvalCommandOutput(2, "return memory_usage()[2];")
+	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	if err != nil {
+		t.Errorf("memory_usage() = %s: %v", out, err)
+	}
+	sample.resident = uint64(resident)
+	return sample
+}
+
+func logMemSamples(t *testing.T, samples []memSample) {
+	var b strings.Builder
+	for i, name := range memSampleNames[:7] { // window samples carry no resident size
+		column := make([]uint64, len(samples))
+		for j, sample := range samples {
+			column[j] = sample.fields()[i]
+		}
+		sort.Slice(column, func(a, b int) bool { return column[a] < column[b] })
+		fmt.Fprintf(&b, " %s=%.0f/%.0f/%.0f", name, float64(column[0])/(1<<20),
+			float64(column[len(column)/2])/(1<<20), float64(column[len(column)-1])/(1<<20))
+	}
+	t.Logf("  memory MiB min/median/max over %d samples:%s", len(samples), b.String())
+	// A window whose live heap is still climbing has no steady state to report.
+	b.Reset()
+	for i := 0; i < len(samples); i += 5 {
+		fmt.Fprintf(&b, " %.0f/%.0f", float64(samples[i].live)/(1<<20), float64(samples[i].retained)/(1<<20))
+	}
+	t.Logf("  live_after_gc/retained MiB every 5s:%s", b.String())
+}
+
+// gcCPU is the runtime's CPU accounting in seconds; it advances at GC cycle
+// boundaries, so a window must span several cycles to be read from it.
+type gcCPU struct{ gc, total, idle float64 }
+
+func readGCCPU() gcCPU {
+	cpu := []rtmetrics.Sample{
+		{Name: "/cpu/classes/gc/total:cpu-seconds"},
+		{Name: "/cpu/classes/total:cpu-seconds"},
+		{Name: "/cpu/classes/idle:cpu-seconds"},
+	}
+	rtmetrics.Read(cpu)
+	return gcCPU{gc: cpu[0].Value.Float64(), total: cpu[1].Value.Float64(), idle: cpu[2].Value.Float64()}
 }
 
 // logConflictCensus prints what the measure window's lost commits were stale
