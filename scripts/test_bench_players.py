@@ -117,11 +117,16 @@ class ScriptedConnection:
 
 
 class CommandCompletionTests(unittest.TestCase):
+    # run_window fixes its deadline before the worker thread starts. The first
+    # unacknowledged command stops the worker, so a long window costs nothing,
+    # while a short one can expire before the worker sends anything.
+    WINDOW = 60.0
+
     def test_suffix_alone_is_not_terminal_completion(self):
         conn = ScriptedConnection([bench.PREFIX_TAG, bench.SUFFIX_TAG])
         stats = bench.PlayerStat([bench.ShapeStat()])
         with patch.object(bench, "SHAPES", [("look", "look", 1)]):
-            bench.run_window([conn], [random.Random(0)], [stats], 0.01, True, 1)
+            bench.run_window([conn], [random.Random(0)], [stats], self.WINDOW, True, 1)
         self.assertEqual(stats.shapes[0].ok, 0)
         self.assertEqual(stats.shapes[0].fail, 1)
         self.assertIsNotNone(stats.broken)
@@ -141,7 +146,7 @@ class CommandCompletionTests(unittest.TestCase):
         conn = ScriptedConnection([bench.PREFIX_TAG, bench.SUFFIX_TAG])
         stats = bench.PlayerStat([bench.ShapeStat()])
         with patch.object(bench, "SHAPES", [("look", "look", 1)]):
-            bench.run_window([conn], [random.Random(0)], [stats], 0.01, False, 1)
+            bench.run_window([conn], [random.Random(0)], [stats], self.WINDOW, False, 1)
         self.assertIsNotNone(stats.broken)
         self.assertEqual(conn.sent.count("look"), 1)
         self.assertEqual(stats.shapes[0].ok, 0)
