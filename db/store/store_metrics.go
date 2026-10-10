@@ -6,6 +6,30 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// PropertySlotCensus counts the property slots held by live objects: how many
+// objects, how many slots in all, and how many of those slots are clear
+// (inheriting their value).
+func (s *Store) PropertySlotCensus() (objects, slots, clearSlots int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
+		obj := slot.ptr.Load()
+		if obj == nil || obj.recycled {
+			return true
+		}
+		objects++
+		slots += len(obj.properties)
+		for _, prop := range obj.properties {
+			if prop.clear {
+				clearSlots++
+			}
+		}
+		return true
+	})
+	return objects, slots, clearSlots
+}
+
 func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

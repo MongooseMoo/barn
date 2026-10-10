@@ -145,6 +145,8 @@ type Config struct {
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
 	EvalFile                                                                   string
 	DumpPath                                                                   string
+	MemoryReport                                                               bool
+	MemoryProfile                                                              string
 	CheckpointInterval                                                         int
 	PromoteNumbers                                                             bool
 	OutboundProvided, NoOutboundProvided, Outbound, NoOutbound                 bool
@@ -202,6 +204,12 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	if cfg.DumpPath != "" {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
+	}
+	if cfg.MemoryProfile != "" && !cfg.MemoryReport {
+		return errors.New("--memory-profile requires --memory-report")
+	}
+	if cfg.MemoryReport {
+		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)
 	}
 	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
 		database, err := dbformat.LoadDatabase(cfg.DatabasePath)
