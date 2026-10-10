@@ -168,6 +168,7 @@ go test ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'   # bench driver tests
 ```
 
+- The self-hosted CI runners (`Q-barn-wsl-x64` and `-02` to `-08`) are eight services in one WSL Debian distro on the workstation, running as the same user, and several jobs run at once. Before adding a step to CI, run two copies of its command concurrently: a tool that takes a machine-wide lock or writes a shared path fails there (`golangci-lint` did until `.golangci.yml` set `allow-parallel-runners`). Heavy local work on the workstation (`-race` suites, WSL builds) competes with those jobs for the same CPUs.
 - After a Go toolchain bump, reinstall `staticcheck` and `golangci-lint` with the new toolchain. A `staticcheck` built with an older Go prints internal import errors and exits 0, so it checks nothing; `golangci-lint` refuses to run.
 - Single test: `go test ./vm -run 'TestName$' -count=1`
 - Race: `go test -race ./db/store ./engine` (the concurrency/MVCC tests are the ones that matter)
