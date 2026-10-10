@@ -56,6 +56,15 @@ func (database *Database) loadedStr(s string) types.Value {
 	return value
 }
 
+// loadedStrBytes is loadedStr for text still in the reader's buffer: it copies
+// the text only the first time a string is seen.
+func (database *Database) loadedStrBytes(text []byte) types.Value {
+	if value, ok := database.loadedStrings[string(text)]; ok {
+		return value
+	}
+	return database.loadedStr(string(text))
+}
+
 // waifLoadData holds a WAIF and its raw indexed properties during loading.
 // After all objects are loaded, property names are resolved from the class ancestry.
 type waifLoadData struct {

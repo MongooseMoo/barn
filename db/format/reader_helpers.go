@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
@@ -14,11 +15,11 @@ import (
 
 // readInt reads an integer from the next line
 func readInt(r *bufio.Reader) (int, error) {
-	line, err := r.ReadString('\n')
+	line, err := readLineBytes(r)
 	if err != nil {
 		return 0, err
 	}
-	val, err := strconv.Atoi(strings.TrimSpace(line))
+	val, err := strconv.Atoi(string(bytes.TrimSpace(line)))
 	if err != nil {
 		return 0, fmt.Errorf("parse int: %w", err)
 	}
@@ -27,17 +28,34 @@ func readInt(r *bufio.Reader) (int, error) {
 
 // readObjID reads an object ID (#N format or just N)
 func readObjID(r *bufio.Reader) (types.ObjID, error) {
-	line, err := r.ReadString('\n')
+	line, err := readLineBytes(r)
 	if err != nil {
 		return 0, err
 	}
-	line = strings.TrimSpace(line)
-	line = strings.TrimPrefix(line, "#")
-	val, err := strconv.ParseInt(line, 10, 64)
+	line = bytes.TrimPrefix(bytes.TrimSpace(line), []byte("#"))
+	val, err := strconv.ParseInt(string(line), 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse objid: %w", err)
 	}
 	return types.ObjID(val), nil
+}
+
+// readLineBytes returns the next line, delimiter included, as ReadString does
+// but without allocating when the line fits the reader's buffer. The bytes are
+// valid only until the next read from r. Most lines of a database are short
+// numbers, which the caller parses and drops.
+func readLineBytes(r *bufio.Reader) ([]byte, error) {
+	line, err := r.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		return line, err
+	}
+	// A line longer than the buffer: keep what was read and finish it.
+	long := bytes.Clone(line)
+	for err == bufio.ErrBufferFull {
+		line, err = r.ReadSlice('\n')
+		long = append(long, line...)
+	}
+	return long, err
 }
 
 // readLine reads a line and returns it without the newline

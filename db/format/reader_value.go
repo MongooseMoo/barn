@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"github.com/MongooseMoo/barn/types"
 	"strconv"
@@ -46,11 +47,11 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		return types.NewObj(objID), nil
 
 	case 2: // STR
-		line, err := r.ReadString('\n')
+		line, err := readLineBytes(r)
 		if err != nil {
 			return types.None, err
 		}
-		return database.loadedStr(strings.TrimRight(line, "\n\r")), nil
+		return database.loadedStrBytes(bytes.TrimRight(line, "\n\r")), nil
 
 	case 3: // ERR
 		errCode, err := readInt(r)
@@ -134,9 +135,9 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if count == 0 {
 			return loadedEmptyMap, nil
 		}
-		// As with lists, grow only as successfully decoded pairs arrive rather
-		// than allocating directly from an untrusted database-file count.
-		pairs := make([][2]types.Value, 0)
+		// As with lists, trust the file's count only up to a small bound and
+		// grow past it as successfully decoded pairs arrive.
+		pairs := make([][2]types.Value, 0, min(count, maxTrustedListCount))
 		for i := 0; i < count; i++ {
 			key, err := database.readValue(r)
 			if err != nil {
