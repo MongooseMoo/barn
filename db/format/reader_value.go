@@ -39,7 +39,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if err != nil {
 			return types.None, err
 		}
-		return types.NewStr(strings.TrimRight(line, "\n\r")), nil
+		return database.loadedStr(strings.TrimRight(line, "\n\r")), nil
 
 	case 3: // ERR
 		errCode, err := readInt(r)
