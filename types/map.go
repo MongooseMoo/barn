@@ -25,9 +25,22 @@ type mapHash struct {
 	identity WaifIdentity
 }
 
-// goMap is the heap payload behind a TYPE_MAP Value. Keys use a typed,
-// comparable hash; insertion order is tracked in 'order'.
+// mapFlatLimit is the largest map kept in flat form. Most MOO maps are small
+// records; a scan of this many keys costs about what one hash-trie lookup
+// does, and a flat entry is a fifth the size of an indexed one.
+const mapFlatLimit = 16
+
+// goMap is the heap payload behind a TYPE_MAP Value. It has two forms.
+//
+// Flat (index == nil): the pairs sit in 'flat' in insertion order and lookup is
+// a scan. A map is built flat while it has at most mapFlatLimit pairs.
+//
+// Indexed (index != nil): keys use a typed, comparable hash into 'index' and
+// insertion order is tracked in 'order'. A flat map becomes indexed when a set
+// would take it past mapFlatLimit; an indexed map never goes back, except that
+// deleting its last pair leaves the empty flat form.
 type goMap struct {
+	flat     []flatEntry
 	order    *mapOrder
 	index    *mapIndex
 	count    int
@@ -52,7 +65,124 @@ func (m *goMap) mapBytes() int {
 	if m.byteSize > 0 {
 		return m.byteSize
 	}
-	return listVarOverhead + mapIndexBytes(m.index)
+	size := listVarOverhead + mapIndexBytes(m.index)
+	for _, e := range m.flat {
+		size += ValueBytes(e.key) + ValueBytes(e.val)
+	}
+	return size
+}
+
+// mapKeyMatches reports whether a and b are the same map key: exactly when
+// keyHash(a) == keyHash(b), without building either hash.
+func mapKeyMatches(a, b Value) bool {
+	if a.Type() != b.Type() {
+		return false
+	}
+	switch a.Type() {
+	case TYPE_INT:
+		return a.Int() == b.Int()
+	case TYPE_OBJ:
+		return a.Obj() == b.Obj()
+	case TYPE_STR:
+		return equalFoldedASCII(a.Str(), b.Str())
+	case TYPE_FLOAT:
+		fa, fb := a.Float(), b.Float()
+		if fa == 0 {
+			fa = 0
+		}
+		if fb == 0 {
+			fb = 0
+		}
+		return math.Float64bits(fa) == math.Float64bits(fb)
+	case TYPE_WAIF:
+		return a.WaifIdentity() == b.WaifIdentity()
+	default:
+		return a.String() == b.String()
+	}
+}
+
+// flatEntry is one pair of a flat map with its key's flatKeyHash, so a scan
+// compares integers and looks at a key only when its hash matches.
+type flatEntry struct {
+	hash uint64
+	mapEntry
+}
+
+func newFlatEntry(k, v Value) flatEntry {
+	return flatEntry{hash: flatKeyHash(k), mapEntry: mapEntry{key: k, val: v}}
+}
+
+// flatKeyHash hashes a map key so that keys which mapKeyMatches treats as the
+// same key hash alike. It does not allocate for the common key types.
+func flatKeyHash(v Value) uint64 {
+	const (
+		offset = 14695981039346656037
+		prime  = 1099511628211
+		mix    = 0x9E3779B97F4A7C15
+	)
+	var h uint64
+	switch v.Type() {
+	case TYPE_INT:
+		h = uint64(v.Int()) * mix
+	case TYPE_OBJ:
+		h = uint64(v.Obj()) * mix
+	case TYPE_STR:
+		s := v.Str()
+		h = offset
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			h = (h ^ uint64(c)) * prime
+		}
+	case TYPE_FLOAT:
+		f := v.Float()
+		if f == 0 {
+			f = 0
+		}
+		h = math.Float64bits(f) * mix
+	case TYPE_WAIF:
+		identity := v.WaifIdentity()
+		h = offset
+		for _, c := range identity.swiss {
+			h = (h ^ uint64(c)) * prime
+		}
+	default:
+		s := v.String()
+		h = offset
+		for i := 0; i < len(s); i++ {
+			h = (h ^ uint64(s[i])) * prime
+		}
+	}
+	return h ^ uint64(v.Type())*mix
+}
+
+// flatFind returns the position of key k in a flat map, or -1.
+func (m *goMap) flatFind(k Value) int {
+	if len(m.flat) == 0 {
+		return -1
+	}
+	hash := flatKeyHash(k)
+	for i := range m.flat {
+		if m.flat[i].hash == hash && mapKeyMatches(m.flat[i].key, k) {
+			return i
+		}
+	}
+	return -1
+}
+
+// indexed returns the indexed form of a flat map, for a set that takes it past
+// mapFlatLimit.
+func (m *goMap) indexed() *goMap {
+	p := &goMap{count: m.count, finalizable: m.finalizableState(), byteSize: m.mapBytes()}
+	builder := mapBuilder{blockSize: min(32, len(m.flat))}
+	for _, e := range m.flat {
+		hash := keyHash(e.key)
+		builder.put(&p.index, hash, e.mapEntry, maphash.Comparable(mapIndexSeed, hash))
+		p.order = builder.order(hash, p.order)
+	}
+	return p
 }
 
 // finalizableState returns the cached tri-state, resolving finalizableUnknown
@@ -65,6 +195,11 @@ func (m *goMap) finalizableState() int8 {
 			m.finalizableResolved = finalizableNone
 			if mapIndexFinalizable(m.index) {
 				m.finalizableResolved = finalizableMaybe
+			}
+			for _, e := range m.flat {
+				if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
+					m.finalizableResolved = finalizableMaybe
+				}
 			}
 		})
 		return m.finalizableResolved
@@ -284,6 +419,12 @@ func (m *goMap) toastRoot() *toastLookupNode {
 
 // get returns the value for a key, or (None, false) if absent.
 func (m *goMap) get(k Value) (Value, bool) {
+	if m.index == nil {
+		if i := m.flatFind(k); i >= 0 {
+			return m.flat[i].val, true
+		}
+		return None, false
+	}
 	hash := keyHash(k)
 	if e, ok := mapIndexGet(m.index, hash, maphash.Comparable(mapIndexSeed, hash)); ok {
 		return e.val, true
@@ -292,6 +433,25 @@ func (m *goMap) get(k Value) (Value, bool) {
 }
 
 func (m *goMap) set(k, v Value) *goMap {
+	if m.index == nil {
+		i := m.flatFind(k)
+		if i < 0 && len(m.flat) >= mapFlatLimit {
+			return m.indexed().set(k, v)
+		}
+		fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
+		bytes := m.mapBytes() + ValueBytes(k) + ValueBytes(v)
+		var flat []flatEntry
+		if i >= 0 {
+			bytes -= ValueBytes(m.flat[i].key) + ValueBytes(m.flat[i].val)
+			flat = append([]flatEntry(nil), m.flat...)
+			flat[i] = flatEntry{hash: m.flat[i].hash, mapEntry: mapEntry{key: k, val: v}}
+		} else {
+			flat = make([]flatEntry, len(m.flat)+1)
+			copy(flat, m.flat)
+			flat[len(m.flat)] = newFlatEntry(k, v)
+		}
+		return &goMap{flat: flat, count: len(flat), finalizable: fin, byteSize: bytes}
+	}
 	hash := keyHash(k)
 	bits := maphash.Comparable(mapIndexSeed, hash)
 	old, exists := mapIndexGet(m.index, hash, bits)
@@ -310,6 +470,20 @@ func (m *goMap) set(k, v Value) *goMap {
 }
 
 func (m *goMap) delete(k Value) *goMap {
+	if m.index == nil {
+		i := m.flatFind(k)
+		if i < 0 {
+			return m
+		}
+		var flat []flatEntry
+		if len(m.flat) > 1 {
+			flat = make([]flatEntry, 0, len(m.flat)-1)
+			flat = append(flat, m.flat[:i]...)
+			flat = append(flat, m.flat[i+1:]...)
+		}
+		bytes := m.mapBytes() - ValueBytes(m.flat[i].key) - ValueBytes(m.flat[i].val)
+		return &goMap{flat: flat, count: len(flat), finalizable: finalizableAfterRemove(m.finalizableState()), byteSize: bytes}
+	}
 	hash := keyHash(k)
 	bits := maphash.Comparable(mapIndexSeed, hash)
 	old, exists := mapIndexGet(m.index, hash, bits)
@@ -393,6 +567,30 @@ func mapValue(m *goMap) Value {
 // NewMap creates a map value from key-value pairs (later duplicates win).
 func NewMap(pairs [][2]Value) Value {
 	m := &goMap{byteSize: listVarOverhead}
+	if len(pairs) <= mapFlatLimit {
+		if len(pairs) > 0 {
+			m.flat = make([]flatEntry, 0, len(pairs))
+		}
+		for _, p := range pairs {
+			entry := newFlatEntry(p[0], p[1])
+			found := -1
+			for i := range m.flat {
+				if m.flat[i].hash == entry.hash && mapKeyMatches(m.flat[i].key, p[0]) {
+					found = i
+					break
+				}
+			}
+			if found >= 0 {
+				m.byteSize -= ValueBytes(m.flat[found].key) + ValueBytes(m.flat[found].val)
+				m.flat[found] = entry
+			} else {
+				m.flat = append(m.flat, entry)
+			}
+			m.byteSize += ValueBytes(p[0]) + ValueBytes(p[1])
+		}
+		m.count = len(m.flat)
+		return mapValue(m)
+	}
 	builder := mapBuilder{blockSize: min(32, len(pairs))}
 	for _, p := range pairs {
 		hash := keyHash(p[0])
@@ -464,6 +662,9 @@ func (v Value) MapColumns() (values, keys []Value) {
 func (v Value) PairsInInsertionOrder() [][2]Value {
 	m := v.goMap()
 	pairs := make([][2]Value, m.count)
+	for i, e := range m.flat {
+		pairs[i] = [2]Value{e.key, e.val}
+	}
 	i := len(pairs)
 	for node := m.order; node != nil; node = node.previous {
 		i--

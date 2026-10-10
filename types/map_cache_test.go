@@ -56,10 +56,12 @@ func TestToastRootConcurrentReadersShareRoot(t *testing.T) {
 }
 
 func TestGetWithCaseInsensitiveUsesHashIndex(t *testing.T) {
-	smallAllocs := getWithCaseInsensitiveAllocs(t, 10)
-	largeAllocs := getWithCaseInsensitiveAllocs(t, 1_000)
+	// Both sizes are past mapFlatLimit, so both go through the hash index; a
+	// flat map does not hash at all and would not test it.
+	smallAllocs := getWithCaseInsensitiveAllocs(t, 100)
+	largeAllocs := getWithCaseInsensitiveAllocs(t, 10_000)
 	if largeAllocs > smallAllocs {
-		t.Fatalf("case-insensitive lookup allocations grew with map size: size 10 = %v, size 1000 = %v", smallAllocs, largeAllocs)
+		t.Fatalf("case-insensitive lookup allocations grew with map size: size 100 = %v, size 10000 = %v", smallAllocs, largeAllocs)
 	}
 }
 
