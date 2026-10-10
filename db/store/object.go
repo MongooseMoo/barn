@@ -37,7 +37,7 @@ type Object struct {
 	// Properties and verbs
 	properties    propTable
 	propDefsCount int      // Number of properties defined on this object (not inherited)
-	propOrder     []string // Property names in order they were read (for name resolution)
+	propOrder     []string // Names of the properties defined on this object, in definition order, in display case
 	verbs         map[string]*Verb
 	verbList      []*Verb // Ordered list for verb code indexing
 	// verbIdx accelerates dispatch-time alias lookup over verbList. It is an

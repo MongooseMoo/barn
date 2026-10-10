@@ -162,5 +162,38 @@ func (b *ObjectBuilder) Build() *Object {
 	if b.obj.chparentChildren == nil {
 		b.obj.chparentChildren = make(map[types.ObjID]bool)
 	}
+	b.obj.propOrder = definedPropOrder(b.obj)
 	return b.obj
+}
+
+// definedPropOrder returns obj's name order without the inherited names the
+// loader appended to resolve positional slots. The store reads propOrder only
+// for an object's own definitions: the leading propDefsCount entries, and any
+// entry whose slot is defined. Inherited names are recovered from the ancestry
+// when a dump needs them, so a finished object does not carry them.
+func definedPropOrder(obj *Object) []string {
+	keep := 0
+	for i, name := range obj.propOrder {
+		if i < obj.propDefsCount || definesProperty(obj, name) {
+			keep++
+		}
+	}
+	if keep == len(obj.propOrder) {
+		return obj.propOrder
+	}
+	if keep == 0 {
+		return nil
+	}
+	order := make([]string, 0, keep)
+	for i, name := range obj.propOrder {
+		if i < obj.propDefsCount || definesProperty(obj, name) {
+			order = append(order, name)
+		}
+	}
+	return order
+}
+
+func definesProperty(obj *Object, name string) bool {
+	prop, ok := obj.properties.lookup(propertyNameKey(name))
+	return ok && prop.defined
 }
