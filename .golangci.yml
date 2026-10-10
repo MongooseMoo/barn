@@ -1,5 +1,11 @@
 version: "2"
 
+run:
+  # The CI runners share one machine. Without this, golangci-lint takes a
+  # machine-wide lock and a second concurrent job fails with "parallel
+  # golangci-lint is running".
+  allow-parallel-runners: true
+
 linters:
   # errcheck, govet, ineffassign, staticcheck, unused.
   default: standard
