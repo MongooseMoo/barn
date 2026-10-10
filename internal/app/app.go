@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 
 	"github.com/MongooseMoo/barn/config"
@@ -221,6 +222,10 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("construct store from database: %w", err)
 		}
+		// As the server does after loading: return what the load allocated
+		// and no longer needs, so -eval 'memory_usage()' reports what a
+		// started server holds.
+		debug.FreeOSMemory()
 		// Inspection helpers retain the established textual contracts.
 		if cfg.VerbCode != "" {
 			err := dbtool.DumpVerbCode(out, errOut, store, cfg.VerbCode)
