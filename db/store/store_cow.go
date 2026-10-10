@@ -34,7 +34,7 @@ import (
 // clone. Published images are immutable and must never reach this function.
 func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
 	newProps := img.properties
-	if liveName, prop, ok := propertyByName(newProps, w.name); ok {
+	if liveName, prop, ok := newProps.find(w.name); ok {
 		// Existing property: copy it by value, apply the write, stamp the property
 		// version, and swap it into the new map under its existing key. The old
 		// image's stored value is left untouched (map copy is by value).
@@ -45,7 +45,7 @@ func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
 		updated.clear = w.prop.clear
 		updated.defined = w.prop.defined
 		updated.version = ts
-		newProps[liveName] = updated
+		newProps.put(liveName, updated)
 	} else {
 		// New property slot on this object: the staged prop carries metadata; value
 		// comes from the write. Honor the staged clear flag: a normal inherited-override
@@ -60,7 +60,7 @@ func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
 		np := w.prop
 		np.value = w.value
 		np.version = ts
-		newProps[propertyNameKey(w.name)] = np
+		newProps.put(propertyNameKey(w.name), np)
 		// A new slot changes which ancestry walks fall through this object.
 		img.propertyShapeVersion = ts
 	}
@@ -124,7 +124,7 @@ func buildImageRecycled(old *Object, ts uint64) *Object {
 	img := *old
 	img.contents = []types.ObjID{}
 	img.location = types.ObjNothing
-	img.properties = make(map[string]Property)
+	img.properties = newPropTable(0)
 	img.verbs = make(map[string]*Verb)
 	img.recycled = true
 	img.flags = img.flags.Set(FlagRecycled | FlagInvalid)
@@ -141,12 +141,9 @@ func buildImageRecycled(old *Object, ts uint64) *Object {
 func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
-	newProps := make(map[string]Property, len(old.properties))
-	for name, prop := range old.properties {
-		newProps[name] = prop
-	}
-	if liveActual, _, ok := propertyByName(newProps, actualName); ok {
-		delete(newProps, liveActual)
+	newProps := old.properties.clone()
+	if liveActual, _, ok := newProps.find(actualName); ok {
+		newProps.remove(liveActual)
 	}
 
 	img.properties = newProps
@@ -173,9 +170,9 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *Object {
 	img := *old // shallow struct copy: shares all slices/maps/pointers with old
 
-	newProps := make(map[string]Property, len(old.properties)+1)
-	for name, p := range old.properties {
-		newProps[name] = p
+	newProps := newPropTable(old.properties.count() + 1)
+	for name, p := range old.properties.all() {
+		newProps.put(name, p)
 	}
 
 	// Mirror definePropertyLocked: stamp the defined property; the map key is
@@ -184,7 +181,7 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
-	newProps[propertyNameKey(def.name)] = prop
+	newProps.put(propertyNameKey(def.name), prop)
 
 	// Insert the new name into propOrder at the propDefsCount position (mirrors the
 	// coarse path's insertion order). Copy the slice so the old image's propOrder is
@@ -219,14 +216,11 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
-	newProps := make(map[string]Property, len(old.properties))
-	for name, p := range old.properties {
-		newProps[name] = p
-	}
+	newProps := old.properties.clone()
 	// propOrder holds the display name while the map key is canonical; remove
 	// the order entry case-insensitively.
-	if la, _, ok := propertyByName(newProps, actualName); ok {
-		delete(newProps, la)
+	if la, _, ok := newProps.find(actualName); ok {
+		newProps.remove(la)
 	}
 
 	img.properties = newProps

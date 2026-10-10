@@ -250,8 +250,8 @@ func TestNewObject(t *testing.T) {
 		t.Errorf("Location = %d, want %d (nothing)", obj.location, types.ObjNothing)
 	}
 
-	if len(obj.properties) != 0 {
-		t.Errorf("Properties len = %d, want 0", len(obj.properties))
+	if obj.properties.count() != 0 {
+		t.Errorf("Properties len = %d, want 0", obj.properties.count())
 	}
 
 	if len(obj.verbs) != 0 {

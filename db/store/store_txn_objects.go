@@ -280,7 +280,7 @@ func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorC
 	m := tx.mutableObject(id)
 	m.contents = []types.ObjID{}
 	m.location = types.ObjNothing
-	m.properties = make(map[string]Property)
+	m.properties = newPropTable(0)
 	m.verbs = make(map[string]*Verb)
 	m.recycled = true
 	m.flags = m.flags.Set(FlagRecycled | FlagInvalid)

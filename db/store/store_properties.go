@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]Property {
-	result := make(map[string]Property)
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
+	result := newPropTable(0)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -22,18 +22,18 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 		if !validLiveObject(current) {
 			continue
 		}
-		for name, prop := range current.properties {
+		for name, prop := range current.properties.all() {
 			// Keys are canonical on every object, so a direct hit suffices.
-			if _, exists := result[name]; exists {
+			if _, exists := result.lookup(name); exists {
 				continue
 			}
-			result[name] = Property{
+			result.put(name, Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
 				clear:   true,
 				version: prop.version,
-			}
+			})
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -52,29 +52,11 @@ func PropertyNameKey(name string) string {
 	return propertyNameKey(name)
 }
 
-// propertyByName resolves a property slot by case-insensitive name. The map is
-// keyed canonically (propertyNameKey), so this is at most two map hits: one
-// with the name as given (the common all-lowercase case — strings.ToLower
-// returns its input unchanged, so key == name and the second hit is skipped)
-// and one with the lowered form. The returned string is the CANONICAL map key;
-// display case lives only in propOrder (see the note on Object.properties).
-func propertyByName(properties map[string]Property, name string) (string, Property, bool) {
-	if prop, ok := properties[name]; ok {
-		return name, prop, true
-	}
-	if key := propertyNameKey(name); key != name {
-		if prop, ok := properties[key]; ok {
-			return key, prop, true
-		}
-	}
-	return "", Property{}, false
-}
-
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
 	newProps := s.copyInheritedPropertiesLocked(obj.parents)
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined {
-			newProps[name] = prop
+			newProps.put(name, prop)
 		}
 	}
 	obj.properties = newProps
@@ -101,7 +83,7 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Prop
 	// BFS's first iteration, without the per-call visited map and queue. Only a
 	// clear entry (value lives on an ancestor) or a miss needs the walk.
 	if self := s.liveObjectLocked(objID); validLiveObject(self) {
-		if actualName, prop, ok := propertyByName(self.properties, name); ok && !prop.clear {
+		if actualName, prop, ok := self.properties.find(name); ok && !prop.clear {
 			return actualName, prop, types.E_NONE
 		}
 	}
@@ -126,7 +108,7 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Prop
 			continue
 		}
 
-		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+		if actualName, prop, ok := current.properties.find(name); ok {
 			if !targetFound {
 				targetProp = prop
 				targetName = actualName
@@ -164,9 +146,9 @@ func (s *Store) definedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 		return nil, types.E_INVIND
 	}
 
-	names := make([]string, 0, len(obj.properties))
+	names := make([]string, 0, obj.properties.count())
 	for _, name := range obj.propOrder {
-		prop := obj.properties[propertyNameKey(name)]
+		prop, _ := obj.properties.lookup(propertyNameKey(name))
 		if prop.defined {
 			names = append(names, name)
 		}
@@ -204,7 +186,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 		if !validLiveObject(current) {
 			continue
 		}
-		for name, prop := range current.properties {
+		for name, prop := range current.properties.all() {
 			if prop.defined {
 				names[propertyNameKey(name)] = true
 			}
@@ -225,7 +207,7 @@ func (s *Store) hasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 		if obj == nil {
 			return false, types.E_INVARG
 		}
-		for name, prop := range obj.properties {
+		for name, prop := range obj.properties.all() {
 			if !prop.defined {
 				continue
 			}
@@ -254,7 +236,7 @@ func (s *Store) hasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 	}
 
 	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined && ancestorNames[propertyNameKey(name)] {
 			return true, types.E_NONE
 		}
@@ -283,7 +265,7 @@ func (s *Store) hasChparentDescendantPropertyConflict(objID types.ObjID, names m
 			if !validLiveObject(child) {
 				continue
 			}
-			for name, prop := range child.properties {
+			for name, prop := range child.properties.all() {
 				if prop.defined && names[propertyNameKey(name)] {
 					return true
 				}
@@ -315,8 +297,8 @@ func (s *Store) propertyValues(objID types.ObjID) ([]types.Value, types.ErrorCod
 		return nil, types.E_INVIND
 	}
 
-	values := make([]types.Value, 0, len(obj.properties))
-	for _, prop := range obj.properties {
+	values := make([]types.Value, 0, obj.properties.count())
+	for _, prop := range obj.properties.all() {
 		values = append(values, prop.value)
 	}
 	return values, types.E_NONE
@@ -348,7 +330,7 @@ func (s *Store) truthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 		if !validLiveObject(current) {
 			continue
 		}
-		for propName, prop := range current.properties {
+		for propName, prop := range current.properties.all() {
 			// Map keys are canonical lowercase; lower the prefix once.
 			if !strings.HasPrefix(propName, prefixLower) {
 				continue
@@ -381,7 +363,7 @@ func (s *Store) localProperty(objID types.ObjID, name string) (PropertyView, boo
 	if obj == nil {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok {
 		return PropertyView{}, false, types.E_NONE
 	}
@@ -420,7 +402,7 @@ func (s *Store) propertyClearState(objID types.ObjID, name string) (bool, types.
 	if obj == nil {
 		return false, types.E_INVIND
 	}
-	_, prop, exists := propertyByName(obj.properties, name)
+	_, prop, exists := obj.properties.find(name)
 	if !exists {
 		return true, types.E_NONE
 	}
@@ -440,7 +422,7 @@ func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if obj == nil {
 		return types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok {
 		return types.E_PROPNF
 	}
@@ -454,7 +436,7 @@ func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 		prop.perms = *perms
 	}
 	prop.version = ts
-	obj.properties[actualName] = prop
+	obj.properties.put(actualName, prop)
 	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
@@ -473,11 +455,11 @@ func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Val
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
-	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
+	if actualName, prop, ok := obj.properties.find(name); ok {
 		prop.clear = false
 		prop.value = value
 		prop.version = ts
-		obj.properties[actualName] = prop
+		obj.properties.put(actualName, prop)
 		stampObjectProperties(obj, ts)
 		return types.E_NONE
 	}
@@ -486,14 +468,14 @@ func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Val
 	if err != types.E_NONE {
 		return err
 	}
-	obj.properties[inheritedName] = Property{
+	obj.properties.put(inheritedName, Property{
 		value:   value,
 		owner:   inherited.owner,
 		perms:   inherited.perms,
 		clear:   false,
 		defined: false,
 		version: ts,
-	}
+	})
 	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
@@ -513,7 +495,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	if obj == nil {
 		return types.E_INVIND
 	}
-	if _, _, exists := propertyByName(obj.properties, name); exists {
+	if _, _, exists := obj.properties.find(name); exists {
 		return types.E_INVARG
 	}
 	obj = s.republishForMutation(obj)
@@ -525,7 +507,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	prop.clear = false
 	prop.version = ts
 
-	obj.properties[propertyNameKey(name)] = prop
+	obj.properties.put(propertyNameKey(name), prop)
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -556,7 +538,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	if obj == nil {
 		return types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok || !prop.defined {
 		return types.E_PROPNF
 	}
@@ -566,7 +548,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 		s.noteWaifRootsChanged()
 	}
 
-	delete(obj.properties, actualName)
+	obj.properties.remove(actualName)
 	// propOrder keeps display case while actualName is the canonical map key,
 	// so the order entry is removed case-insensitively.
 	obj.propOrder = removeStringFold(obj.propOrder, actualName)
@@ -589,12 +571,12 @@ func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.Erro
 	if obj == nil {
 		return types.E_INVIND
 	}
-	actualName, _, ok := propertyByName(obj.properties, name)
+	actualName, _, ok := obj.properties.find(name)
 	if ok {
 		obj = s.republishForMutation(obj)
 		ts := s.bumpClockLocked()
 		s.noteWaifRootsChanged()
-		delete(obj.properties, actualName)
+		obj.properties.remove(actualName)
 		stampObjectProperties(obj, ts)
 	}
 	return types.E_NONE
@@ -622,7 +604,7 @@ func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 			if !validLiveObject(child) {
 				continue
 			}
-			if _, prop, ok := propertyByName(child.properties, name); ok && prop.defined {
+			if _, prop, ok := child.properties.find(name); ok && prop.defined {
 				return true
 			}
 			queue = append(queue, childID)
@@ -644,7 +626,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	// mutates the fresh copy, never the published image (which pre-existing read
 	// aliases may hold).
 	changed := false
-	for _, prop := range obj.properties {
+	for _, prop := range obj.properties.all() {
 		if !prop.defined {
 			changed = true
 			break
@@ -652,9 +634,9 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	}
 	if changed {
 		obj = s.republishForMutation(obj)
-		for name, prop := range obj.properties {
+		for name, prop := range obj.properties.all() {
 			if !prop.defined {
-				delete(obj.properties, name)
+				obj.properties.remove(name)
 			}
 		}
 		stampObjectProperties(obj, s.bumpClockLocked())
@@ -682,23 +664,23 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, existing, ok := propertyByName(child.properties, name); ok {
+			if actualName, existing, ok := child.properties.find(name); ok {
 				if existing.defined {
 					queue = append(queue, childID)
 					continue
 				}
 				child = s.republishForMutation(child)
-				delete(child.properties, actualName)
+				child.properties.remove(actualName)
 			} else {
 				child = s.republishForMutation(child)
 			}
-			child.properties[propertyNameKey(name)] = Property{
+			child.properties.put(propertyNameKey(name), Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
 				clear:   true,
 				version: ts,
-			}
+			})
 			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
 		}
@@ -724,9 +706,9 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, prop, ok := propertyByName(child.properties, name); ok && !prop.defined {
+			if actualName, prop, ok := child.properties.find(name); ok && !prop.defined {
 				child = s.republishForMutation(child)
-				delete(child.properties, actualName)
+				child.properties.remove(actualName)
 				stampObjectProperties(child, ts)
 			}
 			queue = append(queue, childID)

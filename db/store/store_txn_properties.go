@@ -176,7 +176,7 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			continue
 		}
 
-		if prop, ok := current.properties[key]; ok {
+		if prop, ok := current.properties.lookup(key); ok {
 			actualName := key
 			sc.steps = append(sc.steps, propWalkStep{
 				id: currentID, obj: current, valid: true,
@@ -233,8 +233,8 @@ func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.Erro
 	}
 	tx.markPropertyScan(objID, obj)
 
-	values := make([]types.Value, 0, len(obj.properties))
-	for pname, prop := range obj.properties {
+	values := make([]types.Value, 0, obj.properties.count())
+	for pname, prop := range obj.properties.all() {
 		tx.markPropertyRead(objID, pname, prop)
 		values = append(values, prop.value)
 	}
@@ -249,7 +249,7 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok {
 		tx.markPropertyScan(objID, obj)
 		return PropertyView{}, false, types.E_NONE
@@ -268,9 +268,9 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 	}
 	tx.markPropertyScan(objID, obj)
 
-	names := make([]string, 0, len(obj.properties))
+	names := make([]string, 0, obj.properties.count())
 	for _, name := range obj.propOrder {
-		if prop, ok := obj.properties[propertyNameKey(name)]; ok && prop.defined {
+		if prop, ok := obj.properties.lookup(propertyNameKey(name)); ok && prop.defined {
 			names = append(names, name)
 		}
 	}
@@ -304,7 +304,7 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 			continue
 		}
 		tx.markPropertyScan(currentID, current)
-		for propName, prop := range current.properties {
+		for propName, prop := range current.properties.all() {
 			if !strings.HasPrefix(strings.ToLower(propName), lowerPrefix) {
 				continue
 			}
@@ -332,7 +332,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
-	actualName, prop, exists := propertyByName(obj.properties, name)
+	actualName, prop, exists := obj.properties.find(name)
 	if !exists {
 		tx.markPropertyShapeScan(objID, obj)
 		return true, types.E_NONE
@@ -352,7 +352,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if actualName, prop, ok := propertyByName(obj.properties, name); ok && !prop.clear && prop.value.Identical(value) {
+	if actualName, prop, ok := obj.properties.find(name); ok && !prop.clear && prop.value.Identical(value) {
 		// Same-value elision. The slot already holds this exact value and is
 		// not clear, so the write changes nothing MOO code can observe (value,
 		// clear state, owner and perms are all unchanged). Staging it anyway
@@ -373,14 +373,14 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		return types.E_INVIND
 	}
 
-	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
+	if actualName, prop, ok := obj.properties.find(name); ok {
 		tx.markPropertyRead(objID, actualName, prop)
 		before := prop
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
 		// within this txn (e.g. PropertyValues) see the staged change.
-		obj.properties[actualName] = prop
+		obj.properties.put(actualName, prop)
 		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
 	}
@@ -397,7 +397,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		defined: false,
 		version: inherited.version,
 	}
-	obj.properties[inheritedName] = override
+	obj.properties.put(inheritedName, override)
 	tx.stagePropertyValue(objID, inheritedName, override, value, Property{}, false)
 	return types.E_NONE
 }
@@ -410,7 +410,7 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
+	if actualName, prop, ok := obj.properties.find(name); ok {
 		tx.markPropertyRead(objID, actualName, prop)
 		if owner != nil {
 			prop.owner = *owner
@@ -420,7 +420,7 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 		}
 		// Properties are stored by value: write the mutated copy back so reads
 		// within this txn see the staged owner/perms change.
-		obj.properties[actualName] = prop
+		obj.properties.put(actualName, prop)
 		key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
 		delete(tx.propertyDeletes, key)
 		if _, stagedDefine := tx.propertyDefines[key]; stagedDefine {
@@ -446,7 +446,7 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if existingName, existing, ok := propertyByName(obj.properties, name); ok {
+	if existingName, existing, ok := obj.properties.find(name); ok {
 		tx.markPropertyRead(objID, existingName, existing)
 		return types.E_INVARG
 	}
@@ -458,7 +458,7 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)
 	lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
-	obj.properties[propertyNameKey(name)] = prop
+	obj.properties.put(propertyNameKey(name), prop)
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -481,13 +481,13 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok {
 		tx.markPropertyScan(objID, obj)
 		return types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
-	delete(obj.properties, actualName)
+	obj.properties.remove(actualName)
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
 	delete(tx.propertyWrites, key)
 	delete(tx.propertyDefines, key)

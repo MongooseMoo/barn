@@ -101,7 +101,7 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 		if obj == nil || !validLiveObject(obj) || obj.anonymous {
 			return true
 		}
-		for _, prop := range obj.properties {
+		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefsVisited(prop.value, refs, nil, retained)
 			for id := range refs {
@@ -190,7 +190,7 @@ func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct
 		}
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.properties {
+		for _, prop := range obj.properties.all() {
 			collectAnonymousObjectRefsVisited(prop.value, nested, nil, true)
 		}
 		for nestedID := range nested {
@@ -215,7 +215,7 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.properties {
+		for _, prop := range obj.properties.all() {
 			collectAnonymousObjectRefsVisited(prop.value, nested, nil, retained)
 		}
 		for nestedID := range nested {
@@ -324,7 +324,7 @@ type persistentWaifRootsEntry struct {
 // propertyValueMayHoldFinalizable reports whether obj's slot for name currently
 // holds a value that may reference a WAIF or anonymous object.
 func propertyValueMayHoldFinalizable(obj *Object, name string) bool {
-	_, prop, ok := propertyByName(obj.properties, name)
+	_, prop, ok := obj.properties.find(name)
 	return ok && prop.value.MayHoldFinalizable()
 }
 
@@ -402,7 +402,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 			if obj == nil || !validLiveObject(obj) {
 				return true
 			}
-			for _, prop := range obj.properties {
+			for _, prop := range obj.properties.all() {
 				if prop.value.MayHoldFinalizable() {
 					collectTopLevelWaifsInto(prop.value, set)
 				}

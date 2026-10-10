@@ -241,7 +241,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	}
 	obj.location = types.ObjNothing
 
-	obj.properties = make(map[string]Property)
+	obj.properties = newPropTable(0)
 	obj.verbs = make(map[string]*Verb)
 
 	for _, parentID := range obj.parents {
@@ -527,7 +527,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 		}
 		if !ownerTouched {
-			for _, p := range other.properties {
+			for _, p := range other.properties.all() {
 				if p.owner == oldID || p.owner == newID {
 					ownerTouched = true
 					break
@@ -540,9 +540,9 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			for _, v := range other.verbs {
 				v.owner = rewriteOwner(v.owner)
 			}
-			for name, p := range other.properties {
+			for name, p := range other.properties.all() {
 				p.owner = rewriteOwner(p.owner)
-				other.properties[name] = p
+				other.properties.put(name, p)
 			}
 			stampObjectAll(other, ts)
 		}
@@ -591,9 +591,9 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 		}
 		anon.owner = rewriteOwner(anon.owner)
-		for name, p := range anon.properties {
+		for name, p := range anon.properties.all() {
 			p.owner = rewriteOwner(p.owner)
-			anon.properties[name] = p
+			anon.properties.put(name, p)
 		}
 	}
 

@@ -30,7 +30,7 @@ func elisionFixture(t *testing.T) (*Store, types.ObjID, types.ObjID) {
 
 func liveSlotVersion(t *testing.T, s *Store, id types.ObjID, name string) uint64 {
 	t.Helper()
-	_, prop, ok := propertyByName(s.load(id).properties, name)
+	_, prop, ok := s.load(id).properties.find(name)
 	if !ok {
 		t.Fatalf("#%d.%s: no live slot", id, name)
 	}

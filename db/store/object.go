@@ -35,7 +35,7 @@ type Object struct {
 	flags    ObjectFlags
 
 	// Properties and verbs
-	properties    map[string]Property
+	properties    propTable
 	propDefsCount int      // Number of properties defined on this object (not inherited)
 	propOrder     []string // Property names in order they were read (for name resolution)
 	verbs         map[string]*Verb
@@ -101,7 +101,7 @@ func (o *Object) view() ObjectView {
 		Recycled:      o.recycled,
 		Anonymous:     o.anonymous,
 		VerbCount:     len(o.verbList),
-		PropertyCount: len(o.properties),
+		PropertyCount: o.properties.count(),
 	}
 }
 
@@ -561,7 +561,7 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		contents:         []types.ObjID{},
 		location:         types.ObjNothing,
 		lastMove:         types.NewEmptyMap(),
-		properties:       make(map[string]Property),
+		properties:       newPropTable(0),
 		verbs:            make(map[string]*Verb),
 		flags:            0, // Default: not readable or writable (MOO semantics)
 		chparentChildren: make(map[types.ObjID]bool),

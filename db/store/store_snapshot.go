@@ -198,7 +198,7 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 		if obj == nil || !validLiveObject(obj) || obj.anonymous {
 			return true
 		}
-		for _, prop := range obj.properties {
+		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for id := range refs {
@@ -236,7 +236,7 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 			continue
 		}
 		reachablePresent[id] = struct{}{}
-		for _, prop := range obj.properties {
+		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for nid := range refs {
@@ -381,14 +381,14 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 		Contents:      append([]types.ObjID(nil), obj.contents...),
 		PropDefsCount: obj.propDefsCount,
 		VerbList:      make([]VerbView, len(obj.verbList)),
-		Properties:    make(map[string]PropertyView, len(obj.properties)),
+		Properties:    make(map[string]PropertyView, obj.properties.count()),
 	}
 	for i, verb := range obj.verbList {
 		if verb != nil {
 			so.VerbList[i] = verb.View()
 		}
 	}
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		so.Properties[name] = prop.View(name)
 	}
 	return so
@@ -405,8 +405,8 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 // Map-only names with no ancestry position are still appended (sorted) as a
 // no-value-loss backstop; the reader keeps placeholder names for them.
 func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
-	names := make([]string, 0, len(obj.propOrder)+len(obj.properties))
-	seen := make(map[string]bool, len(obj.propOrder)+len(obj.properties))
+	names := make([]string, 0, len(obj.propOrder)+obj.properties.count())
+	seen := make(map[string]bool, len(obj.propOrder)+obj.properties.count())
 	visited := make(map[types.ObjID]bool)
 	var walk func(o *Object)
 	walk = func(o *Object) {
@@ -435,7 +435,7 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 	// Backstop: any map slot with no ancestry position still gets its value
 	// emitted (the reader pairs it with a placeholder name).
 	var extra []string
-	for key := range obj.properties {
+	for key := range obj.properties.all() {
 		if !seen[key] {
 			extra = append(extra, key)
 			seen[key] = true

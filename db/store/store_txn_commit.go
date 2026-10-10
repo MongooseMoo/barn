@@ -216,7 +216,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 				if key.objID != id {
 					continue
 				}
-				if _, prop, ok := propertyByName(live.properties, key.name); ok {
+				if _, prop, ok := live.properties.find(key.name); ok {
 					propertyReads[key] = prop.version
 				} else {
 					delete(propertyReads, key)
@@ -492,7 +492,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 	}
 	for key := range tx.propertyDefines {
 		live := baseObject(key.objID)
-		if _, _, exists := propertyByName(live.properties, key.name); exists {
+		if _, _, exists := live.properties.find(key.name); exists {
 			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
 				return types.E_INVARG
 			}
@@ -500,7 +500,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		live := baseObject(key.objID)
-		_, prop, ok := propertyByName(live.properties, actualName)
+		_, prop, ok := live.properties.find(actualName)
 		if !ok || !prop.defined {
 			return types.E_PROPNF
 		}
@@ -621,20 +621,20 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 			live = tx.store.republishForMutation(live)
 			remembered[key.objID] = true
 		}
-		if liveActual, prop, ok := propertyByName(live.properties, write.name); ok {
+		if liveActual, prop, ok := live.properties.find(write.name); ok {
 			prop.value = write.prop.value
 			prop.owner = write.prop.owner
 			prop.perms = write.prop.perms
 			prop.clear = write.prop.clear
 			prop.defined = write.prop.defined
 			prop.version = ts
-			live.properties[liveActual] = prop
+			live.properties.put(liveActual, prop)
 		} else {
 			prop := write.prop
 			prop.value = write.value
 			prop.clear = false
 			prop.version = ts
-			live.properties[propertyNameKey(write.name)] = prop
+			live.properties.put(propertyNameKey(write.name), prop)
 			// Only a new slot changes the shape, as in applyPropertyValueOwned.
 			live.propertyShapeVersion = ts
 		}
@@ -649,8 +649,8 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 			live = tx.store.republishForMutation(live)
 			remembered[key.objID] = true
 		}
-		if liveActual, _, ok := propertyByName(live.properties, actualName); ok {
-			delete(live.properties, liveActual)
+		if liveActual, _, ok := live.properties.find(actualName); ok {
+			live.properties.remove(liveActual)
 		}
 		stampObjectProperties(live, ts)
 	}
@@ -699,7 +699,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		}
 		live.contents = []types.ObjID{}
 		live.location = types.ObjNothing
-		live.properties = make(map[string]Property)
+		live.properties = newPropTable(0)
 		live.verbs = make(map[string]*Verb)
 		live.recycled = true
 		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)

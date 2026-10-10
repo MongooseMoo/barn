@@ -360,6 +360,7 @@ go build -o bin/ ./cmd/barn
 ./bin/barn -db Test.db -verb-lookup '#2:look'
 ./bin/barn -db Test.db -ancestry '#2'
 ./bin/barn -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
+./bin/barn -db Test.db -memory-report -memory-profile heap.pprof  # retained heap and property-slot counts after load
 ```
 
 ## Spec Audit Workflow

@@ -94,7 +94,7 @@ func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	obj := tx.object(id) // aliases the published image at this txn's snapshot
-	_, propBefore, ok := propertyByName(obj.properties, "foo")
+	_, propBefore, ok := obj.properties.find("foo")
 	if !ok {
 		t.Fatal("foo not visible to reader")
 	}
@@ -104,12 +104,12 @@ func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 		t.Fatalf("SetPropertyValue: %v", ec)
 	}
 
-	_, propAfter, _ := propertyByName(obj.properties, "foo")
+	_, propAfter, _ := obj.properties.find("foo")
 	if !propBefore.value.Equal(propAfter.value) {
 		t.Errorf("aliased image changed under concurrent mutation: foo %v -> %v", propBefore.value, propAfter.value)
 	}
-	if !obj.properties["foo"].value.Equal(types.NewInt(1)) {
-		t.Errorf("reader snapshot corrupted: foo = %v, want 1", obj.properties["foo"].value)
+	if foo, _ := obj.properties.lookup("foo"); !foo.value.Equal(types.NewInt(1)) {
+		t.Errorf("reader snapshot corrupted: foo = %v, want 1", foo.value)
 	}
 	// The reader must also be aliasing (not cloning) the live image: same pointer
 	// as the store's published image at alias time. After the mutation the store's
@@ -209,13 +209,13 @@ func TestDefinePropertyPublishesNewImage(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
 	old := s.load(id)
-	propsBefore := len(old.properties)
+	propsBefore := old.properties.count()
 	orderBefore := append([]string(nil), old.propOrder...)
 	if ec := s.DirectTxn().DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
-	if len(old.properties) != propsBefore {
-		t.Errorf("DefineProperty mutated published properties map in place (len %d -> %d)", propsBefore, len(old.properties))
+	if old.properties.count() != propsBefore {
+		t.Errorf("DefineProperty mutated published properties map in place (len %d -> %d)", propsBefore, old.properties.count())
 	}
 	if !stringsEqual(old.propOrder, orderBefore) {
 		t.Errorf("DefineProperty mutated published propOrder in place")
@@ -230,14 +230,14 @@ func TestSetPropertyValuePublishesNewImage(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 	old := s.load(id)
-	_, propBefore, ok := propertyByName(old.properties, "foo")
+	_, propBefore, ok := old.properties.find("foo")
 	if !ok {
 		t.Fatal("foo not found after define")
 	}
 	if ec := s.DirectTxn().SetPropertyValue(id, "foo", types.NewInt(2)); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue: %v", ec)
 	}
-	_, propAfter, _ := propertyByName(old.properties, "foo")
+	_, propAfter, _ := old.properties.find("foo")
 	if !propBefore.value.Equal(propAfter.value) {
 		t.Errorf("SetPropertyValue mutated published property value in place: %v -> %v", propBefore.value, propAfter.value)
 	}
@@ -251,12 +251,12 @@ func TestDeleteDefinedPropertyPublishesNewImage(t *testing.T) {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 	old := s.load(id)
-	propsBefore := len(old.properties)
+	propsBefore := old.properties.count()
 	if ec := s.DirectTxn().DeleteDefinedProperty(id, "foo"); ec != types.E_NONE {
 		t.Fatalf("DeleteDefinedProperty: %v", ec)
 	}
-	if len(old.properties) != propsBefore {
-		t.Errorf("DeleteDefinedProperty mutated published properties map in place (len %d -> %d)", propsBefore, len(old.properties))
+	if old.properties.count() != propsBefore {
+		t.Errorf("DeleteDefinedProperty mutated published properties map in place (len %d -> %d)", propsBefore, old.properties.count())
 	}
 	assertRepublished(t, s, id, old, "DeleteDefinedProperty")
 }
