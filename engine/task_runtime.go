@@ -401,129 +401,10 @@ retryAttempt:
 	// was created since the floor and the orphan-anon GC sweep can be skipped.
 	anonFloor := s.store.AnonCreationCount()
 
-	if savedVM := t.BytecodeVMValue(); savedVM != nil {
-		if !execReadyAt.IsZero() {
-			slog.Debug("external task resumed", slog.Int64("task_id", t.ID),
-				slog.Duration("queue_wait", started.Sub(execReadyAt)),
-				slog.Duration("ready_to_vm", time.Since(execReadyAt)))
-		}
-		// Retrieve saved VM -- could be resuming after suspend or running a forked child
-		var ok bool
-		bcVM, ok = savedVM.(*vm.VM)
-		if !ok {
-			t.SetState(task.TaskKilled)
-			return errors.New("invalid saved VM state")
-		}
-		// Attach task context (may have been updated since VM was created)
-		bcVM.Context = ctx
-		bcVM.Task = t
-		bcVM.Preempt = preempt
-		bcVM.Resumable = true
-		if attempt > 0 {
-			bcVM.TickLimit = t.TicksLimit
-			// Failed attempts are unpublished. Replay the same logical instruction
-			// budget, while the seconds deadline remains anchored to this slice.
-			bcVM.Ticks = sliceEntryTicks
-		}
-		if bcVM.IsYielded() {
-			// If this task was read()-suspended, deliver the input line
-			if !t.WakeValue.IsNone() {
-				bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
-				t.WakeValue = types.None // Consume — don't leak into future suspends
-				t.WakeErrorAsValue = false
-			}
-			// Resume after suspend
-			result = bcVM.Resume()
-		} else {
-			// First run for forked child task (VM was pre-configured by CreateForkedTask)
-			result = bcVM.ExecuteLoop()
-		}
-	} else {
-		// First run - execute the program compiled at the source boundary.
-		prog := t.Program
-		if prog == nil {
-			t.SetState(task.TaskKilled)
-			return errors.New("task has no compiled program")
-		}
-
-		// Update TaskContext for permissions and builtins
-		if t.VerbName != "" {
-			ctx.Player = t.Owner
-			ctx.Programmer = t.Programmer
-			ctx.IsWizard = s.isWizard(t.Programmer)
-			ctx.ThisObj = t.This
-			ctx.Verb = t.VerbName
-
-			// Push initial activation frame for traceback support
-			t.PushFrame(types.ActivationFrame{
-				This:       t.This,
-				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
-				Player:     t.Owner,
-				Programmer: t.Programmer,
-				Caller:     t.Caller,
-				Verb:       t.VerbName,
-				VerbLoc:    t.VerbLoc,
-				LineNumber: 1,
-			})
-		}
-
-		// Create bytecode VM
-		bcVM = vm.NewVM(s.store, s.session)
-		bcVM.Context = ctx
-		bcVM.Task = t
-		bcVM.Preempt = preempt
-		bcVM.Resumable = true
-		bcVM.TickLimit = t.TicksLimit
-		if attempt > 0 {
-			bcVM.Ticks = sliceEntryTicks
-		}
-		configureVMStackLimit(bcVM, s.session)
-
-		if t.IntrinsicEval {
-			prepareIntrinsicEval(bcVM, t)
-			result = bcVM.ExecuteLoop()
-		} else if t.VerbName != "" {
-			// Command verbs derive args from raw words; server-initiated hooks can
-			// provide fully-typed arguments directly.
-			argList := append([]types.Value(nil), t.VerbArgsValues...)
-			if argList == nil {
-				argList = make([]types.Value, len(t.Args))
-				for i, arg := range t.Args {
-					argList[i] = types.NewStr(arg)
-				}
-			}
-
-			// Prepare frame first, then set ALL variables before execution
-			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
-
-			// Set verb debug flag from the actual verb permissions, and record the
-			// verb's stored name spec (incl. wildcards) for printed tracebacks.
-			if taskVerb, _, vErr := ctx.StoreTxn.FindVerb(t.This, t.VerbName); vErr == nil {
-				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
-				frame.StoredVerbNames = taskVerb.Names
-			}
-
-			// Set verb context variables
-			vm.SetLocalByName(frame, prog, "this", types.NewObj(t.This))
-			vm.SetLocalByName(frame, prog, "player", types.NewObj(t.Owner))
-			vm.SetLocalByName(frame, prog, "caller", types.NewObj(t.Caller))
-			vm.SetLocalByName(frame, prog, "verb", types.NewStr(t.VerbName))
-			vm.SetLocalByName(frame, prog, "args", types.NewList(argList))
-
-			// Set command-specific variables
-			vm.SetLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
-			vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
-			vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
-			vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
-			vm.SetLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
-			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
-
-			// Start execution
-			result = bcVM.ExecuteLoop()
-		} else {
-			// Simple eval task (no verb context)
-			result = bcVM.Run(prog)
-		}
+	var launchErr error
+	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt)
+	if launchErr != nil {
+		return launchErr
 	}
 
 	t.Result = result
@@ -736,6 +617,138 @@ retryAttempt:
 	t.SetBytecodeVM(nil) // Release VM after completion
 
 	return nil
+}
+
+// launchSlice runs one attempt of a task slice on its VM: it resumes a
+// suspended task, starts a forked child's pre-configured VM, or builds a VM
+// for a fresh program. bcVM is the VM of the previous attempt, if any; the
+// caller stores the returned VM back even when err is non-nil.
+func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
+	if savedVM := t.BytecodeVMValue(); savedVM != nil {
+		if !execReadyAt.IsZero() {
+			slog.Debug("external task resumed", slog.Int64("task_id", t.ID),
+				slog.Duration("queue_wait", started.Sub(execReadyAt)),
+				slog.Duration("ready_to_vm", time.Since(execReadyAt)))
+		}
+		// Retrieve saved VM -- could be resuming after suspend or running a forked child
+		var ok bool
+		bcVM, ok = savedVM.(*vm.VM)
+		if !ok {
+			t.SetState(task.TaskKilled)
+			return bcVM, result, errors.New("invalid saved VM state")
+		}
+		// Attach task context (may have been updated since VM was created)
+		bcVM.Context = ctx
+		bcVM.Task = t
+		bcVM.Preempt = preempt
+		bcVM.Resumable = true
+		if attempt > 0 {
+			bcVM.TickLimit = t.TicksLimit
+			// Failed attempts are unpublished. Replay the same logical instruction
+			// budget, while the seconds deadline remains anchored to this slice.
+			bcVM.Ticks = sliceEntryTicks
+		}
+		if bcVM.IsYielded() {
+			// If this task was read()-suspended, deliver the input line
+			if !t.WakeValue.IsNone() {
+				bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
+				t.WakeValue = types.None // Consume — don't leak into future suspends
+				t.WakeErrorAsValue = false
+			}
+			// Resume after suspend
+			result = bcVM.Resume()
+		} else {
+			// First run for forked child task (VM was pre-configured by CreateForkedTask)
+			result = bcVM.ExecuteLoop()
+		}
+	} else {
+		// First run - execute the program compiled at the source boundary.
+		prog := t.Program
+		if prog == nil {
+			t.SetState(task.TaskKilled)
+			return bcVM, result, errors.New("task has no compiled program")
+		}
+
+		// Update TaskContext for permissions and builtins
+		if t.VerbName != "" {
+			ctx.Player = t.Owner
+			ctx.Programmer = t.Programmer
+			ctx.IsWizard = s.isWizard(t.Programmer)
+			ctx.ThisObj = t.This
+			ctx.Verb = t.VerbName
+
+			// Push initial activation frame for traceback support
+			t.PushFrame(types.ActivationFrame{
+				This:       t.This,
+				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
+				Player:     t.Owner,
+				Programmer: t.Programmer,
+				Caller:     t.Caller,
+				Verb:       t.VerbName,
+				VerbLoc:    t.VerbLoc,
+				LineNumber: 1,
+			})
+		}
+
+		// Create bytecode VM
+		bcVM = vm.NewVM(s.store, s.session)
+		bcVM.Context = ctx
+		bcVM.Task = t
+		bcVM.Preempt = preempt
+		bcVM.Resumable = true
+		bcVM.TickLimit = t.TicksLimit
+		if attempt > 0 {
+			bcVM.Ticks = sliceEntryTicks
+		}
+		configureVMStackLimit(bcVM, s.session)
+
+		if t.IntrinsicEval {
+			prepareIntrinsicEval(bcVM, t)
+			result = bcVM.ExecuteLoop()
+		} else if t.VerbName != "" {
+			// Command verbs derive args from raw words; server-initiated hooks can
+			// provide fully-typed arguments directly.
+			argList := append([]types.Value(nil), t.VerbArgsValues...)
+			if argList == nil {
+				argList = make([]types.Value, len(t.Args))
+				for i, arg := range t.Args {
+					argList[i] = types.NewStr(arg)
+				}
+			}
+
+			// Prepare frame first, then set ALL variables before execution
+			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
+
+			// Set verb debug flag from the actual verb permissions, and record the
+			// verb's stored name spec (incl. wildcards) for printed tracebacks.
+			if taskVerb, _, vErr := ctx.StoreTxn.FindVerb(t.This, t.VerbName); vErr == nil {
+				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
+				frame.StoredVerbNames = taskVerb.Names
+			}
+
+			// Set verb context variables
+			vm.SetLocalByName(frame, prog, "this", types.NewObj(t.This))
+			vm.SetLocalByName(frame, prog, "player", types.NewObj(t.Owner))
+			vm.SetLocalByName(frame, prog, "caller", types.NewObj(t.Caller))
+			vm.SetLocalByName(frame, prog, "verb", types.NewStr(t.VerbName))
+			vm.SetLocalByName(frame, prog, "args", types.NewList(argList))
+
+			// Set command-specific variables
+			vm.SetLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
+			vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
+			vm.SetLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
+			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
+
+			// Start execution
+			result = bcVM.ExecuteLoop()
+		} else {
+			// Simple eval task (no verb context)
+			result = bcVM.Run(prog)
+		}
+	}
+	return bcVM, result, nil
 }
 
 // reportUncaughtException kills a task whose slice ended in an uncaught
