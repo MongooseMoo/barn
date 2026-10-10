@@ -99,6 +99,31 @@ func TestDeferredGCMaintenanceDoesNotWaitBehindCheckpointBarrier(t *testing.T) {
 	}
 }
 
+// A finishing task's own flush holds the sweep barrier for a moment. The
+// worker must outlast that, not put the batch off by a whole sweep interval:
+// under load the next attempt meets the same thing, and the batch is never
+// settled.
+func TestDeferredGCMaintenanceOutlastsAMomentaryBarrierHolder(t *testing.T) {
+	rt := NewRuntime(newConflictTestStore(t))
+	defer rt.Stop()
+	rt.lifecycle.SweepMu.Lock()
+	queueDueAnonymousGC(t, rt)
+	time.AfterFunc(maintenanceBarrierPatience/4, rt.lifecycle.SweepMu.Unlock)
+	deadline := time.Now().Add(gcSweepInterval / 2)
+	for {
+		rt.lifecycle.Mu.Lock()
+		pending := len(rt.lifecycle.PendingAnonGC)
+		rt.lifecycle.Mu.Unlock()
+		if pending == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("maintenance gave up on a barrier that was held only for a moment")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestDeferredGCMaintenanceStartupHoldAndShutdownPreservePending(t *testing.T) {
 	rt := NewRuntime(newConflictTestStore(t))
 	defer rt.Stop()

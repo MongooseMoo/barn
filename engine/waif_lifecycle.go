@@ -9,6 +9,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -198,7 +199,36 @@ func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskConte
 // against persistent state plus all live task VMs, so deferral only changes
 // WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
 // gcSweepInterval once they become expensive.
-func (s *Runtime) flushDeferredGC() {
+func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0) }
+
+// maintenanceBarrierPatience is how long the maintenance worker keeps trying
+// for the sweep barrier. A finishing task's flush holds it for the length of
+// one quiescence test; a checkpoint holds it for a whole serialization, which
+// the worker must not wait out.
+const maintenanceBarrierPatience = 20 * time.Millisecond
+
+// tryLockFor tries mu until it has it or patience has run out.
+func tryLockFor(mu *sync.Mutex, patience time.Duration) bool {
+	if mu.TryLock() {
+		return true
+	}
+	for deadline := time.Now().Add(patience); time.Now().Before(deadline); {
+		time.Sleep(50 * time.Microsecond)
+		if mu.TryLock() {
+			return true
+		}
+	}
+	return false
+}
+
+// flushDeferredGCBarrier is flushDeferredGC for a caller that says how long it
+// may keep trying for the sweep barrier. A task boundary may not wait at all:
+// it can still hold an admission reservation. The maintenance worker holds
+// none and has paused admission, so it tries for maintenanceBarrierPatience. A
+// single try there loses, every time under load, to the opportunistic flushes
+// of the tasks that finished as the pause drained: each holds the barrier for
+// a moment and finds its siblings still executing, so nobody sweeps.
+func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 	// Avoid contending on the sweep barrier when there is plainly no work.
 	s.lifecycle.Mu.Lock()
 	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
@@ -213,11 +243,11 @@ func (s *Runtime) flushDeferredGC() {
 	// A task may still borrow an outer admission reservation here. Never wait
 	// behind a maintenance owner while retaining that reservation; the separate
 	// worker will retry a skipped opportunistic sweep.
-	if !s.lifecycle.SweepMu.TryLock() {
+	if !tryLockFor(&s.lifecycle.SweepMu, patience) {
 		return
 	}
 	defer s.lifecycle.SweepMu.Unlock()
-	if !s.lifecycle.VMStartMu.TryLock() {
+	if !tryLockFor(&s.lifecycle.VMStartMu, patience) {
 		return
 	}
 	defer s.lifecycle.VMStartMu.Unlock()

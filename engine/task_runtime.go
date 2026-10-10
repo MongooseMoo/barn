@@ -212,6 +212,11 @@ retryAttempt:
 		}
 	}
 	if attempt > 0 {
+		// restore replaces the task's context, so the release below would not
+		// reach the failed attempt's transaction.
+		if failed := t.ContextValue(); failed != nil {
+			failed.StoreTxn.Release()
+		}
 		retryState.restore(t)
 		// A failed attempt may have recorded a logical suspend before its
 		// transaction conflict was detected. The physical lease remains held,
