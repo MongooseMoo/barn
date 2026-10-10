@@ -523,7 +523,9 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 		errCh <- s.mainLoop()
 	}()
 
-	deadline := time.After(time.Second)
+	// The loop leaves as soon as the checkpoint finishes; the deadline only
+	// bounds a hang, so it is far above a checkpoint on a loaded CI host.
+	deadline := time.After(30 * time.Second)
 	for {
 		finished, errCode := store.DirectTxn().PropertyValue(system, "checkpoint_finished")
 		if errCode != types.E_NONE {
