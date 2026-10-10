@@ -233,8 +233,12 @@ type mapOrder struct {
 	previous *mapOrder
 }
 
+// insertionEntries returns the pairs in insertion order.
 func (m *goMap) insertionEntries() []mapEntry {
 	entries := make([]mapEntry, m.count)
+	for i := range m.flat {
+		entries[i] = m.flat[i].mapEntry
+	}
 	i := len(entries)
 	for node := m.order; node != nil; node = node.previous {
 		i--

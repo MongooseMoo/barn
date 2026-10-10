@@ -316,6 +316,23 @@ func (v Value) Identical(other Value) bool {
 		if a.count != b.count {
 			return false
 		}
+		if a.index == nil && b.index == nil {
+			for i := range a.flat {
+				if !a.flat[i].key.Identical(b.flat[i].key) || !a.flat[i].val.Identical(b.flat[i].val) {
+					return false
+				}
+			}
+			return true
+		}
+		if a.index == nil || b.index == nil {
+			ae, be := a.insertionEntries(), b.insertionEntries()
+			for i := range ae {
+				if !ae[i].key.Identical(be[i].key) || !ae[i].val.Identical(be[i].val) {
+					return false
+				}
+			}
+			return true
+		}
 		for an, bn := a.order, b.order; an != nil; an, bn = an.previous, bn.previous {
 			if an.hash != bn.hash {
 				return false

@@ -56,6 +56,30 @@ func foldASCII(s string) string {
 	return string(folded)
 }
 
+// equalFoldedASCII reports whether foldASCII(a) == foldASCII(b) without
+// building either folded string.
+func equalFoldedASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca == cb {
+			continue
+		}
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
 func compareFoldedASCII(a, b string) int {
 	if utf8.ValidString(a) && utf8.ValidString(b) && strings.EqualFold(a, b) {
 		return 0
