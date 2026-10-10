@@ -34,6 +34,26 @@ type Database struct {
 	// order matches the portable dump's c N definition order.
 	waifIdentities  []types.WaifIdentity
 	loadedWaifCount int
+
+	// loadedStrings holds one string value per distinct content read so far,
+	// so equal strings in the file share one value. It lives only for the
+	// parse.
+	loadedStrings map[string]types.Value
+}
+
+// loadedStr returns the string value for s, reusing the value made for an
+// earlier equal string in this load. A loaded string value is never modified,
+// so sharing it is not observable.
+func (database *Database) loadedStr(s string) types.Value {
+	if value, ok := database.loadedStrings[s]; ok {
+		return value
+	}
+	value := types.NewStr(s)
+	if database.loadedStrings == nil {
+		database.loadedStrings = make(map[string]types.Value)
+	}
+	database.loadedStrings[s] = value
+	return value
 }
 
 // waifLoadData holds a WAIF and its raw indexed properties during loading.
@@ -166,6 +186,7 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	if err != nil {
 		return nil, err
 	}
+	database.loadedStrings = nil
 	database.repairStartupIssues()
 	return database, nil
 }
