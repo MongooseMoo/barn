@@ -512,61 +512,7 @@ retryAttempt:
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
-		// A suspend is a waif liveness boundary as well as an anonymous-object
-		// boundary. Values overwritten before the yield are no longer live in the
-		// saved VM, so queue them now; the flush-time scan of the registered VM
-		// protects any waifs that remain reachable when execution resumes.
-		s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
-		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
-		// is a GC boundary for newly-created orphan anonymous objects. The sweep is
-		// deferred to the next quiescent flush; the suspended task's VM is registered
-		// below (SetBytecodeVM), so the flush-time root scan still sees its locals.
-		// Fast path retained: if no anonymous object was created since this task's
-		// floor, the candidate set (anon ids >= floor) is provably empty and there is
-		// nothing to enqueue.
-		if s.store.AnonCreationCount() != anonFloor {
-			s.deferAnonGC(ctx, anonGCFloor, nil)
-		}
-		// A terminal commit failure makes HasWrites false without discarding the
-		// private view, preventing completion cleanup from recommitting it.
-		if ctx.StoreTxn.HasWrites() {
-			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-				t.SetState(task.TaskKilled)
-				t.SetBytecodeVM(nil)
-				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
-				releaseEscalation()
-				return nil
-			}
-			// The commit published this slice's forks; the runtime owns them now.
-			// Leaving them on the task would let a later conflict-retry discard forks
-			// that are already durable (yin() suspends mid-verb, so a retry can follow).
-			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
-			ctx.StoreTxn.Release()
-			ctx.StoreTxn = s.store.BeginSnapshot(0)
-			ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
-		}
-		// Save VM state for later Resume() via the thread-safe setter, so a
-		// concurrently running sibling scanning saved VMs for orphan GC never races
-		// the write. The s.mu critical section additionally guards the suspend(0)-
-		// style heap re-queue below; lock order is s.mu then the task lock taken
-		// inside SetBytecodeVM, matching collectSiblingGCRefs's read path.
-		s.mu.Lock()
-		t.SetBytecodeVM(bcVM)
-		if t.GetState() == task.TaskQueued {
-			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
-			// Stamp it with the suspend moment so the task's ready time reflects
-			// when it yielded — otherwise it sorts by its original StartTime and
-			// unfairly preempts tasks (e.g. a just-forked task) that became ready
-			// while it was running.
-			s.scheduler.RequeueYield(t, time.Now())
-		}
-		s.mu.Unlock()
-		// The task manager has already been notified via builtinSuspend
-		// Just return without setting state to Completed
+		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, releaseEscalation)
 		return nil
 	}
 
@@ -749,6 +695,68 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 		}
 	}
 	return bcVM, result, nil
+}
+
+// handOffSuspended publishes a slice that ended in a suspend: it queues the
+// slice's garbage for the next flush, commits what the slice wrote since its
+// main commit, and saves the VM for the scheduler to resume. A failed commit
+// kills the task instead.
+func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, releaseEscalation func()) {
+	// A suspend is a waif liveness boundary as well as an anonymous-object
+	// boundary. Values overwritten before the yield are no longer live in the
+	// saved VM, so queue them now; the flush-time scan of the registered VM
+	// protects any waifs that remain reachable when execution resumes.
+	s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
+	// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
+	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
+	// deferred to the next quiescent flush; the suspended task's VM is registered
+	// below (SetBytecodeVM), so the flush-time root scan still sees its locals.
+	// Fast path retained: if no anonymous object was created since this task's
+	// floor, the candidate set (anon ids >= floor) is provably empty and there is
+	// nothing to enqueue.
+	if s.store.AnonCreationCount() != anonFloor {
+		s.deferAnonGC(ctx, anonGCFloor, nil)
+	}
+	// A terminal commit failure makes HasWrites false without discarding the
+	// private view, preventing completion cleanup from recommitting it.
+	if ctx.StoreTxn.HasWrites() {
+		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			result := types.Err(errCode)
+			t.Result = result
+			t.SetState(task.TaskKilled)
+			t.SetBytecodeVM(nil)
+			s.discardCreatedForks(t)
+			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+			releaseEscalation()
+			return
+		}
+		// The commit published this slice's forks; the runtime owns them now.
+		// Leaving them on the task would let a later conflict-retry discard forks
+		// that are already durable (yin() suspends mid-verb, so a retry can follow).
+		t.CreatedForks = nil
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		ctx.StoreTxn.Release()
+		ctx.StoreTxn = s.store.BeginSnapshot(0)
+		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	}
+	// Save VM state for later Resume() via the thread-safe setter, so a
+	// concurrently running sibling scanning saved VMs for orphan GC never races
+	// the write. The s.mu critical section additionally guards the suspend(0)-
+	// style heap re-queue below; lock order is s.mu then the task lock taken
+	// inside SetBytecodeVM, matching collectSiblingGCRefs's read path.
+	s.mu.Lock()
+	t.SetBytecodeVM(bcVM)
+	if t.GetState() == task.TaskQueued {
+		// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
+		// Stamp it with the suspend moment so the task's ready time reflects
+		// when it yielded — otherwise it sorts by its original StartTime and
+		// unfairly preempts tasks (e.g. a just-forked task) that became ready
+		// while it was running.
+		s.scheduler.RequeueYield(t, time.Now())
+	}
+	s.mu.Unlock()
+	// The task manager has already been notified via builtinSuspend
+	// Just return without setting state to Completed
 }
 
 // reportUncaughtException kills a task whose slice ended in an uncaught
