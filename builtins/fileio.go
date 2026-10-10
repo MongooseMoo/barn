@@ -116,11 +116,12 @@ func parseFileOpenMode(mode string) (int, bool, error) {
 	// Position 1: + or -
 	switch mode[1] {
 	case '+':
-		if mode[0] == 'r' {
+		switch mode[0] {
+		case 'r':
 			flags = os.O_RDWR
-		} else if mode[0] == 'w' {
+		case 'w':
 			flags = os.O_CREATE | os.O_TRUNC | os.O_RDWR
-		} else {
+		default:
 			flags = os.O_CREATE | os.O_APPEND | os.O_RDWR
 		}
 	case '-':
@@ -448,7 +449,7 @@ func builtinFileReadlines(ctx *Execution, args []types.Value) types.Result {
 	h.positionMu.Lock()
 	defer h.positionMu.Unlock()
 	cur, _ := h.file.Seek(0, io.SeekCurrent)
-	defer h.file.Seek(cur, io.SeekStart)
+	defer func() { _, _ = h.file.Seek(cur, io.SeekStart) }()
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}

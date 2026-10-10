@@ -95,7 +95,7 @@ func (l *Lexer) NextToken() Token {
 		start := verb.Position{Line: l.line, Column: l.column, Offset: l.position}
 		l.readChar()
 		l.readChar()
-		for !(l.ch == '*' && l.peekChar() == '/') {
+		for l.ch != '*' || l.peekChar() != '/' {
 			if l.ch == 0 {
 				if l.position < len(l.input) {
 					return l.readNULToken()

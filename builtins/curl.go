@@ -71,7 +71,7 @@ func curlRequest(rawURL string, includeHeaders bool, timeout time.Duration) type
 	if err != nil {
 		return curlErrorMap(err.Error())
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return curlErrorMap(err.Error())

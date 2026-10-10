@@ -86,7 +86,7 @@ func findMatches(store *dbstore.Store, inventory []types.ObjID, room []types.Obj
 				store.VisitAliasStrings(objID, func(alias string) bool {
 					isExact = isExact || lowerEquals(alias, searchLower)
 					isPrefix = isPrefix || lowerHasPrefix(alias, searchLower)
-					return !(isExact && isPrefix)
+					return !isExact || !isPrefix
 				})
 			}
 			if isExact {

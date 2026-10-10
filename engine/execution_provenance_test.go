@@ -47,10 +47,11 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 		ownerID, ok := rt.executionContextOwner(ctx.TaskContext)
 		holder := ctx.Task
 		attributed := ok && holder != nil && ownerID == holder.ID
-		if observeCalls == 1 {
+		switch observeCalls {
+		case 1:
 			firstCtx = ctx.TaskContext
 			firstAttributed = attributed
-		} else if observeCalls == 2 {
+		case 2:
 			replacementCtx = ctx.TaskContext
 			replacementAttributed = attributed
 			_, claimed, _ := rt.executionContextClaim(firstCtx)

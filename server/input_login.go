@@ -68,7 +68,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	if result.Flow == types.FlowException {
 		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
-			conn.Send(line)
+			_ = conn.Send(line)
 		}
 		return types.ObjID(-1), nil
 	}
@@ -100,7 +100,7 @@ func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Res
 	if result.Flow == types.FlowException {
 		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
-			conn.Send(line)
+			_ = conn.Send(line)
 		}
 		return types.ObjID(-1)
 	}
@@ -140,7 +140,7 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 
 		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
-			conn.Send(line)
+			_ = conn.Send(line)
 		}
 		return false, nil
 	}
@@ -289,7 +289,7 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 	}
 
 	if reconnection {
-		existingConn.Send("*** Redirecting connection to new port ***")
+		_ = existingConn.Send("*** Redirecting connection to new port ***")
 		if existingConn.ListenerObject() == conn.ListenerObject() {
 			cm.mu.Lock()
 			cm.playerConns[player] = conn

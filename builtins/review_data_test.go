@@ -246,7 +246,7 @@ func TestReview_Data_MapkeysActualOrder(t *testing.T) {
 	isErr := keys.Get(3).Type() == types.TYPE_ERR
 	isFloat := keys.Get(4).Type() == types.TYPE_FLOAT
 	isStr := keys.Get(5).Type() == types.TYPE_STR
-	if !(isInt && isObj && isErr && isFloat && isStr) {
+	if !isInt || !isObj || !isErr || !isFloat || !isStr {
 		t.Logf("mapkeys order: [1]=%v [2]=%v [3]=%v [4]=%v [5]=%v",
 			keys.Get(1), keys.Get(2), keys.Get(3), keys.Get(4), keys.Get(5))
 		t.Errorf("mapkeys ordering does not match Toast INT<OBJ<ERR<FLOAT<STR")

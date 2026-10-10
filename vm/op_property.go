@@ -235,8 +235,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 		if err := vm.checkPropertyWritePerm(prop); err != nil {
 			return err
 		}
-		errCode := types.E_NONE
-		errCode = txn.SetPropertyValue(objID, propName, value)
+		errCode := txn.SetPropertyValue(objID, propName, value)
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: property not set: %s", errCode, propName)
 		}
@@ -254,7 +253,6 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 		return err
 	}
 
-	errCode = types.E_NONE
 	errCode = txn.SetPropertyValue(objID, propName, value)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("%s: property not set: %s", errCode, propName)

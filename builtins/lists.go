@@ -239,7 +239,8 @@ func promoteMemberEqual(ctx *Execution, a, b types.Value) (equal bool, handled b
 	bIsInt := b.Type() == types.TYPE_INT
 	aIsFloat := a.Type() == types.TYPE_FLOAT
 	bIsFloat := b.Type() == types.TYPE_FLOAT
-	if !((aIsInt && bIsFloat) || (aIsFloat && bIsInt)) {
+	mixed := (aIsInt && bIsFloat) || (aIsFloat && bIsInt)
+	if !mixed {
 		return false, false
 	}
 	toF := func(v types.Value) float64 {
@@ -858,7 +859,7 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 	list := args[0]
 
 	// Default index is 1
-	var index types.Value = types.NewInt(1)
+	index := types.NewInt(1)
 	if len(args) >= 2 {
 		index = args[1]
 	}

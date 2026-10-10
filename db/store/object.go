@@ -285,7 +285,7 @@ func (o *Object) rebuildVerbIndex() { o.verbIdx = buildVerbIndex(o.verbList) }
 // lookup returns what scanVerbList(list, searchLower, requireExecute) would.
 // list must be the verbList the index was built from (len checked by caller).
 func (idx *verbIndex) lookup(list []*Verb, searchLower string, requireExecute bool) *Verb {
-	best := int32(-1)
+	var best int32
 	var ok bool
 	if requireExecute {
 		best, ok = idx.executable[searchLower]

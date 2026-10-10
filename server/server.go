@@ -170,7 +170,7 @@ func (s *Server) LoadDatabase() error {
 	})
 	s.runtime.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
-			conn.Flush()
+			_ = conn.Flush()
 			if outputSuffix != "" {
 				_ = conn.Send(outputSuffix)
 			}
@@ -409,7 +409,7 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 		}
 		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
 	}); err != nil {
-		s.callCheckpointFinished(false)
+		_ = s.callCheckpointFinished(false)
 		return err
 	}
 

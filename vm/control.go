@@ -76,14 +76,10 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	copy(localsCopy, frame.Locals)
 
 	// Populate context fields from the current frame
-	var thisObj types.ObjID = types.ObjNothing
-	var playerObj types.ObjID = types.ObjNothing
-	var callerObj types.ObjID = types.ObjNothing
-	var verbStr string
-	thisObj = frame.This
-	playerObj = frame.Player
-	callerObj = frame.Caller
-	verbStr = frame.Verb
+	thisObj := frame.This
+	playerObj := frame.Player
+	callerObj := frame.Caller
+	verbStr := frame.Verb
 	if vm.Context != nil {
 		if vm.Context.Player != types.ObjNothing {
 			playerObj = vm.Context.Player

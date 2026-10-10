@@ -202,7 +202,7 @@ func sqliteErrorMessage(err error) string {
 }
 
 func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	columns, err := rows.Columns()
 	if err != nil {

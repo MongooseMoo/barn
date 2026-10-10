@@ -1421,7 +1421,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 
 	// The omitted target denotes the current connection; Player selects that
 	// connection but does not grant permission to it.
-	var connection types.ObjID = ctx.Player
+	connection := ctx.Player
 	if len(args) > 1 {
 		if !isObjectRef(args[1]) {
 			return types.Err(types.E_TYPE)

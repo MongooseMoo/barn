@@ -231,7 +231,8 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 	var rangeStart, rangeEnd verb.Expr
 	var err error
 
-	if p.current.Type == TOKEN_LBRACKET {
+	switch p.current.Type {
+	case TOKEN_LBRACKET:
 		// Range iteration: for x in [start..end]
 		if index != "" {
 			return nil, fmt.Errorf("range loop cannot bind an index variable")
@@ -258,7 +259,7 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 		}
 		p.nextToken() // consume ']'
 
-	} else if p.current.Type == TOKEN_LPAREN {
+	case TOKEN_LPAREN:
 		// List/map iteration: for x in (expr)
 		p.nextToken() // consume '('
 
@@ -271,14 +272,14 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 			return nil, fmt.Errorf("expected ')' after for loop expression")
 		}
 		p.nextToken() // consume ')'
-	} else if p.current.Type == TOKEN_LBRACE {
+	case TOKEN_LBRACE:
 		// List literal iteration: for x in {expr, ...} or {start..end}
 		// Parse the list/map expression directly
 		container, err = p.ParseExpression(PREC_LOWEST)
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	default:
 		return nil, fmt.Errorf("expected '[' or '(' after 'in' in for loop")
 	}
 
@@ -743,10 +744,11 @@ func (p *Parser) parseScatterBinding() (verb.Binding, error) {
 
 	optional := false
 	rest := false
-	if p.current.Type == TOKEN_QUESTION {
+	switch p.current.Type {
+	case TOKEN_QUESTION:
 		optional = true
 		p.nextToken() // consume '?'
-	} else if p.current.Type == TOKEN_AT {
+	case TOKEN_AT:
 		rest = true
 		p.nextToken() // consume '@'
 	}
