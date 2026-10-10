@@ -96,69 +96,86 @@ func prepToCode(prep string) int {
 // resolvePropertyNames resolves inherited property names after all objects are loaded.
 // MOO databases store property values in order: first propDefsCount have names,
 // the rest inherit names from ancestors in depth-first order.
+//
+// Each object's slots were read by position. Resolution reads only what does
+// not change while it runs (every object's own definitions and parents), so
+// objects are resolved one at a time, in any order, and each object's table is
+// built once, already shared.
 func (database *Database) resolvePropertyNames() {
-	type resolvedProps struct {
-		properties map[string]store.Property
-		propOrder  []string
+	resolver := slotResolver{
+		database: database,
+		pool:     store.NewPropSharePool(),
+		layouts:  make(map[types.ObjID]*store.SlotLayout, len(database.Objects)),
+		visiting: make(map[types.ObjID]bool),
 	}
-
-	// Build resolved names for every regular and anonymous object first, then
-	// apply them in a second pass. This avoids parent-order nondeterminism from
-	// map iteration and ensures anonymous inherited slots do not retain their
-	// temporary _inherited_N names.
-	objects := make([]*store.ObjectBuilder, 0, len(database.Objects)+len(database.AnonymousObjs))
 	for _, obj := range database.Objects {
-		objects = append(objects, obj)
-	}
-	objects = append(objects, database.AnonymousObjs...)
-	resolvedByObject := make(map[*store.ObjectBuilder]resolvedProps, len(objects))
-
-	for _, obj := range objects {
 		if obj == nil {
 			continue
 		}
-
-		// Build the full list of property names by walking up the parent chain
-		allNames := database.rawPropertyNames(obj)
-
-		// Now rename _inherited_N properties to their actual names
-		oldOrder := obj.PropOrder()
-		newProperties := make(map[string]store.Property)
-		newPropOrder := make([]string, 0, len(oldOrder))
-		for i, oldName := range oldOrder {
-			v, ok := obj.Property(oldName)
-			if !ok {
-				continue
-			}
-
-			var newName string
-			if i < len(allNames) {
-				newName = allNames[i]
-			} else {
-				// Shouldn't happen, but keep placeholder if out of range
-				newName = oldName
-			}
-
-			newProperties[newName] = store.NewProperty(v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
-			newPropOrder = append(newPropOrder, newName)
-		}
-
-		resolvedByObject[obj] = resolvedProps{
-			properties: newProperties,
-			propOrder:  newPropOrder,
-		}
+		obj.ResolveLoadedSlots(resolver.layoutOf(obj), resolver.pool)
 	}
-
-	for _, obj := range objects {
+	// Anonymous objects have ids outside the numbered space, so their layouts
+	// are not remembered by id.
+	for _, obj := range database.AnonymousObjs {
 		if obj == nil {
 			continue
 		}
-		resolved, ok := resolvedByObject[obj]
-		if !ok {
-			continue
-		}
-		obj.ResetProperties(resolved.properties, resolved.propOrder)
+		obj.ResolveLoadedSlots(resolver.layoutFor(obj), resolver.pool)
 	}
+}
+
+// slotResolver works out, for each loaded object, which name each positional
+// slot carries.
+type slotResolver struct {
+	database *Database
+	pool     *store.PropSharePool
+	// layouts remembers the layout of each numbered object's ancestry names.
+	layouts  map[types.ObjID]*store.SlotLayout
+	visiting map[types.ObjID]bool
+}
+
+// layoutOf returns the layout for a numbered object's slots.
+func (r *slotResolver) layoutOf(obj *store.ObjectBuilder) *store.SlotLayout {
+	if layout, ok := r.layouts[obj.ID()]; ok {
+		return layout
+	}
+	layout := r.layoutFor(obj)
+	r.layouts[obj.ID()] = layout
+	return layout
+}
+
+// layoutFor computes the layout for obj's slots. An object that defines no
+// properties and has one parent has exactly its parent's names, so it uses
+// its parent's layout when that covers as many slots as it has; most objects
+// are such instances.
+func (r *slotResolver) layoutFor(obj *store.ObjectBuilder) *store.SlotLayout {
+	if parents := obj.Parents(); obj.PropDefsCount() == 0 && len(parents) == 1 {
+		parent := r.database.Objects[parents[0]]
+		if parent != nil && parent != obj && !r.visiting[parent.ID()] {
+			r.visiting[obj.ID()] = true
+			layout := r.layoutOf(parent)
+			delete(r.visiting, obj.ID())
+			if layout.Slots() == obj.LoadedSlotCount() {
+				return layout
+			}
+		}
+	}
+	return r.pool.Layout(r.database.slotNames(obj))
+}
+
+// slotNames returns the name of each of obj's positional slots: its ancestry's
+// definitions in order, cut to the number of slots it was loaded with, and
+// padded with placeholders if the ancestry defines fewer.
+func (database *Database) slotNames(obj *store.ObjectBuilder) []string {
+	names := database.rawPropertyNames(obj)
+	count := obj.LoadedSlotCount()
+	if len(names) > count {
+		return names[:count]
+	}
+	for i := len(names); i < count; i++ {
+		names = append(names, inheritedSlotPlaceholder(i))
+	}
+	return names
 }
 
 // rawPropertyNames builds an ordered list of all property names for an object
@@ -197,22 +214,9 @@ func propertyNamesSelfFirstRecursive(obj *store.ObjectBuilder, parent func(types
 	}
 }
 
-func (database *Database) finalPropertyOrder(obj *store.ObjectBuilder) []string {
-	if obj == nil {
-		return nil
-	}
-	order := obj.PropOrder()
-	if len(order) == 0 {
-		return nil
-	}
-	names := make([]string, len(order))
-	copy(names, order)
-	return names
-}
-
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
-// Must be called after resolvePropertyNames so that PropOrder is final.
 func (database *Database) resolveWaifProperties() {
+	namesByClass := make(map[types.ObjID][]string)
 	for _, wd := range database.savedWaifs {
 		classObj := database.Objects[wd.waif.Class()]
 		if classObj == nil {
@@ -221,7 +225,11 @@ func (database *Database) resolveWaifProperties() {
 
 		// Collect ":" prefixed property names from the class ancestry.
 		// These form the WAIF propdef list; index N in the DB maps to entry N.
-		waifPropNames := database.collectWaifPropNames(classObj)
+		waifPropNames, ok := namesByClass[classObj.ID()]
+		if !ok {
+			waifPropNames = database.collectWaifPropNames(classObj)
+			namesByClass[classObj.ID()] = waifPropNames
+		}
 
 		for idx, val := range wd.propsByIndex {
 			if idx < len(waifPropNames) {
@@ -241,7 +249,7 @@ func (database *Database) resolveWaifProperties() {
 // collectWaifPropNames returns an ordered list of ":" prefixed property names
 // from an object's ancestry. This matches Toast's waif_propdefs construction.
 func (database *Database) collectWaifPropNames(obj *store.ObjectBuilder) []string {
-	allNames := database.finalPropertyOrder(obj)
+	allNames := database.slotNames(obj)
 	var waifNames []string
 	for _, name := range allNames {
 		if strings.HasPrefix(name, ":") {

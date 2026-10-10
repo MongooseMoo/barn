@@ -18,6 +18,10 @@ import "github.com/MongooseMoo/barn/types"
 // for the privileged bulk load path.
 type ObjectBuilder struct {
 	obj *Object
+	// loaded holds the object's property slots by position, as a database
+	// stores them, from SetLoadedSlots until ResolveLoadedSlots names them.
+	loaded      []Property
+	loadedCount int
 }
 
 // NewObjectBuilder creates a builder for an object with the given ID. Maps are
@@ -125,8 +129,30 @@ func (b *ObjectBuilder) Property(name string) (PropertyView, bool) {
 	return p.View(name), true
 }
 
-// ResetProperties replaces the entire property map and property order. Used by
-// the loader's inherited-name resolution pass, which rebuilds both together.
+// PropertyCount returns how many property slots the object has.
+func (b *ObjectBuilder) PropertyCount() int { return b.obj.properties.count() }
+
+// SetLoadedSlots hands the builder the object's property slots in the order a
+// database stores them: the object's own definitions, then each ancestor's.
+// The slots are not readable through Property until ResolveLoadedSlots names
+// them, which needs every object's definitions to have been read.
+func (b *ObjectBuilder) SetLoadedSlots(slots []Property) {
+	b.loaded = slots
+	b.loadedCount = len(slots)
+}
+
+// LoadedSlotCount returns how many positional slots SetLoadedSlots was given.
+func (b *ObjectBuilder) LoadedSlotCount() int { return b.loadedCount }
+
+// ResolveLoadedSlots builds the object's property table from its positional
+// slots and a layout that covers exactly that many slots. The table is shared
+// through pool from the start; no per-object map of every slot is built.
+func (b *ObjectBuilder) ResolveLoadedSlots(layout *SlotLayout, pool *PropSharePool) {
+	b.obj.properties = pool.tableFromLayout(layout, b.loaded)
+	b.loaded = nil
+}
+
+// ResetProperties replaces the entire property map and property order.
 // Incoming maps are display-keyed; this is the canonicalization boundary. The
 // builder takes ownership of the map and canonicalizes it IN PLACE (re-keying
 // non-lowercase entries), so the common all-lowercase load stays zero-alloc.

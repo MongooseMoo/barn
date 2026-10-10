@@ -267,19 +267,10 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 
 	// Store PropDefsCount for later name resolution
 	obj.SetPropDefsCount(propDefCount)
-	propOrder := make([]string, totalPropCount)
+	slots := make([]store.Property, 0, min(totalPropCount, maxTrustedSlotCount))
 
-	// Read property values
+	// Read property values, kept by position until names are resolved.
 	for i := 0; i < totalPropCount; i++ {
-		var propName string
-		if i < propDefCount {
-			propName = propDefs[i]
-		} else {
-			propName = fmt.Sprintf("_inherited_%d", i)
-		}
-
-		propOrder[i] = propName // Track order for resolution
-
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
 		// reports them, matching Toast.
@@ -307,9 +298,10 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			return nil, err
 		}
 
-		obj.SetProperty(propName, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		slots = append(slots, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
-	obj.SetPropOrder(propOrder)
+	obj.SetPropOrder(propDefs[:min(propDefCount, totalPropCount)])
+	obj.SetLoadedSlots(slots)
 
 	return obj, nil
 }

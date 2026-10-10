@@ -330,12 +330,31 @@ func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
 		if obj == nil {
 			continue
 		}
-		for i, name := range obj.PropOrder() {
+		// Every positional slot the object was loaded with has a real name
+		// and is readable under it.
+		names := database.slotNames(obj)
+		if len(names) != obj.LoadedSlotCount() {
+			t.Fatalf("object #%d has %d slot names for %d loaded slots", objID, len(names), obj.LoadedSlotCount())
+		}
+		for i, name := range names {
 			if strings.HasPrefix(name, "_inherited_") {
-				t.Fatalf("object #%d prop order index %d still unresolved: %q", objID, i, name)
+				t.Fatalf("object #%d slot %d still unresolved: %q", objID, i, name)
 			}
 			if _, ok := obj.Property(name); !ok {
-				t.Fatalf("object #%d prop order index %d missing property %q", objID, i, name)
+				t.Fatalf("object #%d slot %d missing property %q", objID, i, name)
+			}
+		}
+		// The order list holds the object's own definitions, which lead its slots.
+		order := obj.PropOrder()
+		if len(order) != obj.PropDefsCount() {
+			t.Fatalf("object #%d prop order has %d names for %d definitions", objID, len(order), obj.PropDefsCount())
+		}
+		for i, name := range order {
+			if names[i] != name {
+				t.Fatalf("object #%d definition %d is %q but slot %d is named %q", objID, i, name, i, names[i])
+			}
+			if p, _ := obj.Property(name); !p.Defined {
+				t.Fatalf("object #%d definition %q is not marked defined", objID, name)
 			}
 		}
 	}
