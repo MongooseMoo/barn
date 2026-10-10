@@ -14,6 +14,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	execution := vm.builtinExec
 	if execution == nil {
 		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
+		execution.CallingVM = vm
 		execution.PushEval = vm.pushEval
 		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
