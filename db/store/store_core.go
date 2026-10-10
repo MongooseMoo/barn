@@ -797,7 +797,7 @@ func (s *Store) VisitAliasStrings(objID types.ObjID, fn func(string) bool) {
 	if obj == nil {
 		return
 	}
-	prop, ok := obj.properties["aliases"]
+	prop, ok := obj.properties.lookup("aliases")
 	if !ok {
 		return
 	}

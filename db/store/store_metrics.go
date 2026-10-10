@@ -19,8 +19,8 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots int) {
 			return true
 		}
 		objects++
-		slots += len(obj.properties)
-		for _, prop := range obj.properties {
+		slots += obj.properties.count()
+		for _, prop := range obj.properties.all() {
 			if prop.clear {
 				clearSlots++
 			}
@@ -51,7 +51,7 @@ func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode)
 	}
 	tx.markObjectScalarRead(objID, obj)
 	tx.markPropertyScan(objID, obj)
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		tx.markPropertyRead(objID, name, prop)
 	}
 	return calculateObjectBytes(obj), types.E_NONE
@@ -70,14 +70,14 @@ func calculateObjectBytes(obj *Object) int {
 		// the relocated bytecode cache for an accurate estimate.
 	}
 
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined {
 			count += 32
 			count += len(name) + 1
 		}
 	}
 
-	for _, prop := range obj.properties {
+	for _, prop := range obj.properties.all() {
 		count += 24
 		count += calculateValueBytes(prop.value)
 	}

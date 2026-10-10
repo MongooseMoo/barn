@@ -181,7 +181,7 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 		if !validLiveObject(live) {
 			continue
 		}
-		if _, prop, ok := propertyByName(live.properties, key.name); ok && prop.version != tx.propertyReads[key] {
+		if _, prop, ok := live.properties.find(key.name); ok && prop.version != tx.propertyReads[key] {
 			stale, staleKey = true, key
 			break
 		}

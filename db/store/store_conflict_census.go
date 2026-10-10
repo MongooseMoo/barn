@@ -330,7 +330,7 @@ func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) boo
 	passedRead := false
 	rewrittenAt := func(image *Object) (uint64, bool) {
 		if validLiveObject(image) {
-			if _, prop, present := propertyByName(image.properties, key.name); present && prop.version == read {
+			if _, prop, present := image.properties.find(key.name); present && prop.version == read {
 				passedRead = true
 				return 0, false
 			}

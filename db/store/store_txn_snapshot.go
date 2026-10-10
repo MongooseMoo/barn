@@ -205,10 +205,7 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 	clone.propOrder = append([]string(nil), obj.propOrder...)
 	clone.anonymousChildren = append([]types.ObjID(nil), obj.anonymousChildren...)
 
-	clone.properties = make(map[string]Property, len(obj.properties))
-	for name, prop := range obj.properties {
-		clone.properties[name] = prop
-	}
+	clone.properties = obj.properties.clone()
 
 	verbClones := make(map[*Verb]*Verb, len(obj.verbList))
 	clone.verbList = make([]*Verb, 0, len(obj.verbList))

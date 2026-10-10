@@ -15,7 +15,7 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 			return false, types.E_INVARG
 		}
 		tx.markPropertyScan(id, obj)
-		for name, prop := range obj.properties {
+		for name, prop := range obj.properties.all() {
 			if !prop.defined {
 				continue
 			}
@@ -59,7 +59,7 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 		}
 		tx.markPropertyScan(currentID, current)
 		tx.markObjectRelationshipRead(currentID, current)
-		for name, prop := range current.properties {
+		for name, prop := range current.properties.all() {
 			if prop.defined {
 				names[propertyNameKey(name)] = true
 			}
@@ -86,7 +86,7 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 	}
 
 	ancestorNames := tx.definedPropertyNamesInAncestry(parentIDs)
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined && ancestorNames[propertyNameKey(name)] {
 			return true, types.E_NONE
 		}
@@ -117,7 +117,7 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 				continue
 			}
 			tx.markPropertyScan(childID, child)
-			for name, prop := range child.properties {
+			for name, prop := range child.properties.all() {
 				if prop.defined && names[propertyNameKey(name)] {
 					return true
 				}
@@ -145,9 +145,9 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	}
 
 	newProps := tx.copyInheritedProperties(obj.parents)
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined {
-			newProps[name] = prop
+			newProps.put(name, prop)
 		}
 	}
 	obj.properties = newProps
@@ -181,7 +181,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 			delete(tx.propertyDeletes, key)
 		}
 	}
-	for name, prop := range obj.properties {
+	for name, prop := range obj.properties.all() {
 		if prop.defined {
 			continue
 		}
@@ -195,8 +195,8 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]Property {
-	result := make(map[string]Property)
+func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) propTable {
+	result := newPropTable(0)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -213,17 +213,17 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]Pr
 			continue
 		}
 		tx.markPropertyScan(currentID, current)
-		for name, prop := range current.properties {
-			if _, _, exists := propertyByName(result, name); exists {
+		for name, prop := range current.properties.all() {
+			if _, _, exists := result.find(name); exists {
 				continue
 			}
-			result[name] = Property{
+			result.put(name, Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
 				clear:   true,
 				version: prop.version,
-			}
+			})
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -253,13 +253,13 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, existing, ok := propertyByName(child.properties, name); ok {
+			if actualName, existing, ok := child.properties.find(name); ok {
 				tx.markPropertyRead(childID, actualName, existing)
 				if existing.defined {
 					queue = append(queue, childID)
 					continue
 				}
-				delete(child.properties, actualName)
+				child.properties.remove(actualName)
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
@@ -270,7 +270,7 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 				clear:   true,
 				defined: false,
 			}
-			child.properties[propertyNameKey(name)] = override
+			child.properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
@@ -306,7 +306,7 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, prop, ok := propertyByName(child.properties, name); ok {
+			if actualName, prop, ok := child.properties.find(name); ok {
 				tx.markPropertyRead(childID, actualName, prop)
 				if prop.defined {
 					return true
@@ -328,7 +328,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	actualName, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := obj.properties.find(name)
 	if !ok {
 		tx.markPropertyScan(objID, obj)
 		return types.E_PROPNF
@@ -338,7 +338,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 		return types.E_PROPNF
 	}
 
-	delete(obj.properties, actualName)
+	obj.properties.remove(actualName)
 	obj.propOrder = removeString(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
@@ -379,10 +379,10 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, prop, ok := propertyByName(child.properties, name); ok {
+			if actualName, prop, ok := child.properties.find(name); ok {
 				tx.markPropertyRead(childID, actualName, prop)
 				if !prop.defined {
-					delete(child.properties, actualName)
+					child.properties.remove(actualName)
 					key := propertyWriteKey{objID: childID, name: propertyNameKey(actualName)}
 					delete(tx.propertyDefines, key)
 					delete(tx.propertyWrites, key)

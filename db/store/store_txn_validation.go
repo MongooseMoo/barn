@@ -95,7 +95,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 		errCode := types.E_INVARG
 		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
 			c.Missing, errCode = true, types.E_INVIND
-		} else if _, prop, ok := propertyByName(live.properties, key.name); !ok {
+		} else if _, prop, ok := live.properties.find(key.name); !ok {
 			c.Missing = true
 		} else if prop.version != version {
 			c.Live = prop.version

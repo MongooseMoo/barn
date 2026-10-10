@@ -26,7 +26,7 @@ func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 	return &ObjectBuilder{obj: &Object{
 		id:         id,
 		lastMove:   types.NewEmptyMap(),
-		properties: make(map[string]Property),
+		properties: newPropTable(0),
 		verbs:      make(map[string]*Verb),
 	}}
 }
@@ -113,12 +113,12 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 // first pass and rewrites them once inherited names are resolved. The map is
 // keyed canonically (lowercase); display case lives only in propOrder.
 func (b *ObjectBuilder) SetProperty(name string, p Property) {
-	b.obj.properties[propertyNameKey(name)] = p
+	b.obj.properties.put(propertyNameKey(name), p)
 }
 
 // Property returns a read-only view of a property slot and whether it exists.
 func (b *ObjectBuilder) Property(name string) (PropertyView, bool) {
-	p, ok := b.obj.properties[propertyNameKey(name)]
+	p, ok := b.obj.properties.lookup(propertyNameKey(name))
 	if !ok {
 		return PropertyView{}, false
 	}
@@ -142,7 +142,7 @@ func (b *ObjectBuilder) ResetProperties(props map[string]Property, order []strin
 		delete(props, name)
 		props[propertyNameKey(name)] = p
 	}
-	b.obj.properties = props
+	b.obj.properties = propTableFromMap(props)
 	b.obj.propOrder = order
 }
 

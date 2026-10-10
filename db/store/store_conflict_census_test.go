@@ -126,11 +126,13 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 		"property": {
 			read: func(t *testing.T, tx *StoreTxn, a types.ObjID) uint64 {
 				readValue(t, tx, a, "p")
-				return tx.object(a).properties["p"].version
+				p, _ := tx.object(a).properties.lookup("p")
+				return p.version
 			},
 			change: func(t *testing.T, s *Store, a, _ types.ObjID) { directValue(t, s, a, "p", 1) },
 			want: func(s *Store, a types.ObjID) ReadConflict {
-				return ReadConflict{Kind: ConflictProperty, ObjID: a, Name: "p", Live: s.load(a).properties["p"].version}
+				p, _ := s.load(a).properties.lookup("p")
+				return ReadConflict{Kind: ConflictProperty, ObjID: a, Name: "p", Live: p.version}
 			},
 		},
 		"property-scan": {
@@ -717,7 +719,8 @@ func TestCensusTracksReadClocksOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("a read sampled the clock with tracking off: %v", tx.readClocks)
 	}
 	allocs := testing.AllocsPerRun(200, func() {
-		tx.markPropertyReadKey(a, "p", tx.object(a).properties["p"])
+		p, _ := tx.object(a).properties.lookup("p")
+		tx.markPropertyReadKey(a, "p", p)
 	})
 	if allocs != 0 {
 		t.Fatalf("marking a read allocated %v times with tracking off", allocs)

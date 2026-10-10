@@ -326,10 +326,10 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 		if key.objID != objID {
 			continue
 		}
-		if actualName, _, ok := propertyByName(obj.properties, def.name); ok {
-			delete(obj.properties, actualName)
+		if actualName, _, ok := obj.properties.find(def.name); ok {
+			obj.properties.remove(actualName)
 		}
-		obj.properties[propertyNameKey(def.name)] = def.prop
+		obj.properties.put(propertyNameKey(def.name), def.prop)
 		foundOrder := false
 		for _, name := range obj.propOrder {
 			if strings.EqualFold(name, def.name) {
@@ -352,22 +352,22 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 		if key.objID != objID {
 			continue
 		}
-		obj.properties[propertyNameKey(write.name)] = write.prop
+		obj.properties.put(propertyNameKey(write.name), write.prop)
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		if key.objID != objID {
 			continue
 		}
-		if liveActual, _, ok := propertyByName(obj.properties, actualName); ok {
-			delete(obj.properties, liveActual)
+		if liveActual, _, ok := obj.properties.find(actualName); ok {
+			obj.properties.remove(liveActual)
 		}
 	}
 	for key, actualName := range tx.propertyDeletes {
 		if key.objID != objID {
 			continue
 		}
-		if liveActual, _, ok := propertyByName(obj.properties, actualName); ok {
-			delete(obj.properties, liveActual)
+		if liveActual, _, ok := obj.properties.find(actualName); ok {
+			obj.properties.remove(liveActual)
 		}
 	}
 }
