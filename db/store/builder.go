@@ -142,7 +142,7 @@ func (b *ObjectBuilder) ResetProperties(props map[string]Property, order []strin
 		delete(props, name)
 		props[propertyNameKey(name)] = p
 	}
-	b.obj.properties = propTableFromMap(props)
+	b.obj.properties.adopt(props)
 	b.obj.propOrder = order
 }
 

@@ -35,10 +35,11 @@ func memoryReport(out io.Writer, source, profilePath string, load databaseLoader
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 
-	objects, slots, clearSlots := store.PropertySlotCensus()
+	objects, slots, clearSlots, privateSlots := store.PropertySlotCensus()
 	fmt.Fprintf(out, "objects:          %d\n", objects)
 	fmt.Fprintf(out, "property_slots:   %d\n", slots)
 	fmt.Fprintf(out, "clear_slots:      %d\n", clearSlots)
+	fmt.Fprintf(out, "private_slots:    %d\n", privateSlots)
 	fmt.Fprintf(out, "heap_alloc:       %d\n", mem.HeapAlloc)
 	fmt.Fprintf(out, "heap_objects:     %d\n", mem.HeapObjects)
 	fmt.Fprintf(out, "heap_inuse:       %d\n", mem.HeapInuse)

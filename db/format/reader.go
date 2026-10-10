@@ -53,6 +53,9 @@ func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 			return nil, fmt.Errorf("add loaded object #%d: %w", b.ID(), err)
 		}
 	}
+	// Nothing reads the store yet, so the loaded objects' slots can be moved
+	// onto shared bases in place.
+	s.ShareLoadedPropertySlots()
 	// Ingest anonymous objects out-of-band. They are kept separate from the
 	// regular numbered object space (never in the objects map, never at a regular
 	// numeric id) and are assigned above-max serialization ids only at dump time,
