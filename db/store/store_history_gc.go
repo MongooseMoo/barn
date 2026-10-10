@@ -2,6 +2,7 @@ package store
 
 import (
 	"runtime"
+	"slices"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -24,6 +25,11 @@ import (
 // the rule is: keep the newest entry with ts<=floor plus every entry with
 // ts>floor; drop the strictly-older entries. The newest entry with ts<=floor is
 // retained because a reader at exactly floor still needs it.
+//
+// The floor alone lets one long-lived reader retain every version written
+// while it lives. pruneHistoryToReaders applies the same invariant per reader:
+// of the entries above the floor it keeps only those some live or future
+// reader can be served.
 
 // registerReadTS records an explicit transaction readTS as live. It participates
 // in the same registration-vs-floor-scan gate as currentReadTSAndRegister so a
@@ -166,11 +172,99 @@ func pruneHistoryBelowFloorLocked(entries []objectHistory, floor uint64) []objec
 	return entries[k:]
 }
 
+// historyReaderPruneMin is the shortest history that is pruned to its readers.
+const historyReaderPruneMin = 8
+
+// readerPruneDue reports whether a history of n entries left by the floor
+// prune should also be pruned to its readers. That prune reads every
+// registration and copies what it keeps, so it runs each time the length
+// reaches a power of two: a history that some reader really does need is
+// rescanned once per doubling, and one that was cut back is rescanned only
+// after it has grown to the same length again.
+func readerPruneDue(n int) bool {
+	return n >= historyReaderPruneMin && n&(n-1) == 0
+}
+
+// liveReadTimestamps returns the clock and, in ascending order, the readTS of
+// every live transaction together with that clock. Like historyFloor it
+// excludes registration for the length of the scan, so a transaction it did
+// not see begins at or above the clock it returns.
+func (s *Store) liveReadTimestamps() (readers []uint64, clock uint64) {
+	s.readTSFloorMu.Lock()
+	for i := range s.readTSShards {
+		sh := &s.readTSShards[i]
+		sh.mu.Lock()
+		for ts := range sh.counts {
+			readers = append(readers, ts)
+		}
+		sh.mu.Unlock()
+	}
+	clock = s.clock.Load()
+	s.readTSFloorMu.Unlock()
+	readers = append(readers, clock)
+	slices.Sort(readers)
+	return readers, clock
+}
+
+// pruneHistoryToReaders returns entries without the versions no reader can be
+// served. readers and clock are what liveReadTimestamps returned.
+//
+// Entry i is the object's image from entries[i].ts until the next entry's ts,
+// and the newest entry until the live image's version, which is not known here.
+// A reader at R is served the newest entry with ts<=R, so entry i is needed by
+// exactly the readers in that interval. A transaction that begins after the
+// scan reads at or above clock, so it is served either the entry whose
+// interval holds clock or one above it. Kept are therefore: the newest entry,
+// every entry above clock, and every entry whose interval holds a reader or
+// clock.
+//
+// The floor prune is the special case of one reader. It keeps everything above
+// the oldest reader; this drops the versions that were written and superseded
+// between two readers, which is all of them while one long task holds the
+// floor and short tasks come and go at the clock.
+//
+// The kept entries are copied to a new slice: a snapshot read walks a captured
+// header without the lock, so entries cannot be moved in place.
+func pruneHistoryToReaders(entries []objectHistory, readers []uint64, clock uint64) []objectHistory {
+	if len(entries) < 2 {
+		return entries
+	}
+	needed := func(i int) bool {
+		if i == len(entries)-1 || entries[i].ts > clock {
+			return true
+		}
+		r, _ := slices.BinarySearch(readers, entries[i].ts)
+		return r < len(readers) && readers[r] < entries[i+1].ts
+	}
+	keep := 0
+	for i := range entries {
+		if needed(i) {
+			keep++
+		}
+	}
+	if keep == len(entries) {
+		return entries
+	}
+	kept := make([]objectHistory, 0, keep)
+	for i := range entries {
+		if needed(i) {
+			kept = append(kept, entries[i])
+		}
+	}
+	return kept
+}
+
 // pruneObjectHistory prunes object id's history to the current floor under
-// historyMu. Safe to call from the decentralized publish path (which holds
-// store.mu.RLock + the slot mutex) and from the coarse path (store.mu.Lock).
+// historyMu, and to its readers when that is due. Safe to call from the
+// decentralized publish path (which holds store.mu.RLock + the slot mutex) and
+// from the coarse path (store.mu.Lock).
+//
+// The conflict census dates a rewrite by walking every image newer than the
+// losing transaction's snapshot (propertyWasStaleAtRead), so while it is
+// tracking, history is pruned to the floor only.
 func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
 	s.historyMu.Lock()
+	remaining := 0
 	if entries, ok := s.history[id]; ok {
 		pruned := pruneHistoryBelowFloorLocked(entries, floor)
 		if len(pruned) == 0 {
@@ -178,8 +272,57 @@ func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
 		} else if len(pruned) != len(entries) {
 			s.history[id] = pruned
 		}
+		remaining = len(pruned)
 	}
 	s.historyMu.Unlock()
+	if !readerPruneDue(remaining) || s.conflictTracking.Load() {
+		return
+	}
+	// The registry is scanned outside historyMu. Entries appended in between
+	// are kept by the rule above whatever the scan saw.
+	readers, clock := s.liveReadTimestamps()
+	s.historyMu.Lock()
+	if entries, ok := s.history[id]; ok {
+		if pruned := pruneHistoryToReaders(entries, readers, clock); len(pruned) != len(entries) {
+			s.history[id] = pruned
+		}
+	}
+	s.historyMu.Unlock()
+}
+
+// HistoryStats is a point-in-time count of the superseded object images the
+// store retains and of what holds the live-read floor behind the clock.
+type HistoryStats struct {
+	Objects, Entries int         // objects with history, and their entries in total
+	MostObject       types.ObjID // the object with the most entries
+	MostEntries      int
+	Floor, Clock     uint64
+	Readers          int // live readTS registrations
+}
+
+// HistoryStats counts retained history for diagnostics.
+func (s *Store) HistoryStats() HistoryStats {
+	stats := HistoryStats{Floor: s.historyFloor(), Clock: s.clock.Load()}
+	s.mu.RLock()
+	s.historyMu.Lock()
+	for id, entries := range s.history {
+		stats.Objects++
+		stats.Entries += len(entries)
+		if len(entries) > stats.MostEntries {
+			stats.MostObject, stats.MostEntries = id, len(entries)
+		}
+	}
+	s.historyMu.Unlock()
+	s.mu.RUnlock()
+	for i := range s.readTSShards {
+		sh := &s.readTSShards[i]
+		sh.mu.Lock()
+		for _, n := range sh.counts {
+			stats.Readers += n
+		}
+		sh.mu.Unlock()
+	}
+	return stats
 }
 
 // finalizeStoreTxnRelease is the runtime-finalizer backstop: if a StoreTxn is

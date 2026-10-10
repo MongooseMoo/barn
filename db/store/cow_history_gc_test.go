@@ -260,11 +260,10 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	}
 
 	// While the reader is live at the OLD readTS, the floor == reader.readTS pins the
-	// reader's snapshot entry AND (per the invariant — min-floor cannot prove no
-	// other reader needs an intermediate version) every version newer than the floor.
-	// So with a single old reader, history holds the reader's snapshot plus the
-	// intermediate images; the version EQUAL to the floor is the newest-<=floor that
-	// is retained, and all stale versions strictly below it are gone. The key GC
+	// reader's snapshot entry; the version EQUAL to the floor is the newest-<=floor
+	// that is retained, and all stale versions strictly below it are gone. The
+	// intermediate images above the floor are kept until the history is pruned to
+	// its readers (history_reader_prune_test.go bounds that). The key GC
 	// property proven here: the entries strictly OLDER than the reader's snapshot
 	// (e.g. the n==0 baseline) are NOT retained even though they were committed.
 	liveLen := store.historyLen(0)
