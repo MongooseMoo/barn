@@ -8,6 +8,17 @@ import (
 	"strings"
 )
 
+// maxTrustedListCount is the largest list a reader allocates up front on the
+// file's word for its length.
+const maxTrustedListCount = 4096
+
+// Every empty list and every empty map read from a database is one shared
+// value. List and map values are never modified, so sharing is not observable.
+var (
+	loadedEmptyList = types.NewEmptyList()
+	loadedEmptyMap  = types.NewEmptyMap()
+)
+
 // readValue reads a MOO value from database format
 func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 	typeCode, err := readInt(r)
@@ -56,16 +67,25 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if count < 0 {
 			return types.None, fmt.Errorf("invalid list count %d", count)
 		}
-		// Do not trust the on-disk count as an allocation size. Building the
-		// result incrementally lets truncated or corrupt input fail while reading
-		// an element instead of attempting an attacker-controlled allocation.
-		elements := make([]types.Value, 0)
+		if count == 0 {
+			return loadedEmptyList, nil
+		}
+		// Do not trust the on-disk count as an allocation size beyond a small
+		// bound. Building a longer result incrementally lets truncated or
+		// corrupt input fail while reading an element instead of attempting an
+		// attacker-controlled allocation.
+		elements := make([]types.Value, 0, min(count, maxTrustedListCount))
 		for i := 0; i < count; i++ {
 			element, err := database.readValue(r)
 			if err != nil {
 				return types.None, fmt.Errorf("read list element %d of %d: %w", i, count, err)
 			}
 			elements = append(elements, element)
+		}
+		// A loaded list is never appended to in place, so capacity left over
+		// from growing it would stay allocated and unused.
+		if len(elements) < cap(elements) {
+			elements = append(make([]types.Value, 0, len(elements)), elements...)
 		}
 		return types.NewList(elements), nil
 
@@ -110,6 +130,9 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		}
 		if count < 0 {
 			return types.None, fmt.Errorf("invalid map count %d", count)
+		}
+		if count == 0 {
+			return loadedEmptyMap, nil
 		}
 		// As with lists, grow only as successfully decoded pairs arrive rather
 		// than allocating directly from an untrusted database-file count.
