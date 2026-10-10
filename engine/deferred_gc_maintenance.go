@@ -75,7 +75,7 @@ func (s *Runtime) rendezvousDeferredGC() {
 		return
 	}
 	defer resume()
-	s.flushDeferredGC()
+	s.flushDeferredGCBarrier(maintenanceBarrierPatience)
 	s.lifecycle.Mu.Lock()
 	// A checkpoint or another sweep may own the barriers, or an explicit lease
 	// outside admission may still be live. Release the pause instead of spinning
