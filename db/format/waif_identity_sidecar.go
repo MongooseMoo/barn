@@ -14,20 +14,40 @@ import (
 
 const waifIdentitySidecarSuffix = ".waifids"
 
-// hashDatabaseFile hashes all database bytes with bounded temporary storage.
-func hashDatabaseFile(path string) ([sha256.Size]byte, error) {
-	var digest [sha256.Size]byte
+// databaseHashObserver, when set by tests, sees each whole-file hash pass.
+var databaseHashObserver func(path string)
+
+// hashedCheckpointFile binds a digest to the file that produced it, so a
+// hard link of that same file can be trusted without hashing it again.
+type hashedCheckpointFile struct {
+	digest [sha256.Size]byte
+	info   os.FileInfo
+}
+
+// hashCheckpointFile hashes all file bytes with bounded temporary storage.
+func hashCheckpointFile(path string) (hashedCheckpointFile, error) {
+	var result hashedCheckpointFile
 	file, err := os.Open(path)
 	if err != nil {
-		return digest, err
+		return result, err
 	}
 	defer file.Close()
+	if databaseHashObserver != nil {
+		databaseHashObserver(path)
+	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
-		return digest, err
+		return result, err
 	}
-	hash.Sum(digest[:0])
-	return digest, nil
+	hash.Sum(result.digest[:0])
+	result.info, err = file.Stat()
+	return result, err
+}
+
+// hashDatabaseFile hashes all database bytes with bounded temporary storage.
+func hashDatabaseFile(path string) ([sha256.Size]byte, error) {
+	hashed, err := hashCheckpointFile(path)
+	return hashed.digest, err
 }
 
 func readWaifIdentitySidecar(databasePath string) ([]types.WaifIdentity, error) {
@@ -75,10 +95,21 @@ func parseWaifIdentitySidecar(file io.Reader, digest [sha256.Size]byte) ([]types
 }
 
 func writeWaifIdentitySidecar(path, databasePath string, identities []types.WaifIdentity) error {
-	digest, err := hashDatabaseFile(databasePath)
+	_, err := writeHashedWaifIdentitySidecar(path, databasePath, identities)
+	return err
+}
+
+// writeHashedWaifIdentitySidecar also returns the database hash so checkpoint
+// publication can journal the staged generation without another full scan.
+func writeHashedWaifIdentitySidecar(path, databasePath string, identities []types.WaifIdentity) (hashedCheckpointFile, error) {
+	database, err := hashCheckpointFile(databasePath)
 	if err != nil {
-		return fmt.Errorf("hash database for WAIF identity sidecar: %w", err)
+		return database, fmt.Errorf("hash database for WAIF identity sidecar: %w", err)
 	}
+	return database, writeWaifIdentitySidecarFile(path, database.digest, identities)
+}
+
+func writeWaifIdentitySidecarFile(path string, digest [sha256.Size]byte, identities []types.WaifIdentity) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create WAIF identity sidecar: %w", err)
