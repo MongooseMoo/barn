@@ -20,7 +20,7 @@ type ObjectBuilder struct {
 	obj *Object
 	// loaded holds the object's property slots by position, as a database
 	// stores them, from SetLoadedSlots until ResolveLoadedSlots names them.
-	loaded      []Property
+	loaded      *LoadedSlots
 	loadedCount int
 }
 
@@ -135,10 +135,11 @@ func (b *ObjectBuilder) PropertyCount() int { return b.obj.properties.count() }
 // SetLoadedSlots hands the builder the object's property slots in the order a
 // database stores them: the object's own definitions, then each ancestor's.
 // The slots are not readable through Property until ResolveLoadedSlots names
-// them, which needs every object's definitions to have been read.
-func (b *ObjectBuilder) SetLoadedSlots(slots []Property) {
-	b.loaded = slots
-	b.loadedCount = len(slots)
+// them, which needs every object's definitions to have been read. The builder
+// keeps its own copy, so the caller may reuse slots for the next object.
+func (b *ObjectBuilder) SetLoadedSlots(slots *LoadedSlots) {
+	b.loaded = slots.clone()
+	b.loadedCount = slots.Len()
 }
 
 // LoadedSlotCount returns how many positional slots SetLoadedSlots was given.

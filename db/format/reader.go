@@ -40,6 +40,10 @@ type Database struct {
 	// so equal strings in the file share one value. It lives only for the
 	// parse.
 	loadedStrings map[string]types.Value
+
+	// loadedSlots collects the property slots of the object being read. Each
+	// object's builder copies what it keeps, so one serves the whole parse.
+	loadedSlots store.LoadedSlots
 }
 
 // loadedStr returns the string value for s, reusing the value made for an
@@ -219,6 +223,7 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 		return nil, err
 	}
 	database.loadedStrings = nil
+	database.loadedSlots = store.LoadedSlots{}
 	database.repairStartupIssues()
 	return database, nil
 }

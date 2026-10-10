@@ -246,7 +246,8 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 
 	// Store PropDefsCount for later name resolution
 	obj.SetPropDefsCount(propDefCount)
-	slots := make([]store.Property, 0, min(totalPropCount, maxTrustedSlotCount))
+	slots := &database.loadedSlots
+	slots.Reset(min(totalPropCount, maxTrustedSlotCount))
 
 	// Read property values. They are kept by position: an inherited slot's
 	// name is known only once every object's definitions have been read.
@@ -282,7 +283,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			return nil, err
 		}
 
-		slots = append(slots, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		slots.Append(store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
 	obj.SetPropOrder(propDefs[:min(propDefCount, totalPropCount)])
 	obj.SetLoadedSlots(slots)
