@@ -448,7 +448,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 
 	// Validate the read set against the currently-published immutable images.
 	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
-		tx.validationFail = true
+		tx.lostValidation()
 		return errCode
 	}
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {

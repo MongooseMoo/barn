@@ -266,6 +266,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 		}
 	}
 	if next.validateReads() != types.E_NONE {
+		s.noteRefusedRenewal(next.conflicts)
 		next.Release()
 		return nil
 	}
@@ -281,6 +282,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	}
 	next.gateWait = tx.gateWait
 	next.commitContext = tx.commitContext
+	next.conflictLabel = tx.conflictLabel
 	tx.Release()
 	return next
 }

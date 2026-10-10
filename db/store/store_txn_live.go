@@ -404,7 +404,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.store.mu.Lock()
 	if len(tx.waifs) != 0 {
 		if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
-			tx.validationFail = true
+			tx.lostValidation()
 			tx.store.mu.Unlock()
 			return errCode
 		}

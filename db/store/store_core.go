@@ -138,6 +138,11 @@ type Store struct {
 	hotReadRenewals atomic.Uint64
 	hotReadRefusals atomic.Uint64
 	hotReadDeclines atomic.Uint64
+	// conflicts counts, per key, what commits lost validation on;
+	// conflictTracking has transactions sample the clock at their property
+	// reads for it. See store_conflict_census.go.
+	conflicts        conflictCensus
+	conflictTracking atomic.Bool
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any

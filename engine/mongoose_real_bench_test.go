@@ -21,6 +21,9 @@ package engine
 //   BARN_MONGOOSE_MEASURE     measure window   (default 8s)
 //   BARN_MONGOOSE_COMPLETION_TIMEOUT terminal-drain deadline per command (default 10s)
 //   BARN_MONGOOSE_PROMOTE     "0" disables PROMOTE_NUMBERS (default ON, as deployed)
+//   BARN_MONGOOSE_STALE_READS non-empty samples the clock at property reads, so the
+//                             census can say which losses read an already-stale slot
+//   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 
@@ -498,8 +501,17 @@ func TestMongooseRealWorkload(t *testing.T) {
 		totalWeight += sh.weight
 	}
 
-	t.Logf("GOMAXPROCS=%d warmup=%s measure=%s mix=%v",
-		runtime.GOMAXPROCS(0), warmup, measure, realShapes)
+	staleReads := os.Getenv("BARN_MONGOOSE_STALE_READS") != ""
+	store.SetConflictCensusTracking(staleReads)
+	censusTop := 25
+	if v := os.Getenv("BARN_MONGOOSE_CENSUS_TOP"); v != "" {
+		if _, err := fmt.Sscanf(v, "%d", &censusTop); err != nil {
+			t.Fatalf("BARN_MONGOOSE_CENSUS_TOP=%q: %v", v, err)
+		}
+	}
+
+	t.Logf("GOMAXPROCS=%d warmup=%s measure=%s stale_reads=%v mix=%v",
+		runtime.GOMAXPROCS(0), warmup, measure, staleReads, realShapes)
 
 	for _, active := range levels {
 		players := candidates[:active]
@@ -591,12 +603,16 @@ func TestMongooseRealWorkload(t *testing.T) {
 		runtime.GC()
 		var m0 runtime.MemStats
 		runtime.ReadMemStats(&m0)
+		store.ResetConflictCensus()
+		renewed0, refused0, declined0 := store.HotReadStats()
 		before := sampleCommitCounters(store)
 		uncaught0 := metrics.UncaughtExceptions.Value()
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
 		delta := sampleCommitCounters(store).sub(before)
+		census := store.ConflictCensus()
+		renewed, refused, declined := store.HotReadStats()
 		var m1 runtime.MemStats
 		runtime.ReadMemStats(&m1)
 
@@ -658,6 +674,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s attempts=%d retries=%d",
 				sh.name, agg.ok, agg.fail, latStr(avg), agg.attempts, agg.retries)
 		}
+		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
+			delta.attempts, delta.successes, delta.conflicts, delta.retries,
+			renewed-renewed0, refused-refused0, declined-declined0)
+		logConflictCensus(t, census, committed, censusTop, staleReads)
 		// Idle probe: with NO commands running, do background tasks (forks
 		// spawned by earlier commands) keep committing? Distinguishes a
 		// persistent self-rescheduling background writer from per-command
@@ -696,4 +716,67 @@ func TestMongooseRealWorkload(t *testing.T) {
 		f.Close()
 	}
 	_ = strings.TrimSpace("")
+}
+
+// logConflictCensus prints what the measure window's lost commits were stale
+// on. A lost commit can be stale on several keys, so the per-key losses do not
+// add up to the lost commits: sole_cause is the share of lost commits stale on
+// exactly one key, and keys_per_loss the mean number of stale keys.
+func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed int64, top int, staleReads bool) {
+	var occurrences, sole uint64
+	for _, row := range census.Keys {
+		occurrences += row.Lost
+		sole += row.Sole
+	}
+	occurrences += census.Overflow.Lost
+	sole += census.Overflow.Sole
+	share := func(n, of uint64) float64 {
+		if of == 0 {
+			return 0
+		}
+		return float64(n) / float64(of) * 100
+	}
+	keysPerLoss := 0.0
+	if census.LostTxns > 0 {
+		keysPerLoss = float64(occurrences) / float64(census.LostTxns)
+	}
+	t.Logf("  conflicts: lost_commits=%d refused_renewals=%d keys=%d overflow_losses=%d sole_cause=%.1f%% keys_per_loss=%.2f",
+		census.LostTxns, census.RefusedRenewals, len(census.Keys), census.Overflow.Lost,
+		share(sole, census.LostTxns), keysPerLoss)
+	for i, row := range census.Keys {
+		if i >= top {
+			break
+		}
+		var key string
+		switch row.Kind {
+		case dbstore.ConflictProperty:
+			key = fmt.Sprintf("#%d.%s", row.ObjID, row.Name)
+		case dbstore.ConflictVerb:
+			key = fmt.Sprintf("#%d:%s", row.ObjID, row.Name)
+		case dbstore.ConflictVerbShape:
+			key = "(any verb or ancestry)"
+		case dbstore.ConflictWaif:
+			key = row.Name
+		default:
+			key = fmt.Sprintf("#%d", row.ObjID)
+		}
+		stale := "n/a"
+		if staleReads && row.Kind == dbstore.ConflictProperty {
+			stale = fmt.Sprintf("%.1f%%", share(row.StaleAtRead, row.Lost))
+		}
+		perCommand := 0.0
+		if committed > 0 {
+			perCommand = float64(row.Lost) / float64(committed)
+		}
+		var by []string
+		for _, label := range row.Labels {
+			by = append(by, fmt.Sprintf("#%d:%s=%d", label.Obj, label.Verb, label.Lost))
+		}
+		if row.OtherLabels > 0 {
+			by = append(by, fmt.Sprintf("other=%d", row.OtherLabels))
+		}
+		t.Logf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s per_command=%.2f by=[%s]",
+			row.Kind, key, row.Lost, share(row.Lost, census.LostTxns), row.Sole, row.Refused,
+			stale, perCommand, strings.Join(by, " "))
+	}
 }

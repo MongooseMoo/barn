@@ -1,7 +1,6 @@
 package store
 
 import (
-	"log/slog"
 	"os"
 
 	"github.com/MongooseMoo/barn/types"
@@ -9,14 +8,6 @@ import (
 
 // debugValidation gates temporary conflict-diagnosis logging (BARN_DEBUG_RETRY).
 var debugValidation = os.Getenv("BARN_DEBUG_RETRY") != ""
-
-func debugConflict(kind string, objID types.ObjID, name string, want, live uint64) {
-	if debugValidation {
-		slog.Warn("DEBUG-CONFLICT", slog.String("kind", kind),
-			slog.Int64("obj", int64(objID)), slog.String("name", name),
-			slog.Uint64("want", want), slog.Uint64("live", live))
-	}
-}
 
 // validateReads runs the coarse Commit path's read-set validators without applying
 // anything or marking the transaction terminal.
@@ -26,147 +17,122 @@ func (tx *StoreTxn) validateReads() types.ErrorCode {
 	return tx.validateReadsLocked()
 }
 
-// validateReadsLocked preserves scalar, relationship, property, then verb error
-// precedence. The caller holds store.mu exclusively, or holds store.mu.RLock and
-// the numbered read/write footprint's slot locks in ascending object-ID order.
-// Callers own lock acquisition (commitGate -> store -> slots) and failure
-// classification; this helper neither marks a conflict nor makes tx terminal.
+// validateReadsLocked runs every stage -- scalar, relationship, property, verb,
+// then WAIF -- recording each stale read in tx.conflicts, and returns the first
+// error code met in that order. The caller holds store.mu exclusively, or holds
+// store.mu.RLock and the numbered read/write footprint's slot locks in ascending
+// object-ID order. Callers own lock acquisition (commitGate -> store -> slots)
+// and failure classification; this helper neither marks a conflict nor makes tx
+// terminal.
 func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
-	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
-		return errCode
+	tx.conflicts = tx.conflicts[:0]
+	errCode := types.E_NONE
+	tx.validateObjectReadsLocked(&errCode, ConflictScalar, tx.scalarReads)
+	tx.validateObjectReadsLocked(&errCode, ConflictRelationship, tx.relationshipReads)
+	earlier, firstProperty := errCode, len(tx.conflicts)
+	tx.validatePropertyReadsLocked(&errCode)
+	// A validation lost first on a property value scores that property as hot.
+	// The property stage checks values before scans, so its first record is a
+	// value exactly when a value was the first thing it found stale; E_INVARG
+	// rules out a value whose object is gone.
+	if earlier == types.E_NONE && errCode == types.E_INVARG {
+		if c := &tx.conflicts[firstProperty]; c.Kind == ConflictProperty {
+			tx.store.noteHotProperty(propertyReadKey{objID: c.ObjID, name: c.Name})
+		}
 	}
-	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
-		return errCode
-	}
-	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
-		return errCode
-	}
-	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
-		return errCode
-	}
-	return tx.validateWaifsLocked()
+	tx.validateVerbReadsLocked(&errCode)
+	tx.validateWaifsLocked(&errCode)
+	return errCode
 }
 
-func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
-	for objID, version := range tx.scalarReads {
+// noteConflict records one stale read and keeps the first error code met.
+func (tx *StoreTxn) noteConflict(first *types.ErrorCode, errCode types.ErrorCode, c ReadConflict) {
+	tx.conflicts = append(tx.conflicts, c)
+	if *first == types.E_NONE {
+		*first = errCode
+	}
+}
+
+// objectReadVersion is the version of obj that a read of kind depends on.
+func objectReadVersion(kind ConflictKind, obj *Object) uint64 {
+	switch kind {
+	case ConflictScalar:
+		return obj.scalarVersion
+	case ConflictRelationship:
+		return obj.relationshipVersion
+	case ConflictPropertyScan:
+		return obj.propertyVersion
+	case ConflictPropertyShape:
+		return obj.propertyShapeVersion
+	default:
+		return obj.verbVersion
+	}
+}
+
+// validateObjectReadsLocked checks the reads of one per-object version.
+func (tx *StoreTxn) validateObjectReadsLocked(first *types.ErrorCode, kind ConflictKind, reads map[types.ObjID]uint64) {
+	for objID, version := range reads {
 		if tx.createdObjects[objID] != nil {
 			continue // reads of this txn's own new object are always consistent
 		}
 		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.scalarVersion != version {
-			debugConflict("scalar", objID, "", version, live.scalarVersion)
-			return types.E_INVARG
-		}
-	}
-	return types.E_NONE
-}
-
-func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
-	for objID, version := range tx.relationshipReads {
-		if tx.createdObjects[objID] != nil {
+			tx.noteConflict(first, types.E_INVIND, ReadConflict{Kind: kind, ObjID: objID, Read: version, Missing: true})
 			continue
 		}
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.relationshipVersion != version {
-			debugConflict("relationship", objID, "", version, live.relationshipVersion)
-			return types.E_INVARG
+		if liveVersion := objectReadVersion(kind, live); liveVersion != version {
+			tx.noteConflict(first, types.E_INVARG, ReadConflict{Kind: kind, ObjID: objID, Read: version, Live: liveVersion})
 		}
 	}
-	return types.E_NONE
 }
 
-func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
+func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 	for key, version := range tx.propertyReads {
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		_, prop, ok := propertyByName(live.properties, key.name)
-		if !ok || prop.version != version {
-			lv := uint64(0)
-			if ok {
-				lv = prop.version
-			}
-			debugConflict("property", key.objID, key.name, version, lv)
-			tx.store.noteHotProperty(key)
-			return types.E_INVARG
-		}
-	}
-	for objID, version := range tx.propertyScans {
-		if tx.createdObjects[objID] != nil {
+		c := ReadConflict{Kind: ConflictProperty, ObjID: key.objID, Name: key.name, Read: version}
+		errCode := types.E_INVARG
+		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
+			c.Missing, errCode = true, types.E_INVIND
+		} else if _, prop, ok := propertyByName(live.properties, key.name); !ok {
+			c.Missing = true
+		} else if prop.version != version {
+			c.Live = prop.version
+		} else {
 			continue
 		}
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.propertyVersion != version {
-			debugConflict("property-scan", objID, "", version, live.propertyVersion)
-			return types.E_INVARG
-		}
+		c.staleAtRead = tx.propertyWasStaleAtRead(key, version)
+		tx.noteConflict(first, errCode, c)
 	}
-	for objID, version := range tx.propertyShapeScans {
-		if tx.createdObjects[objID] != nil {
-			continue
-		}
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.propertyShapeVersion != version {
-			debugConflict("property-shape", objID, "", version, live.propertyShapeVersion)
-			return types.E_INVARG
-		}
-	}
-	return types.E_NONE
+	tx.validateObjectReadsLocked(first, ConflictPropertyScan, tx.propertyScans)
+	tx.validateObjectReadsLocked(first, ConflictPropertyShape, tx.propertyShapeScans)
 }
 
-func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
-	if tx.usedVerbMemo && !tx.liveMutated && tx.store.verbShapeChangeTS.Load() > tx.readTS {
-		debugConflict("verb-shape", types.ObjNothing, "", tx.readTS, tx.store.verbShapeChangeTS.Load())
-		return types.E_INVARG
+func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
+	if tx.usedVerbMemo && !tx.liveMutated {
+		if changed := tx.store.verbShapeChangeTS.Load(); changed > tx.readTS {
+			tx.noteConflict(first, types.E_INVARG, ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
+		}
 	}
 	for key, version := range tx.verbReads {
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		verb := live.verbs[key.name]
-		if verb == nil || verb.version != version {
-			lv := uint64(0)
-			if verb != nil {
-				lv = verb.version
-			}
-			debugConflict("verb", key.objID, key.name, version, lv)
-			return types.E_INVARG
-		}
-	}
-	for objID, version := range tx.verbScans {
-		if tx.createdObjects[objID] != nil {
+		c := ReadConflict{Kind: ConflictVerb, ObjID: key.objID, Name: key.name, Read: version}
+		errCode := types.E_INVARG
+		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
+			c.Missing, errCode = true, types.E_INVIND
+		} else if verb := live.verbs[key.name]; verb == nil {
+			c.Missing = true
+		} else if verb.version != version {
+			c.Live = verb.version
+		} else {
 			continue
 		}
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.verbVersion != version {
-			debugConflict("verb-scan", objID, "", version, live.verbVersion)
-			return types.E_INVARG
-		}
+		tx.noteConflict(first, errCode, c)
 	}
-	return types.E_NONE
+	tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
 }
 
 func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {

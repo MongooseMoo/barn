@@ -109,14 +109,18 @@ func (tx *StoreTxn) hasWaifWrites() bool {
 	return false
 }
 
-func (tx *StoreTxn) validateWaifsLocked() types.ErrorCode {
-	for _, image := range tx.waifs {
+func (tx *StoreTxn) validateWaifsLocked(first *types.ErrorCode) {
+	for identity, image := range tx.waifs {
 		live, ok := image.value.WaifImageAt(tx.store.waifDomain, tx.store.readTimestamp())
-		if !ok || live.Timestamp() != image.base.Timestamp() {
-			return types.E_INVARG
+		if ok && live.Timestamp() == image.base.Timestamp() {
+			continue
 		}
+		c := ReadConflict{Kind: ConflictWaif, ObjID: types.ObjNothing, Name: identity.String(), Read: image.base.Timestamp(), Missing: !ok}
+		if ok {
+			c.Live = live.Timestamp()
+		}
+		tx.noteConflict(first, types.E_INVARG, c)
 	}
-	return types.E_NONE
 }
 
 // waifHistoryEntry tracks one WAIF that still holds superseded images. due is

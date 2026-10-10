@@ -96,6 +96,17 @@ type StoreTxn struct {
 	// time in this txn. See store_hot_read.go.
 	trackNewReads bool
 	newReads      []propertyReadKey
+
+	// conflicts is what the last validation found stale, and conflictLabel the
+	// task this txn runs for. With sampleReadClocks set, readClocks holds the
+	// store clock at the first read of each property slot. lossCounted is set
+	// once the census has counted this txn as lost. See
+	// store_conflict_census.go.
+	conflicts        []ReadConflict
+	lossCounted      bool
+	conflictLabel    ConflictLabel
+	sampleReadClocks bool
+	readClocks       map[propertyReadKey]uint64
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
@@ -139,6 +150,9 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		// are left nil and lazily allocated on first stage (see lazySet).
 		maxObjID:    s.maxObjectID(),
 		highWaterID: s.highWater(),
+		// readClocks is left nil and allocated by the first sampled read.
+		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
+		sampleReadClocks: s.conflictTracking.Load(),
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
