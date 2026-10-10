@@ -246,20 +246,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 
 	// Store PropDefsCount for later name resolution
 	obj.SetPropDefsCount(propDefCount)
-	propOrder := make([]string, totalPropCount)
+	slots := make([]store.Property, 0, min(totalPropCount, maxTrustedSlotCount))
 
-	// Read property values
+	// Read property values. They are kept by position: an inherited slot's
+	// name is known only once every object's definitions have been read.
 	for i := 0; i < totalPropCount; i++ {
-		var propName string
-		if i < propDefCount {
-			propName = propDefs[i]
-		} else {
-			// Inherited property - name will be resolved later
-			propName = fmt.Sprintf("_inherited_%d", i)
-		}
-
-		propOrder[i] = propName // Track order for resolution
-
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
 		// reports them, matching Toast.
@@ -268,6 +259,10 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		// Value
 		propValue, err := database.readValue(r)
 		if err != nil {
+			propName := inheritedSlotPlaceholder(i)
+			if defined {
+				propName = propDefs[i]
+			}
 			return nil, fmt.Errorf("prop %d (%s) value: %w", i, propName, err)
 		}
 
@@ -287,11 +282,22 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			return nil, err
 		}
 
-		obj.SetProperty(propName, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		slots = append(slots, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
-	obj.SetPropOrder(propOrder)
+	obj.SetPropOrder(propDefs[:min(propDefCount, totalPropCount)])
+	obj.SetLoadedSlots(slots)
 
 	return obj, nil
+}
+
+// maxTrustedSlotCount is the most property slots a reader allocates up front
+// on the file's word for an object's slot count.
+const maxTrustedSlotCount = 1 << 16
+
+// inheritedSlotPlaceholder names positional slot i until, or in place of, the
+// name its ancestry gives it.
+func inheritedSlotPlaceholder(i int) string {
+	return fmt.Sprintf("_inherited_%d", i)
 }
 
 // readAnonymousObjects reads the anonymous-objects section (v17), which Toast

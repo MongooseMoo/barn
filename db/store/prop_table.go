@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"iter"
 	"slices"
+	"strings"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -311,6 +312,122 @@ func (p *propSharePool) base(shape *propShape, owners []types.ObjID, perms []Pro
 		if candidate.shape == shape && slices.Equal(candidate.owners, owners) && slices.Equal(candidate.perms, perms) {
 			return candidate
 		}
+	}
+	base := &propBase{shape: shape, owners: owners, perms: perms}
+	p.bases[sum] = append(p.bases[sum], base)
+	return base
+}
+
+// PropSharePool interns the shapes and bases of the tables built through it.
+// The loader keeps one for a whole load.
+type PropSharePool = propSharePool
+
+// NewPropSharePool returns an empty pool.
+func NewPropSharePool() *PropSharePool { return newPropSharePool() }
+
+// SlotLayout says where each positional slot of a loaded object goes in a
+// shared shape. A database stores an object's slots by position; objects with
+// the same slot names in the same order use one layout.
+type SlotLayout struct {
+	shape *propShape
+	// from[i] is the position of the slot that supplies shape key i. When
+	// several positions carry one name, the last of them supplies it.
+	from []int32
+	// slots is the number of positions the layout was made for.
+	slots int
+}
+
+// Slots returns the number of positional slots the layout covers.
+func (l *SlotLayout) Slots() int { return l.slots }
+
+// Layout returns the layout for slots named names[0], names[1], and so on.
+// Names are folded to canonical keys here.
+func (p *propSharePool) Layout(names []string) *SlotLayout {
+	type keyed struct {
+		key string
+		at  int32
+	}
+	order := make([]keyed, len(names))
+	for i, name := range names {
+		order[i] = keyed{key: propertyNameKey(name), at: int32(i)}
+	}
+	slices.SortFunc(order, func(a, b keyed) int {
+		if c := strings.Compare(a.key, b.key); c != 0 {
+			return c
+		}
+		return int(a.at - b.at)
+	})
+	keys := make([]string, 0, len(order))
+	from := make([]int32, 0, len(order))
+	for i, entry := range order {
+		if i+1 < len(order) && order[i+1].key == entry.key {
+			continue
+		}
+		keys = append(keys, entry.key)
+		from = append(from, entry.at)
+	}
+	return &SlotLayout{shape: p.shape(keys), from: from, slots: len(names)}
+}
+
+// tableFromLayout builds the shared table of an object whose positional slots
+// are slots, which must be as many as the layout covers. It reads the same as
+// a table that was filled slot by slot under the layout's names and then
+// shared.
+func (p *propSharePool) tableFromLayout(layout *SlotLayout, slots []Property) propTable {
+	if len(layout.from) == 0 {
+		return newPropTable(0)
+	}
+	private := 0
+	for _, at := range layout.from {
+		if !isBasePlaceholder(slots[at]) {
+			private++
+		}
+	}
+	var over map[string]Property
+	if private > 0 {
+		over = make(map[string]Property, private)
+		for i, at := range layout.from {
+			if !isBasePlaceholder(slots[at]) {
+				over[layout.shape.keys[i]] = slots[at]
+			}
+		}
+	}
+	return propTable{s: &propState{base: p.baseForSlots(layout, slots), over: over}}
+}
+
+// baseForSlots returns the shared base for a layout's shape and the owner and
+// perms of each slot. It finds the same base that base would for the same
+// owners and perms, and allocates only when the base is new.
+func (p *propSharePool) baseForSlots(layout *SlotLayout, slots []Property) *propBase {
+	shape := layout.shape
+	var h maphash.Hash
+	h.SetSeed(p.seed)
+	var word [8]byte
+	binary.LittleEndian.PutUint64(word[:], p.hashes[shape])
+	h.Write(word[:])
+	for _, at := range layout.from {
+		binary.LittleEndian.PutUint64(word[:], uint64(slots[at].owner))
+		h.Write(word[:])
+		h.WriteByte(byte(slots[at].perms))
+	}
+	sum := h.Sum64()
+candidates:
+	for _, candidate := range p.bases[sum] {
+		if candidate.shape != shape {
+			continue
+		}
+		for i, at := range layout.from {
+			if candidate.owners[i] != slots[at].owner || candidate.perms[i] != slots[at].perms {
+				continue candidates
+			}
+		}
+		return candidate
+	}
+	owners := make([]types.ObjID, len(layout.from))
+	perms := make([]PropertyPerms, len(layout.from))
+	for i, at := range layout.from {
+		owners[i] = slots[at].owner
+		perms[i] = slots[at].perms
 	}
 	base := &propBase{shape: shape, owners: owners, perms: perms}
 	p.bases[sum] = append(p.bases[sum], base)
