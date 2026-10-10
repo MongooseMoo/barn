@@ -51,8 +51,31 @@ func TestSmallMapsAreFlatAndLargeMapsAreIndexed(t *testing.T) {
 	if small.goMap().index != nil || small.goMap().order != nil {
 		t.Fatalf("a map of %d pairs is indexed, want flat", mapFlatLimit)
 	}
-	if large := NewMap(pairs); large.goMap().index == nil || large.goMap().flat != nil {
-		t.Fatalf("a map of %d pairs is flat, want indexed", mapFlatLimit+1)
+	// A larger map built whole is flat with a sorted hash index, and becomes
+	// indexed on its first write, which leaves the map it came from alone.
+	large := NewMap(pairs)
+	if large.goMap().index != nil || large.goMap().bulk == nil {
+		t.Fatalf("a map of %d pairs built whole is not in the bulk flat form", mapFlatLimit+1)
+	}
+	for name, written := range map[string]Value{
+		"replacing a pair": large.MapSet(NewInt(0), NewInt(9)),
+		"adding a pair":    large.MapSet(NewInt(99), NewInt(9)),
+		"deleting a pair":  large.MapDelete(NewInt(0)),
+	} {
+		if written.goMap().index == nil || written.goMap().flat != nil {
+			t.Fatalf("%s in a bulk map left it flat", name)
+		}
+	}
+	if large.goMap().index != nil || large.Len() != mapFlatLimit+1 {
+		t.Fatalf("writing to a bulk map changed the map it was written from")
+	}
+	if same := large.MapDelete(NewInt(99)); same.goMap() != large.goMap() {
+		t.Fatalf("deleting an absent key from a bulk map built a new map")
+	}
+	// A repeated key cannot be held flat: the map is built indexed.
+	repeated := append(append([][2]Value(nil), pairs...), [2]Value{NewInt(3), NewInt(33)})
+	if m := NewMap(repeated); m.goMap().index == nil || m.Len() != mapFlatLimit+1 {
+		t.Fatalf("a map built whole with a repeated key: indexed=%v len=%d", m.goMap().index != nil, m.Len())
 	}
 
 	grown := small.MapSet(NewInt(int64(mapFlatLimit)), NewInt(0))
@@ -102,17 +125,36 @@ func TestFlatAndIndexedMapsBehaveTheSame(t *testing.T) {
 		rng := rand.New(rand.NewSource(seed))
 		subject := NewEmptyMap()
 		reference := NewEmptyMap()
-		// Odd seeds start from a bulk-built map instead of an empty one.
+		// Odd seeds start from a map built whole instead of an empty one:
+		// random pairs with repeats, or (every fourth seed) distinct keys
+		// past mapFlatLimit, which gives the bulk flat form.
 		if seed%2 == 1 {
 			var pairs [][2]Value
-			for i := 0; i < rng.Intn(mapFlatLimit+4); i++ {
-				pairs = append(pairs, [2]Value{keys[rng.Intn(len(keys))], NewInt(int64(i))})
+			if seed%4 == 1 {
+				for i, at := range rng.Perm(len(keys))[:mapFlatLimit+1+rng.Intn(8)] {
+					// The pool has keys that are one key under the map's
+					// rules; MapSet on the reference folds them, so skip
+					// any that match one already taken.
+					taken := false
+					for _, p := range pairs {
+						taken = taken || mapKeyMatches(p[0], keys[at])
+					}
+					if !taken {
+						pairs = append(pairs, [2]Value{keys[at], NewInt(int64(i))})
+					}
+				}
+			} else {
+				for i := 0; i < rng.Intn(mapFlatLimit+4); i++ {
+					pairs = append(pairs, [2]Value{keys[rng.Intn(len(keys))], NewInt(int64(i))})
+				}
 			}
 			subject = NewMap(pairs)
 			reference = forcedIndexed(NewEmptyMap())
 			for _, p := range pairs {
 				reference = forcedIndexed(reference.MapSet(p[0], p[1]))
 			}
+			// Before any write: the only point where a bulk map is read.
+			compareMapForms(t, seed, -1, subject, reference, keys)
 		}
 
 		for step := 0; step < 250; step++ {

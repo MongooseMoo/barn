@@ -1,11 +1,14 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
 	"hash/maphash"
 	"math"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -32,15 +35,20 @@ const mapFlatLimit = 16
 
 // goMap is the heap payload behind a TYPE_MAP Value. It has two forms.
 //
-// Flat (index == nil): the pairs sit in 'flat' in insertion order and lookup is
-// a scan. A map is built flat while it has at most mapFlatLimit pairs.
+// Flat (index == nil): the pairs sit in 'flat' in insertion order. With at
+// most mapFlatLimit pairs lookup is a scan. NewMap also builds a larger map
+// flat, with 'bulk' giving the pairs' positions in key-hash order for a binary
+// search: a map that is loaded or built whole and only read never pays for
+// the index.
 //
 // Indexed (index != nil): keys use a typed, comparable hash into 'index' and
 // insertion order is tracked in 'order'. A flat map becomes indexed when a set
-// would take it past mapFlatLimit; an indexed map never goes back, except that
-// deleting its last pair leaves the empty flat form.
+// would take it past mapFlatLimit, and a bulk map on its first set or delete;
+// an indexed map never goes back, except that deleting its last pair leaves
+// the empty flat form.
 type goMap struct {
 	flat     []flatEntry
+	bulk     *bulkIndex
 	order    *mapOrder
 	index    *mapIndex
 	count    int
@@ -158,12 +166,67 @@ func flatKeyHash(v Value) uint64 {
 	return h ^ uint64(v.Type())*mix
 }
 
+// bulkIndex lists the positions of a large flat map's pairs in ascending
+// order of key hash.
+type bulkIndex struct {
+	sorted []uint32
+	// indexed caches the map's indexed form once a write has needed it, so
+	// that code which keeps deriving maps from one bulk map converts it once.
+	indexed atomic.Pointer[goMap]
+}
+
+// newBulkIndex sorts the positions of flat by key hash. It reports false when
+// two pairs have the same key, which the flat form cannot hold.
+func newBulkIndex(flat []flatEntry) (*bulkIndex, bool) {
+	sorted := make([]uint32, len(flat))
+	for i := range sorted {
+		sorted[i] = uint32(i)
+	}
+	slices.SortFunc(sorted, func(a, b uint32) int {
+		return cmp.Compare(flat[a].hash, flat[b].hash)
+	})
+	for i := 1; i < len(sorted); i++ {
+		for j := i - 1; j >= 0 && flat[sorted[j]].hash == flat[sorted[i]].hash; j-- {
+			if mapKeyMatches(flat[sorted[j]].key, flat[sorted[i]].key) {
+				return nil, false
+			}
+		}
+	}
+	return &bulkIndex{sorted: sorted}, true
+}
+
+// find returns the position in flat of key k with hash, or -1.
+func (b *bulkIndex) find(flat []flatEntry, k Value, hash uint64) int {
+	lo, hi := 0, len(b.sorted)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if flat[b.sorted[mid]].hash < hash {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	for ; lo < len(b.sorted); lo++ {
+		at := b.sorted[lo]
+		if flat[at].hash != hash {
+			break
+		}
+		if mapKeyMatches(flat[at].key, k) {
+			return int(at)
+		}
+	}
+	return -1
+}
+
 // flatFind returns the position of key k in a flat map, or -1.
 func (m *goMap) flatFind(k Value) int {
 	if len(m.flat) == 0 {
 		return -1
 	}
 	hash := flatKeyHash(k)
+	if m.bulk != nil {
+		return m.bulk.find(m.flat, k, hash)
+	}
 	for i := range m.flat {
 		if m.flat[i].hash == hash && mapKeyMatches(m.flat[i].key, k) {
 			return i
@@ -175,6 +238,20 @@ func (m *goMap) flatFind(k Value) int {
 // indexed returns the indexed form of a flat map, for a set that takes it past
 // mapFlatLimit.
 func (m *goMap) indexed() *goMap {
+	if m.bulk != nil {
+		if p := m.bulk.indexed.Load(); p != nil {
+			return p
+		}
+		// Racing writers may each build it; the forms are equal and either
+		// may be kept.
+		p := m.buildIndexed()
+		m.bulk.indexed.Store(p)
+		return p
+	}
+	return m.buildIndexed()
+}
+
+func (m *goMap) buildIndexed() *goMap {
 	p := &goMap{count: m.count, finalizable: m.finalizableState(), byteSize: m.mapBytes()}
 	builder := mapBuilder{blockSize: min(32, len(m.flat))}
 	for _, e := range m.flat {
@@ -434,6 +511,9 @@ func (m *goMap) get(k Value) (Value, bool) {
 
 func (m *goMap) set(k, v Value) *goMap {
 	if m.index == nil {
+		if m.bulk != nil {
+			return m.indexed().set(k, v)
+		}
 		i := m.flatFind(k)
 		if i < 0 && len(m.flat) >= mapFlatLimit {
 			return m.indexed().set(k, v)
@@ -474,6 +554,9 @@ func (m *goMap) delete(k Value) *goMap {
 		i := m.flatFind(k)
 		if i < 0 {
 			return m
+		}
+		if m.bulk != nil {
+			return m.indexed().delete(k)
 		}
 		var flat []flatEntry
 		if len(m.flat) > 1 {
@@ -590,6 +673,18 @@ func NewMap(pairs [][2]Value) Value {
 		}
 		m.count = len(m.flat)
 		return mapValue(m)
+	}
+	// A larger map is kept flat with a sorted hash index, unless a key
+	// repeats; then it is built indexed, where a later pair replaces an
+	// earlier one in place.
+	flat := make([]flatEntry, len(pairs))
+	bytes := listVarOverhead
+	for i, p := range pairs {
+		flat[i] = newFlatEntry(p[0], p[1])
+		bytes += ValueBytes(p[0]) + ValueBytes(p[1])
+	}
+	if bulk, ok := newBulkIndex(flat); ok {
+		return mapValue(&goMap{flat: flat, bulk: bulk, count: len(flat), byteSize: bytes})
 	}
 	builder := mapBuilder{blockSize: min(32, len(pairs))}
 	for _, p := range pairs {
