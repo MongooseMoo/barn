@@ -35,7 +35,9 @@ Recorder regressions exercise these boundaries independently of Elle.
 Concurrent mutators also check location/contents and parent/children reciprocity,
 fixed-token conservation, and absence of recycled references. They move and
 reparent objects, create/recycle temporary objects, delete properties/verbs,
-clear inherited slots, and change flags, owners and permission metadata. Read-only
+clear inherited slots, and change flags, owners and permission metadata.
+Scratch definitions and overrides exist in committed state before deletion and
+clearing; flags and owners alternate across rounds. Read-only
 snapshot tasks run the same invariants during the workload and at the end.
 Inherited dispatch runs alongside ancestor verb additions and reparenting.
 

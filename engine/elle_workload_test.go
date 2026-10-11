@@ -60,6 +60,9 @@ func elleWorld(t *testing.T) *dbstore.Store {
 		if id == 32 {
 			b.SetName("0")
 		}
+		if id >= 42 && id <= 45 {
+			b.SetProperty("scratch", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+		}
 		if err := store.Add(b.Build()); err != nil {
 			t.Fatal(err)
 		}
@@ -111,6 +114,10 @@ raise(E_INVARG);`, "\n"))
 		if code := store.DirectTxn().MoveObject(id, 40, 0); code != types.E_NONE {
 			t.Fatal(code)
 		}
+		if code := store.DirectTxn().SetPropertyValue(id, "data", types.NewInt(1)); code != types.E_NONE {
+			t.Fatal(code)
+		}
+		elleAddVerb(t, store, id, "scratchV", []string{"return 0;"})
 	}
 	elleAddVerb(t, store, 0, "invariants", strings.Split(`
 rooms = {#40, #41}; tokens = {#42, #43, #44, #45}; seen = {};
@@ -457,8 +464,9 @@ func TestElleIsolationHistories(t *testing.T) {
 					// Concurrent invariant mutator: moves/reparents and nonmonotone writes
 					// operate on a fixed population separate from the Elle append keys.
 					tok := 42 + worker
-					mutation := fmt.Sprintf(`move(#%[1]d,#%[2]d); chparent(#%[1]d,#%[3]d); add_property(#%[1]d,"scratch",1,{#0,"rw"}); set_property_info(#%[1]d,"scratch",{#0,"r"}); delete_property(#%[1]d,"scratch"); add_verb(#%[1]d,{#0,"rxd","scratchV"},{"this","none","none"}); delete_verb(#%[1]d,"scratchV"); #%[1]d.data=1; clear_property(#%[1]d,"data"); #%[1]d.r=0; #%[1]d.r=1; #%[1]d.owner=#47; #%[1]d.owner=#0; x=create(#46); chparent(x,#47); recycle(x); #0.recycled={@#0.recycled,x}; ok=#0:invariants(); elle_invariant_mark({"move","chparent","create","recycle","delete_property","delete_verb","clear_property","flags","owner","permissions","invariant"}); return ok;`, tok, 40+round%2, 46+round%2)
+					mutation := fmt.Sprintf(`move(#%[1]d,#%[2]d); chparent(#%[1]d,#%[3]d); delete_property(#%[1]d,"scratch"); add_property(#%[1]d,"scratch",1,{#0,"rw"}); set_property_info(#%[1]d,"scratch",{#0,"r"}); delete_verb(#%[1]d,"scratchV"); add_verb(#%[1]d,{#0,"rxd","scratchV"},{"this","none","none"}); clear_property(#%[1]d,"data"); if (!equal(#%[1]d.data,{})) raise(E_INVARG); endif #%[1]d.data=1; #%[1]d.r=%[4]d; #%[1]d.owner=#%[5]d; if (#%[1]d.r != %[4]d || #%[1]d.owner != #%[5]d) raise(E_INVARG); endif x=create(#46); chparent(x,#47); recycle(x); #0.recycled={@#0.recycled,x}; ok=#0:invariants(); elle_invariant_mark({"move","chparent","create","recycle","delete_property","delete_verb","clear_property","flags","owner","permissions","invariant"}); return ok;`, tok, 40+round%2, 46+round%2, round%2, 47*(1-round%2))
 					mutation = fmt.Sprintf(`add_verb(#0,{#0,"rxd","ancestor%d"},{"this","none","none"}); `, id) + mutation
+					mutation = strings.Replace(mutation, `clear_property(`, fmt.Sprintf(`if (length(verbs(#%d)) != 1) raise(E_INVARG); endif clear_property(`, tok), 1)
 					batch = append(batch, elleTask(t, rt, id, strings.ReplaceAll(mutation, "; ", ";\n")))
 					id++
 				}
