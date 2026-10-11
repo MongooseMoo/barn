@@ -31,13 +31,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Install checker dependencies
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          if command -v lein >/dev/null && command -v dot >/dev/null; then
+            exit 0
+          fi
+          sudo -n apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y leiningen graphviz
       - name: Build pinned checker
         env:
           ELLE_COMMIT: 9c2a18b3719f573dab06ae05c955c9c9d5225673
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y leiningen graphviz
           checker="$RUNNER_TEMP/elle-cli-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           git clone https://github.com/ligurio/elle-cli.git "$checker"
           git -C "$checker" checkout --detach "$ELLE_COMMIT"
