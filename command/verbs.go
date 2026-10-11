@@ -147,20 +147,17 @@ func HasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.O
 // findDispatchVerb finds the first command verb candidate whose arg specs
 // match this parsed command.
 func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
-	candidates, errCode := store.VerbCandidatesInAncestry(objID)
-	if errCode != types.E_NONE {
+	candidate, found := store.FindVerbInAncestry(objID, func(verb dbstore.VerbView) bool {
+		return verbMatches(verb, cmd, objID)
+	})
+	if !found {
 		return nil
 	}
-	for _, candidate := range candidates {
-		if verbMatches(candidate.Verb, cmd, objID) {
-			return &VerbMatch{
-				Verb:    candidate.Verb,
-				This:    objID,
-				VerbLoc: candidate.Definer,
-			}
-		}
+	return &VerbMatch{
+		Verb:    candidate.Verb,
+		This:    objID,
+		VerbLoc: candidate.Definer,
 	}
-	return nil
 }
 
 // FindVerb finds a verb matching the command

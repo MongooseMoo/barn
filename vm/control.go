@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"strings"
 	"time"
 )
@@ -177,7 +178,9 @@ func oneLineForkBody(source string) string {
 func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.FetchByte())
-	handlers := make([]bytecode.Handler, numClauses)
+	// Decode straight onto ExceptStack in source order, then reverse the
+	// clauses in place below.
+	base := len(frame.ExceptStack)
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.FetchByte())
@@ -197,20 +200,18 @@ func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 		// Read handler IP (absolute).
 		handlerIP := vm.readControlFlowOperand(wide)
 
-		handlers[i] = bytecode.Handler{
+		frame.ExceptStack = append(frame.ExceptStack, bytecode.Handler{
 			Type:       bytecode.HandlerExcept,
 			HandlerIP:  handlerIP,
 			Codes:      codes,
 			VarIndex:   varIndex,
 			StackDepth: vm.SP,
-		}
+		})
 	}
 
-	// Push in reverse source order so reverse scan in HandleError honors
+	// Leave them in reverse source order so reverse scan in HandleError honors
 	// "first matching except clause wins".
-	for i := numClauses - 1; i >= 0; i-- {
-		frame.ExceptStack = append(frame.ExceptStack, handlers[i])
-	}
+	slices.Reverse(frame.ExceptStack[base:])
 
 	return nil
 }

@@ -591,11 +591,17 @@ func (m *goMap) delete(k Value) *goMap {
 }
 
 func (m *goMap) keys() []Value {
-	pairs := m.pairsList()
-	keys := make([]Value, len(pairs))
-	for i := range pairs {
-		keys[i] = pairs[i][0]
+	keys := make([]Value, 0, m.count)
+	var visit func(*toastLookupNode)
+	visit = func(node *toastLookupNode) {
+		if node == nil {
+			return
+		}
+		visit(node.link[0])
+		keys = append(keys, node.entry.key)
+		visit(node.link[1])
 	}
+	visit(m.toastRoot())
 	return keys
 }
 
