@@ -28,11 +28,24 @@ func TestResumeGenerationIgnoresCompletionFromEarlierSuspension(t *testing.T) {
 	if tk.ResumeGeneration(stale, types.NewStr("stale")) {
 		t.Fatal("stale completion resumed the task")
 	}
+	if !tk.ExecReadyTime().IsZero() {
+		t.Fatal("stale completion published a readiness timestamp")
+	}
 	if got := tk.GetState(); got != TaskSuspended {
 		t.Fatalf("state after stale completion = %v, want TaskSuspended", got)
 	}
 	if !tk.ResumeGeneration(current, types.NewStr("own")) {
 		t.Fatal("current completion failed to resume the task")
+	}
+	ready := tk.ExecReadyTime()
+	if ready.IsZero() {
+		t.Fatal("threaded completion did not publish its readiness timestamp")
+	}
+	if tk.ResumeGeneration(current, types.NewStr("duplicate")) || !tk.ExecReadyTime().Equal(ready) {
+		t.Fatal("duplicate completion changed readiness")
+	}
+	if !tk.TakeExecReadyTime().Equal(ready) || !tk.TakeExecReadyTime().IsZero() {
+		t.Fatal("readiness timestamp was not consumed exactly once")
 	}
 	if got := tk.GetState(); got != TaskQueued {
 		t.Fatalf("state after own completion = %v, want TaskQueued", got)

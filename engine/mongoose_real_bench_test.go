@@ -26,7 +26,9 @@ package engine
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
 //                             files/sqlite/sound.sqlite before #0:server_started
-//   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
+//   BARN_MONGOOSE_CPUPROFILE  write Go CPU profile (startup, warmup, measurement, drain)
+//   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
+//   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 //   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
 //                             otherwise runs at Go's default, which the log line states)
@@ -39,9 +41,11 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -63,7 +67,9 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/internal/mooprof"
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -200,6 +206,17 @@ type realCommandCompletion struct {
 	result  chan types.Result
 }
 
+// Reuse the structured traceback identities without rendering source, arguments
+// or runtime-variable payloads. The exception snapshot survives stack unwinding.
+func realCommandFrames(stack []types.ActivationFrame) string {
+	frames := tbFrames(stack)
+	for i := range frames {
+		frames[i].Source = ""
+	}
+	encoded, _ := json.Marshal(frames) // tbFrame contains only strings, integers and bools.
+	return string(encoded)
+}
+
 func (c *realCommandCompletion) capture(s *Runtime, id int64) {
 	c.runtime = s
 	c.task = s.GetTask(id)
@@ -260,33 +277,64 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			c.runtime.mu.Unlock()
 		}
 		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
-		frames := make([]string, len(stack))
-		for i, frame := range stack {
-			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
+		frames := realCommandFrames(stack)
+		blockers := c.blockers(time.Now())
+		readiness, _ := json.Marshal(c.task.ReadinessSnapshot())
+		var admissionStatus string
+		if c.runtime != nil {
+			status, _ := json.Marshal(c.runtime.AdmissionStats())
+			admissionStatus = string(status)
 		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
-		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
-		}
+		saved := c.task.BytecodeVMValue() != nil
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
 		}
 	}
 	select {
 	case result := <-c.result:
 		if result.Flow == types.FlowException {
-			return false, "uncaught:" + result.Error.String()
+			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack))
 		}
 		return true, ""
 	default:
 		return false, "killed-before-completion"
 	}
+}
+
+// startRealMOOProfile uses the same collector as /debug/pprof/moo. Collect only
+// measured command windows (including their terminal drain), excluding setup.
+func startRealMOOProfile(t *testing.T, prefix string, players int) func() {
+	t.Helper()
+	if prefix == "" {
+		return func() {}
+	}
+	path := fmt.Sprintf("%s-players%d.pprof", prefix, players)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := mooprof.Start()
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			prof := session.Stop()
+			defer file.Close()
+			if err := prof.Write(file); err != nil {
+				t.Errorf("write MOO profile: %v", err)
+			}
+			t.Logf("MOO measurement profile: %s", path)
+		})
+	}
+	t.Cleanup(stop)
+	return stop
 }
 
 // copyBenchFile copies src over dst, creating dst's directory.
@@ -367,6 +415,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if os.Getenv("BARN_MONGOOSE_BENCH") == "" {
 		t.Skip("set BARN_MONGOOSE_BENCH=1 to run the real-database mongoose workload")
 	}
+	if dir := os.Getenv("BARN_MONGOOSE_LOG_DIR"); dir != "" {
+		priorLogger, priorLevel := slog.Default(), logging.Level.Level()
+		closeLog, err := logging.Setup(logging.Options{LevelStr: "debug", Dir: dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			closeLog()
+			slog.SetDefault(priorLogger)
+			logging.Level.Set(priorLevel)
+		})
+	}
 	dbPath := os.Getenv("BARN_MONGOOSE_DB")
 	if dbPath == "" {
 		dbPath = "../mongoose.db.new"
@@ -413,9 +473,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			t.Fatalf("create cpuprofile: %v", err)
 		}
 		defer f.Close()
-		// Profile covers measurement windows only (started after warm-up below
-		// would need restarts per level; instead start now and note that DB
-		// load is excluded and warm-up windows are included but identifiable).
+		// Loading is excluded; runtime startup, warm-up, drain and idle are included.
+		// The moo.task and moo.verb labels separate background and command work.
 		if err := pprof.StartCPUProfile(f); err != nil {
 			t.Fatalf("start cpuprofile: %v", err)
 		}
@@ -579,14 +638,14 @@ func TestMongooseRealWorkload(t *testing.T) {
 		configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = cm })
 
 		type shapeStat struct {
-			ok, fail          int64
-			totalLat          time.Duration
-			attempts, retries uint64
+			ok, fail int64
+			totalLat time.Duration
 		}
 		type gstat struct {
 			shapes    []shapeStat
 			lats      []time.Duration
 			seen      int64
+			maxLat    time.Duration
 			failMsgs  []string
 			unsettled int64
 		}
@@ -615,25 +674,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 							}
 							x -= cand.weight
 						}
-						// Per-command counter deltas are only attributable when a
-						// single player runs (sequential commands); with more
-						// players the deltas interleave and are recorded anyway
-						// as an aggregate approximation.
-						c0 := sampleCommitCounters(store)
 						t0 := time.Now()
 						if conn := cm.conns[players[idx]]; conn != nil {
 							conn.touch() // typing a command resets idle, as in production
 						}
 						ok, failure := runRealCommandLine(s, store, players[idx], realShapes[sh].line)
 						lat := time.Since(t0)
-						cd := sampleCommitCounters(store).sub(c0)
 						if !record {
 							continue
 						}
 						ss := &st.shapes[sh]
-						ss.attempts += cd.attempts
-						ss.retries += cd.retries
 						if ok {
+							st.maxLat = max(st.maxLat, lat)
 							ss.ok++
 							ss.totalLat += lat
 							st.seen++
@@ -692,9 +744,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 		} else {
 			close(sampled)
 		}
+		stopProfile := startRealMOOProfile(t, os.Getenv("BARN_MONGOOSE_MOOPROFILE"), active)
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
+		stopProfile()
 		close(stopSampling)
 		<-sampled
 		cpu1 := readGCCPU()
@@ -707,6 +761,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var committed, failed int64
 		var unsettled int64
 		var allLats []time.Duration
+		var maxLat time.Duration
 		shapeAgg := make([]shapeStat, len(realShapes))
 		var failSamples []string
 		for i := range stats {
@@ -715,12 +770,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 				shapeAgg[j].ok += stats[i].shapes[j].ok
 				shapeAgg[j].fail += stats[i].shapes[j].fail
 				shapeAgg[j].totalLat += stats[i].shapes[j].totalLat
-				shapeAgg[j].attempts += stats[i].shapes[j].attempts
-				shapeAgg[j].retries += stats[i].shapes[j].retries
 				committed += stats[i].shapes[j].ok
 				failed += stats[i].shapes[j].fail
 			}
 			allLats = append(allLats, stats[i].lats...)
+			maxLat = max(maxLat, stats[i].maxLat)
 			failSamples = append(failSamples, stats[i].failMsgs...)
 		}
 		sort.Slice(allLats, func(a, b int) bool { return allLats[a] < allLats[b] })
@@ -749,9 +803,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 		if unsettled != 0 {
 			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
-		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
+		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s p999=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
-			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
+			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)), latStr(maxLat),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
 		if memStats {
 			logMemSamples(t, samples)
@@ -781,8 +835,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			if agg.ok > 0 {
 				avg = agg.totalLat / time.Duration(agg.ok)
 			}
-			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s attempts=%d retries=%d",
-				sh.name, agg.ok, agg.fail, latStr(avg), agg.attempts, agg.retries)
+			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s",
+				sh.name, agg.ok, agg.fail, latStr(avg))
 		}
 		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
 			delta.attempts, delta.successes, delta.conflicts, delta.retries,

@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 
 	"modernc.org/sqlite"
@@ -240,12 +242,22 @@ func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
 	return types.Ok(types.NewList(resultRows))
 }
 
-func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool, id metrics.Identity) types.Result {
+	waitStart := time.Now()
 	opCtx, ok := beginSQLiteOperation(handle)
+	handleWait := time.Since(waitStart)
 	if !ok {
+		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
 		return types.Err(types.E_INVARG)
 	}
-	defer endSQLiteOperation(handle)
+	workStart := time.Now()
+	defer func() {
+		workElapsed := time.Since(workStart)
+		// Release the slot before diagnostic logging can perform disk I/O.
+		endSQLiteOperation(handle)
+		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
+		metrics.ObserveRuntime(metrics.SQLiteWork, id, workElapsed, 0)
+	}()
 
 	if sqliteReturnsRows(sqlText) {
 		rows, err := handle.conn.QueryContext(opCtx, sqlText, params...)
@@ -273,8 +285,9 @@ func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string
 		}
 		ctx.IrreversibleSideEffect = true
 	}
+	id := runtimeIdentity(ctx)
 	return runInBackground(ctx, func() types.Result {
-		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id)
 	})
 }
 

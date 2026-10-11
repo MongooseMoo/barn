@@ -7,6 +7,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -157,6 +158,9 @@ return {n, rows};
 `), ticks, seconds)
 	running.Context.IsWizard = true
 	retriesBefore := store.CommitRetries()
+	wasteBefore := metrics.RuntimePhaseStats(metrics.RetryWaste)
+	asyncBefore := metrics.RuntimePhaseStats(metrics.AsyncWork)
+	queueBefore := metrics.RuntimePhaseStats(metrics.ResumeQueue)
 	runSQLiteTaskToCompletion(t, rt, running)
 
 	if running.Result.Flow != types.FlowReturn {
@@ -173,5 +177,14 @@ return {n, rows};
 	}
 	if got, errCode := store.DirectTxn().PropertyValue(0, "retry_value"); errCode != types.E_NONE || got.Int() != 11 {
 		t.Fatalf("retry_value = %v (%v), want 11 committed by the retried attempt", got, errCode)
+	}
+	waste := metrics.RuntimePhaseStats(metrics.RetryWaste)
+	async := metrics.RuntimePhaseStats(metrics.AsyncWork)
+	queue := metrics.RuntimePhaseStats(metrics.ResumeQueue)
+	if waste.Count-wasteBefore.Count != 1 || waste.Ticks-wasteBefore.Ticks <= 0 {
+		t.Fatalf("forced retry missing discarded VM work: before=%+v after=%+v", wasteBefore, waste)
+	}
+	if async.Count-asyncBefore.Count != 2 || queue.Count-queueBefore.Count != 2 {
+		t.Fatalf("threaded INSERT/SELECT must run and resume once each: async=%d resumes=%d", async.Count-asyncBefore.Count, queue.Count-queueBefore.Count)
 	}
 }

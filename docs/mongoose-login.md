@@ -75,8 +75,12 @@ and `-InterCommand` (milliseconds), or the client stops reading before sending.
 
 For a repeatable workload capture while a client is connected, run
 `./scripts/capture-mongoose-debug.ps1`. It saves expvar, goroutine stacks, a
-five-second CPU profile, its top functions, and recent warnings/errors through
-Barn's `barn_logs` tool. Override `-Seconds`, `-DebugUrl`, or `-RunDir` as needed.
+five-second Go CPU profile, its flat/cumulative functions and task labels, a
+separate MOO verb profile with ticks/wall reports, and recent warnings/errors through
+Barn's `barn_logs` tool. Override `-Seconds`, `-DebugUrl`, `-RunDir`, or `-Profile`
+(`Go`, `MOO`, `Both`) as needed. The default captures Go and MOO sequentially;
+they cover different windows. For the in-process command harness and a complete
+diagnostic sequence, read [workload-diagnostics.md](workload-diagnostics.md).
 The `*-tasks.txt` report groups CPU samples by `moo.task` and `moo.verb`, so a
 busy scheduler callback can be distinguished from login work. Debug logs also
 record `slow task slice` entries for slices taking at least 100ms; their elapsed

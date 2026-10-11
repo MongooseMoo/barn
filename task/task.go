@@ -342,6 +342,24 @@ func (t *Task) notifyScheduleLocked() {
 	}
 }
 
+// ReadinessSnapshot explains the task-local gates without changing scheduling.
+type ReadinessSnapshot struct {
+	State             string    `json:"state"`
+	ExecutionActive   bool      `json:"execution_active"`
+	AdmissionPending  bool      `json:"admission_pending"`
+	WaitingForInput   bool      `json:"waiting_for_input"`
+	ExternalReadyAt   time.Time `json:"external_ready_at"`
+	SuspendGeneration uint64    `json:"suspend_generation"`
+}
+
+func (t *Task) ReadinessSnapshot() ReadinessSnapshot {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return ReadinessSnapshot{State: t.State.String(), ExecutionActive: t.executionActive,
+		AdmissionPending: t.admissionPending, WaitingForInput: t.waitingForInput,
+		ExternalReadyAt: t.execReadyAt, SuspendGeneration: t.suspendGen}
+}
+
 // ReadyDeadline reports the next time this task could be selected. Zero means
 // no scheduled wake, including VMs whose physical execution has not ended.
 func (t *Task) ReadyDeadline(now time.Time) time.Time {
@@ -853,7 +871,13 @@ func (t *Task) ResumeGeneration(gen uint64, value types.Value) bool {
 	if t.suspendGen != gen {
 		return false
 	}
-	return t.resumeLocked(value)
+	if !t.resumeLocked(value) {
+		return false
+	}
+	// Threaded builtins, like exec(), publish an external readiness event.
+	// Keep this under the task lock so the selector cannot consume it early.
+	t.execReadyAt = time.Now()
+	return true
 }
 
 // Resume resumes the task with a value
