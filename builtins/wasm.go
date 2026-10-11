@@ -13,7 +13,7 @@ import (
 // ConfigureWASM admits the operator directory before task execution begins.
 // Empty disables components. A failed startup leaves no partially loaded set.
 func (s *Session) ConfigureWASM(directory string) error {
-	r := &s.runtime.wasm
+	r := s.runtime.wasm
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.manager != nil {
@@ -38,7 +38,7 @@ func wasmManager(ctx *Execution) *wasmbuiltins.Manager {
 	if ctx == nil || ctx.Session == nil {
 		return nil
 	}
-	r := &ctx.Session.runtime.wasm
+	r := ctx.Session.runtime.wasm
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.manager

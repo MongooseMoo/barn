@@ -1,0 +1,70 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22683066	        52.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4656345	       252.2 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22731663	        52.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 5056152	       257.5 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22822669	        52.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4485860	       261.9 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22792585	        52.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4829151	       263.9 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22797434	        52.70 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4862587	       258.2 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22703665	        52.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 5002264	       251.8 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22723054	        53.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4727392	       259.4 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22642747	        52.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4684587	       260.0 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22696365	        52.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4801522	       256.1 ns/op	      72 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/builtins
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkBuiltinAdmission/length-32         	22757097	        53.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltinAdmission/strsub-32         	 4611859	       261.5 ns/op	      72 B/op	       2 allocs/op
+PASS

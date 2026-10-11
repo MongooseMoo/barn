@@ -1,0 +1,21 @@
+File: builtins-baseline.test.exe
+Build ID: C:\Users\Q\code\barn-wasm-tools\builtins-baseline.test.exe2026-10-10 21:01:56.9249828 -0600 MDT
+Type: cpu
+Time: 2026-10-10 21:12:26 MDT
+Duration: 11.72s, Total samples = 17.72s (151.16%)
+Showing nodes accounting for 3.41s, 19.24% of 17.72s total
+Dropped 140 nodes (cum <= 0.09s)
+Showing top 12 nodes out of 99
+      flat  flat%   sum%        cum   cum%
+     0.39s  2.20%  2.20%      9.14s 51.58%  github.com/MongooseMoo/barn/builtins.BenchmarkBuiltinAdmission.func1
+         0     0%  2.20%      9.14s 51.58%  testing.(*B).run1.func1
+         0     0%  2.20%      9.14s 51.58%  testing.(*B).runN
+     0.44s  2.48%  4.68%      8.74s 49.32%  github.com/MongooseMoo/barn/builtins.(*Session).CallByIDWithExecution
+     0.83s  4.68%  9.37%      8.30s 46.84%  github.com/MongooseMoo/barn/builtins.(*Session).dispatch
+     0.36s  2.03% 11.40%      6.45s 36.40%  github.com/MongooseMoo/barn/builtins.builtinStrsub
+     0.24s  1.35% 12.75%      6.18s 34.88%  runtime.bgsweep
+     0.71s  4.01% 16.76%      4.31s 24.32%  github.com/MongooseMoo/barn/builtins.replaceAllCaseInsensitive
+     0.36s  2.03% 18.79%      2.47s 13.94%  runtime.freeDeadSpanSPMCs
+         0     0% 18.79%      2.13s 12.02%  runtime.systemstack
+         0     0% 18.79%      1.89s 10.67%  runtime.lock (inline)
+     0.08s  0.45% 19.24%      1.89s 10.67%  runtime.lockWithRank (inline)

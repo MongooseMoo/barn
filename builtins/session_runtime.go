@@ -40,12 +40,14 @@ type sessionRuntime struct {
 		mu       sync.Mutex
 		byPlayer map[types.ObjID]*httpHeldInput
 	}
-	// Keep extension state after existing fields so native cache offsets stay put.
-	wasm struct {
-		mu      sync.Mutex
-		manager *wasmbuiltins.Manager
-		closed  bool
-	}
+	// Keep cold extension state separate from native caches and their locks.
+	wasm *wasmSessionState
+}
+
+type wasmSessionState struct {
+	mu      sync.Mutex
+	manager *wasmbuiltins.Manager
+	closed  bool
 }
 
 type serverOptionsState struct {
@@ -64,7 +66,7 @@ type serverOptionsState struct {
 }
 
 func newSessionRuntime() *sessionRuntime {
-	s := &sessionRuntime{}
+	s := &sessionRuntime{wasm: &wasmSessionState{}}
 	s.files.nextID, s.files.handles = 1, make(map[int64]*mooFileHandle)
 	s.sqlite.nextID, s.sqlite.handles = 1, make(map[int64]*sqliteHandle)
 	s.recycle.ids = make(map[types.ObjID]int)
