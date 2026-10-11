@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/internal/wasmbuiltins"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -39,6 +40,14 @@ type sessionRuntime struct {
 		mu       sync.Mutex
 		byPlayer map[types.ObjID]*httpHeldInput
 	}
+	// Keep cold extension state separate from native caches and their locks.
+	wasm *wasmSessionState
+}
+
+type wasmSessionState struct {
+	mu      sync.Mutex
+	manager *wasmbuiltins.Manager
+	closed  bool
 }
 
 type serverOptionsState struct {
@@ -57,7 +66,7 @@ type serverOptionsState struct {
 }
 
 func newSessionRuntime() *sessionRuntime {
-	s := &sessionRuntime{}
+	s := &sessionRuntime{wasm: &wasmSessionState{}}
 	s.files.nextID, s.files.handles = 1, make(map[int64]*mooFileHandle)
 	s.sqlite.nextID, s.sqlite.handles = 1, make(map[int64]*sqliteHandle)
 	s.recycle.ids = make(map[types.ObjID]int)
@@ -87,6 +96,15 @@ func (s *Session) Close() error {
 	}
 	r := s
 	var closeErrors []error
+	r.runtime.wasm.mu.Lock()
+	r.runtime.wasm.closed = true
+	wasm := r.runtime.wasm.manager
+	r.runtime.wasm.mu.Unlock()
+	if wasm != nil {
+		if err := wasm.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	r.runtime.files.mu.Lock()
 	files := r.runtime.files.handles
 	r.runtime.files.handles = make(map[int64]*mooFileHandle)

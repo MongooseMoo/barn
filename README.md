@@ -50,6 +50,7 @@ Common runtime flags:
 | `-db <path>` | Database file path, default `Test.db` |
 | `-port <n>` | TCP listen port, default `7777` |
 | `-checkpoint-interval <seconds>` | Periodic checkpoint interval, default `3600`; use `0` to disable |
+| `-wasm-dir <path>` | Load pure WIT builtin components from an operator directory; see [the authoring guide](docs/wasm-builtins.md) |
 | `-trace` | Enable execution tracing |
 | `-trace-filter <glob[,glob...]>` | Limit tracing to matching verb names |
 

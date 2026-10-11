@@ -1,0 +1,25 @@
+package main
+
+import (
+	"fmt"
+	"reflect"
+
+	"github.com/MongooseMoo/barn/builtins"
+)
+
+func main() {
+	registry := builtins.NewRegistry()
+	var sessions []*builtins.Session
+	for range 6 {
+		s := builtins.NewSession(registry, builtins.NoHost())
+		sessions = append(sessions, s)
+		runtime := reflect.ValueOf(s).Elem().FieldByName("runtime")
+		t := runtime.Type().Elem()
+		options, _ := t.FieldByName("serverOptions")
+		limit, _ := options.Type.FieldByName("maxStringConcat")
+		fmt.Printf("runtime_bytes=%d options_offset=%d limit_offset=%d base_mod64=%d\n", t.Size(), options.Offset, options.Offset+limit.Offset, runtime.Pointer()%64)
+	}
+	for _, s := range sessions {
+		_ = s.Close()
+	}
+}

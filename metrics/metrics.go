@@ -22,6 +22,8 @@ var (
 	// PanicsRecovered counts Go panics caught before they could kill the server.
 	// A nonzero value here is always a bug in Barn.
 	PanicsRecovered = expvar.NewInt("barn.panics_recovered")
+	// WASMFaultsRecovered counts guest-triggered faults contained by the WASM host.
+	WASMFaultsRecovered = expvar.NewInt("barn.wasm_faults_recovered")
 
 	// Checkpoints counts completed database checkpoints.
 	Checkpoints = expvar.NewInt("barn.checkpoints")
