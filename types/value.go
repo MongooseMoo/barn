@@ -354,6 +354,10 @@ func (v Value) Identical(other Value) bool {
 }
 
 func normalizeBinaryString(s string) string {
+	// Only a "~" can start an escape; without one the loop below copies s.
+	if strings.IndexByte(s, '~') < 0 {
+		return s
+	}
 	var result strings.Builder
 	for i := 0; i < len(s); i++ {
 		if i+2 < len(s) && s[i] == '~' {
