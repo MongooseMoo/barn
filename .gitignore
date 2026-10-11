@@ -39,8 +39,7 @@ toast_out.db
 toast_output.db
 toaststunt_test.db
 
-# Agent scratch notes live in notes/ when they are worth keeping; the per-session
-# notes-*.md files that hooks ask agents to write at the root are scratch.
+# Agent task notes live in agent-notes/, one file per task. Nothing at the root.
 /notes-*.md
 
 # Root-level scratch that accumulates from ad hoc runs (see scripts/clean-scratch.ps1)

@@ -1,0 +1,14 @@
+# PR 96 re-review at 47aefbb
+
+- Scope: current code, tests, diff, PR body, issue 95, and live CI only. No historical Markdown read; no repository edits.
+- Exact new delta from prior blocked head 4f6e828 to 47aefbb: `scheduler/scheduler.go` and `scheduler/run_gc_task_roots_test.go`, 77 additions and 1 deletion.
+- Positive: explicit global `run_gc()` now has a dedicated collector that locks `s.mu`, excludes the caller, collects queued/suspended sibling VM anonymous roots, and returns `ok=false` for a sibling observed as `TaskRunning`; the hook returns success without calling the sweep in that case. Existing per-task `collectSiblingGCRefs` path is unchanged.
+- Blocker: `TaskRunning` is not maintained through the whole VM mutation interval. `builtins/tasks.go:154` calls `Manager.SuspendTask` inside the still-executing VM; `task/task.go:408` and `:422` immediately publish `TaskSuspended`, before the VM returns and before `scheduler/task_runtime.go:416` saves it under `s.mu`. A concurrent global collector can therefore observe a non-running sibling and walk its still-mutating saved VM, or see nil on first run and sweep without its roots.
+- Regression weakness: `scheduler/run_gc_task_roots_test.go:109` takes a fully quiescent suspended task and manually sets its state to running. It proves the simple state branch but not the real running-to-suspended transition or synchronization boundary.
+- Smallest repair: scheduler must own publication of the suspend/queued state under `s.mu` only after VM execution has yielded and the saved VM is installed. The builtin/task-manager path should record suspend intent/wake metadata without making the task externally non-running. Keep the dedicated global collector and per-task collector separate.
+- Deterministic regression: add a test-only barrier/hook after suspend intent is recorded but before VM execution returns/saved-VM publication. Run a sibling `run_gc()` at that barrier; assert success, assert an otherwise unreachable anonymous value held only by the in-flight VM survives, and under `-race` assert no concurrent VM walk. Release barrier, let scheduler publish suspension, then run global GC again and assert ordinary sweep semantics.
+- Independent verification green: focused explicit-GC tests count 50; focused race tests count 20; scheduler/task/db-format/db-store/server packages once.
+- Live CI: Build & unit tests green. Conformance red: 82 failed, 11108 passed, 396 skipped. 71 are ONLY_32_BITS capability-probe errors; 11 are eight bcrypt and three cyclic GC failures. PR body still says current rerun pending and inaccurately characterizes all 82 as ONLY_32_BITS.
+- PR remains draft/open; body contains literal `Closes #95`; issue 95 remains open.
+- Verdict: CODE BLOCK.
+- Next action: parent assigns repair; re-review exact new head and genuine transition regression.

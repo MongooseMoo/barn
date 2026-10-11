@@ -224,7 +224,7 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
   (`docs/TRACING.md`).
 
 Repo conventions: active plans are in `plans/`, measured results in
-`experiments/`, durable prose in `docs/`, and agent notes in `notes/`.
+`experiments/`, durable prose in `docs/`, and agent task notes in `agent-notes/` (older notes remain in `notes/`).
 `repository_hygiene_test.go` fails `go test` if any of a list of retired root
 scratch files comes back. `scripts/clean-scratch.ps1` lists and removes
 untracked root scratch.

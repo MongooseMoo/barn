@@ -1,0 +1,12 @@
+# Review notes: StoreTxn non-optional change
+
+- Scope: review `HEAD` against merge base `ac3c7311e6170d4bee471d11bce133fe17598185` on `agent/store-txn-non-optional`.
+- State: two commits (`4cdadf2`, `2ce3f2c`), 110 changed files; tracked worktree is clean and the checkout has extensive pre-existing untracked files.
+- Applicable rules: root `AGENTS.md`; `parser/AGENTS.md` applies only to the changed parser test.
+- Observations: the change removes mirrored exported `Store` APIs, adds a store-owned shared `DirectTxn`, delegates direct methods to locked live-store implementations, initializes VM/builtin contexts with a non-nil transaction, and preserves immediate host effects for direct execution via `IsDirect`.
+- Current finding: `engine/runtime.go:88-89` now routes every execution carrying a `Task` through `CallVerbInContext`, including deferred anonymous-GC contexts whose absent transaction is replaced by `DirectTxn` in `Registry.NewExecution`. Those contexts are explicitly supposed to fall through to the sweep-owned standalone server-hook path; the changed branch instead reuses the completed task and makes `:recycle` observe the old task/caller (rather than standalone caller `#-1`). The branch should distinguish snapshot transactions from `DirectTxn` (for example, via `!StoreTxn.IsDirect()`). Tentative priority P2.
+- Current finding: `engine/task_runtime.go:643` dereferences `clone.Store` while capturing retry state before `runTask` assigns the runtime store. A task constructed with public `task.NewTaskFull` and submitted through public `Runtime.QueueTask` has a nil context store, so it is recovered/killed before execution; the old clone logic tolerated this path. Initialize dependencies before capture or keep the direct transaction nil until the runtime store is available. Tentative priority P2.
+- Additional observations: direct transaction methods generally delegate before touching mutable transaction state; the shared store-owned pointer therefore appears race-safe. `ReseedInheritedProperties` and `RecycleObject` have direct-mode no-op/fallback behavior that matches their current validated production callers.
+- Verification state: `go test ./... -count=1`, `go vet ./...`, and `git diff --check` completed with exit code 0 in this turn. A focused race command completed `db/store`, `builtins`, and `vm`, but the long-running `engine` leg produced no result and was stopped; no race-suite or conformance claim is made.
+- Blocker: none.
+- Next action: return the two prioritized inline findings and mark the patch incorrect.
