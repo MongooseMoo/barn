@@ -131,6 +131,58 @@ func TestPlanIsolatesNonRetryableTasks(t *testing.T) {
 	}
 }
 
+func TestNextWakeWaitsForPhysicalExecutionBeforeClassifyingVM(t *testing.T) {
+	for _, source := range []string{"waiting", "pending", "catalog"} {
+		t.Run(source, func(t *testing.T) {
+			classified := 0
+			s := New(2, func(*task.Task) bool {
+				classified++
+				return true
+			}, func(*task.Task) error { return nil })
+			t.Cleanup(s.Stop)
+			now := time.Now()
+			tk := testTask(1, now)
+			tk.SetBytecodeVM(struct{}{}) // Catalog continuation marker; no VM is executed.
+			var catalog []*task.Task
+			switch source {
+			case "waiting":
+				s.Enqueue(tk)
+			case "pending":
+				s.pending = append(s.pending, tk)
+			case "catalog":
+				catalog = []*task.Task{tk}
+			}
+			if !tk.StartExecution() {
+				t.Fatal("task did not start")
+			}
+			checkActive := func() {
+				t.Helper()
+				if at := s.NextWake(now, catalog); !at.IsZero() {
+					t.Fatalf("active task scheduled a wake at %v", at)
+				}
+				if classified != 0 {
+					t.Fatalf("classified an executing VM %d times", classified)
+				}
+			}
+			checkActive()
+			tk.Suspend(time.Hour) // Logical suspension precedes the VM handoff.
+			checkActive()
+			// An explicit resumption may queue the task before its slice returns.
+			if !tk.ResumeFrom(types.NewInt(0), nil, 1, now) {
+				t.Fatal("task did not resume")
+			}
+			checkActive()
+			s.ReleaseExecution(tk)
+			if at := s.NextWake(now, catalog); !at.Equal(now) {
+				t.Fatalf("released continuation wake = %v, want %v", at, now)
+			}
+			if classified != 1 {
+				t.Fatalf("released VM classified %d times, want 1", classified)
+			}
+		})
+	}
+}
+
 func TestRunPreservesAssociationOrder(t *testing.T) {
 	wantErr := errors.New("second")
 	s := New(2, func(*task.Task) bool { return true }, func(t *task.Task) error {
