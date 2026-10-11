@@ -363,6 +363,27 @@ go build -o bin/ ./cmd/barn
 ./bin/barn -db Test.db -memory-report -memory-profile heap.pprof  # retained heap and property-slot counts after load
 ```
 
+## Running MOO Code Without A Server
+
+`moo` is a MOO interpreter with no listeners. Code runs as the database's first
+wizard through the same eval path as `barn -eval`, and prints the same result
+lines (`=> VALUE`, `Error: CODE`, `Compile error: ...`).
+
+```bash
+go build -o bin/ ./cmd/moo
+
+./bin/moo -e '1 + 2'         # one input: statements, or one expression
+./bin/moo program.moo        # a whole file as one program
+./bin/moo                    # stdin, one input per line (prompts on a terminal)
+```
+
+Without `-db` the database is an in-memory Minimal.db: `#0` System Object, `#1`
+Root Class, `#2` The First Room and `#3` Wizard, with no verbs or properties.
+`-db path` loads a database file instead. Nothing is written to disk either way.
+`-e` and a file exit 1 on a compile error, an uncaught error, or a panic; stdin
+mode exits 0 at EOF. There is no host (`builtins/host.go`), so no connection
+exists for `notify()` to deliver to.
+
 ## Spec Audit Workflow
 
 Two-agent loop for finding and fixing specification gaps:
