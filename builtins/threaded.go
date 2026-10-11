@@ -1,9 +1,19 @@
 package builtins
 
 import (
+	"time"
+
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func runtimeIdentity(ctx *Execution) metrics.Identity {
+	if ctx.Task == nil {
+		return metrics.Identity{}
+	}
+	return metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+}
 
 // Threaded builtins mirror ToastStunt's background_thread() (background.cc).
 // While the calling activation's thread mode is on (the default), Toast runs
@@ -67,14 +77,24 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 	}
 	mgr.SuspendTask(t, -1)
 	gen := t.SuspendGeneration()
+	id := runtimeIdentity(ctx) // Capture before the task can resume on another goroutine.
 	start := func() {
 		go func() {
+			metrics.AsyncStarted.Add(1)
+			metrics.RuntimeEvent("start", id, gen, false)
+			started := time.Now()
 			result := operation()
+			metrics.ObserveRuntime(metrics.AsyncWork, id, time.Since(started), 0)
+			value := result.Val
 			if result.IsError() {
-				_ = t.ResumeGeneration(gen, types.NewErr(result.Error))
-				return
+				value = types.NewErr(result.Error)
 			}
-			_ = t.ResumeGeneration(gen, result.Val)
+			accepted := t.ResumeGeneration(gen, value)
+			metrics.AsyncCompleted.Add(1)
+			if !accepted {
+				metrics.AsyncRejected.Add(1)
+			}
+			metrics.RuntimeEvent("complete", id, gen, accepted)
 		}()
 	}
 	if readTxn(ctx).IsDirect() {

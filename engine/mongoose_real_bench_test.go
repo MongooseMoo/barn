@@ -279,13 +279,19 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
 		frames := realCommandFrames(stack)
 		blockers := c.blockers(time.Now())
+		readiness, _ := json.Marshal(c.task.ReadinessSnapshot())
+		var admissionStatus string
+		if c.runtime != nil {
+			status, _ := json.Marshal(c.runtime.AdmissionStats())
+			admissionStatus = string(status)
+		}
 		saved := c.task.BytecodeVMValue() != nil
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
 		}
 	}
 	select {
@@ -632,14 +638,14 @@ func TestMongooseRealWorkload(t *testing.T) {
 		configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = cm })
 
 		type shapeStat struct {
-			ok, fail          int64
-			totalLat          time.Duration
-			attempts, retries uint64
+			ok, fail int64
+			totalLat time.Duration
 		}
 		type gstat struct {
 			shapes    []shapeStat
 			lats      []time.Duration
 			seen      int64
+			maxLat    time.Duration
 			failMsgs  []string
 			unsettled int64
 		}
@@ -668,25 +674,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 							}
 							x -= cand.weight
 						}
-						// Per-command counter deltas are only attributable when a
-						// single player runs (sequential commands); with more
-						// players the deltas interleave and are recorded anyway
-						// as an aggregate approximation.
-						c0 := sampleCommitCounters(store)
 						t0 := time.Now()
 						if conn := cm.conns[players[idx]]; conn != nil {
 							conn.touch() // typing a command resets idle, as in production
 						}
 						ok, failure := runRealCommandLine(s, store, players[idx], realShapes[sh].line)
 						lat := time.Since(t0)
-						cd := sampleCommitCounters(store).sub(c0)
 						if !record {
 							continue
 						}
 						ss := &st.shapes[sh]
-						ss.attempts += cd.attempts
-						ss.retries += cd.retries
 						if ok {
+							st.maxLat = max(st.maxLat, lat)
 							ss.ok++
 							ss.totalLat += lat
 							st.seen++
@@ -762,6 +761,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var committed, failed int64
 		var unsettled int64
 		var allLats []time.Duration
+		var maxLat time.Duration
 		shapeAgg := make([]shapeStat, len(realShapes))
 		var failSamples []string
 		for i := range stats {
@@ -770,12 +770,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 				shapeAgg[j].ok += stats[i].shapes[j].ok
 				shapeAgg[j].fail += stats[i].shapes[j].fail
 				shapeAgg[j].totalLat += stats[i].shapes[j].totalLat
-				shapeAgg[j].attempts += stats[i].shapes[j].attempts
-				shapeAgg[j].retries += stats[i].shapes[j].retries
 				committed += stats[i].shapes[j].ok
 				failed += stats[i].shapes[j].fail
 			}
 			allLats = append(allLats, stats[i].lats...)
+			maxLat = max(maxLat, stats[i].maxLat)
 			failSamples = append(failSamples, stats[i].failMsgs...)
 		}
 		sort.Slice(allLats, func(a, b int) bool { return allLats[a] < allLats[b] })
@@ -804,9 +803,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 		if unsettled != 0 {
 			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
-		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
+		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% elided=%d p50=%s p99=%s p999=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
 			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate, delta.elided,
-			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
+			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)), latStr(maxLat),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
 		if memStats {
 			logMemSamples(t, samples)
@@ -836,8 +835,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			if agg.ok > 0 {
 				avg = agg.totalLat / time.Duration(agg.ok)
 			}
-			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s attempts=%d retries=%d",
-				sh.name, agg.ok, agg.fail, latStr(avg), agg.attempts, agg.retries)
+			t.Logf("  shape %-10s ok=%-8d fail=%-6d avg=%s",
+				sh.name, agg.ok, agg.fail, latStr(avg))
 		}
 		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
 			delta.attempts, delta.successes, delta.conflicts, delta.retries,

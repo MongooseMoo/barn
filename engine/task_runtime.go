@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime/debug"
 	"runtime/pprof"
+	"runtime/trace"
 	"strings"
 	"time"
 
@@ -96,7 +97,11 @@ func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScop
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
 	}()
-	pprof.Do(s.ctx, pprof.Labels("moo.task", fmt.Sprint(t.ID), "moo.verb", fmt.Sprintf("#%d:%s", t.This, t.VerbName)), func(context.Context) {
+	pprof.Do(s.ctx, pprof.Labels("moo.task", fmt.Sprint(t.ID), "moo.verb", fmt.Sprintf("#%d:%s", t.This, t.VerbName)), func(labelContext context.Context) {
+		if trace.IsEnabled() {
+			region := trace.StartRegion(labelContext, fmt.Sprintf("moo.slice task=%d this=%d verb=%s", t.ID, t.This, t.VerbName))
+			defer region.End()
+		}
 		retErr = s.runTaskSliceAdmitted(t, scope, ownsScope, &completion)
 	})
 	// Explicit kills and runtime shutdown are lifecycle completion, not a Go
@@ -119,10 +124,16 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	defer cancel()
 	started := time.Now()
 	execReadyAt := t.TakeExecReadyTime()
+	id := taskRuntimeIdentity(t)
+	if !execReadyAt.IsZero() {
+		metrics.ObserveRuntime(metrics.ResumeQueue, id, started.Sub(execReadyAt), 0)
+	}
 	var bcVM *vm.VM
 	var sliceTicks int64
+	var executedTicks int64
 	var gate sliceGate
 	defer func() {
+		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
 			slog.Debug("slow task slice", slog.Int64("task_id", t.ID),
 				slog.Int64("this", int64(t.This)), slog.String("verb", t.VerbName),
@@ -206,6 +217,7 @@ retryAttempt:
 	// a frameless E_INVARG no serial execution produces (issue #296).
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !gate.held() {
 		gateWait, err := gate.acquire(taskCtx, s.store)
+		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
 		if err != nil {
 			t.SetState(task.TaskKilled)
@@ -289,6 +301,7 @@ retryAttempt:
 			return false
 		}
 		gateWait, err := gate.acquire(taskCtx, s.store)
+		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		if err != nil {
 			ctx.ConflictRetryRequested = true
 			return true
@@ -369,6 +382,7 @@ retryAttempt:
 			return
 		}
 		if wait := scope.Yield(); wait > 0 {
+			metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
 			t.ExcludeExecutionWait(wait)
 		}
 	}
@@ -381,7 +395,15 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	var launchErr error
+	vmStarted := time.Now()
 	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt)
+	vmElapsed := time.Since(vmStarted)
+	var attemptTicks int64
+	if bcVM != nil {
+		attemptTicks = max(bcVM.Ticks-sliceEntryTicks, 0)
+	}
+	executedTicks += attemptTicks
+	metrics.ObserveRuntime(metrics.VMAttempt, id, vmElapsed, attemptTicks)
 	if launchErr != nil {
 		return launchErr
 	}
@@ -403,6 +425,7 @@ retryAttempt:
 		// body issues before reaching the boundary. The bounded escalation above
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
+		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
 		gate.release(ctx.StoreTxn)
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
@@ -423,6 +446,7 @@ retryAttempt:
 			// error deterministically. Without the E_INVIND arm, a create-under-P racing
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
+				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
@@ -552,7 +576,8 @@ retryAttempt:
 // caller stores the returned VM back even when err is non-nil.
 func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
-		if !execReadyAt.IsZero() {
+		if attempt == 0 && !execReadyAt.IsZero() {
+			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
 			slog.Debug("external task resumed", slog.Int64("task_id", t.ID),
 				slog.Duration("queue_wait", started.Sub(execReadyAt)),
 				slog.Duration("ready_to_vm", time.Since(execReadyAt)))

@@ -56,6 +56,7 @@ and nonzero path counts. Keep native errors and unknown outcomes visible.
 ## Real-workload diagnosis
 
 - Before investigating workload permission errors or proposing a performance fix, read `docs/workload-diagnostics.md`. Inspect saved exception frames and existing MOO/Go profiles, task labels, scheduling diagnostics and conflict census before adding new instrumentation or changing checks. Preserve failed cohorts and state which diagnostic evidence is still missing.
+- Use `barn_logs -runtime` (and `-task ID` for one continuation) to separate retry ticks, SQL handle waits/work, and completion-to-VM delays. Enable `BARN_RUNTIME_DIAGNOSTICS=1` and debug logging for a diagnostic capture; bounded counters remain available through `/debug/vars`. Wall durations overlap and are not CPU measurements. Never attribute process-wide counter deltas sampled around concurrent commands to a particular command or shape.
 
 ## Verification Claim Discipline
 

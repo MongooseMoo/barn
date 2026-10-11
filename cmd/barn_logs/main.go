@@ -52,10 +52,31 @@ func main() {
 	level := flag.String("level", "warn", "Minimum level to report: debug, info, warn, error")
 	limit := flag.Int("n", 0, "Show only the last N records (0 = all)")
 	raw := flag.Bool("json", false, "Print the matching records as JSON instead of formatting them")
+	runtimeReport := flag.Bool("runtime", false, "Summarize runtime phases and threaded lifecycle (ignores -level and -n)")
+	taskID := flag.Int64("task", -1, "With -runtime, select one task ID (-1 = all)")
 	flag.Parse()
 
 	if *run == "list" {
 		listRuns(*dir)
+		return
+	}
+	if *runtimeReport {
+		summary, err := readRuntimeSummary(filepath.Join(*dir, *run), *taskID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if *raw {
+			if err := json.NewEncoder(os.Stdout).Encode(summary); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		} else {
+			printRuntimeSummary(os.Stdout, summary)
+		}
+		if summary.Errors != 0 {
+			os.Exit(1)
+		}
 		return
 	}
 

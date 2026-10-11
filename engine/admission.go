@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"github.com/MongooseMoo/barn/internal/admission"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
+	"time"
 )
 
 func inputAdmissionKey(player types.ObjID) admission.Key {
@@ -27,7 +29,10 @@ func (s *Runtime) enterInput(player types.ObjID, system bool) (*admission.Scope,
 		ctx = s.ctx
 		key = admission.Key{Group: admission.System, Class: admission.Background}
 	}
-	return s.admission.Enter(ctx, key)
+	started := time.Now()
+	scope, err := s.admission.Enter(ctx, key)
+	metrics.ObserveRuntime(metrics.InputAdmission, metrics.Identity{This: int64(player)}, time.Since(started), 0)
+	return scope, err
 }
 func (s *Runtime) CloseInputAdmission()            { s.closeInputAdmission() }
 func (s *Runtime) AdmissionStats() admission.Stats { return s.admission.Snapshot() }
@@ -53,7 +58,9 @@ func (s *Runtime) WithCheckpointBarrier(write func() error) error {
 func (s *Runtime) enterBackground(t *task.Task) (*admission.Scope, context.Context, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.SetCancelFunc(cancel)
+	started := time.Now()
 	scope, err := s.admission.Enter(ctx, backgroundAdmissionKey(t))
+	metrics.ObserveRuntime(metrics.BackgroundAdmission, taskRuntimeIdentity(t), time.Since(started), 0)
 	return scope, ctx, cancel, err
 }
 

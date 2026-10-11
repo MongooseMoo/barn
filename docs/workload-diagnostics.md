@@ -43,6 +43,7 @@ $env:BARN_MONGOOSE_PLAYERS = '1,4,16'
 $env:BARN_MONGOOSE_GOGC = '400'
 $env:BARN_MONGOOSE_LOG_DIR = 'C:\new-evidence\logs'
 $env:BARN_MONGOOSE_MOOPROFILE = 'C:\new-evidence\moo'
+$env:BARN_RUNTIME_DIAGNOSTICS = '1'
 go test ./engine -run '^TestMongooseRealWorkload$' -count=1 -v
 ```
 
@@ -100,3 +101,74 @@ Before proposing a fix, report the exact failure frames and relevant profile
 rows, identify the evidence still missing, and choose a deterministic regression
 for the suspected cause. Keep native application errors, benchmark fixture faults,
 engine faults and terminal-completion failures distinguishable.
+
+## Runtime phases and retry costs
+
+`/debug/vars` exposes `barn.runtime_phases` even with ordinary logging: a fixed
+set of process-wide counters with count, total/max nanoseconds, MOO ticks and
+disjoint duration buckets (upper bounds in `upper_ns`; the final bucket is
+unbounded). Scrapes are approximate during concurrent updates. Compare snapshots
+from the same process; totals include startup and all work since process start.
+`barn.async_started`, `barn.async_completed` and `barn.async_completion_rejected`
+count threaded operations and completions rejected by the suspension generation
+or task state. They count executed workers, not failed transaction attempts.
+
+For task-level evidence, start the process with `BARN_RUNTIME_DIAGNOSTICS=1` and
+debug logging. The command harness enables debug logging when its log directory
+is set. These opt-in records omit SQL text, parameters, result values, source and
+arguments. Labels identify the root task receiver/verb, not its nested activation.
+Detailed logging can be expensive; do not compare an instrumented candidate with
+an uninstrumented control. Disable the environment setting for performance runs.
+
+```powershell
+go run ./cmd/barn_logs -dir C:\new-evidence\logs -runtime
+go run ./cmd/barn_logs -dir C:\new-evidence\logs -runtime -task 7290
+go run ./cmd/barn_logs -dir C:\new-evidence\logs -runtime -task 7290 -json
+```
+
+The summary streams the file into bounded buckets, ignores `-level` and `-n`,
+retains malformed-record counts, and reports missing measurements explicitly.
+`-json` in runtime mode emits a single JSON document. Errors anywhere in the
+original log retain exit 1, including when a task filter excludes their records.
+Histogram percentile columns are upper bounds, not exact quantiles. A capture
+can start or end between a threaded operation's start and completion; mismatched
+counts alone do not establish a lost worker.
+The completion record is logged after publishing readiness and can appear after
+a resume record from another goroutine. Log-line order is not a scheduling or
+isolation witness; use the measured intervals and suspension generations.
+
+| Phase | Interval |
+| --- | --- |
+| `slice` | Admitted invocation through cleanup; includes retries and waits. Ticks sum all VM attempts. |
+| `vm_attempt` | One call to the VM, including nested calls, lock waits, inline external work and admission preemption. Ticks are instruction-budget charges, not CPU instructions. |
+| `retry_waste` | The VM interval and ticks of an unpublished attempt actually discarded for retry. Subset of `vm_attempt`; excludes commit/restore overhead. |
+| `input_admission` | Input waiting for admission, before a command task exists; task ID is zero. |
+| `background_admission` | A selected continuation waiting for admission, including canceled requests. |
+| `readmission` | A running VM lends its execution reservation and waits to reacquire it; this does not commit its transaction. |
+| `commit_gate` | Acquisition of the exclusive commit gate for escalation or an irreversible boundary. |
+| `sqlite_handle_wait` | Acquiring the per-handle operation slot for query/execute, including rejected closed handles. |
+| `sqlite_work` | Query/execute and row conversion while owning the slot, excluding slot wait. Close and last-insert-ID are not included. |
+| `async_work` | A committed threaded worker's operation, including its handle wait if any. |
+| `resume_queue` | Accepted external completion becoming queued through scheduler selection and admission to its next slice. Covers threaded SQLite/sort/all_members/curl and exec. |
+| `resume_to_vm` | Same readiness event through entry to the saved-VM launch path, once per resumed slice; adds lease/setup/checkpoint costs. |
+
+These intervals overlap. Do not add them to obtain command latency, or describe
+wall time as CPU time. Use Go CPU profiles for CPU work and execution traces for
+off-CPU attribution. `retry_waste` measures VM work retried, not necessarily all
+the cost caused by contention. Record `go test -trace=C:\new-evidence\go.trace`
+to retain Go goroutine states with `moo.slice task=...` regions; use `go tool
+trace -pprof=sync` or `-pprof=sched` rather than expanding a huge trace dump.
+
+Timeout failures now include a locked snapshot of admission reservation,
+physical execution, input fence, external readiness time and suspension
+generation, plus aggregate admission stats. Other fields are sampled separately;
+the whole timeout report is not one atomic global snapshot. A saved stack at
+`sqlite_execute()` does not establish that SQL is still running. Pair readiness
+with that task's threaded start/completion records and phase report.
+
+The command harness no longer prints per-shape attempt/retry counts derived from
+process-wide deltas: concurrent command windows counted the same other work
+multiple times, and background work could contaminate even a one-player sample.
+Use the cohort commit census or task-filtered records. `max` now means the true
+maximum successful-command latency observed, including outside the percentile
+reservoir; `p999` is printed separately. Failed/unsettled commands remain separate.

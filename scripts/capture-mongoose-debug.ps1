@@ -43,4 +43,8 @@ $code = $LASTEXITCODE
 # treating a workload finding as a failed capture.
 Write-Output "barn_logs_exit=$code"
 if ($code -gt 1) { throw "Log capture failed: $code" }
+& go run ./cmd/barn_logs -dir "$run/barn/logs" -runtime 2>&1 | Tee-Object "$prefix-runtime.txt"
+$code = $LASTEXITCODE
+if ($code -gt 1) { throw "Runtime summary failed: $code" }
+Invoke-WebRequest "$DebugUrl/debug/vars" -OutFile "$prefix-vars-after.json" -TimeoutSec 10
 Write-Output "Evidence prefix: $prefix"

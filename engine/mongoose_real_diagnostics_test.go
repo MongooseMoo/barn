@@ -53,6 +53,9 @@ func TestRealCommandTimeoutRetainsFrameIdentityWithoutPayloads(t *testing.T) {
 	if !strings.Contains(failure, `"verbloc":2200`) || !strings.Contains(failure, `"programmer":36`) {
 		t.Errorf("timeout lost frame identity: %s", failure)
 	}
+	if !strings.Contains(failure, `"admission_pending":false`) || !strings.Contains(failure, `"execution_active":false`) {
+		t.Fatalf("timeout omitted readiness gates: %s", failure)
+	}
 	if strings.Contains(failure, "private-") {
 		t.Fatal("timeout exposed source payload")
 	}
