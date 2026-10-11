@@ -1,5 +1,14 @@
 # Barn Agent Notes
 
+## Isolation changes
+
+Before changing MVCC validation/publication, hot renewal, definition or
+relationship reads, dispatch memoization, or task retries/suspension, read
+[docs/elle-isolation.md](docs/elle-isolation.md). Run its pinned checker workflow
+and preserve raw histories, manifests and anomaly witnesses. Ordinary Go tests
+alone do not run Elle; do not claim isolation coverage without explicit verdicts
+and nonzero path counts. Keep native errors and unknown outcomes visible.
+
 ## Conformance Discipline Rules
 - Before a VM regression manually installs Frames, inspect CurrentFrame and initialize its cached frame through the production frame-installation helper; assert the active frame before calling error handling. A populated Frames slice alone does not establish an executable VM fixture.
 

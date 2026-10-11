@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -88,6 +89,9 @@ func (tx *StoreTxn) validateObjectReadsLocked(first *types.ErrorCode, kind Confl
 
 func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 	for key, version := range tx.propertyReads {
+		if isolationprobe.DisablePropertyReads {
+			break
+		}
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}

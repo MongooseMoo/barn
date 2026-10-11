@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -207,6 +208,7 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 		return nil
 	}
 	s.hotReadRenewals.Add(1)
+	isolationprobe.Note("hot_renewal")
 	debugHotRead("renewed", staleKey)
 	return next
 }

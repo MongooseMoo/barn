@@ -1,0 +1,77 @@
+name: Elle isolation
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolation:
+    name: Serializable histories and negative control
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install checker dependencies
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          if command -v lein >/dev/null && command -v dot >/dev/null; then
+            exit 0
+          fi
+          sudo -n apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y leiningen graphviz
+      - name: Build pinned checker
+        env:
+          ELLE_COMMIT: 9c2a18b3719f573dab06ae05c955c9c9d5225673
+        run: |
+          set -euo pipefail
+          checker="$RUNNER_TEMP/elle-cli-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git clone https://github.com/ligurio/elle-cli.git "$checker"
+          git -C "$checker" checkout --detach "$ELLE_COMMIT"
+          test "$(git -C "$checker" rev-parse HEAD)" = "$ELLE_COMMIT"
+          export JAVA_CMD="$JAVA_HOME/bin/java"
+          cd "$checker"
+          lein uberjar
+          echo "ELLE_JAR=$checker/target/elle-cli-0.1.11-standalone.jar" >> "$GITHUB_ENV"
+      - name: Check histories
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_check_elle.py' -v
+          go test -tags elle ./engine -run '^TestElleRecorder' -count=1
+          python3 scripts/check_elle.py --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" --output elle-evidence
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          # Elle names some HTML witnesses after printed EDN keys, including
+          # quotes. GitHub rejects those as individual artifact paths; retain
+          # their original names and contents inside one portable archive.
+          if [ -d elle-evidence ]; then
+            tar -czf elle-evidence.tar.gz elle-evidence
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elle-evidence-${{ github.sha }}
+          path: elle-evidence.tar.gz
+          if-no-files-found: warn
