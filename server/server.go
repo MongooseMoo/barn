@@ -185,6 +185,10 @@ func (s *Server) LoadDatabase() error {
 	// Wire the host capabilities the server provides onto the runtime's
 	// builtin session (the session owns them; there is no global state).
 	session := s.runtime.Session()
+	if err := session.ConfigureWASM(s.options.WASMDirectory); err != nil {
+		_ = session.Close()
+		return fmt.Errorf("configure WASM builtins: %w", err)
+	}
 	host := session.Host()
 
 	// Wire notify() builtin to connection manager

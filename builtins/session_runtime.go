@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/internal/wasmbuiltins"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -38,6 +39,12 @@ type sessionRuntime struct {
 	heldHTTPInput struct {
 		mu       sync.Mutex
 		byPlayer map[types.ObjID]*httpHeldInput
+	}
+	// Keep extension state after existing fields so native cache offsets stay put.
+	wasm struct {
+		mu      sync.Mutex
+		manager *wasmbuiltins.Manager
+		closed  bool
 	}
 }
 
@@ -87,6 +94,15 @@ func (s *Session) Close() error {
 	}
 	r := s
 	var closeErrors []error
+	r.runtime.wasm.mu.Lock()
+	r.runtime.wasm.closed = true
+	wasm := r.runtime.wasm.manager
+	r.runtime.wasm.mu.Unlock()
+	if wasm != nil {
+		if err := wasm.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	r.runtime.files.mu.Lock()
 	files := r.runtime.files.handles
 	r.runtime.files.handles = make(map[int64]*mooFileHandle)

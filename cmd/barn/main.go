@@ -30,6 +30,7 @@ func main() {
 	flag.StringVar(&cfg.DatabasePath, "db", cfg.DatabasePath, "Database file path")
 	flag.IntVar(&cfg.Port, "port", cfg.Port, "Listen port")
 	flag.StringVar(&cfg.ConfigPath, "config", "", "Server config file path")
+	flag.StringVar(&cfg.WASMDirectory, "wasm-dir", "", "Operator directory of pure WIT builtin components")
 	flag.StringVar(&cfg.ProfileID, "profile-id", "", "Managed profile identifier")
 	flag.StringVar(&cfg.ProfileManifest, "profile-manifest", "", "Path to write managed profile metadata")
 	flag.StringVar(&cfg.ProfileRegistry, "profile-registry", cfg.ProfileRegistry, "Managed profile registry path")

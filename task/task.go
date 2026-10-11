@@ -717,6 +717,17 @@ func (t *Task) SecondsLeft() float64 {
 	return t.SecondsLimit - t.SecondsUsed
 }
 
+// ExecutionTimeLeft supplies exact remaining time to cancellable builtins.
+// SecondsLeft retains the language-visible rounding used by seconds_left().
+func (t *Task) ExecutionTimeLeft() time.Duration {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if !t.executionDeadline.IsZero() {
+		return time.Until(t.executionDeadline)
+	}
+	return time.Duration((t.SecondsLimit - t.SecondsUsed) * float64(time.Second))
+}
+
 // SetExecutionDeadline starts the timer only once execution has acquired its
 // resources. Queueing and waiting for the commit gate do not consume it.
 func (t *Task) SetExecutionDeadline(deadline time.Time) {

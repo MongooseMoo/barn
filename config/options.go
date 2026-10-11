@@ -12,6 +12,8 @@ const (
 type Options struct {
 	OutboundNetwork bool
 	PromoteNumbers  bool
+	// Operator-owned directory of pure WIT components. Empty disables loading.
+	WASMDirectory string
 	// Zero selects the runtime default; these affect scheduling, not MOO semantics.
 	AdmissionLimit, AdmissionPrincipalLimit         int
 	AdmissionInputWeight, AdmissionBackgroundWeight int

@@ -47,6 +47,10 @@ func Parse(r io.Reader, source string) (Options, error) {
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("duplicate option %s", key))
 		}
 		seen[key] = true
+		if key == "WASM_DIRECTORY" {
+			options.WASMDirectory = value
+			continue
+		}
 		if key == "BUILTIN_CAPABILITIES" {
 			capabilities, err := ParseCapabilities(value)
 			if err != nil {

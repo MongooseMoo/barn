@@ -3,18 +3,7 @@ module github.com/MongooseMoo/barn
 go 1.27.1
 
 require (
-	github.com/coder/websocket v1.8.14
-	github.com/dlclark/regexp2 v1.12.0
-	github.com/go-crypt/x v0.4.12
-	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e
-	github.com/rivo/uniseg v0.4.7
-	golang.org/x/crypto v0.46.0
-	golang.org/x/text v0.32.0
-	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.39.1
-)
-
-require (
+	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -27,6 +16,17 @@ require (
 )
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/digitive/crypt v0.2.0
-	golang.org/x/sys v0.41.0
+	github.com/dlclark/regexp2 v1.12.0
+	github.com/go-crypt/x v0.4.12
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e
+	github.com/rivo/uniseg v0.4.7
+	github.com/samyfodil/wazy v0.3.0
+	github.com/tetratelabs/wazero v1.12.0
+	go.bytecodealliance.org v0.7.0
+	golang.org/x/crypto v0.46.0
+	golang.org/x/sys v0.44.0
+	golang.org/x/text v0.32.0
+	modernc.org/sqlite v1.39.1
 )

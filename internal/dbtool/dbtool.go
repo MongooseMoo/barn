@@ -213,11 +213,19 @@ func newEvalSession(store *dbstore.Store, options config.Options) (*evalSession,
 		return nil, errors.New("database has no wizard to evaluate as")
 	}
 	runtime := engine.NewRuntimeWithOptions(store, options)
+	if err := runtime.Session().ConfigureWASM(options.WASMDirectory); err != nil {
+		runtime.Stop()
+		_ = runtime.Session().Close()
+		return nil, fmt.Errorf("configure WASM builtins: %w", err)
+	}
 	runtime.Session().LoadServerOptionsFromStore(store)
 	return &evalSession{runtime: runtime, wizard: wizard}, nil
 }
 
-func (s *evalSession) close() { s.runtime.Stop() }
+func (s *evalSession) close() {
+	s.runtime.Stop()
+	_ = s.runtime.Session().Close()
+}
 
 // firstWizard mirrors Toast's emergency mode (server.cc emergency_mode): the
 // lowest-numbered object carrying the wizard flag.
