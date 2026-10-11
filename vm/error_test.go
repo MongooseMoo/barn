@@ -52,6 +52,34 @@ func TestErrorCodeRecognizesWrappedMooErrorWithoutFormatting(t *testing.T) {
 	}
 }
 
+func TestErrorCodeReadsStructuredErrorsWithoutAllocating(t *testing.T) {
+	machine := &VM{}
+	tests := []struct {
+		name string
+		err  error
+		want types.ErrorCode
+	}{
+		{name: "moo error", err: newMooError(types.E_PERM, "no"), want: types.E_PERM},
+		{name: "exception", err: VMException{Code: types.E_INVARG, Value: types.NewInt(1)}, want: types.E_INVARG},
+		{name: "annotated moo error", err: machine.annotateError(newMooError(types.E_RANGE, ""), 3), want: types.E_RANGE},
+		{name: "twice annotated exception", err: machine.annotateError(machine.annotateError(VMException{Code: types.E_DIV}, 3), 9), want: types.E_DIV},
+		{name: "wrapped by fmt", err: fmt.Errorf("context: %w", newMooError(types.E_TYPE, "")), want: types.E_TYPE},
+		{name: "text only", err: errors.New("E_VERBNF: nothing there"), want: types.E_VERBNF},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := errorCode(tt.err); got != tt.want {
+				t.Fatalf("errorCode() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+	for _, tt := range tests[:4] {
+		if allocs := testing.AllocsPerRun(100, func() { _ = errorCode(tt.err) }); allocs != 0 {
+			t.Fatalf("%s: errorCode allocated %v times", tt.name, allocs)
+		}
+	}
+}
+
 func TestMooErrorFormattingMatchesLegacyErrors(t *testing.T) {
 	tests := []struct {
 		name string

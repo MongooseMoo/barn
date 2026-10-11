@@ -86,6 +86,19 @@ func extractErrorCode(err error) types.ErrorCode {
 // errors wrapped with source context. String parsing remains solely as a
 // compatibility fallback for errors returned by external integrations.
 func errorCode(err error) types.ErrorCode {
+	// The usual shapes, read without the heap targets errors.As needs.
+	for unwrapped := err; ; {
+		switch e := unwrapped.(type) {
+		case VMException:
+			return e.Code
+		case MooError:
+			return e.Code
+		case annotatedError:
+			unwrapped = e.err
+			continue
+		}
+		break
+	}
 	var exception VMException
 	if errors.As(err, &exception) {
 		return exception.Code
