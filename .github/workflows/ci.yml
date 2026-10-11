@@ -121,6 +121,24 @@ jobs:
             -q \
             --junitxml="${{ github.workspace }}/conformance-results.xml"
 
+      - name: Run Mongoose notification regressions
+        run: |
+          mkdir -p .tmp/conformance/db
+          cp -R moo-conformance-tests/src/moo_conformance/_db/. .tmp/conformance/db/
+          uv run --project moo-conformance-tests --frozen moo-conformance \
+            --candidate-root="${{ github.workspace }}" \
+            --moo-suite-root="${{ github.workspace }}/tests/mongoose-conformance" \
+            --moo-suite-path=root/empty_notifications.yaml \
+            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --server-db="${{ github.workspace }}/.tmp/conformance/db/Test.db" \
+            --server-db-dir="${{ github.workspace }}/.tmp/conformance/db/startup" \
+            --moo-host=127.0.0.1 \
+            --oracle-profile-manifest="${{ github.workspace }}/profiles/toast/stock-wsl-testdb.json" \
+            --fail-on-unexpected-skip --strict-markers \
+            --admission-evidence-output="${{ github.workspace }}/notifications-admission.json" \
+            --admission-evidence-context="barn-notifications:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}" \
+            --junitxml="${{ github.workspace }}/notifications-results.xml" -q
+
       - name: Upload conformance results
         if: always()
         uses: actions/upload-artifact@v4
@@ -129,4 +147,6 @@ jobs:
           path: |
             conformance-results.xml
             conformance-admission.json
+            notifications-results.xml
+            notifications-admission.json
           if-no-files-found: warn
