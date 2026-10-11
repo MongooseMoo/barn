@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"strings"
+
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -45,6 +47,68 @@ func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 		}
 	}
 	return types.NewList(frames)
+}
+
+// activationFramesForException restores the original stack held across a
+// finally block. The live activations have already unwound when it re-raises.
+func (vm *VM) activationFramesForException(value types.Value) []types.ActivationFrame {
+	if value.Type() != types.TYPE_LIST || value.Len() != 4 || value.Get(4).Type() != types.TYPE_LIST {
+		return nil
+	}
+	traceback := value.Get(4)
+	stack := make([]types.ActivationFrame, 0, traceback.Len())
+	for i := traceback.Len(); i > 0; i-- {
+		entry := traceback.Get(i)
+		if entry.Type() != types.TYPE_LIST || entry.Len() < 6 {
+			return nil
+		}
+		frame := types.ActivationFrame{
+			This: types.ObjNothing, ThisValue: entry.Get(1),
+			Verb: entry.Get(2).Str(), Programmer: entry.Get(3).Obj(),
+			VerbLoc: entry.Get(4).Obj(), Player: entry.Get(5).Obj(),
+			LineNumber: int(entry.Get(6).Int()),
+		}
+		if frame.ThisValue.Type() == types.TYPE_OBJ {
+			frame.This = frame.ThisValue.Obj()
+			frame.ThisValue = types.None
+		}
+		if entry.Len() >= 7 {
+			frame.RuntimeVariables = entry.Get(7)
+		}
+		if vm.Context != nil && vm.Context.StoreTxn != nil {
+			if verb, _, err := vm.Context.StoreTxn.FindVerb(frame.VerbLoc, frame.Verb); err == nil {
+				frame.StoredVerbNames = verb.Names
+				if frame.LineNumber > 0 && frame.LineNumber <= len(verb.Code) {
+					frame.SourceLine = strings.TrimSpace(verb.Code[frame.LineNumber-1])
+				}
+			}
+		}
+		stack = append(stack, frame)
+	}
+	return stack
+}
+
+// limitExceptionTraceback excludes activations outside the nearest matching
+// except handler. Finally handlers run without ending error propagation.
+func (vm *VM) limitExceptionTraceback(traceback types.Value, code types.ErrorCode) types.Value {
+	depth := 0
+	for i := len(vm.Frames) - 1; i >= 0; i-- {
+		frame := vm.Frames[i]
+		depth++
+		for j := len(frame.ExceptStack) - 1; j >= 0; j-- {
+			handler := frame.ExceptStack[j]
+			if handler.Type == bytecode.HandlerExcept && handler.Matches(code) {
+				if depth < traceback.Len() {
+					return types.NewList(traceback.Elements()[:depth])
+				}
+				return traceback
+			}
+		}
+		if frame.IsEvalFrame {
+			break
+		}
+	}
+	return traceback
 }
 
 // matchingExceptAboveEvalFrame reports whether some frame strictly above the

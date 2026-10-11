@@ -276,6 +276,8 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 	if program == nil {
 		return bytecode.Program{}
 	}
+	slots := program.BuiltinSlots
+	slots.TypeConstants = append([]bytecode.TypeConstantSlot(nil), slots.TypeConstants...)
 	return bytecode.Program{
 		Code:          append([]byte(nil), program.Code...),
 		Constants:     append([]types.Value(nil), program.Constants...),
@@ -283,7 +285,7 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		LineInfo:      append([]bytecode.LineEntry(nil), program.LineInfo...),
 		NumLocals:     program.NumLocals,
 		Source:        append([]string(nil), program.Source...),
-		BuiltinSlots:  program.BuiltinSlots,
+		BuiltinSlots:  slots,
 		BuiltinLayout: program.BuiltinLayout,
 	}
 }

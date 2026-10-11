@@ -28,6 +28,13 @@ type Program struct {
 type BuiltinSlots struct {
 	This, Player, Caller, Verb, Args              int
 	Argstr, Dobjstr, Iobjstr, Prepstr, Dobj, Iobj int
+	TypeConstants                                 []TypeConstantSlot
+}
+
+// TypeConstantSlot records a mutable implicit type constant's initial value.
+type TypeConstantSlot struct {
+	Slot int
+	Type types.TypeCode
 }
 
 // Set records the slot for a built-in variable. It returns false for ordinary
@@ -58,6 +65,15 @@ func (s *BuiltinSlots) Set(name string, slot int) bool {
 		target = &s.Dobj
 	case "iobj":
 		target = &s.Iobj
+	case "int", "num", "obj", "str", "err", "list", "float", "map", "anon", "waif", "bool":
+		initial := map[string]types.TypeCode{
+			"int": types.TYPE_INT, "num": types.TYPE_INT, "obj": types.TYPE_OBJ,
+			"str": types.TYPE_STR, "err": types.TYPE_ERR, "list": types.TYPE_LIST,
+			"float": types.TYPE_FLOAT, "map": types.TYPE_MAP, "anon": types.TYPE_ANON,
+			"waif": types.TYPE_WAIF, "bool": types.TYPE_BOOL,
+		}
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Type: initial[name]})
+		return true
 	default:
 		return false
 	}

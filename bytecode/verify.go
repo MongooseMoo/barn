@@ -19,6 +19,11 @@ func VerifyProgram(program *Program) error {
 		return fmt.Errorf("invalid local metadata: %d locals, %d names", program.NumLocals, len(program.VarNames))
 	}
 	slots := program.BuiltinSlots
+	for _, constant := range slots.TypeConstants {
+		if constant.Slot <= 0 || constant.Slot > program.NumLocals {
+			return fmt.Errorf("invalid type constant local slot %d", constant.Slot)
+		}
+	}
 	for name, slot := range map[string]int{
 		"this": slots.This, "player": slots.Player, "caller": slots.Caller,
 		"verb": slots.Verb, "args": slots.Args, "argstr": slots.Argstr,

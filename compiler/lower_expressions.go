@@ -53,8 +53,13 @@ func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
 	}
 
 	// Check for built-in type constants (OBJ, STR, INT, etc.)
-	if val, ok := builtinConstants[canonicalIdentifier(n.Name)]; ok {
-		c.emitConstant(val)
+	if _, ok := builtinConstants[canonicalIdentifier(n.Name)]; ok {
+		// Type constants are mutable implicit locals. Reading before a later
+		// assignment must see the initial value, then the assigned value on
+		// subsequent loop iterations or in forked activations.
+		idx := c.declareVariable(n.Name)
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(idx))
 		return nil
 	}
 

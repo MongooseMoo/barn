@@ -124,6 +124,11 @@ func (vm *VM) allocLocals(n int) []types.Value {
 // and its LoopStack/ExceptStack backing arrays when one is available. init's
 // Locals must come from allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
+	if init.Program != nil {
+		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
+			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
+		}
+	}
 	if n := len(vm.framePool); n > 0 {
 		f := vm.framePool[n-1]
 		vm.framePool = vm.framePool[:n-1]
@@ -921,7 +926,14 @@ func (vm *VM) executeLoop() types.Result {
 			// the full trace on uncaught exceptions.
 			var stackSnapshot []types.ActivationFrame
 			if caught, _ := vm.errorObservation(err); !caught {
-				vmStack := vm.snapshotActivationFrames(line)
+				var pending VMException
+				var vmStack []types.ActivationFrame
+				if errors.As(err, &pending) {
+					vmStack = vm.activationFramesForException(pending.Value)
+				}
+				if len(vmStack) == 0 {
+					vmStack = vm.snapshotActivationFrames(line)
+				}
 				if len(vmStack) > 0 {
 					stackSnapshot = vmStack
 				} else if vm.Task != nil {
@@ -1416,7 +1428,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		exceptionValue = vmErr.Value
 	}
 
-	if _, observe := vm.errorObservation(err); observe {
+	if _, observe := vm.errorObservation(err); observe && (exceptionValue.Type() != types.TYPE_LIST || exceptionValue.Len() != 4) {
 		// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
 		// the traceback contains accurate call-site lines.
 		vm.syncTaskLineNumbers()
@@ -1424,6 +1436,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		// is caught at (or unwinds to) the eval frame, but not when a verb above the
 		// eval frame catches it first. Decide which case we're in before unwinding.
 		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
+		traceback = vm.limitExceptionTraceback(traceback, errCode)
 
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
@@ -1473,6 +1486,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				frame.ExceptStack = frame.ExceptStack[:i]
 				// Save the pending error so after finally runs, we re-raise it
 				frame.PendingError = err
+				if exceptionValue.Type() == types.TYPE_LIST && exceptionValue.Len() == 4 {
+					frame.PendingError = VMException{Code: errCode, Value: exceptionValue}
+				}
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 				return true, exceptionValue
