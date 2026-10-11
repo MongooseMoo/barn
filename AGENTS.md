@@ -44,6 +44,10 @@
 - Do not spend time on Barn-side root-cause analysis until the expected Toast behavior has been confirmed.
 - If Toast verification is blocked, stop and say so plainly before proceeding further.
 
+## Real-workload diagnosis
+
+- Before investigating workload permission errors or proposing a performance fix, read `docs/workload-diagnostics.md`. Inspect saved exception frames and existing MOO/Go profiles, task labels, scheduling diagnostics and conflict census before adding new instrumentation or changing checks. Preserve failed cohorts and state which diagnostic evidence is still missing.
+
 ## Verification Claim Discipline
 
 - No verification or status claim without adjacent raw output in the same message. This applies equally to intermediate commentary and final responses; without the output, say the result is unknown.
