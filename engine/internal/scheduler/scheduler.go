@@ -374,12 +374,21 @@ func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 	blocked := s.blockedReadiersLocked(now, catalog)
 	var next time.Time
 	visit := func(t *task.Task) {
+		// Read the synchronized deadline before inspecting VM-derived lanes.
+		// Logical suspension/requeue can precede the physical VM handoff; an
+		// active or admission-reserved task has no deadline and is unsafe to
+		// classify. Dispatch claims and ReleaseExecution share s.mu, keeping
+		// the VM handoff ordered with this scan.
+		at := t.ReadyDeadline(now)
+		if at.IsZero() {
+			return
+		}
 		// A task held behind dispatched work is woken by that work's completion,
 		// not by a timer that would fire immediately and select nothing.
 		if blocked[t] || s.heldLocked(s.laneOf(t)) || s.yieldHeldLocked(t) {
 			return
 		}
-		if at := t.ReadyDeadline(now); !at.IsZero() && (next.IsZero() || at.Before(next)) {
+		if next.IsZero() || at.Before(next) {
 			next = at
 		}
 	}
