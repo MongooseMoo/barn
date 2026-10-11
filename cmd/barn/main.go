@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime/debug"
 	"strings"
-	"syscall"
 
 	"github.com/MongooseMoo/barn/internal/app"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -85,7 +82,7 @@ func main() {
 		debug.SetGCPercent(defaultGOGCPercent)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := interruptContext()
 	defer stop()
 	err = app.Run(ctx, cfg, os.Stdout, os.Stderr)
 	if errors.Is(err, server.ErrPanicShutdown) {

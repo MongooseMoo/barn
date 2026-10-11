@@ -440,7 +440,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if err := s.Panic("boom"); !errors.Is(err, ErrPanicShutdown) {
 		t.Fatalf("Panic error = %v, want ErrPanicShutdown", err)
 	}
-	if err := s.mainLoop(); !errors.Is(err, ErrPanicShutdown) {
+	if err := s.mainLoop(nil); !errors.Is(err, ErrPanicShutdown) {
 		t.Fatalf("mainLoop error = %v, want ErrPanicShutdown", err)
 	}
 
@@ -520,7 +520,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- s.mainLoop()
+		errCh <- s.mainLoop(nil)
 	}()
 
 	// The loop leaves as soon as the checkpoint finishes; the deadline only

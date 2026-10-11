@@ -42,6 +42,7 @@ type Server struct {
 	running             bool
 	mu                  sync.Mutex
 	shutdownMessage     string
+	signalShutdown      bool
 	terminalErr         error
 	backgroundWG        sync.WaitGroup
 	checkpointChan      chan struct{}
@@ -283,6 +284,9 @@ func (s *Server) Start() error {
 	s.running = true
 	s.mu.Unlock()
 
+	signals, stopSignals := listenSignals()
+	defer stopSignals()
+
 	// Start the execution runtime.
 	s.input.Start()
 
@@ -324,11 +328,11 @@ func (s *Server) Start() error {
 	}()
 
 	// Main loop
-	return s.mainLoop()
+	return s.mainLoop(signals)
 }
 
 // mainLoop is the main server loop
-func (s *Server) mainLoop() error {
+func (s *Server) mainLoop(signals <-chan os.Signal) error {
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -342,6 +346,10 @@ func (s *Server) mainLoop() error {
 		case <-s.checkpointChan:
 			if err := s.checkpoint(); err != nil {
 				slog.Error("checkpoint failed", slog.Any("err", err))
+			}
+		case sig := <-signals:
+			if err := s.handleOSSignal(sig); err != nil {
+				return err
 			}
 		}
 	}
@@ -404,16 +412,7 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 
 	start := time.Now()
 
-	if err := s.runtime.WithCheckpointBarrier(func() error {
-		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
-		activeConnections := s.connManager.CheckpointConnections()
-		if ordinary {
-			// A dump attempt makes the ordinary output eligible even if writing
-			// fails. Panic dumps use a different output and do not change this.
-			s.ordinaryDumpStarted.Store(true)
-		}
-		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
-	}); err != nil {
+	if err := s.dumpCheckpoint(writeCheckpoint, ordinary); err != nil {
 		_ = s.callCheckpointFinished(false)
 		return err
 	}
@@ -429,6 +428,21 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 
 	slog.Info("checkpoint complete", slog.Int64("duration_ms", elapsed.Milliseconds()))
 	return nil
+}
+
+// dumpCheckpoint writes a consistent snapshot without invoking checkpoint hooks.
+// Signal shutdown, like MOO server database shutdown, only dumps current state.
+func (s *Server) dumpCheckpoint(writeCheckpoint checkpointWriter, ordinary bool) error {
+	return s.runtime.WithCheckpointBarrier(func() error {
+		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
+		activeConnections := s.connManager.CheckpointConnections()
+		if ordinary {
+			// A dump attempt makes the ordinary output eligible even if writing
+			// fails. Panic dumps use a different output and do not change this.
+			s.ordinaryDumpStarted.Store(true)
+		}
+		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
+	})
 }
 
 // Shutdown initiates graceful shutdown.
@@ -454,10 +468,12 @@ func (s *Server) shutdown() error {
 
 	s.mu.Lock()
 	message := s.shutdownMessage
+	signalShutdown := s.signalShutdown
 	s.mu.Unlock()
 	if message == "" {
 		message = "Server shutdown"
 	}
+	slog.Info("SHUTDOWN: " + message)
 
 	// Call #0:shutdown_started()
 	if err := s.callShutdownStarted(message); err != nil {
@@ -470,8 +486,14 @@ func (s *Server) shutdown() error {
 	s.input.Stop()
 
 	// Final checkpoint (unless checkpointing was explicitly disabled)
-	if s.checkpointInterval > 0 {
-		if err := s.checkpoint(); err != nil {
+	if s.checkpointInterval > 0 || signalShutdown {
+		var err error
+		if signalShutdown {
+			err = s.dumpCheckpoint(dbformat.WriteCheckpoint, true)
+		} else {
+			err = s.checkpoint()
+		}
+		if err != nil {
 			slog.Error("final checkpoint failed", slog.Any("err", err))
 		}
 	} else {
