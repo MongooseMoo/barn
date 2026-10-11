@@ -26,7 +26,9 @@ package engine
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
 //                             files/sqlite/sound.sqlite before #0:server_started
-//   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
+//   BARN_MONGOOSE_CPUPROFILE  write Go CPU profile (startup, warmup, measurement, drain)
+//   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
+//   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 //   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
 //                             otherwise runs at Go's default, which the log line states)
@@ -39,9 +41,11 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -63,7 +67,9 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/internal/mooprof"
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -200,6 +206,17 @@ type realCommandCompletion struct {
 	result  chan types.Result
 }
 
+// Reuse the structured traceback identities without rendering source, arguments
+// or runtime-variable payloads. The exception snapshot survives stack unwinding.
+func realCommandFrames(stack []types.ActivationFrame) string {
+	frames := tbFrames(stack)
+	for i := range frames {
+		frames[i].Source = ""
+	}
+	encoded, _ := json.Marshal(frames) // tbFrame contains only strings, integers and bools.
+	return string(encoded)
+}
+
 func (c *realCommandCompletion) capture(s *Runtime, id int64) {
 	c.runtime = s
 	c.task = s.GetTask(id)
@@ -260,33 +277,58 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			c.runtime.mu.Unlock()
 		}
 		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
-		frames := make([]string, len(stack))
-		for i, frame := range stack {
-			frames[i] = fmt.Sprintf("%s:%d", frame.Verb, frame.LineNumber)
-		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
-		}
-		if blockers := c.blockers(time.Now()); blockers != "" {
-			frames = append(frames, "blocked-by:"+blockers)
-		}
+		frames := realCommandFrames(stack)
+		blockers := c.blockers(time.Now())
+		saved := c.task.BytecodeVMValue() != nil
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%v", ctx.Err(), c.task.ID, state, reading, ready, lease, c.task.BytecodeVMValue() != nil, frames)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers)
 		}
 	}
 	select {
 	case result := <-c.result:
 		if result.Flow == types.FlowException {
-			return false, "uncaught:" + result.Error.String()
+			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack))
 		}
 		return true, ""
 	default:
 		return false, "killed-before-completion"
 	}
+}
+
+// startRealMOOProfile uses the same collector as /debug/pprof/moo. Collect only
+// measured command windows (including their terminal drain), excluding setup.
+func startRealMOOProfile(t *testing.T, prefix string, players int) func() {
+	t.Helper()
+	if prefix == "" {
+		return func() {}
+	}
+	path := fmt.Sprintf("%s-players%d.pprof", prefix, players)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := mooprof.Start()
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			prof := session.Stop()
+			defer file.Close()
+			if err := prof.Write(file); err != nil {
+				t.Errorf("write MOO profile: %v", err)
+			}
+			t.Logf("MOO measurement profile: %s", path)
+		})
+	}
+	t.Cleanup(stop)
+	return stop
 }
 
 // copyBenchFile copies src over dst, creating dst's directory.
@@ -367,6 +409,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if os.Getenv("BARN_MONGOOSE_BENCH") == "" {
 		t.Skip("set BARN_MONGOOSE_BENCH=1 to run the real-database mongoose workload")
 	}
+	if dir := os.Getenv("BARN_MONGOOSE_LOG_DIR"); dir != "" {
+		priorLogger, priorLevel := slog.Default(), logging.Level.Level()
+		closeLog, err := logging.Setup(logging.Options{LevelStr: "debug", Dir: dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			closeLog()
+			slog.SetDefault(priorLogger)
+			logging.Level.Set(priorLevel)
+		})
+	}
 	dbPath := os.Getenv("BARN_MONGOOSE_DB")
 	if dbPath == "" {
 		dbPath = "../mongoose.db.new"
@@ -413,9 +467,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			t.Fatalf("create cpuprofile: %v", err)
 		}
 		defer f.Close()
-		// Profile covers measurement windows only (started after warm-up below
-		// would need restarts per level; instead start now and note that DB
-		// load is excluded and warm-up windows are included but identifiable).
+		// Loading is excluded; runtime startup, warm-up, drain and idle are included.
+		// The moo.task and moo.verb labels separate background and command work.
 		if err := pprof.StartCPUProfile(f); err != nil {
 			t.Fatalf("start cpuprofile: %v", err)
 		}
@@ -692,9 +745,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 		} else {
 			close(sampled)
 		}
+		stopProfile := startRealMOOProfile(t, os.Getenv("BARN_MONGOOSE_MOOPROFILE"), active)
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
+		stopProfile()
 		close(stopSampling)
 		<-sampled
 		cpu1 := readGCCPU()
