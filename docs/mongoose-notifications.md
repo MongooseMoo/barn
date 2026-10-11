@@ -48,6 +48,16 @@ commands mostly return to an existing home; median latency is not a measure of
 cross-area arrival cost. Issues #395 and #396 have broader acceptance criteria
 and are not closed by these two pairs.
 
+A subsequent mixed-workload holdout used `BARN_MONGOOSE_PLAYERS=1,4,16` with
+`-count=3`. Every one- and four-player cohort settled. Sixteen-player cohorts
+returned `unsettled_at_return=0,1,0`, so the command ended `FAIL`. The failed task
+7290 was queued inside `#3882::val`, called by `#6128:resolve` during
+`self_arrive_msg`; its stack contained no notification traversal. The original
+home-only baseline also timed out in `self_arrive_msg` (task 858). This change
+does not establish reliable whole-workload completion. Preserve
+`arrival-notify-holdout-20261011.log` for the next sound-resolution investigation;
+do not discard the failed repeat or report an application speed ratio.
+
 Frozen input SHA-256:
 `bd9f5e03975e1c4761147e61a37d39468715cb60ed271a1668342056aa550b60`.
 Catalog SHA-256:
