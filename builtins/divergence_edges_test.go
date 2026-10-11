@@ -44,11 +44,11 @@ func TestDivergenceNumericAndUtilityEdges(t *testing.T) {
 
 func TestDivergenceJSONFirstKeyAndInt64(t *testing.T) {
 	ctx := newTestExecution()
-	duplicate := builtinParseJson(ctx, []types.Value{types.NewStr(`{"a":1,"a":2}`)})
+	duplicate := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(`{"a":1,"a":2}`)})
 	if !duplicate.IsNormal() || duplicate.Val.Len() != 1 || duplicate.Val.Pairs()[0][1].Int() != 1 {
 		t.Fatalf("duplicate-key parse = flow %v error %v value %v, want first value 1", duplicate.Flow, duplicate.Error, duplicate.Val)
 	}
-	maxInt := builtinParseJson(ctx, []types.Value{types.NewStr("9223372036854775807")})
+	maxInt := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr("9223372036854775807")})
 	if !maxInt.IsNormal() || maxInt.Val.Type() != types.TYPE_INT || maxInt.Val.Int() != int64(9223372036854775807) {
 		t.Fatalf("max-int parse = flow %v error %v value %v", maxInt.Flow, maxInt.Error, maxInt.Val)
 	}
@@ -67,7 +67,7 @@ func TestDivergenceCryptoParameters(t *testing.T) {
 		{prefix: "$6$", want: "$6$V7qMYJaNbVKOeh4P"},
 		{prefix: "bogus", want: "VW"},
 	} {
-		result := builtinSalt(ctx, []types.Value{types.NewStr(test.prefix), types.NewStr("abcdefghijklmnop")})
+		result := admitTestBuiltin("salt", ctx, []types.Value{types.NewStr(test.prefix), types.NewStr("abcdefghijklmnop")})
 		if !result.IsNormal() || result.Val.Str() != test.want {
 			t.Fatalf("salt(%q) = flow %v error %v value %v, want %q", test.prefix, result.Flow, result.Error, result.Val, test.want)
 		}
@@ -82,7 +82,7 @@ func TestDivergenceCryptoParameters(t *testing.T) {
 	if !garbage.IsNormal() || garbage.Val.Int() != 0 {
 		t.Fatalf("argon2_verify garbage = flow %v error %v value %v, want 0", garbage.Flow, garbage.Error, garbage.Val)
 	}
-	md5 := builtinStringHmac(ctx, []types.Value{types.NewStr("abc"), types.NewStr("key"), types.NewStr("md5")})
+	md5 := admitTestBuiltin("string_hmac", ctx, []types.Value{types.NewStr("abc"), types.NewStr("key"), types.NewStr("md5")})
 	if md5.Flow != types.FlowException || md5.Error != types.E_INVARG {
 		t.Fatalf("string_hmac md5 = flow %v error %v value %v, want E_INVARG", md5.Flow, md5.Error, md5.Val)
 	}
@@ -96,21 +96,21 @@ func TestDivergenceRuntimeIntrospection(t *testing.T) {
 			t.Errorf("function_info(%q) = flow %v error %v value %v, want E_INVARG", hidden, result.Flow, result.Error, result.Val)
 		}
 	}
-	if result := builtinBufferedOutputLength(ctx, nil); !result.IsNormal() || result.Val.Int() != 65536 {
+	if result := admitTestBuiltin("buffered_output_length", ctx, nil); !result.IsNormal() || result.Val.Int() != 65536 {
 		t.Fatalf("buffered_output_length() = flow %v error %v value %v, want 65536", result.Flow, result.Error, result.Val)
 	}
-	if result := builtinCtime(ctx, []types.Value{types.NewInt(9223372036854775807)}); !result.IsNormal() || !strings.Contains(result.Val.Str(), "2146059811") {
+	if result := admitTestBuiltin("ctime", ctx, []types.Value{types.NewInt(9223372036854775807)}); !result.IsNormal() || !strings.Contains(result.Val.Str(), "2146059811") {
 		t.Fatalf("ctime(maxint) = flow %v error %v value %v, want clamped Toast year", result.Flow, result.Error, result.Val)
 	}
-	if result := builtinCtime(ctx, []types.Value{types.NewInt(-9223372036854775807)}); result.Flow != types.FlowException || result.Error != types.E_INVARG {
+	if result := admitTestBuiltin("ctime", ctx, []types.Value{types.NewInt(-9223372036854775807)}); result.Flow != types.FlowException || result.Error != types.E_INVARG {
 		t.Fatalf("ctime(-maxint) = flow %v error %v value %v, want E_INVARG", result.Flow, result.Error, result.Val)
 	}
 	if _, err := readProcessMemory(); err != nil {
 		// Without /proc/self/statm Toast's memory_usage() raises E_FILE.
-		if result := builtinMemoryUsage(ctx, nil); result.Flow != types.FlowException || result.Error != types.E_FILE {
+		if result := admitTestBuiltin("memory_usage", ctx, nil); result.Flow != types.FlowException || result.Error != types.E_FILE {
 			t.Fatalf("memory_usage() without statm = flow %v error %v, want E_FILE", result.Flow, result.Error)
 		}
-	} else if result := builtinMemoryUsage(ctx, nil); !result.IsNormal() {
+	} else if result := admitTestBuiltin("memory_usage", ctx, nil); !result.IsNormal() {
 		t.Fatalf("memory_usage() = flow %v error %v", result.Flow, result.Error)
 	} else {
 		for _, value := range result.Val.Elements() {

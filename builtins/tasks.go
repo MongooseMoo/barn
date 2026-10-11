@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -19,10 +20,6 @@ type TaskYielder interface {
 // Returns list of currently queued tasks
 // Each entry: {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
 func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	includeVariables := false
 	if len(args) >= 1 {
 		if args[0].Type() != types.TYPE_INT {
@@ -96,14 +93,6 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 // Kills the specified task
 // Requires permission: must be task owner or wizard
 func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
-	}
-
 	taskID := args[0].Int()
 
 	// Special case: killing yourself returns E_INTRPT
@@ -143,10 +132,6 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 // If no seconds are specified, suspension is indefinite until resume().
 // suspend(0) yields and resumes on the next scheduler cycle.
 func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Get the task from context
 	if ctx.Task == nil {
 		// No task to suspend - this shouldn't happen in normal execution
@@ -192,14 +177,6 @@ func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 // The value (or 0 if not specified) is returned from suspend()
 // Requires permission: must be task owner or wizard
 func builtinResume(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
-	}
-
 	taskID := args[0].Int()
 
 	// Get the value to pass to the resumed task
@@ -224,10 +201,6 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
 func builtinSetTaskPerms(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Get the new permission object
 	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
@@ -268,10 +241,6 @@ func builtinSetTaskPerms(ctx *Execution, args []types.Value) types.Result {
 // Returns the programmer of the calling frame (not the current frame)
 // This is used for permission checks - returns who called this verb
 func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Get the task from context
 	if ctx.Task == nil {
 		// No task - return programmer from context (top-level eval)
@@ -304,10 +273,6 @@ func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 // Each entry: {this, verb_name, programmer, verb_loc, player, line_number}
 // If include_line_numbers is false (default true), line_number is omitted
 func builtinCallers(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Default: do NOT include line numbers (5-element frames)
 	// Pass true/1 to include line numbers (6-element frames)
 	includeLineNumbers := false
@@ -440,10 +405,6 @@ func syntheticEvalCallers(ctx *Execution, includeLineNumbers bool) types.Value {
 // builtinRaise: raise(error [, message [, value]]) → none
 // Raises an error, stopping execution until caught by try/except
 func builtinRaise(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	code := types.E_NONE
 	message := args[0].String()
 	if args[0].Type() == types.TYPE_ERR {
@@ -479,14 +440,6 @@ func builtinRaise(ctx *Execution, args []types.Value) types.Result {
 // Returns the call stack for a suspended task
 // Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
 func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
-	}
-
 	taskID := args[0].Int()
 
 	// task_stack on the currently running task is invalid (task must be suspended)
@@ -558,10 +511,6 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 // min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
 // least one argument is supplied.
 func builtinYin(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	seconds := 0.0
 	if len(args) >= 1 {
 		switch args[0].Type() {
@@ -618,17 +567,10 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinTaskPerms(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	return types.Ok(types.NewObj(ctx.Programmer))
 }
 
 func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if len(args) == 0 {
 		// queue_info() with no argument is allowed for non-wizards (Toast).
 		// The connected player is payload here, not an authority identity.
@@ -702,9 +644,6 @@ func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
 }
 
 func builtinFinishedTasks(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -724,9 +663,6 @@ func builtinFinishedTasks(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinThreads(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -745,15 +681,6 @@ func builtinThreads(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinThreadPool(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	if len(args) == 3 {
 		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
@@ -772,9 +699,6 @@ func builtinThreadPool(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinSetThreadMode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
 	if len(args) == 1 {
 		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
@@ -786,4 +710,25 @@ func builtinSetThreadMode(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func tasksDescriptors() []Descriptor {
+	return []Descriptor{
+		function("set_thread_mode", builtinSetThreadMode, 0, 1, 0),
+		function("task_perms", builtinTaskPerms, 0, 0),
+		function("queue_info", builtinQueueInfo, 0, 1, 1),
+		function("finished_tasks", builtinFinishedTasks, 0, 0).plainArityError().withCapability(config.BarnExtensions),
+		function("thread_pool", builtinThreadPool, 2, 3, 2, 2, 0),
+		function("threads", builtinThreads, 0, 0),
+		function("queued_tasks", builtinQueuedTasks, 0, 2, 0, 0),
+		function("kill_task", builtinKillTask, 1, 1, 0).withEffect(ImplementationOwned),
+		function("task_stack", builtinTaskStack, 1, 3, 0, -1, -1).withLineSync(),
+		function("suspend", builtinSuspend, 0, 1, -2),
+		function("resume", builtinResume, 1, 2, 0, -1).withEffect(Irreversible),
+		function("callers", builtinCallers, 0, 1, -1).withLineSync(),
+		function("set_task_perms", builtinSetTaskPerms, 1, 1, 1),
+		function("caller_perms", builtinCallerPerms, 0, 0),
+		function("raise", builtinRaise, 1, 3, -1, 2, -1),
+		function("yin", builtinYin, 0, 3, -2, 0, 0),
+	}
 }

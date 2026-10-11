@@ -1,10 +1,12 @@
 # Builtin descriptors and capabilities
 
-`builtins.BaseDescriptors()` owns each base builtin's implementation, signature,
-admission rules, visibility, effect policy, line synchronization, and capability.
+Each builtin family owns its implementation and descriptors in the same Go file.
+`builtins.Descriptors()` assembles them in the historical name order in
+`builtins/catalog.go`; that order defines the bytecode ABI. Construction helpers
+provide ordinary public, transactional core defaults and explicit policy overrides.
 `vm.Descriptors()` contributes complete `eval` and `pass` descriptors before
 construction. `NewRegistryFromDescriptors` validates every descriptor, rejects
-duplicates and layouts larger than 256 entries, and copies its inputs. The
+duplicates and layouts larger than 65536 entries, and copies its inputs. The
 resulting registry has no registration or replacement API.
 
 Descriptor order defines IDs. The default order preserves the 252 IDs from
@@ -86,3 +88,7 @@ transactional work, guarded irreversible effects, commit-gate reentry for
 Tests substitute implementations in descriptor lists before construction. No
 production mutation API exists for test injection. Callback slots in engine
 fixtures allow callbacks to capture their runtime without changing its registry.
+
+Leading argument-count and positional-type checks already guaranteed by dispatch
+are omitted from leaf implementations. Semantic checks and their order remain
+in the implementation. The construction helpers never run during a call.

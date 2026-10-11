@@ -66,7 +66,7 @@ func TestReview_DeleteVerbOnInheritedVerbReturnsEVERBNF(t *testing.T) {
 	child := mustCreate(t, store, []types.ObjID{parent}, types.ObjNothing)
 
 	// delete_verb(child, "look") should return E_VERBNF — verb is inherited.
-	result := builtinDeleteVerb(ctx, []types.Value{
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{
 		types.NewObj(child),
 		types.NewStr("look"),
 	})
@@ -157,7 +157,7 @@ func TestReview_VerbCodeAllowsOwnerWithoutReadBit(t *testing.T) {
 
 	ctx.Programmer = 0 // caller owns the verb
 
-	result := builtinVerbCode(ctx, []types.Value{
+	result := admitTestBuiltin("verb_code", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("secret"),
 	})
@@ -172,7 +172,7 @@ func TestReview_VerbCodeAllowsOwnerWithoutReadBit(t *testing.T) {
 
 	// A non-owner, non-wizard with no 'r' bit must still be denied (E_PERM).
 	ctx.Programmer = 5 // does not own the verb (owner is #0)
-	denied := builtinVerbCode(ctx, []types.Value{
+	denied := admitTestBuiltin("verb_code", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("secret"),
 	})
@@ -182,7 +182,7 @@ func TestReview_VerbCodeAllowsOwnerWithoutReadBit(t *testing.T) {
 
 	// A verb with the 'r' bit set is readable by anyone (still non-owner #5).
 	mustAddVerb(t, store, obj, "public", 0, dbstore.VerbRead|dbstore.VerbExecute)
-	readable := builtinVerbCode(ctx, []types.Value{
+	readable := admitTestBuiltin("verb_code", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("public"),
 	})
@@ -275,7 +275,7 @@ func TestReview_DisassembleUsesProgNotPlayerForPerm(t *testing.T) {
 	ctx.Programmer = 0
 	ctx.Player = 5
 
-	res := builtinDisassemble(ctx, []types.Value{
+	res := admitTestBuiltin("disassemble", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("secret"),
 	})
@@ -289,7 +289,7 @@ func TestReview_DisassembleUsesProgNotPlayerForPerm(t *testing.T) {
 	// Non-owner non-wizard on a non-readable verb must get E_PERM.
 	ctx.Programmer = 5
 	ctx.Player = 0
-	denied := builtinDisassemble(ctx, []types.Value{
+	denied := admitTestBuiltin("disassemble", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("secret"),
 	})

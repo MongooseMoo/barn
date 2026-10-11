@@ -36,7 +36,7 @@ func TestLoadServerOptionsAfterElidedWrites(t *testing.T) {
 	}
 	reload := func() {
 		t.Helper()
-		if result := builtinLoadServerOptions(ctx, nil); result.Flow != types.FlowNormal {
+		if result := admitTestBuiltin("load_server_options", ctx, nil); result.Flow != types.FlowNormal {
 			t.Fatalf("reload: %s", result.Error)
 		}
 	}

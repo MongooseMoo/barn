@@ -164,7 +164,7 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	ctx.Player = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
+	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
 	if res.IsError() {
 		t.Fatalf("notify failed: %v", res.Error)
 	}
@@ -192,20 +192,20 @@ func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	before := builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(-8)})
+	before := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
 	if before.IsError() {
 		t.Fatalf("buffered_output_length before notify failed: %v", before.Error)
 	}
 	beforeValue := before.Val.Int()
 
 	for i := 0; i < 5; i++ {
-		res := builtinNotify(ctx, []types.Value{types.NewObj(-8), types.NewStr("buffered_output_length probe")})
+		res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(-8), types.NewStr("buffered_output_length probe")})
 		if res.IsError() {
 			t.Fatalf("notify %d failed: %v", i, res.Error)
 		}
 	}
 
-	after := builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(-8)})
+	after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
 	if after.IsError() {
 		t.Fatalf("buffered_output_length after notify failed: %v", after.Error)
 	}
@@ -225,7 +225,7 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 	ctx.Player = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
+	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
 	if res.IsError() {
 		t.Fatalf("notify failed: %v", res.Error)
 	}
@@ -249,7 +249,7 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 	ctx.Player = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})
+	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})
 	if res.IsError() {
 		t.Fatalf("notify failed: %v", res.Error)
 	}
@@ -273,11 +273,11 @@ func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("before")})
+	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("before")})
 	if res.IsError() {
 		t.Fatalf("notify failed: %v", res.Error)
 	}
-	res = builtinBootPlayer(ctx, []types.Value{types.NewObj(7)})
+	res = admitTestBuiltin("boot_player", ctx, []types.Value{types.NewObj(7)})
 	if res.IsError() {
 		t.Fatalf("boot_player failed: %v", res.Error)
 	}
@@ -304,7 +304,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
+	res := admitTestBuiltin("switch_player", ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
 	if res.IsError() {
 		t.Fatalf("switch_player failed: %v", res.Error)
 	}
@@ -334,7 +334,7 @@ func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
-	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
+	res := admitTestBuiltin("switch_player", ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
 	if res.IsError() {
 		t.Fatalf("switch_player failed: %v", res.Error)
 	}
@@ -356,7 +356,7 @@ func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
-	res := builtinSwitchPlayer(ctx, []types.Value{
+	res := admitTestBuiltin("switch_player", ctx, []types.Value{
 		types.NewObj(2),
 		types.NewObj(3),
 	})
@@ -423,7 +423,7 @@ func TestConnectionNameFormats(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res := builtinConnectionName(ctx, tc.args)
+			res := admitTestBuiltin("connection_name", ctx, tc.args)
 			if res.IsError() {
 				t.Fatalf("unexpected error: %v", res.Error)
 			}
@@ -469,7 +469,7 @@ func TestConnectionMetadataDistinguishesExplicitZeroListenerPort(t *testing.T) {
 				listen: 7777,
 			})
 
-			nameResult := builtinConnectionName(ctx, []types.Value{
+			nameResult := admitTestBuiltin("connection_name", ctx, []types.Value{
 				types.NewObj(-1),
 				types.NewInt(0),
 			})
@@ -480,7 +480,7 @@ func TestConnectionMetadataDistinguishesExplicitZeroListenerPort(t *testing.T) {
 				t.Errorf("connection_name = %q, want %q", got, tt.wantName)
 			}
 
-			infoResult := builtinConnectionInfo(ctx, []types.Value{types.NewObj(-1)})
+			infoResult := admitTestBuiltin("connection_info", ctx, []types.Value{types.NewObj(-1)})
 			if infoResult.IsError() {
 				t.Fatalf("connection_info: unexpected error: %v", infoResult.Error)
 			}
@@ -555,7 +555,7 @@ func TestRuntimeListenerZeroDescriptorFlowsThroughBuiltins(t *testing.T) {
 	})
 
 	t.Run("listeners exposes requested descriptor", func(t *testing.T) {
-		res := builtinListeners(ctx, []types.Value{types.NewInt(0)})
+		res := admitTestBuiltin("listeners", ctx, []types.Value{types.NewInt(0)})
 		if res.IsError() {
 			t.Fatalf("listeners(0): %v", res.Error)
 		}
@@ -722,7 +722,7 @@ func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
 		listen: 7777,
 	})
 
-	res := builtinConnectionInfo(ctx, []types.Value{types.NewObj(-1)})
+	res := admitTestBuiltin("connection_info", ctx, []types.Value{types.NewObj(-1)})
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
@@ -754,7 +754,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	}
 
 	ctx := ctxWithConnManager(manager)
-	res := builtinListeners(ctx, []types.Value{
+	res := admitTestBuiltin("listeners", ctx, []types.Value{
 		types.NewMap([][2]types.Value{
 			{types.NewStr("protocol"), types.NewStr(string(listener.ProtocolWebSocket))},
 			{types.NewStr("port"), types.NewInt(8888)},

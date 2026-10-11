@@ -29,10 +29,6 @@ import (
 // encode_base64(str [, url_safe]) -> str
 // Input string may contain ~XX binary escapes which are decoded first
 func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -71,10 +67,6 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 // decode_base64(str [, url_safe]) -> str
 // Returns a binary string with ~XX escapes for non-printable bytes
 func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -190,10 +182,6 @@ func encodeByteHex(b byte) string {
 // decode_binary(str) -> list grouping printable chars as strings, non-printable as ints
 // decode_binary(str, "as_str") -> str (raw bytes as string)
 func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -322,10 +310,6 @@ func hexValue(c byte) int {
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2x$, $2y$)
 func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -976,10 +960,6 @@ func getHasher(algo string) (hash.Hash, bool) {
 // builtinStringHash hashes a string with specified algorithm
 // string_hash(str [, algo [, binary]]) -> str
 func builtinStringHash(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -1019,10 +999,6 @@ func builtinStringHash(ctx *Execution, args []types.Value) types.Result {
 // builtinBinaryHash hashes a binary string with specified algorithm
 // binary_hash(str [, algo [, binary]]) -> str
 func builtinBinaryHash(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -1069,10 +1045,6 @@ func builtinBinaryHash(ctx *Execution, args []types.Value) types.Result {
 // builtinValueHash hashes any MOO value with specified algorithm
 // value_hash(val [, algo [, binary]]) -> str
 func builtinValueHash(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	algo := "sha256"
 	if len(args) >= 2 {
 		algoVal := args[1]
@@ -1117,10 +1089,6 @@ func builtinValueHash(ctx *Execution, args []types.Value) types.Result {
 // builtinStringHmac computes HMAC for a string
 // string_hmac(str, key [, algo [, binary]]) -> str
 func builtinStringHmac(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -1176,10 +1144,6 @@ func builtinStringHmac(ctx *Execution, args []types.Value) types.Result {
 // builtinBinaryHmac computes HMAC for a binary string
 // binary_hmac(str, key [, algo [, binary]]) -> str
 func builtinBinaryHmac(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	str := args[0]
 	ok := str.Type() == types.TYPE_STR
 	if !ok {
@@ -1237,10 +1201,6 @@ func builtinBinaryHmac(ctx *Execution, args []types.Value) types.Result {
 // builtinValueHmac computes HMAC for any MOO value
 // value_hmac(val, key [, algo [, binary]]) -> str
 func builtinValueHmac(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	keyVal := args[1]
 	if keyVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
@@ -1312,10 +1272,6 @@ func getHmacFunc(algo string) (func() hash.Hash, bool) {
 // builtinSalt generates a salt string for crypt
 // salt(prefix, random_data) -> str
 func builtinSalt(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	prefix := args[0]
 	if prefix.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
@@ -1451,10 +1407,6 @@ func cryptSaltEncode(data []byte, length int) string {
 // builtinRandomBytes generates random bytes
 // random_bytes(count) -> str (binary encoded)
 func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	countVal := args[0]
 	ok := countVal.Type() == types.TYPE_INT
 	if !ok {
@@ -1545,4 +1497,22 @@ func bcryptBase64Encode(data []byte) string {
 	result[idx+1] = bcryptChars[(b<<4)&0x3f]
 
 	return string(result)
+}
+
+func cryptoDescriptors() []Descriptor {
+	return []Descriptor{
+		function("encode_base64", builtinEncodeBase64, 1, 2, 2, -1),
+		function("decode_base64", builtinDecodeBase64, 1, 2, 2, -1),
+		function("encode_binary", builtinEncodeBinary, 0, -1),
+		function("decode_binary", builtinDecodeBinary, 1, 2, 2, -1),
+		function("crypt", builtinCrypt, 1, 2, 2, 2),
+		function("string_hash", builtinStringHash, 1, 3, 2, 2, -1),
+		function("binary_hash", builtinBinaryHash, 1, 3, 2, 2, -1),
+		function("value_hash", builtinValueHash, 1, 3, -1, 2, -1),
+		function("string_hmac", builtinStringHmac, 2, 4, 2, 2, 2, -1),
+		function("binary_hmac", builtinBinaryHmac, 2, 4, 2, 2, 2, -1),
+		function("value_hmac", builtinValueHmac, 2, 4, -1, 2, 2, -1),
+		function("salt", builtinSalt, 2, 2, 2, 2),
+		function("random_bytes", builtinRandomBytes, 1, 1, 0),
+	}
 }

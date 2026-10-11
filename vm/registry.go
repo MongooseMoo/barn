@@ -25,11 +25,11 @@ func BuildVMRegistry() *builtins.Registry {
 // Descriptors contributes complete VM-owned descriptors before construction.
 // The builtins added after eval and pass follow them so older IDs never move.
 func Descriptors() []builtins.Descriptor {
-	return append(vmDescriptors(), builtins.AppendedDescriptors()...)
+	return builtins.Descriptors(vmDescriptors()...)
 }
 
 func vmDescriptors() []builtins.Descriptor {
-	return append(builtins.BaseDescriptors(),
+	return []builtins.Descriptor{
 		builtins.Descriptor{Name: "eval", Signature: &builtins.Signature{MinArgs: 1, MaxArgs: -1, ArgTypes: []int64{2}}, Visibility: builtins.Public, Effect: builtins.Transactional, Capability: config.Core, Implementation: func(ctx *builtins.Execution, args []types.Value) types.Result {
 			if len(args) < 1 {
 				return types.Err(types.E_ARGS)
@@ -93,7 +93,7 @@ func vmDescriptors() []builtins.Descriptor {
 		builtins.Descriptor{Name: "pass", Signature: &builtins.Signature{MinArgs: 0, MaxArgs: -1, ArgTypes: []int64{}}, Visibility: builtins.Public, Effect: builtins.Transactional, Capability: config.Core, Implementation: func(ctx *builtins.Execution, args []types.Value) types.Result {
 			return types.Err(types.E_INVIND)
 		}},
-	)
+	}
 }
 
 func (vm *VM) pushEval(prog *bytecode.Program) types.Result {

@@ -364,9 +364,6 @@ func (r *Session) UpdateContextLimits(ctx *kernel.TaskContext) {
 // builtinValueBytes implements the value_bytes(value) builtin.
 // Returns the size in bytes of any MOO value.
 func builtinValueBytes(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	size := ValueBytes(args[0])
 	return types.Ok(types.NewInt(int64(size)))
 }
@@ -474,4 +471,10 @@ func (r *Session) CheckStringLengthForTask(ctx *kernel.TaskContext, length int) 
 // CheckStringLimitForTask is CheckStringLimit against the task's own limit.
 func (r *Session) CheckStringLimitForTask(ctx *kernel.TaskContext, s string) types.ErrorCode {
 	return r.CheckStringLengthForTask(ctx, len(s))
+}
+
+func limitsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("value_bytes", builtinValueBytes, 1, 1, -1),
+	}
 }

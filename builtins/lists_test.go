@@ -23,7 +23,7 @@ func TestSliceInvalidElementDoesNotWriteToStdout(t *testing.T) {
 		writer.Close()
 	})
 
-	result := builtinSlice(newTestExecution(), []types.Value{
+	result := admitTestBuiltin("slice", newTestExecution(), []types.Value{
 		types.NewList([]types.Value{types.NewInt(1)}),
 	})
 	os.Stdout = originalStdout
@@ -52,21 +52,21 @@ func TestIsMemberPromoteNumbers(t *testing.T) {
 	promote.RuntimeOptions.PromoteNumbers = true
 
 	lst := types.NewList([]types.Value{types.NewFloat(1.0)})
-	if got := builtinIsMember(strict, []types.Value{types.NewInt(1), lst}); got.Val.Int() != 0 {
+	if got := admitTestBuiltin("is_member", strict, []types.Value{types.NewInt(1), lst}); got.Val.Int() != 0 {
 		t.Fatalf("strict is_member(1, {1.0}) = %v, want 0", got.Val)
 	}
-	if got := builtinIsMember(promote, []types.Value{types.NewInt(1), lst}); got.Val.Int() != 1 {
+	if got := admitTestBuiltin("is_member", promote, []types.Value{types.NewInt(1), lst}); got.Val.Int() != 1 {
 		t.Fatalf("promote is_member(1, {1.0}) = %v, want 1", got.Val)
 	}
 	intList := types.NewList([]types.Value{types.NewInt(1)})
-	if got := builtinIsMember(promote, []types.Value{types.NewFloat(1.0), intList}); got.Val.Int() != 1 {
+	if got := admitTestBuiltin("is_member", promote, []types.Value{types.NewFloat(1.0), intList}); got.Val.Int() != 1 {
 		t.Fatalf("promote is_member(1.0, {1}) = %v, want 1", got.Val)
 	}
 	m := types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewFloat(1.0)}})
-	if got := builtinIsMember(promote, []types.Value{types.NewInt(1), m}); got.Val.Int() != 1 {
+	if got := admitTestBuiltin("is_member", promote, []types.Value{types.NewInt(1), m}); got.Val.Int() != 1 {
 		t.Fatalf("promote is_member(1, [\"a\"->1.0]) = %v, want 1", got.Val)
 	}
-	if got := builtinIsMember(strict, []types.Value{types.NewInt(1), m}); got.Val.Int() != 0 {
+	if got := admitTestBuiltin("is_member", strict, []types.Value{types.NewInt(1), m}); got.Val.Int() != 0 {
 		t.Fatalf("strict is_member(1, [\"a\"->1.0]) = %v, want 0", got.Val)
 	}
 }
@@ -88,7 +88,7 @@ func TestListappendClampsExplicitPosition(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("position_%d", tc.position), func(t *testing.T) {
-			result := builtinListappend(ctx, []types.Value{
+			result := admitTestBuiltin("listappend", ctx, []types.Value{
 				list,
 				types.NewInt(3),
 				types.NewInt(tc.position),
@@ -121,7 +121,7 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinSetadd(ctx, []types.Value{list, value})
+	result := admitTestBuiltin("setadd", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("setadd at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
@@ -139,7 +139,7 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinListinsert(ctx, []types.Value{list, value})
+	result := admitTestBuiltin("listinsert", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("listinsert at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
@@ -157,7 +157,7 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinListappend(ctx, []types.Value{list, value})
+	result := admitTestBuiltin("listappend", ctx, []types.Value{list, value})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("listappend at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
@@ -175,7 +175,7 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinListset(ctx, []types.Value{list, value, types.NewInt(1)})
+	result := admitTestBuiltin("listset", ctx, []types.Value{list, value, types.NewInt(1)})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("listset at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}

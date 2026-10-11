@@ -14,10 +14,6 @@ import (
 // Triggers garbage collection (wizard only)
 // Returns 0 on success
 func builtinRunGC(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -54,10 +50,6 @@ func builtinRunGC(ctx *Execution, args []types.Value) types.Result {
 // Returns GC statistics map (wizard only)
 // Returns map with color keys: green, yellow, black, gray, white, purple, pink
 func builtinGCStats(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -78,4 +70,11 @@ func builtinGCStats(ctx *Execution, args []types.Value) types.Result {
 	result = result.MapSet(types.NewStr("pink"), types.NewInt(stats.Pink))
 
 	return types.Ok(result)
+}
+
+func gcDescriptors() []Descriptor {
+	return []Descriptor{
+		function("run_gc", builtinRunGC, 0, 0).withEffect(ImplementationOwned),
+		function("gc_stats", builtinGCStats, 0, 0),
+	}
 }

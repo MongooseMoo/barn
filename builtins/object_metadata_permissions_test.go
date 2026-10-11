@@ -87,7 +87,7 @@ func metadataPermissionCases() []metadataPermissionCase {
 			name:         "properties",
 			requiredFlag: dbstore.FlagRead,
 			call: func(f metadataPermissionFixture) types.Result {
-				return builtinProperties(f.ctx, []types.Value{types.NewObj(f.target)})
+				return admitTestBuiltin("properties", f.ctx, []types.Value{types.NewObj(f.target)})
 			},
 		},
 		{
@@ -106,7 +106,7 @@ func metadataPermissionCases() []metadataPermissionCase {
 			name:         "delete_property",
 			requiredFlag: dbstore.FlagWrite,
 			call: func(f metadataPermissionFixture) types.Result {
-				return builtinDeleteProperty(f.ctx, []types.Value{
+				return admitTestBuiltin("delete_property", f.ctx, []types.Value{
 					types.NewObj(f.target),
 					types.NewStr("existing"),
 				})
@@ -116,14 +116,14 @@ func metadataPermissionCases() []metadataPermissionCase {
 			name:         "verbs",
 			requiredFlag: dbstore.FlagRead,
 			call: func(f metadataPermissionFixture) types.Result {
-				return builtinVerbs(f.ctx, []types.Value{types.NewObj(f.target)})
+				return admitTestBuiltin("verbs", f.ctx, []types.Value{types.NewObj(f.target)})
 			},
 		},
 		{
 			name:         "delete_verb",
 			requiredFlag: dbstore.FlagWrite,
 			call: func(f metadataPermissionFixture) types.Result {
-				return builtinDeleteVerb(f.ctx, []types.Value{
+				return admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 					types.NewObj(f.target),
 					types.NewStr("existing"),
 				})
@@ -199,7 +199,7 @@ func TestObjectMetadataBuiltinsAllowOwnerObjectFlagAndWizard(t *testing.T) {
 func TestDeleteVerbPreservesNotFoundPrecedenceForUnauthorizedProgrammer(t *testing.T) {
 	for _, descriptor := range []types.Value{types.NewStr("missing"), types.NewInt(99)} {
 		f := newMetadataPermissionFixture(t, 0)
-		result := builtinDeleteVerb(f.ctx, []types.Value{
+		result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 			types.NewObj(f.target),
 			descriptor,
 		})
@@ -229,7 +229,7 @@ func TestDeleteVerbWithoutTransactionUsesAtomicLiveFallback(t *testing.T) {
 				f.ctx.Player = f.owner
 			}
 
-			result := builtinDeleteVerb(f.ctx, []types.Value{
+			result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 				types.NewObj(f.target),
 				types.NewStr("existing"),
 			})
@@ -265,7 +265,7 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 		t.Fatalf("staged object #%d unexpectedly exists in live store before denial", staged)
 	}
 
-	result := builtinDeleteVerb(f.ctx, []types.Value{
+	result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 		types.NewObj(f.target),
 		types.NewStr("existing"),
 	})
@@ -406,7 +406,7 @@ func TestAuthorizedDeleteVerbCommitsWithStagedTopologyAndSurvivorCode(t *testing
 				t.Fatalf("staged object #%d unexpectedly exists in live store before delete_verb", staged)
 			}
 
-			result := builtinDeleteVerb(f.ctx, []types.Value{
+			result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 				types.NewObj(f.target),
 				test.descriptor,
 			})
@@ -470,7 +470,7 @@ func TestDeleteVerbDeletesLoadedMultiAliasByResolvedDescriptor(t *testing.T) {
 			// The database loader retains the complete, space-separated names
 			// field as Verb.Name while also storing each alias in Verb.Names.
 			index := addMetadataTestVerb(t, f, "look l*ook glance", []string{"look", "l*ook", "glance"})
-			result := builtinDeleteVerb(f.ctx, []types.Value{
+			result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 				types.NewObj(f.target),
 				test.descriptor(index),
 			})
@@ -521,7 +521,7 @@ func TestDeleteVerbDeletesExactResolvedVerbWhenAliasesOverlap(t *testing.T) {
 			addMetadataTestVerb(t, f, "look", []string{"look", "glance"})
 			targetIndex := addMetadataTestVerb(t, f, "glance", []string{"glance", "peek"})
 
-			result := builtinDeleteVerb(f.ctx, []types.Value{
+			result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 				types.NewObj(f.target),
 				test.descriptor(targetIndex),
 			})

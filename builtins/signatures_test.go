@@ -75,7 +75,7 @@ func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
 		}
 	})
 
-	result := builtinDumpDatabase(ctx, nil)
+	result := admitTestBuiltin("dump_database", ctx, nil)
 	if !result.IsNormal() {
 		t.Fatalf("dump_database result = %+v, want normal", result)
 	}
@@ -91,7 +91,7 @@ func TestBuiltinDbDiskSizeUsesHostCapability(t *testing.T) {
 		host.DatabaseDiskSize = func() (int64, error) { return 4242, nil }
 	})
 
-	result := builtinDbDiskSize(ctx, nil)
+	result := admitTestBuiltin("db_disk_size", ctx, nil)
 	if !result.IsNormal() || result.Val.Int() != 4242 {
 		t.Fatalf("db_disk_size result = %+v, want 4242", result)
 	}
@@ -101,7 +101,7 @@ func TestBuiltinDbDiskSizeReportsUnavailableDatabase(t *testing.T) {
 	session := NewSession(NewRegistry(), NoHost())
 	ctx := newTestExecutionForSession(session)
 
-	result := builtinDbDiskSize(ctx, nil)
+	result := admitTestBuiltin("db_disk_size", ctx, nil)
 	if !result.IsError() || result.Error != types.E_QUOTA {
 		t.Fatalf("db_disk_size result = %+v, want E_QUOTA", result)
 	}
@@ -137,7 +137,7 @@ func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
 			ctx.IsWizard = tc.isWizard
 			wireTestTaskManager(ctx)
 
-			result := builtinFinishedTasks(ctx, tc.args)
+			result := admitTestBuiltin("finished_tasks", ctx, tc.args)
 			if tc.wantError != types.E_NONE {
 				if !result.IsError() || result.Error != tc.wantError {
 					t.Fatalf("finished_tasks result = %+v, want %s", result, tc.wantError)

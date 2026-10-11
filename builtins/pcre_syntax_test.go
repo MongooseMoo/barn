@@ -17,7 +17,7 @@ const mongooseURLRe = `(?:\w+://|www\.)[^ ,.?!#%=+][^ ]*(?<![.,;:!?)])`
 
 func pcreMatchList(t *testing.T, subject, pattern string, caseMatters, findAll int64) types.Value {
 	t.Helper()
-	res := builtinPcreMatch(newTestExecution(), []types.Value{
+	res := admitTestBuiltin("pcre_match", newTestExecution(), []types.Value{
 		types.NewStr(subject), types.NewStr(pattern), types.NewInt(caseMatters), types.NewInt(findAll),
 	})
 	if res.Error != types.E_NONE {
@@ -121,7 +121,7 @@ func TestPcreMatchPositionsAreCharacterPositions(t *testing.T) {
 }
 
 func TestPcreReplaceLookbehind(t *testing.T) {
-	res := builtinPcreReplace(newTestExecution(), []types.Value{
+	res := admitTestBuiltin("pcre_replace", newTestExecution(), []types.Value{
 		types.NewStr("price: $42"), types.NewStr(`s/(?<=\$)\d+/99/`),
 	})
 	if res.Error != types.E_NONE || res.Val.Str() != "price: $99" {

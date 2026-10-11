@@ -166,3 +166,10 @@ func builtinCallFunction(ctx *Execution, args []types.Value) types.Result {
 	}
 	return result
 }
+
+func signaturesDescriptors() []Descriptor {
+	return []Descriptor{
+		function("call_function", builtinCallFunction, 1, -1, 2),
+		function("function_info", builtinFunctionInfo, 0, 1, 2),
+	}
+}

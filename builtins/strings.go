@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,10 +20,6 @@ import (
 // length(map) -> int
 // For strings, returns the raw string length (number of characters), not decoded byte count
 func builtinLength(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	switch args[0].Type() {
 	case types.TYPE_STR:
 		// Characters, not bytes; ~XX escapes are not decoded.
@@ -42,20 +39,6 @@ func builtinLength(ctx *Execution, args []types.Value) types.Result {
 // builtinStrsub replaces all occurrences of old with new in subject
 // strsub(subject, old, new [, case_matters]) -> str
 func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 3 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[2].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	subj := args[0].Str()
 	oldStr := args[1].Str()
 	newStr := args[2].Str()
@@ -90,17 +73,6 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 // builtinIndex finds the first occurrence of needle in haystack
 // index(haystack, needle [, case_matters [, start]]) -> int
 func builtinIndex(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	caseSensitive := false
 	if len(args) >= 3 {
 		caseSensitive = args[2].Truthy()
@@ -165,17 +137,6 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 // rindex(haystack, needle [, case_matters [, offset]]) -> int
 // offset is 0 or negative; specifies end position for search (from end of string)
 func builtinRindex(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	caseSensitive := false
 	if len(args) >= 3 {
 		caseSensitive = args[2].Truthy()
@@ -234,17 +195,6 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 // builtinStrcmp compares two strings lexicographically (case-sensitive)
 // strcmp(str1, str2) -> int (negative, zero, or positive)
 func builtinStrcmp(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	cmp := strings.Compare(args[0].Str(), args[1].Str())
 	return types.Ok(types.NewInt(int64(cmp)))
 }
@@ -252,28 +202,12 @@ func builtinStrcmp(ctx *Execution, args []types.Value) types.Result {
 // builtinUpcase converts string to uppercase
 // upcase(str) -> str
 func builtinUpcase(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	return types.Ok(types.NewStr(strings.ToUpper(args[0].Str())))
 }
 
 // builtinDowncase converts string to lowercase
 // downcase(str) -> str
 func builtinDowncase(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	return types.Ok(types.NewStr(strings.ToLower(args[0].Str())))
 }
 
@@ -283,14 +217,6 @@ func builtinDowncase(ctx *Execution, args []types.Value) types.Result {
 // capitalize is not a ToastStunt C++ builtin; it is Barn-only.
 // capitalize(str) -> str
 func builtinCapitalize(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	s := args[0].Str()
 	if s == "" {
 		return types.Ok(types.NewStr(""))
@@ -303,14 +229,6 @@ func builtinCapitalize(ctx *Execution, args []types.Value) types.Result {
 // builtinExplode splits a string into a list of substrings
 // explode(str [, delimiter [, adjacent]]) -> list
 func builtinExplode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	s := args[0].Str()
 
 	delim := " "
@@ -351,13 +269,6 @@ func builtinExplode(ctx *Execution, args []types.Value) types.Result {
 // builtinImplode joins a list of strings into a single string
 // implode(list [, delimiter]) -> str
 func builtinImplode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	delimiter := ""
@@ -391,14 +302,6 @@ func builtinImplode(ctx *Execution, args []types.Value) types.Result {
 // builtinTrim removes leading and trailing characters
 // trim(str [, chars]) -> str
 func builtinTrim(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
@@ -415,14 +318,6 @@ func builtinTrim(ctx *Execution, args []types.Value) types.Result {
 // builtinLtrim removes leading characters
 // ltrim(str [, chars]) -> str
 func builtinLtrim(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
@@ -439,14 +334,6 @@ func builtinLtrim(ctx *Execution, args []types.Value) types.Result {
 // builtinRtrim removes trailing characters
 // rtrim(str [, chars]) -> str
 func builtinRtrim(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
@@ -467,20 +354,6 @@ func builtinRtrim(ctx *Execution, args []types.Value) types.Result {
 // builtinStrtr translates characters in a string
 // strtr(str, from, to [, case_matters]) -> str
 func builtinStrtr(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 3 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[2].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	caseSensitive := false
 	if len(args) == 4 {
 		caseSensitive = args[3].Truthy()
@@ -587,13 +460,6 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 // MOO-style regex matching. Returns {start, end, subs, subject} or {} if no match.
 // For now, implements a simplified version that handles basic patterns.
 func builtinMatch(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	subject := args[0].Str()
 
 	if args[1].Type() != types.TYPE_STR {
@@ -624,13 +490,6 @@ func builtinMatch(ctx *Execution, args []types.Value) types.Result {
 // builtinRmatch implements rmatch(subject, pattern [, case_matters]) -> list
 // Like match but finds the last occurrence.
 func builtinRmatch(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	subject := args[0].Str()
 
 	if args[1].Type() != types.TYPE_STR {
@@ -701,13 +560,6 @@ func isASCII(s string) bool {
 // Substitutes captured groups from match result into template.
 // Template syntax: %1, %2, etc. for captured groups, %% for literal %
 func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	template := args[0].Str()
 
 	if args[1].Type() != types.TYPE_LIST {
@@ -935,4 +787,26 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 		}
 	}
 	return result.String(), nil
+}
+
+func stringsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("length", builtinLength, 1, 1, -1),
+		function("strsub", builtinStrsub, 3, 4, 2, 2, 2, -1),
+		function("strtr", builtinStrtr, 3, 4, 2, 2, 2, -1),
+		function("index", builtinIndex, 2, 4, 2, 2, -1, 0),
+		function("rindex", builtinRindex, 2, 4, 2, 2, -1, 0),
+		function("strcmp", builtinStrcmp, 2, 2, 2, 2),
+		function("upcase", builtinUpcase, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("downcase", builtinDowncase, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("capitalize", builtinCapitalize, 1, 1, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("explode", builtinExplode, 1, 3, 2, 2, 0),
+		function("implode", builtinImplode, 1, 2, 4, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("trim", builtinTrim, 1, 2, 2, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("ltrim", builtinLtrim, 1, 2, 2, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("rtrim", builtinRtrim, 1, 2, 2, 2).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("match", builtinMatch, 2, 3, 2, 2, -1),
+		function("rmatch", builtinRmatch, 2, 3, 2, 2, -1),
+		function("substitute", builtinSubstitute, 2, 2, 2, 4),
+	}
 }

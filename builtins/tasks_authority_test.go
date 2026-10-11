@@ -43,7 +43,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	ctx.Player = 2
 	ctx.Verb = "probe"
 
-	result := builtinCallers(ctx, nil)
+	result := admitTestBuiltin("callers", ctx, nil)
 	if result.IsError() {
 		t.Fatalf("callers failed: %v", result.Error)
 	}
@@ -86,7 +86,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	manager.SuspendTask(taskValue, 100)
 	defer manager.RemoveTask(taskID)
 
-	result := builtinQueuedTasks(ctx, nil)
+	result := admitTestBuiltin("queued_tasks", ctx, nil)
 	if result.IsError() {
 		t.Fatalf("queued_tasks failed: %v", result.Error)
 	}
@@ -144,7 +144,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	defer manager.RemoveTask(programmerTwoTaskID)
 	defer manager.RemoveTask(programmerThreeTaskID)
 
-	plainResult := builtinQueuedTasks(wizard, nil)
+	plainResult := admitTestBuiltin("queued_tasks", wizard, nil)
 	if plainResult.IsError() {
 		t.Fatalf("queued_tasks() failed: %v", plainResult.Error)
 	}
@@ -162,7 +162,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatal("wizard queued_tasks() did not expose another programmer's task")
 	}
 
-	extendedResult := builtinQueuedTasks(wizard, []types.Value{types.NewInt(1)})
+	extendedResult := admitTestBuiltin("queued_tasks", wizard, []types.Value{types.NewInt(1)})
 	if extendedResult.IsError() {
 		t.Fatalf("queued_tasks(1) failed: %v", extendedResult.Error)
 	}
@@ -184,7 +184,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatal("wizard queued_tasks(1) did not expose another programmer's task")
 	}
 
-	extendedTwoArgResult := builtinQueuedTasks(
+	extendedTwoArgResult := admitTestBuiltin("queued_tasks",
 		wizard,
 		[]types.Value{types.NewInt(1), types.NewInt(0)},
 	)
@@ -214,7 +214,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	programmer.Registry = wizard.Registry
 	programmer.Session = wizard.Session
 
-	visibleResult := builtinQueuedTasks(programmer, nil)
+	visibleResult := admitTestBuiltin("queued_tasks", programmer, nil)
 	if visibleResult.IsError() {
 		t.Fatalf("programmer queued_tasks() failed: %v", visibleResult.Error)
 	}
@@ -231,7 +231,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatal("nonwizard queued_tasks() omitted its own programmer task")
 	}
 
-	countResult := builtinQueuedTasks(
+	countResult := admitTestBuiltin("queued_tasks",
 		programmer,
 		[]types.Value{types.NewInt(0), types.NewInt(1)},
 	)
@@ -269,7 +269,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 	manager.RegisterTask(taskValue)
 	defer manager.RemoveTask(taskID)
 
-	withLines := builtinTaskStack(ctx, []types.Value{
+	withLines := admitTestBuiltin("task_stack", ctx, []types.Value{
 		types.NewInt(taskID),
 		types.NewInt(1),
 		types.NewInt(1),
@@ -297,7 +297,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 		t.Fatalf("task_stack(id, 1, 1) alpha = %v, %v; want 2, true", alpha, ok)
 	}
 
-	withoutLines := builtinTaskStack(ctx, []types.Value{
+	withoutLines := admitTestBuiltin("task_stack", ctx, []types.Value{
 		types.NewInt(taskID),
 		types.NewInt(0),
 		types.NewInt(1),
@@ -313,7 +313,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 		t.Fatalf("task_stack(id, 0, 1) variables = %v, want %v", got, runtimeVariables)
 	}
 
-	withoutVariables := builtinTaskStack(ctx, []types.Value{
+	withoutVariables := admitTestBuiltin("task_stack", ctx, []types.Value{
 		types.NewInt(taskID),
 		types.NewInt(1),
 		types.NewInt(0),

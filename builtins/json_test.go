@@ -30,7 +30,7 @@ func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
 				if test.disabled {
 					want = `["~00~08~09~0a~0C~0d~1F~20~ff",{"~09":"~0a"},"~0a"]`
 				}
-				res := builtinGenerateJson(ctx, []types.Value{value, types.NewStr(mode), test.flag})
+				res := admitTestBuiltin("generate_json", ctx, []types.Value{value, types.NewStr(mode), test.flag})
 				if res.IsError() || res.Val.Str() != want {
 					t.Fatalf("generate_json = %v (%v), want %s", res.Val, res.Error, want)
 				}
@@ -39,13 +39,13 @@ func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
 	}
 	for _, mode := range []string{"", "pretty", "pretty-embedded", "not-embedded-types", "common-subset "} {
 		t.Run("invalid/"+mode, func(t *testing.T) {
-			res := builtinGenerateJson(ctx, []types.Value{types.NewInt(1), types.NewStr(mode)})
+			res := admitTestBuiltin("generate_json", ctx, []types.Value{types.NewInt(1), types.NewStr(mode)})
 			if !res.IsError() || res.Error != types.E_INVARG {
 				t.Fatalf("generate_json = %v (%v), want E_INVARG", res.Val, res.Error)
 			}
 		})
 	}
-	res := builtinGenerateJson(ctx, []types.Value{types.NewStr("~0a")})
+	res := admitTestBuiltin("generate_json", ctx, []types.Value{types.NewStr("~0a")})
 	if res.IsError() || res.Val.Str() != `"\n"` {
 		t.Fatalf("default generate_json = %v (%v)", res.Val, res.Error)
 	}
@@ -59,7 +59,7 @@ func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
 func TestParseJsonNullMapsToENone(t *testing.T) {
 	ctx := newTestExecution()
 
-	res := builtinParseJson(ctx, []types.Value{types.NewStr(`null`)})
+	res := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(`null`)})
 	if res.IsError() {
 		t.Fatalf("parse_json(null) failed: %v", res.Error)
 	}
@@ -70,7 +70,7 @@ func TestParseJsonNullMapsToENone(t *testing.T) {
 		t.Fatalf("parse_json(null) = %v, want E_NONE", res.Val.Code())
 	}
 
-	res = builtinParseJson(ctx, []types.Value{types.NewStr(`[null]`)})
+	res = admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(`[null]`)})
 	if res.IsError() {
 		t.Fatalf("parse_json([null]) failed: %v", res.Error)
 	}
@@ -104,7 +104,7 @@ func TestParseJsonToastEscapeSemantics(t *testing.T) {
 	ctx := newTestExecution()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res := builtinParseJson(ctx, []types.Value{types.NewStr(test.json)})
+			res := admitTestBuiltin("parse_json", ctx, []types.Value{types.NewStr(test.json)})
 			if res.IsError() {
 				t.Fatalf("parse_json(%q) failed: %v", test.json, res.Error)
 			}

@@ -1081,3 +1081,37 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	}
 	return types.Ok(types.NewList(out))
 }
+
+func fileioDescriptors() []Descriptor {
+	return []Descriptor{
+		function("file_open", builtinFileOpen, 2, 2, 2, 2).withEffect(Irreversible),
+		function("file_close", builtinFileClose, 1, 1, 0).withEffect(Irreversible),
+		function("file_name", builtinFileName, 1, 1, 0),
+		function("file_openmode", builtinFileOpenmode, 1, 1, 0),
+		function("file_read", builtinFileRead, 2, 2, 0, 0).withEffect(Irreversible),
+		function("file_readline", builtinFileReadline, 1, 1, 0).withEffect(Irreversible),
+		function("file_readlines", builtinFileReadlines, 3, 3, 0, 0, 0).withEffect(Irreversible),
+		function("file_write", builtinFileWrite, 2, 2, 0, 2).withEffect(Irreversible),
+		function("file_writeline", builtinFileWriteline, 2, 2, 0, 2).withEffect(Irreversible),
+		function("file_flush", builtinFileFlush, 1, 1, 0).withEffect(Irreversible),
+		function("file_seek", builtinFileSeek, 3, 3, 0, 0, 2).withEffect(Irreversible),
+		function("file_tell", builtinFileTell, 1, 1, 0),
+		function("file_eof", builtinFileEOF, 1, 1, 0),
+		function("file_size", builtinFileSize, 1, 1, -1),
+		function("file_mode", builtinFileMode, 1, 1, -1),
+		function("file_last_access", builtinFileLastAccess, 1, 1, -1),
+		function("file_last_change", builtinFileLastChange, 1, 1, -1),
+		function("file_last_modify", builtinFileLastModify, 1, 1, -1),
+		function("file_stat", builtinFileStat, 1, 1, -1),
+		function("file_type", builtinFileType, 1, 1, -1),
+		function("file_remove", builtinFileRemove, 1, 1, 2).withEffect(Irreversible),
+		function("file_rename", builtinFileRename, 2, 2, 2, 2).withEffect(Irreversible),
+		function("file_mkdir", builtinFileMkdir, 1, 1, 2).withEffect(Irreversible),
+		function("file_rmdir", builtinFileRmdir, 1, 1, 2).withEffect(Irreversible),
+		function("file_chmod", builtinFileChmod, 2, 2, 2, 2).withEffect(Irreversible),
+		function("file_list", builtinFileList, 1, 2, 2, -1),
+		function("file_handles", builtinFileHandles, 0, 0),
+		function("file_count_lines", builtinFileCountLines, 1, 1, 0),
+		function("file_grep", builtinFileGrep, 2, 3, 0, 2, 0),
+	}
+}

@@ -44,10 +44,6 @@ func unparsePrepSpec(prepStr string) string {
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
 func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -89,10 +85,6 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
 func builtinVerbs(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -127,10 +119,6 @@ func builtinVerbs(ctx *Execution, args []types.Value) types.Result {
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -190,10 +178,6 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -247,10 +231,6 @@ func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
 // Returns verb source code as list of lines.
 // name-or-index can be a string (verb name) or integer (1-based verb index).
 func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -472,10 +452,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -669,10 +645,6 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -860,10 +832,6 @@ func validVerbPerms(s string) bool {
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
 func builtinDisassemble(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -926,4 +894,20 @@ func builtinDisassemble(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+func verbsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("respond_to", builtinRespondTo, 2, 2, -1, 2),
+		function("verbs", builtinVerbs, 1, 1, -1),
+		function("verb_info", builtinVerbInfo, 2, 2, -1, -1),
+		function("verb_args", builtinVerbArgs, 2, 2, -1, -1),
+		function("verb_code", builtinVerbCode, 2, 4, -1, -1, -1, -1),
+		function("add_verb", builtinAddVerb, 3, 3, -1, 4, 4),
+		function("delete_verb", builtinDeleteVerb, 2, 2, -1, -1),
+		function("set_verb_info", builtinSetVerbInfo, 3, 3, -1, -1, 4),
+		function("set_verb_args", builtinSetVerbArgs, 3, 3, -1, -1, 4),
+		function("set_verb_code", builtinSetVerbCode, 3, 3, -1, -1, 4),
+		function("disassemble", builtinDisassemble, 2, 2, -1, -1),
+	}
 }

@@ -105,7 +105,7 @@ func TestSubstituteRejectsMalformedMatchData(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res := builtinSubstitute(ctx, []types.Value{template, tc.match})
+			res := admitTestBuiltin("substitute", ctx, []types.Value{template, tc.match})
 			if res.Flow != types.FlowException || res.Error != types.E_INVARG {
 				t.Fatalf("builtinSubstitute = flow %v error %v value %v, want E_INVARG", res.Flow, res.Error, res.Val)
 			}
@@ -126,7 +126,7 @@ func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
 		types.NewStr("abc"),
 	})
 
-	res := builtinSubstitute(ctx, []types.Value{types.NewStr("group=[%1]"), match})
+	res := admitTestBuiltin("substitute", ctx, []types.Value{types.NewStr("group=[%1]"), match})
 	if res.Flow != types.FlowNormal {
 		t.Fatalf("builtinSubstitute flow = %v error = %v, want normal", res.Flow, res.Error)
 	}
@@ -137,7 +137,7 @@ func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
 }
 
 func TestRindexNegativeOffsetBeforeNeedleReturnsZero(t *testing.T) {
-	result := builtinRindex(newTestExecution(), []types.Value{
+	result := admitTestBuiltin("rindex", newTestExecution(), []types.Value{
 		types.NewStr("aaaa"),
 		types.NewStr("aa"),
 		types.NewInt(0),

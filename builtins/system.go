@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/MongooseMoo/barn/config"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -27,10 +28,6 @@ import (
 // Returns environment variable value or 0 if not found
 // Requires wizard permissions
 func builtinGetenv(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -64,10 +61,6 @@ func builtinGetenv(ctx *Execution, args []types.Value) types.Result {
 // Returns the task-local storage for the current task
 // Requires wizard permissions
 func builtinTaskLocal(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -87,10 +80,6 @@ func builtinTaskLocal(ctx *Execution, args []types.Value) types.Result {
 // Sets the task-local storage for the current task
 // Requires wizard permissions
 func builtinSetTaskLocal(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -110,10 +99,6 @@ func builtinSetTaskLocal(ctx *Execution, args []types.Value) types.Result {
 // builtinTaskID implements task_id()
 // Returns the current task's ID
 func builtinTaskID(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if ctx.TaskID > 0 {
 		return types.Ok(types.NewInt(ctx.TaskID))
 	}
@@ -127,10 +112,6 @@ func builtinTaskID(ctx *Execution, args []types.Value) types.Result {
 // builtinTicksLeft implements ticks_left()
 // Returns the number of ticks remaining for the current task
 func builtinTicksLeft(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if ctx.TicksRemaining > 0 {
 		return types.Ok(types.NewInt(ctx.TicksRemaining))
 	}
@@ -150,10 +131,6 @@ func builtinTicksLeft(ctx *Execution, args []types.Value) types.Result {
 // builtinSecondsLeft implements seconds_left()
 // Returns the number of seconds remaining for the current task
 func builtinSecondsLeft(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Get from task if available
 	if t := ctx.Task; t != nil {
 		left := int64(t.SecondsLeft())
@@ -168,10 +145,6 @@ func builtinSecondsLeft(ctx *Execution, args []types.Value) types.Result {
 // Executes external command and returns {exit_code, stdout, stderr}
 // Requires wizard permissions
 func builtinExec(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -473,9 +446,6 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 // builtinTime implements time()
 // Returns the current time as a Unix timestamp (seconds since epoch)
 func builtinTime(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	return types.Ok(types.NewInt(time.Now().Unix()))
 }
 
@@ -501,9 +471,6 @@ func builtinFtime(ctx *Execution, args []types.Value) types.Result {
 // builtinCtime implements ctime([time])
 // Converts a Unix timestamp to a human-readable string
 func builtinCtime(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
 	timestamp := time.Now().Unix()
 	if len(args) == 1 {
 		if args[0].Type() == types.TYPE_INT {
@@ -705,10 +672,6 @@ func builtinServerLog(ctx *Execution, args []types.Value) types.Result {
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
 func builtinLoadServerOptions(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check wizard permissions
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -770,9 +733,6 @@ func builtinResetMaxObject(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinUsage(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -795,9 +755,6 @@ func builtinUsage(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinMallocStats(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	result := []types.Value{
@@ -813,9 +770,6 @@ func builtinMallocStats(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	stats, err := readProcessMemory()
 	if err != nil {
 		return types.Err(processMemoryErrorCode(err))
@@ -831,9 +785,6 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinLogCacheStats(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -842,9 +793,6 @@ func builtinLogCacheStats(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinDbDiskSize(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	measure := hostOf(ctx).DatabaseDiskSize
 	if measure == nil {
 		return types.Err(types.E_QUOTA)
@@ -857,9 +805,6 @@ func builtinDbDiskSize(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -879,15 +824,6 @@ func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if args[1].Type() != types.TYPE_INT {
-		return types.Err(types.E_TYPE)
-	}
 	delay := args[1].Int()
 	if delay < 0 {
 		return types.Err(types.E_INVARG)
@@ -942,9 +878,6 @@ func builtinShutdown(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinReadStdin(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	t := ctx.Task
 	if t == nil {
 		return types.Err(types.E_INVARG)
@@ -966,12 +899,6 @@ func builtinReadStdin(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinSpellcheck(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	switch args[0].Str() {
 	case "the":
 		return types.Ok(types.NewInt(1))
@@ -979,5 +906,35 @@ func builtinSpellcheck(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewList([]types.Value{types.NewStr("the")}))
 	default:
 		return types.Ok(types.NewList([]types.Value{}))
+	}
+}
+
+func systemDescriptors() []Descriptor {
+	return []Descriptor{
+		function("background_test", builtinBackgroundTest, 2, 2, 2, 0).plainArityError().withCapability(config.BackgroundTasks),
+		function("db_disk_size", builtinDbDiskSize, 0, 0),
+		function("dump_database", builtinDumpDatabase, 0, 0).withEffect(CommitGateReentrant),
+		function("getenv", builtinGetenv, 1, 1, 2),
+		function("read_stdin", builtinReadStdin, 0, 0).hidden().withEffect(Irreversible).withCapability(config.ProcessStdin),
+		function("spellcheck", builtinSpellcheck, 1, 1, 2),
+		function("shutdown", builtinShutdown, 0, 2, 2, -1).withEffect(CommitGateReentrant),
+		function("task_local", builtinTaskLocal, 0, 0),
+		function("set_task_local", builtinSetTaskLocal, 1, 1, -1),
+		function("task_id", builtinTaskID, 0, 0),
+		function("ticks_left", builtinTicksLeft, 0, 0),
+		function("seconds_left", builtinSecondsLeft, 0, 0),
+		function("usage", builtinUsage, 0, 0),
+		function("malloc_stats", builtinMallocStats, 0, 0).plainArityError().withCapability(config.AllocatorStats),
+		function("memory_usage", builtinMemoryUsage, 0, 0),
+		function("log_cache_stats", builtinLogCacheStats, 0, 0),
+		function("exec", builtinExec, 1, 3, 4, 2, 4).withEffect(Irreversible),
+		function("server_log", builtinServerLog, 1, 2, 2, -1).withEffect(Irreversible),
+		function("server_version", builtinServerVersion, 0, 1, -1),
+		function("time", builtinTime, 0, 0),
+		function("ftime", builtinFtime, 0, 1, 0),
+		function("ctime", builtinCtime, 0, 1, 0),
+		function("load_server_options", builtinLoadServerOptions, 0, 0),
+		function("verb_cache_stats", builtinVerbCacheStats, 0, 0),
+		function("reset_max_object", builtinResetMaxObject, 0, 0).withEffect(Irreversible),
 	}
 }

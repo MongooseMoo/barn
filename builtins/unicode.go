@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"fmt"
+	"github.com/MongooseMoo/barn/config"
 	"strconv"
 	"strings"
 	"sync"
@@ -329,4 +330,16 @@ func builtinGraphemes(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(err)
 	}
 	return types.Ok(result)
+}
+
+func unicodeDescriptors() []Descriptor {
+	return []Descriptor{
+		function("ord", builtinOrd, 1, 1, 2).withCapability(config.BarnExtensions),
+		function("tochar", builtinTochar, 1, 1, -1).withCapability(config.BarnExtensions),
+		function("charname", builtinCharname, 1, 1, 2).withCapability(config.BarnExtensions),
+		function("encode_chars", builtinEncodeChars, 2, 2, -1, 2).withCapability(config.BarnExtensions),
+		function("decode_chars", builtinDecodeChars, 2, 3, 2, 2, -1).withCapability(config.BarnExtensions),
+		function("string_width", builtinStringWidth, 1, 1, 2).withCapability(config.BarnExtensions),
+		function("graphemes", builtinGraphemes, 1, 1, 2).withCapability(config.BarnExtensions),
+	}
 }

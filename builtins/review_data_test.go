@@ -35,7 +35,7 @@ func reviewDataCtx() *Execution {
 // regression that would diverge from Toast.
 func TestReview_Data_AbsMinInt64Overflow(t *testing.T) {
 	ctx := reviewDataCtx()
-	result := builtinAbs(ctx, []types.Value{types.NewInt(math.MinInt64)})
+	result := admitTestBuiltin("abs", ctx, []types.Value{types.NewInt(math.MinInt64)})
 	if !result.IsNormal() {
 		t.Fatalf("abs(MinInt64) returned error %v, want value MinInt64 (Toast returns it unchanged)", result.Error)
 	}
@@ -53,7 +53,7 @@ func TestReview_Data_AbsMinInt64Overflow(t *testing.T) {
 func TestReview_Data_UniqueStrCaseInsensitive(t *testing.T) {
 	ctx := reviewDataCtx()
 	list := types.NewList([]types.Value{types.NewStr("hello"), types.NewStr("HELLO")})
-	result := builtinUnique(ctx, []types.Value{list})
+	result := admitTestBuiltin("unique", ctx, []types.Value{list})
 	if !result.IsNormal() {
 		t.Fatalf("unique returned error: %v", result.Error)
 	}
@@ -73,7 +73,7 @@ func TestReview_Data_IsMemberStrCaseSensitive(t *testing.T) {
 	list := types.NewList([]types.Value{types.NewStr("hello")})
 
 	// Case mismatch -> not found (case-sensitive).
-	miss := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
+	miss := admitTestBuiltin("is_member", ctx, []types.Value{types.NewStr("HELLO"), list})
 	if !miss.IsNormal() {
 		t.Fatalf("is_member returned error: %v", miss.Error)
 	}
@@ -82,7 +82,7 @@ func TestReview_Data_IsMemberStrCaseSensitive(t *testing.T) {
 	}
 
 	// Exact case -> found at position 1.
-	hit := builtinIsMember(ctx, []types.Value{types.NewStr("hello"), list})
+	hit := admitTestBuiltin("is_member", ctx, []types.Value{types.NewStr("hello"), list})
 	if !hit.IsNormal() {
 		t.Fatalf("is_member returned error: %v", hit.Error)
 	}
@@ -100,7 +100,7 @@ func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
 
 	// setadd sees "HELLO" as already present (case-insensitive match).
 	list := types.NewList([]types.Value{types.NewStr("hello")})
-	saResult := builtinSetadd(ctx, []types.Value{list, types.NewStr("HELLO")})
+	saResult := admitTestBuiltin("setadd", ctx, []types.Value{list, types.NewStr("HELLO")})
 	if !saResult.IsNormal() {
 		t.Fatalf("setadd returned error: %v", saResult.Error)
 	}
@@ -111,7 +111,7 @@ func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
 
 	// unique must also collapse {"hello","HELLO"} to one element.
 	dupeList := types.NewList([]types.Value{types.NewStr("hello"), types.NewStr("HELLO")})
-	uqResult := builtinUnique(ctx, []types.Value{dupeList})
+	uqResult := admitTestBuiltin("unique", ctx, []types.Value{dupeList})
 	if !uqResult.IsNormal() {
 		t.Fatalf("unique returned error: %v", uqResult.Error)
 	}
@@ -126,7 +126,7 @@ func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
 func TestReview_Data_SortReverseIgnored(t *testing.T) {
 	ctx := reviewDataCtx()
 	list := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2), types.NewInt(3)})
-	result := builtinSort(ctx, []types.Value{
+	result := admitTestBuiltin("sort", ctx, []types.Value{
 		list,
 		types.NewList([]types.Value{}), // keys (empty = identity)
 		types.NewInt(0),                // natural
@@ -158,7 +158,7 @@ func TestReview_Data_SortReverseIgnored(t *testing.T) {
 func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 	ctx := reviewDataCtx()
 	// Empty subject + an empty-string-matching pattern: Toast returns {}.
-	result := builtinPcreMatch(ctx, []types.Value{
+	result := admitTestBuiltin("pcre_match", ctx, []types.Value{
 		types.NewStr(""),   // subject
 		types.NewStr(".*"), // pattern (matches "" in PCRE, but loop never runs)
 	})
@@ -175,7 +175,7 @@ func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 	// A genuine non-match on a NON-empty subject must also return {} (loop runs,
 	// pcre2_match returns NOMATCH, break -> empty list). Confirms the empty-subject
 	// short-circuit isn't masking the normal non-match path.
-	nm := builtinPcreMatch(ctx, []types.Value{
+	nm := admitTestBuiltin("pcre_match", ctx, []types.Value{
 		types.NewStr("foobar"),
 		types.NewStr("baz"),
 	})
@@ -207,7 +207,7 @@ func TestReview_Data_CapitalizeDeprecatedTitle(t *testing.T) {
 		{"123abc", "123abc"},           // non-letter first char left as-is
 	}
 	for _, c := range cases {
-		result := builtinCapitalize(ctx, []types.Value{types.NewStr(c.in)})
+		result := admitTestBuiltin("capitalize", ctx, []types.Value{types.NewStr(c.in)})
 		if !result.IsNormal() {
 			t.Fatalf("capitalize(%q) returned error: %v", c.in, result.Error)
 		}
@@ -233,7 +233,7 @@ func TestReview_Data_MapkeysActualOrder(t *testing.T) {
 		{types.NewObj(5), types.NewInt(4)},
 		{types.NewErr(types.E_PERM), types.NewInt(5)},
 	})
-	result := builtinMapkeys(ctx, []types.Value{m})
+	result := admitTestBuiltin("mapkeys", ctx, []types.Value{m})
 	if !result.IsNormal() {
 		t.Fatalf("mapkeys returned error: %v", result.Error)
 	}

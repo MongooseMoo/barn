@@ -193,7 +193,7 @@ func TestSaltBcryptPrefixesMatchToast(t *testing.T) {
 	ctx := newTestExecution()
 	for _, prefix := range []string{"$2a$", "$2y$"} {
 		t.Run(prefix, func(t *testing.T) {
-			result := builtinSalt(ctx, []types.Value{
+			result := admitTestBuiltin("salt", ctx, []types.Value{
 				types.NewStr(prefix + "05$"),
 				types.NewStr("1234567890123456"),
 			})
@@ -209,7 +209,7 @@ func TestSaltBcryptPrefixesMatchToast(t *testing.T) {
 
 	for _, prefix := range []string{"$2b$", "$2x$"} {
 		t.Run(prefix, func(t *testing.T) {
-			result := builtinSalt(ctx, []types.Value{
+			result := admitTestBuiltin("salt", ctx, []types.Value{
 				types.NewStr(prefix + "05$"),
 				types.NewStr("1234567890123456"),
 			})
@@ -227,7 +227,7 @@ func TestSaltBcryptCostWidthMatchesToast(t *testing.T) {
 
 	for _, prefix := range []string{"$2a$", "$2y$"} {
 		t.Run(prefix+"leading_zero", func(t *testing.T) {
-			result := builtinSalt(ctx, []types.Value{
+			result := admitTestBuiltin("salt", ctx, []types.Value{
 				types.NewStr(prefix + "004$"),
 				types.NewStr(randomData),
 			})
@@ -241,7 +241,7 @@ func TestSaltBcryptCostWidthMatchesToast(t *testing.T) {
 		})
 
 		t.Run(prefix+"one_digit", func(t *testing.T) {
-			result := builtinSalt(ctx, []types.Value{
+			result := admitTestBuiltin("salt", ctx, []types.Value{
 				types.NewStr(prefix + "4$"),
 				types.NewStr(randomData),
 			})

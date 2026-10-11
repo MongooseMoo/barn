@@ -9,7 +9,7 @@ import (
 // The dispatch hot path answers "is this builtin protected?" from a by-ID
 // projection of the by-name snapshot. Both views must agree across refreshes.
 func TestProtectedByIDMatchesByName(t *testing.T) {
-	registry, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), append(BaseDescriptors(), testDescriptor("late_test_builtin")))
+	registry, err := NewRegistryFromDescriptors(config.DefaultCapabilities(), append(Descriptors(), testDescriptor("late_test_builtin")))
 	if err != nil {
 		t.Fatal(err)
 	}

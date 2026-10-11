@@ -590,10 +590,6 @@ func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.Err
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
 func builtinValid(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Waifs are never valid
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Ok(types.NewInt(0))
@@ -621,12 +617,17 @@ func builtinValid(ctx *Execution, args []types.Value) types.Result {
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object as an object value.
 func builtinMaxObject(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Read through the transaction so a decentralized create() staged earlier in this
 	// verb is visible to max_object() (read-your-writes).
 	maxID := readTxn(ctx).MaxObject()
 	return types.Ok(types.NewObj(types.ObjID(maxID)))
+}
+
+func objectsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("create", builtinCreate, 1, 4, -1, -1, -1, -1),
+		function("recycle", builtinRecycle, 1, 1, -1),
+		function("valid", builtinValid, 1, 1, -1),
+		function("max_object", builtinMaxObject, 0, 0),
+	}
 }

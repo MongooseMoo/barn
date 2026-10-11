@@ -226,7 +226,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 		}
 		return types.Ok(types.NewInt(0))
 	}
-	descriptors := builtins.BaseDescriptors()
+	descriptors := builtins.Descriptors()
 	for i := range descriptors {
 		if descriptors[i].Name == "recycle" {
 			descriptors[i].Implementation = recycle

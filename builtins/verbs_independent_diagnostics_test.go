@@ -10,7 +10,7 @@ import (
 func TestSetVerbCodeReturnsOrderedDiagnosticsAndPreservesBody(t *testing.T) {
 	ctx, store, object := b2aTestContext(t)
 	for range 2 {
-		result := builtinSetVerbCode(ctx, []types.Value{types.NewObj(object), types.NewStr("scratch"), types.NewList([]types.Value{types.NewStr("break;"), types.NewStr("continue;")})})
+		result := admitTestBuiltin("set_verb_code", ctx, []types.Value{types.NewObj(object), types.NewStr("scratch"), types.NewList([]types.Value{types.NewStr("break;"), types.NewStr("continue;")})})
 		if result.IsError() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 2 {
 			t.Fatalf("result = %v", result)
 		}

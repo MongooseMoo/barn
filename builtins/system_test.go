@@ -50,7 +50,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 		t.Fatalf("DefineProperty protect_create failed: %s", errCode)
 	}
 
-	result := builtinLoadServerOptions(ctx, nil)
+	result := admitTestBuiltin("load_server_options", ctx, nil)
 	if result.Flow != types.FlowNormal {
 		t.Fatalf("load_server_options result = flow %v err %v, want return", result.Flow, result.Error)
 	}

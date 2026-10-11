@@ -10,9 +10,6 @@ import (
 )
 
 func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
 	subject := args[0]
 	pattern := args[1]
 	ok1 := subject.Type() == types.TYPE_STR
@@ -181,9 +178,6 @@ func buildPcreCapture(subject string, offsets []int, g *regexp2.Group) types.Val
 }
 
 func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
 	subject := args[0]
 	spec := args[1]
 	ok1 := subject.Type() == types.TYPE_STR
@@ -287,11 +281,16 @@ func readDelimited(s string, start int, delim byte) (string, int, bool) {
 }
 
 func builtinPcreCacheStats(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewInt(0)}))
+}
+
+func pcreDescriptors() []Descriptor {
+	return []Descriptor{
+		function("pcre_cache_stats", builtinPcreCacheStats, 0, 0),
+		function("pcre_match", builtinPcreMatch, 2, 4, 2, 2, 0, 0),
+		function("pcre_replace", builtinPcreReplace, 2, 2, 2, 2),
+	}
 }

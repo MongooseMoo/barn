@@ -3,6 +3,7 @@ package builtins
 import (
 	"sort"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -10,10 +11,6 @@ import (
 )
 
 func builtinRead(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if len(args) == 0 {
 		if t := ctx.Task; t != nil && (t.Kind == task.TaskForked || t.IsForked || t.ForkInfo != nil) {
 			return types.Ok(types.NewErr(types.E_PERM))
@@ -73,9 +70,6 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinFlushInput(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
 	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
@@ -87,9 +81,6 @@ func builtinFlushInput(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinForceInput(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
 	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
@@ -121,10 +112,6 @@ func inputReceipt(ctx *Execution) func() {
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// The no-argument form describes the current connection and therefore uses
 	// Player as its default target, never as an authority source.
 	target := ctx.Player
@@ -162,10 +149,6 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 }
 
 func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
@@ -210,10 +193,6 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinOutputDelimiters(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
@@ -365,4 +344,18 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewObj(conn))
+}
+
+func connectionDescriptors() []Descriptor {
+	return []Descriptor{
+		function("listen", builtinListen, 2, 3, 1, -1, 10).withEffect(Irreversible).withCapability(config.Network),
+		function("unlisten", builtinUnlisten, 1, 2, -1, -1).withEffect(Irreversible).withCapability(config.Network),
+		function("connection_options", builtinConnectionOptions, 1, 2, 1, 2),
+		function("open_network_connection", builtinOpenNetworkConnection, 2, 3, 2, 0, 10).withEffect(Irreversible).withCapability(config.Network),
+		function("flush_input", builtinFlushInput, 1, 2, 1, -1).withEffect(Irreversible),
+		function("force_input", builtinForceInput, 2, 3, 1, 2, -1).withEffect(Irreversible),
+		function("read", builtinRead, 0, 2, 1, -1),
+		function("buffered_output_length", builtinBufferedOutputLength, 0, 1, 1),
+		function("output_delimiters", builtinOutputDelimiters, 1, 1, 1),
+	}
 }

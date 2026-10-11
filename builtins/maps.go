@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -14,26 +15,12 @@ import (
 // traversal, so re-sorting here would diverge (CompareMapKeys ranks err/float
 // and bool/str opposite Toast's runtime type ordinals).
 func builtinMapkeys(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_MAP {
-		return types.Err(types.E_TYPE)
-	}
 	return types.Ok(types.NewList(args[0].Keys()))
 }
 
 // builtinMapvalues returns a list of all values in the map, sorted by key order
 // mapvalues(map) -> list
 func builtinMapvalues(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_MAP {
-		return types.Err(types.E_TYPE)
-	}
 	m := args[0]
 
 	// mapvalues(map, key1, key2, ...) -> list of selected values in arg order.
@@ -64,13 +51,6 @@ func builtinMapvalues(ctx *Execution, args []types.Value) types.Result {
 // builtinMapdelete returns a new map with the key removed
 // mapdelete(map, key) -> map
 func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_MAP {
-		return types.Err(types.E_TYPE)
-	}
 	m := args[0]
 
 	keyOrList := args[1]
@@ -126,13 +106,6 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 // builtinMaphaskey tests if a key exists in the map
 // maphaskey(map, key) -> int (1 if found, 0 if not)
 func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_MAP {
-		return types.Err(types.E_TYPE)
-	}
 	m := args[0]
 
 	key := args[1]
@@ -160,10 +133,6 @@ func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
 // builtinMapmerge merges two maps (map2 values override map1 on duplicates)
 // mapmerge(map1, map2) -> map
 func builtinMapmerge(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if args[0].Type() != types.TYPE_MAP || args[1].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
@@ -184,4 +153,14 @@ func builtinMapmerge(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(result)
+}
+
+func mapsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("mapkeys", builtinMapkeys, 1, 1, 10),
+		function("mapvalues", builtinMapvalues, 1, -1, 10),
+		function("mapdelete", builtinMapdelete, 2, 2, 10, -1),
+		function("maphaskey", builtinMaphaskey, 2, 3, 10, -1, 0),
+		function("mapmerge", builtinMapmerge, 2, 2, 10, 10).plainArityError().hidden().withCapability(config.BarnExtensions),
+	}
 }

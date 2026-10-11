@@ -13,10 +13,6 @@ import (
 // builtinTypeof returns the type code of a value
 // typeof(value) -> int (TYPE_INT=0, TYPE_OBJ=1, TYPE_STR=2, etc.)
 func builtinTypeof(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	return types.Ok(types.NewInt(int64(args[0].Type())))
 }
 
@@ -100,10 +96,6 @@ func valueToStr(val types.Value) string {
 // toint(obj) -> int (object ID)
 // toint(int) -> int (identity)
 func builtinToint(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	val := args[0]
 
 	switch val.Type() {
@@ -160,10 +152,6 @@ func builtinToint(ctx *Execution, args []types.Value) types.Result {
 // tofloat(str) -> float (parse string as float)
 // tofloat(float) -> float (identity)
 func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	val := args[0]
 
 	switch val.Type() {
@@ -212,10 +200,6 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 // builtinToliteral converts a value to its MOO literal string representation
 // toliteral(value) -> str
 func builtinToliteral(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	resultStr := publicLiteral(args[0])
 
 	// Check string length limit (update from load_server_options cache first)
@@ -258,10 +242,6 @@ func publicLiteral(value types.Value) string {
 // toobj(str) -> obj (parse "#123" format)
 // toobj(obj) -> obj (identity)
 func builtinToobj(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	val := args[0]
 
 	switch val.Type() {
@@ -308,10 +288,6 @@ func builtinToobj(ctx *Execution, args []types.Value) types.Result {
 // equal(val1, val2) -> bool
 // For maps, this is case-SENSITIVE (unlike == operator)
 func builtinEqual(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if strictEqual(args[0], args[1]) {
 		return types.Ok(types.NewInt(1))
 	}
@@ -428,3 +404,15 @@ func comparePairKeys(a, b types.Value) int {
 
 // listToString converts a list value to its MOO string representation
 // mapToString converts a map value to its MOO string representation
+
+func typesDescriptors() []Descriptor {
+	return []Descriptor{
+		function("typeof", builtinTypeof, 1, 1, -1),
+		function("tostr", builtinTostr, 0, -1),
+		function("toint", builtinToint, 1, 1, -1),
+		function("tofloat", builtinTofloat, 1, 1, -1),
+		function("toliteral", builtinToliteral, 1, 1, -1),
+		function("toobj", builtinToobj, 1, 1, -1),
+		function("equal", builtinEqual, 2, 2, -1, -1),
+	}
+}

@@ -104,7 +104,7 @@ func TestOpenNetworkConnectionDisabledReturnsPerm(t *testing.T) {
 func TestCurlDisabledReturnsPerm(t *testing.T) {
 	ctx := runtimeOptionCtx(config.Options{OutboundNetwork: false})
 
-	result := builtinCurl(ctx, []types.Value{types.NewStr("http://127.0.0.1/")})
+	result := admitTestBuiltin("curl", ctx, []types.Value{types.NewStr("http://127.0.0.1/")})
 	if result.Flow != types.FlowException || result.Error != types.E_PERM {
 		t.Fatalf("curl result = flow %v error %s, want E_PERM", result.Flow, result.Error)
 	}

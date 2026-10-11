@@ -47,7 +47,7 @@ func TestSetVerbCodeAccepts255And256DistinctStaticNames(t *testing.T) {
 					for i, line := range source {
 						values[i] = types.NewStr(line)
 					}
-					result := builtinSetVerbCode(ctx, []types.Value{
+					result := admitTestBuiltin("set_verb_code", ctx, []types.Value{
 						types.NewObj(objID),
 						types.NewStr("scratch"),
 						types.NewList(values),

@@ -181,7 +181,7 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	defer mgr.RemoveTask(earlierID)
 	defer mgr.RemoveTask(laterID)
 
-	res := builtinQueuedTasks(ctx, []types.Value{})
+	res := admitTestBuiltin("queued_tasks", ctx, []types.Value{})
 	if res.IsError() {
 		t.Fatalf("queued_tasks() error: %v", res.Error)
 	}
@@ -276,7 +276,7 @@ func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
 		t.Fatalf("indefinite-suspended task reported WakeDue=true; it must never auto-wake")
 	}
 
-	res := builtinQueuedTasks(ctx, []types.Value{})
+	res := admitTestBuiltin("queued_tasks", ctx, []types.Value{})
 	if res.IsError() {
 		t.Fatalf("queued_tasks() error: %v", res.Error)
 	}

@@ -10,7 +10,7 @@ import (
 func TestDescriptorDispatchAdmissionParity(t *testing.T) {
 	// Controlled implementations isolate argument admission from permissions,
 	// object validity, external resources, and implementation-owned checks.
-	descriptors := BaseDescriptors()
+	descriptors := Descriptors()
 	for i := range descriptors {
 		descriptors[i].Implementation = descriptorStub
 		descriptors[i].Effect = Transactional
@@ -91,7 +91,7 @@ func TestConnectionOptionPreservesSemanticErrorOrder(t *testing.T) {
 	s := NewSession(NewRegistry(), NoHost())
 	ctx := newTestExecutionForSession(s)
 	args := []types.Value{types.NewObj(123), types.NewInt(0)}
-	want := builtinConnectionOption(ctx, args)
+	want := admitTestBuiltin("connection_option", ctx, args)
 	if want.Error != types.E_INVARG {
 		t.Fatalf("fixture result: %+v", want)
 	}
@@ -122,7 +122,7 @@ func TestDescriptorExceptionalAndVariadicAdmission(t *testing.T) {
 }
 
 func TestDescriptorCapabilityCombinations(t *testing.T) {
-	descriptors := BaseDescriptors()
+	descriptors := Descriptors()
 	for caps := config.Capabilities(0); caps <= config.DefaultCapabilities(); caps++ {
 		r, err := NewRegistryFromDescriptors(caps, descriptors)
 		if err != nil {

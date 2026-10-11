@@ -12,7 +12,7 @@ func TestVerbInfoNumericIndexPastEndReturnsEVERBNF(t *testing.T) {
 	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
 	mustAddVerb(t, store, obj, "only_verb", 0, dbstore.VerbRead)
 
-	result := builtinVerbInfo(ctx, []types.Value{
+	result := admitTestBuiltin("verb_info", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewInt(2),
 	})
@@ -29,7 +29,7 @@ func TestVerbCodeReturnsCanonicalSource(t *testing.T) {
 		t.Fatalf("SetVerbCode failed: %v", errCode)
 	}
 
-	result := builtinVerbCode(ctx, []types.Value{types.NewObj(obj), types.NewStr("canonical")})
+	result := admitTestBuiltin("verb_code", ctx, []types.Value{types.NewObj(obj), types.NewStr("canonical")})
 	if result.IsError() {
 		t.Fatalf("verb_code failed: %v", result.Error)
 	}
@@ -48,7 +48,7 @@ func TestVerbCodeReturnsCompoundStatementAsSeparateLines(t *testing.T) {
 		t.Fatalf("SetVerbCode failed: %v", errCode)
 	}
 
-	result := builtinVerbCode(ctx, []types.Value{types.NewObj(obj), types.NewStr("loop")})
+	result := admitTestBuiltin("verb_code", ctx, []types.Value{types.NewObj(obj), types.NewStr("loop")})
 	if result.IsError() {
 		t.Fatalf("verb_code failed: %v", result.Error)
 	}
@@ -73,7 +73,7 @@ func TestSetVerbCodeStoresToastCanonicalProgramText(t *testing.T) {
 		types.NewStr("  state = {waif, anon};"),
 		types.NewStr("endfork"),
 	}
-	result := builtinSetVerbCode(ctx, []types.Value{
+	result := admitTestBuiltin("set_verb_code", ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewStr("canonical_set"),
 		types.NewList(source),
