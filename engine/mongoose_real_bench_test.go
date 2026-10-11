@@ -24,6 +24,8 @@ package engine
 //   BARN_MONGOOSE_STALE_READS non-empty samples the clock at property reads, so the
 //                             census can say which losses read an already-stale slot
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
+//   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
+//                             files/sqlite/sound.sqlite before #0:server_started
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 //   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
@@ -39,8 +41,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	rtmetrics "runtime/metrics"
@@ -285,6 +289,27 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	}
 }
 
+// copyBenchFile copies src over dst, creating dst's directory.
+func copyBenchFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
 	ctx, cancel := context.WithTimeout(s.ctx, envDuration("BARN_MONGOOSE_COMPLETION_TIMEOUT", 10*time.Second))
 	defer cancel()
@@ -458,6 +483,18 @@ func TestMongooseRealWorkload(t *testing.T) {
 		t.Fatalf("chdir to repo root: %v", err)
 	}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
+	// The deployment's sound catalog is not in this repo. Without it the
+	// server creates an empty files/sqlite/sound.sqlite and every `say` raises
+	// "no such table: AssetFiles" from the sound handler, so 30% of the mix
+	// measures #0:handle_uncaught_error instead of the command.
+	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
+		if err := copyBenchFile(catalog, "files/sqlite/sound.sqlite"); err != nil {
+			t.Fatalf("install sound catalog: %v", err)
+		}
+		t.Logf("sound catalog: %s", catalog)
+	} else {
+		t.Logf("sound catalog: none (BARN_MONGOOSE_SOUND_DB unset); `say` will raise")
+	}
 	if memStats {
 		t.Logf("memory MiB after load: %s", readMemSample(t, s))
 	}
