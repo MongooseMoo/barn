@@ -455,6 +455,19 @@ func (t *Task) GetCallStack() []types.ActivationFrame {
 	return stack
 }
 
+// CallStackProgrammer returns the programmer of the frame depth below the top
+// (0 is the running frame) and the number of frames, without copying the
+// stack. With fewer than depth+1 frames the programmer is ObjNothing.
+func (t *Task) CallStackProgrammer(depth int) (programmer types.ObjID, frames int) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	frames = len(t.CallStack)
+	if depth < 0 || depth >= frames {
+		return types.ObjNothing, frames
+	}
+	return t.CallStack[frames-1-depth].Programmer, frames
+}
+
 // ClearCallStack removes every activation frame atomically.
 func (t *Task) ClearCallStack() {
 	t.mu.Lock()

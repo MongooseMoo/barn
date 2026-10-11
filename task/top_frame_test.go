@@ -7,6 +7,23 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestCallStackProgrammer(t *testing.T) {
+	task := &Task{}
+	if who, frames := task.CallStackProgrammer(0); who != types.ObjNothing || frames != 0 {
+		t.Fatalf("empty stack gave (#%d, %d), want (#-1, 0)", who, frames)
+	}
+	task.PushFrame(types.ActivationFrame{Programmer: types.ObjID(3)})
+	task.PushFrame(types.ActivationFrame{Programmer: types.ObjID(5)})
+	for depth, want := range []types.ObjID{5, 3, types.ObjNothing} {
+		if who, frames := task.CallStackProgrammer(depth); who != want || frames != 2 {
+			t.Fatalf("depth %d gave (#%d, %d), want (#%d, 2)", depth, who, frames, want)
+		}
+	}
+	if allocs := testing.AllocsPerRun(100, func() { task.CallStackProgrammer(1) }); allocs != 0 {
+		t.Fatalf("CallStackProgrammer allocated %v times", allocs)
+	}
+}
+
 func TestSetTopFrameProgrammer(t *testing.T) {
 	task := &Task{}
 	if task.SetTopFrameProgrammer(types.ObjID(7)) {

@@ -283,23 +283,20 @@ func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewObj(ctx.Programmer))
 	}
 
-	// Get the call stack
-	stack := t.GetCallStack()
+	// The programmer of the PREVIOUS frame (the caller): depth 0 is the
+	// current frame, depth 1 its caller.
+	callerProgrammer, frames := t.CallStackProgrammer(1)
 
 	// If less than 2 frames, there is no MOO caller. A parser-dispatched
 	// top-level command verb has no caller permissions object (Toast returns
 	// #-1), whereas a top-level eval inherits the player's permissions.
-	if len(stack) < 2 {
+	if frames < 2 {
 		if t.FromCommand {
 			return types.Ok(types.NewObj(types.ObjNothing))
 		}
 		return types.Ok(types.NewObj(t.Programmer))
 	}
-
-	// Return the programmer of the PREVIOUS frame (the caller)
-	// stack[len-1] is current frame, stack[len-2] is caller
-	callerFrame := stack[len(stack)-2]
-	return types.Ok(types.NewObj(callerFrame.Programmer))
+	return types.Ok(types.NewObj(callerProgrammer))
 }
 
 // builtinCallers: callers([include_line_numbers]) → LIST

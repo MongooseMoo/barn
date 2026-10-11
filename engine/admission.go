@@ -15,9 +15,9 @@ func inputAdmissionKey(player types.ObjID) admission.Key {
 	return admission.Key{Principal: int64(player), Class: admission.Input}
 }
 func backgroundAdmissionKey(t *task.Task) admission.Key {
-	programmer := t.Programmer
-	if stack := t.GetCallStack(); len(stack) > 0 {
-		programmer = stack[len(stack)-1].Programmer
+	programmer, frames := t.CallStackProgrammer(0)
+	if frames == 0 {
+		programmer = t.Programmer
 	}
 	return admission.Key{Principal: int64(programmer), Class: admission.Background}
 }
