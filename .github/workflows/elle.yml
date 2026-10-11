@@ -59,9 +59,19 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_check_elle.py' -v
           go test -tags elle ./engine -run '^TestElleRecorder' -count=1
           python3 scripts/check_elle.py --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" --output elle-evidence
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          # Elle names some HTML witnesses after printed EDN keys, including
+          # quotes. GitHub rejects those as individual artifact paths; retain
+          # their original names and contents inside one portable archive.
+          if [ -d elle-evidence ]; then
+            tar -czf elle-evidence.tar.gz elle-evidence
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: elle-evidence-${{ github.sha }}
-          path: elle-evidence/
+          path: elle-evidence.tar.gz
           if-no-files-found: warn

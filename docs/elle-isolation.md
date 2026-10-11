@@ -100,7 +100,11 @@ and `false`, exit one and an anomaly witness for the fault append history.
 and missing coverage all fail. An inconclusive verdict need not have a nonzero
 exit status, so checking exit status alone is wrong.
 CI uploads histories, seed manifests, raw Go/Elle logs, cycle text/graphs and
-results even on failure. To investigate, start with the Go log and manifest,
+results even on failure.
+The artifact contains `elle-evidence.tar.gz`; extract it with
+`tar -xzf elle-evidence.tar.gz` on Linux/WSL. This preserves Elle's original
+HTML filenames, which can contain quotes rejected by GitHub's artifact uploader.
+To investigate, start with the Go log and manifest,
 then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
