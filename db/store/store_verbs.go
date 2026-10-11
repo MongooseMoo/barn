@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"strings"
 )
 
@@ -117,7 +118,8 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 		if !validLiveObject(obj) {
 			continue
 		}
-		for _, verb := range obj.verbs {
+		// verbList, not the verbs map: the map holds one verb per first name.
+		for _, verb := range obj.verbList {
 			for _, alias := range verb.lowerNames {
 				if matchVerbNameLowered(alias, searchLower) {
 					return true
@@ -129,34 +131,36 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 	return false
 }
 
-func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, types.ErrorCode) {
+// FindVerbInAncestry returns the first verb match accepts, searching objID and
+// then its ancestors breadth-first, and each object's verbs in definition
+// order. match runs under the store's read lock and must not call the store.
+func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool) (VerbCandidate, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	candidates := make([]VerbCandidate, 0)
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
+	var visitedBuf, queueBuf [8]types.ObjID
+	visited := visitedBuf[:0]
+	queue := append(queueBuf[:0], objID)
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
-		if visited[currentID] || currentID < 0 {
+		if currentID < 0 || slices.Contains(visited, currentID) {
 			continue
 		}
-		visited[currentID] = true
+		visited = append(visited, currentID)
 
 		obj := s.liveObjectLocked(currentID)
 		if !validLiveObject(obj) {
 			continue
 		}
-		for _, verb := range obj.verbs {
-			candidates = append(candidates, VerbCandidate{
-				Definer: currentID,
-				Verb:    verb.View(),
-			})
+		for _, verb := range obj.verbList {
+			if view := verb.View(); match(view) {
+				return VerbCandidate{Definer: currentID, Verb: view}, true
+			}
 		}
 		queue = append(queue, obj.parents...)
 	}
-	return candidates, types.E_NONE
+	return VerbCandidate{}, false
 }
 
 // FindVerb looks up a verb on an object, following inheritance chain
