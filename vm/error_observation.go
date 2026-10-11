@@ -13,7 +13,8 @@ func (vm *VM) errorObservation(err error) (caught, observe bool) {
 		for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
 			handler := frame.ExceptStack[i]
 			if handler.Type == bytecode.HandlerFinally {
-				return true, false
+				// Preserve the originating activation before finally unwinds it.
+				return true, true
 			}
 			if handler.Type == bytecode.HandlerExcept && handler.Matches(code) {
 				return true, handler.VarIndex >= 0

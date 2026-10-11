@@ -31,7 +31,7 @@ func TestLineSyncDoesNotMaterializeRuntimeVariables(t *testing.T) {
 	}
 }
 
-func TestUnobservedCaughtErrorDoesNotBuildExceptionValue(t *testing.T) {
+func TestCaughtErrorMaterializesObservedOrPendingValue(t *testing.T) {
 	for _, handlerType := range []bytecode.HandlerType{bytecode.HandlerExcept, bytecode.HandlerFinally} {
 		machine := &VM{}
 		frame := &StackFrame{
@@ -48,8 +48,13 @@ func TestUnobservedCaughtErrorDoesNotBuildExceptionValue(t *testing.T) {
 		if !handled || machine.Frames[0].IP != 10 {
 			t.Fatalf("handler %v did not receive control", handlerType)
 		}
-		if !value.IsNone() {
-			t.Errorf("handler %v materialized an unobserved exception value", handlerType)
+		if handlerType == bytecode.HandlerFinally {
+			pending, ok := frame.PendingError.(VMException)
+			if !ok || value.Len() != 4 || !pending.Value.Equal(value) {
+				t.Fatal("finally did not preserve the original exception tuple")
+			}
+		} else if !value.IsNone() {
+			t.Error("unnamed except materialized an unobserved exception value")
 		}
 	}
 }
