@@ -28,10 +28,6 @@ func builtinPlayers(ctx *Execution, args []types.Value) types.Result {
 // Returns 1 if object is a player, 0 otherwise
 // Waifs can't be players (E_TYPE)
 func builtinIsPlayer(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Waifs can't be players
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_TYPE)
@@ -72,10 +68,6 @@ func builtinIsPlayer(ctx *Execution, args []types.Value) types.Result {
 // Sets or clears the player flag on an object
 // Waifs can't have player flag set (E_TYPE)
 func builtinSetPlayerFlag(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Waifs can't have player flag set
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_TYPE)
@@ -123,4 +115,12 @@ func builtinSetPlayerFlag(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func objectsPlayersDescriptors() []Descriptor {
+	return []Descriptor{
+		function("is_player", builtinIsPlayer, 1, 1, 1),
+		function("set_player_flag", builtinSetPlayerFlag, 2, 2, 1, -1),
+		function("players", builtinPlayers, 0, 0),
+	}
 }

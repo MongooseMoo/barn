@@ -46,9 +46,6 @@ var ansiTags = map[string]string{
 }
 
 func builtinParseAnsi(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	s := args[0]
 	ok := s.Type() == types.TYPE_STR
 	if !ok {
@@ -65,9 +62,6 @@ func builtinParseAnsi(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinRemoveAnsi(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	s := args[0]
 	ok := s.Type() == types.TYPE_STR
 	if !ok {
@@ -81,4 +75,11 @@ func builtinRemoveAnsi(ctx *Execution, args []types.Value) types.Result {
 		return tag
 	})
 	return types.Ok(types.NewStr(ansiEscapeRe.ReplaceAllString(strippedTags, "")))
+}
+
+func ansiDescriptors() []Descriptor {
+	return []Descriptor{
+		function("parse_ansi", builtinParseAnsi, 1, 1, 2),
+		function("remove_ansi", builtinRemoveAnsi, 1, 1, 2),
+	}
 }

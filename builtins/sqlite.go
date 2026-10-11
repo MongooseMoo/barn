@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/MongooseMoo/barn/config"
 	"sort"
 	"strings"
 	"sync"
@@ -624,4 +625,18 @@ func builtinSqliteInterrupt(ctx *Execution, args []types.Value) types.Result {
 	}
 	handle.mu.Unlock()
 	return types.Ok(types.NewInt(0))
+}
+
+func sqliteDescriptors() []Descriptor {
+	return []Descriptor{
+		function("sqlite_open", builtinSqliteOpen, 1, 2, 2, 0).withEffect(Irreversible).withCapability(config.SQLite),
+		function("sqlite_close", builtinSqliteClose, 1, 1, 0).withEffect(Irreversible).withCapability(config.SQLite),
+		function("sqlite_handles", builtinSqliteHandles, 0, 0).withCapability(config.SQLite),
+		function("sqlite_info", builtinSqliteInfo, 1, 1, 0).withCapability(config.SQLite),
+		function("sqlite_query", builtinSqliteQuery, 2, 3, 0, 2, -1).withEffect(ImplementationOwned).withCapability(config.SQLite),
+		function("sqlite_execute", builtinSqliteExecute, 3, 3, 0, 2, 4).withEffect(ImplementationOwned).withCapability(config.SQLite),
+		function("sqlite_last_insert_row_id", builtinSqliteLastInsertRowID, 1, 1, 0).withCapability(config.SQLite),
+		function("sqlite_limit", builtinSqliteLimit, 3, 3, 0, -1, 0).withEffect(Irreversible).withCapability(config.SQLite),
+		function("sqlite_interrupt", builtinSqliteInterrupt, 1, 1, 0).withEffect(Irreversible).withCapability(config.SQLite),
+	}
 }

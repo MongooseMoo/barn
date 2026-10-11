@@ -24,7 +24,7 @@ func TestThreadedSortSuspendsAndResumesWithValue(t *testing.T) {
 	ctx, taskValue := threadedCtx()
 	list := types.NewList([]types.Value{types.NewInt(3), types.NewInt(1), types.NewInt(2)})
 
-	result := builtinSort(ctx, []types.Value{list})
+	result := admitTestBuiltin("sort", ctx, []types.Value{list})
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("sort flow = %v, want suspend", result.Flow)
 	}
@@ -47,7 +47,7 @@ func TestSortCallbackErrorByThreadMode(t *testing.T) {
 	mixed := types.NewList([]types.Value{types.NewInt(1), types.NewStr("a")})
 
 	ctx, taskValue := threadedCtx()
-	if result := builtinSort(ctx, []types.Value{mixed}); result.Flow != types.FlowSuspend {
+	if result := admitTestBuiltin("sort", ctx, []types.Value{mixed}); result.Flow != types.FlowSuspend {
 		t.Fatalf("threaded sort flow = %v, want suspend", result.Flow)
 	}
 	FlushPendingEffects(ctx)
@@ -58,7 +58,7 @@ func TestSortCallbackErrorByThreadMode(t *testing.T) {
 
 	inline, _ := threadedCtx()
 	inline.ThreadMode = false
-	result := builtinSort(inline, []types.Value{mixed})
+	result := admitTestBuiltin("sort", inline, []types.Value{mixed})
 	if result.Flow != types.FlowNormal || result.Val.Type() != types.TYPE_ERR || result.Val.ErrCode() != types.E_TYPE {
 		t.Fatalf("unthreaded sort = %+v, want the value E_TYPE", result)
 	}
@@ -71,7 +71,7 @@ func TestThreadedBuiltinsRunInlineWhereSuspendIsNotHonored(t *testing.T) {
 	ctx.CanSuspend = false
 
 	list := types.NewList([]types.Value{types.NewInt(3), types.NewInt(1), types.NewInt(3)})
-	sorted := builtinSort(ctx, []types.Value{list})
+	sorted := admitTestBuiltin("sort", ctx, []types.Value{list})
 	if sorted.Flow != types.FlowNormal || sorted.Val.String() != "{1, 3, 3}" {
 		t.Fatalf("nested sort = %+v, want {1, 3, 3}", sorted)
 	}
@@ -80,7 +80,7 @@ func TestThreadedBuiltinsRunInlineWhereSuspendIsNotHonored(t *testing.T) {
 		t.Fatalf("nested all_members = %+v, want {1, 3}", members)
 	}
 	mixed := types.NewList([]types.Value{types.NewInt(1), types.NewStr("a")})
-	if raised := builtinSort(ctx, []types.Value{mixed}); raised.Flow != types.FlowException || raised.Error != types.E_TYPE {
+	if raised := admitTestBuiltin("sort", ctx, []types.Value{mixed}); raised.Flow != types.FlowException || raised.Error != types.E_TYPE {
 		t.Fatalf("nested sort error = %+v, want E_TYPE raised", raised)
 	}
 	if got := taskValue.GetState(); got != task.TaskRunning {
@@ -96,7 +96,7 @@ func TestThreadedBuiltinsRunInlineWhereSuspendIsNotHonored(t *testing.T) {
 func TestThreadedCurlDefersRequestWithoutCommitGate(t *testing.T) {
 	ctx, taskValue := threadedCtx()
 
-	result := builtinCurl(ctx, []types.Value{types.NewStr("file:///etc/passwd")})
+	result := admitTestBuiltin("curl", ctx, []types.Value{types.NewStr("file:///etc/passwd")})
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("curl flow = %v, want suspend", result.Flow)
 	}
@@ -123,7 +123,7 @@ func TestUnthreadedCurlCrossesIrreversibleBoundary(t *testing.T) {
 		return false
 	}
 
-	result := builtinCurl(ctx, []types.Value{types.NewStr("file:///etc/passwd")})
+	result := admitTestBuiltin("curl", ctx, []types.Value{types.NewStr("file:///etc/passwd")})
 	if result.Flow != types.FlowNormal || result.Val.Type() != types.TYPE_MAP {
 		t.Fatalf("curl = %+v, want the error map", result)
 	}

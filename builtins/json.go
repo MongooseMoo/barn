@@ -12,10 +12,6 @@ import (
 // builtinGenerateJson converts MOO value to JSON string
 // Signature: generate_json(value [, mode [, disable_binary_escapes]]) → STR
 func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	value := args[0]
 	embeddedTypes := false
 
@@ -180,10 +176,6 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool, disableBinaryEscap
 // Signature: parse_json(string [, mode]) → VALUE
 // Modes: "common-subset", "embedded-types", or default (no mode)
 func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	strVal := args[0]
 	ok := strVal.Type() == types.TYPE_STR
 	if !ok {
@@ -623,4 +615,11 @@ func (om *orderedMap) MarshalJSON() ([]byte, error) {
 	}
 	buf.WriteByte('}')
 	return []byte(buf.String()), nil
+}
+
+func jsonDescriptors() []Descriptor {
+	return []Descriptor{
+		function("generate_json", builtinGenerateJson, 1, 3, -1, 2, -1),
+		function("parse_json", builtinParseJson, 1, 2, 2, 2),
+	}
 }

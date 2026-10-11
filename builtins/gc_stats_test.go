@@ -12,7 +12,7 @@ func TestGCStatsUsesCollectorSnapshot(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Session.host.AnonymousGCStats = func() AnonymousGCStats { return want }
 
-	result := builtinGCStats(ctx, nil)
+	result := admitTestBuiltin("gc_stats", ctx, nil)
 	if !result.IsNormal() {
 		t.Fatalf("gc_stats() = flow %v error %v", result.Flow, result.Error)
 	}
@@ -30,7 +30,7 @@ func TestGCStatsUsesCollectorSnapshot(t *testing.T) {
 func TestGCStatsRejectsMissingCollector(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.IsWizard = true
-	result := builtinGCStats(ctx, nil)
+	result := admitTestBuiltin("gc_stats", ctx, nil)
 	if result.Error != types.E_QUOTA {
 		t.Fatalf("gc_stats() error = %v, want E_QUOTA", result.Error)
 	}

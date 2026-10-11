@@ -11,14 +11,14 @@ func TestTofloatRejectsNonFiniteStringValues(t *testing.T) {
 
 	for _, input := range []string{"inf", "-inf", "nan", "Infinity", "1e999"} {
 		t.Run(input, func(t *testing.T) {
-			res := builtinTofloat(ctx, []types.Value{types.NewStr(input)})
+			res := admitTestBuiltin("tofloat", ctx, []types.Value{types.NewStr(input)})
 			if res.Flow != types.FlowException || res.Error != types.E_INVARG {
 				t.Fatalf("tofloat(%q) = flow %v error %v value %v, want E_INVARG", input, res.Flow, res.Error, res.Val)
 			}
 		})
 	}
 
-	res := builtinTofloat(ctx, []types.Value{types.NewStr("3.5")})
+	res := admitTestBuiltin("tofloat", ctx, []types.Value{types.NewStr("3.5")})
 	if res.Flow != types.FlowNormal {
 		t.Fatalf("tofloat finite flow = %v error = %v, want normal", res.Flow, res.Error)
 	}
@@ -44,7 +44,7 @@ func TestTointStringOverflowClamps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			res := builtinToint(ctx, []types.Value{types.NewStr(tc.input)})
+			res := admitTestBuiltin("toint", ctx, []types.Value{types.NewStr(tc.input)})
 			if res.Flow != types.FlowNormal {
 				t.Fatalf("toint(%q) flow = %v error = %v, want normal", tc.input, res.Flow, res.Error)
 			}
@@ -72,7 +72,7 @@ func TestToobjStringOverflowClamps(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			result := builtinToobj(ctx, []types.Value{types.NewStr(tc.input)})
+			result := admitTestBuiltin("toobj", ctx, []types.Value{types.NewStr(tc.input)})
 			if result.Flow != types.FlowNormal {
 				t.Fatalf("toobj(%q) flow = %v error = %v, want normal", tc.input, result.Flow, result.Error)
 			}
@@ -85,7 +85,7 @@ func TestToobjStringOverflowClamps(t *testing.T) {
 
 func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
 	ctx := newTestExecution()
-	result := builtinToliteral(ctx, []types.Value{types.NewAnon(12)})
+	result := admitTestBuiltin("toliteral", ctx, []types.Value{types.NewAnon(12)})
 	if result.IsError() {
 		t.Fatalf("toliteral failed: %v", result.Error)
 	}
@@ -103,7 +103,7 @@ func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
 		{second, types.NewInt(2)},
 	})
 
-	result := builtinToliteral(ctx, []types.Value{mapping})
+	result := admitTestBuiltin("toliteral", ctx, []types.Value{mapping})
 	if result.IsError() {
 		t.Fatalf("toliteral failed: %v", result.Error)
 	}
@@ -122,7 +122,7 @@ func TestToliteralSortsMixedMapKeysCanonically(t *testing.T) {
 		{types.NewFloat(3.14), types.NewFloat(3.14)},
 	})
 
-	result := builtinToliteral(ctx, []types.Value{mapping})
+	result := admitTestBuiltin("toliteral", ctx, []types.Value{mapping})
 	if result.IsError() {
 		t.Fatalf("toliteral failed: %v", result.Error)
 	}
@@ -173,7 +173,7 @@ func TestWaifStringAndLiteralForms(t *testing.T) {
 	})
 
 	t.Run("toliteral", func(t *testing.T) {
-		result := builtinToliteral(ctx, []types.Value{waif})
+		result := admitTestBuiltin("toliteral", ctx, []types.Value{waif})
 		if result.IsError() {
 			t.Fatalf("toliteral failed: %v", result.Error)
 		}

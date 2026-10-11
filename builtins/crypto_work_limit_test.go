@@ -16,7 +16,7 @@ func TestCryptRejectsWorkAboveServerLimits(t *testing.T) {
 		"$5$rounds=1000001$salt",
 		"$6$rounds=999999999$salt",
 	} {
-		result := builtinCrypt(ctx, []types.Value{types.NewStr("password"), types.NewStr(salt)})
+		result := admitTestBuiltin("crypt", ctx, []types.Value{types.NewStr("password"), types.NewStr(salt)})
 		if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 			t.Errorf("crypt with salt %q = flow %v, error %s; want E_QUOTA", salt, result.Flow, result.Error)
 		}
@@ -28,7 +28,7 @@ func TestCryptChargesTicksBeforeHashing(t *testing.T) {
 	ctx.Session.cacheServerOptionsDefaults()
 	ctx.IsWizard = true
 	ctx.TicksRemaining = 4
-	result := builtinCrypt(ctx, []types.Value{
+	result := admitTestBuiltin("crypt", ctx, []types.Value{
 		types.NewStr("password"),
 		types.NewStr("$5$rounds=5000$salt"),
 	})
@@ -63,7 +63,7 @@ func TestCryptUsesPendingServerOptions(t *testing.T) {
 		Kind:          kernel.PendingEffectServerOptions,
 		ServerOptions: &snapshot,
 	}}
-	result := builtinCrypt(ctx, []types.Value{
+	result := admitTestBuiltin("crypt", ctx, []types.Value{
 		types.NewStr("password"),
 		types.NewStr("$2y$05$......................"),
 	})

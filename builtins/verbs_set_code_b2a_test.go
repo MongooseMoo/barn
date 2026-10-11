@@ -58,7 +58,7 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 	ctx, store, objID := b2aTestContext(t)
 
 	// Sanity: a known builtin compiles fine (length() is a real builtin).
-	res := builtinSetVerbCode(ctx, []types.Value{
+	res := admitTestBuiltin("set_verb_code", ctx, []types.Value{
 		types.NewObj(objID),
 		types.NewStr("scratch"),
 		types.NewList([]types.Value{types.NewStr("x = length({1, 2});")}),
@@ -76,7 +76,7 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 	}
 
 	// Unknown builtin foo() must be rejected with Toast's exact message.
-	res = builtinSetVerbCode(ctx, []types.Value{
+	res = admitTestBuiltin("set_verb_code", ctx, []types.Value{
 		types.NewObj(objID),
 		types.NewStr("scratch"),
 		types.NewList([]types.Value{types.NewStr("x = foo(1,2,3);")}),
@@ -108,7 +108,7 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 func TestSetVerbCodeUnknownBuiltinReportsLine_B2a(t *testing.T) {
 	ctx, store, objID := b2aTestContext(t)
 
-	res := builtinSetVerbCode(ctx, []types.Value{
+	res := admitTestBuiltin("set_verb_code", ctx, []types.Value{
 		types.NewObj(objID),
 		types.NewStr("scratch"),
 		types.NewList([]types.Value{

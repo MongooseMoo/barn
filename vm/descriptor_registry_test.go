@@ -33,7 +33,9 @@ func TestVMDescriptorsAndDisabledLookup(t *testing.T) {
 func TestDefaultDescriptorIDsPreserveExistingBytecode(t *testing.T) {
 	// Computed independently from the 252 registrations at pre-migration 4eacf59.
 	const legacyLayout = "73cd9d376515c5d1fb6682bb2c1aa213fd3d6e54a450a5d322dc3980b9cc272d"
-	legacy, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), vmDescriptors())
+	// The historical prefix ends with eval and pass. Metadata ownership and
+	// newer extensions do not define a second legacy catalog.
+	legacy, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), Descriptors()[:252])
 	if err != nil {
 		t.Fatal(err)
 	}

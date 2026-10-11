@@ -49,13 +49,13 @@ func TestLoweredTaskPermissionsRejectPlayerWizardAuthority(t *testing.T) {
 		{
 			name: "crypt with custom rounds",
 			call: func(ctx *Execution) types.Result {
-				return builtinCrypt(ctx, []types.Value{types.NewStr("password"), types.NewStr("$5$rounds=1001$salt")})
+				return admitTestBuiltin("crypt", ctx, []types.Value{types.NewStr("password"), types.NewStr("$5$rounds=1001$salt")})
 			},
 		},
 		{
 			name: "object_bytes",
 			call: func(ctx *Execution) types.Result {
-				return builtinObjectBytes(ctx, []types.Value{types.NewObj(2)})
+				return admitTestBuiltin("object_bytes", ctx, []types.Value{types.NewObj(2)})
 			},
 		},
 	}
@@ -78,7 +78,7 @@ func TestRespondToUsesTransactionAwareObjectReadAuthority(t *testing.T) {
 	}
 	ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
 
-	result := builtinRespondTo(ctx, []types.Value{types.NewObj(3), types.NewStr("secret")})
+	result := admitTestBuiltin("respond_to", ctx, []types.Value{types.NewObj(3), types.NewStr("secret")})
 	if result.IsError() || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 1 {
 		t.Fatalf("unreadable object result = %+v, want summary 1", result)
 	}
@@ -86,7 +86,7 @@ func TestRespondToUsesTransactionAwareObjectReadAuthority(t *testing.T) {
 	if errCode := ctx.StoreTxn.SetObjectFlag(3, dbstore.FlagRead, true); errCode != types.E_NONE {
 		t.Fatalf("stage read flag: %s", errCode)
 	}
-	result = builtinRespondTo(ctx, []types.Value{types.NewObj(3), types.NewStr("secret")})
+	result = admitTestBuiltin("respond_to", ctx, []types.Value{types.NewObj(3), types.NewStr("secret")})
 	if result.IsError() || result.Val.Type() != types.TYPE_LIST {
 		t.Fatalf("staged-readable object result = %+v, want detailed list", result)
 	}
@@ -103,19 +103,23 @@ func TestLoweredTaskPermissionsUseProgrammerForConnectionAuthority(t *testing.T)
 		name string
 		call func() types.Result
 	}{
-		{"flush_input", func() types.Result { return builtinFlushInput(ctx, []types.Value{types.NewObj(7)}) }},
+		{"flush_input", func() types.Result { return admitTestBuiltin("flush_input", ctx, []types.Value{types.NewObj(7)}) }},
 		{"force_input", func() types.Result {
-			return builtinForceInput(ctx, []types.Value{types.NewObj(7), types.NewStr("look")})
+			return admitTestBuiltin("force_input", ctx, []types.Value{types.NewObj(7), types.NewStr("look")})
 		}},
-		{"buffered_output_length", func() types.Result { return builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(7)}) }},
-		{"connection_options", func() types.Result { return builtinConnectionOptions(ctx, []types.Value{types.NewObj(7)}) }},
-		{"output_delimiters", func() types.Result { return builtinOutputDelimiters(ctx, []types.Value{types.NewObj(7)}) }},
-		{"boot_player", func() types.Result { return builtinBootPlayer(ctx, []types.Value{types.NewObj(7)}) }},
+		{"buffered_output_length", func() types.Result {
+			return admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(7)})
+		}},
+		{"connection_options", func() types.Result {
+			return admitTestBuiltin("connection_options", ctx, []types.Value{types.NewObj(7)})
+		}},
+		{"output_delimiters", func() types.Result { return admitTestBuiltin("output_delimiters", ctx, []types.Value{types.NewObj(7)}) }},
+		{"boot_player", func() types.Result { return admitTestBuiltin("boot_player", ctx, []types.Value{types.NewObj(7)}) }},
 		{"set_connection_option", func() types.Result {
-			return builtinSetConnectionOption(ctx, []types.Value{types.NewObj(7), types.NewStr("binary"), types.NewInt(1)})
+			return admitTestBuiltin("set_connection_option", ctx, []types.Value{types.NewObj(7), types.NewStr("binary"), types.NewInt(1)})
 		}},
 		{"connection_option", func() types.Result {
-			return builtinConnectionOption(ctx, []types.Value{types.NewObj(7), types.NewStr("binary")})
+			return admitTestBuiltin("connection_option", ctx, []types.Value{types.NewObj(7), types.NewStr("binary")})
 		}},
 	}
 

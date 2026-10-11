@@ -49,6 +49,29 @@ type Descriptor struct {
 	Capability     config.Capabilities
 }
 
+// function describes ordinary public, transactional core functions. These
+// helpers run only while assembling a catalog; dispatch still reads the single
+// validated signature and implementation stored in its existing entry.
+func function(name string, fn BuiltinFunc, minArgs, maxArgs int64, argTypes ...int64) Descriptor {
+	return Descriptor{Name: name, Implementation: fn,
+		Signature:  &Signature{MinArgs: minArgs, MaxArgs: maxArgs, ArgTypes: argTypes},
+		Visibility: Public, Effect: Transactional, Capability: config.Core}
+}
+
+func (d Descriptor) withEffect(effect EffectPolicy) Descriptor { d.Effect = effect; return d }
+func (d Descriptor) withCapability(capability config.Capabilities) Descriptor {
+	d.Capability = capability
+	return d
+}
+func (d Descriptor) hidden() Descriptor       { d.Visibility = Hidden; return d }
+func (d Descriptor) withLineSync() Descriptor { d.LineSync = true; return d }
+func (d Descriptor) plainArityError() Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.PlainArityError = true
+	d.Signature = &sig
+	return d
+}
+
 func (d Descriptor) validate() error {
 	bad := func(why string) error { return fmt.Errorf("builtin %q: %s", d.Name, why) }
 	if d.Name == "" || strings.ToLower(d.Name) != d.Name || strings.ContainsAny(d.Name, " \t\r\n") {

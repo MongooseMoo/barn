@@ -40,7 +40,7 @@ func BenchmarkPoolUnique(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				r := builtinUnique(ctx, []types.Value{list})
+				r := admitTestBuiltin("unique", ctx, []types.Value{list})
 				if !r.IsNormal() || r.Val.Len() != want {
 					b.Fatal(r)
 				}
@@ -56,7 +56,7 @@ func BenchmarkPoolUniqueHoldout(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		r := builtinUnique(ctx, []types.Value{list})
+		r := admitTestBuiltin("unique", ctx, []types.Value{list})
 		if !r.IsNormal() || r.Val.Len() != 257 {
 			b.Fatal(r)
 		}
@@ -66,9 +66,9 @@ func BenchmarkPoolUniqueHoldout(b *testing.B) {
 func TestUniqueResultSurvivesSubsequentCalls(t *testing.T) {
 	ctx := reviewDataCtx()
 	list := poolUniqueInput(128, true, false)
-	first := builtinUnique(ctx, []types.Value{list})
+	first := admitTestBuiltin("unique", ctx, []types.Value{list})
 	for range 20 {
-		builtinUnique(ctx, []types.Value{poolUniqueInput(4096, true, true)})
+		admitTestBuiltin("unique", ctx, []types.Value{poolUniqueInput(4096, true, true)})
 	}
 	if !first.IsNormal() || !first.Val.Equal(list) {
 		t.Fatal("returned list changed after scratch reuse")

@@ -6,16 +6,11 @@ import (
 	neturl "net/url"
 	"time"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func builtinCurl(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -91,4 +86,10 @@ func curlErrorMap(message string) types.Result {
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("error"), types.NewStr(message)},
 	}))
+}
+
+func curlDescriptors() []Descriptor {
+	return []Descriptor{
+		function("curl", builtinCurl, 1, 3, 2, -1, 0).withEffect(ImplementationOwned).withCapability(config.Network),
+	}
 }

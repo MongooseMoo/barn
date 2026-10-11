@@ -198,10 +198,6 @@ func moveObjectReferenceForRead(ctx *Execution, object types.ObjID) types.Value 
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
 func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// First arg must be a list of objects
 	objectList := args[0]
 	if objectList.Type() != types.TYPE_LIST {
@@ -296,4 +292,11 @@ func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+func objectsMovementDescriptors() []Descriptor {
+	return []Descriptor{
+		function("move", builtinMove, 2, 3, 1, 1, 0),
+		function("occupants", builtinOccupants, 1, 4, 4, -1, 0, 0),
+	}
 }

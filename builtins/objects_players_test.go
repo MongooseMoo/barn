@@ -26,7 +26,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 		t.Fatalf("AdoptLiveObject failed: %v", errCode)
 	}
 
-	res := builtinSetPlayerFlag(ctx, []types.Value{types.NewObj(obj), types.NewInt(1)})
+	res := admitTestBuiltin("set_player_flag", ctx, []types.Value{types.NewObj(obj), types.NewInt(1)})
 	if res.IsError() {
 		t.Fatalf("set_player_flag failed: %v", res.Error)
 	}
@@ -78,7 +78,7 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 	ctx.StoreTxn = store.BeginSnapshot(0)
 	ctx.IsWizard = true
 
-	res := builtinSetPlayerFlag(ctx, []types.Value{types.NewObj(obj), types.NewInt(0)})
+	res := admitTestBuiltin("set_player_flag", ctx, []types.Value{types.NewObj(obj), types.NewInt(0)})
 	if res.IsError() {
 		t.Fatalf("set_player_flag failed: %v", res.Error)
 	}

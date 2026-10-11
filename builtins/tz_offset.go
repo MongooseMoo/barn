@@ -4,6 +4,7 @@ import (
 	"time"
 	_ "time/tzdata" // Supply IANA zones on hosts without a zoneinfo database.
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,4 +22,10 @@ func builtinTZOffset(_ *Execution, args []types.Value) types.Result {
 		stamp = time.Now()
 	}
 	return types.Ok(types.NewStr(stamp.In(location).Format("-0700")))
+}
+
+func tzOffsetDescriptors() []Descriptor {
+	return []Descriptor{
+		function("tz_offset", builtinTZOffset, 1, 2, 2, 0).withCapability(config.BarnExtensions),
+	}
 }

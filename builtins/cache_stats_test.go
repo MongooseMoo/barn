@@ -13,7 +13,7 @@ import (
 func TestCacheStatsArityPrecedesWizardAuthority(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.IsWizard = false
-	for _, builtin := range []BuiltinFunc{builtinVerbCacheStats, builtinLogCacheStats} {
+	for _, builtin := range []BuiltinFunc{builtinVerbCacheStats, admissionTestFunction("log_cache_stats")} {
 		result := builtin(ctx, []types.Value{types.NewInt(1)})
 		if !result.IsError() || result.Error != types.E_ARGS {
 			t.Fatalf("arity must precede permission: %v", result)
@@ -29,7 +29,7 @@ func TestCacheStatsNonWizardCannotConsumeOrLog(t *testing.T) {
 	ctx.Store.NoteVerbCacheMiss()
 	var output bytes.Buffer
 	ctx.Log = slog.New(slog.NewJSONHandler(&output, nil))
-	for _, builtin := range []BuiltinFunc{builtinVerbCacheStats, builtinLogCacheStats} {
+	for _, builtin := range []BuiltinFunc{builtinVerbCacheStats, admissionTestFunction("log_cache_stats")} {
 		result := builtin(ctx, nil)
 		if !result.IsError() || result.Error != types.E_PERM {
 			t.Errorf("non-wizard result = %v, want E_PERM", result)
@@ -54,7 +54,7 @@ func TestLogCacheStatsEmitsSnapshotWithoutConsumingWindow(t *testing.T) {
 	var output bytes.Buffer
 	ctx.Log = slog.New(slog.NewJSONHandler(&output, nil)).With("task_id", 42)
 	for range 2 {
-		result := builtinLogCacheStats(ctx, nil)
+		result := admitTestBuiltin("log_cache_stats", ctx, nil)
 		if result.IsError() || result.Val.Int() != 0 {
 			t.Fatalf("wizard logging failed: %v", result)
 		}

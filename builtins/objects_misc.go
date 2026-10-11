@@ -99,10 +99,6 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
 func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 0 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Get caller (the object whose verb called new_waif)
 	// In barn, ctx.ThisObj is the object whose verb is currently executing
 	callerID := ctx.ThisObj
@@ -138,10 +134,6 @@ func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
 func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Check argument type
 	objVal := args[0]
 	if !isObjectRef(objVal) {
@@ -167,4 +159,12 @@ func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(int64(bytes)))
+}
+
+func objectsMiscDescriptors() []Descriptor {
+	return []Descriptor{
+		function("renumber", builtinRenumber, 1, 1, 1),
+		function("new_waif", builtinNewWaif, 0, 0),
+		function("object_bytes", builtinObjectBytes, 1, 1, -1),
+	}
 }

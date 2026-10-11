@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -11,10 +12,6 @@ import (
 // builtinParent implements parent(object)
 // Returns the first parent of an object
 func builtinParent(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -37,10 +34,6 @@ func builtinParent(ctx *Execution, args []types.Value) types.Result {
 // Returns list of all direct parents
 // Waifs have no parents (E_INVARG)
 func builtinParents(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Waifs have no parents
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
@@ -68,10 +61,6 @@ func builtinParents(ctx *Execution, args []types.Value) types.Result {
 // Returns list of direct children
 // Waifs have no children (E_INVARG)
 func builtinChildren(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// Waifs have no children
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
@@ -378,10 +367,6 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 // builtinAncestors implements ancestors(object [, include_self])
 // Returns list of all ancestors in inheritance order
 func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -403,10 +388,6 @@ func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
 // builtinDescendants implements descendants(object [, include_self])
 // Returns list of all descendants in inheritance order
 func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -429,10 +410,6 @@ func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
 // Returns true if object inherits from ancestor, or the matching ancestor object
 // when return_object is truthy.
 func builtinIsa(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -517,10 +494,6 @@ func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinLocations(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -753,4 +726,24 @@ func builtinWaifStats(ctx *Execution, args []types.Value) types.Result {
 		result = result.MapSet(types.NewObj(classID), types.NewInt(int64(count)))
 	}
 	return types.Ok(result)
+}
+
+func objectsHierarchyDescriptors() []Descriptor {
+	return []Descriptor{
+		function("parent", builtinParent, 1, 1, -1),
+		function("parents", builtinParents, 1, 1, -1),
+		function("children", builtinChildren, 1, 1, -1),
+		function("ancestors", builtinAncestors, 1, 2, -1, -1),
+		function("descendants", builtinDescendants, 1, 2, -1, -1),
+		function("isa", builtinIsa, 2, 3, -1, -1, 0),
+		function("chparent", builtinChparent, 2, 2, -1, 1),
+		function("chparents", builtinChparents, 2, 2, -1, 4),
+		function("locate_by_name", builtinLocateByName, 1, 2, 2, 0),
+		function("locations", builtinLocations, 1, 3, 1, 1, 0),
+		function("owned_objects", builtinOwnedObjects, 1, 1, 1),
+		{Name: "next_recycled_object", Implementation: builtinNextRecycledObject, Signature: &Signature{MinArgs: 0, MaxArgs: 1, ArgTypes: []int64{1}, Alternatives: map[int][]int64{0: {0}}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
+		function("recycled_objects", builtinRecycledObjects, 0, 0),
+		function("recreate", builtinRecreate, 2, 3, 1, 1, 1),
+		function("waif_stats", builtinWaifStats, 0, 0),
+	}
 }

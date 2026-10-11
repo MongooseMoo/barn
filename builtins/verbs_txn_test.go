@@ -86,7 +86,7 @@ func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	if _, _, err := ctx.StoreTxn.FindVerb(0, "look"); err != nil {
 		t.Fatalf("FindVerb failed: %v", err)
 	}
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if result.IsError() {
 		t.Fatalf("delete_verb failed: %v", result.Error)
 	}
@@ -105,7 +105,7 @@ func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 	ctx.IsWizard = false
 
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if result.IsError() {
 		t.Fatalf("delete_verb staging failed: %v", result.Error)
 	}
@@ -130,7 +130,7 @@ func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
 	retry.StoreTxn = store.BeginSnapshot(0)
 	retry.Programmer = 0
 	retry.Player = 0
-	result = builtinDeleteVerb(retry, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result = admitTestBuiltin("delete_verb", retry, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("serial retry after authority revocation = %+v, want E_PERM", result)
 	}
@@ -150,7 +150,7 @@ func TestDeleteVerbUnrelatedReadConflictLeavesVerbIntact(t *testing.T) {
 	if _, errCode := ctx.StoreTxn.ObjectName(1); errCode != types.E_NONE {
 		t.Fatalf("ObjectName read: %v", errCode)
 	}
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if result.IsError() {
 		t.Fatalf("delete_verb staging failed: %v", result.Error)
 	}
@@ -181,7 +181,7 @@ func TestDeleteVerbStagesShiftedIndicesAndSurvivorCode(t *testing.T) {
 		t.Fatalf("SetVerbCode(survivor): %v", errCode)
 	}
 	for i := 0; i < 2; i++ {
-		result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewInt(1)})
+		result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewInt(1)})
 		if result.IsError() {
 			t.Fatalf("delete_verb shifted index call %d: %v", i+1, result.Error)
 		}
@@ -219,7 +219,7 @@ func TestDeleteVerbConcurrentListGenerationDoesNotRetarget(t *testing.T) {
 	if errCode := ctx.StoreTxn.AdoptLiveVerbs(0); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveVerbs: %v", errCode)
 	}
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewInt(2)})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewInt(2)})
 	if result.IsError() {
 		t.Fatalf("delete_verb staging failed: %v", result.Error)
 	}
@@ -241,7 +241,7 @@ func stagedDeleteFlushConflictContext(t *testing.T) (*Execution, *dbstore.Store)
 	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
 		t.Fatalf("ObjectName conflict read: %v", errCode)
 	}
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if result.IsError() {
 		t.Fatalf("delete_verb staging failed: %v", result.Error)
 	}
@@ -284,7 +284,7 @@ func TestObjectCoarseBuiltinPropagatesStagedDeleteFlushConflict(t *testing.T) {
 	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
 		t.Fatalf("ObjectName conflict read: %v", errCode)
 	}
-	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	result := admitTestBuiltin("delete_verb", ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
 	if result.IsError() {
 		t.Fatalf("delete_verb staging failed: %v", result.Error)
 	}
@@ -332,7 +332,7 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	for _, name := range []string{"audit_proxy_seen", "audit_proxy_login_saved", "audit_proxy_trusted_saved"} {
-		result := builtinAddProperty(ctx, []types.Value{
+		result := admitTestBuiltin("add_property", ctx, []types.Value{
 			types.NewObj(0),
 			types.NewStr(name),
 			types.NewList(nil),
@@ -342,7 +342,7 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 			t.Fatalf("add_property #%d.%s failed: %v", 0, name, result.Error)
 		}
 	}
-	result := builtinAddProperty(ctx, []types.Value{
+	result := admitTestBuiltin("add_property", ctx, []types.Value{
 		types.NewObj(6),
 		types.NewStr("trusted_proxies"),
 		types.NewList(nil),
@@ -401,7 +401,7 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	if result.IsError() {
 		t.Fatalf("set_verb_args failed: %v", result.Error)
 	}
-	result = builtinSetVerbCode(ctx, []types.Value{
+	result = admitTestBuiltin("set_verb_code", ctx, []types.Value{
 		types.NewObj(0),
 		types.NewStr("do_login_command"),
 		types.NewList([]types.Value{

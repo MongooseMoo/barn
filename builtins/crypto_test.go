@@ -94,8 +94,8 @@ func TestCryptRoundsHonored(t *testing.T) {
 
 func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 	ctx := newTestExecution()
-	first := builtinValueHash(ctx, []types.Value{types.NewAnon(12)})
-	second := builtinValueHash(ctx, []types.Value{types.NewAnon(13)})
+	first := admitTestBuiltin("value_hash", ctx, []types.Value{types.NewAnon(12)})
+	second := admitTestBuiltin("value_hash", ctx, []types.Value{types.NewAnon(13)})
 	if first.IsError() || second.IsError() {
 		t.Fatalf("value_hash failed: first=%+v second=%+v", first, second)
 	}
@@ -150,7 +150,7 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinDecodeBinary(ctx, []types.Value{types.NewStr("xx"), types.NewInt(1)})
+	result := admitTestBuiltin("decode_binary", ctx, []types.Value{types.NewStr("xx"), types.NewInt(1)})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("fully numeric decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
@@ -166,7 +166,7 @@ func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	result := builtinDecodeBinary(ctx, []types.Value{types.NewStr("xx")})
+	result := admitTestBuiltin("decode_binary", ctx, []types.Value{types.NewStr("xx")})
 	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 		t.Fatalf("grouped decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}

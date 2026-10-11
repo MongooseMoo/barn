@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,13 +20,6 @@ import (
 // listappend(list, value [, index]) -> list
 // Index range: 0 to length(list), default: length(list) (appends)
 func builtinListappend(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	value := args[1]
@@ -60,13 +54,6 @@ func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 // Index range: 1 to length(list)+1, default: 1 (prepend)
 // Out of bounds indices are clamped
 func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	value := args[1]
@@ -100,13 +87,6 @@ func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 // builtinListdelete removes element at index
 // listdelete(list, index) -> list
 func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	if args[1].Type() != types.TYPE_INT {
@@ -131,13 +111,6 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 // builtinListset replaces element at index
 // listset(list, value, index) -> list
 func builtinListset(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 3 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	value := args[1]
@@ -164,13 +137,6 @@ func builtinListset(ctx *Execution, args []types.Value) types.Result {
 // builtinSetadd adds value if not already present
 // setadd(list, value) -> list
 func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	value := args[1]
@@ -196,13 +162,6 @@ func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 // builtinSetremove removes first occurrence of value
 // setremove(list, value) -> list
 func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	value := args[1]
@@ -253,9 +212,6 @@ func promoteMemberEqual(ctx *Execution, a, b types.Value) (equal bool, handled b
 }
 
 func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
 	caseMatters := true
 	if len(args) == 3 {
 		if args[2].Type() != types.TYPE_INT {
@@ -342,13 +298,6 @@ func memberEqual(a, b types.Value, caseMatters bool) bool {
 // sort_callback, so they are raised only when the call is threaded and are
 // otherwise returned as the call's value.
 func builtinSort(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	// arg 2: keys. Empty keys list == identity (sort by the list itself).
@@ -475,10 +424,6 @@ func sortLess(a, b types.Value, natural bool) bool {
 // reverse(list) -> list
 // reverse(str) -> str
 func builtinReverse(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	switch args[0].Type() {
 	case types.TYPE_LIST:
 		v := args[0]
@@ -505,13 +450,6 @@ func builtinReverse(ctx *Execution, args []types.Value) types.Result {
 // builtinUnique removes duplicate elements
 // unique(list) -> list
 func builtinUnique(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
-	if args[0].Type() != types.TYPE_LIST {
-		return types.Err(types.E_TYPE)
-	}
 	list := args[0]
 
 	// Bucket by properties that are identical whenever Value.Equal is true, then
@@ -848,10 +786,6 @@ func isSpaceByte(c byte) bool {
 // builtinSlice: slice(list [, index] [, default_value]) → LIST
 // Extracts elements from each item in a list of lists, strings, or maps.
 func builtinSlice(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	// First arg must be a list
 	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
@@ -970,4 +904,20 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+func listsDescriptors() []Descriptor {
+	return []Descriptor{
+		function("listappend", builtinListappend, 2, 3, 4, -1, 0),
+		function("listinsert", builtinListinsert, 2, 3, 4, -1, 0),
+		function("listdelete", builtinListdelete, 2, 2, 4, 0),
+		function("listset", builtinListset, 3, 3, 4, -1, 0),
+		function("setadd", builtinSetadd, 2, 2, 4, -1),
+		function("setremove", builtinSetremove, 2, 2, 4, -1),
+		function("is_member", builtinIsMember, 2, 3, -1, -1, 0),
+		function("sort", builtinSort, 1, 4, 4, 4, 0, 0),
+		function("reverse", builtinReverse, 1, 1, -1),
+		function("unique", builtinUnique, 1, 1, 4).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("slice", builtinSlice, 1, 3, 4, -1, -1),
+	}
 }

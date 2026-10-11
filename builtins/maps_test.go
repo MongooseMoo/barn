@@ -19,7 +19,7 @@ func TestMapvaluesMissingCompositeKeysReturnRange(t *testing.T) {
 		{name: "map", key: types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(2)}})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := builtinMapvalues(ctx, []types.Value{emptyMap, tc.key})
+			result := admitTestBuiltin("mapvalues", ctx, []types.Value{emptyMap, tc.key})
 			if !result.IsError() || result.Error != types.E_RANGE {
 				t.Fatalf("mapvalues([], %s) = %+v, want E_RANGE", tc.name, result)
 			}
@@ -74,7 +74,7 @@ func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := builtinMaphaskey(ctx, []types.Value{mapping, test.key})
+			result := admitTestBuiltin("maphaskey", ctx, []types.Value{mapping, test.key})
 			if result.IsError() {
 				t.Fatalf("maphaskey: %s", result.Error)
 			}
@@ -98,7 +98,7 @@ func TestMultiKeyMapdeleteRaisesMissingKeyDetail(t *testing.T) {
 		types.NewInt(3),
 	})
 
-	result := builtinMapdelete(ctx, []types.Value{mapping, keys})
+	result := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, keys})
 	if result.Flow != types.FlowException || result.Error != types.E_RANGE {
 		t.Fatalf("mapdelete result = %+v, want E_RANGE exception", result)
 	}
@@ -145,7 +145,7 @@ func TestMapdeleteUsesPendingMapValueByteLimit(t *testing.T) {
 				types.NewInt(1),
 				types.NewList([]types.Value{types.NewInt(1)}),
 			} {
-				result := builtinMapdelete(ctx, []types.Value{mapping, key})
+				result := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, key})
 				if result.Error != test.wantErr {
 					t.Fatalf("mapdelete(%v) error = %v, want %v", key, result.Error, test.wantErr)
 				}

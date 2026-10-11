@@ -36,7 +36,7 @@ func TestBuiltinExecPassesInputWithEnvironmentArgument(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.IsWizard = true
-	result := builtinExec(ctx, []types.Value{
+	result := admitTestBuiltin("exec", ctx, []types.Value{
 		types.NewList([]types.Value{
 			types.NewStr(program),
 			types.NewStr("-test.run=^TestExecInputHelper$"),
@@ -57,7 +57,7 @@ func TestBuiltinExecRejectsInvalidInputWithEnvironmentArgument(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.IsWizard = true
-	result := builtinExec(ctx, []types.Value{
+	result := admitTestBuiltin("exec", ctx, []types.Value{
 		types.NewList([]types.Value{types.NewStr(program)}),
 		types.NewStr("invalid~input"),
 		types.NewList(nil),
@@ -98,7 +98,7 @@ func TestBuiltinExecPassesToastEnvironmentToChild(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.IsWizard = true
-	result := builtinExec(ctx, []types.Value{
+	result := admitTestBuiltin("exec", ctx, []types.Value{
 		types.NewList([]types.Value{
 			types.NewStr(program),
 			types.NewStr("-test.run=^TestExecEnvironmentHelper$"),
@@ -122,7 +122,7 @@ func TestBuiltinExecRejectsNonStringEnvironmentEntries(t *testing.T) {
 
 	ctx := newTestExecution()
 	ctx.IsWizard = true
-	result := builtinExec(ctx, []types.Value{
+	result := admitTestBuiltin("exec", ctx, []types.Value{
 		types.NewList([]types.Value{types.NewStr(program)}),
 		types.NewStr(""),
 		types.NewList([]types.Value{types.NewInt(1)}),

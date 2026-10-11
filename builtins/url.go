@@ -25,12 +25,6 @@ func builtinUrlEncode(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinUrlDecode(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
 	return types.Ok(types.NewStr(toastURLDecode(args[0].Str())))
 }
 
@@ -67,5 +61,12 @@ func fromHex(b byte) (byte, bool) {
 		return b - 'a' + 10, true
 	default:
 		return 0, false
+	}
+}
+
+func urlDescriptors() []Descriptor {
+	return []Descriptor{
+		function("url_encode", builtinUrlEncode, 1, 1, 2),
+		function("url_decode", builtinUrlDecode, 1, 1, 2),
 	}
 }

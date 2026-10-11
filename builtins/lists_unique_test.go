@@ -23,7 +23,7 @@ func TestBuiltinUniquePreservesValueEquality(t *testing.T) {
 		nan, nan,
 	}
 
-	result := builtinUnique(reviewDataCtx(), []types.Value{types.NewList(values)})
+	result := admitTestBuiltin("unique", reviewDataCtx(), []types.Value{types.NewList(values)})
 	if !result.IsNormal() {
 		t.Fatalf("unique() returned error: %v", result.Error)
 	}
@@ -41,7 +41,7 @@ func TestBuiltinUniquePreservesValueEquality(t *testing.T) {
 		t.Error("unique() collapsed NaN values, which are never equal")
 	}
 
-	unicodeFold := builtinUnique(reviewDataCtx(), []types.Value{types.NewList([]types.Value{
+	unicodeFold := admitTestBuiltin("unique", reviewDataCtx(), []types.Value{types.NewList([]types.Value{
 		types.NewStr("K"),
 		types.NewStr("K"),
 	})})
@@ -62,7 +62,7 @@ func TestBuiltinUniqueDistinctScalarsDoesNotScaleQuadratically(t *testing.T) {
 		best := time.Duration(1<<63 - 1)
 		for range 3 {
 			start := time.Now()
-			result := builtinUnique(ctx, []types.Value{list})
+			result := admitTestBuiltin("unique", ctx, []types.Value{list})
 			elapsed := time.Since(start)
 			if !result.IsNormal() || result.Val.Len() != size {
 				t.Fatalf("unique() returned flow %v, error %v, length %d; want a normal %d-element result", result.Flow, result.Error, result.Val.Len(), size)
@@ -95,7 +95,7 @@ func BenchmarkBuiltinUniqueDistinct10000(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		result := builtinUnique(ctx, []types.Value{list})
+		result := admitTestBuiltin("unique", ctx, []types.Value{list})
 		if !result.IsNormal() || result.Val.Len() != len(values) {
 			b.Fatalf("unique() returned flow %v, error %v, length %d; want a normal %d-element result", result.Flow, result.Error, result.Val.Len(), len(values))
 		}

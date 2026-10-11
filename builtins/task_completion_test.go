@@ -17,7 +17,7 @@ func TestTaskStackRejectsRetainedTerminalTasks(t *testing.T) {
 			finished := task.NewTask(42, 2, 1000, 1)
 			finished.SetState(state)
 			manager.RegisterTask(finished)
-			result := builtinTaskStack(ctx, []types.Value{types.NewInt(42)})
+			result := admitTestBuiltin("task_stack", ctx, []types.Value{types.NewInt(42)})
 			if !result.IsError() || result.Error != types.E_INVARG {
 				t.Fatalf("task_stack retained %s = %#v, want E_INVARG", state, result)
 			}
@@ -30,7 +30,7 @@ func TestQueueInfoReportsLastInputTaskID(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Player = 2
 	wireTestTaskManager(ctx)
-	result := builtinQueueInfo(ctx, []types.Value{types.NewObj(2)})
+	result := admitTestBuiltin("queue_info", ctx, []types.Value{types.NewObj(2)})
 	if !result.IsNormal() {
 		t.Fatal(result.Error)
 	}

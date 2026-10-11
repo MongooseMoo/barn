@@ -28,7 +28,7 @@ func TestSingleConnectionOptionReadsPreserveValues(t *testing.T) {
 		}
 		for name, want := range expected {
 			args := []types.Value{types.NewObj(7), types.NewStr(name)}
-			for _, got := range []types.Result{builtinConnectionOption(ctx, args), builtinConnectionOptions(ctx, args)} {
+			for _, got := range []types.Result{admitTestBuiltin("connection_option", ctx, args), admitTestBuiltin("connection_options", ctx, args)} {
 				if got.IsError() || !got.Val.Equal(want) {
 					t.Fatalf("stored=%v option %q = %+v, want %v", stored, name, got, want)
 				}
@@ -38,7 +38,7 @@ func TestSingleConnectionOptionReadsPreserveValues(t *testing.T) {
 			}
 		}
 		args := []types.Value{types.NewObj(7), types.NewStr("missing")}
-		for _, got := range []types.Result{builtinConnectionOption(ctx, args), builtinConnectionOptions(ctx, args)} {
+		for _, got := range []types.Result{admitTestBuiltin("connection_option", ctx, args), admitTestBuiltin("connection_options", ctx, args)} {
 			if !got.IsError() || got.Error != types.E_INVARG {
 				t.Fatalf("missing option = %+v, want E_INVARG", got)
 			}
@@ -94,7 +94,7 @@ func TestSingleConnectionOptionConcurrentReadsAndWrites(t *testing.T) {
 			args := []types.Value{types.NewObj(7), types.NewStr("binary")}
 			for i := 0; i < 2000; i++ {
 				_ = ctx.Session.ConnectionOptionTruthy(7, "binary")
-				got := builtinConnectionOptions(ctx, args)
+				got := admitTestBuiltin("connection_options", ctx, args)
 				if got.IsError() || got.Val.Type() != types.TYPE_INT || got.Val.Int() < 0 || got.Val.Int() > 1 {
 					t.Errorf("concurrent option = %+v", got)
 					return

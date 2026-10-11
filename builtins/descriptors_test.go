@@ -83,8 +83,8 @@ func TestDescriptorCapabilitiesAndImmutableLayout(t *testing.T) {
 	}
 }
 
-func TestBaseDescriptorsComplete(t *testing.T) {
-	descriptors := BaseDescriptors()
+func TestNativeDescriptorsComplete(t *testing.T) {
+	descriptors := Descriptors()
 	if len(descriptors) < 240 {
 		t.Fatalf("only %d base descriptors", len(descriptors))
 	}

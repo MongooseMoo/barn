@@ -14,11 +14,11 @@ func TestVerbCodeEditRecompilePreservesStringBytes(t *testing.T) {
 	source := "return \"tab\tcarriage\rhigh\x80quote\\\"slash\\\\\";"
 	code := types.NewList([]types.Value{types.NewStr(source)})
 	for range 3 {
-		result := builtinSetVerbCode(ctx, []types.Value{types.NewObj(object), types.NewStr("scratch"), code})
+		result := admitTestBuiltin("set_verb_code", ctx, []types.Value{types.NewObj(object), types.NewStr("scratch"), code})
 		if result.IsError() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 0 {
 			t.Fatalf("recompile failed: %v", result)
 		}
-		result = builtinVerbCode(ctx, []types.Value{types.NewObj(object), types.NewStr("scratch")})
+		result = admitTestBuiltin("verb_code", ctx, []types.Value{types.NewObj(object), types.NewStr("scratch")})
 		if result.IsError() || result.Val.Len() != 1 || result.Val.Get(1).Str() != source {
 			t.Fatalf("canonical source changed: %v; want %q", result, source)
 		}

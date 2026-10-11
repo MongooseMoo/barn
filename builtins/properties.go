@@ -10,10 +10,6 @@ import (
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
 func builtinProperties(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
@@ -51,10 +47,6 @@ func builtinProperties(ctx *Execution, args []types.Value) types.Result {
 // builtinPropertyInfo implements property_info(object, name)
 // Returns {owner, perms} where perms is a string like "rw"
 func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
@@ -103,10 +95,6 @@ func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
 // info can be {owner, perms}, just perms string, or just owner ObjValue
 func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
@@ -199,10 +187,6 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
 func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 4 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -335,10 +319,6 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteProperty implements delete_property(object, name)
 // Removes property from object
 func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -385,10 +365,6 @@ func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 // builtinClearProperty implements clear_property(object, name)
 // Clears property to inherit from parent
 func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	objVal := args[0]
 	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
@@ -453,10 +429,6 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 // Tests if property is cleared (inheriting)
 // Returns 1 if property is clear or only inherited, 0 if has local value
 func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
@@ -543,4 +515,16 @@ func parsePerms(s string) (dbstore.PropertyPerms, types.ErrorCode) {
 		}
 	}
 	return perms, types.E_NONE
+}
+
+func propertiesDescriptors() []Descriptor {
+	return []Descriptor{
+		function("properties", builtinProperties, 1, 1, -1),
+		function("property_info", builtinPropertyInfo, 2, 2, -1, 2),
+		function("set_property_info", builtinSetPropertyInfo, 3, 3, -1, 2, 4),
+		function("add_property", builtinAddProperty, 4, 4, -1, 2, -1, 4),
+		function("delete_property", builtinDeleteProperty, 2, 2, -1, 2),
+		function("clear_property", builtinClearProperty, 2, 2, -1, 2),
+		function("is_clear_property", builtinIsClearProperty, 2, 2, -1, 2),
+	}
 }

@@ -42,7 +42,7 @@ func TestPoolReviewUniqueConcurrentOwnership(t *testing.T) {
 					want[i] = types.NewStr(fmt.Sprintf("worker%d-round%d-value%d", worker, iteration, i))
 					values[i], values[i+64] = want[i], want[i]
 				}
-				result := builtinUnique(ctx, []types.Value{types.NewList(values)})
+				result := admitTestBuiltin("unique", ctx, []types.Value{types.NewList(values)})
 				expected := types.NewList(want)
 				if !result.IsNormal() || !result.Val.Equal(expected) {
 					t.Fatal("foreign, stale, or unordered result")

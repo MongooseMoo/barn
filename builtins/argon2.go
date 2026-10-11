@@ -137,3 +137,10 @@ func builtinArgon2Verify(ctx *Execution, args []types.Value) types.Result {
 	}
 	return types.Ok(types.NewInt(0))
 }
+
+func argon2Descriptors() []Descriptor {
+	return []Descriptor{
+		function("argon2", builtinArgon2, 2, 5, 2, 2, 0, 0, 0),
+		function("argon2_verify", builtinArgon2Verify, 2, 2, 2, 2),
+	}
+}

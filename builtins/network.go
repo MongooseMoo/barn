@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	"fmt"
+	"github.com/MongooseMoo/barn/config"
 	"net"
 	"sort"
 	"strconv"
@@ -855,9 +856,6 @@ func listenerDescriptorEqual(left, right listener.Descriptor) bool {
 
 // notify(player, message [, no_flush [, no_newline]]) -> int
 func builtinNotify(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 4 {
-		return types.Err(types.E_ARGS)
-	}
 	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -912,9 +910,6 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 
 // listeners([find]) -> list of listener maps.
 func builtinListeners(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Ok(types.NewList([]types.Value{}))
@@ -1004,9 +999,6 @@ func builtinListeners(ctx *Execution, args []types.Value) types.Result {
 
 // connected_players([show_all]) -> list.
 func builtinConnectedPlayers(ctx *Execution, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
@@ -1036,9 +1028,6 @@ func builtinConnectedPlayers(ctx *Execution, args []types.Value) types.Result {
 
 // connection_name(player [, method]) -> str.
 func builtinConnectionName(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
 	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1089,9 +1078,6 @@ func builtinConnectionName(ctx *Execution, args []types.Value) types.Result {
 
 // boot_player(player) -> int.
 func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
@@ -1123,9 +1109,6 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 
 // switch_player(old_player, new_player [, silent]) -> none.
 func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 2 || len(args) > 3 {
-		return types.Err(types.E_ARGS)
-	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -1167,9 +1150,6 @@ func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 
 // idle_seconds(player) -> int.
 func builtinIdleSeconds(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1192,9 +1172,6 @@ func builtinIdleSeconds(ctx *Execution, args []types.Value) types.Result {
 
 // connected_seconds(player) -> int.
 func builtinConnectedSeconds(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1217,9 +1194,6 @@ func builtinConnectedSeconds(ctx *Execution, args []types.Value) types.Result {
 
 // connection_info(player) -> map.
 func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
@@ -1280,9 +1254,6 @@ func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
 
 // connection_name_lookup(player [, rewrite]) -> int.
 func builtinConnectionNameLookup(ctx *Execution, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
@@ -1307,10 +1278,6 @@ func builtinConnectionNameLookup(ctx *Execution, args []types.Value) types.Resul
 
 // set_connection_option(conn, option, value) -> int.
 func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 3 {
-		return types.Err(types.E_ARGS)
-	}
-
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -1375,10 +1342,6 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 
 // connection_option(conn, option) -> value.
 func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
-	if len(args) != 2 {
-		return types.Err(types.E_ARGS)
-	}
-
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -1475,4 +1438,22 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	t.IsHTTPReadSuspended = true
 	mgr.SuspendTask(t, -1)
 	return types.Suspend(-1)
+}
+
+func networkDescriptors() []Descriptor {
+	return []Descriptor{
+		function("notify", builtinNotify, 2, 4, 1, 2, -1, -1),
+		function("listeners", builtinListeners, 0, 1, -1).withCapability(config.Network),
+		function("connected_players", builtinConnectedPlayers, 0, 1, -1),
+		function("connection_name", builtinConnectionName, 1, 2, 1, 0),
+		function("connection_name_lookup", builtinConnectionNameLookup, 1, 2, 1, -1),
+		function("boot_player", builtinBootPlayer, 1, 1, 1),
+		function("switch_player", builtinSwitchPlayer, 2, 3, 1, 1, 0),
+		function("idle_seconds", builtinIdleSeconds, 1, 1, 1),
+		function("connected_seconds", builtinConnectedSeconds, 1, 1, 1),
+		function("connection_info", builtinConnectionInfo, 1, 1, 1),
+		function("set_connection_option", builtinSetConnectionOption, 3, 3, 1, 2, -1).withEffect(Irreversible),
+		function("connection_option", builtinConnectionOption, 2, 2, -1, -1).plainArityError().hidden().withCapability(config.BarnExtensions),
+		function("read_http", builtinReadHTTP, 1, 2, 2, 1).withEffect(Irreversible),
+	}
 }

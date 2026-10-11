@@ -135,7 +135,7 @@ func TestPcreReplacePreservesInvalidBytes(t *testing.T) {
 		{"x\xe9y", "s/x(.)y/[$1]/", "[\xe9]"},
 		{"é\xe9", "s/é/e/", "e\xe9"},
 	} {
-		res := builtinPcreReplace(newTestExecution(), []types.Value{str(tc.subject), str(tc.spec)})
+		res := admitTestBuiltin("pcre_replace", newTestExecution(), []types.Value{str(tc.subject), str(tc.spec)})
 		if res.Flow != types.FlowNormal || res.Val.Str() != tc.want {
 			t.Errorf("pcre_replace(%q, %q) = %q (flow %v, %v), want %q", tc.subject, tc.spec, res.Val.Str(), res.Flow, res.Error, tc.want)
 		}

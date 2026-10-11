@@ -16,7 +16,7 @@ func TestMaxObjectReturnsObjectValue(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.Store = store
 
-	res := builtinMaxObject(ctx, nil)
+	res := admitTestBuiltin("max_object", ctx, nil)
 	if res.IsError() {
 		t.Fatalf("max_object failed: %v", res.Error)
 	}
@@ -172,7 +172,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	ctx.Programmer = 0
 	ctx.Player = 0
 
-	before := builtinObjectBytes(ctx, []types.Value{types.NewObj(obj)})
+	before := admitTestBuiltin("object_bytes", ctx, []types.Value{types.NewObj(obj)})
 	if before.IsError() {
 		t.Fatalf("object_bytes before failed: %v", before.Error)
 	}
@@ -181,7 +181,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	if errCode := ctx.StoreTxn.DefineProperty(obj, "test1", dbstore.NewProperty(types.NewStr("hello world"), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	after := builtinObjectBytes(ctx, []types.Value{types.NewObj(obj)})
+	after := admitTestBuiltin("object_bytes", ctx, []types.Value{types.NewObj(obj)})
 	if after.IsError() {
 		t.Fatalf("object_bytes after failed: %v", after.Error)
 	}

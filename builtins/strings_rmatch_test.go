@@ -30,7 +30,7 @@ func TestBuiltinRmatchReturnsRightmostMatch(t *testing.T) {
 	ctx := newTestExecution()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := builtinRmatch(ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
+			result := admitTestBuiltin("rmatch", ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
 			if result.Flow != types.FlowNormal {
 				t.Fatalf("rmatch(%q, %q) flow = %v, error = %v", tc.subject, tc.pattern, result.Flow, result.Error)
 			}
@@ -72,7 +72,7 @@ func TestBuiltinRmatchMatchesLegacySuffixSemantics(t *testing.T) {
 
 	ctx := newTestExecution()
 	for _, tc := range tests {
-		got := builtinRmatch(ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
+		got := admitTestBuiltin("rmatch", ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
 		want := legacyRmatchForTest(tc.subject, tc.pattern)
 		if got.Flow != types.FlowNormal || got.Val.String() != want.String() {
 			t.Errorf("rmatch(%q, %q) = %s (flow %v), want legacy %s", tc.subject, tc.pattern, got.Val.String(), got.Flow, want.String())
@@ -83,7 +83,7 @@ func TestBuiltinRmatchMatchesLegacySuffixSemantics(t *testing.T) {
 // Non-ASCII subjects scan suffixes by character, so a match never starts
 // inside a UTF-8 encoding (Toast's byte scan reports {2, 1} here).
 func TestBuiltinRmatchCountsCharacters(t *testing.T) {
-	got := builtinRmatch(newTestExecution(), []types.Value{types.NewStr("é"), types.NewStr(".")})
+	got := admitTestBuiltin("rmatch", newTestExecution(), []types.Value{types.NewStr("é"), types.NewStr(".")})
 	if got.Flow != types.FlowNormal || got.Val.Get(1).Int() != 1 || got.Val.Get(2).Int() != 1 {
 		t.Fatalf(`rmatch("é", ".") = %s, want {1, 1, ...}`, got.Val.String())
 	}
@@ -120,12 +120,12 @@ func TestBuiltinRmatchLargeInputHasBoundedAllocations(t *testing.T) {
 	args := []types.Value{types.NewStr(strings.Repeat("x", 8*1024)), types.NewStr("x")}
 
 	// Prime the regexp cache so this measures each rmatch call, not compilation.
-	if result := builtinRmatch(ctx, args); result.Flow != types.FlowNormal {
+	if result := admitTestBuiltin("rmatch", ctx, args); result.Flow != types.FlowNormal {
 		t.Fatalf("priming rmatch flow = %v, error = %v", result.Flow, result.Error)
 	}
 
 	allocs := testing.AllocsPerRun(1, func() {
-		if result := builtinRmatch(ctx, args); result.Flow != types.FlowNormal {
+		if result := admitTestBuiltin("rmatch", ctx, args); result.Flow != types.FlowNormal {
 			t.Fatalf("rmatch flow = %v, error = %v", result.Flow, result.Error)
 		}
 	})
@@ -140,7 +140,7 @@ func BenchmarkBuiltinRmatch200KB(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := builtinRmatch(ctx, args)
+		result := admitTestBuiltin("rmatch", ctx, args)
 		if result.Flow != types.FlowNormal {
 			b.Fatalf("rmatch flow = %v, error = %v", result.Flow, result.Error)
 		}
