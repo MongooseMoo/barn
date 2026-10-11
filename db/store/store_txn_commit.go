@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/internal/commitgate"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -379,6 +380,12 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
 	if len(tx.waifs) == 0 && !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		commitErr = tx.commitDecentralized()
+		if commitErr == types.E_NONE {
+			isolationprobe.Note("parallel")
+			if tx.gateExempt {
+				isolationprobe.Note("exclusive_gate")
+			}
+		}
 		if commitErr != types.E_NONE && !tx.validationFail {
 			tx.markTerminal(commitErr)
 		}
@@ -396,6 +403,12 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		return tx.markTerminal(errCode)
 	}
 	commitErr = tx.applyStagedToLiveLocked()
+	if commitErr == types.E_NONE {
+		isolationprobe.Note("exclusive")
+		if tx.gateExempt {
+			isolationprobe.Note("exclusive_gate")
+		}
+	}
 	if commitErr != types.E_NONE {
 		tx.markTerminal(commitErr)
 	}

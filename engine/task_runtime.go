@@ -16,6 +16,7 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/internal/commitgate"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -454,6 +455,7 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			committed = false
+			isolationprobe.MarkFailed(ctx)
 		}
 	}
 	bcVM.ReleaseRetryCheckpoint()
@@ -490,6 +492,7 @@ retryAttempt:
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
+		isolationprobe.Note("suspend")
 		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, &gate)
 		return nil
 	}
@@ -704,6 +707,7 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 			t.SetState(task.TaskKilled)
 			t.SetBytecodeVM(nil)
 			s.discardCreatedForks(t)
+			isolationprobe.MarkFailed(ctx)
 			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 			gate.release(ctx.StoreTxn)
 			return

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -454,6 +455,7 @@ func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
 }
 
 func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
+	isolationprobe.Note("verb_memo")
 	tx.usedVerbMemo = true
 	tx.verbMemoHits = append(tx.verbMemoHits, key)
 }

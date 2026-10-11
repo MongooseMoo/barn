@@ -1,0 +1,107 @@
+# Elle isolation checks
+
+Run this check when changing transaction validation, publication, hot renewal,
+relationship or definition reads, dispatch memoization, or task retry/suspension.
+It drives the real VM and runtime with four admitted workers, then checks the
+external MOO observations with [Elle](https://github.com/jepsen-io/elle).
+Ordinary `go test ./...` runs the recorder regressions and skips history generation.
+Java is needed only by the separate checker job, never by Barn.
+
+## Models and evidence
+
+The append history contains property values, contents, children, property
+definitions, verb definitions, verb code, names and inherited property values.
+Fresh objects, definition names and literal lines carry unique integer tokens.
+MOO normalizes each row into a list. A single-threaded preflight appends twice
+to every row and asserts exact order before concurrent work starts.
+
+The register history contains blind writes to a property, name and verb code,
+with unique values. Reads span keys in each transaction. Both models request
+`serializable` explicitly; the CLI's default is stronger and inappropriate here.
+Each publication uses a separate Elle process, so the checker does not impose
+session ordering on old read-only snapshots. Wall-clock ordering, store versions,
+read timestamps, task return values and generated object IDs are not correctness
+witnesses. The witness contains values MOO actually read or wrote.
+
+An observation is buffered in the current attempt and published through the
+runtime's existing commit-deferred effect mechanism. This divides histories at
+successful slice commits and at publications inside irreversible-effect
+boundaries. Hot renewal carries the same pending observations. Discarded retry
+attempts are omitted. A native exception can still publish writes and is `ok`.
+An opt-in runtime outcome hook identifies failed commits as `fail`; other unconfirmed
+attempts are `info`. The generator fails if either is present in a completed run.
+Recorder regressions exercise these boundaries independently of Elle.
+
+Concurrent mutators also check location/contents and parent/children reciprocity,
+fixed-token conservation, and absence of recycled references. They move and
+reparent objects, create/recycle temporary objects, delete properties/verbs,
+clear inherited slots, and change flags, owners and permission metadata. Read-only
+snapshot tasks run the same invariants during the workload and at the end.
+Inherited dispatch runs alongside ancestor verb additions and reparenting.
+
+The manifest requires nonzero actual committed paths: parallel and coarse
+exclusive commits, exclusive gate commits, hot renewal, verb memo hits, suspends,
+forks, native exceptions and read-only observations. It also reports every
+invariant operation and every committed append/register key. Probe counters are
+coverage evidence only. They do not participate in Elle's correctness graph.
+The synchronized hot reader and first append wave make those paths reproducible.
+
+For focused experiments, direct generation accepts `BARN_ELLE_PATHS` as a
+comma-separated selection of `parallel,exclusive,exclusive_gate,hot_renewal,
+verb_memo,suspend,fork`. The manifest records the selection and requires every
+selected path to occur. These settings select workload features; actual internal
+paths can also occur incidentally. The CI driver always enables all features.
+
+## Run and replay
+
+Use Linux, including WSL Debian on Windows. Run from the Barn checkout. Install
+Go, Java 21, Leiningen and Graphviz. Build the same pinned CLI used in CI:
+
+```sh
+git clone https://github.com/ligurio/elle-cli.git /tmp/barn-elle-cli
+git -C /tmp/barn-elle-cli checkout --detach 9c2a18b3719f573dab06ae05c955c9c9d5225673
+cd /tmp/barn-elle-cli
+JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
+```
+
+Then return to Barn and run:
+
+```sh
+python3 scripts/check_elle.py \
+  --jar /tmp/barn-elle-cli/target/elle-cli-0.1.11-standalone.jar \
+  --java "$JAVA_HOME/bin/java" --output /tmp/barn-elle-evidence
+```
+
+The output directory must be new. Defaults are seeds 412, 395 and 396, with 40
+rounds each, plus the same first seed/workload under the deliberate fault.
+Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
+operations, while worker scheduling can change. Preserve the original EDN to
+replay the exact observed history. `results.json` records the checker commands.
+Direct generation needs `BARN_ELLE_OUTPUT`, `GOMAXPROCS=4` and `-tags elle`:
+
+```sh
+BARN_ELLE_OUTPUT=/tmp/barn-history BARN_ELLE_SEED=412 BARN_ELLE_ROUNDS=40 \
+  GOMAXPROCS=4 go test -tags elle ./engine \
+  -run '^TestElleIsolationHistories$' -count=1 -v -timeout=5m
+```
+
+The dedicated `elle` build tag enables coverage hooks and the
+`BARN_ELLE_FAULT=property-reads` switch. The fault disables property-read
+validation; four synchronized read-modify-write appends must produce a history
+Elle rejects with an anomaly witness. Normal server builds compile away the
+hooks and cannot disable validation through this environment variable. Never
+ship a server built with this checker tag.
+
+The driver requires literal `true` and exit zero for every healthy history,
+and `false`, exit one and an anomaly witness for the fault append history.
+`unknown`, missing verdicts, unexpected subprocess exits, incomplete Go runs
+and missing coverage all fail. An inconclusive verdict need not have a nonzero
+exit status, so checking exit status alone is wrong.
+CI uploads histories, seed manifests, raw Go/Elle logs, cycle text/graphs and
+results even on failure. To investigate, start with the Go log and manifest,
+then read the anomaly's transaction edges in the `.txt` witness and inspect
+its SVG. Preserve native errors; do not catch them or weaken the model to
+obtain a green result.
+
+This is a bounded isolation corpus. It provides no performance or liveness
+claim and does not close the Mongoose home-command timeout investigation.
