@@ -256,7 +256,7 @@ func pruneHistoryToReaders(entries []objectHistory, readers []uint64, clock uint
 
 // pruneObjectHistory prunes object id's history to the current floor under
 // historyMu, and to its readers when that is due. Safe to call from the
-// decentralized publish path (which holds store.mu.RLock + the slot mutex) and
+// decentralized publish path (which holds store.mu.RLock + commitMu) and
 // from the coarse path (store.mu.Lock).
 //
 // The conflict census dates a rewrite by walking every image newer than the

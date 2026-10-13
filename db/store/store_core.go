@@ -14,17 +14,12 @@ import (
 // (slot.ptr) is an IMMUTABLE *Object: once a pointer is Stored into a slot, that
 // *Object's fields and the *Property/*Verb nodes it owns are never written again.
 // Readers Load() the pointer once and use that frozen snapshot — no lock, no torn
-// read. The copy-on-write property-value committer builds a NEW *Object and
-// publishes it via slot.ptr.Store under slot.mu; same-object committers serialize
-// on slot.mu, disjoint committers never share a slot.
+// read. The copy-on-write committer builds a NEW *Object and publishes it via
+// slot.ptr.Store while holding Store.commitMu, so one commit publishes at a time.
 //
-// The slot struct (not the *Object) carries the sync.Mutex, so the mutex is never
-// value-copied with the image (no copylocks). The map of *objectSlot has stable
-// slot identity for the slot's lifetime; the map skeleton (adding a key) is still
-// mutated only under store.mu.
+// A slot has stable identity for its lifetime in the directory.
 type objectSlot struct {
 	ptr atomic.Pointer[Object]
-	mu  sync.Mutex
 }
 
 // readTSShardCount shards the live-readTS registry. Sized to scatter a typical
@@ -44,8 +39,15 @@ type readTSShard struct {
 }
 
 type Store struct {
-	mu  sync.RWMutex
-	dir objectDir // segmented lock-free directory: id -> *objectSlot
+	mu sync.RWMutex
+	// commitMu serializes decentralized commits. It is taken inside
+	// store.mu.RLock and held from read-set validation through the publication
+	// of every image and the clock store that makes them visible, so no commit
+	// validates against a state another is about to replace, and no snapshot
+	// begins at a timestamp whose images are only partly published. Coarse
+	// writers hold store.mu.Lock instead, which excludes every RLock holder.
+	commitMu sync.Mutex
+	dir      objectDir // segmented lock-free directory: id -> *objectSlot
 	// directTxn is the allocation-free pass-through transaction used when code
 	// executes outside an optimistic task snapshot. Its methods read and write
 	// the live store immediately and never accumulate transaction state.
@@ -315,11 +317,12 @@ func (s *Store) readTimestamp() uint64 {
 }
 
 // bumpClockLocked advances the global commit clock and returns the new value.
-// The clock is an atomic counter (Option B): bumping it does not require
-// store.mu, so the decentralized COW committer (which holds only store.mu.RLock)
-// and the coarse writers (store.mu.Lock) draw distinct, globally-monotonic
-// timestamps from the same source. The "_Locked" suffix is retained for the many
-// coarse callers; the operation itself is lock-free.
+// The caller holds store.mu.Lock. That is a requirement, not a habit: the
+// decentralized committer reserves clock+1 under store.mu.RLock and moves the
+// clock to it only after publishing (commitDecentralized), which is sound only
+// if nothing else moves the clock while an RLock is held. The one bump made
+// under RLock is that committer's own noteVerbShapeChanged, after its clock
+// store and still under commitMu.
 func (s *Store) bumpClockLocked() uint64 {
 	return s.bumpClock()
 }

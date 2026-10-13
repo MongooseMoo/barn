@@ -361,9 +361,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// walkers, whose full inheriting subtree is already staged as per-descendant
 	// propertyWrites/propertyDeletes), property-value, property-delete, verb-code — and
 	// that did not mutate the live store directly is applied decentralized: under
-	// store.mu.RLock + per-slot mutexes, building and publishing new immutable images
-	// instead of taking the exclusive store.mu.Lock. Disjoint such commits run in
-	// parallel. A liveMutated task falls back to the coarse exclusive path below
+	// store.mu.RLock + commitMu, building and publishing new immutable images
+	// instead of taking the exclusive store.mu.Lock, so readers are not shut out
+	// while it runs. A liveMutated task falls back to the coarse exclusive path below
 	// (unchanged in-place apply). The earlier guard already established at least one
 	// write is staged, so reaching here with !liveMutated means at least one
 	// decentralized write exists.
@@ -371,8 +371,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// NO per-id history (see store_core.go liveObjectLocked). The decentralized
 	// committer publishes new immutable images into numbered slots, so it cannot
 	// apply a write that targets an anon id (no slot -> E_INVIND, and any in-place
-	// anon mutation under its RLock + per-slot-mutex would be unsynchronized — anon
-	// has no slot mutex — a data race). Route any commit whose staged write
+	// anon mutation under its RLock would race the readers that share that RLock).
+	// Route any commit whose staged write
 	// footprint includes an anon id onto the coarse exclusive path, exactly as a
 	// liveMutated task is routed; that path holds store.mu.Lock EXCLUSIVE, which
 	// excludes RLock readers and decentralized committers, making the in-place anon
@@ -419,7 +419,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 // before a publication timestamp is allocated or any live image is changed. It is
 // shared by coarse Commit, the legacy unvalidated FlushStagedToLive boundary, and
 // the decentralized committer. The caller holds store.mu for reading or writing;
-// decentralized callers additionally hold every numbered footprint slot mutex.
+// decentralized callers additionally hold commitMu.
 func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 	s := tx.store
 
