@@ -1,7 +1,17 @@
+import re
 import unittest
 from pathlib import Path
 
-from check_elle import verdict
+from check_elle import FAULTS, verdict
+
+
+class FaultListTests(unittest.TestCase):
+    def test_driver_runs_every_fault_the_workload_knows(self):
+        source = (Path(__file__).resolve().parent.parent / "engine" /
+                  "elle_workload_test.go").read_text(encoding="utf-8")
+        declared = re.search(r"^var elleFaults = \[\]string\{([^}]*)\}", source, re.MULTILINE)
+        self.assertIsNotNone(declared)
+        self.assertEqual(re.findall(r'"([^"]+)"', declared.group(1)), FAULTS)
 
 
 class VerdictTests(unittest.TestCase):

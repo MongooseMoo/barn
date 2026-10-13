@@ -1,0 +1,13 @@
+# Pending-finalization analyst checkpoint
+
+- Exact target: Barn commit `55bf832653a87071718ec7ba4a527e16df3e8760`, issue #95 / draft PR #96.
+- Affected packages passed normally; affected `-race` packages also passed (`scheduler` took 207.294s).
+- A later repository-wide run in the shared worktree was invalidated by concurrent edits. Re-running from an isolated temporary clone pinned to immutable `55bf832...` proved `go test ./... -count=1` and `go build ./...` green. Changed-file `gofmt` and `git diff --check` are green. Affected `-race` packages are green. `go vet ./...` reports the inherited `vm/stack.go:49` ReadByte signature warning; that file is outside the candidate diff.
+- Static blocker: `flushDeferredGC` removes a batch under `pendingWaifMu` but performs recycle after releasing it. `BeginShutdown` can publish shutdown and allow checkpointing while an already-drained ordinary sweep still mutates/recycles roots. There is no in-flight sweep state/wait, and tests cover only shutdown-before-flush.
+- Static regression: the early `taskCtx.Done()` return bypasses both shutdown settlement and ordinary deferred GC. Without explicit shutdown, a canceled task may commit anonymous creation, drop its VM, and neither recycle nor transfer the orphan; the new test asserts only no shutdown handoff.
+- Architectural blocker: the server shutdown host callback still appends caller-VM roots directly to the Store before invoking `Shutdown`/`Panic`, bypassing the scheduler as canonical owner. `Shutdown` checks `running` before `BeginShutdown`, so the not-running path never publishes explicit scheduler shutdown state.
+- Scope observation: the candidate is five commits over base and changes 28 files (1,627 insertions, 209 deletions), materially broader than live PR #96's published head/diff.
+- Root-shape/persistence observations: direct anonymous candidates stop at WAIF boundaries while serialization recursively includes WAIF dependencies; snapshot normalization filters persistent roots and canonicalizes anonymous cycles. Canonical task-local reads now require exact `*task.Task`, and anonymous objects remain canonical in `anonObjects`.
+- Final verdict: `NO-MERGE` for exact `55bf832...` due to the three blockers above. Live PR #96 still points at old head `0450cf2...` with red conformance, so this candidate also lacks exact-head CI/admission evidence.
+- Next: coder must finish the in-flight GC/shutdown barrier, route caller roots through the scheduler boundary (including not-running and panic), and make generic cancellation run ordinary cleanup. Then rerun analyst/verifier plus exact-head managed conformance.
+- This note is intentionally untracked and must not be staged, committed, or pushed.

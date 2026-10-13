@@ -1,0 +1,10 @@
+# PR 96 pending-roots adversary checkpoint
+
+- Review target: read-only exact head `6f1022f1c6131a7e5ef6197499f211c3c67e0723` in `C:\Users\Q\code\.worktrees\barn-pr96-pending-roots-repair`.
+- Confirmed architectural directions in current source: `task.Task.taskLocal` is the sole mutable task-local field; scheduler shutdown has an explicit atomic `BeginShutdown` state; snapshot code performs deterministic anonymous-ID rewriting, cycle-root normalization, nested value rewriting, and WAIF pointer-identity dedupe.
+- Candidate blocker: `vm.CollectPendingFinalizationValues` recursively collects ANONs inside WAIF properties as independent top-level values and also collects the WAIF. Once appended separately, snapshot normalization cannot recover the dependency relation, so it can emit both the WAIF and its nested ANON as pending roots. The round-trip nested-WAIF test injects only a WAIF directly into the store and therefore does not exercise the runtime collector path.
+- Candidate blocker: `Scheduler.ProcessReadyTasks` unconditionally calls `flushDeferredGC()` after a task pass, including after shutdown root handoff. A task that calls `shutdown()` can hand off roots and set shutdown state, then return to this unconditional ordinary-GC flush before the final checkpoint.
+- Candidate directional gap: `task_local()` and `set_task_local()` silently fall back on missing/wrong `ctx.Task`; this is a hidden compatibility path despite canonical ownership residing in `task.Task`.
+- Managed evidence read so far: `reports/runs/20260805_044427` records 3 focused startup-repair tests passed, but those canned-file checks do not cover the two runtime shutdown-path candidates above.
+- Tooling limitation: the adversary skill requested `ward set adversary`, but `ward` is not installed/on PATH; manual read-only constraints are being followed except for this mandatory checkpoint note.
+- Next action: finish source/test mapping for the identified candidates, check shutdown and nested-root coverage, then report ACCEPT/REJECT with exact-head blockers only.

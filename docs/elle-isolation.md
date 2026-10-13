@@ -46,7 +46,16 @@ exclusive commits, exclusive gate commits, hot renewal, verb memo hits, suspends
 forks, native exceptions and read-only observations. It also reports every
 invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
-The synchronized hot reader and first append wave make those paths reproducible.
+The synchronized hot reader and append waves make those paths reproducible.
+
+Before the random rounds, the append workload runs four synchronized waves and
+one held pair. In a wave, four tasks read the same row, wait at a barrier until
+all four have read, then append: property value, name, verb code and contents,
+one wave for each validation stage. In the pair, each task reads the row the
+other appends to, and both are held after validation, before publication, until
+both have validated or two seconds pass. A healthy commit excludes the second
+task while the first is held, so the first times out and publishes and the
+second loses validation and retries.
 
 For focused experiments, direct generation accepts `BARN_ELLE_PATHS` as a
 comma-separated selection of `parallel,exclusive,exclusive_gate,hot_renewal,
@@ -75,7 +84,7 @@ python3 scripts/check_elle.py \
 ```
 
 The output directory must be new. Defaults are seeds 412, 395 and 396, with 40
-rounds each, plus the same first seed/workload under the deliberate fault.
+rounds each, plus one run of the first seed under each deliberate fault.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
@@ -87,15 +96,35 @@ BARN_ELLE_OUTPUT=/tmp/barn-history BARN_ELLE_SEED=412 BARN_ELLE_ROUNDS=40 \
   -run '^TestElleIsolationHistories$' -count=1 -v -timeout=5m
 ```
 
-The dedicated `elle` build tag enables coverage hooks and the
-`BARN_ELLE_FAULT=property-reads` switch. The fault disables property-read
-validation; four synchronized read-modify-write appends must produce a history
-Elle rejects with an anomaly witness. Normal server builds compile away the
-hooks and cannot disable validation through this environment variable. Never
+The dedicated `elle` build tag enables coverage hooks, pause points and the
+`BARN_ELLE_FAULT` switch. Each fault removes one protection, and Elle must
+reject the resulting append history with an anomaly witness:
+
+| `BARN_ELLE_FAULT` | Removes | Made certain by |
+|---|---|---|
+| `property-reads` | property-value read validation | property wave |
+| `scalar-reads` | name/owner/flags read validation | name wave |
+| `verb-reads` | verb read, scan and dispatch-memo validation | verb-code wave |
+| `relationship-reads` | location/contents/children read validation | contents wave |
+| `commit-exclusion` | exclusion of commits that read what another writes | held pair |
+
+A fault run is the preflight, the waves, the held pair and the final read, with
+no random rounds and no coverage requirement. The witness is then the anomaly
+that fault's interleaving made, on the row it targets. With the rounds left in,
+a fault corrupts so much that Graphviz spends minutes plotting the cycles.
+
+A checker that has never been shown to reject a class of defect is not evidence
+that the class is absent. When you add a protection to validation or
+publication, add the fault that removes it, the workload that makes its loss
+certain, and its name to `elleFaults` and to `FAULTS` in `scripts/check_elle.py`.
+`isolationprobe.Pause` names a point inside the store where a workload can hold
+a goroutine; use it when the interleaving you need is otherwise microseconds
+wide. Normal server builds compile away the hooks, the pause points and the
+faults, and cannot disable validation through this environment variable. Never
 ship a server built with this checker tag.
 
 The driver requires literal `true` and exit zero for every healthy history,
-and `false`, exit one and an anomaly witness for the fault append history.
+and `false`, exit one and an anomaly witness for every fault append history.
 `unknown`, missing verdicts, unexpected subprocess exits, incomplete Go runs
 and missing coverage all fail. An inconclusive verdict need not have a nonzero
 exit status, so checking exit status alone is wrong.

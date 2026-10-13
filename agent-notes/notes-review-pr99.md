@@ -1,0 +1,14 @@
+# PR 99 final review checkpoint
+
+- State: beginning a read-only final review of `C:/Users/Q/code/.worktrees/barn-issue-91-go-hygiene` at expected head `00af402`.
+- Scope: inspect the exact `origin/master...HEAD` diff and merge parents; verify workflow composition preserves the corrected conformance gate; verify complete `ReadByte` to `FetchByte` rename; verify gofmt-only scope; run relevant formatting, vet, build, and test checks; confirm issue #91 and the literal closing phrase.
+- Guardrail: do not edit PR files. This checkpoint file remains uncommitted and must not be staged, committed, or pushed.
+- Current findings: local HEAD is merge commit `00af402d8f1a16dc4229cebb2fc442b0cc49b745` with parents `2719014d16e777c97979f71a6e68638d2469c288` and `95b5758cbf964f7b8a2fc2443c99090a4c32176d`. The branch diff against `origin/master` has 13 files: one workflow change, three gofmt targets, and the VM instruction-fetch rename across VM source files.
+- GitHub observation: PR #99 is open and non-draft, but its remote head is still `2719014d16e777c97979f71a6e68638d2469c288`; the reviewed local merge commit has not been pushed yet. The body contains literal `Closes #91`, and GitHub resolves issue #91 as its closing issue. Current remote checks belong to the old head: build passed and conformance failed.
+- Guardrail observation: the required gauntlet path under `.Codex` did not exist; the current protocol was found at `C:/Users/Q/.claude/CLAUDE.md.d/gauntlet.md` and read as explicitly required.
+- Final code findings: no code defect found. The three formatting files are byte-for-byte identical to `gofmt` applied to their `origin/master` versions. Every VM `ReadByte` definition/call was mechanically renamed to `FetchByte`; the remaining `ReadByte` occurrences are legitimate buffered-reader calls in `server/transport.go`. The current-master conformance workflow is retained, and the feature adds only the formatting and `go vet ./...` steps to the existing Go job.
+- Verification on exact local `00af402`: `gofmt -l .` empty; `git diff --check origin/master...HEAD` clean; `go vet ./...` green; `go build ./...` green; `go test ./... -count=1` green. Worktree remains clean and HEAD unchanged. `go.mod` declares Go 1.24.6.
+- Issue/PR contract: issue #91 is open and the local diff satisfies its stated acceptance criteria and staticcheck scope boundary. PR #99 body contains literal `Closes #91`, and GitHub recognizes issue #91 as the closing issue.
+- Verdict: CODE APPROVE for local commit `00af402`.
+- Remaining external-state requirement: push `00af402` and require exact-head GitHub checks before any merge. GitHub currently still reviews `2719014`; its old build-pass/conformance-fail results do not verify `00af402`.
+- Next action: parent may push the reviewed merge commit, then audit exact-head checks and normal-merge guardrails before merging.

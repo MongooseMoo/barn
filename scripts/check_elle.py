@@ -8,6 +8,12 @@ import re
 import subprocess
 import sys
 
+# Each BARN_ELLE_FAULT removes one protection; Elle must reject every one of
+# them. Kept equal to elleFaults in engine/elle_workload_test.go by
+# test_check_elle.py.
+FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
+          "commit-exclusion"]
+
 
 def verdict(output, history):
     # Exit status alone cannot distinguish accepted from inconclusive histories.
@@ -42,17 +48,18 @@ def main():
     args.jar = args.jar.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     results, errors = [], []
-    # Same workload and seed under healthy/faulty validation. The synchronized
-    # first append wave makes the negative control independent of lucky timing.
-    cases = [(f"seed-{seed}", seed, False) for seed in args.seeds]
-    cases.append(("fault-property-reads", args.seeds[0], True))
+    # Same workload and seed under healthy validation and under each fault. The
+    # synchronized waves and the held write-skew pair make every negative control
+    # independent of lucky timing.
+    cases = [(f"seed-{seed}", seed, "") for seed in args.seeds]
+    cases += [(f"fault-{fault}", args.seeds[0], fault) for fault in FAULTS]
     for label, seed, fault in cases:
         case = args.output / label
         env = os.environ.copy()
         env.update(BARN_ELLE_OUTPUT=str(case), BARN_ELLE_SEED=str(seed),
                    BARN_ELLE_ROUNDS=str(args.rounds), GOMAXPROCS="4",
                    BARN_ELLE_PATHS="",
-                   BARN_ELLE_FAULT="property-reads" if fault else "")
+                   BARN_ELLE_FAULT=fault)
         command = ["go", "test", "-tags", "elle", "./engine", "-run",
                    "^TestElleIsolationHistories$", "-count=1", "-v", "-timeout=5m"]
         code, _ = run(command, args.output / f"{label}-go.log", env)
@@ -60,7 +67,7 @@ def main():
             errors.append(f"{label}: Go workload exited {code}")
         for model in ["list-append", "rw-register"]:
             history = case / f"{model}.edn"
-            # The fault targets append read-modify-write validation; blind-write
+            # Every fault targets append read-modify-write isolation; blind-write
             # register checking is required for healthy cases only.
             if fault and model == "rw-register":
                 continue
