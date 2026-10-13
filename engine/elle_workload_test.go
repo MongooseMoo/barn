@@ -342,6 +342,29 @@ func TestElleIsolationHistories(t *testing.T) {
 			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
 			return types.Ok(types.NewInt(0))
 		}
+		// elle_torn(step) sequences the torn-snapshot pair. 0: the reader waits
+		// until the writer's commit holds a timestamp. 1: the reader has read
+		// its first row; let the commit publish and wait until it has.
+		// 2: the writer announces its publication through a commit effect.
+		tornStamped, tornRead, tornPublished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		var tornReadOnce sync.Once
+		var torn builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
+			wait := tornStamped
+			switch args[0].Int() {
+			case 1:
+				tornReadOnce.Do(func() { close(tornRead) })
+				wait = tornPublished
+			case 2:
+				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
+				return types.Ok(types.NewInt(0))
+			}
+			select {
+			case <-wait:
+				return types.Ok(types.NewInt(0))
+			case <-time.After(10 * time.Second):
+				return types.Err(types.E_QUOTA)
+			}
+		}
 		var invariantMark builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			ops := args[0].Elements()
 			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
@@ -385,6 +408,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
 			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
 			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
+			testBuiltinSlot("elle_torn", 1, 1, []int64{int64(types.TYPE_INT)}, &torn),
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
 			testBuiltinSlot("elle_hot_release", 0, 0, nil, &hotRelease),
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
@@ -471,6 +495,57 @@ func TestElleIsolationHistories(t *testing.T) {
 					elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
 					elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
 				})
+				isolationprobe.SetPause(nil)
+				id += 2
+				// Torn snapshot: one commit appends to two rows and is held once it
+				// has its timestamp, before it publishes. The reader's second slice
+				// begins its snapshot inside that hold, reads the first row, lets
+				// the commit publish, and then reads the second row. It must see
+				// both appends or neither.
+				var stampedOnce sync.Once
+				isolationprobe.SetPause(func(point string) {
+					if point != "commit/timestamped" {
+						return
+					}
+					stampedOnce.Do(func() {
+						close(tornStamped)
+						select {
+						case <-tornRead:
+						case <-time.After(2 * time.Second):
+						}
+					})
+				})
+				// The reader's second slice must start while the writer is still
+				// held, so this pair is dispatched without waiting for the batch,
+				// as the server loop does; elleDrain then checks how it settled.
+				pair := []*task.Task{
+					elleTask(t, rt, id, elleAppend(0, 195)+elleAppend(7, 196)+`elle_torn(2);`),
+					elleTask(t, rt, id+1, `elle_torn(0); suspend(0); v=#0:read_row(0,#11); elle_observe("r","property",v); elle_torn(1); w=#0:read_row(7,#18); elle_observe("r","inherited-property",w);`),
+				}
+				for _, tk := range pair {
+					rt.QueueTask(tk)
+				}
+				for deadline := time.Now().Add(30 * time.Second); ; {
+					settled := true
+					for _, tk := range pair {
+						if state := tk.GetState(); state != task.TaskCompleted && state != task.TaskKilled {
+							settled = false
+						}
+					}
+					if settled {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("torn-snapshot pair did not settle")
+					}
+					if rt.DispatchReady() == 0 {
+						select {
+						case <-rt.ScheduleChanged():
+						case <-time.After(5 * time.Millisecond):
+						}
+					}
+				}
+				elleDrain(t, rt, nil)
 				isolationprobe.SetPause(nil)
 				id += 2
 			}

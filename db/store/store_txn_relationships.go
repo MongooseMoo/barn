@@ -17,7 +17,7 @@ type objectRelationshipWrite struct {
 	// at commit — not a whole-list overwrite computed from a stale snapshot. move()
 	// stages a remove on the old room and an add on the new room this way and does NOT
 	// record a read dep on either room, so two moves into the SAME room both commit
-	// (setadd/setremove commute) and merely serialize on that room's slot mutex instead
+	// (setadd/setremove commute) and merely take their turn to publish instead
 	// of one aborting and re-running the whole verb. The room's relationshipVersion
 	// still bumps, so a task that READ the room's contents and then writes still
 	// conflicts correctly; only blind commutative appenders avoid conflicting.
@@ -110,9 +110,8 @@ func (tx *StoreTxn) stageChildrenDelta(objID types.ObjID, d contentsDelta) {
 // decentralized write path: what.location (a scalar edge), plus COMMUTATIVE contents
 // deltas (remove from the old room, add to the new room) on the two rooms. It records
 // a relationship read only on `what` (so two moves of the SAME object conflict), NOT
-// on the rooms — so two moves into the same room both commit and merely serialize on
-// that room's slot mutex at publish time, instead of one aborting and re-running the
-// whole verb. It mutates the txn's cached images for read-your-writes. Retry-safe.
+// on the rooms — so two moves into the same room both commit and merely take their
+// turn to publish, instead of one aborting and re-running the whole verb. It mutates the txn's cached images for read-your-writes. Retry-safe.
 //
 // Mirrors store.MoveObject's imperative order (remove from old, set location, insert
 // into new) so a same-location move re-orders identically.

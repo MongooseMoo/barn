@@ -21,10 +21,9 @@ func (tx *StoreTxn) validateReads() types.ErrorCode {
 // validateReadsLocked runs every stage -- scalar, relationship, property, verb,
 // then WAIF -- recording each stale read in tx.conflicts, and returns the first
 // error code met in that order. The caller holds store.mu exclusively, or holds
-// store.mu.RLock and the numbered read/write footprint's slot locks in ascending
-// object-ID order. Callers own lock acquisition (commitGate -> store -> slots)
-// and failure classification; this helper neither marks a conflict nor makes tx
-// terminal.
+// store.mu.RLock and commitMu. Callers own lock acquisition (commitGate ->
+// store.mu -> commitMu) and failure classification; this helper neither marks a
+// conflict nor makes tx terminal.
 func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	tx.conflicts = tx.conflicts[:0]
 	errCode := types.E_NONE

@@ -9,7 +9,11 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
+// A commit that reads b and writes a must not validate and publish while another
+// decentralized commit is in flight. Holding commitMu stands in for that other
+// commit. TestCommitsThatReadEachOthersWritesCannotBothCommit checks the outcome
+// this exclusion exists for.
+func TestCOWCommitWaitsForCommitInFlight(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
@@ -37,8 +41,7 @@ func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
 		t.Fatalf("write a.n failed: %v", errCode)
 	}
 
-	readSlot := store.dir.slot(b)
-	readSlot.mu.Lock()
+	store.commitMu.Lock()
 	done := make(chan types.ErrorCode, 1)
 	go func() {
 		done <- tx.Commit()
@@ -46,14 +49,14 @@ func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
 
 	select {
 	case errCode := <-done:
-		readSlot.mu.Unlock()
-		t.Fatalf("Commit completed without holding read-set slot: %v", errCode)
+		store.commitMu.Unlock()
+		t.Fatalf("Commit completed while another commit was in flight: %v", errCode)
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	readSlot.mu.Unlock()
+	store.commitMu.Unlock()
 	if errCode := <-done; errCode != types.E_NONE {
-		t.Fatalf("Commit after releasing read-set slot failed: %v", errCode)
+		t.Fatalf("Commit after the other commit finished failed: %v", errCode)
 	}
 }
 
@@ -304,7 +307,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 
 // TestCOWSameObjectCommitsSerialize exercises the OTHER serialization edge: many
 // writers committing property-value writes to the SAME object. They must serialize
-// on that object's slot mutex (no torn image, no panic, no lost slot), and a final
+// on commitMu (no torn image, no panic, no lost slot), and a final
 // read must see one of the committed values. Under -race this must be clean.
 func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	const (

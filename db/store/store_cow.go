@@ -1,8 +1,6 @@
 package store
 
 import (
-	"slices"
-
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -11,19 +9,21 @@ import (
 //
 // A published *Object is IMMUTABLE. The decentralized property-value commit path
 // never mutates a live object in place; it detaches the old image's collections,
-// builds a NEW *Object image, and atomically publishes it into the slot under the
-// slot's mutex. This is the only decentralized writer in Phase 0; every other
-// mutator (the coarse store.mu.Lock writers and the other commit-apply kinds) keeps
-// mutating in place under store.mu.Lock — see commitCoarseLocked.
+// builds a NEW *Object image, and atomically publishes it into the slot while
+// holding Store.commitMu. Every other mutator (the coarse store.mu.Lock writers
+// and the coarse commit apply) republishes a fresh clone and mutates that under
+// store.mu.Lock — see republishForMutation.
 //
-// Coherence (the Phase-0 argument):
-//   - The decentralized committer holds store.mu.RLock (shared) + each written
-//     slot's mu (ascending ObjID). Coarse writers hold store.mu.Lock (exclusive).
-//     RLock excludes Lock, so a property publisher and ANY coarse writer are
-//     mutually exclusive — the coarse in-place mutation never overlaps a publish.
-//   - Two disjoint property committers share only store.mu.RLock (concurrent) and
-//     never share a slot mutex, so they run fully in parallel (the scaling win).
-//   - Two committers on the same object serialize on that slot's mu.
+// Coherence:
+//   - The decentralized committer holds store.mu.RLock (shared) + commitMu.
+//     Coarse writers hold store.mu.Lock (exclusive). RLock excludes Lock, so a
+//     decentralized publisher and ANY coarse writer are mutually exclusive.
+//   - Decentralized committers serialize on commitMu from validation through
+//     publication. They used to lock the slots of everything they read or wrote
+//     instead; on the Mongoose workload nearly every commit read the same few
+//     ancestors, so that was one lock with more steps.
+//   - A commit's timestamp becomes the clock only after all its images are
+//     published, so a snapshot sees all of a commit or none of it.
 //   - Readers (raw Store.* and the txn clone path) hold store.mu.RLock and Load the
 //     slot pointer once, then read FROZEN fields of an immutable image. A publisher
 //     stores a NEW image and never touches the old one the reader is reading — no
@@ -105,8 +105,8 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 		// Apply the commutative contents edits to the CURRENT (old) live contents, not
 		// a stale snapshot. applyContentsDeltas returns a fresh slice, so the old
 		// image's contents is untouched (immutable). Because the deltas apply to the
-		// image being superseded under its slot lock, two moves into the same room
-		// each see the other's already-published edit.
+		// image being superseded under commitMu, two moves into the same room each
+		// see the other's already-published edit.
 		img.contents = applyContentsDeltas(old.contents, w.contentsDeltas)
 	}
 	if len(w.childrenDeltas) > 0 {
@@ -308,16 +308,14 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 // decentralized write kinds — scalar (name/owner/flags), relationship (location),
 // property DEFINE, property DEFINITION-DELETE, property-value, property-delete,
 // verb-code writes, and verb-topology deletes — and is not tx.liveMutated. It runs
-// under store.mu.RLock so disjoint committers proceed in parallel; per-object slot
-// mutexes (taken in ascending
-// ObjID order, deadlock-free) serialize same-object committers and exclude concurrent
-// publishers of the same slot. The union of read-set and write-set slots stays locked
-// through validation and publish, so disjoint writers cannot both validate a
-// write-skew cycle against stale images. On mismatch the whole commit fails with
-// the same contract as the coarse path
+// under store.mu.RLock, so readers proceed beside it, and holds commitMu from
+// validation through publication, so two commits that each read what the other
+// writes cannot both validate against images the other is about to replace. On
+// mismatch the whole commit fails with the same contract as the coarse path
 // (E_INVARG + validationFail). For each object in the footprint a SINGLE new immutable
-// image is built applying all of that object's writes (in a fixed kind order), then
-// every image is published atomically per slot.
+// image is built applying all of that object's writes (in a fixed kind order). The
+// images carry a timestamp the clock has not reached yet; the clock moves to it
+// once the last one is published.
 //
 // PROPERTY DEFINE/DELETE FOOTPRINT (Phase 2): a define/definition-delete on object O
 // propagates to O's inheriting DESCENDANTS. The txn staging side has already enumerated
@@ -326,7 +324,7 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 // inheriting descendant; DeleteDefinedProperty stages per-descendant propertyDeletes
 // (removeInheritedProperty, :1353). So the define/delete itself applies ONLY to the
 // definer's image here, and the descendant images are built from the already-staged
-// propertyWrites/propertyDeletes. The footprint locked below = definer ∪ every staged
+// propertyWrites/propertyDeletes. The footprint built below = definer ∪ every staged
 // descendant, covering the WHOLE affected subtree. The walkers traverse `children` only,
 // never `anonymousChildren`, so anonymous descendants are never in the footprint — which
 // matches Toast (a parent property-schema change does NOT touch anon descendants;
@@ -342,8 +340,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	defer s.mu.RUnlock()
 
 	// Collect the distinct write footprint (one slot per object) across ALL the
-	// decentralized write maps, in ascending ObjID order so slot locks are always
-	// acquired in a total order (deadlock-free).
+	// decentralized write maps.
 	seen := make(map[types.ObjID]bool)
 	writeIDs := make([]types.ObjID, 0)
 	addID := func(id types.ObjID) {
@@ -384,67 +381,14 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		addID(id)
 	}
-	slices.Sort(writeIDs)
 
-	// Lock the union of read-set and write-set slots (ascending) for the whole
-	// validate+build+publish interval. A read-only object with no numbered slot is
-	// stable under store.mu.RLock and needs no slot lock; a missing write target is
-	// still E_INVIND.
-	lockIDs := append([]types.ObjID(nil), writeIDs...)
-	lockedIDs := make(map[types.ObjID]bool, len(writeIDs))
-	for _, id := range writeIDs {
-		lockedIDs[id] = true
-	}
-	addLockID := func(id types.ObjID) {
-		if !lockedIDs[id] {
-			lockedIDs[id] = true
-			lockIDs = append(lockIDs, id)
-		}
-	}
-	// The commit-exclusion fault leaves the read set unlocked, so two commits
-	// that each read what the other writes can both validate before either
-	// publishes.
+	// One decentralized commit validates, builds and publishes at a time. The
+	// commit-exclusion fault drops that, so two commits that each read what
+	// the other writes can both validate before either publishes.
 	if !isolationprobe.Fault("commit-exclusion") {
-		for id := range tx.scalarReads {
-			addLockID(id)
-		}
-		for id := range tx.relationshipReads {
-			addLockID(id)
-		}
-		for key := range tx.propertyReads {
-			addLockID(key.objID)
-		}
-		for id := range tx.propertyScans {
-			addLockID(id)
-		}
-		for id := range tx.propertyShapeScans {
-			addLockID(id)
-		}
-		for key := range tx.verbReads {
-			addLockID(key.objID)
-		}
-		for id := range tx.verbScans {
-			addLockID(id)
-		}
+		s.commitMu.Lock()
+		defer s.commitMu.Unlock()
 	}
-	slices.Sort(lockIDs)
-
-	slots := make([]*objectSlot, 0, len(lockIDs))
-	for _, id := range lockIDs {
-		slot := s.dir.slot(id)
-		if slot == nil {
-			if tx.createdObjects[id] != nil {
-				// Newly-created object: materialize (and lock) its empty slot so the
-				// new image can be published into it.
-				slot = s.dir.getOrCreate(id)
-			} else {
-				continue
-			}
-		}
-		slot.mu.Lock()
-		slots = append(slots, slot)
-	}
-	defer unlockSlots(slots)
 
 	// Validate the read set against the currently-published immutable images.
 	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
@@ -456,7 +400,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 	isolationprobe.Pause("commit/validated")
 
-	ts := s.bumpClock()
+	// Reserve the timestamp without moving the clock. A snapshot reads at the
+	// clock, so it must not be able to reach this timestamp until every image
+	// stamped with it is published; until then it resolves these objects to
+	// their previous images. Nothing else moves the clock meanwhile: every
+	// other bump runs under store.mu.Lock, which the RLock held here excludes.
+	ts := s.clock.Load() + 1
+	isolationprobe.Pause("commit/timestamped")
 
 	// Group property defines / definition-deletes by object. A define applies only to
 	// the DEFINER's image (descendant clear-slots are already staged as propertyWrites
@@ -564,17 +514,20 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		}
 		s.publishLocked(id, img)
 	}
+	// Every image of this commit is published: let snapshots reach it. The swap
+	// fails only if something moved the clock during the publication, which would
+	// mean two publications could carry one timestamp.
+	if !s.clock.CompareAndSwap(ts-1, ts) && !isolationprobe.Fault("commit-exclusion") {
+		panic("store clock moved during a decentralized publication")
+	}
 
 	// History GC (Phase 4): now that this commit appended a fresh newest version to
 	// each touched object, prune the now-dead old versions below the live-read floor.
-	// We still hold each touched slot's mutex and store.mu.RLock; pruneObjectHistory
-	// takes historyMu (serializing with objectLocked's header capture and concurrent
-	// committers). The floor is sampled once: it only moves DOWN if a new reader
-	// registers a smaller readTS, and a reader can never have a readTS below the
-	// versions we just stamped (they carry the just-bumped ts), so a slightly stale
-	// (higher) floor here would still never prune a live-needed version — but to be
-	// strictly conservative we sample after the appends so any concurrently-begun
-	// reader is already counted.
+	// We still hold commitMu and store.mu.RLock; pruneObjectHistory takes historyMu
+	// (serializing with objectLocked's header capture). A snapshot that began while
+	// the images above were being published reads just below ts and is served the
+	// images this commit replaced. It registered before the clock moved, so the
+	// floor sampled here is at or below it and the prune keeps those images.
 	floor := s.historyFloor()
 	for _, id := range writeIDs {
 		s.pruneObjectHistory(id, floor)
@@ -596,10 +549,4 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 type verbWrite2 struct {
 	name string
 	code []string
-}
-
-func unlockSlots(slots []*objectSlot) {
-	for i := len(slots) - 1; i >= 0; i-- {
-		slots[i].mu.Unlock()
-	}
 }

@@ -49,13 +49,20 @@ coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
 Before the random rounds, the append workload runs four synchronized waves and
-one held pair. In a wave, four tasks read the same row, wait at a barrier until
+two held pairs. In a wave, four tasks read the same row, wait at a barrier until
 all four have read, then append: property value, name, verb code and contents,
-one wave for each validation stage. In the pair, each task reads the row the
-other appends to, and both are held after validation, before publication, until
-both have validated or two seconds pass. A healthy commit excludes the second
-task while the first is held, so the first times out and publishes and the
-second loses validation and retries.
+one wave for each validation stage. In the write-skew pair, each task reads the
+row the other appends to, and both are held after validation, before
+publication, until both have validated or two seconds pass. A healthy commit
+excludes the second task while the first is held, so the first times out and
+publishes and the second loses validation and retries.
+
+In the torn-snapshot pair, a writer appends to two rows in one commit and is
+held once the commit has its timestamp, before it publishes anything. A reader
+begins a snapshot inside that hold, reads the first row, lets the commit
+publish, then reads the second row. It must observe both appends or neither.
+No fault is needed for this one: it failed on the unmodified store until a
+commit's timestamp became the clock only after its last image was published.
 
 For focused experiments, direct generation accepts `BARN_ELLE_PATHS` as a
 comma-separated selection of `parallel,exclusive,exclusive_gate,hot_renewal,
@@ -106,9 +113,9 @@ reject the resulting append history with an anomaly witness:
 | `scalar-reads` | name/owner/flags read validation | name wave |
 | `verb-reads` | verb read, scan and dispatch-memo validation | verb-code wave |
 | `relationship-reads` | location/contents/children read validation | contents wave |
-| `commit-exclusion` | exclusion of commits that read what another writes | held pair |
+| `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
 
-A fault run is the preflight, the waves, the held pair and the final read, with
+A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
 that fault's interleaving made, on the row it targets. With the rounds left in,
 a fault corrupts so much that Graphviz spends minutes plotting the cycles.
