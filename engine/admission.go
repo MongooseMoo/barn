@@ -21,13 +21,15 @@ func backgroundAdmissionKey(t *task.Task) admission.Key {
 	if frames == 0 {
 		programmer = t.Programmer
 	}
-	return admission.Key{Principal: int64(programmer), Class: admission.Background}
+	// A task the command parser dispatched, running again after a suspension,
+	// is still what its player is waiting for.
+	return admission.Key{Principal: int64(programmer), Class: admission.Background, Command: t.FromCommand}
 }
 func (s *Runtime) enterInput(player types.ObjID, system bool) (*admission.Scope, error) {
 	ctx, key := s.inputAdmissionContext, inputAdmissionKey(player)
 	if system {
 		ctx = s.ctx
-		key = admission.Key{Group: admission.System, Class: admission.Background}
+		key = admission.Key{Group: admission.System, Class: admission.Background, Command: true}
 	}
 	started := time.Now()
 	scope, err := s.admission.Enter(ctx, key)

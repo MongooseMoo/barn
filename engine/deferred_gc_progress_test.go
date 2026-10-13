@@ -5,12 +5,14 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -112,7 +114,7 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 	go func() {
 		defer close(probeDone)
 		for {
-			scope, err := rt.admission.Enter(probeCtx, inputAdmissionKey(1))
+			scope, err := rt.admission.Enter(probeCtx, admission.Key{Principal: 1, Class: admission.Background})
 			if err != nil {
 				return
 			}
@@ -120,13 +122,38 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 			rt.flushDeferredGC()
 		}
 	}()
-	defer func() { cancel(); <-probeDone }()
-	// Two live owners leave two admission slots free. A queued probe proves
-	// maintenance is withholding fresh grants, not ordinary capacity pressure.
+	// A player's commands keep arriving for the whole test.
+	var commands atomic.Int64
+	inputDone := make(chan struct{})
+	go func() {
+		defer close(inputDone)
+		for {
+			scope, err := rt.admission.Enter(probeCtx, inputAdmissionKey(2))
+			if err != nil {
+				return
+			}
+			scope.Finish()
+			commands.Add(1)
+			time.Sleep(100 * time.Microsecond)
+		}
+	}()
+	defer func() { cancel(); <-probeDone; <-inputDone }()
+	// Two live owners leave two admission slots free. A queued background probe
+	// proves maintenance is withholding fresh background grants, not ordinary
+	// capacity pressure.
 	deadline := time.Now().Add(3 * time.Second)
 	for rt.AdmissionStats().Queued == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("overdue collection never excluded fresh admissions to drain overlapping VMs")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The two VMs are still executing and may be for seconds. Input must not
+	// wait for them.
+	admitted := commands.Load()
+	for deadline := time.Now().Add(3 * time.Second); commands.Load() < admitted+20; {
+		if time.Now().After(deadline) {
+			t.Fatalf("input admitted %d times while maintenance drained background VMs, want it to keep flowing", commands.Load()-admitted)
 		}
 		time.Sleep(time.Millisecond)
 	}
