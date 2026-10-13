@@ -5,13 +5,40 @@ package isolationprobe
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 const Enabled = true
 
-// This fault is available only in the dedicated checker build, never a normal
-// server binary. The generated manifest records whether it was enabled.
-var DisablePropertyReads = os.Getenv("BARN_ELLE_FAULT") == "property-reads"
+// Faults are available only in the dedicated checker build, never a normal
+// server binary. Each one removes a single protection, named where it is
+// consulted; the generated manifest records which was active.
+var fault = os.Getenv("BARN_ELLE_FAULT")
+
+// Fault reports whether the named deliberate fault is active.
+func Fault(name string) bool { return fault == name }
+
+// ActiveFault is the fault this process runs under, or "".
+func ActiveFault() string { return fault }
+
+var pause atomic.Pointer[func(string)]
+
+// SetPause installs fn to run at every Pause point, or removes it when nil.
+func SetPause(fn func(point string)) {
+	if fn == nil {
+		pause.Store(nil)
+		return
+	}
+	pause.Store(&fn)
+}
+
+// Pause lets a workload hold the calling goroutine at a named point inside the
+// store, so an interleaving that is otherwise microseconds wide happens every run.
+func Pause(point string) {
+	if fn := pause.Load(); fn != nil {
+		(*fn)(point)
+	}
+}
 
 var counters = struct {
 	sync.Mutex

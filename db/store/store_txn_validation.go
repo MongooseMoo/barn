@@ -28,8 +28,12 @@ func (tx *StoreTxn) validateReads() types.ErrorCode {
 func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	tx.conflicts = tx.conflicts[:0]
 	errCode := types.E_NONE
-	tx.validateObjectReadsLocked(&errCode, ConflictScalar, tx.scalarReads)
-	tx.validateObjectReadsLocked(&errCode, ConflictRelationship, tx.relationshipReads)
+	if !isolationprobe.Fault("scalar-reads") {
+		tx.validateObjectReadsLocked(&errCode, ConflictScalar, tx.scalarReads)
+	}
+	if !isolationprobe.Fault("relationship-reads") {
+		tx.validateObjectReadsLocked(&errCode, ConflictRelationship, tx.relationshipReads)
+	}
 	earlier, firstProperty := errCode, len(tx.conflicts)
 	tx.validatePropertyReadsLocked(&errCode)
 	// A validation lost first on a property value scores that property as hot.
@@ -41,7 +45,9 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 			tx.store.noteHotProperty(propertyReadKey{objID: c.ObjID, name: c.Name})
 		}
 	}
-	tx.validateVerbReadsLocked(&errCode)
+	if !isolationprobe.Fault("verb-reads") {
+		tx.validateVerbReadsLocked(&errCode)
+	}
 	tx.validateWaifsLocked(&errCode)
 	return errCode
 }
@@ -89,7 +95,7 @@ func (tx *StoreTxn) validateObjectReadsLocked(first *types.ErrorCode, kind Confl
 
 func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 	for key, version := range tx.propertyReads {
-		if isolationprobe.DisablePropertyReads {
+		if isolationprobe.Fault("property-reads") {
 			break
 		}
 		if tx.createdObjects[key.objID] != nil {

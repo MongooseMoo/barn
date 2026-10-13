@@ -5,8 +5,11 @@
 package isolationprobe
 
 const Enabled = false
-const DisablePropertyReads = false
 
+func Fault(string) bool           { return false }
+func ActiveFault() string         { return "" }
+func SetPause(func(string))       {}
+func Pause(string)                {}
 func Note(string)                 {}
 func MarkFailed(any)              {}
 func Failed(any) bool             { return false }

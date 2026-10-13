@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -189,6 +190,20 @@ func elleDrain(t *testing.T, rt *Runtime, tasks []*task.Task) {
 
 var elleExpectedExceptions = map[int64]bool{}
 
+// elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
+// part of the workload makes Elle reject every run: a synchronized wave for
+// each validation stage, and the write-skew pair for commit exclusion.
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "commit-exclusion"}
+
+// elleWaves are the read / barrier / append bodies, one per validation stage:
+// property value, object scalar (name), verb code, relationship (contents).
+var elleWaves = []string{
+	`v=#11.data; elle_observe("r","property",v); elle_barrier(WAVE); #11.data={@v,TOKEN}; elle_observe("append","property",TOKEN);`,
+	`v=#0:read_row(6,#17); elle_observe("r","name",v); s=#17.name; elle_barrier(WAVE); #17.name=s+" TOKEN"; elle_observe("append","name",TOKEN);`,
+	`v=#0:read_row(5,#16); elle_observe("r","verb-code",v); c=verb_code(#16,1); elle_barrier(WAVE); set_verb_code(#16,1,{@c,"TOKEN;"}); elle_observe("append","verb-code",TOKEN);`,
+	`v=#0:read_row(1,#12); elle_observe("r","contents",v); elle_barrier(WAVE); x=create(#0); x.token=TOKEN; move(x,#12); elle_observe("append","contents",TOKEN);`,
+}
+
 func elleRegisterReads() string {
 	return `elle_observe("r","property",#30.data); elle_observe("r","name",toint(#32.name)); lines=verb_code(#31,1); line=lines[1]; elle_observe("r","verb-code",toint(line[1..$-1]));`
 }
@@ -235,8 +250,9 @@ func TestElleIsolationHistories(t *testing.T) {
 	if !isolationprobe.Enabled {
 		t.Fatal("Elle histories require -tags elle")
 	}
-	if fault := os.Getenv("BARN_ELLE_FAULT"); fault != "" && fault != "property-reads" {
-		t.Fatal("unknown BARN_ELLE_FAULT")
+	fault := isolationprobe.ActiveFault()
+	if fault != "" && !slices.Contains(elleFaults, fault) {
+		t.Fatalf("unknown BARN_ELLE_FAULT %q; known: %v", fault, elleFaults)
 	}
 	elleExpectedExceptions = map[int64]bool{}
 	paths := map[string]bool{}
@@ -276,8 +292,15 @@ func TestElleIsolationHistories(t *testing.T) {
 			t.Fatal("BARN_ELLE_ROUNDS must be 8..10000")
 		}
 	}
-	manifest := map[string]any{"seed": seed, "rounds": rounds, "fault": isolationprobe.DisablePropertyReads, "settings": paths, "models": map[string]any{}}
-	t.Logf("Elle seed=%d rounds=%d settings=%v fault=%t", seed, rounds, paths, isolationprobe.DisablePropertyReads)
+	if fault != "" {
+		// A fault run is the preflight, the synchronized waves, the held pair
+		// and the final read, with no random rounds: the anomaly Elle must find
+		// is then the one the fault's interleaving made, and its cycle graph
+		// stays small enough to plot. The rounds' coverage is not required.
+		rounds = 0
+	}
+	manifest := map[string]any{"seed": seed, "rounds": rounds, "fault": fault, "settings": paths, "models": map[string]any{}}
+	t.Logf("Elle seed=%d rounds=%d settings=%v fault=%q", seed, rounds, paths, fault)
 	coverage := map[string]uint64{}
 	defer func() {
 		content, err := json.MarshalIndent(manifest, "", "  ")
@@ -328,22 +351,32 @@ func TestElleIsolationHistories(t *testing.T) {
 			}})
 			return types.Ok(types.NewInt(0))
 		}
+		// elle_barrier(wave) holds the first attempt of each of a wave's four
+		// tasks until all four have arrived. A retry passes straight through.
+		type elleWave struct {
+			arrived map[int64]bool
+			release chan struct{}
+		}
 		var barrierMu sync.Mutex
-		arrived := map[int64]bool{}
-		release := make(chan struct{})
-		var barrier builtins.BuiltinFunc = func(ctx *builtins.Execution, _ []types.Value) types.Result {
+		waves := map[int64]*elleWave{}
+		var barrier builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			barrierMu.Lock()
-			if arrived[ctx.TaskID] {
+			wave := waves[args[0].Int()]
+			if wave == nil {
+				wave = &elleWave{arrived: map[int64]bool{}, release: make(chan struct{})}
+				waves[args[0].Int()] = wave
+			}
+			if wave.arrived[ctx.TaskID] {
 				barrierMu.Unlock()
 				return types.Ok(types.NewInt(0))
 			}
-			arrived[ctx.TaskID] = true
-			if len(arrived) == 4 {
-				close(release)
+			wave.arrived[ctx.TaskID] = true
+			if len(wave.arrived) == 4 {
+				close(wave.release)
 			}
 			barrierMu.Unlock()
 			select {
-			case <-release:
+			case <-wave.release:
 				return types.Ok(types.NewInt(0))
 			case <-time.After(10 * time.Second):
 				return types.Err(types.E_QUOTA)
@@ -351,7 +384,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		}
 		rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
 			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
-			testBuiltinSlot("elle_barrier", 0, 0, nil, &barrier),
+			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
 			testBuiltinSlot("elle_hot_release", 0, 0, nil, &hotRelease),
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
@@ -395,16 +428,51 @@ func TestElleIsolationHistories(t *testing.T) {
 				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
 				id++
 			}
-			// Four first attempts read the same value before any may commit. Healthy
-			// validation retries; the property-read fault deterministically loses appends.
+			// Per wave, four first attempts read the same value before any may
+			// commit. Healthy validation retries three of them; the fault that
+			// removes that row's validation deterministically loses their appends.
 			if model == "list-append" && paths["parallel"] {
-				var batch []*task.Task
-				for worker := 0; worker < 4; worker++ {
-					source := fmt.Sprintf(`v=#11.data; elle_observe("r","property",v); elle_barrier(); #11.data={@v,%d}; elle_observe("append","property",%d);`, 100+worker, 100+worker)
-					batch = append(batch, elleTask(t, rt, id, source))
-					id++
+				for wave, source := range elleWaves {
+					var batch []*task.Task
+					for worker := 0; worker < 4; worker++ {
+						token := 100 + wave*10 + worker
+						batch = append(batch, elleTask(t, rt, id, strings.NewReplacer("WAVE", strconv.Itoa(wave), "TOKEN", strconv.Itoa(token)).Replace(source)))
+						id++
+					}
+					elleDrain(t, rt, batch)
 				}
-				elleDrain(t, rt, batch)
+				// Write skew: each task reads the row the other appends to. Both are
+				// held after validation until both have validated. A healthy commit
+				// excludes the second for as long as the first is held, so the first
+				// times out, publishes, and the second loses validation and retries.
+				// Under the commit-exclusion fault both validate and both publish.
+				var skewMu sync.Mutex
+				validated, both := 0, make(chan struct{})
+				isolationprobe.SetPause(func(point string) {
+					if point != "commit/validated" {
+						return
+					}
+					skewMu.Lock()
+					validated++
+					n := validated
+					if n == 2 {
+						close(both)
+					}
+					skewMu.Unlock()
+					if n > 2 {
+						return
+					}
+					select {
+					case <-both:
+					case <-time.After(2 * time.Second):
+					}
+				})
+				elleDrain(t, rt, []*task.Task{
+					elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
+					elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
+				})
+				isolationprobe.SetPause(nil)
+				id += 2
 			}
 			if model == "list-append" && paths["hot_renewal"] {
 				// Hold an old reader until a newer hot-key publication has completed.
@@ -487,6 +555,9 @@ func TestElleIsolationHistories(t *testing.T) {
 		}()
 	}
 	manifest["coverage"] = coverage
+	if fault != "" {
+		return
+	}
 	for key, selected := range paths {
 		if selected && coverage[key] == 0 {
 			t.Errorf("missing selected path: %s", key)

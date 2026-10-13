@@ -3,6 +3,7 @@ package store
 import (
 	"slices"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -400,26 +401,31 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			lockIDs = append(lockIDs, id)
 		}
 	}
-	for id := range tx.scalarReads {
-		addLockID(id)
-	}
-	for id := range tx.relationshipReads {
-		addLockID(id)
-	}
-	for key := range tx.propertyReads {
-		addLockID(key.objID)
-	}
-	for id := range tx.propertyScans {
-		addLockID(id)
-	}
-	for id := range tx.propertyShapeScans {
-		addLockID(id)
-	}
-	for key := range tx.verbReads {
-		addLockID(key.objID)
-	}
-	for id := range tx.verbScans {
-		addLockID(id)
+	// The commit-exclusion fault leaves the read set unlocked, so two commits
+	// that each read what the other writes can both validate before either
+	// publishes.
+	if !isolationprobe.Fault("commit-exclusion") {
+		for id := range tx.scalarReads {
+			addLockID(id)
+		}
+		for id := range tx.relationshipReads {
+			addLockID(id)
+		}
+		for key := range tx.propertyReads {
+			addLockID(key.objID)
+		}
+		for id := range tx.propertyScans {
+			addLockID(id)
+		}
+		for id := range tx.propertyShapeScans {
+			addLockID(id)
+		}
+		for key := range tx.verbReads {
+			addLockID(key.objID)
+		}
+		for id := range tx.verbScans {
+			addLockID(id)
+		}
 	}
 	slices.Sort(lockIDs)
 
@@ -448,6 +454,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return errCode
 	}
+	isolationprobe.Pause("commit/validated")
 
 	ts := s.bumpClock()
 
