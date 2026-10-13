@@ -23,11 +23,14 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-var elleRows = []string{"property", "contents", "children", "property-definitions", "verb-definitions", "verb-code", "name", "inherited-property"}
+var elleRows = []string{"property", "contents", "children", "property-definitions", "verb-definitions", "verb-code", "name", "inherited-property", "waif"}
 
 func elleObject(kind int) int {
-	if kind == 7 {
+	switch kind {
+	case 7:
 		return 18
+	case 8:
+		return 0 // the row is a property of the WAIF held in #0.elle_waif
 	}
 	return 11 + kind
 }
@@ -51,6 +54,7 @@ func elleWorld(t *testing.T) *dbstore.Store {
 			b.SetProperty("token", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			b.SetProperty("recycled", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			b.SetProperty("waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			b.SetProperty("elle_waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
 		if id == 30 {
 			b.SetProperty("data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
@@ -88,6 +92,7 @@ func elleWorld(t *testing.T) *dbstore.Store {
 {kind, o} = args;
 if (kind == 0) return o.data;
 elseif (kind == 7) return #0.child.data;
+elseif (kind == 8) return #0.elle_waif.data;
 elseif (kind == 1 || kind == 2)
  result = {}; ids = kind == 1 ? o.contents | children(o);
  for id in (ids) result = {@result, id.token}; endfor
@@ -193,15 +198,17 @@ var elleExpectedExceptions = map[int64]bool{}
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "commit-exclusion"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "commit-exclusion"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
-// property value, object scalar (name), verb code, relationship (contents).
+// property value, object scalar (name), verb code, relationship (contents),
+// WAIF property.
 var elleWaves = []string{
 	`v=#11.data; elle_observe("r","property",v); elle_barrier(WAVE); #11.data={@v,TOKEN}; elle_observe("append","property",TOKEN);`,
 	`v=#0:read_row(6,#17); elle_observe("r","name",v); s=#17.name; elle_barrier(WAVE); #17.name=s+" TOKEN"; elle_observe("append","name",TOKEN);`,
 	`v=#0:read_row(5,#16); elle_observe("r","verb-code",v); c=verb_code(#16,1); elle_barrier(WAVE); set_verb_code(#16,1,{@c,"TOKEN;"}); elle_observe("append","verb-code",TOKEN);`,
 	`v=#0:read_row(1,#12); elle_observe("r","contents",v); elle_barrier(WAVE); x=create(#0); x.token=TOKEN; move(x,#12); elle_observe("append","contents",TOKEN);`,
+	`v=#0:read_row(8,#0); elle_observe("r","waif",v); w=#0.elle_waif; elle_barrier(WAVE); w.data={@v,TOKEN}; elle_observe("append","waif",TOKEN);`,
 }
 
 func elleRegisterReads() string {
@@ -228,6 +235,8 @@ func elleAppend(kind int, n int) string {
 		write = fmt.Sprintf(`set_verb_code(#%d, 1, {@verb_code(#%d, 1), "%d;"});`, o, o, n)
 	case 6:
 		write = fmt.Sprintf(`#%d.name = #%d.name + " %d";`, o, o, n)
+	case 8:
+		write = fmt.Sprintf(`w = #0.elle_waif; w.data = {@v, %d};`, n)
 	}
 	return read + write + fmt.Sprintf(`elle_observe("append", "%s", %d);`, key, n)
 }
@@ -443,6 +452,9 @@ func TestElleIsolationHistories(t *testing.T) {
 			// Single-threaded append/order preflight exercises every row twice. Its
 			// recorded reads must contain exactly the declared append tokens in order.
 			if model == "list-append" {
+				// One WAIF, held by a property, carries the "waif" row for the run.
+				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`)})
+				id++
 				for kind := range elleRows {
 					source := elleAppend(kind, kind*2+1) + elleAppend(kind, kind*2+2) + fmt.Sprintf(`if (!equal(#0:read_row(%d,#%d), {%d,%d})) raise(E_INVARG); endif`, kind, elleObject(kind), kind*2+1, kind*2+2)
 					elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, source)})
