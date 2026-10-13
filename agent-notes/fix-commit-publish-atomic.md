@@ -11,10 +11,10 @@ before the publish resolved to old images and objects it touched after to new on
 Read-only transactions never validate, so nothing caught it.
 
 ## State
-Branch was created FROM `test/elle-fault-matrix` (391d11d4) because it needs
-`isolationprobe.Pause`. Uncommitted work in `C:/Users/Q/code/barn-commit-atomic`.
-DO NOT open the PR until #472 is merged; then `git rebase --onto master 391d11d4`
-and open against master (Q's rule: no stacked PRs).
+#472 merged on 2026-10-12 as 1f1c0a17. This branch is rebased onto that master (one
+commit) and its PR targets master. Worktree: `C:/Users/Q/code/barn-commit-atomic`.
+After the rebase: `go test ./db/store ./engine` ok; full `check_elle.py` again
+3 seeds true/true, 5 faults false, exit 0.
 
 Done:
 - `db/store/commit_atomicity_test.go`: `TestSnapshotNeverSeesPartOfACommit` (hook-free
@@ -86,7 +86,4 @@ Full gates on the finished tree (2026-10-12, late):
   `atomic.Pointer[Object]` directly. Left alone to keep this diff about the protocol.
 
 ## Next step
-Comments, docs and gates are done. Commit locally. Then wait for #472 to merge,
-`git rebase --onto master 391d11d4`, rerun the Elle driver, and open the PR against
-master. After it is open, remove the experiment worktree `barn-mvcc-simplify` and
-branch `exp/mvcc-simplify` (uncommitted probe only; its findings are in the notes).
+Watch the PR's CI. After merge, remove this worktree and branch.
