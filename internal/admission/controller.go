@@ -34,6 +34,11 @@ type Key struct {
 	Principal int64
 	Group     Group
 	Class     Class
+	// Command marks Background-class work that someone is waiting on at a
+	// connection: the continuation of a player's command after it suspended,
+	// or a system entry such as a login hook. It is charged as Background but
+	// a pause treats it like Input.
+	Command bool
 }
 type identity struct {
 	principal int64
@@ -41,6 +46,10 @@ type identity struct {
 }
 
 func (k Key) identity() identity { return identity{k.Principal, k.Group} }
+
+// drainsFirst reports whether a pause holds this work from its start and waits
+// for it before holding anything else (see Pause).
+func (k Key) drainsFirst() bool { return k.Class == Background && !k.Command }
 
 type Options struct {
 	Limit, PrincipalLimit                                        int
@@ -65,10 +74,13 @@ type Controller struct {
 	queue                          []*Request
 	active                         int
 	preempted                      int // yielded segments awaiting readmission
+	background                     int // active and preempted segments that drain first
 	paused                         int
+	inputHeld                      int // pausers whose first drain is over
 	waiting                        atomic.Int32
 	preemptions                    uint64
 	idle                           chan struct{}
+	backgroundIdle                 chan struct{}
 	sequence                       uint64
 	watermark                      float64
 	service, gateWait, maintenance time.Duration
@@ -114,28 +126,49 @@ func New(o Options) *Controller {
 	}
 	idle := make(chan struct{})
 	close(idle)
-	return &Controller{options: o, principals: make(map[identity]*principal), idle: idle}
+	return &Controller{options: o, principals: make(map[identity]*principal), idle: idle, backgroundIdle: idle}
 }
 
 // Pause excludes new owners and drains existing reservations, including
 // preempted segments, which it readmits so they can reach a real boundary.
 // Callers must not own a reservation or run admission-taking hooks until the
 // returned resume.
+//
+// The drain has two steps. Background slices are cooperative and can run for
+// seconds, so while they drain only new Background work is held: Input and
+// Command work is still admitted, and a player's command does not wait out
+// another task's slice. Once no such Background segment is in flight,
+// everything is held and the pause waits for what is left.
 // Several maintenance callers can pause concurrently; only the last resumes.
 func (c *Controller) Pause(ctx context.Context) (func(), error) {
 	c.mu.Lock()
 	c.paused++
-	idle := c.idle
+	drained := c.backgroundIdle
 	c.mu.Unlock()
+	holdsInput := false
 	var once sync.Once
 	resume := func() {
 		once.Do(func() {
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			c.paused--
+			if holdsInput {
+				c.inputHeld--
+			}
 			c.dispatchLocked()
 		})
 	}
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		resume()
+		return nil, ctx.Err()
+	}
+	c.mu.Lock()
+	c.inputHeld++
+	holdsInput = true
+	idle := c.idle
+	c.mu.Unlock()
 	select {
 	case <-idle:
 		if err := ctx.Err(); err != nil {
@@ -228,7 +261,9 @@ func (c *Controller) dispatchLocked() {
 	for c.active < c.options.Limit {
 		best := -1
 		for i, q := range c.queue {
-			if c.paused != 0 && !q.resume {
+			// A pause holds new Background work at once, and new Input only
+			// after the Background drain (see Pause).
+			if c.paused != 0 && !q.resume && (q.key.drainsFirst() || c.inputHeld != 0) {
 				continue
 			}
 			p := c.principals[q.key.identity()]
@@ -280,6 +315,12 @@ func (c *Controller) dispatchLocked() {
 		}
 		if q.resume {
 			c.preempted--
+		} else if q.key.drainsFirst() {
+			// A readmitted segment was counted when it first started.
+			if c.background == 0 {
+				c.backgroundIdle = make(chan struct{})
+			}
+			c.background++
 		}
 		c.active++
 		q.ready <- r
@@ -306,6 +347,9 @@ func (r *Reservation) preempt(elapsed, gateWait time.Duration) *Request {
 	c.preempted++
 	c.preemptions++
 	q := c.enqueueLocked(r.key, true)
+	if r.key.drainsFirst() && !r.finished {
+		c.background++ // still in flight: cancels the settlement's decrement
+	}
 	r.settleLocked(elapsed, gateWait)
 	c.dispatchLocked()
 	return q
@@ -326,6 +370,12 @@ func (r *Reservation) settleLocked(elapsed, gateWait time.Duration) {
 	c.active--
 	if c.active+c.preempted == 0 {
 		close(c.idle)
+	}
+	if r.key.drainsFirst() {
+		c.background--
+		if c.background == 0 {
+			close(c.backgroundIdle)
+		}
 	}
 	gateWait = min(max(gateWait, 0), elapsed)
 	service := max(elapsed-gateWait, 0)
