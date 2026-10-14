@@ -219,6 +219,11 @@ join is ambiguous. This context cannot replace the older matched E_MAXREC event.
 Existing runtime records still lack an exact issue-to-task join and guard reason;
 the next runtime diagnostic needs typed terminal-reason propagation, including
 caught/replaced errors and discarded attempts, before another performance fix.
+The [uncaught-error identity witness](../docs/reports/mongoose-error-task-identity-20261014.md)
+now passes stock and fails only handler/origin ID equality on Barn. Preserve
+originating identity deliberately through that handoff; do not treat a handler
+task ID as the failed command ID. The separate harness retention repair has
+passed its lifecycle/full unit gates. No Go semantic fix is implemented yet.
 Establish valid fresh world repetitions and prioritize background simulation, retry waste and allocation
 churn from measured task evidence. Reader/history/finalization retention census,
 idle recovery and profiler overhead still need data. The Toast ownership-repair

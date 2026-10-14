@@ -178,3 +178,7 @@ conversions. Caught or replaced errors and discarded retries must not leak an ol
 reason. Manually raised `E_MAXREC` and restored legacy pending errors must remain
 unknown. A sticky VM field or message parsing cannot provide that contract.
 This is a proposal only; this tooling slice changes no Go runtime code or limits.
+
+The subsequent [uncaught-error identity witness and harness repair](mongoose-error-task-identity-20261014.md)
+confirmed an originating/handler task-ID difference on Barn's tested fork path.
+It also preserves failed-start evidence through repeated harness cleanup.
