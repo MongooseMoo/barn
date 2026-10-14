@@ -82,9 +82,16 @@ Every scenario now attempts a metadata baseline after setup and another
 capture immediately on failure, before cleanup. A MOO-side whitelist projects
 bounded actor-specific issue/history frames before FileIO or recording; messages,
 source, arguments and runtime values are excluded. Parsed frame identifiers,
-positions, shape/omission counters and correlation status are retained. Missing
-error code, effective programmer/player and unresolved line positions remain
-explicit. A unique bounded history match is not exclusive task/command causality.
+positions, shape/omission counters and correlation status are retained. Schema 2
+also retains a whitelisted error enum from a typed native ERR history slot.
+Four-field formatted and five-field structured history records can both match
+the actor issue through their complete bounded formatted-frame list. Only a
+unique match supplies the primary `error_code`; ambiguous, unmatched, malformed
+or unknown codes remain `unavailable`. Messages and error values are excluded.
+Effective programmer/player and unresolved line positions remain explicit.
+A unique bounded history match is not exclusive task/command causality, and
+`E_MAXREC` alone does not identify which Barn execution limit fired. See the
+[magic diagnostic follow-up](reports/mongoose-magic-diagnostics-20261014.md).
 Unavailable diagnostic metadata cannot replace the primary gameplay failure.
 This best-effort metadata collection is not a mandatory functional-success gate;
 read its own status before claiming complete diagnostic evidence.

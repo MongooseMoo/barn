@@ -209,10 +209,17 @@ captured chain starts at the bf_tostr wrapper and preposition normalization.
 Barn reuses E_MAXREC for depth, ticks and seconds; identify the actual failure
 class before attributing it to recursion. Private exact-literal comparisons of
 the matched saved event did not identify tick/seconds exhaustion; the reason
-remains unknown. Next isolate that dispatch/budget
-behavior with stock-first deterministic witnesses
-and establish valid fresh
-world repetitions and prioritize background simulation, retry waste and allocation
+remains unknown. The [follow-up collector and native witnesses](../docs/reports/mongoose-magic-diagnostics-20261014.md)
+now retain typed error enums from both history forms. Exact projection probes
+and an inherited multi-alias protected wrapper pass stock first and then Barn.
+That standalone wrapper contract does not explain the actual workload failure.
+The fresh actual magic capture retains ten matching E_INVARG history rows in a
+latest flush context; it correctly leaves the primary error unknown because the
+join is ambiguous. This context cannot replace the older matched E_MAXREC event.
+Existing runtime records still lack an exact issue-to-task join and guard reason;
+the next runtime diagnostic needs typed terminal-reason propagation, including
+caught/replaced errors and discarded attempts, before another performance fix.
+Establish valid fresh world repetitions and prioritize background simulation, retry waste and allocation
 churn from measured task evidence. Reader/history/finalization retention census,
 idle recovery and profiler overhead still need data. The Toast ownership-repair
 ranking does not identify the same Barn hot path. Run the pinned Elle workflow

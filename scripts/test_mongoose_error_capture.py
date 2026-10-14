@@ -11,19 +11,20 @@ from unittest.mock import Mock, patch
 import mongoose_error_capture as capture
 
 
-def projected_fixture(*, structured=False, issue_time=123):
+def projected_fixture(*, structured=False, issue_time=123, error_code="E_MAXREC"):
     frame = {"receiver": 777, "verb": "scale_focus", "programmer": 2 if structured else None,
              "definer": 16980, "player": -1 if structured else None, "line": 18}
-    event = {"history_index": 1, "representation": "structured" if structured else "formatted",
+    event = {"history_index": 1, "representation": "structured" if structured else "formatted", "error_code": error_code,
              "frames": [frame], "counts": dict.fromkeys(capture.COUNTERS, 0)}
     issue = copy.deepcopy(event)
-    issue.update(history_index=0, representation="formatted")
+    issue.update(history_index=0, representation="formatted", error_code="unavailable")
     issue["frames"][0].update(programmer=None, player=None)
-    return {"schema": 1, "actor": 100, "history_total": 1, "history_omitted": 0,
+    return {"schema": 2, "actor": 100, "history_total": 1, "history_omitted": 0,
             "history_malformed": 0, "events": [event], "issue_status": "available", "event_player": 100,
             "issue_time": issue_time, "history_matches": [] if structured else [1],
             "correlation": "no_match" if structured else "unique_bounded_exact_list_match",
-            "issue_unknown_fields": 0, "output_truncated": 0, "issue": issue}
+            "issue_unknown_fields": 0, "output_truncated": 0, "issue": issue,
+            "error_code": "unavailable" if structured else error_code}
 
 
 class ErrorCaptureTests(unittest.TestCase):
@@ -103,7 +104,10 @@ class ErrorCaptureTests(unittest.TestCase):
 
     def test_no_correlation_or_ambiguous_match_cannot_claim_new_event_count(self):
         row = projected_fixture()
-        row.update(history_matches=[1, 2], correlation="ambiguous", history_total=2)
+        second = copy.deepcopy(row["events"][0])
+        second["history_index"] = 2
+        row["events"].append(second)
+        row.update(history_matches=[1, 2], correlation="ambiguous", history_total=2, error_code="unavailable")
         control, server, directory = self.environment([row])
         result = capture.capture(control, server, "#100", directory, "failure_before_cleanup")
         self.assertEqual(result["status"], "collected")
@@ -181,7 +185,7 @@ class ErrorCaptureTests(unittest.TestCase):
 
     def test_issue_write_before_history_append_retries_until_bounded_unique_join(self):
         early = projected_fixture(issue_time=124)
-        early.update(correlation="no_match", history_matches=[])
+        early.update(correlation="no_match", history_matches=[], error_code="unavailable")
         control, server, directory = self.environment([early, projected_fixture(issue_time=124)])
         with patch.object(capture.time, "sleep") as sleep:
             result = capture.capture(control, server, "#100", directory, "failure_before_cleanup")
@@ -194,7 +198,7 @@ class ErrorCaptureTests(unittest.TestCase):
         self.assertIn('length(r) == 4', code)
         self.assertIn('length(r) == 5', code)
         self.assertIn('for k in [1..6]', code)
-        self.assertIn('issueok && candidateok && equal(il,source)', code)
+        self.assertIn('issueok && candidateok && equal(il,formatted)', code)
         self.assertIn('text[1..min(length(text),1024)]', code)
         self.assertNotIn('generate_json(h)', code)
         self.assertNotIn('generate_json(issue)', code)
@@ -205,10 +209,119 @@ class ErrorCaptureTests(unittest.TestCase):
 
     def test_native_moo_object_actor_and_explicit_output_truncation(self):
         import bench_players
-        control, server, directory = self.environment([{"schema": 1, "actor": 100, "output_truncated": 1}])
+        control, server, directory = self.environment([{"schema": 2, "actor": 100, "output_truncated": 1}])
         result = capture.capture(control, server, bench_players.MooObj(100), directory, "baseline")
         self.assertEqual(result["status"], "collected")
         self.assertEqual(result["projection"]["output_truncated"], 1)
+        self.assertEqual(result["error_code"], "unavailable")
+
+    def test_unique_formatted_or_structured_history_supplies_only_primary_enum(self):
+        for structured in (False, True):
+            with self.subTest(structured=structured):
+                row = projected_fixture(structured=structured)
+                row.update(history_matches=[1], correlation="unique_bounded_exact_list_match", error_code="E_MAXREC")
+                valid = capture.validate_projection(json.dumps(row).encode(), 100)
+                self.assertEqual(valid["error_code"], "E_MAXREC")
+                self.assertEqual(valid["events"][0]["error_code"], "E_MAXREC")
+                self.assertEqual(valid["issue"]["error_code"], "unavailable")
+                control, server, directory = self.environment([row])
+                result = capture.capture(control, server, "#100", directory, "baseline")
+                self.assertEqual(result["error_code"], "E_MAXREC")
+                self.assertIsNone(result["comparison"]["new_event_count"])
+                self.assertEqual(result["comparison"]["command_exclusive_causality"], "unknown")
+                self.assertNotIn("SECRET", Path(result["artifact"]).read_text())
+
+    def test_unmatched_or_ambiguous_primary_remains_unavailable_with_typed_history(self):
+        for ambiguous in (False, True):
+            row = projected_fixture(structured=True)
+            if ambiguous:
+                second = copy.deepcopy(row["events"][0])
+                second["history_index"] = 2
+                row["events"].append(second)
+                row.update(history_total=2, history_matches=[1, 2], correlation="ambiguous")
+            valid = capture.validate_projection(json.dumps(row).encode(), 100)
+            self.assertEqual(valid["error_code"], "unavailable")
+            self.assertTrue(all(event["error_code"] == "E_MAXREC" for event in valid["events"]))
+
+    def test_unknown_injected_or_nonnative_enum_payloads_fail_closed(self):
+        for code in ("E_UNKNOWN", "E_MAXREC SECRET", "__import__('os')", 9, True, None, ["E_MAXREC"], {"code": "E_MAXREC"}):
+            with self.subTest(code_type=type(code).__name__):
+                row = projected_fixture(error_code=code)
+                control, server, directory = self.environment([row])
+                result = capture.capture(control, server, "#100", directory, "baseline")
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(result["error_code"], "unavailable")
+                self.assertNotIn("SECRET", json.dumps(result))
+                self.assertEqual(list(directory.iterdir()), [])
+
+    def test_primary_enum_requires_consistent_unique_available_actor_join(self):
+        cases = []
+        no_match = projected_fixture(structured=True)
+        no_match["error_code"] = "E_MAXREC"
+        cases.append(no_match)
+        spoof = projected_fixture()
+        spoof["events"][0]["error_code"] = "unavailable"
+        cases.append(spoof)
+        unknown_actor = projected_fixture()
+        unknown_actor.update(event_player=None, issue_time=None, issue_status="missing")
+        cases.append(unknown_actor)
+        duplicates = projected_fixture()
+        duplicates.update(correlation="ambiguous", history_matches=[1, 1], error_code="unavailable")
+        cases.append(duplicates)
+        missing_event = projected_fixture()
+        missing_event["events"] = []
+        cases.append(missing_event)
+        for row in cases:
+            with self.subTest(correlation=row["correlation"]), self.assertRaises(ValueError):
+                capture.validate_projection(json.dumps(row).encode(), 100)
+
+    def test_unknown_typed_code_is_available_neither_in_event_nor_primary(self):
+        row = projected_fixture(error_code="unavailable")
+        valid = capture.validate_projection(json.dumps(row).encode(), 100)
+        self.assertEqual(valid["events"][0]["error_code"], "unavailable")
+        self.assertEqual(valid["error_code"], "unavailable")
+
+    def test_missing_or_extra_enum_fields_and_old_schema_are_rejected(self):
+        for location in ("top", "event", "issue"):
+            for operation in ("missing", "extra"):
+                row = projected_fixture()
+                target = row if location == "top" else row["events"][0] if location == "event" else row["issue"]
+                if operation == "missing":
+                    target.pop("error_code")
+                else:
+                    target["error_value"] = "SECRET"
+                with self.subTest(location=location, operation=operation), self.assertRaises(ValueError):
+                    capture.validate_projection(json.dumps(row).encode(), 100)
+        row = projected_fixture()
+        row["schema"] = 1
+        with self.assertRaises(ValueError):
+            capture.validate_projection(json.dumps(row).encode(), 100)
+
+    def test_retry_retains_latest_unique_enum_without_changing_baseline(self):
+        prior = projected_fixture(issue_time=123, error_code="E_PERM")
+        early = projected_fixture(structured=True, issue_time=124)
+        latest = projected_fixture(structured=True, issue_time=124)
+        latest.update(history_matches=[1], correlation="unique_bounded_exact_list_match", error_code="E_MAXREC")
+        control, server, directory = self.environment([early, latest])
+        baseline = copy.deepcopy(prior)
+        with patch.object(capture.time, "sleep"):
+            result = capture.capture(control, server, "#100", directory, "failure_before_cleanup", baseline={"projection": baseline})
+        self.assertEqual(len(result["attempts"]), 2)
+        self.assertEqual(result["error_code"], "E_MAXREC")
+        self.assertEqual(baseline, prior)
+
+    def test_generated_enum_extraction_is_typed_bounded_and_uses_fifth_formatted_field(self):
+        code = capture.projection_request("#100", "error-" + "a" * 32 + ".json")
+        self.assertIn('typeof(r[1]) == ERR', code)
+        self.assertLess(code.index('typeof(r[1]) == ERR'), code.index('toint(r[1])'))
+        self.assertIn('ordinal >= 0 && ordinal < length(error_names)', code)
+        self.assertIn('typeof(r[4]) == LIST && typeof(r[5]) == LIST', code)
+        self.assertIn('source = r[4]; formatted = r[5]', code)
+        self.assertIn('length(il) > 0 && length(il) <= 32', code)
+        self.assertIn('length(formatted) > 0 && length(formatted) <= 32', code)
+        self.assertNotIn('tostr(', code)
+        self.assertNotIn('r[2]', code)
+        self.assertNotIn('r[3]', code)
 
 
 if __name__ == "__main__":
