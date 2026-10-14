@@ -93,15 +93,16 @@ A successful functional run alone cannot establish equivalent engine performance
 bootstrap images are prepared separately per run, and identical prepared images across
 engines have not yet been proved.
 
-The first Barn functional attempt uses this command; choose a fresh `--out`
+Run this Barn flight command with a fresh `--out`
 directory for every attempt. Its result must be read from the final manifest.
-The pinned binary here was built from the current-main tooling checkout; when
-rebuilding, verify `./cmd/barn` with `go list`, build there and substitute the
-new executable hash.
+The pinned binary includes the
+[stock-verified queued-fork checkpoint repair](reports/mongoose-fork-checkpoint-20261014.md),
+which passed real flight and verified final publication. When rebuilding, verify
+`./cmd/barn` with `go list`, build there and substitute the new executable hash.
 
 ```powershell
 wsl --list --quiet
-wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-baseline/scripts/run_mongoose_gameplay.py --engine barn --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --barn /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/bin/barn --barn-sha256 2bb5a49b6da0736fe3424653f77b301eabef37e1eb65153906c11e9a12f04d9a --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4 --out /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-gameplay-next --scenario magic --iterations 1 --warmup-seconds 30 --deadline-seconds 120'
+wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-baseline/scripts/run_mongoose_gameplay.py --engine barn --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --barn /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/conformance/barn --barn-sha256 13ef3890cf48a0c53ae2d48bdb471059062765232a4c59802342e4b2ea749e16 --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4 --out /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-gameplay-next --scenario flight --iterations 1 --warmup-seconds 30 --deadline-seconds 120'
 ```
 
 For a separate Toast diagnostic cohort, add `--profile definitions` and optionally

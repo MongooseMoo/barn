@@ -94,7 +94,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		return types.None, nil // Clear property marker
 
 	case 6: // NONE
-		return types.NewInt(0), nil // None becomes 0
+		return types.Unbound, nil // Native uninitialized runtime variable; distinct from INT zero and CLEAR.
 
 	case 7: // CATCH (stack marker)
 		val, err := readInt(r)

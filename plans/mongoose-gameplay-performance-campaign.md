@@ -199,8 +199,19 @@ explicit. These are failed or invalidated cohorts, not performance baselines.
 Managed stock Toast and matched Barn each passed admission and the exact freshly
 installed list helper/integer-halving witnesses. A promotion-enabled comparison
 was rejected before execution by the profile gate; preserve that unknown result.
-Next isolate the imported preposition failure and queued-task checkpoint failure
-with deterministic witnesses before engine repairs. Then establish valid fresh
+The queued-task checkpoint failure now has a
+[stock-verified two-checkpoint witness and loader/codec repair](../docs/reports/mongoose-fork-checkpoint-20261014.md),
+with Go/race/managed Barn and explicit pinned Elle evidence. A fresh actual
+Mongoose flight also passed all ten gates, including final database/WAIF pair
+publication. This validates the repair, not a speedup. Magic still fails, but now
+has a verified postfailure dump and a uniquely matched E_MAXREC enum; its latest
+captured chain starts at the bf_tostr wrapper and preposition normalization.
+Barn reuses E_MAXREC for depth, ticks and seconds; identify the actual failure
+class before attributing it to recursion. Private exact-literal comparisons of
+the matched saved event did not identify tick/seconds exhaustion; the reason
+remains unknown. Next isolate that dispatch/budget
+behavior with stock-first deterministic witnesses
+and establish valid fresh
 world repetitions and prioritize background simulation, retry waste and allocation
 churn from measured task evidence. Reader/history/finalization retention census,
 idle recovery and profiler overhead still need data. The Toast ownership-repair

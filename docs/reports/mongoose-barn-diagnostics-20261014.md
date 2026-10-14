@@ -3,8 +3,10 @@
 The new tooling captured a real magic failure before cleanup and five Go
 diagnostic artifacts around completed flight. These are private diagnostic
 cohorts, not accepted performance baselines: magic failed and both Barn worlds
-failed final checkpoint publication. No Go engine implementation changed, no
-live Mongoose process was accessed, and no speedup or memory reduction is claimed.
+failed final checkpoint publication. During those captures no Go engine
+implementation changed and no live Mongoose process was accessed. No speedup
+or memory reduction is claimed. The subsequent
+[queued-fork repair](mongoose-fork-checkpoint-20261014.md) has separate evidence.
 Raw `.tmp` links below identify local preserved evidence, not shipped artifacts.
 
 ## Identity and collection
@@ -220,8 +222,10 @@ These intervals overlap across concurrent work, are wall rather than CPU time,
 and are not attributable to flight by surrounding counter deltas. The SQL handle
 data does not support prioritizing handle contention in this particular run.
 
-First isolate the imported magic/preposition failure and queued-task checkpoint
-failure with deterministic managed witnesses. Next rank background simulation,
+The queued-task failure now has a separate
+[verified loader/codec repair](mongoose-fork-checkpoint-20261014.md). Isolate the
+remaining imported magic/preposition failure with deterministic managed witnesses.
+Next rank background simulation,
 discarded retries and list/map churn using task-filtered evidence and a valid
 repeatable gameplay cohort. Reader/history/finalization retention census,
 natural idle recovery, nested MOO CPU attribution, profiler overhead and
