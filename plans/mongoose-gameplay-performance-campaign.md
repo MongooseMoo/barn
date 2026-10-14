@@ -186,13 +186,23 @@ sequence; magic01 failed the zero-focus refusal with a coding error. Both final
 checkpoints failed despite process exit0. The [cohort report](../docs/reports/mongoose-barn-gameplay-20261014.md)
 retains these distinctions; neither cohort is an accepted performance baseline.
 
-The repaired runner now requires verified final checkpoint publication and
-rejects the retained false-success cohort in replay. Next capture the actual
-magic exception metadata before cleanup and shutdown, using the existing
-actor-specific issues record and bounded history projection described in the
-report. Missing programmer/player fields must remain explicit. Verify uncertain
-shared behavior against the managed Toast oracle before engine fixes. Retain
-runtime diagnostics, collect Go CPU profiles and separately timed heap snapshots
-in subsequent diagnostic cohorts once failures can be explained.
-The Toast ownership-repair ranking does not identify the same Barn hot path;
-select the next bounded experiment from Barn's measured workload instead.
+The repaired runner requires verified final checkpoint publication and rejects
+the retained false-success cohort in replay. The next tooling slice now captures
+bounded magic exception metadata before cleanup and collects Barn Go CPU/natural
+heap/runtime vars in separate diagnostic cohorts. Its
+[diagnostic report](../docs/reports/mongoose-barn-diagnostics-20261014.md)
+records a preposition/list-helper failure chain, valid offline CPU samples,
+dominant simulation root labels, substantial list/map churn and reserved idle
+heap. Missing error code/programmer/player fields and line positions remain
+explicit. These are failed or invalidated cohorts, not performance baselines.
+
+Managed stock Toast and matched Barn each passed admission and the exact freshly
+installed list helper/integer-halving witnesses. A promotion-enabled comparison
+was rejected before execution by the profile gate; preserve that unknown result.
+Next isolate the imported preposition failure and queued-task checkpoint failure
+with deterministic witnesses before engine repairs. Then establish valid fresh
+world repetitions and prioritize background simulation, retry waste and allocation
+churn from measured task evidence. Reader/history/finalization retention census,
+idle recovery and profiler overhead still need data. The Toast ownership-repair
+ranking does not identify the same Barn hot path. Run the pinned Elle workflow
+for isolation-sensitive changes and retain all failed experiments.

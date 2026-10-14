@@ -26,6 +26,38 @@ class GameplayRunnerTests(unittest.TestCase):
                     runner.arguments(invalid)
                 self.assertEqual(failed.exception.code, 2)
 
+    def test_go_cpu_cli_is_barn_only_and_integer_bounded(self):
+        base = ["--db", "fixture.db", "--db-sha256", "source", "--moo", "bootstrap", "--moo-sha256", "bootstrap-sha",
+                "--sound-db", "sound", "--sound-db-sha256", "sound-sha", "--out", "owned-output"]
+        barn = base + ["--engine", "barn", "--barn", "barn", "--barn-sha256", "barn-sha"]
+        with patch.object(runner.sys, "platform", "linux"):
+            self.assertEqual(runner.arguments(base).go_cpu_seconds, 0)
+            for seconds in (0, 1, 30):
+                self.assertEqual(runner.arguments(barn + ["--go-cpu-seconds", str(seconds)]).go_cpu_seconds, seconds)
+            for invalid in (base + ["--go-cpu-seconds", "1"], barn + ["--go-cpu-seconds", "-1"],
+                            barn + ["--go-cpu-seconds", "31"], barn + ["--go-cpu-seconds", "1.5"],
+                            barn + ["--go-cpu-seconds", "1", "--profile", "definitions"]):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    runner.arguments(invalid)
+
+    def test_captured_transport_cannot_make_requested_unvalidated_profile_complete(self):
+        manifest = {"engine": "barn", "status": "complete", "source_database_unchanged": True,
+                    "executable_unchanged": True, "controller_sources_unchanged": True,
+                    "bootstrap_executable_unchanged": True,
+                    "immutable_inputs": {name: {"unchanged": True} for name in
+                        ("barn_config", "barn_registry", "barn_runtime_profile")},
+                    "sound_catalog": {"source_unchanged": True}, "shutdown": {"exit_code": 0,
+                        "final_checkpoint": {"status": "verified", "verified": True}},
+                    "go_cpu_seconds": 1, "go_diagnostics": {"status": "captured",
+                        "pprof_semantic_validation": "pending offline validation"}}
+        runner.finalize_verdict(manifest)
+        self.assertEqual(manifest["status"], "diagnostic-unvalidated")
+        self.assertTrue(manifest["final_checks"]["go_diagnostics_transport"])
+        self.assertFalse(manifest["final_checks"]["go_profiles_validated"])
+        manifest.update(status="complete", go_diagnostics={"status": "failed"})
+        runner.finalize_verdict(manifest)
+        self.assertEqual(manifest["status"], "invalidated")
+
     def test_barn_manifest_requires_immutable_bootstrap_configuration_and_profile(self):
         good = {"engine": "barn", "status": "complete", "source_database_unchanged": True,
                 "executable_unchanged": True, "controller_sources_unchanged": True,
@@ -161,9 +193,33 @@ class GameplayRunnerTests(unittest.TestCase):
                 record.close()
             self.assertEqual(json.loads((Path(directory) / "transcript.jsonl").read_text())["status"], "failed")
 
+    def test_metadata_rpc_never_records_native_payload_or_unknown_acknowledgement(self):
+        for response in (([1, 200, 0], ["SECRET response"]), (["SECRET value"], ["SECRET output"]),
+                         RuntimeError("SECRET native message/local variable")):
+            with self.subTest(response_type=type(response).__name__), tempfile.TemporaryDirectory() as directory:
+                original = Mock()
+                if isinstance(response, Exception):
+                    original.eval.side_effect = response
+                else:
+                    original.eval.return_value = response
+                path = Path(directory) / "transcript.jsonl"
+                record = runner.RecordingControl(original, path)
+                try:
+                    if isinstance(response, Exception) or len(response[0]) != 3:
+                        with self.assertRaises(Exception):
+                            record.eval_metadata("return {1,200,0};")
+                    else:
+                        self.assertEqual(record.eval_metadata("return {1,200,0};"), ([1,200,0], []))
+                finally:
+                    record.close()
+                self.assertNotIn("SECRET", path.read_text())
+                self.assertNotIn("native_output", path.read_text())
+
     def scenario(self, directory, action, *, cleanup_error=None, native_status="disabled", mode="off", telemetry_error=None,
-                 profile="off", profile_ack=None, engine="toast"):
-        options = SimpleNamespace(run_dir=Path(directory), iterations=1, profile=profile, hz=100, native_mode=mode, engine=engine)
+                 profile="off", profile_ack=None, engine="toast", events=None, metadata_error=None,
+                 go_seconds=0, go_collector=None):
+        options = SimpleNamespace(run_dir=Path(directory), iterations=1, profile=profile, hz=100, native_mode=mode, engine=engine,
+                                  go_cpu_seconds=go_seconds, go_collector=go_collector)
         module = Mock()
         module.setup.return_value = {"actor": "#100"}
         module.snapshot.return_value = {"position": [0, 0, 0]}
@@ -171,9 +227,24 @@ class GameplayRunnerTests(unittest.TestCase):
             module.run.side_effect = action
         else:
             module.run.return_value = action
+        if go_seconds and events is not None:
+            def productive(*args):
+                events.append("actions")
+                if isinstance(action, Exception):
+                    raise action
+                return action
+            module.run.side_effect = productive
         module.cleanup.return_value = {"done": True}
         if cleanup_error:
             module.cleanup.side_effect = cleanup_error
+        elif events is not None:
+            module.cleanup.side_effect = lambda *args: events.append("cleanup") or {"done": True}
+        def metadata(*args, **kwargs):
+            if events is not None:
+                events.append(args[4])
+            if metadata_error:
+                raise metadata_error
+            return {"status": "collected", "phase": args[4]}
         native = Mock()
         native.finish.return_value = {"status": native_status}
         native_module = Mock()
@@ -183,16 +254,151 @@ class GameplayRunnerTests(unittest.TestCase):
         server.proc.pid = 1
         def modules(name):
             return native_module if name == "mongoose_native_profile" else module
+        measurements = iter([
+            {"process_total_cpu_ns" if engine == "barn" else "main_cpu_ns": 10, "start_ticks": 1},
+            telemetry_error or {"process_total_cpu_ns" if engine == "barn" else "main_cpu_ns": 20, "start_ticks": 1}])
+        def measured(*args):
+            row = next(measurements)
+            if go_seconds and events is not None:
+                events.append("measure-before" if row.get("process_total_cpu_ns") == 10 else "measure-after")
+            if isinstance(row, Exception):
+                raise row
+            return row
         with patch.object(runner.importlib, "import_module", side_effect=modules), \
+                patch.object(runner.error_capture, "capture", side_effect=metadata), \
                 patch.object(runner, "save_profile", return_value={"exported": True}), \
-                patch.object(runner.barn_process if engine == "barn" else runner.offline, "process_state", side_effect=[
-                    {"process_total_cpu_ns" if engine == "barn" else "main_cpu_ns": 10, "start_ticks": 1},
-                    telemetry_error or {"process_total_cpu_ns" if engine == "barn" else "main_cpu_ns": 20, "start_ticks": 1}]):
+                patch.object(runner.barn_process if engine == "barn" else runner.offline, "process_state", side_effect=measured):
             try:
                 result = runner.run_scenario("flight", control, server, observer, options)
                 return result, module
             except support.ScenarioFailure:
                 return json.loads((Path(directory) / "flight" / "result.json").read_text()), module
+
+    def diagnostic_collector(self, events, *, cpu_error=None, request_issued=True):
+        collector, handle = Mock(), Mock()
+        collector.snapshot.side_effect = lambda label: events.append(label) or {"transport": "captured"}
+        collector.start_cpu.side_effect = lambda *args, **kwargs: events.append("start-cpu") or handle
+        handle.request_issued.wait.side_effect = lambda **kwargs: events.append("request-issued") or request_issued
+        def finished(*args):
+            events.append("finish-cpu")
+            if cpu_error:
+                raise cpu_error
+            return {"status": "captured", "request_issued_monotonic_ns": 10,
+                    "finished_monotonic_ns": 30, "pprof_semantic_validation": "pending offline validation"}
+        collector.finish_cpu.side_effect = finished
+        return collector, handle
+
+    def test_go_capture_order_is_outside_action_measurement_and_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            collector, handle = self.diagnostic_collector(events)
+            result, _ = self.scenario(directory, {"completed_iterations": 1}, engine="barn",
+                                      events=events, go_seconds=1, go_collector=collector)
+            self.assertEqual(events, ["baseline", "flight-before", "start-cpu", "request-issued", "measure-before",
+                                      "actions", "measure-after", "finish-cpu", "flight-after", "cleanup"])
+            self.assertEqual(result["domain_status"], "complete")
+            self.assertEqual(result["status"], "diagnostic-unvalidated")
+            self.assertEqual(result["process_total_cpu_ns"], 10)
+            self.assertFalse(result["go_diagnostics"]["request_issued"]["activation_acknowledged"])
+            handle.request_issued.wait.assert_called_once_with(timeout=10)
+
+    def test_go_cpu_failure_follows_error_metadata_and_preserves_primary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            collector, _ = self.diagnostic_collector(events, cpu_error=RuntimeError("CPU transport failed"))
+            result, _ = self.scenario(directory, support.ScenarioFailure("primary ordinary failure"), engine="barn",
+                                      events=events, go_seconds=1, go_collector=collector)
+            self.assertEqual(result["failure"], "primary ordinary failure")
+            self.assertEqual(events[-4:], ["failure_before_cleanup", "finish-cpu", "flight-after", "cleanup"])
+            self.assertIn("cpu_failure", result["go_diagnostics"])
+
+    def test_cpu_request_not_issued_prevents_actions_but_drains_and_cleans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            collector, _ = self.diagnostic_collector(events, request_issued=False)
+            result, module = self.scenario(directory, {"completed_iterations": 1}, engine="barn",
+                                           events=events, go_seconds=1, go_collector=collector)
+            module.run.assert_not_called()
+            self.assertNotIn("action_wall_ns", result)
+            self.assertEqual(events[-4:], ["failure_before_cleanup", "finish-cpu", "flight-after", "cleanup"])
+            self.assertEqual(result["status"], "failed")
+
+    def test_main_finishes_all_diagnostic_handles_before_owned_shutdown_and_never_false_greens(self):
+        for primary in (None, support.ScenarioFailure("primary ordinary failure")):
+            with self.subTest(primary=primary is not None), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for name in ("input.db", "toast", "barn", "sound.sqlite"):
+                    (root / name).write_bytes(b"not executable; lifecycle must remain mocked")
+                digest = runner.offline.bench.sha256_file(root / "input.db")
+                options = SimpleNamespace(db=root / "input.db", db_sha256=digest, moo=root / "toast", moo_sha256=digest,
+                    barn=root / "barn", barn_sha256=digest, sound_db=root / "sound.sqlite", sound_db_sha256=digest,
+                    out=root / "owned-run", engine="barn", source_commit=None, scenario="flight", seed=1, iterations=1,
+                    profile="off", native_mode="off", port=17778, warmup_seconds=0, go_cpu_seconds=1)
+                events = []
+                server = Mock()
+                server.run_dir, server.proc.pid, server.start_ticks = options.out, 234, 555
+                server.profile_path = options.out / "barn-profile.json"
+                server.identity = {"executable_sha256": digest,
+                    "config_sha256": runner.offline.bench.sha256_file(runner.barn_process.CONFIG),
+                    "profile_registry_sha256": runner.offline.bench.sha256_file(runner.barn_process.REGISTRY),
+                    "profile_manifest_sha256": digest}
+                def started():
+                    server.profile_path.write_bytes(b"not executable; lifecycle must remain mocked")
+                    return 0
+                server.start.side_effect = started
+                server.stop.side_effect = lambda: events.append("shutdown") or {"exit_code": 0, "forced": False,
+                    "final_checkpoint": {"status": "verified", "verified": True}}
+                observer = Mock(error=None)
+                observer.finish.return_value = {"samples": 0}
+                control = Mock()
+                control.eval.return_value = ([0, 1, 0, "mock Barn"], [])
+                collector = Mock()
+                collector.finish.side_effect = lambda: events.append("finish-all") or {
+                    "status": "captured", "pprof_semantic_validation": "pending offline validation"}
+                go_module = Mock()
+                go_module.Collector.return_value = collector
+                def scenario(*args):
+                    events.append("scenario")
+                    self.assertIs(args[-1].go_collector, collector)
+                    if primary:
+                        raise primary
+                    return {"scenario": "flight", "status": "diagnostic-unvalidated", "domain_status": "complete"}
+                with patch.object(runner, "arguments", return_value=options), \
+                     patch.object(runner.offline, "check_network_isolation", return_value={"mocked": True}), \
+                     patch.object(runner.offline, "prepare_sound_catalog", return_value={"source_sha256": digest}), \
+                     patch.object(runner.offline, "adapt_bootstrap"), \
+                     patch.object(runner.offline.bench, "bootstrap_control_account", return_value=(0, "unused", "unused")), \
+                     patch.object(runner.barn_process, "OwnedBarnServer", return_value=server), \
+                     patch.object(runner.offline.bench, "connect_control", return_value=(control, None)), \
+                     patch.object(runner.offline, "snapshot", return_value={}), \
+                     patch.object(runner, "ProcessObserver", return_value=observer), \
+                     patch.object(runner.importlib, "import_module", return_value=go_module), \
+                     patch.object(runner, "run_scenario", side_effect=scenario):
+                    with self.assertRaises(Exception) as caught:
+                        runner.main()
+                self.assertEqual(events, ["scenario", "finish-all", "shutdown"])
+                manifest = json.loads((options.out / "manifest-final.json").read_text())
+                self.assertFalse(manifest["final_checks"]["go_profiles_validated"])
+                self.assertTrue(manifest["final_checks"]["go_diagnostics_transport"])
+                if primary:
+                    self.assertIs(caught.exception, primary)
+                    self.assertEqual(manifest["failure"], "primary ordinary failure")
+                else:
+                    self.assertEqual(manifest["status"], "diagnostic-unvalidated")
+                    self.assertEqual(manifest["scenarios"][0]["domain_status"], "complete")
+                self.assertIn("mongoose_barn_diagnostics.py", manifest["controller_sources"])
+                self.assertTrue(manifest["controller_sources_unchanged"])
+
+    def test_error_baseline_and_failure_capture_precede_cleanup_and_preserve_primary(self):
+        for capture_error in (None, RuntimeError("SECRET diagnostic failure")):
+            with self.subTest(capture_error=capture_error is not None), tempfile.TemporaryDirectory() as directory:
+                events = []
+                result, _ = self.scenario(directory, support.ScenarioFailure("primary ordinary refusal failed"),
+                                          events=events, metadata_error=capture_error)
+                self.assertEqual(events, ["baseline", "failure_before_cleanup", "cleanup"])
+                self.assertEqual(result["failure"], "primary ordinary refusal failed")
+                self.assertIn("error_metadata_failure", result)
+                self.assertNotIn("SECRET", json.dumps(result))
 
     def test_unfinished_and_boolean_success_are_not_productive_work(self):
         for action in ({"completed_iterations": 0}, {"completed_iterations": True}):

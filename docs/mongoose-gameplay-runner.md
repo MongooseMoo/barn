@@ -24,7 +24,7 @@ From PowerShell, verify the installed distribution and choose a fresh output:
 
 ```powershell
 wsl --list --quiet
-wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-workloads/scripts/run_mongoose_gameplay.py --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4 --out /mnt/c/Users/Q/code/barn-gameplay-workloads/.tmp/gameplay-next --scenario both --iterations 1 --warmup-seconds 30 --deadline-seconds 120'
+wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-baseline/scripts/run_mongoose_gameplay.py --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4 --out /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/gameplay-next --scenario both --iterations 1 --warmup-seconds 30 --deadline-seconds 120'
 ```
 
 `--scenario flight|magic` selects one scenario. `--iterations` counts complete
@@ -62,10 +62,35 @@ records completed real flight, the magic refusal failure and the original
 exit-code-only gate's missed final-checkpoint failures. Its raw recordings remain
 unchanged; they are not accepted performance baselines.
 
-This first Barn slice rejects both Toast profiling flags. Go CPU/heap collection
-requires subsequent tooling and separate diagnostic cohorts. A successful
-functional run alone cannot establish equivalent engine performance: bootstrap
-images are prepared separately per run, and identical prepared images across
+Barn rejects both Toast profiling flags. Add `--go-cpu-seconds 15` for a separate
+Barn diagnostic cohort: the owned private HTTP listener supplies a bounded Go CPU
+profile and before/after runtime vars and natural heap snapshots (`gc=0`). The
+default is 0; accepted requests are 1..30 seconds and require `--engine barn`.
+Set `BARN_RUNTIME_DIAGNOSTICS=1` inside the namespace to retain debug phase records.
+CPU request transmission is recorded without asserting profiler activation or
+exact action overlap. Whole-process CPU includes background, runtime and observer
+work; heap allocation totals can include loading, and snapshot windows differ.
+Raw diagnostics remain local. Transport/gzip checks cannot validate pprof sample
+types or nonzero samples, so requested profiles leave scenario status
+`diagnostic-unvalidated` and `go_profiles_validated=false` pending independent
+offline parsing. The runner exits nonzero; other failures still invalidate the
+cohort. Preserve its original manifest alongside the analysis rather than
+rewriting it. The [diagnostic report](reports/mongoose-barn-diagnostics-20261014.md)
+records actual parsed CPU shares, memory and remaining correctness blockers.
+
+Every scenario now attempts a metadata baseline after setup and another
+capture immediately on failure, before cleanup. A MOO-side whitelist projects
+bounded actor-specific issue/history frames before FileIO or recording; messages,
+source, arguments and runtime values are excluded. Parsed frame identifiers,
+positions, shape/omission counters and correlation status are retained. Missing
+error code, effective programmer/player and unresolved line positions remain
+explicit. A unique bounded history match is not exclusive task/command causality.
+Unavailable diagnostic metadata cannot replace the primary gameplay failure.
+This best-effort metadata collection is not a mandatory functional-success gate;
+read its own status before claiming complete diagnostic evidence.
+
+A successful functional run alone cannot establish equivalent engine performance:
+bootstrap images are prepared separately per run, and identical prepared images across
 engines have not yet been proved.
 
 The first Barn functional attempt uses this command; choose a fresh `--out`

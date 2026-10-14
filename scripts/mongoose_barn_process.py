@@ -136,11 +136,12 @@ class OwnedBarnServer:
         self.journal_path = Path(str(self.checkpoint_path) + ".publication")
         self.profile_path = self.run_dir / "barn-profile.json"
         self.log_path = self.run_dir / "server.log"
+        log_level = "debug" if os.environ.get("BARN_RUNTIME_DIAGNOSTICS") == "1" else "info"
         self.command = [str(self.executable), "--db", str(self.db),
                         "--listen", f"tcp://{self.host}:{port}", "--checkpoint-interval", "0",
                         "--config", str(self.config), "--profile-id", PROFILE_ID,
                         "--profile-manifest", str(self.profile_path),
-                        "--log-dir", str(self.run_dir / "logs"), "--log-level", "info",
+                        "--log-dir", str(self.run_dir / "logs"), "--log-level", log_level,
                         "--debug-addr", "127.0.0.1:0", "--operator-addr", "127.0.0.1:0"]
         self.identity = {"engine": "barn", "executable": str(self.executable),
                          "executable_sha256": bench.sha256_file(self.executable),
@@ -149,6 +150,7 @@ class OwnedBarnServer:
                          "profile_id": PROFILE_ID, "command": self.command,
                          "profile_manifest": str(self.profile_path), "server_log": str(self.log_path),
                          "runtime_logs": str(self.run_dir / "logs"),
+                         "runtime_log_level": log_level,
                          "cpu_scope": CPU_SCOPE, "collectors": "off",
                          "runtime_environment": {key: os.environ.get(key) for key in
                              ("GOGC", "GOMEMLIMIT", "GOMAXPROCS", "BARN_RUNTIME_DIAGNOSTICS")}}

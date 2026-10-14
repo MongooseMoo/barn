@@ -15,6 +15,7 @@ import time
 
 import profile_offline_mongoose as offline
 import mongoose_barn_process as barn_process
+import mongoose_error_capture as error_capture
 from mongoose_scenario_support import ScenarioFailure
 
 
@@ -45,6 +46,25 @@ class RecordingControl:
 
     def close(self):
         self.output.close()
+
+    def eval_metadata(self, code, **kwargs):
+        """Diagnostic RPC records only its compact acknowledgement, never payloads."""
+        record = {"phase": self.phase, "started_monotonic_ns": time.monotonic_ns(),
+                  "request_sha256": hashlib.sha256(code.encode()).hexdigest(), "request_kind": "error_metadata"}
+        try:
+            value, _ = self.control.eval(code, **kwargs)
+            if (not isinstance(value, list) or len(value) != 3 or any(type(item) is not int for item in value) or
+                    value[0] != 1 or not 0 <= value[1] <= error_capture.BYTE_CAP or value[2] not in (0, 1)):
+                raise ValueError("invalid compact diagnostic acknowledgement")
+            record.update(status="returned", acknowledgement=value)
+            return value, []
+        except Exception as error:
+            record.update(status="failed", failure_type=type(error).__name__)
+            raise
+        finally:
+            record["finished_monotonic_ns"] = time.monotonic_ns()
+            self.output.write(json.dumps(record) + "\n")
+            self.output.flush()
 
 
 def process_observation(server, engine):
@@ -121,6 +141,13 @@ def save_profile(control, run_dir, prefix):
             "scope": "instrumented whole-main-thread CPU; not per-action CPU"}
 
 
+def capture_error_metadata(control, server, actor, directory, phase, *, baseline=None):
+    try:
+        return error_capture.capture(control, server, actor, directory, phase, baseline=baseline)
+    except Exception as error:
+        return {"status": "failed", "failure_type": type(error).__name__, "phase": phase}
+
+
 def run_scenario(name, control, server, observer, options):
     engine = getattr(options, "engine", "toast")
     validate_engine_modes(options)
@@ -133,12 +160,30 @@ def run_scenario(name, control, server, observer, options):
     fixture = None
     profiling = False
     native = None
+    go_collector = getattr(options, "go_collector", None)
+    go_cpu = None
+    go_seconds = getattr(options, "go_cpu_seconds", 0)
     primary_error = None
     try:
         observer.phase = control.phase = name + ":setup"
         fixture = module.setup(control, options)
         offline.write_json(directory / "fixture.json", fixture)
+        result["error_metadata_baseline"] = capture_error_metadata(
+            control, server, fixture.get("actor"), directory, "baseline")
         result["before"] = module.snapshot(control, fixture)
+        if go_seconds:
+            result["go_diagnostics"] = {"requested_cpu_seconds": go_seconds,
+                "pprof_semantic_validation": "pending offline validation",
+                "snapshot_scope": "before actions and after attempted actions/failure metadata/CPU drain, before cleanup; outside action wall/CPU measurements"}
+            if go_collector is None:
+                raise ScenarioFailure("requested Go diagnostics collector is unavailable")
+            result["go_diagnostics"]["before"] = go_collector.snapshot(name + "-before")
+            go_cpu = go_collector.start_cpu(name + "-actions", seconds=go_seconds)
+            if not go_cpu.request_issued.wait(timeout=10):
+                raise ScenarioFailure("Go CPU request transmission did not start within 10s")
+            result["go_diagnostics"]["request_issued"] = {
+                "observed_monotonic_ns": time.monotonic_ns(), "activation_acknowledged": False,
+                "scope": "controller request transmission attempt only; profiler activation and action overlap unknown"}
         if options.profile != "off":
             request = offline.profile_start_request(options.hz, options.profile)
             # Mark the attempt before the RPC: an invalid response can arrive
@@ -182,12 +227,36 @@ def run_scenario(name, control, server, observer, options):
                     raise
         result["after"] = module.snapshot(control, fixture)
         result["status"] = "complete"
+        result["domain_status"] = "complete"
     except Exception as error:
         primary_error = error
         result.update(status="failed", failure_type=type(error).__name__, failure=str(error),
                       failure_evidence=getattr(error, "evidence", None))
+        result["domain_status"] = "failed"
+        observer.phase = control.phase = name + ":failure_capture"
+        partial = fixture or getattr(options, name + "_fixture", None)
+        actor = partial.get("actor") if isinstance(partial, dict) else None
+        result["error_metadata_failure"] = capture_error_metadata(
+            control, server, actor, directory, "failure_before_cleanup",
+            baseline=result.get("error_metadata_baseline"))
     finally:
         observer.phase = control.phase = name + ":drain"
+        if go_seconds and go_collector is not None:
+            diagnostics = result.setdefault("go_diagnostics", {"requested_cpu_seconds": go_seconds,
+                "pprof_semantic_validation": "pending offline validation"})
+            if go_cpu is not None:
+                try:
+                    diagnostics["cpu"] = go_collector.finish_cpu(go_cpu)
+                except Exception as error:
+                    diagnostics["cpu_failure"] = {"failure_type": type(error).__name__,
+                                                  "evidence": getattr(error, "evidence", None)}
+                    primary_error = primary_error or error
+            try:
+                diagnostics["after"] = go_collector.snapshot(name + "-after")
+            except Exception as error:
+                diagnostics["after_failure"] = {"failure_type": type(error).__name__,
+                                                "evidence": getattr(error, "evidence", None)}
+                primary_error = primary_error or error
         if native is not None:
             try:
                 result["native_profile"] = native.finish()
@@ -210,6 +279,8 @@ def run_scenario(name, control, server, observer, options):
                 primary_error = primary_error or error
         if primary_error:
             result["status"] = "failed"
+        elif go_seconds:
+            result["status"] = "diagnostic-unvalidated"
         offline.write_json(directory / "result.json", result)
     if primary_error:
         raise ScenarioFailure(f"{name} scenario failed: {primary_error}", result) from primary_error
@@ -230,12 +301,22 @@ def finalize_verdict(manifest):
                       barn_profile_registry=manifest.get("immutable_inputs", {}).get("barn_registry", {}).get("unchanged"),
                       barn_runtime_profile=manifest.get("immutable_inputs", {}).get("barn_runtime_profile", {}).get("unchanged"),
                       owned_final_checkpoint=checkpoint.get("status") == "verified" and checkpoint.get("verified") is True)
+    if manifest.get("go_cpu_seconds", 0):
+        checks.update(go_diagnostics_transport=manifest.get("go_diagnostics", {}).get("status") == "captured",
+                      go_profiles_validated=False)
     manifest["final_checks"] = checks
     if manifest["status"] == "complete" and not all(value is True for value in checks.values()):
-        manifest["status"] = "invalidated"
+        pending_only = (manifest.get("go_cpu_seconds", 0) and
+                        all(value is True for key, value in checks.items() if key != "go_profiles_validated"))
+        manifest["status"] = "diagnostic-unvalidated" if pending_only else "invalidated"
 
 
 def validate_engine_modes(options):
+    seconds = getattr(options, "go_cpu_seconds", 0)
+    if type(seconds) is not int or not 0 <= seconds <= 30:
+        raise ValueError("go-cpu-seconds must be an integer in 0..30")
+    if seconds and getattr(options, "engine", "toast") != "barn":
+        raise ValueError("Go diagnostics require --engine barn")
     if getattr(options, "engine", "toast") == "barn" and (options.profile != "off" or options.native_mode != "off"):
         raise ValueError("Barn functional slice requires --profile off --native-profile off; Toast collectors do not measure Barn")
 
@@ -258,6 +339,7 @@ def arguments(argv=None):
     parser.add_argument("--engine", choices=("toast", "barn"), default="toast")
     parser.add_argument("--barn", type=Path)
     parser.add_argument("--barn-sha256")
+    parser.add_argument("--go-cpu-seconds", type=int, default=0)
     parser.add_argument("--sound-db", type=Path, required=True)
     parser.add_argument("--sound-db-sha256", required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -316,6 +398,7 @@ def main():
                 "source_commit": options.source_commit, "network": network,
                 "scenario": options.scenario, "seed": options.seed, "iterations": options.iterations,
                 "profile": options.profile, "native_profile": options.native_mode,
+                "go_cpu_seconds": options.go_cpu_seconds,
                 "controller_sha256": offline.bench.sha256_file(Path(__file__)),
                 "scope": "owned offline domain-entry gameplay; " +
                          (barn_process.CPU_SCOPE if options.engine == "barn" else "all main-thread background CPU included"),
@@ -324,7 +407,7 @@ def main():
     scripts = Path(__file__).resolve().parent
     controller_files = [Path(__file__), scripts / "mongoose_scenario_support.py",
                         scripts / "profile_offline_mongoose.py", scripts / "bench_players.py",
-                        scripts / "mongoose_barn_process.py"] + [scripts / f"mongoose_{name}_scenario.py" for name in selected]
+                        scripts / "mongoose_barn_process.py", scripts / "mongoose_error_capture.py"] + [scripts / f"mongoose_{name}_scenario.py" for name in selected]
     manifest["immutable_inputs"] = {
         "source_database": {"path": str(source), "sha256": source_sha},
         "executable": {"path": str(executable), "sha256": executable_sha},
@@ -334,6 +417,8 @@ def main():
             manifest["immutable_inputs"][label] = {"path": str(path), "sha256": offline.bench.sha256_file(path)}
     if options.native_mode != "off":
         controller_files.append(scripts / "mongoose_native_profile.py")
+    if options.go_cpu_seconds:
+        controller_files.append(scripts / "mongoose_barn_diagnostics.py")
     if options.profile != "off":
         controller_files.append(scripts / "report_moo_cpu_profile.py")
     manifest["controller_sources"] = {path.name: offline.bench.sha256_file(path) for path in controller_files}
@@ -350,6 +435,7 @@ def main():
             raise RuntimeError("controller source changed while recording its snapshot")
     offline.write_json(options.run_dir / "manifest-initial.json", manifest)
     control = recorded = observer = server = None
+    go_collector = None
     database = options.run_dir / "mongoose.db"
     try:
         shutil.copyfile(source, database)
@@ -390,6 +476,10 @@ def main():
         manifest["after_warmup"] = offline.snapshot(recorded)
         observer = ProcessObserver(server, options.run_dir / "process-samples.jsonl", options.engine)
         observer.start()
+        if options.go_cpu_seconds:
+            go_module = importlib.import_module("mongoose_barn_diagnostics")
+            go_collector = go_module.Collector(server, options.run_dir / "go-diagnostics")
+            options.go_collector = go_collector
         manifest["scenarios"] = []
         for name in selected:
             manifest["scenarios"].append(run_scenario(name, recorded, server, observer, options))
@@ -400,6 +490,14 @@ def main():
         raise
     finally:
         manifest["finalization_errors"] = []
+        if go_collector is not None:
+            try:
+                manifest["go_diagnostics"] = go_collector.finish()
+                if manifest["go_diagnostics"].get("status") != "captured":
+                    manifest["finalization_errors"].append({"component": "Go diagnostics", "status": "failed"})
+            except Exception as error:
+                manifest["go_diagnostics"] = {"status": "failed", "failure_type": type(error).__name__}
+                manifest["finalization_errors"].append({"component": "Go diagnostics", "status": "failed"})
         for label, target in [("actor connection", conn) for conn in options.actor_connections] + [
                 ("transcript", recorded), ("control connection", control)]:
             if target:
