@@ -34,12 +34,52 @@ training and resource/recovery rules remain active. A refusal, native failure,
 missing effect or expired deadline cannot count as productive work.
 
 Default `--profile off --native-profile off` disables both diagnostic profilers.
-It still includes controller/observer work and naturally scheduled world work;
-whole-main-thread CPU deltas are never assigned exclusively to a single action.
+It still includes controller/observer work and naturally scheduled world work.
+Toast CPU deltas cover its main thread; Barn CPU deltas cover the whole process,
+including all OS threads and user/system time at the process clock-tick resolution.
+Neither is assigned exclusively to a single action.
 Loopback input response brackets are separate from domain completion and from
 human/client/network latency.
 
-For a separate diagnostic cohort, add `--profile definitions` and optionally
+The Barn functional runner uses `--engine barn --barn <Linux executable>
+--barn-sha256 <hash>`. The required `--moo` inputs still identify the Toast
+emergency bootstrap executable that prepares the private control account. The
+registered `barn-linux-mongoose-outbound-on` profile enables numeric promotion
+and outbound operations within the same loopback-only namespace. Startup must
+pass the operator `/readyz` check before control login; startup, profile, process
+identity and final input hashes remain in the run manifest. Owned SIGTERM
+shutdown allows up to 90 seconds for Barn's final database dump. A forced stop
+invalidates the cohort. Barn process exit0 alone is insufficient: acceptance
+also requires verified publication of a fresh `.db.new`/`.db.new.waifids` pair,
+a sidecar header matching the database SHA-256, no recovery journal or explicit
+checkpoint failure, and the owned shutdown log boundary/completion. The signal
+path emits no positive checkpoint-success log. Missing or uncertain evidence
+invalidates the cohort while preserving completed domain results separately.
+This verifies publication/integrity, not a semantic database round-trip.
+
+The [October 14 Barn cohort report](reports/mongoose-barn-gameplay-20261014.md)
+records completed real flight, the magic refusal failure and the original
+exit-code-only gate's missed final-checkpoint failures. Its raw recordings remain
+unchanged; they are not accepted performance baselines.
+
+This first Barn slice rejects both Toast profiling flags. Go CPU/heap collection
+requires subsequent tooling and separate diagnostic cohorts. A successful
+functional run alone cannot establish equivalent engine performance: bootstrap
+images are prepared separately per run, and identical prepared images across
+engines have not yet been proved.
+
+The first Barn functional attempt uses this command; choose a fresh `--out`
+directory for every attempt. Its result must be read from the final manifest.
+The pinned binary here was built from the current-main tooling checkout; when
+rebuilding, verify `./cmd/barn` with `go list`, build there and substitute the
+new executable hash.
+
+```powershell
+wsl --list --quiet
+wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-baseline/scripts/run_mongoose_gameplay.py --engine barn --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --barn /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/bin/barn --barn-sha256 2bb5a49b6da0736fe3424653f77b301eabef37e1eb65153906c11e9a12f04d9a --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4 --out /mnt/c/Users/Q/code/barn-gameplay-baseline/.tmp/barn-gameplay-next --scenario magic --iterations 1 --warmup-seconds 30 --deadline-seconds 120'
+```
+
+For a separate Toast diagnostic cohort, add `--profile definitions` and optionally
 `--native-profile required`. The native collector targets only the owned main
 thread, proves local perf recording capability and preserves raw data/report.
 `auto` records explicit unavailability; `required` invalidates the cohort when

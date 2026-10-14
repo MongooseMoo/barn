@@ -180,10 +180,19 @@ bounded round; stop or revise hypotheses when a round has no survivor.
 
 ## Immediate next action
 
-Run the implemented flight and Lumos/Nox scenarios on an owned Barn world,
-preserving the same ordinary-actor and physical/resource outcome checks. Add
-Barn process-total CPU accounting and retain its runtime diagnostics, Go CPU
-profiles and separately timed heap snapshots. Preserve failures and verify
-uncertain shared behavior against the managed Toast oracle before engine fixes.
+The October 14 owned Barn attempts now preserve process-total CPU/RSS chronology
+with unchanged ordinary-actor and domain checks. Flight01 completed one real
+sequence; magic01 failed the zero-focus refusal with a coding error. Both final
+checkpoints failed despite process exit0. The [cohort report](../docs/reports/mongoose-barn-gameplay-20261014.md)
+retains these distinctions; neither cohort is an accepted performance baseline.
+
+The repaired runner now requires verified final checkpoint publication and
+rejects the retained false-success cohort in replay. Next capture the actual
+magic exception metadata before cleanup and shutdown, using the existing
+actor-specific issues record and bounded history projection described in the
+report. Missing programmer/player fields must remain explicit. Verify uncertain
+shared behavior against the managed Toast oracle before engine fixes. Retain
+runtime diagnostics, collect Go CPU profiles and separately timed heap snapshots
+in subsequent diagnostic cohorts once failures can be explained.
 The Toast ownership-repair ranking does not identify the same Barn hot path;
 select the next bounded experiment from Barn's measured workload instead.
