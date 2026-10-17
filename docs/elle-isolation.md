@@ -10,7 +10,8 @@ Java is needed only by the separate checker job, never by Barn.
 ## Models and evidence
 
 The append history contains property values, contents, children, property
-definitions, verb definitions, verb code, names and inherited property values.
+definitions, verb definitions, verb code, names, inherited property values and
+a property of one WAIF that a persistent property holds.
 Fresh objects, definition names and literal lines carry unique integer tokens.
 MOO normalizes each row into a list. A single-threaded preflight appends twice
 to every row and asserts exact order before concurrent work starts.
@@ -48,10 +49,10 @@ invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
-Before the random rounds, the append workload runs four synchronized waves and
+Before the random rounds, the append workload runs five synchronized waves and
 two held pairs. In a wave, four tasks read the same row, wait at a barrier until
-all four have read, then append: property value, name, verb code and contents,
-one wave for each validation stage. In the write-skew pair, each task reads the
+all four have read, then append: property value, name, verb code, contents and
+WAIF property, one wave for each validation stage. In the write-skew pair, each task reads the
 row the other appends to, and both are held after validation, before
 publication, until both have validated or two seconds pass. A healthy commit
 excludes the second task while the first is held, so the first times out and
@@ -113,6 +114,7 @@ reject the resulting append history with an anomaly witness:
 | `scalar-reads` | name/owner/flags read validation | name wave |
 | `verb-reads` | verb read, scan and dispatch-memo validation | verb-code wave |
 | `relationship-reads` | location/contents/children read validation | contents wave |
+| `waif-reads` | WAIF image read validation | WAIF wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
