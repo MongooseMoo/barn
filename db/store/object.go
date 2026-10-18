@@ -207,6 +207,10 @@ type Verb struct {
 	// to round-trip empty-but-present programs (B6: canonical #10:special_action
 	// has an empty program that Toast still counts).
 	hasProgram bool
+	// backingOwned proves names/code were defensively copied by
+	// cloneVerbForReadTxn. Constructor/loader input has no such proof. This
+	// permits immutable sharing, never mutation of a published node.
+	backingOwned bool
 
 	// Runtime-derived semantic IR and compiled-program caches do not belong in
 	// the world model. The compiler owns its content-addressed program cache;
@@ -398,6 +402,9 @@ func (v *Verb) SetCode(lines []string) {
 func (v *Verb) setCodeOwned(lines []string) {
 	v.code = lines
 	v.codeKey = sourcekey.Of(lines)
+	// Even an ownership-transfer caller may retain its input. Clear the proof
+	// conservatively; the next metadata publication will detach this node.
+	v.backingOwned = false
 	// Installing a verb-code entry (even an empty program) means this verb has a
 	// program and must be re-emitted in the verb-code section on write.
 	v.hasProgram = true
