@@ -61,4 +61,21 @@ failure/terminal metadata, original manifests, profiles, cleanup and checkpoint
 pair. No quota/control edits or hidden reruns. Keep component, gameplay, RSS and
 natural-heap conclusions separate.
 
-Evaluator and calibration hashes/counts: pending setup; no candidate edits yet.
+Setup commit057fa09050427322960abe8957e719d5ac58d65c precedes calibration.
+Baseline contracts passed three tests/nine subcases plus the existing concurrent
+reader test (`db/store 0.028s`, exit0). Independent new-mode probes passed9checks.
+No candidate production edits occurred before this seal.
+
+Frozen SHA-256:
+
+- New contracts: 6477f65b7d86398dd4ba73e98fefa7bbdb1bbbe63020ff2dca00987fb572f163.
+- Unchanged benchmark: 99e47733291e96731ca1983fdbfde7baae1f788ddcd26ab8a590a05d555e41d3.
+- Runner: 6be97e36fb7f2b7f82a22a46b239991ef0069f4cf7d7af85cbad78a01ce1bf06.
+- Baseline executable: a215ea3af7296cb6c8fd1248c85c5e2d77f2c1c8c21b29253c6b89cdd792c760.
+- Plan: ed58289b609478d103cd69392e582ed78aad22a3c65d6c49227ee22cc16ecbbf.
+
+Committed `verb-source-sharing-20261018-plan.json` records metric_mode=Adopt.
+Fixed iterations in table order: Live50000/50000/50000/45000;
+Adopt50000/20000/3000/1000. Calibration exit0. Raw calibration/build artifacts are
+under `.tmp/verb-source-experiment-20261018-01`; baseline contracts under
+`.tmp/verb-source-evaluator`. Candidate comparison/correctness/cohort pending.
