@@ -194,7 +194,10 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 	tx.verbScans[objID] = obj.verbVersion
 }
 
-func cloneObjectForReadTxn(obj *Object) *Object {
+// cloneObjectNonVerbState retains all non-verb defensive copies made by a full
+// clone. Metadata-only verb publication must preserve these ownership boundaries
+// too: builders may have supplied retained relationship/order slice inputs.
+func cloneObjectNonVerbState(obj *Object) *Object {
 	if obj == nil {
 		return nil
 	}
@@ -206,6 +209,18 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 	clone.anonymousChildren = append([]types.ObjID(nil), obj.anonymousChildren...)
 
 	clone.properties = obj.properties.clone()
+	clone.chparentChildren = make(map[types.ObjID]bool, len(obj.chparentChildren))
+	for id, tracked := range obj.chparentChildren {
+		clone.chparentChildren[id] = tracked
+	}
+	return &clone
+}
+
+func cloneObjectForReadTxn(obj *Object) *Object {
+	clone := cloneObjectNonVerbState(obj)
+	if clone == nil {
+		return nil
+	}
 
 	verbClones := make(map[*Verb]*Verb, len(obj.verbList))
 	clone.verbList = make([]*Verb, 0, len(obj.verbList))
@@ -223,11 +238,7 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 		clone.verbs[name] = cloneVerbForReadTxn(verb)
 	}
 
-	clone.chparentChildren = make(map[types.ObjID]bool, len(obj.chparentChildren))
-	for id, tracked := range obj.chparentChildren {
-		clone.chparentChildren[id] = tracked
-	}
-	return &clone
+	return clone
 }
 
 func cloneVerbForReadTxn(verb *Verb) *Verb {
@@ -243,5 +254,6 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 	// to the original's, so the key still describes it. A later write to the
 	// clone goes through setCodeOwned/setCodeCopy, which refresh both together.
 	clone.code = append([]string(nil), verb.code...)
+	clone.backingOwned = true
 	return &clone
 }

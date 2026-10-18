@@ -596,14 +596,28 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	// set_verb_args operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_args -> find_described_verb -> db_find_defined_verb;
 	// src/verbs.cc:444). Inherited verb -> E_VERBNF, ancestor untouched.
-	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
 	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
-	s.republishForMutation(s.load(objID))
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
-		return types.E_VERBNF
+	old := s.load(objID)
+	if old != nil && !old.anonymous {
+		fresh, selected := buildImageForVerbArgs(old, verb)
+		// Match republishForMutation's numbered-object publication/history/prune
+		// ordering. The exclusive lock excludes decentralized publishers.
+		s.publishLocked(old.id, fresh)
+		entries := s.history[old.id]
+		if ts := objectVersion(old); len(entries) == 0 || entries[len(entries)-1].ts != ts {
+			s.history[old.id] = append(entries, objectHistory{ts: ts, obj: old})
+		}
+		s.pruneObjectHistory(old.id, s.historyFloor())
+		verb = selected // never mutate the resolved node from the old image
+	} else {
+		// Keep the existing anonymous/out-of-band behavior unchanged.
+		s.republishForMutation(old)
+		if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
+			return types.E_VERBNF
+		}
 	}
 	ts := s.bumpClockLocked()
 	verb.argSpec = argSpec
