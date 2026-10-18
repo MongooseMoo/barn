@@ -51,13 +51,17 @@ invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
-Before the random rounds, the append workload runs seven synchronized waves and
+Before the random rounds, the append workload runs eight synchronized waves and
 two held pairs. In a wave, four tasks read the same row, wait at a barrier until
 all four have read, then append: property value, name, verb code, contents,
 WAIF property and one map entry, one wave for each validation stage. In the
 seventh wave two tasks append to map entry `a` and two to entry `b`; a commit
 to one entry keeps the other's appends only because the map it publishes is
-rebuilt on the live one. In the write-skew pair, each task reads the
+rebuilt on the live one. In the eighth wave the map is captured before its index
+expression writes the same entry. Each task observes the captured list, then
+appends to that list; only the final list is published. The read must keep its
+snapshot dependency even though index evaluation has now written the entry.
+In the write-skew pair, each task reads the
 row the other appends to, and both are held after validation, before
 publication, until both have validated or two seconds pass. A healthy commit
 excludes the second task while the first is held, so the first times out and
@@ -122,6 +126,7 @@ reject the resulting append history with an anomaly witness:
 | `waif-reads` | WAIF image read validation | WAIF wave |
 | `map-key-reads` | validation of map entries read through keyed access | map-entry wave |
 | `map-key-rebase` | rebuilding a keyed write's map on the live one at commit | two-entry wave |
+| `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with

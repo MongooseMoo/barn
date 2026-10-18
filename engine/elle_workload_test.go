@@ -204,11 +204,12 @@ var elleExpectedExceptions = map[int64]bool{}
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "commit-exclusion"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
-// WAIF property, one map entry, and two map entries at once. In the last, odd
+// WAIF property, one map entry, two map entries at once, and a map read whose
+// index expression writes the same entry. In the two-entry wave, odd
 // tokens append to entry "a" and even ones to "b": commits to different entries
 // of one map each keep the other's appends only because the map they publish is
 // rebuilt on the live one.
@@ -220,6 +221,9 @@ var elleWaves = []string{
 	`v=#0:read_row(8,#0); elle_observe("r","waif",v); w=#0.elle_waif; elle_barrier(WAVE); w.data={@v,TOKEN}; elle_observe("append","waif",TOKEN);`,
 	`v=#0:read_row(9,#0); elle_observe("r","map-a",v); elle_barrier(WAVE); #0.elle_map["a"]={@v,TOKEN}; elle_observe("append","map-a",TOKEN);`,
 	`if (TOKEN % 2) v=#0:read_row(9,#0); elle_observe("r","map-a",v); elle_barrier(WAVE); #0.elle_map["a"]={@v,TOKEN}; elle_observe("append","map-a",TOKEN); else v=#0:read_row(10,#0); elle_observe("r","map-b",v); elle_barrier(WAVE); #0.elle_map["b"]={@v,TOKEN}; elle_observe("append","map-b",TOKEN); endif`,
+	// Capture the original map before the index writes an empty list. Only the
+	// final original-list-plus-token write commits, matching the append ledger.
+	`v=#0.elle_map[(#0.elle_map["a"]={}) == {} ? "a" | "a"]; elle_observe("r","map-a",v); elle_barrier(WAVE); #0.elle_map["a"]={@v,TOKEN}; elle_observe("append","map-a",TOKEN);`,
 }
 
 func elleRegisterReads() string {

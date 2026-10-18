@@ -29,7 +29,7 @@ func keyedRead(t *testing.T, tx *StoreTxn, key string) (types.Value, bool) {
 	}
 	v, ok := view.Value.MapGet(types.NewStr(key))
 	if keyed {
-		tx.ObserveMapKey(0, "m", types.NewStr(key), v, ok)
+		tx.ObserveMapKey(0, "m", view.Value, types.NewStr(key))
 	}
 	return v, ok
 }
@@ -127,6 +127,91 @@ func TestMapKeyAbsentEntryConflictsWhenAdded(t *testing.T) {
 	keyedWrite(t, ta, "a", 5)
 	keyedWrite(t, tb, "new", 7)
 	mustCommit(t, tb)
+	mustLose(t, ta, ConflictMapKey)
+}
+
+// The map is fetched before its index expression runs. A write by that
+// expression cannot turn an entry in the captured map into an own-write read.
+func TestMapKeyCapturedReadBeforeOwnWriteRetainsDependency(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		t.Run(map[bool]string{true: "present", false: "absent"}[present], func(t *testing.T) {
+			pairs := [][2]types.Value{kv("b", 1)}
+			if present {
+				pairs = append(pairs, kv("a", 1))
+			}
+			s := mapKeyStore(t, pairs...)
+			ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+			defer ta.Release()
+			defer tb.Release()
+			captured, keyed, ec := ta.MapPropertyForKey(0, "m", false)
+			if ec != types.E_NONE || !keyed {
+				t.Fatalf("captured fetch = %v, keyed %v", ec, keyed)
+			}
+			keyedRead(t, tb, "b")
+			keyedWrite(t, tb, "a", 11)
+			mustCommit(t, tb)
+			keyedWrite(t, ta, "a", 2)
+			key := types.NewStr("a")
+			v, ok := captured.Value.MapGet(key)
+			if ok != present || (ok && v.Int() != 1) {
+				t.Fatalf("captured entry = %v, present %v", v, ok)
+			}
+			ta.ObserveMapKey(0, "m", captured.Value, key)
+			keyedWrite(t, ta, "b", 2)
+			mustLose(t, ta, ConflictMapKey)
+		})
+	}
+}
+
+// A captured entry written before the fetch is the transaction's own value,
+// even if the index expression overwrites that entry a second time.
+func TestMapKeyCapturedOwnWriteAddsNoOriginalEntryDependency(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	keyedWrite(t, ta, "a", 2)
+	captured, keyed, ec := ta.MapPropertyForKey(0, "m", false)
+	if ec != types.E_NONE || !keyed {
+		t.Fatalf("captured fetch = %v, keyed %v", ec, keyed)
+	}
+	keyedWrite(t, ta, "a", 3)
+	keyedRead(t, tb, "b")
+	keyedWrite(t, tb, "a", 11)
+	mustCommit(t, tb)
+	key := types.NewStr("a")
+	v, ok := captured.Value.MapGet(key)
+	if !ok || v.Int() != 2 {
+		t.Fatalf("captured own entry = %v, present %v", v, ok)
+	}
+	ta.ObserveMapKey(0, "m", captured.Value, key)
+	keyedWrite(t, ta, "b", 2)
+	mustCommit(t, ta)
+	if a, _ := liveEntry(t, s, "a"); a != 3 {
+		t.Fatalf("a = %d, want 3", a)
+	}
+}
+
+// Restoring the original map elides the writes and depends on the restored
+// entries; a later captured read must keep that dependency through more writes.
+func TestMapKeyCapturedRestoredEntryRetainsDependency(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	keyedWrite(t, ta, "a", 2)
+	keyedWrite(t, ta, "a", 1)
+	if ta.HasWrites() {
+		t.Fatal("restoring the map staged a write")
+	}
+	captured, _, _ := ta.MapPropertyForKey(0, "m", false)
+	keyedWrite(t, ta, "a", 3)
+	keyedRead(t, tb, "b")
+	keyedWrite(t, tb, "a", 11)
+	mustCommit(t, tb)
+	key := types.NewStr("a")
+	ta.ObserveMapKey(0, "m", captured.Value, key)
+	keyedWrite(t, ta, "b", 2)
 	mustLose(t, ta, ConflictMapKey)
 }
 

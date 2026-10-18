@@ -90,8 +90,7 @@ func (vm *VM) executeIndexKeyed() error {
 	coll := vm.Pop()
 	objVal := vm.Pop()
 	if coll.Type() == types.TYPE_MAP && isObjLike(objVal) && types.IsValidMapKey(index) && vm.Context != nil {
-		value, present := coll.MapGet(index)
-		vm.Context.StoreTxn.ObserveMapKey(objVal.ID(), propName, index, value, present)
+		vm.Context.StoreTxn.ObserveMapKey(objVal.ID(), propName, coll, index)
 	}
 	vm.Push(coll)
 	vm.Push(index)

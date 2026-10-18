@@ -96,6 +96,43 @@ func TestKeyedAssignmentConflictsWithTheSameEntryAndWithAWholeWrite(t *testing.T
 	}
 }
 
+// The map is captured before evaluating an index expression that writes it.
+// Those side effects must not hide the captured entry's snapshot dependency.
+func TestKeyedReadCapturedBeforeIndexWriteConflicts(t *testing.T) {
+	store := mapKeyVMStore(t)
+	ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	runOn(t, store, tb, `x = #0.m["b"]; #0.m["a"] = 11;`)
+	if ec := tb.Commit(); ec != types.E_NONE {
+		t.Fatalf("first commit: %v %v", ec, tb.Conflicts())
+	}
+	runOn(t, store, ta, `x = #0.m[(#0.m["a"] = 2) == 2 ? "a" | "a"]; #0.m["b"] = x + 2;`)
+	if ec := ta.Commit(); ec == types.E_NONE || !ta.ValidationFailed() {
+		t.Fatalf("second commit = %v; want a lost validation", ec)
+	}
+}
+
+// An entry written before capture is our own value; a second write during
+// index evaluation must not make it depend on the original snapshot entry.
+func TestKeyedReadCapturedAfterOwnWriteRemainsIndependent(t *testing.T) {
+	store := mapKeyVMStore(t)
+	ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	runOn(t, store, tb, `x = #0.m["b"]; #0.m["a"] = 11;`)
+	if ec := tb.Commit(); ec != types.E_NONE {
+		t.Fatalf("first commit: %v %v", ec, tb.Conflicts())
+	}
+	runOn(t, store, ta, `#0.m["a"] = 2; x = #0.m[(#0.m["a"] = 3) == 3 ? "a" | "a"]; #0.m["b"] = x;`)
+	if ec := ta.Commit(); ec != types.E_NONE {
+		t.Fatalf("second commit: %v %v", ec, ta.Conflicts())
+	}
+	if a, b := entry(t, store, "a"), entry(t, store, "b"); a != 3 || b != 2 {
+		t.Fatalf("a = %d, b = %d; want 3 and 2", a, b)
+	}
+}
+
 // A keyed read of one entry does not conflict with a write of another.
 func TestKeyedReadOfOneEntryIgnoresAWriteToAnother(t *testing.T) {
 	store := mapKeyVMStore(t)

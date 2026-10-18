@@ -38,6 +38,10 @@ type mapKeyState struct {
 	name    string // original-case name
 	reads   []mapKeyRead
 	written []types.Value
+	// baseline is the immutable map at the first eligible fetch, before any
+	// keyed writes. It distinguishes snapshot entries from our own entries in
+	// a captured map even when evaluating its index changes the slot again.
+	baseline types.Value
 	// pendingBase is the map a keyed-write base fetch returned and its
 	// writeback has not consumed yet.
 	pendingBase    types.Value
@@ -93,7 +97,7 @@ func (tx *StoreTxn) mapKeyStateFor(objID types.ObjID, actualName string, prop Pr
 	rkey := propertyReadKey{objID: objID, name: propertyNameKey(actualName)}
 	st := tx.mapKeys[rkey]
 	if st == nil {
-		st = &mapKeyState{owner: prop.owner, perms: prop.perms, version: prop.version, name: actualName}
+		st = &mapKeyState{owner: prop.owner, perms: prop.perms, version: prop.version, name: actualName, baseline: prop.value}
 		lazySet(&tx.mapKeys, rkey, st)
 	}
 	return st
@@ -117,15 +121,24 @@ func (tx *StoreTxn) MapPropertyForKey(objID types.ObjID, name string, forWrite b
 	return prop.View(actualName), true, types.E_NONE
 }
 
-// ObserveMapKey records that the transaction read the entry at key of the
-// keyed slot objID.name: value when present, absence otherwise. An entry this
-// transaction wrote is its own and adds no dependency.
-func (tx *StoreTxn) ObserveMapKey(objID types.ObjID, name string, key, value types.Value, present bool) {
+// ObserveMapKey records the entry at key in the map a keyed fetch returned.
+// The captured map precedes index evaluation, which may itself write the slot.
+// Only an entry differing from the original snapshot is our own value and adds
+// no dependency; the current written keys cannot classify an earlier capture.
+func (tx *StoreTxn) ObserveMapKey(objID types.ObjID, name string, captured, key types.Value) {
 	if tx == nil {
 		return
 	}
 	st := tx.mapKeys[propertyReadKey{objID: objID, name: propertyNameKey(name)}]
-	if st == nil || st.wrote(key) {
+	if st == nil {
+		return
+	}
+	if isolationprobe.Fault("map-key-capture") && st.wrote(key) {
+		return // restore the pre-fix classification after index side effects
+	}
+	value, present := captured.MapGet(key)
+	original, originallyPresent := st.baseline.MapGet(key)
+	if present != originallyPresent || (present && !value.Identical(original)) {
 		return
 	}
 	for _, r := range st.reads {
@@ -184,7 +197,7 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 	if current, present := prop.value.MapGet(key); present && current.Identical(value) && !st.wrote(key) {
 		// Same-value elision, per key: the entry already holds value, so the
 		// write is dropped and the transaction depends on that entry instead.
-		tx.ObserveMapKey(objID, actualName, key, current, true)
+		tx.ObserveMapKey(objID, actualName, prop.value, key)
 		if tx.store != nil {
 			tx.store.propertyWriteElisions.Add(1)
 		}
