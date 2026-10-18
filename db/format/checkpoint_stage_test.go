@@ -50,7 +50,7 @@ func TestCheckpointStageAbortReleasesFilesAndPath(t *testing.T) {
 				}
 			}
 			closeErr := checkpoint.Close()
-			if closeErr != nil && !(phase == "sync-failed" && errors.Is(closeErr, os.ErrClosed)) {
+			if closeErr != nil && (phase != "sync-failed" || !errors.Is(closeErr, os.ErrClosed)) {
 				t.Fatal(closeErr)
 			}
 			if err := checkpoint.Close(); err != nil {
