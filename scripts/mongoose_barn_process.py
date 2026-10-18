@@ -1,6 +1,7 @@
 """Owned Linux Barn lifecycle for the unchanged real Mongoose scenarios."""
 from __future__ import annotations
 
+import errno
 import json
 import hashlib
 import os
@@ -219,7 +220,22 @@ class OwnedBarnServer:
         while time.monotonic() - started < 180:
             if self.proc.poll() is not None:
                 raise RuntimeError("Barn exited before operator readiness; inspect server.log")
-            addresses = endpoint_addresses(self.log_path.read_text(errors="replace"))
+            try:
+                text = self.log_path.read_text(errors="replace")
+            except OSError as error:
+                if error.errno != errno.ENODATA:
+                    raise
+                stamp = time.monotonic_ns()
+                observed = self.identity.setdefault("startup_log_read_errors", {
+                    "errno": errno.ENODATA, "count": 0,
+                    "first_monotonic_ns": stamp, "last_monotonic_ns": stamp})
+                observed["count"] += 1
+                observed["last_monotonic_ns"] = stamp
+                self.verify_owned()
+                last_readiness = {"failure_type": "startup_log_read", "errno": errno.ENODATA}
+                time.sleep(0.1)
+                continue
+            addresses = endpoint_addresses(text)
             if set(addresses) == {"debug", "operator"}:
                 try:
                     with urllib.request.urlopen("http://" + addresses["operator"] + "/readyz", timeout=1) as response:

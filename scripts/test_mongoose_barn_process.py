@@ -1,4 +1,6 @@
 """Pure lifecycle/ownership fixtures: never launch a process or send a signal."""
+from contextlib import contextmanager
+import errno
 import json
 import os
 from pathlib import Path
@@ -68,6 +70,103 @@ class BarnProcessTests(unittest.TestCase):
         with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal"), \
              patch.object(barn.os, "close"):
             return owner.stop()
+
+    @contextmanager
+    def mocked_readiness(self, owner, reads, times, *, guard_failures=None):
+        child = owner.proc
+        owner.proc = owner.pidfd = owner.start_ticks = None
+        text = ('msg="operator endpoint listening" addr=127.0.0.1:8123\n'
+                'msg="debug endpoint listening" addr=127.0.0.1:8124\n')
+        actual_read = Path.read_text
+        sequence = iter(reads)
+
+        def read(path, *args, **kwargs):
+            if path == owner.log_path:
+                value = next(sequence)
+                if isinstance(value, Exception):
+                    raise value
+                return text
+            return actual_read(path, *args, **kwargs)
+
+        def spawn(*args, **kwargs):
+            owner.log_path.write_text(text)
+            self.profile(owner)
+            return child
+
+        response = Mock(status=200)
+        response.read.return_value = b"ready\n"
+        context = Mock()
+        context.__enter__ = Mock(return_value=response)
+        context.__exit__ = Mock(return_value=False)
+        try:
+            with patch.object(barn.socket, "socket"), patch.object(barn.subprocess, "Popen", side_effect=spawn), \
+                 patch.object(barn.os, "pidfd_open", return_value=77), \
+                 patch.object(barn, "process_state", return_value={"start_ticks": 444}), \
+                 patch.object(owner, "verify_owned", side_effect=guard_failures) as guard, \
+                 patch.object(barn.bench, "wait_port"), \
+                 patch.object(barn.urllib.request, "urlopen", return_value=context) as http, \
+                 patch.object(barn.time, "monotonic", side_effect=times), \
+                 patch.object(barn.time, "monotonic_ns", side_effect=[100, 200]), \
+                 patch.object(barn.time, "sleep") as sleep, \
+                 patch.object(Path, "read_text", autospec=True, side_effect=read):
+                yield guard, http, sleep
+        finally:
+            if owner.log_file:
+                owner.log_file.close()
+
+    def test_startup_log_enodata_recovers_with_bounded_manifest_metadata(self):
+        owner, _ = self.owner()
+        manifest = {"server": owner.identity}
+        failures = [OSError(errno.ENODATA, "unavailable"), OSError(errno.ENODATA, "unavailable")]
+        with self.mocked_readiness(owner, failures + [None], [0, 1, 2, 3, 4]) as (guard, http, sleep):
+            self.assertEqual(owner.start(), 4)
+        self.assertEqual(manifest["server"]["startup_log_read_errors"], {
+            "errno": errno.ENODATA, "count": 2, "first_monotonic_ns": 100, "last_monotonic_ns": 200})
+        self.assertEqual(owner.identity["readiness"], {"status": 200, "body": "ready\n"})
+        self.assertEqual(guard.call_count, 4)  # initial, each retry, actual ready
+        self.assertEqual(http.call_count, 1)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.1,), (0.1,)])
+
+    def test_startup_log_persistent_enodata_uses_original_deadline(self):
+        owner, _ = self.owner()
+        manifest = {"server": owner.identity}
+        failures = [OSError(errno.ENODATA, "unavailable"), OSError(errno.ENODATA, "unavailable")]
+        with self.mocked_readiness(owner, failures, [0, 1, 2, 181]) as (guard, http, sleep):
+            with self.assertRaisesRegex(TimeoutError, "readiness"):
+                owner.start()
+        self.assertEqual(manifest["server"]["startup_log_read_errors"], {
+            "errno": errno.ENODATA, "count": 2, "first_monotonic_ns": 100, "last_monotonic_ns": 200})
+        self.assertEqual(owner.identity["last_readiness"], {"failure_type": "startup_log_read", "errno": errno.ENODATA})
+        self.assertNotIn("runtime_profile", owner.identity)
+        self.assertEqual(guard.call_count, 3)
+        http.assert_not_called()
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_startup_log_unrelated_oserrors_remain_fatal(self):
+        for number in (errno.EACCES, errno.ENOENT, errno.EIO):
+            with self.subTest(errno=number):
+                owner, _ = self.owner()
+                failure = OSError(number, "unavailable")
+                with self.mocked_readiness(owner, [failure], [0, 1]) as (guard, http, sleep):
+                    with self.assertRaises(OSError) as raised:
+                        owner.start()
+                self.assertIs(raised.exception, failure)
+                self.assertNotIn("startup_log_read_errors", owner.identity)
+                self.assertEqual(guard.call_count, 1)
+                http.assert_not_called()
+                sleep.assert_not_called()
+
+    def test_startup_log_retry_identity_change_fails_closed(self):
+        owner, _ = self.owner()
+        with self.mocked_readiness(owner, [OSError(errno.ENODATA, "unavailable")], [0, 1],
+                                   guard_failures=[None, RuntimeError("identity changed")]) as (guard, http, sleep):
+            with self.assertRaisesRegex(RuntimeError, "identity changed"):
+                owner.start()
+        self.assertEqual(guard.call_count, 2)
+        self.assertEqual(owner.identity["startup_log_read_errors"]["count"], 1)
+        self.assertNotIn("runtime_profile", owner.identity)
+        http.assert_not_called()
+        sleep.assert_not_called()
 
     def test_retained_failed_dump_log_rejects_zero_exit_and_missing_pair(self):
         owner, _ = self.owner()
