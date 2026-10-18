@@ -151,7 +151,13 @@ func builtinCallFunction(ctx *Execution, args []types.Value) types.Result {
 	name := args[0].Str()
 	fn, found := r.Get(name)
 	if !found {
-		return types.Err(types.E_INVARG)
+		// execute.cc bf_call_function: make_raise_pack(E_INVARG, "Unknown
+		// built-in function", <name>).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Unknown built-in function"), args[0]}),
+		}
 	}
 	result := fn(ctx, args[1:])
 	if debugCallFunction && result.Flow == types.FlowException {
