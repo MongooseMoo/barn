@@ -262,12 +262,22 @@ include loading, so they are not exclusive spell allocations. Expvar NumGC
 advanced from 5 to 8. Neither these snapshots nor this single failed cohort
 establish a leak, speedup or memory reduction.
 
-The measured next target is verb-read cloning: inspect its callers, snapshot
-validation and returned-object mutation contracts before changing copying.
-The large cloning subtree and allocation activity justify an experiment; they
-do not justify exposing mutable shared definitions or removing validation.
-An explicit action/task join and a completed magic cohort remain necessary
-for a gameplay performance comparison.
+Source tracing further separates the 5.88s cloning subtree: live store
+publication contributes 3.06s and transaction verb refresh 2.82s. Successful
+`set_verb_args` republishes every verb node and its names/source-array headers,
+then `AdoptLiveVerbs` clones the collection again. Ordinary snapshot reads
+already use immutable images; a read-cache change would not remove this work.
+String headers are copied, not the source strings' contents. Actual verb counts
+and setter invocation counts are not measured by these samples.
+
+The next bounded experiment is metadata-specific publication, following the
+existing immutable-image COW pattern and leaving transaction refresh unchanged
+initially. Sharing borrowed source arrays globally is unsafe without additional
+ownership proof. Old snapshots, alias winner/order, staged-code preservation,
+generation stamps, invalidation and refusal/error precedence must be retained.
+The cloning subtree justifies a controlled allocation experiment, with no
+prediction of an end-to-end speedup. An explicit action/task join and a completed
+magic cohort remain necessary for a gameplay performance comparison.
 
 Evidence is `.tmp/barn-magic-terminal-20261017-01/analysis/safe-summary.json`
 (SHA-256 `be880e8544a7811adeb06eb52f05ad020fc5f0d8196b6cb1816a26c9df68ebd2`),
