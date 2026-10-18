@@ -380,7 +380,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// excludes RLock readers and decentralized committers, making the in-place anon
 	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	if len(tx.waifs) == 0 && !tx.liveMutated && !tx.writeFootprintHasAnon() {
+	// A WAIF read or write takes either path: both validate WAIF reads and publish
+	// staged WAIF images at the commit timestamp.
+	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		commitErr = tx.commitDecentralized()
 		if commitErr == types.E_NONE {
 			isolationprobe.Note("parallel")
