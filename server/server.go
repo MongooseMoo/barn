@@ -109,6 +109,7 @@ func (s *Server) LoadDatabase() error {
 	if err != nil {
 		return fmt.Errorf("load database: %w", err)
 	}
+	database.LowerUnknownBuiltinCalls(s.registry.Compiler())
 
 	s.store, err = database.NewStoreFromDatabase()
 	if err != nil {

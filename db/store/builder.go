@@ -110,6 +110,14 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 	return true
 }
 
+// VerbCodeByIndex returns the source of a previously appended verb.
+func (b *ObjectBuilder) VerbCodeByIndex(index int) ([]string, bool) {
+	if index < 0 || index >= len(b.obj.verbList) {
+		return nil, false
+	}
+	return b.obj.verbList[index].code, true
+}
+
 // --- properties ---
 
 // SetProperty stores a property slot under the given name (overwriting any
