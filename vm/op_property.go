@@ -40,7 +40,100 @@ func (vm *VM) executeGetPropDynamic() error {
 	return vm.executeGetPropNamed(propName)
 }
 
+// propAccess says how a GET_PROP-family instruction reaches a defined property.
+type propAccess uint8
+
+const (
+	propWhole   propAccess = iota // the value is the dependency
+	propKeyRead                   // obj.prop[key]: the entry is (OP_GET_PROP_KEYED)
+	propKeyBase                   // base of obj.prop[key] = v (OP_GET_PROP_KEYBASE)
+)
+
 func (vm *VM) executeGetPropNamed(propName string) error {
+	return vm.executeGetPropAccess(propName, propWhole)
+}
+
+// executeGetPropKeyed is obj.prop of obj.prop[key]. It leaves the object under
+// the value so OP_INDEX_KEYED can report the entry it reads.
+func (vm *VM) executeGetPropKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	objVal := vm.Peek(0)
+	if err := vm.executeGetPropAccess(propName, propKeyRead); err != nil {
+		return err
+	}
+	value := vm.Pop()
+	vm.Push(objVal)
+	vm.Push(value)
+	return nil
+}
+
+// executeGetPropKeyBase fetches the base of obj.prop[key] = v.
+func (vm *VM) executeGetPropKeyBase() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	return vm.executeGetPropAccess(propName, propKeyBase)
+}
+
+// executeIndexKeyed is [key] of obj.prop[key]: OP_INDEX, after telling the
+// store which entry of obj.prop the result depends on.
+func (vm *VM) executeIndexKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	index := vm.Pop()
+	coll := vm.Pop()
+	objVal := vm.Pop()
+	if coll.Type() == types.TYPE_MAP && isObjLike(objVal) && types.IsValidMapKey(index) && vm.Context != nil {
+		value, present := coll.MapGet(index)
+		vm.Context.StoreTxn.ObserveMapKey(objVal.ID(), propName, index, value, present)
+	}
+	vm.Push(coll)
+	vm.Push(index)
+	return vm.executeIndex()
+}
+
+// executeSetPropKeyed is the writeback of obj.prop[key] = v. When the base it
+// fetched was keyed and is still the task's view of the slot, it stages only
+// the entry; otherwise it is OP_SET_PROP.
+func (vm *VM) executeSetPropKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	objVal := vm.Pop()
+	key := vm.Pop()
+	value := vm.Pop()
+	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtins.IsBuiltinProperty(propName) {
+		txn := vm.Context.StoreTxn
+		objID := objVal.ID()
+		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
+		if view, ok := txn.KeyedWritebackView(objID, propName); ok {
+			if err := vm.checkPropertyWritePerm(view); err != nil {
+				return err
+			}
+			// OP_INDEX_SET checked value against the task's list limit; the store
+			// holds the map it builds at commit to the same limit.
+			limit := vm.Builtins.ListValueLimitForTask(vm.Context)
+			if errCode := txn.SetPropertyMapKey(objID, propName, key, value, limit); errCode != types.E_NONE {
+				return fmt.Errorf("%s: property not set: %s", errCode, propName)
+			}
+			return nil
+		}
+	}
+	vm.Push(value)
+	vm.Push(objVal)
+	return vm.executeSetPropNamed(propName)
+}
+
+func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 	// Pop the object
 	objVal := vm.Pop()
 
@@ -80,7 +173,9 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 	// Look up defined property (with inheritance via breadth-first search).
 	var prop dbstore.PropertyView
 	var errCode types.ErrorCode
-	if vm.Resumable {
+	if access != propWhole {
+		prop, _, errCode = txn.MapPropertyForKey(objID, propName, access == propKeyBase)
+	} else if vm.Resumable {
 		// Only the root VM may be handed a renewed transaction: nothing above
 		// it on the Go stack holds the one it replaces.
 		prop, errCode, vm.Context.StoreTxn = txn.FindPropertyRenewing(objID, propName)

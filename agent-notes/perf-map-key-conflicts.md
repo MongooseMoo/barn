@@ -64,7 +64,38 @@ Branch off master c840f0eb. Store layer written (uncommitted), builds, existing
   per-key elision; non-map slot = whole read; stale writeback = whole write; live
   mutation degrades). Shown red: rebase disabled -> "a = 1, want 2"; key
   validation disabled -> 4 tests fail. `go test ./db/store ./types` ok, gofmt clean.
-Next: compiler/VM opcodes.
+Committed 325b65d2 (store layer). In progress (uncommitted):
+- bytecode: OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE,
+  OP_SET_PROP_KEYED appended after OP_FOR_LIST_LOAD_VALUE ([index:short], tickOne
+  each, names, operand count 2, verifier constant check).
+- vm/op_property.go: executeGetPropAccess(name, propWhole|propKeyRead|propKeyBase)
+  replaces the body of executeGetPropNamed; keyed modes call MapPropertyForKey and
+  skip hot renewal. executeGetPropKeyed leaves [obj, value]; executeIndexKeyed
+  reports the entry then runs executeIndex; executeSetPropKeyed uses
+  KeyedWritebackView + write-perm check + SetPropertyMapKey, else OP_SET_PROP.
+- Size limit: max_list_value_bytes/max_map_value_bytes DEFAULT to 64537861, so a
+  limit always applies. The writeback passes Session.ListValueLimitForTask; the
+  store keeps the smallest; rebase returns a lost validation (ConflictMapKey) if
+  the rebased map reaches it, so the retry raises E_QUOTA as serial execution would.
+- compiler: compileIndex -> compileKeyedPropertyIndex for `obj.prop[k]` (static
+  name, no ^/$ in k); compileIndexAssign keyed when single index, static
+  property, no ^/$: base via OP_GET_PROP_KEYBASE, writeback GET_VAR base, GET_VAR
+  key, GET_VAR obj, OP_SET_PROP_KEYED (GET_VAR is tick-free, so tick totals match).
+- Bug found and fixed: a slot this txn DEFINED (add_property in the same task) was
+  tracked keyed and validated against live where it is missing -> 64 retries then
+  E_INVARG. keyedSlot now skips propertyDefines and createdObjects.
+- `moo -e` behaviour check (map hits, case-insensitive key, missing -> E_RANGE,
+  list key -> E_TYPE, list index/E_RANGE, map set/replace, list set, `$`,
+  E_PROPNF): identical output to the master-equivalent build.
+- vm/map_key_test.go: 3 tests via compiler+VM (different entries both commit;
+  same entry and whole-value write conflict; keyed read ignores another entry).
+  Shown red with keyed emission off: "second commit: E_INVARG [{property 0 m ...}]".
+- `go vet ./...`, `go test ./...` exit 0.
+- Process slip: built the baseline moo with `git stash`/`pop` (shell rewrite of
+  tracked files); tree verified intact; memory note updated: use a detached
+  worktree for baselines.
+Next: commit; Elle map row + faults; conformance; harness rewrite of Away Lines
+and measurement.
 
 ## Surprises
 - `FlushStagedToLive` applies staged writes without validating (unless WAIFs) and

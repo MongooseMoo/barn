@@ -126,8 +126,10 @@ type propertyWriteback struct {
 
 // prepareCollectionBase evaluates a collection target before the assignment
 // value. Property objects and dynamic names are retained for the eventual
-// write-back, so no target expression is evaluated twice.
-func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *propertyWriteback, error) {
+// write-back, so no target expression is evaluated twice. keyedBase fetches a
+// static property with OP_GET_PROP_KEYBASE, for an assignment that writes it
+// back with OP_SET_PROP_KEYED.
+func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
 	if variable, ok := target.(*verb.VariableTarget); ok {
 		return c.declareVariable(variable.Name), nil, nil
 	}
@@ -159,7 +161,10 @@ func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *pro
 
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(writeback.objectVar))
-	if property.Name != "" {
+	if property.Name != "" && keyedBase {
+		c.emit(bytecode.OP_GET_PROP_KEYBASE)
+		c.emitShort(uint16(c.addConstant(types.NewStr(property.Name))))
+	} else if property.Name != "" {
 		c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
 	} else {
 		c.emit(bytecode.OP_GET_VAR)
@@ -217,7 +222,11 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 		indices[left], indices[right] = indices[right], indices[left]
 	}
 
-	baseVar, writeback, err := c.prepareCollectionBase(base)
+	// obj.prop[key] = v with a static name and no ^ or $ in key changes one
+	// entry of the property's value; the store can track it per key.
+	property, isProperty := base.(*verb.PropertyTarget)
+	keyed := isProperty && property.Name != "" && len(indices) == 1 && !containsIndexBoundary(indices[0])
+	baseVar, writeback, err := c.prepareCollectionBase(base, keyed)
 	if err != nil {
 		return err
 	}
@@ -263,6 +272,18 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 		c.emitByte(byte(indexVars[i]))
 		c.emitCollectionIndexSet(parentVar, baseVar, writeback)
 	}
+	if keyed {
+		// OP_SET_PROP_KEYED pops obj, key, value: the key rides between them.
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(baseVar))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(indexVars[0]))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(writeback.objectVar))
+		c.emit(bytecode.OP_SET_PROP_KEYED)
+		c.emitShort(uint16(c.addConstant(types.NewStr(writeback.name))))
+		return nil
+	}
 	c.emitCollectionWriteback(baseVar, writeback)
 	return nil
 }
@@ -282,7 +303,7 @@ func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) 
 	if nested, ok := target.Collection.(*verb.IndexTarget); ok {
 		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
 	}
-	baseVar, writeback, err := c.prepareCollectionBase(target.Collection)
+	baseVar, writeback, err := c.prepareCollectionBase(target.Collection, false)
 	if err != nil {
 		return err
 	}
@@ -331,7 +352,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		indices[left], indices[right] = indices[right], indices[left]
 	}
 
-	baseVar, writeback, err := c.prepareCollectionBase(base)
+	baseVar, writeback, err := c.prepareCollectionBase(base, false)
 	if err != nil {
 		return err
 	}

@@ -42,7 +42,7 @@ func keyedWrite(t *testing.T, tx *StoreTxn, key string, value int64) {
 		t.Fatal(ec)
 	}
 	next := view.Value.MapSet(types.NewStr(key), types.NewInt(value))
-	if ec := tx.SetPropertyMapKey(0, "m", types.NewStr(key), next); ec != types.E_NONE {
+	if ec := tx.SetPropertyMapKey(0, "m", types.NewStr(key), next, 0); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
 }
@@ -213,7 +213,7 @@ func TestMapKeyWritebackOfAStaleBaseIsAWholeWrite(t *testing.T) {
 	}
 	keyedWrite(t, ta, "b", 5) // the value expression assigns another entry
 	next := view.Value.MapSet(types.NewStr("a"), types.NewInt(2))
-	if ec := ta.SetPropertyMapKey(0, "m", types.NewStr("a"), next); ec != types.E_NONE {
+	if ec := ta.SetPropertyMapKey(0, "m", types.NewStr("a"), next, 0); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
 	if _, read := ta.propertyReads[propertyReadKey{objID: 0, name: "m"}]; !read {

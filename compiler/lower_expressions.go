@@ -339,6 +339,10 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 }
 
 func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
+	if prop, ok := n.Expr.(*verb.PropertyExpr); ok && prop.Property != "" && !containsIndexBoundary(n.Index) {
+		return c.compileKeyedPropertyIndex(prop, n.Index)
+	}
+
 	// Compile collection
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -368,6 +372,25 @@ func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
 
 	// Emit index operation
 	c.emit(bytecode.OP_INDEX)
+	return nil
+}
+
+// compileKeyedPropertyIndex compiles obj.prop[key] with a static name and no
+// ^ or $ in key, so the property's value reaches nothing but the index. The
+// store can then depend on the one entry when the value is a map. Evaluation
+// order, errors and ticks are those of GET_PROP then INDEX.
+func (c *lowerer) compileKeyedPropertyIndex(prop *verb.PropertyExpr, index verb.Expr) error {
+	if err := c.compileNode(prop.Expr); err != nil {
+		return err
+	}
+	name := uint16(c.addConstant(types.NewStr(prop.Property)))
+	c.emit(bytecode.OP_GET_PROP_KEYED)
+	c.emitShort(name)
+	if err := c.compileNode(index); err != nil {
+		return err
+	}
+	c.emit(bytecode.OP_INDEX_KEYED)
+	c.emitShort(name)
 	return nil
 }
 

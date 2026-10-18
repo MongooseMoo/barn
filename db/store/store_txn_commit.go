@@ -404,7 +404,10 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
 	}
-	tx.rebaseMapKeyWritesLocked()
+	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
+		tx.lostValidation()
+		return errCode
+	}
 	commitErr = tx.applyStagedToLiveLocked()
 	if commitErr == types.E_NONE {
 		isolationprobe.Note("exclusive")

@@ -42,6 +42,10 @@ type mapKeyState struct {
 	// writeback has not consumed yet.
 	pendingBase    types.Value
 	hasPendingBase bool
+	// sizeLimit is the smallest positive list-value limit a keyed write here
+	// was checked against: a map of that many bytes or more is E_QUOTA. The
+	// map built at commit is held to it. Zero means none.
+	sizeLimit int
 }
 
 func (st *mapKeyState) wrote(key types.Value) bool {
@@ -71,6 +75,11 @@ func (tx *StoreTxn) keyedSlot(objID types.ObjID, name string) (string, Property,
 	}
 	rkey := propertyReadKey{objID: objID, name: propertyNameKey(actualName)}
 	if _, whole := tx.propertyReads[rkey]; whole {
+		return "", Property{}, false
+	}
+	// A slot this transaction defined, or on an object it created, is its own:
+	// reading it depends on nothing in the live store.
+	if _, defined := tx.propertyDefines[propertyWriteKey(rkey)]; defined || tx.createdObjects[objID] != nil {
 		return "", Property{}, false
 	}
 	st := tx.mapKeys[rkey]
@@ -127,25 +136,50 @@ func (tx *StoreTxn) ObserveMapKey(objID types.ObjID, name string, key, value typ
 	st.reads = append(st.reads, mapKeyRead{key: key, value: value, present: present})
 }
 
-// SetPropertyMapKey is the writeback of objID.name[key] = ...: next is the map the
-// assignment built from the base MapPropertyForKey returned. It stays keyed when
-// that base is still the transaction's view of the slot, so next differs from the
-// view only at key. Otherwise (the base was not keyed, was consumed, or the
-// assignment's own evaluation changed the slot) it is an ordinary
-// SetPropertyValue, which records a whole read.
-func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next types.Value) types.ErrorCode {
+// pendingKeyedBase returns the slot state when the keyed base fetched for an
+// assignment is still the transaction's view of objID.name, so the map the
+// assignment built differs from that view only at its key.
+func (tx *StoreTxn) pendingKeyedBase(objID types.ObjID, name string) (string, Property, *mapKeyState, bool) {
 	actualName, prop, ok := tx.keyedSlot(objID, name)
-	var st *mapKeyState
-	if ok {
-		st = tx.mapKeys[propertyReadKey{objID: objID, name: propertyNameKey(actualName)}]
+	if !ok {
+		return "", Property{}, nil, false
 	}
-	if st == nil || !st.hasPendingBase || !types.SameMapValue(st.pendingBase, prop.value) || next.Type() != types.TYPE_MAP {
+	st := tx.mapKeys[propertyReadKey{objID: objID, name: propertyNameKey(actualName)}]
+	if st == nil || !st.hasPendingBase || !types.SameMapValue(st.pendingBase, prop.value) {
 		if st != nil {
 			st.hasPendingBase = false
 		}
+		return "", Property{}, nil, false
+	}
+	return actualName, prop, st, true
+}
+
+// KeyedWritebackView returns the slot an assignment's writeback will stage
+// keyed, for its permission check, or false when the writeback is an ordinary
+// property assignment. It records no read.
+func (tx *StoreTxn) KeyedWritebackView(objID types.ObjID, name string) (PropertyView, bool) {
+	actualName, prop, _, ok := tx.pendingKeyedBase(objID, name)
+	if !ok {
+		return PropertyView{}, false
+	}
+	return prop.View(actualName), true
+}
+
+// SetPropertyMapKey is the writeback of objID.name[key] = ...: next is the map the
+// assignment built from the base MapPropertyForKey returned, already checked
+// against sizeLimit (zero for none). It stays keyed when that base is still the
+// transaction's view of the slot. Otherwise (the base was not keyed, was
+// consumed, or the assignment's own evaluation changed the slot) it is an
+// ordinary SetPropertyValue, which records a whole read.
+func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next types.Value, sizeLimit int) types.ErrorCode {
+	actualName, prop, st, ok := tx.pendingKeyedBase(objID, name)
+	if !ok || next.Type() != types.TYPE_MAP {
 		return tx.SetPropertyValue(objID, name, next)
 	}
 	st.hasPendingBase = false
+	if sizeLimit > 0 && (st.sizeLimit == 0 || sizeLimit < st.sizeLimit) {
+		st.sizeLimit = sizeLimit
+	}
 	value, _ := next.MapGet(key)
 	if current, present := prop.value.MapGet(key); present && current.Identical(value) && !st.wrote(key) {
 		// Same-value elision, per key: the entry already holds value, so the
@@ -240,10 +274,12 @@ func mapEntriesUnchanged(live types.Value, reads []mapKeyRead) bool {
 // value becomes the live map with this transaction's entries set on it, so
 // entries other commits changed since the snapshot survive. Validation has
 // already established that the live slot is still a map with the same owner and
-// perms.
-func (tx *StoreTxn) rebaseMapKeyWritesLocked() {
+// perms. A map that would break the size limit its writes were checked against
+// loses validation: run again, the assignment raises E_QUOTA where a serial
+// execution would.
+func (tx *StoreTxn) rebaseMapKeyWritesLocked() types.ErrorCode {
 	if isolationprobe.Fault("map-key-rebase") {
-		return
+		return types.E_NONE
 	}
 	for rkey, st := range tx.mapKeys {
 		if len(st.written) == 0 {
@@ -271,7 +307,13 @@ func (tx *StoreTxn) rebaseMapKeyWritesLocked() {
 				next = next.MapSet(k, v)
 			}
 		}
+		if st.sizeLimit > 0 && types.ValueBytes(next) >= st.sizeLimit {
+			errCode := types.E_NONE
+			tx.noteConflict(&errCode, types.E_INVARG, ReadConflict{Kind: ConflictMapKey, ObjID: rkey.objID, Name: rkey.name, Read: st.version, Live: prop.version})
+			return errCode
+		}
 		w.value, w.prop.value = next, next
 		tx.propertyWrites[wkey] = w
 	}
+	return types.E_NONE
 }

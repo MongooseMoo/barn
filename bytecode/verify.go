@@ -163,7 +163,8 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		if operand[0] != 0xff {
 			return constant(int(operand[0]))
 		}
-	case OP_GET_PROP_WIDE, OP_SET_PROP_WIDE:
+	case OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return constant(int(binary.BigEndian.Uint16(operand)))
 	case OP_CALL_VERB:
 		if operand[0] != 0xff {
