@@ -67,4 +67,24 @@ anomaly witnesses. An independent reviewer audits correctness and root recompute
 the timing gate before any local integration. No end-to-end speed, live CPU-share
 or lower-RSS claim follows from a component benchmark.
 
-Evaluator hashes, setup commit, calibration counts and results: pending.
+Evaluator/preregistration setup commit: f4e72c5e151354b40fe601bdda013b4579c722bc.
+All six baseline contracts and both adoption subcases passed before calibration.
+The independent synthetic runner audit accepted fifteen checks, including raw
+numeric/count tampering, missing/duplicate rows, pair order and timeout retention.
+
+Frozen evaluator SHA-256:
+
+- Contracts: dd4656753774fec89e8ff12b848a127f88da0e649320bcaab50ea88dcc2d6450.
+- Benchmarks: 99e47733291e96731ca1983fdbfde7baae1f788ddcd26ab8a590a05d555e41d3.
+- Runner: a7944432017edad2026e8edd5333e2ed394d6ea0253ff1a11ce3b14a40d007a1.
+- Baseline test executable: 9e4e1c04e4f2251d979c5137ff08e6ac5a594eb55bc465d2156b1c6c7928e3ac.
+- Calibration plan: 8a88d963a2c27611ade27af297a0e57efb1cd20d8ca8f4191fc428d1b4dfd383.
+
+Go 1.27.1, Linux amd64, CGO enabled, GOAMD64=v1. Baseline production source
+remained 02fe102e throughout setup/calibration. Fixed counts in the committed
+verb-args-publication-20261017-plan.json are Live: 50000/40000/5000/1000 and
+Adopt: 50000/14000/2000/1000 in table order. Calibration and baseline-build raw
+output live under .tmp/verb-args-experiment-20261017-01; semantic output is under
+.tmp/verb-args-evaluator. No candidate edits occurred before this freeze.
+
+Candidate comparison and correctness/isolation results: pending.

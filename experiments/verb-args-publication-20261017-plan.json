@@ -1,0 +1,229 @@
+{
+  "baseline_sha256": "9e4e1c04e4f2251d979c5137ff08e6ac5a594eb55bc465d2156b1c6c7928e3ac",
+  "runner_sha256": "a7944432017edad2026e8edd5333e2ed394d6ea0253ff1a11ce3b14a40d007a1",
+  "environment": {
+    "GOMAXPROCS": "1",
+    "GOGC": "100"
+  },
+  "gomemlimit": "unset",
+  "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+  "pairs": 10,
+  "rows": [
+    {
+      "dimensions": [
+        "Live",
+        1,
+        0
+      ],
+      "iterations": 50000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Live/V1/L0",
+        "count": 1000,
+        "ns": 2323.0,
+        "bytes": 1048.0,
+        "allocs": 10.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-00.txt",
+        "raw_sha256": "a21f5e4a4310eb6b9e62f1fec4f2fbc53dca54275c4295f00651a02b92e63ceb",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Live$/^V1$/^L0$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Live",
+        16,
+        64
+      ],
+      "iterations": 40000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Live/V16/L64",
+        "count": 1000,
+        "ns": 19129.0,
+        "bytes": 24784.0,
+        "allocs": 61.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-01.txt",
+        "raw_sha256": "8101908d9b391cffe801d7d7daee5fd3972b04722e7b9c5ea384cb3da233188b",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Live$/^V16$/^L64$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Live",
+        128,
+        64
+      ],
+      "iterations": 5000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Live/V128/L64",
+        "count": 1000,
+        "ns": 162147.0,
+        "bytes": 193424.0,
+        "allocs": 397.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-02.txt",
+        "raw_sha256": "63cf3ca974c1ec928a2f35b2eae58ce956d09bab173150ed8b9843d8f5b2bd80",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Live$/^V128$/^L64$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Live",
+        128,
+        512
+      ],
+      "iterations": 1000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Live/V128/L512",
+        "count": 1000,
+        "ns": 1240672.0,
+        "bytes": 1258384.0,
+        "allocs": 397.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-03.txt",
+        "raw_sha256": "9c81012412ac2e46212997d8769355e4f162628dd7c8c6ae644e44f8731c9dad",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Live$/^V128$/^L512$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Adopt",
+        1,
+        0
+      ],
+      "iterations": 50000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Adopt/V1/L0",
+        "count": 1000,
+        "ns": 7808.0,
+        "bytes": 4153.0,
+        "allocs": 37.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-04.txt",
+        "raw_sha256": "878d18ce7ebe51976a965f23cf5c9a53f257a5390cb2c1b28d4fc10b0a5e8dfc",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Adopt$/^V1$/^L0$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Adopt",
+        16,
+        64
+      ],
+      "iterations": 14000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Adopt/V16/L64",
+        "count": 1000,
+        "ns": 54957.0,
+        "bytes": 75361.0,
+        "allocs": 190.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-05.txt",
+        "raw_sha256": "151c97f9be40b788a1a69341255bc7f2990ad3af949e1073ba2883764a5758bd",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Adopt$/^V16$/^L64$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Adopt",
+        128,
+        64
+      ],
+      "iterations": 2000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Adopt/V128/L64",
+        "count": 1000,
+        "ns": 578312.0,
+        "bytes": 581281.0,
+        "allocs": 1198.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-06.txt",
+        "raw_sha256": "418d2ab4c52b4c5e1d0a15ca7d4d6ff3607bdc57e08f2c262c0579c8331f5b6c",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Adopt$/^V128$/^L64$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    },
+    {
+      "dimensions": [
+        "Adopt",
+        128,
+        512
+      ],
+      "iterations": 1000,
+      "calibration": {
+        "row": "BenchmarkVerbArgsPublication/Adopt/V128/L512",
+        "count": 1000,
+        "ns": 4036982.0,
+        "bytes": 3776161.0,
+        "allocs": 1198.0,
+        "raw": ".tmp/verb-args-experiment-20261017-01/calibration/calibration-07.txt",
+        "raw_sha256": "ea7e6eb2c0192886e90cbfcf2a435acee815df28c323fc6968244876f141f1ba",
+        "command": [
+          "/root/.cache/barn-verb-args-20261017-01/baseline.test",
+          "-test.run=^$",
+          "-test.bench=^BenchmarkVerbArgsPublication$/^Adopt$/^V128$/^L512$",
+          "-test.benchtime=1000x",
+          "-test.count=1",
+          "-test.benchmem",
+          "-test.timeout=5m"
+        ],
+        "exit": 0
+      }
+    }
+  ]
+}
