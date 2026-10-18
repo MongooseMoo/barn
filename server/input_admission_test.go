@@ -24,15 +24,23 @@ import (
 // the specified phase, so runtime admission probes exercise the production path.
 type checkpointProbe struct {
 	*dbformat.Checkpoint
+	beforeCapture   func()
 	beforeSerialize func()
 	beforePublish   func() error
 }
 
-func (p *checkpointProbe) Serialize(store *dbstore.Store, queued, suspended []task.Snapshot, connections []dbformat.ActiveConnection) error {
+func (p *checkpointProbe) Capture(store *dbstore.Store, queued, suspended []task.Snapshot, connections []dbformat.ActiveConnection) error {
+	if p.beforeCapture != nil {
+		p.beforeCapture()
+	}
+	return p.Checkpoint.Capture(store, queued, suspended, connections)
+}
+
+func (p *checkpointProbe) Serialize() error {
 	if p.beforeSerialize != nil {
 		p.beforeSerialize()
 	}
-	return p.Checkpoint.Serialize(store, queued, suspended, connections)
+	return p.Checkpoint.Serialize()
 }
 
 func (p *checkpointProbe) Publish() error {
@@ -44,13 +52,13 @@ func (p *checkpointProbe) Publish() error {
 	return p.Checkpoint.Publish()
 }
 
-func checkpointProbeFactory(beforeSerialize func(), beforePublish func() error) checkpointFactory {
+func checkpointProbeFactory(beforeCapture, beforeSerialize func(), beforePublish func() error) checkpointFactory {
 	return func(path string) (checkpointStage, error) {
 		stage, err := dbformat.BeginCheckpoint(path)
 		if err != nil {
 			return nil, err
 		}
-		return &checkpointProbe{Checkpoint: stage, beforeSerialize: beforeSerialize, beforePublish: beforePublish}, nil
+		return &checkpointProbe{Checkpoint: stage, beforeCapture: beforeCapture, beforeSerialize: beforeSerialize, beforePublish: beforePublish}, nil
 	}
 }
 
@@ -132,7 +140,7 @@ func TestCheckpointPreventsExecutionBetweenTaskAndStoreCapture(t *testing.T) {
 		checkpoint <- server.checkpointWith(checkpointProbeFactory(func() {
 			close(entered)
 			<-release
-		}, nil), true, checkpointRunning)
+		}, nil, nil), true, checkpointRunning)
 	}()
 	<-entered
 	finished := make(chan engine.EvalOutcome, 1)
@@ -179,7 +187,7 @@ func TestCheckpointPublicationAllowsRuntimeCommit(t *testing.T) {
 	release := make(chan struct{})
 	checkpoint := make(chan error, 1)
 	go func() {
-		checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, func() error {
+		checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, nil, func() error {
 			close(entered)
 			<-release
 			return nil
@@ -218,6 +226,70 @@ func TestCheckpointPublicationAllowsRuntimeCommit(t *testing.T) {
 	}
 }
 
+func TestCheckpointSerializationAllowsRuntimeCommit(t *testing.T) {
+	for _, writer := range []string{"ordinary", "coarse"} {
+		t.Run(writer, func(t *testing.T) {
+			store := dbstore.NewStore()
+			addTestObject(t, store, 0, dbstore.FlagWizard|dbstore.FlagProgrammer)
+			if code := store.DirectTxn().DefineProperty(0, "committed", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); code != types.E_NONE {
+				t.Fatal(code)
+			}
+			rt := engine.NewRuntimeWithOptions(store, config.Options{AdmissionLimit: 1})
+			defer rt.Stop()
+			server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "serialize.db")}
+			entered, publicationReleased := make(chan struct{}), make(chan struct{})
+			release := sync.OnceFunc(func() { close(publicationReleased) })
+			defer release()
+			checkpoint := make(chan error, 1)
+			go func() {
+				checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, func() {
+					close(entered)
+					<-publicationReleased
+				}, nil), true, checkpointRunning)
+			}()
+			select {
+			case <-entered:
+			case err := <-checkpoint:
+				t.Fatalf("checkpoint before serialization hold: %v", err)
+			}
+			source := "#0.committed = 42; return #0.committed;"
+			if writer == "coarse" {
+				source = `add_verb(#0, {#0, "rxd", "post_capture"}, {"this", "none", "this"}); ` + source
+			}
+			finished := make(chan engine.EvalOutcome, 1)
+			go func() { finished <- rt.Eval(0, []string{source}) }()
+			select {
+			case got := <-finished:
+				if got.Result.Val.Int() != 42 {
+					t.Error(got)
+				}
+				value, code := store.DirectTxn().PropertyValue(0, "committed")
+				if code != types.E_NONE || value.Int() != 42 {
+					t.Errorf("runtime write did not commit: value=%v code=%v", value, code)
+				}
+			case <-time.After(time.Second):
+				t.Error("runtime command could not commit during checkpoint serialization")
+			}
+			release()
+			if err := <-checkpoint; err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := dbformat.LoadDatabase(server.dbPath + ".new")
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := reloaded.NewStoreFromDatabase()
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, code := restored.DirectTxn().PropertyValue(0, "committed")
+			if code != types.E_NONE || value.Int() != 0 || restored.HasLocalVerb(0, "post_capture") {
+				t.Fatalf("checkpoint included post-capture commit: value=%v code=%v", value, code)
+			}
+		})
+	}
+}
+
 func TestCheckpointPublicationFailureRunsFailureHookAfterResume(t *testing.T) {
 	store := dbstore.NewStore()
 	addTestObject(t, store, 0, dbstore.FlagWizard)
@@ -230,7 +302,7 @@ func TestCheckpointPublicationFailureRunsFailureHookAfterResume(t *testing.T) {
 	defer rt.Stop()
 	server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "failure.db")}
 	publishErr := errors.New("publication failed after admission resumed")
-	err := server.checkpointWith(checkpointProbeFactory(nil, func() error {
+	err := server.checkpointWith(checkpointProbeFactory(nil, nil, func() error {
 		finished := make(chan engine.EvalOutcome, 1)
 		go func() { finished <- rt.Eval(0, []string{"return 42;"}) }()
 		select {
@@ -377,7 +449,7 @@ func TestTerminalCheckpointPublicationFailureReleasesBarrierBeforeFailureHook(t 
 	defer rt.Stop()
 	server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "terminal-failure.db")}
 	publishErr := errors.New("terminal publication failed")
-	err := server.checkpointWith(checkpointProbeFactory(nil, func() error { return publishErr }), true, checkpointTerminal)
+	err := server.checkpointWith(checkpointProbeFactory(nil, nil, func() error { return publishErr }), true, checkpointTerminal)
 	if !errors.Is(err, publishErr) {
 		t.Fatalf("checkpoint error=%v, want %v", err, publishErr)
 	}
