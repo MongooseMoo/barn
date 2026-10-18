@@ -137,6 +137,10 @@ type Task struct {
 	pendingInput     int  // injected events that have not finished their first slice
 	waitingForInput  bool // only a zero-delay continuation observes this fence
 	cancelRequested  bool // explicit kill, distinct from an uncaught MOO exception
+	// wokenUnrun marks a queued task woken from a suspension whose slice has not
+	// started. Toast still finds it suspended (tasks.cc do_resume searches the
+	// background queues), so resume() only replaces its WakeValue.
+	wokenUnrun bool
 
 	// catalog is the manager the task is registered with. It is told when the
 	// task finishes, and when a finished task is made runnable again.
@@ -316,6 +320,9 @@ func (t *Task) settledLocked() bool {
 func (t *Task) setStateLocked(state TaskState) {
 	was := t.settledLocked()
 	t.State = state
+	if state != TaskQueued {
+		t.wokenUnrun = false
+	}
 	t.noteSettledLocked(was)
 }
 
@@ -897,6 +904,7 @@ func (t *Task) resumeLocked(value types.Value) bool {
 		return false
 	}
 	t.setStateLocked(TaskQueued)
+	t.wokenUnrun = true
 	t.notifyScheduleLocked()
 	t.WakeValue = value
 	t.IsHTTPReadSuspended = false
@@ -909,6 +917,19 @@ func (t *Task) resumeLocked(value types.Value) bool {
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}
+	return true
+}
+
+// ReplaceWakeValue is resume() of a task already woken from a suspension whose
+// slice has not started: Toast's do_resume gives it the new value and leaves its
+// place in the queue. It returns false for any other task.
+func (t *Task) ReplaceWakeValue(value types.Value) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskQueued || !t.wokenUnrun || t.executionActive {
+		return false
+	}
+	t.WakeValue = value
 	return true
 }
 
