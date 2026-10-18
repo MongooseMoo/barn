@@ -391,18 +391,33 @@ func (s *Server) requestCheckpoint() error {
 
 // checkpoint saves the database to disk
 func (s *Server) checkpoint() error {
-	return s.checkpointWith(dbformat.WriteCheckpoint, true)
+	return s.checkpointWith(beginOrdinaryCheckpoint, true, checkpointRunning)
 }
 
-type checkpointWriter func(
-	string,
-	*dbstore.Store,
-	[]task.Snapshot,
-	[]task.Snapshot,
-	[]dbformat.ActiveConnection,
-) error
+type checkpointStage interface {
+	Serialize(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Publish() error
+	Close() error
+}
 
-func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool) error {
+type checkpointFactory func(string) (checkpointStage, error)
+
+type checkpointMode uint8
+
+const (
+	checkpointRunning checkpointMode = iota
+	checkpointTerminal
+)
+
+func beginOrdinaryCheckpoint(path string) (checkpointStage, error) {
+	return dbformat.BeginCheckpoint(path)
+}
+
+func beginEmergencyCheckpoint(path string) (checkpointStage, error) {
+	return dbformat.BeginPanicCheckpoint(path)
+}
+
+func (s *Server) checkpointWith(begin checkpointFactory, ordinary bool, mode checkpointMode) error {
 	slog.Info("checkpoint started")
 
 	// Call #0:checkpoint_started()
@@ -412,7 +427,7 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 
 	start := time.Now()
 
-	if err := s.dumpCheckpoint(writeCheckpoint, ordinary); err != nil {
+	if err := s.dumpCheckpoint(begin, ordinary, mode); err != nil {
 		_ = s.callCheckpointFinished(false)
 		return err
 	}
@@ -432,17 +447,36 @@ func (s *Server) checkpointWith(writeCheckpoint checkpointWriter, ordinary bool)
 
 // dumpCheckpoint writes a consistent snapshot without invoking checkpoint hooks.
 // Signal shutdown, like MOO server database shutdown, only dumps current state.
-func (s *Server) dumpCheckpoint(writeCheckpoint checkpointWriter, ordinary bool) error {
-	return s.runtime.WithCheckpointBarrier(func() error {
+func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode checkpointMode) (resultErr error) {
+	if ordinary {
+		// A dump attempt makes ordinary output eligible even when staging fails.
+		// Panic dumps use a separate namespace and do not change this.
+		s.ordinaryDumpStarted.Store(true)
+	}
+	checkpoint, err := begin(s.dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, checkpoint.Close()) }()
+	if err := s.runtime.WithCheckpointBarrier(func() error {
 		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 		activeConnections := s.connManager.CheckpointConnections()
-		if ordinary {
-			// A dump attempt makes the ordinary output eligible even if writing
-			// fails. Panic dumps use a different output and do not change this.
-			s.ordinaryDumpStarted.Store(true)
+		if err := checkpoint.Serialize(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+			return err
 		}
-		return writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections)
-	})
+		if mode == checkpointTerminal {
+			// Closing input does not stop already dispatched background tasks.
+			// Keep terminal snapshots protected until durable publication finishes.
+			return checkpoint.Publish()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if mode == checkpointRunning {
+		return checkpoint.Publish()
+	}
+	return nil
 }
 
 // Shutdown initiates graceful shutdown.
@@ -464,6 +498,10 @@ func (s *Server) Shutdown(message string) {
 
 // shutdown performs the actual shutdown sequence
 func (s *Server) shutdown() error {
+	return s.shutdownWithCheckpoint(beginOrdinaryCheckpoint)
+}
+
+func (s *Server) shutdownWithCheckpoint(begin checkpointFactory) error {
 	slog.Info("shutting down")
 
 	s.mu.Lock()
@@ -489,9 +527,9 @@ func (s *Server) shutdown() error {
 	if s.checkpointInterval > 0 || signalShutdown {
 		var err error
 		if signalShutdown {
-			err = s.dumpCheckpoint(dbformat.WriteCheckpoint, true)
+			err = s.dumpCheckpoint(begin, true, checkpointTerminal)
 		} else {
-			err = s.checkpoint()
+			err = s.checkpointWith(begin, true, checkpointTerminal)
 		}
 		if err != nil {
 			slog.Error("final checkpoint failed", slog.Any("err", err))
@@ -519,6 +557,10 @@ func (s *Server) shutdown() error {
 
 // Panic performs emergency shutdown
 func (s *Server) Panic(message string) error {
+	return s.panicWithCheckpoint(message, beginEmergencyCheckpoint)
+}
+
+func (s *Server) panicWithCheckpoint(message string, begin checkpointFactory) error {
 	if s.lifecycle != nil {
 		s.lifecycle.Draining()
 	}
@@ -529,7 +571,7 @@ func (s *Server) Panic(message string) error {
 		slog.String("go_stack", string(debug.Stack())))
 
 	// Attempt emergency database dump
-	if err := s.checkpointWith(dbformat.WritePanicCheckpoint, false); err != nil {
+	if err := s.checkpointWith(begin, false, checkpointTerminal); err != nil {
 		slog.Error("emergency dump failed", slog.Any("err", err))
 	} else {
 		slog.Info("emergency dump written", slog.String("path", s.dbPath+".new.PANIC"))
