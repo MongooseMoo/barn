@@ -47,7 +47,9 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	if !isolationprobe.Fault("verb-reads") {
 		tx.validateVerbReadsLocked(&errCode)
 	}
-	tx.validateWaifsLocked(&errCode)
+	if !isolationprobe.Fault("waif-reads") {
+		tx.validateWaifsLocked(&errCode)
+	}
 	return errCode
 }
 
