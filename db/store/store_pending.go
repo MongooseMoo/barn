@@ -76,43 +76,6 @@ func (s *Store) AppendPendingFinalizations(values []types.Value) {
 	}
 }
 
-// pendingFinalizationsForSnapshotLocked resolves the last ownership overlap at
-// the checkpoint boundary. A value serialized by a queued or suspended task is
-// task-owned and must not also appear in the pending-finalization section.
-// Caller holds s.mu for reading or writing.
-func (s *Store) pendingFinalizationsForSnapshotLocked(taskRoots []types.Value) []types.Value {
-	if len(s.pendingFinalizations) == 0 || len(taskRoots) == 0 {
-		return cloneValues(s.pendingFinalizations)
-	}
-
-	taskWaifs := types.NewWaifSet(nil)
-	anonRefs := make(map[types.ObjID]struct{})
-	for _, root := range taskRoots {
-		collectWaifsInto(root, taskWaifs, false)
-		collectAnonymousObjectRefs(root, anonRefs)
-	}
-	taskAnonymous := make(map[types.ObjID]struct{}, len(anonRefs))
-	queue := make([]types.ObjID, 0, len(anonRefs))
-	for id := range anonRefs {
-		queue = append(queue, id)
-	}
-	s.expandAnonymousReachabilityLocked(taskAnonymous, queue, false)
-
-	kept := make([]types.Value, 0, len(s.pendingFinalizations))
-	for _, value := range s.pendingFinalizations {
-		if taskWaifs.Has(value) {
-			continue
-		}
-		if id, direct := directAnonymousRoot(value); direct {
-			if _, owned := taskAnonymous[id]; owned {
-				continue
-			}
-		}
-		kept = append(kept, value)
-	}
-	return kept
-}
-
 func finalizationValueInList(needle types.Value, values []types.Value) bool {
 	for _, candidate := range values {
 		if needle.Type() != candidate.Type() {

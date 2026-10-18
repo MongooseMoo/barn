@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"github.com/MongooseMoo/barn/internal/commitgate"
 	"sort"
 
 	"github.com/MongooseMoo/barn/types"
@@ -66,93 +64,13 @@ func (s *Store) Snapshot() Snapshot {
 // is additionally seeded by values persisted outside the object store, and
 // returns the same plan's value rewriter for those external surfaces.
 func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueRewriter) {
-	// A decentralized commit publishes each object image separately while holding
-	// commitGate for reading. Exclude commits for the complete snapshot walk so a
-	// checkpoint can never combine images from opposite sides of one transaction.
-	// Keep the established lock order (commitGate, then s.mu) used by Commit.
-	grant, _ := s.commitGate.Acquire(context.Background(), commitgate.Exclusive)
-	defer grant.Release()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	snapshot := Snapshot{
-		MaxObject:            s.maxObjectID(),
-		Objects:              make(map[types.ObjID]*SnapshotObject, s.dir.len()),
-		PropertyNames:        make(map[types.ObjID][]string, s.dir.len()),
-		PendingFinalizations: s.pendingFinalizationsForSnapshotLocked(roots),
+	capture := s.CaptureCheckpoint(roots)
+	defer capture.Close()
+	snapshot, rewriter, err := capture.Materialize()
+	if err != nil {
+		panic("checkpoint materialization: " + err.Error())
 	}
-
-	// Build the anonymous-object serialization plan. Anonymous objects live
-	// out-of-band (s.anonObjects), keyed by their identity id, and never occupy a
-	// regular numeric id. ToastStunt assigns them above-max serialization ids at
-	// dump time and rewrites the _TYPE_ANON references that reach them to point at
-	// those ids; the dump then emits the objects in batches after the regular
-	// objects. We mirror that exactly:
-	//   - find which anon objects are reference-reachable from live property values
-	//   - assign each reachable anon object a serialization id starting at maxObj+1
-	//   - rewrite every _TYPE_ANON reference: reachable -> serialization id,
-	//     unreachable/missing -> NOTHING (-1), matching Toast's db_write_anonymous
-	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
-	//     no slot and passing VALIDATE).
-	plan := s.planAnonymousSerializationLocked(roots)
-	// Capture external task roots while the publication barrier is still held.
-	// The returned rewriter must never consult their later live WAIF state.
-	for _, value := range roots {
-		plan.rewriteValue(value)
-	}
-	for i, value := range snapshot.PendingFinalizations {
-		if rewritten, changed := plan.rewriteValue(value); changed {
-			snapshot.PendingFinalizations[i] = rewritten
-		}
-	}
-
-	// propertyNames must be computed over the live objects so parent-chain walks
-	// see the full graph; build them keyed by id.
-	s.dir.forEach(func(id types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil {
-			return true
-		}
-		so := snapshotObjectValue(obj)
-		plan.rewriteSnapshotObject(so)
-		snapshot.Objects[id] = so
-		return true
-	})
-
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil {
-			return true
-		}
-		so := snapshot.Objects[obj.id]
-		if !obj.recycled && obj.flags.Has(FlagUser) {
-			snapshot.Players = append(snapshot.Players, obj.id)
-		}
-		if !obj.recycled {
-			snapshot.AllObjects = append(snapshot.AllObjects, so)
-		}
-		if validLiveObject(obj) {
-			snapshot.PropertyNames[obj.id] = s.snapshotPropertyNamesLocked(obj)
-		}
-		return true
-	})
-
-	// Emit reachable anonymous objects with their assigned above-max
-	// serialization ids, in serialization-id order so the dump is deterministic.
-	for _, ser := range plan.order {
-		obj := s.lookupAnonymousLocked(ser.identity)
-		if obj == nil {
-			continue
-		}
-		so := snapshotObjectValue(obj)
-		so.ID = ser.serialID
-		plan.rewriteSnapshotObject(so)
-		snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
-		snapshot.PropertyNames[ser.serialID] = s.snapshotPropertyNamesLocked(obj)
-	}
-
-	return snapshot, SnapshotValueRewriter{plan: plan}
+	return snapshot, rewriter
 }
 
 // anonSerialID pairs an anonymous object's identity id with the above-max
@@ -170,101 +88,11 @@ type anonSerializationPlan struct {
 	rewrite     map[types.ObjID]types.ObjID
 	order       []anonSerialID
 	waifRewrite map[types.WaifIdentity]types.Value
-}
-
-// planAnonymousSerializationLocked computes reachability over the out-of-band
-// anonymous objects and assigns above-max serialization ids. Callers hold s.mu.
-func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) *anonSerializationPlan {
-	plan := &anonSerializationPlan{
-		rewrite:     make(map[types.ObjID]types.ObjID),
-		waifRewrite: make(map[types.WaifIdentity]types.Value),
-	}
-
-	// Seed: every anon id referenced by a non-anonymous live object's properties
-	// or by the pending-finalization queue. Pending roots are deliberately not
-	// persistent properties, but their complete anonymous graphs must survive the
-	// checkpoint so finalization can resume after restart.
-	seen := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0)
-	enqueue := func(id types.ObjID) {
-		if _, ok := seen[id]; ok {
-			return
-		}
-		seen[id] = struct{}{}
-		queue = append(queue, id)
-	}
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
-			return true
-		}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
-			for id := range refs {
-				enqueue(id)
-			}
-		}
-		return true
-	})
-	for _, value := range s.pendingFinalizations {
-		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
-		for id := range refs {
-			enqueue(id)
-		}
-	}
-	for _, value := range additionalRoots {
-		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
-		for id := range refs {
-			enqueue(id)
-		}
-	}
-
-	// Transitively expand through anon objects that actually exist out-of-band,
-	// collecting the reachable-and-present set. References to absent anon ids are
-	// recorded too (so they can be rewritten to NOTHING) but cannot expand.
-	reachablePresent := make(map[types.ObjID]struct{})
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		obj := s.lookupAnonymousLocked(id)
-		if obj == nil {
-			// Referenced but absent: a dangling anon reference. It will be
-			// rewritten to NOTHING below.
-			continue
-		}
-		reachablePresent[id] = struct{}{}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
-			for nid := range refs {
-				enqueue(nid)
-			}
-		}
-	}
-
-	// Assign serialization ids above maxObj, in identity-id order for determinism.
-	presentIDs := make([]types.ObjID, 0, len(reachablePresent))
-	for id := range reachablePresent {
-		presentIDs = append(presentIDs, id)
-	}
-	sort.Slice(presentIDs, func(i, j int) bool { return presentIDs[i] < presentIDs[j] })
-	next := s.maxObjectID() + 1
-	for _, id := range presentIDs {
-		plan.rewrite[id] = next
-		plan.order = append(plan.order, anonSerialID{identity: id, serialID: next})
-		next++
-	}
-	// Every seen-but-absent anon ref rewrites to NOTHING.
-	for id := range seen {
-		if _, ok := plan.rewrite[id]; !ok {
-			plan.rewrite[id] = types.ObjNothing
-		}
-	}
-
-	return plan
+	images      map[types.WaifIdentity]*types.WaifImage
+	domain      *types.WaifDomain
+	readTS      uint64
+	err         error
+	sealed      bool
 }
 
 // rewriteSnapshotObject rewrites every _TYPE_ANON reference in a snapshot
@@ -312,13 +140,18 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 		}
 		rewritten := types.NewWaifWithIdentity(v.Class(), v.Owner(), identity)
 		p.waifRewrite[identity] = rewritten
-		names := v.PropertyNames()
+		image := p.image(v)
+		if image == nil {
+			return rewritten, true
+		}
+		properties := image.Properties()
+		names := make([]string, 0, len(properties))
+		for name := range properties {
+			names = append(names, name)
+		}
 		sort.Strings(names)
 		for _, name := range names {
-			property, ok := v.GetProperty(name)
-			if !ok {
-				continue
-			}
+			property := properties[name]
 			if next, changed := p.rewriteValue(property); changed {
 				rewritten.SetProperty(name, next)
 			} else {
@@ -394,7 +227,7 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 	return so
 }
 
-// snapshotPropertyNamesLocked returns the writer's ordered name list in the
+// snapshotPropertyNames returns the writer's ordered name list in the
 // LOADER's canonical order: this object's own propdefs, then each ancestor's,
 // depth-first self-first — exactly db/format's propertyNamesSelfFirst. The
 // dump stores propvals positionally against that ancestry order, so a
@@ -404,7 +237,7 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 // (conformance dump_persistence::inherited_override_survives_dump_and_restart).
 // Map-only names with no ancestry position are still appended (sorted) as a
 // no-value-loss backstop; the reader keeps placeholder names for them.
-func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
+func snapshotPropertyNames(obj *Object, resolve func(types.ObjID) *Object) []string {
 	names := make([]string, 0, len(obj.propOrder)+obj.properties.count())
 	seen := make(map[string]bool, len(obj.propOrder)+obj.properties.count())
 	visited := make(map[types.ObjID]bool)
@@ -427,7 +260,7 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 			}
 		}
 		for _, parentID := range o.parents {
-			walk(s.liveObjectLocked(parentID))
+			walk(resolve(parentID))
 		}
 	}
 	walk(obj)

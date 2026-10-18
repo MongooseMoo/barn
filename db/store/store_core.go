@@ -107,6 +107,10 @@ type Store struct {
 	// objects) preserves that invariant and avoids the id collisions that crash
 	// Toast's loader.
 	anonObjects map[types.ObjID]*Object
+	// directoryAnonymous indexes rare Add-loaded anonymous fixtures without a
+	// full numbered-directory walk during checkpoint capture. Publication can
+	// hold only mu.RLock, so the index itself is concurrent.
+	directoryAnonymous sync.Map // types.ObjID -> struct{}
 
 	// MVCC commit observability counters (Phase A instrumentation). Bumped
 	// lock-free, mirroring the anonCreations pattern. commitAttempts/Successes/
@@ -246,7 +250,14 @@ func (s *Store) slotFor(id types.ObjID) *objectSlot {
 // publishLocked publishes obj into id's slot. Used by the coarse (store.mu-held)
 // writers and by object insertion; the map skeleton is mutated under store.mu.
 func (s *Store) publishLocked(id types.ObjID, obj *Object) {
-	s.slotFor(id).ptr.Store(obj)
+	slot := s.slotFor(id)
+	previous := slot.ptr.Load()
+	slot.ptr.Store(obj)
+	if obj != nil && obj.anonymous {
+		s.directoryAnonymous.Store(id, struct{}{})
+	} else if previous != nil && previous.anonymous {
+		s.directoryAnonymous.Delete(id)
+	}
 }
 
 func (s *Store) bumpClock() uint64 {

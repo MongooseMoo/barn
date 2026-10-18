@@ -309,7 +309,10 @@ func TestCheckpointPublicationOrderPreservesRecoveryBeforeOutput(t *testing.T) {
 func TestCheckpointConcurrentLoadAndPublishKeepsOneGeneration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out")
 	values := []types.Value{types.NewWaif(9, 3), types.NewWaif(9, 3), types.NewWaif(9, 3)}
-	publicationFixture(t, path, values[:1])
+	// Each independent store owns its own WAIF payload/publication clock.
+	// Preserve the first generation's identity without sharing that payload.
+	initial := types.NewWaifWithIdentity(9, 3, values[0].WaifIdentity())
+	publicationFixture(t, path, []types.Value{initial})
 	var workers sync.WaitGroup
 	errorsFound := make(chan error, 40)
 	for _, value := range values {
