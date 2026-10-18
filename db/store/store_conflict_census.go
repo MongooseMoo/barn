@@ -63,6 +63,9 @@ const (
 	// ConflictObjectID is an object id the transaction allocated and another
 	// commit took first. It is not a read, but it loses and retries like one.
 	ConflictObjectID
+	// ConflictMapKey is an entry of a map-valued property read through keyed
+	// access, or the slot's owner, perms or map type that such access relied on.
+	ConflictMapKey
 )
 
 var conflictKindNames = [...]string{
@@ -76,6 +79,7 @@ var conflictKindNames = [...]string{
 	ConflictVerbShape:     "verb-shape",
 	ConflictWaif:          "waif",
 	ConflictObjectID:      "object-id",
+	ConflictMapKey:        "map-key",
 }
 
 func (k ConflictKind) String() string {

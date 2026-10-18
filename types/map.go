@@ -80,6 +80,16 @@ func (m *goMap) mapBytes() int {
 	return size
 }
 
+// MapKeysEqual reports whether a and b address the same map entry, under the
+// same rule a map lookup uses (strings compare without ASCII case).
+func MapKeysEqual(a, b Value) bool { return mapKeyMatches(a, b) }
+
+// SameMapValue reports whether a and b are the same map payload, not merely
+// equal ones. Maps are immutable, so the same payload means the same contents.
+func SameMapValue(a, b Value) bool {
+	return a.Type() == TYPE_MAP && b.Type() == TYPE_MAP && a.ref == b.ref
+}
+
 // mapKeyMatches reports whether a and b are the same map key: exactly when
 // keyHash(a) == keyHash(b), without building either hash.
 func mapKeyMatches(a, b Value) bool {

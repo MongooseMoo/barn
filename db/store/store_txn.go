@@ -57,6 +57,10 @@ type StoreTxn struct {
 	verbMemoSeen map[*verbDispatchMemoEntry]uint8
 	terminalErr  types.ErrorCode
 	liveMutated  bool
+	// mapKeys holds per-key dependencies and writes on map-valued slots
+	// reached through keyed access (store_txn_mapkeys.go). A slot with a
+	// whole read in propertyReads is validated by that read instead.
+	mapKeys map[propertyReadKey]*mapKeyState
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
 	// than aliases of a shared immutable published image. Reads (tx.object) may cache
 	// an alias; the first staged write to an object must materialize a private copy

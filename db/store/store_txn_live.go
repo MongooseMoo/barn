@@ -16,6 +16,9 @@ func (tx *StoreTxn) MarkLiveMutated() {
 		// check can no longer tell this txn's own change from a concurrent one.
 		// Callers reach PrepareLiveMutation first; this is the safety net.
 		tx.materializeVerbMemoMarks()
+		// The coarse path's live-mutation bookkeeping adopts, renumbers and
+		// forgets whole slots; keyed dependencies become whole reads first.
+		tx.degradeMapKeys()
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -401,6 +404,9 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 		return tx.markTerminal(types.E_INVARG)
 	}
 	tx.validationFail = false
+	// A flush publishes the staged values as they are; a keyed write publishes
+	// its whole view, as any staged write does here.
+	tx.degradeMapKeys()
 	tx.store.mu.Lock()
 	if len(tx.waifs) != 0 {
 		if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {

@@ -127,6 +127,8 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	if tx.terminalErr != types.E_NONE {
 		return tx, false, tx.terminalErr
 	}
+	// The renewed transaction carries version-checked reads only.
+	tx.degradeMapKeys()
 	if errCode := tx.validateReads(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return tx, false, errCode
@@ -403,6 +405,10 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	}
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
+	}
+	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
+		tx.lostValidation()
+		return errCode
 	}
 	commitErr = tx.applyStagedToLiveLocked()
 	if commitErr == types.E_NONE {
