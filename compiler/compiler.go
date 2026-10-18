@@ -152,6 +152,31 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 	return compiled, nil
 }
 
+// LowerUnknownBuiltinCalls rewrites verb source read from a database the way
+// Toast's loader compiles it: each call to a builtin this registry lacks becomes
+// call_function("name", @args), with one warning per call carrying the text
+// set_verb_code rejects the same call with. The result is in Toast's
+// fully-parenthesized decompile form. Source that lowers nothing, or does not
+// parse, returns nil lines and the caller keeps the original.
+func (c *Compiler) LowerUnknownBuiltinCalls(sourceLines []string) ([]string, []Diagnostic) {
+	var warnings []Diagnostic
+	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseStoredProgram(func(name string, pos verb.Position) bool {
+		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; ok {
+			return false
+		}
+		warnings = append(warnings, compileDiagnostic(&UnknownBuiltinError{Name: name, Position: pos}))
+		return true
+	})
+	if err != nil || len(warnings) == 0 {
+		return nil, nil
+	}
+	lowered, err := parser.FormatMOOFullyParenthesizedChecked(program)
+	if err != nil {
+		return nil, nil
+	}
+	return lowered, warnings
+}
+
 func syntaxDiagnostic(err error) Diagnostic {
 	var parseError *parser.ParseError
 	if errors.As(err, &parseError) {

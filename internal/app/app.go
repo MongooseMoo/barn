@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/config"
-	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
@@ -214,13 +213,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)
 	}
 	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
-		database, err := dbformat.LoadDatabaseReadOnly(cfg.DatabasePath)
+		store, err := dbtool.LoadStore(cfg.DatabasePath, options)
 		if err != nil {
-			return fmt.Errorf("load database: %w", err)
-		}
-		store, err := database.NewStoreFromDatabase()
-		if err != nil {
-			return fmt.Errorf("construct store from database: %w", err)
+			return err
 		}
 		// As the server does after loading: return what the load allocated
 		// and no longer needs, so -eval 'memory_usage()' reports what a
