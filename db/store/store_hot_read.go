@@ -235,6 +235,9 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 // values. tx is released. It returns nil, leaving tx as it was, when a carried
 // read is no longer current or the staging does not come out the same.
 func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
+	if len(tx.mapKeys) > 0 {
+		return nil // keyed dependencies and writes are not carried yet
+	}
 	s := tx.store
 	next := s.BeginSnapshot(0)
 	// A memoized verb resolution holds while no verb shape has changed since the
