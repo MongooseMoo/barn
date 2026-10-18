@@ -16,6 +16,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/kernel"
@@ -43,35 +44,48 @@ func elleWorld(t *testing.T) *dbstore.Store {
 	for _, id := range []int{0, 11, 12, 13, 14, 15, 16, 17, 18, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47} {
 		b := dbstore.NewObjectBuilder(types.ObjID(id))
 		b.SetOwner(0)
+		b.SetLocation(types.ObjNothing)
+		var localNames []string
+		define := func(name string, property dbstore.Property) {
+			b.SetProperty(name, property)
+			if property.View(name).Defined {
+				localNames = append(localNames, name)
+			}
+		}
 		b.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagFertile)
 		if id == 0 {
-			b.SetProperty(":data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
-			b.SetProperty("child", dbstore.NewProperty(types.NewObj(types.ObjNothing), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define(":data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("child", dbstore.NewProperty(types.NewObj(types.ObjNothing), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			b.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagRead | dbstore.FlagWrite)
 		}
 		if id == 11 || id == 18 || id == 0 {
-			b.SetProperty("data", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			// #18 later inherits #0.data and owns an override of that slot.
+			define("data", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, id != 18))
 		}
 		if id == 0 {
-			b.SetProperty("token", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
-			b.SetProperty("recycled", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
-			b.SetProperty("waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
-			b.SetProperty("elle_waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("token", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("recycled", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("elle_waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			entries := types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewList(nil)}, {types.NewStr("b"), types.NewList(nil)}})
-			b.SetProperty("elle_map", dbstore.NewProperty(entries, 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("elle_map", dbstore.NewProperty(entries, 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
 		if id == 30 {
-			b.SetProperty("data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
 		if id == 13 {
-			b.SetProperty("token", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("token", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
 		if id == 32 {
 			b.SetName("0")
 		}
 		if id >= 42 && id <= 45 {
-			b.SetProperty("scratch", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			define("scratch", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
+		// These are fixture-local definitions. Runtime-created inherited/clear
+		// slots below remain inherited; portable reload needs real local names.
+		b.SetPropOrder(localNames)
+		b.SetPropDefsCount(len(localNames))
 		if err := store.Add(b.Build()); err != nil {
 			t.Fatal(err)
 		}
@@ -204,7 +218,7 @@ var elleExpectedExceptions = map[int64]bool{}
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "checkpoint-live-reads"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
@@ -264,6 +278,137 @@ func elleReadAll() string {
 		fmt.Fprintf(&code, `elle_observe("r", "%s", #0:read_row(%d, #%d));`, key, kind, elleObject(kind))
 	}
 	return code.String()
+}
+
+func elleCheckpointMark(ctx *builtins.Execution, args []types.Value) types.Result {
+	marks := append([]types.Value(nil), args[0].Elements()...)
+	ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
+		for _, mark := range marks {
+			isolationprobe.Note(mark.Str())
+		}
+	}})
+	return types.Ok(types.NewInt(0))
+}
+
+func TestElleCheckpointFixtureRoundTrip(t *testing.T) {
+	store := elleWorld(t)
+	recorder := newElleRecorder()
+	var observe builtins.BuiltinFunc = recorder.observe
+	rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
+		testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe))
+	defer rt.Stop()
+	source := `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`
+	for kind := range elleRows {
+		source += elleAppend(kind, 100+2*kind) + elleAppend(kind, 101+2*kind)
+	}
+	elleDrain(t, rt, []*task.Task{elleTask(t, rt, 1, source)})
+	elleCheckpointPreflight(t, rt, store, recorder, "list-append", 2)
+}
+
+func elleReturnRows(model string) string {
+	if model == "rw-register" {
+		return `lines=verb_code(#31,1); line=lines[1]; return {#30.data,toint(#32.name),toint(line[1..$-1])};`
+	}
+	var rows []string
+	for kind := range elleRows {
+		rows = append(rows, fmt.Sprintf(`#0:read_row(%d,#%d)`, kind, elleObject(kind)))
+	}
+	return "return {" + strings.Join(rows, ",") + "};"
+}
+
+func elleCheckpointPreflight(t *testing.T, rt *Runtime, store *dbstore.Store, recorder *elleRecorder, model string, id int64) {
+	t.Helper()
+	original := elleTask(t, rt, id, elleReturnRows(model))
+	elleDrain(t, rt, []*task.Task{original})
+	capture := store.CaptureCheckpoint(nil)
+	defer capture.Close()
+	isolationprobe.Note("checkpoint_capture")
+	snapshot, _, err := capture.Materialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture.Close()
+	reloaded := elleCheckpointRead(t, snapshot, recorder, model, id+1)
+	if !original.Result.Val.Equal(reloaded) {
+		t.Fatalf("portable fixture rows differ: original=%v reloaded=%v", original.Result.Val, reloaded)
+	}
+}
+
+func elleCheckpointRead(t *testing.T, snapshot dbstore.Snapshot, recorder *elleRecorder, model string, id int64) types.Value {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "checkpoint-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := dbformat.NewWriter(file, snapshot).WriteDatabase(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := dbformat.LoadDatabaseReadOnly(file.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := loaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observe builtins.BuiltinFunc = recorder.observe
+	var mark builtins.BuiltinFunc = elleCheckpointMark
+	rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
+		testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe),
+		testBuiltinSlot("elle_checkpoint_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &mark))
+	defer rt.Stop()
+	read, keys := elleReadAll(), elleRows
+	if model == "rw-register" {
+		read, keys = elleRegisterReads(), []string{"property", "name", "verb-code"}
+	}
+	marks := []string{`"checkpoint_reload_read"`}
+	for _, key := range keys {
+		marks = append(marks, strconv.Quote("checkpoint_read/"+key))
+	}
+	// Assertions precede the commit-deferred coverage markers. The recorder's
+	// normal pending effect publishes these MOO reads as one real transaction.
+	source := read + `if (#0:invariants() != 1) raise(E_INVARG); endif elle_checkpoint_mark({` + strings.Join(marks, ",") + `});` + elleReturnRows(model)
+	reader := elleTask(t, rt, id, source)
+	elleDrain(t, rt, []*task.Task{reader})
+	return reader.Result.Val
+}
+
+func elleHeldCheckpoint(t *testing.T, capture *dbstore.CheckpointCapture, writer func()) dbstore.Snapshot {
+	t.Helper()
+	held, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var release sync.Once
+	var snapshot dbstore.Snapshot
+	var materializeErr error
+	isolationprobe.SetPause(func(point string) {
+		if point == "checkpoint/object-captured/11" {
+			close(held)
+			<-resume
+		}
+	})
+	defer isolationprobe.SetPause(nil)
+	go func() {
+		snapshot, _, materializeErr = capture.Materialize()
+		close(done)
+	}()
+	defer func() { release.Do(func() { close(resume) }); <-done }()
+	select {
+	case <-held:
+	case <-done:
+		t.Fatalf("checkpoint completed before held object: %v", materializeErr)
+	case <-time.After(10 * time.Second):
+		t.Fatal("checkpoint did not reach held numbered object")
+	}
+	writer()
+	release.Do(func() { close(resume) })
+	<-done
+	if materializeErr != nil {
+		t.Fatal(materializeErr)
+	}
+	return snapshot
 }
 
 // Invoked with a new output directory and -tags elle. Small default worlds are
@@ -346,6 +491,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			store.MarkHotProperty(11, "data")
 		}
 		var observe builtins.BuiltinFunc = recorder.observe
+		var checkpointMark builtins.BuiltinFunc = elleCheckpointMark
 		var effect builtins.BuiltinFunc = func(*builtins.Execution, []types.Value) types.Result { return types.Ok(types.NewInt(0)) }
 		effectSlot := testBuiltinSlot("elle_effect", 0, 0, nil, &effect)
 		effectSlot.Effect = builtins.Irreversible
@@ -433,6 +579,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		}
 		rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
 			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
+			testBuiltinSlot("elle_checkpoint_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &checkpointMark),
 			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
 			testBuiltinSlot("elle_torn", 1, 1, []int64{int64(types.TYPE_INT)}, &torn),
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
@@ -463,6 +610,17 @@ func TestElleIsolationHistories(t *testing.T) {
 						t.Errorf("missing committed %s%s", operation, key)
 					}
 				}
+				if fault == "" {
+					required := []string{"checkpoint_capture", "checkpoint_writer_overlap", "checkpoint_reload_read"}
+					for _, key := range keys {
+						required = append(required, "checkpoint_read/"+key)
+					}
+					for _, key := range required {
+						if paths[key] == 0 {
+							t.Errorf("%s missing actual committed path: %s", model, key)
+						}
+					}
+				}
 			}()
 			isolationprobe.Reset()
 			id := int64(100000)
@@ -481,6 +639,11 @@ func TestElleIsolationHistories(t *testing.T) {
 				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
 				id++
 			}
+			// Compare every normalized MOO row across a portable reload before
+			// concurrency, so invalid fixture metadata cannot masquerade as an
+			// isolation failure in the later checkpoint observations.
+			elleCheckpointPreflight(t, rt, store, recorder, model, id)
+			id += 2
 			// Per wave, four first attempts read the same value before any may
 			// commit. Healthy validation retries three of them; the fault that
 			// removes that row's validation deterministically loses their appends.
@@ -577,6 +740,21 @@ func TestElleIsolationHistories(t *testing.T) {
 				elleDrain(t, rt, nil)
 				isolationprobe.SetPause(nil)
 				id += 2
+				// A real checkpoint is held after the #11 property image is copied.
+				// One live transaction then appends both #11 and inherited #18 rows.
+				// Timestamp resolution must keep both old images in the reloaded read.
+				func() {
+					capture := store.CaptureCheckpoint(nil)
+					defer capture.Close()
+					isolationprobe.Note("checkpoint_capture")
+					snapshot := elleHeldCheckpoint(t, capture, func() {
+						elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, elleAppend(0, 197)+elleAppend(7, 198)+`elle_checkpoint_mark({"checkpoint_writer_overlap"});`)})
+					})
+					id++
+					capture.Close()
+					elleCheckpointRead(t, snapshot, recorder, model, id)
+					id++
+				}()
 			}
 			if model == "list-append" && paths["hot_renewal"] {
 				// Hold an old reader until a newer hot-key publication has completed.
@@ -622,6 +800,9 @@ func TestElleIsolationHistories(t *testing.T) {
 					if paths["verb_memo"] {
 						source += `if (#42:memo() != 1) raise(E_INVARG); endif `
 					}
+					if round%4 == 0 {
+						source += `elle_checkpoint_mark({"checkpoint_writer_overlap"});`
+					}
 					if round%7 == 0 {
 						source += `raise(E_DIV);`
 						elleExpectedExceptions[id] = true
@@ -647,7 +828,23 @@ func TestElleIsolationHistories(t *testing.T) {
 					batch = append(batch, elleTask(t, rt, id, source))
 					id++
 				}
-				elleDrain(t, rt, batch)
+				if round%4 == 0 {
+					func() {
+						capture := store.CaptureCheckpoint(nil)
+						defer capture.Close()
+						isolationprobe.Note("checkpoint_capture")
+						elleDrain(t, rt, batch)
+						snapshot, _, err := capture.Materialize()
+						if err != nil {
+							t.Fatal(err)
+						}
+						capture.Close()
+						elleCheckpointRead(t, snapshot, recorder, model, id)
+						id++
+					}()
+				} else {
+					elleDrain(t, rt, batch)
+				}
 			}
 			final := `return #0:invariants();`
 			if model == "list-append" {

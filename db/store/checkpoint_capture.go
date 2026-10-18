@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/MongooseMoo/barn/internal/commitgate"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -76,6 +77,14 @@ func (c *CheckpointCapture) object(id types.ObjID) *Object {
 	if id < 0 || id > c.bound {
 		return nil
 	}
+	if isolationprobe.Fault("checkpoint-live-reads") {
+		// Deliberately discard timestamp resolution for the checker negative
+		// control. Anonymous objects still use their owned boundary copies.
+		c.tx.store.mu.RLock()
+		obj := c.tx.store.load(id)
+		c.tx.store.mu.RUnlock()
+		return obj
+	}
 	return c.tx.object(id)
 }
 
@@ -109,6 +118,21 @@ func (p *anonSerializationPlan) image(v types.Value) *types.WaifImage {
 // visit uses exactly the image used by rewriting. Separate ownership closures
 // share this resolver, so task/pending ownership cannot consult a newer graph.
 func (p *anonSerializationPlan) visit(v types.Value, anon map[types.ObjID]struct{}, waifs map[types.WaifIdentity]struct{}, resolve func(types.ObjID) *Object) {
+	// Anonymous object graphs are independent of MOO value nesting depth.
+	// Expand them iteratively so even a long flat chain uses bounded stack.
+	var queue []types.ObjID
+	p.visitValue(v, anon, waifs, &queue)
+	for index := 0; index < len(queue); index++ {
+		if obj := resolve(queue[index]); validLiveObject(obj) && obj.anonymous {
+			p.visitValue(obj.lastMove, anon, waifs, &queue)
+			for _, prop := range obj.properties.all() {
+				p.visitValue(prop.value, anon, waifs, &queue)
+			}
+		}
+	}
+}
+
+func (p *anonSerializationPlan) visitValue(v types.Value, anon map[types.ObjID]struct{}, waifs map[types.WaifIdentity]struct{}, queue *[]types.ObjID) {
 	switch v.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if !v.IsAnonymous() {
@@ -119,12 +143,7 @@ func (p *anonSerializationPlan) visit(v types.Value, anon map[types.ObjID]struct
 			return
 		}
 		anon[id] = struct{}{}
-		if obj := resolve(id); validLiveObject(obj) && obj.anonymous {
-			p.visit(obj.lastMove, anon, waifs, resolve)
-			for _, prop := range obj.properties.all() {
-				p.visit(prop.value, anon, waifs, resolve)
-			}
-		}
+		*queue = append(*queue, id)
 	case types.TYPE_WAIF:
 		id := v.WaifIdentity()
 		if _, seen := waifs[id]; seen {
@@ -132,16 +151,16 @@ func (p *anonSerializationPlan) visit(v types.Value, anon map[types.ObjID]struct
 		}
 		waifs[id] = struct{}{}
 		if image := p.image(v); image != nil {
-			image.VisitValues(func(value types.Value) { p.visit(value, anon, waifs, resolve) })
+			image.VisitValues(func(value types.Value) { p.visitValue(value, anon, waifs, queue) })
 		}
 	case types.TYPE_LIST:
 		for _, value := range v.Elements() {
-			p.visit(value, anon, waifs, resolve)
+			p.visitValue(value, anon, waifs, queue)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.PairsInInsertionOrder() {
-			p.visit(pair[0], anon, waifs, resolve)
-			p.visit(pair[1], anon, waifs, resolve)
+			p.visitValue(pair[0], anon, waifs, queue)
+			p.visitValue(pair[1], anon, waifs, queue)
 		}
 	}
 }
@@ -183,6 +202,9 @@ func (c *CheckpointCapture) materialize(beforeObject func(types.ObjID)) (Snapsho
 				continue
 			}
 			snapshot.Objects[id] = snapshotObjectValue(obj)
+			if isolationprobe.Enabled {
+				isolationprobe.Pause(fmt.Sprintf("checkpoint/object-captured/%d", id))
+			}
 			if !obj.recycled && obj.flags.Has(FlagUser) {
 				snapshot.Players = append(snapshot.Players, id)
 			}
