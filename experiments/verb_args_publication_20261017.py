@@ -74,7 +74,7 @@ def calibrate(args):
     write(out / "plan.json", {"baseline_sha256": digest(args.baseline),
                               "runner_sha256": digest(__file__), "environment": ENV,
                               "gomemlimit": "unset", "platform": platform.platform(),
-                              "pairs": 10, "rows": rows})
+                              "pairs": 10, "rows": rows, "metric_mode": args.metric_mode})
 
 
 def compare(args):
@@ -115,6 +115,9 @@ def percentile(values, fraction):
 
 def analyze(args):
     plan = json.loads(Path(args.plan).read_text())
+    metric_mode = plan.get("metric_mode", "Live")
+    if metric_mode not in ("Live", "Adopt"):
+        raise RuntimeError("Unknown preregistered metric mode")
     record = json.loads(Path(args.results).read_text())
     if record["plan_sha256"] != digest(args.plan) or record["runner_sha256"] != digest(__file__):
         raise RuntimeError("Sealed plan or runner differs")
@@ -156,8 +159,9 @@ def analyze(args):
             "medians": {side: {metric: statistics.median(by_pair[p, side][metric] for p in range(1, 11))
                                for metric in ("ns", "bytes", "allocs")}
                         for side in ("baseline", "candidate")}}
-    primary = summary["rows"][row_name(("Live", 128, 512))]
-    control = summary["rows"][row_name(("Live", 1, 0))]
+    summary["metric_mode"] = metric_mode
+    primary = summary["rows"][row_name((metric_mode, 128, 512))]
+    control = summary["rows"][row_name((metric_mode, 1, 0))]
     summary["timing_gate"] = (primary["median_ns_ratio"] <= 0.8 and
                               primary["ci95"][1] < 1 and control["median_ns_ratio"] <= 1.05)
     write(args.output, summary)
@@ -170,6 +174,7 @@ def main():
     calibration = commands.add_parser("calibrate")
     calibration.add_argument("--baseline", required=True)
     calibration.add_argument("--output", required=True)
+    calibration.add_argument("--metric-mode", choices=("Live", "Adopt"), default="Live")
     comparison = commands.add_parser("compare")
     comparison.add_argument("--plan", required=True)
     comparison.add_argument("--baseline", required=True)
