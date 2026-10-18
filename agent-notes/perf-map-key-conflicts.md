@@ -107,7 +107,20 @@ Bench worktrees (detached): barn-bench-mk-master (c840f0eb), barn-bench-mk-branc
 #68987 lines/_flush/stored/seq/delivered `this.state:get(who, 0)` ->
 `` `this.state[who] ! E_RANGE => 0' `` via EvalCommandOutput(2, ...). A/B must be
 master+rewrite vs branch+rewrite (the rewrite alone drops a verb call).
-Next: driver result, commit Elle, conformance, A/B + map-key census.
+- Full Elle driver: 3 seeds true/true, 8 faults false incl. both map-key faults,
+  exit 0. Committed c7314f9b. `make conformance`: 12726 passed, 443 skipped.
+- A/B attempt 2026-10-17 ~20:05 local: INVALID, stopped. CPU 96% before the first
+  run (other sessions: docker, 3x VS Code, Everything, moo-agent shells). Both
+  first-pair runs FAILED the harness's own validity check ("commands left without
+  terminal flush acknowledgement; measurement is invalid": `say` tasks still
+  queued at the deadline), master included, so not caused by this branch. The
+  rewrite itself worked: 5 verbs changed (`seq` shows the keyed index).
+- TaskStop killed only the outer bash; mapkey-ab.sh (pid 104888) kept starting
+  runs. I stopped it and its go/engine.test children by pid after checking their
+  command lines. The script needs a trap that kills its children.
+- A read-only CPU sampling command was then DENIED by the auto-mode classifier
+  ("Interfere With Workloads"). Stopped there and reported to Q.
+Next: Q's call on measuring (needs a quieter machine, and permission); then PR.
 
 ## Surprises
 - `FlushStagedToLive` applies staged writes without validating (unless WAIFs) and
