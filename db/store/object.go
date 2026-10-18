@@ -207,9 +207,10 @@ type Verb struct {
 	// to round-trip empty-but-present programs (B6: canonical #10:special_action
 	// has an empty program that Toast still counts).
 	hasProgram bool
-	// backingOwned proves names/code were defensively copied by
-	// cloneVerbForReadTxn. Constructor/loader input has no such proof. This
-	// permits immutable sharing, never mutation of a published node.
+	// backingOwned proves names/code are detached from borrowed input, directly
+	// or through an earlier clone. cloneVerbForReadTxn keeps nodes/names private
+	// but may share immutable source. This never permits source-element or
+	// published-node mutation.
 	backingOwned bool
 
 	// Runtime-derived semantic IR and compiled-program caches do not belong in

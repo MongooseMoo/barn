@@ -252,8 +252,12 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 	clone.lowerNames = verb.lowerNames
 	// codeKey rides along in the struct copy: the clone's code is byte-identical
 	// to the original's, so the key still describes it. A later write to the
-	// clone goes through setCodeOwned/setCodeCopy, which refresh both together.
-	clone.code = append([]string(nil), verb.code...)
+	// clone goes through setCodeOwned/setCodeCopy, which replace the source array
+	// and refresh both together. Proven-owned source is therefore immutable even
+	// in a txn-private node. Borrowed constructor/loader input still needs copying.
+	if !verb.backingOwned {
+		clone.code = append([]string(nil), verb.code...)
+	}
 	clone.backingOwned = true
 	return &clone
 }
