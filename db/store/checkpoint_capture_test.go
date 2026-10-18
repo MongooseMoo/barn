@@ -323,6 +323,10 @@ func TestCheckpointCaptureRetainsAndReleasesHistory(t *testing.T) {
 	if ec := s.DirectTxn().DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
+	w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
+	if ec := s.DirectTxn().DefineProperty(0, "w", NewProperty(w, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
 	c := s.CaptureCheckpoint(nil)
 	defer c.Close()
 	write := func(n int64) {
@@ -330,6 +334,9 @@ func TestCheckpointCaptureRetainsAndReleasesHistory(t *testing.T) {
 		tx := s.BeginSnapshot(0)
 		defer tx.Release()
 		if ec := tx.SetPropertyValue(0, "n", types.NewInt(n)); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		if ec := tx.SetWaifProperty(w, "n", types.NewInt(n)); ec != types.E_NONE {
 			t.Fatal(ec)
 		}
 		if ec := tx.Commit(); ec != types.E_NONE {
@@ -349,12 +356,30 @@ func TestCheckpointCaptureRetainsAndReleasesHistory(t *testing.T) {
 	if n := s.historyLen(0); n == 0 {
 		t.Fatal("no historical versions retained for capture")
 	}
+	if n := len(s.waifHistory); n != 1 {
+		t.Fatalf("tracked WAIF histories while capture is live: %d, want 1", n)
+	}
+	t.Logf("before close: numbered_history=%d tracked_waif_histories=%d readers=%d", s.historyLen(0), len(s.waifHistory), s.HistoryStats().Readers)
+	detached := snap.Objects[0].Properties["w"].Value
+	if value, ok := detached.GetProperty("n"); !ok || value.Int() != 0 {
+		t.Fatal("capture lost historical WAIF image")
+	}
 	c.Close()
+	if n := len(s.waifHistory); n != 0 {
+		t.Fatalf("tracked WAIF histories after close: %d, want 0", n)
+	}
+	if _, ok := w.WaifImageAt(s.waifDomain, c.tx.readTS); ok {
+		t.Fatal("obsolete WAIF image remains after capture close")
+	}
 	write(21)
 	if n := s.historyLen(0); n > 1 {
 		t.Fatalf("history remained after capture close: %d", n)
 	}
+	t.Logf("after close and next write: numbered_history=%d tracked_waif_histories=%d readers=%d", s.historyLen(0), len(s.waifHistory), s.HistoryStats().Readers)
 	if c.tx.objects != nil || c.anonymous != nil || c.segments != nil || c.roots != nil || c.pending != nil {
 		t.Fatal("closed capture retains source graph")
+	}
+	if value, ok := detached.GetProperty("n"); !ok || value.Int() != 0 {
+		t.Fatal("released source history changed detached WAIF")
 	}
 }

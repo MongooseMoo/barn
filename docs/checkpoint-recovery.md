@@ -5,6 +5,29 @@ An emergency checkpoint uses `database.new.PANIC` and
 `database.new.PANIC.waifids`. The input database is never the publication target.
 The portable database format and version-1 WAIF identity sidecar are unchanged.
 
+## Running and terminal checkpoints
+
+Ordinary periodic and `dump_database()` checkpoints pause admission at a
+cooperative boundary to capture owned task/connection state, register a store
+timestamp and copy unversioned anonymous state. Tasks resume before the numbered
+object walk, graph rewriting, portable serialization and file publication.
+Materialization resolves numbered objects and WAIF images at the captured
+timestamp; it releases the retained history before writing portable bytes.
+Task, pending-finalization and store roots share the same detached graph and
+identity memo. A missing timestamp image is an error, with no live-state fallback.
+
+Capture still copies anonymous objects and task state while admission is paused.
+Its cost depends on that state, so this is not a zero-pause guarantee. Shutdown,
+signal shutdown and panic dumps keep capture, serialization and publication
+inside the barrier so resumed background tasks cannot create effects absent from
+the terminal dump. Finished hooks run after that barrier.
+
+At debug level, `checkpoint barrier timings` reports admission wait, lifecycle
+lock wait and callback duration; `checkpoint phase` reports materialization,
+serialization and publication. Callback duration excludes its logging handler,
+lock release and admission-resume tail. Debug logging itself adds overhead and
+must be separated from latency measurements.
+
 Two file renames cannot publish a pair atomically. Barn saves matching
 generations before changing either output file. For output `database.new`,
 publication creates:
