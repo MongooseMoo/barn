@@ -94,8 +94,20 @@ Committed 325b65d2 (store layer). In progress (uncommitted):
 - Process slip: built the baseline moo with `git stash`/`pop` (shell rewrite of
   tracked files); tree verified intact; memory note updated: use a detached
   worktree for baselines.
-Next: commit; Elle map row + faults; conformance; harness rewrite of Away Lines
-and measurement.
+Committed 5bf4cb65 (compiler/VM). Uncommitted: Elle rows `map-a`/`map-b`
+(#0.elle_map entries, kinds 9/10), waves 5 (four tasks on "a") and 6 (odd tokens
+"a", even "b"), faults `map-key-reads`, `map-key-rebase` in elleFaults,
+check_elle.py FAULTS, docs/elle-isolation.md. Single runs (WSL, seed 412): healthy
+true/true; map-key-reads false G-single-item on "map-a" (four "a" tasks all
+commit); map-key-rebase false G-single-item on "map-a" (a "b" commit publishes the
+stale map, reverting "a"; a later "a" task validates against the reverted value).
+Full driver running (/tmp/elle-mapkeys).
+Bench worktrees (detached): barn-bench-mk-master (c840f0eb), barn-bench-mk-branch
+(5bf4cb65), both with a SCRATCH harness block: BARN_MONGOOSE_KEYED=1 rewrites
+#68987 lines/_flush/stored/seq/delivered `this.state:get(who, 0)` ->
+`` `this.state[who] ! E_RANGE => 0' `` via EvalCommandOutput(2, ...). A/B must be
+master+rewrite vs branch+rewrite (the rewrite alone drops a verb call).
+Next: driver result, commit Elle, conformance, A/B + map-key census.
 
 ## Surprises
 - `FlushStagedToLive` applies staged writes without validating (unless WAIFs) and

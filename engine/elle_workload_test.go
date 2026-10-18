@@ -23,7 +23,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-var elleRows = []string{"property", "contents", "children", "property-definitions", "verb-definitions", "verb-code", "name", "inherited-property", "waif"}
+var elleRows = []string{"property", "contents", "children", "property-definitions", "verb-definitions", "verb-code", "name", "inherited-property", "waif", "map-a", "map-b"}
 
 func elleObject(kind int) int {
 	switch kind {
@@ -31,6 +31,8 @@ func elleObject(kind int) int {
 		return 18
 	case 8:
 		return 0 // the row is a property of the WAIF held in #0.elle_waif
+	case 9, 10:
+		return 0 // the rows are entries "a" and "b" of the map in #0.elle_map
 	}
 	return 11 + kind
 }
@@ -55,6 +57,8 @@ func elleWorld(t *testing.T) *dbstore.Store {
 			b.SetProperty("recycled", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			b.SetProperty("waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			b.SetProperty("elle_waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			entries := types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewList(nil)}, {types.NewStr("b"), types.NewList(nil)}})
+			b.SetProperty("elle_map", dbstore.NewProperty(entries, 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 		}
 		if id == 30 {
 			b.SetProperty("data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
@@ -93,6 +97,8 @@ func elleWorld(t *testing.T) *dbstore.Store {
 if (kind == 0) return o.data;
 elseif (kind == 7) return #0.child.data;
 elseif (kind == 8) return #0.elle_waif.data;
+elseif (kind == 9) return #0.elle_map["a"];
+elseif (kind == 10) return #0.elle_map["b"];
 elseif (kind == 1 || kind == 2)
  result = {}; ids = kind == 1 ? o.contents | children(o);
  for id in (ids) result = {@result, id.token}; endfor
@@ -198,17 +204,22 @@ var elleExpectedExceptions = map[int64]bool{}
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "commit-exclusion"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "commit-exclusion"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
-// WAIF property.
+// WAIF property, one map entry, and two map entries at once. In the last, odd
+// tokens append to entry "a" and even ones to "b": commits to different entries
+// of one map each keep the other's appends only because the map they publish is
+// rebuilt on the live one.
 var elleWaves = []string{
 	`v=#11.data; elle_observe("r","property",v); elle_barrier(WAVE); #11.data={@v,TOKEN}; elle_observe("append","property",TOKEN);`,
 	`v=#0:read_row(6,#17); elle_observe("r","name",v); s=#17.name; elle_barrier(WAVE); #17.name=s+" TOKEN"; elle_observe("append","name",TOKEN);`,
 	`v=#0:read_row(5,#16); elle_observe("r","verb-code",v); c=verb_code(#16,1); elle_barrier(WAVE); set_verb_code(#16,1,{@c,"TOKEN;"}); elle_observe("append","verb-code",TOKEN);`,
 	`v=#0:read_row(1,#12); elle_observe("r","contents",v); elle_barrier(WAVE); x=create(#0); x.token=TOKEN; move(x,#12); elle_observe("append","contents",TOKEN);`,
 	`v=#0:read_row(8,#0); elle_observe("r","waif",v); w=#0.elle_waif; elle_barrier(WAVE); w.data={@v,TOKEN}; elle_observe("append","waif",TOKEN);`,
+	`v=#0:read_row(9,#0); elle_observe("r","map-a",v); elle_barrier(WAVE); #0.elle_map["a"]={@v,TOKEN}; elle_observe("append","map-a",TOKEN);`,
+	`if (TOKEN % 2) v=#0:read_row(9,#0); elle_observe("r","map-a",v); elle_barrier(WAVE); #0.elle_map["a"]={@v,TOKEN}; elle_observe("append","map-a",TOKEN); else v=#0:read_row(10,#0); elle_observe("r","map-b",v); elle_barrier(WAVE); #0.elle_map["b"]={@v,TOKEN}; elle_observe("append","map-b",TOKEN); endif`,
 }
 
 func elleRegisterReads() string {
@@ -237,6 +248,8 @@ func elleAppend(kind int, n int) string {
 		write = fmt.Sprintf(`#%d.name = #%d.name + " %d";`, o, o, n)
 	case 8:
 		write = fmt.Sprintf(`w = #0.elle_waif; w.data = {@v, %d};`, n)
+	case 9, 10:
+		write = fmt.Sprintf(`#0.elle_map["%s"] = {@v, %d};`, key[len("map-"):], n)
 	}
 	return read + write + fmt.Sprintf(`elle_observe("append", "%s", %d);`, key, n)
 }
