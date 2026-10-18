@@ -114,3 +114,7 @@ from the shared `E_MAXREC` enum or a later actor issue. Retain caught/replaced
 errors and discarded-attempt distinctions. Task-lifecycle changes require the
 pinned Elle workflow as well as the unchanged managed witness and focused tests.
 No speed, memory reduction, production fix or deployment is claimed here.
+
+October 17 follow-up: [typed terminal diagnostics](mongoose-terminal-diagnostics-20261017.md)
+now record the originating task and native guard reason before handler dispatch.
+The separate handler-task identity semantic mismatch remains open.

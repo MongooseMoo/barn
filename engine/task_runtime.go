@@ -521,6 +521,10 @@ retryAttempt:
 		return nil
 	}
 
+	if result.Flow == types.FlowException {
+		metrics.TerminalException(id, result.Error, result.Reason, t.IntrinsicEval, committed)
+	}
+
 	// Intrinsic eval reports exceptions in its result record, without invoking
 	// the database's uncaught-task handler or emitting a second traceback.
 	if result.Flow == types.FlowException && t.IntrinsicEval {

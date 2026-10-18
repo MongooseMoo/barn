@@ -52,7 +52,7 @@ func main() {
 	level := flag.String("level", "warn", "Minimum level to report: debug, info, warn, error")
 	limit := flag.Int("n", 0, "Show only the last N records (0 = all)")
 	raw := flag.Bool("json", false, "Print the matching records as JSON instead of formatting them")
-	runtimeReport := flag.Bool("runtime", false, "Summarize runtime phases and threaded lifecycle (ignores -level and -n)")
+	runtimeReport := flag.Bool("runtime", false, "Summarize runtime phases, terminal exceptions and threaded lifecycle (ignores -level and -n)")
 	taskID := flag.Int64("task", -1, "With -runtime, select one task ID (-1 = all)")
 	flag.Parse()
 

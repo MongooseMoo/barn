@@ -23,6 +23,7 @@ type Result struct {
 	Val       Value             // The value (if Flow == FlowNormal or FlowReturn)
 	Flow      ControlFlow       // Control flow state
 	Error     ErrorCode         // Only set when Flow == FlowException
+	Reason    ExceptionReason   // Native origin metadata; never part of a MOO exception value
 	Label     string            // Loop label for break/continue (empty = innermost loop)
 	ForkInfo  *ForkInfo         // Only set when Flow == FlowFork
 	CallStack []ActivationFrame // Only set on exception from synchronous verb calls

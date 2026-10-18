@@ -224,7 +224,7 @@ func NewVM(store *dbstore.Store, session *builtins.Session) *VM {
 
 func (vm *VM) checkFrameLimit() error {
 	if vm.MaxStackDepth > 0 && len(vm.Frames) >= vm.MaxStackDepth {
-		return MooError{Code: types.E_MAXREC}
+		return MooError{Code: types.E_MAXREC, Reason: types.ExceptionReasonFrameDepth}
 	}
 	return nil
 }
@@ -634,15 +634,16 @@ func (vm *VM) resume() types.Result {
 			}
 			return vm.executeLoop()
 		}
-		handled, exceptionValue := vm.HandleError(VMException{
+		handled, exceptionValue, reason := vm.handleErrorWithReason(VMException{
 			Code:  errCode,
 			Value: types.None,
 		})
 		if !handled {
 			return types.Result{
-				Flow:  types.FlowException,
-				Error: errCode,
-				Val:   exceptionValue,
+				Flow:   types.FlowException,
+				Error:  errCode,
+				Reason: outwardExceptionReason(errCode, reason),
+				Val:    exceptionValue,
 			}
 		}
 		if vm.yielded {
@@ -941,7 +942,7 @@ func (vm *VM) executeLoop() types.Result {
 				}
 			}
 			// Handle error
-			handled, exceptionValue := vm.HandleError(err)
+			handled, exceptionValue, reason := vm.handleErrorWithReason(err)
 			if !handled {
 				// Extract error code, preferring the typed MooError
 				var errCode types.ErrorCode
@@ -958,6 +959,7 @@ func (vm *VM) executeLoop() types.Result {
 				return types.Result{
 					Flow:      types.FlowException,
 					Error:     errCode,
+					Reason:    outwardExceptionReason(errCode, reason),
 					Val:       exceptionValue,
 					CallStack: stackSnapshot,
 				}
@@ -988,9 +990,10 @@ func (vm *VM) executeLoop() types.Result {
 			line := vm.CurrentLine()
 			_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), line)
 			return types.Result{
-				Flow:  types.FlowException,
-				Error: types.E_MAXREC,
-				Val:   types.NewStr("E_MAXREC: tick limit exceeded"),
+				Flow:   types.FlowException,
+				Error:  types.E_MAXREC,
+				Reason: types.ExceptionReasonTickBudget,
+				Val:    types.NewStr("E_MAXREC: tick limit exceeded"),
 			}
 		}
 	}
@@ -1004,7 +1007,7 @@ func (vm *VM) executeLoop() types.Result {
 
 secondsLimit:
 	_ = vm.annotateError(newMooError(types.E_MAXREC, "seconds limit exceeded"), vm.CurrentLine())
-	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
+	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Reason: types.ExceptionReasonSecondsBudget, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
@@ -1421,7 +1424,14 @@ func (vm *VM) CurrentLine() int {
 // frames if no handler is found. This supports cross-frame exception propagation
 // for native verb calls.
 func (vm *VM) HandleError(err error) (bool, types.Value) {
+	handled, value, _ := vm.handleErrorWithReason(err)
+	return handled, value
+}
+
+// The reason travels with this particular error, never with reusable VM state.
+func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.ExceptionReason) {
 	errCode := errorCode(err)
+	reason := exceptionReason(err)
 	exceptionValue := types.None
 	var vmErr VMException
 	if errors.As(err, &vmErr) {
@@ -1473,7 +1483,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 	for len(vm.Frames) > 0 {
 		frame := vm.CurrentFrame()
 		if frame == nil {
-			return false, exceptionValue
+			return false, exceptionValue, reason
 		}
 
 		// Search this frame's ExceptStack (innermost handler first)
@@ -1487,11 +1497,11 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				// Save the pending error so after finally runs, we re-raise it
 				frame.PendingError = err
 				if exceptionValue.Type() == types.TYPE_LIST && exceptionValue.Len() == 4 {
-					frame.PendingError = VMException{Code: errCode, Value: exceptionValue}
+					frame.PendingError = VMException{Code: errCode, Value: exceptionValue, Reason: reason}
 				}
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 
 			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
@@ -1511,7 +1521,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 					}
 				}
 
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 		}
 
@@ -1522,7 +1532,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				trace.Exception(frame.This, frame.Verb, errCode)
 			}
 			// This is the bottom frame — no more frames to unwind into
-			return false, exceptionValue
+			return false, exceptionValue, reason
 		}
 
 		// Eval frame boundary: catch the error and wrap as {0, error}.
@@ -1571,22 +1581,23 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		vm.SP = base
 		if recycleContinuation != nil {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
-				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
+				Flow: types.FlowException, Error: errCode, Val: exceptionValue, Reason: reason,
 			})
 			switch result.Flow {
 			case types.FlowException:
 				errCode = result.Error
 				exceptionValue = result.Val
+				reason = result.Reason
 			case types.FlowAbortAttempt:
 				// Stop unwinding: no handler may run on an abandoned attempt.
 				// Callers see the yield and return FlowAbortAttempt.
 				vm.abortAttempt()
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 		}
 		// Continue searching in the caller frame
 	}
 
 	// No frames left
-	return false, exceptionValue
+	return false, exceptionValue, reason
 }

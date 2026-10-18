@@ -86,7 +86,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	if result.Flow == types.FlowException {
 		// Propagate builtin exceptions to executeLoop() so traceback capture
 		// happens before any stack unwinding.
-		return VMException{Code: result.Error, Value: result.Val}
+		return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 	}
 
 	// The runtime is abandoning this attempt at its irreversible-effect boundary

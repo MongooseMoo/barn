@@ -59,6 +59,9 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 }
 
 func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
+	if !frame.PendingError.ValidExceptionReason() {
+		return fmt.Errorf("invalid pending error reason")
+	}
 	if len(frame.Program.Source) == 0 {
 		return fmt.Errorf("activation has no source program")
 	}
@@ -378,5 +381,6 @@ func pendingErrorValue(pending task.VMErrorSnapshot) types.Value {
 		types.NewBool(pending.Present),
 		types.NewInt(int64(pending.Code)),
 		pending.Value,
+		types.NewInt(int64(pending.Reason)),
 	})
 }

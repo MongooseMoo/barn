@@ -14,6 +14,7 @@ import (
 type MooError struct {
 	Code   types.ErrorCode
 	Detail string
+	Reason types.ExceptionReason
 
 	detailFormat string
 	detailArgs   []any
@@ -54,12 +55,46 @@ func newMooErrorf(code types.ErrorCode, format string, args ...any) MooError {
 // VMException carries a structured exception value alongside an error code.
 // Used for propagating builtin raise() payloads into except variables.
 type VMException struct {
-	Code  types.ErrorCode
-	Value types.Value
+	Code   types.ErrorCode
+	Value  types.Value
+	Reason types.ExceptionReason
 }
 
 func (e VMException) Error() string {
 	return e.Code.String()
+}
+
+// Unwinding may replace a lifecycle callback's error while the outward MOO
+// result retains its original code. Only attach guard metadata to a compatible
+// outward code; this does not change the existing code, value or control flow.
+func outwardExceptionReason(code types.ErrorCode, reason types.ExceptionReason) types.ExceptionReason {
+	if code != types.E_MAXREC || reason > types.ExceptionReasonSecondsBudget {
+		return types.ExceptionReasonUnknown
+	}
+	return reason
+}
+
+// exceptionReason only reads typed metadata. Text, including a manually raised
+// E_MAXREC message, cannot establish which native guard produced an error.
+func exceptionReason(err error) types.ExceptionReason {
+	for err != nil {
+		switch e := err.(type) {
+		case VMException:
+			return e.Reason
+		case *VMException:
+			if e != nil {
+				return e.Reason
+			}
+		case MooError:
+			return e.Reason
+		case *MooError:
+			if e != nil {
+				return e.Reason
+			}
+		}
+		err = errors.Unwrap(err)
+	}
+	return types.ExceptionReasonUnknown
 }
 
 // extractErrorCode parses an error code from an error message string.

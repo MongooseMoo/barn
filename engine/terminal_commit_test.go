@@ -10,6 +10,11 @@ import (
 )
 
 func TestRunTaskDoesNotRecommitAfterTerminalCommitFailure(t *testing.T) {
+	assertTerminalCommitFailure(t)
+}
+
+func assertTerminalCommitFailure(t *testing.T) {
+	t.Helper()
 	store := dbstore.NewStore()
 	for _, id := range []types.ObjID{0, 1, 2} {
 		if err := store.Add(dbstore.NewObject(id, 0)); err != nil {
