@@ -44,6 +44,7 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 			tx.store.noteHotProperty(propertyReadKey{objID: c.ObjID, name: c.Name})
 		}
 	}
+	tx.validateMapKeysLocked(&errCode)
 	if !isolationprobe.Fault("verb-reads") {
 		tx.validateVerbReadsLocked(&errCode)
 	}

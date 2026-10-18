@@ -407,11 +407,18 @@ func (r *Session) CheckListLimit(list types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
-func (r *Session) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
-	limit := r.GetMaxListValueBytes()
+// ListValueLimitForTask is the max_list_value_bytes limit CheckListLimitForTask
+// applies to ctx's task: a value of that many bytes or more is E_QUOTA. Zero or
+// less means no limit.
+func (r *Session) ListValueLimitForTask(ctx *kernel.TaskContext) int {
 	if pending := pendingServerOptions(ctx); pending != nil {
-		limit = pending.MaxListValueBytes
+		return pending.MaxListValueBytes
 	}
+	return r.GetMaxListValueBytes()
+}
+
+func (r *Session) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
+	limit := r.ListValueLimitForTask(ctx)
 	if limit > 0 && ValueBytes(list) >= limit {
 		return types.E_QUOTA
 	}

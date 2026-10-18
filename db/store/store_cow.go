@@ -398,6 +398,10 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return errCode
 	}
+	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
+		tx.lostValidation()
+		return errCode
+	}
 	isolationprobe.Pause("commit/validated")
 
 	// Reserve the timestamp without moving the clock. A snapshot reads at the

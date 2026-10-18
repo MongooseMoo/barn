@@ -12,7 +12,8 @@ import sys
 # them. Kept equal to elleFaults in engine/elle_workload_test.go by
 # test_check_elle.py.
 FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
-          "waif-reads", "commit-exclusion"]
+          "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture",
+          "commit-exclusion"]
 
 
 def verdict(output, history):

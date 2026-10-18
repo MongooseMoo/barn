@@ -1,0 +1,29 @@
+name: map_key_capture
+description: Property indexing observes the map fetched before index expression side effects.
+requires:
+  builtins: [create, recycle, add_property]
+tests:
+  - name: map_key_capture_before_index_side_effect
+    steps:
+      - run: |
+          obj = create($nothing);
+          add_property(obj, "m", ["a" -> 1, "b" -> 1], {player, "rw"});
+          observed = obj.m[(obj.m["a"] = 2) ? "a" | "a"];
+          result = {observed, obj.m["a"]};
+          recycle(obj);
+          return result;
+        as: wizard
+        expect:
+          value: [1, 2]
+  - name: map_key_capture_after_own_write
+    steps:
+      - run: |
+          obj = create($nothing);
+          add_property(obj, "m", ["a" -> 1], {player, "rw"});
+          obj.m["a"] = 2;
+          result = obj.m["a"];
+          recycle(obj);
+          return result;
+        as: wizard
+        expect:
+          value: 2

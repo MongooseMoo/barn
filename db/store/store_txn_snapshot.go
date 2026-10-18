@@ -140,10 +140,19 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 	if _, staged := tx.propertyDefines[wkey]; staged {
 		return
 	}
+	rkey := propertyReadKey{objID: objID, name: key}
 	if _, staged := tx.propertyWrites[wkey]; staged {
+		// A slot written only through keyed assignments holds the snapshot's
+		// other entries, which commit replaces with the live ones. Reading it any
+		// other way depends on all of them, so it is a whole read at the version
+		// the transaction saw.
+		if st := tx.mapKeys[rkey]; st != nil && len(st.written) > 0 {
+			if _, whole := tx.propertyReads[rkey]; !whole {
+				tx.propertyReads[rkey] = st.version
+			}
+		}
 		return
 	}
-	rkey := propertyReadKey{objID: objID, name: key}
 	if tx.trackNewReads {
 		if _, seen := tx.propertyReads[rkey]; !seen {
 			tx.newReads = append(tx.newReads, rkey)

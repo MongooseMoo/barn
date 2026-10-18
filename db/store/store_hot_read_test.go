@@ -286,7 +286,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"propertyDefinitionDeletes": declines, "propertyDeletes": declines, "verbWrites": declines,
 		"verbDeletes": declines, "validationFail": declines, "privateVerbShape": declines,
 		"terminalErr": declines, "liveMutated": declines, "createdObjects": declines,
-		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines,
+		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines, "mapKeys": declines,
 		"verbMemoSeen": fresh, "verbWalk": fresh, "propWalk": fresh, "parentWalk": fresh,
 		"verbResolve": fresh, "propResolve": fresh, "trackNewReads": fresh, "newReads": fresh,
 		"conflicts": fresh, "lossCounted": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
