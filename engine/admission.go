@@ -7,6 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
+	"log/slog"
 	"time"
 )
 
@@ -40,18 +41,28 @@ func (s *Runtime) CloseInputAdmission()            { s.closeInputAdmission() }
 func (s *Runtime) AdmissionStats() admission.Stats { return s.admission.Snapshot() }
 
 // WithCheckpointBarrier captures tasks and store state at one cooperative
-// boundary. The callback must not execute MOO hooks. Mutable WAIF graphs require
-// retaining this barrier until serialization has consumed the snapshots.
+// boundary. The callback must not execute MOO hooks. Running checkpoints capture
+// owned state here and materialize/serialize after returning; terminal dumps keep
+// their complete publication inside the callback to exclude later task effects.
 func (s *Runtime) WithCheckpointBarrier(write func() error) error {
+	started := time.Now()
 	resume, err := s.admission.Pause(s.ctx)
 	if err != nil {
 		return err
 	}
 	defer resume()
+	drained := time.Now()
 	s.lifecycle.SweepMu.Lock()
 	defer s.lifecycle.SweepMu.Unlock()
 	s.lifecycle.VMStartMu.Lock()
 	defer s.lifecycle.VMStartMu.Unlock()
+	entered := time.Now()
+	defer func() {
+		slog.Debug("checkpoint barrier timings",
+			slog.Float64("admission_wait_ms", float64(drained.Sub(started))/float64(time.Millisecond)),
+			slog.Float64("lifecycle_wait_ms", float64(entered.Sub(drained))/float64(time.Millisecond)),
+			slog.Float64("callback_ms", float64(time.Since(entered))/float64(time.Millisecond)))
+	}()
 	return write()
 }
 

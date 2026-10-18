@@ -51,8 +51,21 @@ invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
+Every fourth random batch starts with a registered checkpoint capture. Writers
+commit while that handle remains owned, then the captured database is
+materialized, serialized with the portable writer, loaded through the ordinary
+reader, and read by MOO in a fresh runtime. That runtime uses the same recorder
+callback and commit effects as live workers; no synthetic transaction or store
+timestamp becomes a witness. The same unchanged MOO invariants must succeed
+before checkpoint read coverage is published. Each model separately requires
+nonzero `checkpoint_capture`, `checkpoint_writer_overlap`,
+`checkpoint_reload_read`, and `checkpoint_read/<row>` counters for every row it
+reads. Aggregate coverage cannot hide a missing model. The fixture declares its
+local property names/counts explicitly so the portable dump preserves the same
+properties that the live MOO tasks read; inherited/clear slots remain inherited.
+
 Before the random rounds, the append workload runs eight synchronized waves and
-two held pairs. In a wave, four tasks read the same row, wait at a barrier until
+three held pairs. In a wave, four tasks read the same row, wait at a barrier until
 all four have read, then append: property value, name, verb code, contents,
 WAIF property and one map entry, one wave for each validation stage. In the
 seventh wave two tasks append to map entry `a` and two to entry `b`; a commit
@@ -73,6 +86,14 @@ begins a snapshot inside that hold, reads the first row, lets the commit
 publish, then reads the second row. It must observe both appends or neither.
 No fault is needed for this one: it failed on the unmodified store until a
 commit's timestamp became the clock only after its last image was published.
+
+The checkpoint pair holds materialization immediately after copying numbered
+object #11. A live writer appends unique tokens to #11's property row and #18's
+inherited-property row in one committed task. Materialization then resumes,
+serializes, reloads, and reads every row through MOO. Both captured rows must
+exclude that writer. The `checkpoint-live-reads` fault replaces numbered-image
+timestamp resolution with live reads, so this pair captures old #11 and new
+#18; Elle must reject the resulting read transaction with an anomaly witness.
 
 For focused experiments, direct generation accepts `BARN_ELLE_PATHS` as a
 comma-separated selection of `parallel,exclusive,exclusive_gate,hot_renewal,
@@ -102,6 +123,9 @@ python3 scripts/check_elle.py \
 
 The output directory must be new. Defaults are seeds 412, 395 and 396, with 40
 rounds each, plus one run of the first seed under each deliberate fault.
+The driver first runs the real server's held-materialization test with ordinary
+and coarse admitted writers. It retains `server-materialization-go.log`, records
+the preflight command/exit in `results.json`, and fails if that test fails.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
@@ -128,6 +152,7 @@ reject the resulting append history with an anomaly witness:
 | `map-key-rebase` | rebuilding a keyed write's map on the live one at commit | two-entry wave |
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
+| `checkpoint-live-reads` | checkpoint numbered-object resolution at its registered timestamp | held checkpoint walk and atomic two-row writer |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly

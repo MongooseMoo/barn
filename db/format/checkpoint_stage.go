@@ -3,23 +3,28 @@ package format
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"time"
 
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
-// Checkpoint owns one output path from recovery through publication. Serialize
-// while world/task state is protected, then release that protection before
-// Publish performs file-only work. Call Close on every path. A handle is used
-// by one goroutine at a time.
+// Checkpoint owns one output path from recovery through publication. Capture
+// under the runtime barrier, then release it before Serialize and Publish for
+// running checkpoints. Call Close on every path. A handle has one consumer.
 type Checkpoint struct {
 	outPath, tempPath    string
 	file                 *os.File
 	identities           []types.WaifIdentity
 	release              func()
 	fs                   checkpointIO
+	capture              *store.CheckpointCapture
+	queued, suspended    []task.Snapshot
+	connections          []ActiveConnection
+	captureStarted       bool
 	serializeStarted     bool
 	serialized           bool
 	publicationAttempted bool
@@ -56,43 +61,83 @@ func beginCheckpoint(outPath, tempPath string) (*Checkpoint, error) {
 	return &Checkpoint{outPath: outPath, tempPath: tempPath, file: file, release: release, fs: fs}, nil
 }
 
-// Serialize consumes a consistent world and task view, including flushing the
-// portable writer. No snapshot objects are retained for Publish.
-func (c *Checkpoint) Serialize(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot, activeConnections []ActiveConnection) error {
-	if c.closed || c.serializeStarted {
-		return fmt.Errorf("checkpoint is closed or serialization already started")
+// Capture pins the store view alongside already-owned immutable task snapshots
+// and connections. It takes ownership of the supplied task snapshots, which the
+// caller must not modify afterward. Numbered walking and rewriting happen later.
+func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot, activeConnections []ActiveConnection) error {
+	if c.closed || c.captureStarted {
+		return fmt.Errorf("checkpoint is closed or capture already started")
 	}
-	c.serializeStarted = true
+	c.captureStarted = true
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
 	}
+	c.queued = append([]task.Snapshot(nil), queuedTasks...)
+	c.suspended = append([]task.Snapshot(nil), suspendedTasks...)
+	c.connections = append([]ActiveConnection(nil), activeConnections...)
 	taskRoots := make([]types.Value, 0)
 	collectRoot := func(value types.Value) types.Value {
 		taskRoots = append(taskRoots, value)
 		return value
 	}
-	for index := range queuedTasks {
-		queuedTasks[index].TransformPersistenceValues(collectRoot)
+	for index := range c.queued {
+		c.queued[index].TransformPersistenceValues(collectRoot)
 	}
-	for index := range suspendedTasks {
-		suspendedTasks[index].TransformPersistenceValues(collectRoot)
+	for index := range c.suspended {
+		c.suspended[index].TransformPersistenceValues(collectRoot)
 	}
-	snapshot, rewriter := objectStore.SnapshotWithRoots(taskRoots)
-	for index := range queuedTasks {
-		queuedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
+	c.capture = objectStore.CaptureCheckpoint(taskRoots)
+	return nil
+}
+
+// Serialize materializes and detaches the captured graph, releases history, then
+// writes and flushes portable bytes. Materialization failures stay ordinary errors.
+func (c *Checkpoint) Serialize() error {
+	if c.closed || c.capture == nil || c.serializeStarted {
+		return fmt.Errorf("checkpoint is closed, not captured or serialization already started")
 	}
-	for index := range suspendedTasks {
-		suspendedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
+	c.serializeStarted = true
+	materializeStart := time.Now()
+	snapshot, rewriter, err := c.capture.Materialize()
+	if err != nil {
+		c.releaseCapture()
+		c.clearTaskState()
+		logCheckpointPhase("materialize", materializeStart)
+		return fmt.Errorf("materialize checkpoint: %w", err)
 	}
+	for index := range c.queued {
+		c.queued[index].TransformPersistenceValues(rewriter.Rewrite)
+	}
+	for index := range c.suspended {
+		c.suspended[index].TransformPersistenceValues(rewriter.Rewrite)
+	}
+	c.releaseCapture()
+	logCheckpointPhase("materialize", materializeStart)
 	writer := NewWriter(c.file, snapshot)
-	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
-	writer.SetActiveConnections(activeConnections)
+	writer.SetTaskSnapshots(c.queued, c.suspended)
+	writer.SetActiveConnections(c.connections)
+	c.clearTaskState()
+	serializeStart := time.Now()
+	defer logCheckpointPhase("serialize", serializeStart)
 	if err := writer.WriteDatabase(); err != nil {
 		return fmt.Errorf("write database: %w", err)
 	}
 	c.identities = writer.waifIdentities
 	c.serialized = true
 	return nil
+}
+
+func (c *Checkpoint) releaseCapture() {
+	if c.capture != nil {
+		c.capture.Close()
+		c.capture = nil
+	}
+}
+
+func (c *Checkpoint) clearTaskState() {
+	c.queued = nil
+	c.suspended = nil
+	c.connections = nil
 }
 
 // Publish syncs and publishes only already serialized files. It never reads live
@@ -102,6 +147,8 @@ func (c *Checkpoint) Publish() error {
 		return fmt.Errorf("checkpoint is closed, not serialized or publication already started")
 	}
 	c.publishStarted = true
+	publishStart := time.Now()
+	defer logCheckpointPhase("publish", publishStart)
 	if err := c.file.Sync(); err != nil {
 		return fmt.Errorf("sync temp file: %w", err)
 	}
@@ -125,6 +172,10 @@ func (c *Checkpoint) Publish() error {
 	return publishHashedCheckpointPair(c.outPath, c.tempPath, staged, c.fs)
 }
 
+func logCheckpointPhase(phase string, started time.Time) {
+	slog.Debug("checkpoint phase", slog.String("phase", phase), slog.Int64("duration_ms", time.Since(started).Milliseconds()))
+}
+
 // Close aborts unfinished staging and releases output ownership. It is idempotent
 // and preserves recovery evidence after an attempted publication.
 func (c *Checkpoint) Close() error {
@@ -133,6 +184,8 @@ func (c *Checkpoint) Close() error {
 	}
 	c.closed = true
 	defer c.release()
+	c.releaseCapture()
+	c.clearTaskState()
 	var err error
 	if c.file != nil {
 		err = c.file.Close()

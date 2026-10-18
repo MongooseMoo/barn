@@ -128,7 +128,10 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.beginSnapshotLocked(readTS)
+}
 
+func (s *Store) beginSnapshotLocked(readTS uint64) *StoreTxn {
 	if readTS == 0 {
 		readTS = s.currentReadTSAndRegister()
 	} else {

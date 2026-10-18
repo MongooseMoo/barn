@@ -13,7 +13,7 @@ import sys
 # test_check_elle.py.
 FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
           "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture",
-          "commit-exclusion"]
+          "commit-exclusion", "checkpoint-live-reads"]
 
 
 def verdict(output, history):
@@ -49,6 +49,17 @@ def main():
     args.jar = args.jar.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     results, errors = [], []
+    server_command = ["go", "test", "-tags", "elle", "./server", "-run",
+                      "^TestCheckpointMaterializationAllowsRuntimeCommit$",
+                      "-count=1", "-v", "-timeout=2m"]
+    server_env = os.environ.copy()
+    server_env.update(BARN_ELLE_FAULT="", GOMAXPROCS="4")
+    server_code, _ = run(server_command,
+                         args.output / "server-materialization-go.log", server_env)
+    preflight = {"go_command": server_command, "exit_code": server_code}
+    print(f"server-materialization-preflight: exit={server_code}", flush=True)
+    if server_code:
+        errors.append(f"server-materialization-preflight: Go test exited {server_code}")
     # Same workload and seed under healthy validation and under each fault. The
     # synchronized waves and the held write-skew pair make every negative control
     # independent of lucky timing.
@@ -95,7 +106,7 @@ def main():
                 errors.append(f"{label}/{model}: {error}")
             results.append(record)
     (args.output / "results.json").write_text(json.dumps(
-        {"results": results, "errors": errors}, indent=2) + "\n", encoding="utf-8")
+        {"preflight": preflight, "results": results, "errors": errors}, indent=2) + "\n", encoding="utf-8")
     for error in errors:
         print(error, file=sys.stderr)
     return bool(errors)

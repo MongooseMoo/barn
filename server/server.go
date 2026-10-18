@@ -395,7 +395,8 @@ func (s *Server) checkpoint() error {
 }
 
 type checkpointStage interface {
-	Serialize(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Capture(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Serialize() error
 	Publish() error
 	Close() error
 }
@@ -461,10 +462,13 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 	if err := s.runtime.WithCheckpointBarrier(func() error {
 		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 		activeConnections := s.connManager.CheckpointConnections()
-		if err := checkpoint.Serialize(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+		if err := checkpoint.Capture(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 			return err
 		}
 		if mode == checkpointTerminal {
+			if err := checkpoint.Serialize(); err != nil {
+				return err
+			}
 			// Closing input does not stop already dispatched background tasks.
 			// Keep terminal snapshots protected until durable publication finishes.
 			return checkpoint.Publish()
@@ -474,6 +478,9 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 		return err
 	}
 	if mode == checkpointRunning {
+		if err := checkpoint.Serialize(); err != nil {
+			return err
+		}
 		return checkpoint.Publish()
 	}
 	return nil
