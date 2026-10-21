@@ -121,6 +121,33 @@ jobs:
             -q \
             --junitxml="${{ github.workspace }}/conformance-results.xml"
 
+      - name: Repeat issue 423 under CPU load
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          python3 -c 'while True: pass' &
+          load1=$!
+          python3 -c 'while True: pass' &
+          load2=$!
+          trap 'kill "$load1" "$load2"; wait "$load1" "$load2" || true' EXIT
+          for run in $(seq 1 20); do
+            kill -0 "$load1" "$load2"
+            echo "Issue 423 managed run $run/20; two CPU load workers active"
+            cat /proc/loadavg
+            uv run --project moo-conformance-tests --frozen moo-conformance _tests/vm/tick_accounting.yaml \
+              -m "admission or conformance" \
+              -k "capability_admission or tick_exhaustion_extended_opcode_does_not_test_the_budget" \
+              --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+              --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
+              --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
+              --moo-host=127.0.0.1 \
+              --oracle-profile-manifest="${{ github.workspace }}/profiles/toast/stock-wsl-testdb.json" \
+              --fail-on-unexpected-skip --strict-markers \
+              --admission-evidence-output="${{ github.workspace }}/issue-423-$run-admission.json" \
+              --admission-evidence-context="issue-423:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:$run" \
+              --junitxml="${{ github.workspace }}/issue-423-$run-results.xml" -q
+          done
+
       - name: Run Mongoose notification regressions
         run: |
           mkdir -p .tmp/conformance/db
@@ -149,4 +176,6 @@ jobs:
             conformance-admission.json
             notifications-results.xml
             notifications-admission.json
+            issue-423-*-results.xml
+            issue-423-*-admission.json
           if-no-files-found: warn

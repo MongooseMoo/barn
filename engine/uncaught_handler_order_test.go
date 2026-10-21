@@ -73,15 +73,15 @@ func TestUncaughtHandlerBeforeYieldedParent(t *testing.T) {
 	rt.ProcessReadyBatch()
 	parent := rt.GetTask(parentID)
 	want := types.NewList([]types.Value{types.NewInt(194), types.NewInt(1)})
+	probe, code := store.DirectTxn().PropertyValue(0, "v")
+	if code != types.E_NONE || !probe.Equal(want) {
+		t.Fatalf("handler's final publication = %s (%v), want %s", probe.String(), code, want.String())
+	}
+	t.Logf("handler committed %s; parent observed %s", probe.String(), parent.Result.Val.String())
 	if parent.GetState() != task.TaskCompleted || !parent.Result.Val.Equal(want) {
 		t.Fatalf("parent observed %s, want {194, 1}; dispatched while handler held=%d", parent.Result.Val.String(), resumed)
 	}
 	if resumed != 0 {
 		t.Fatalf("parent dispatched before handler publication: %d", resumed)
 	}
-	probe, code := store.DirectTxn().PropertyValue(0, "v")
-	if code != types.E_NONE || !probe.Equal(want) {
-		t.Fatalf("handler's final publication = %s (%v), want %s", probe.String(), code, want.String())
-	}
-	t.Logf("handler committed %s; parent observed %s", probe.String(), parent.Result.Val.String())
 }
