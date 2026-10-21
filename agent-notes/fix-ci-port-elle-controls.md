@@ -4,7 +4,7 @@
 Fix the demonstrated startup listener collision and overly broad commit-exclusion fault in an isolated branch from master 30700d516213cb71b2e9ef0fb2c4507008a0fda4. Leave PR #482 and all existing worktrees untouched.
 
 ## State
-Read global/project instructions and owner notes. Claude barn-ee status send was denied (request codex-status-e3d219bd3c694f9ca18f4656ed2ca981); no retry. Collection remains pending/unacknowledged. Codex bridge lists Barn runtimes idle. Parent explicitly authorized independent isolated work after this denial.
+Q approved publishing and landing this isolated work. Current upstream and overlap checks still show master 30700d51 and PR #482 at 1b817f1b. Preserve that PR and its owner worktree. Repository policy requires Build & unit tests, MOO conformance suite and the ALLGREEN merge queue; use a merge commit without deleting branches.
 
 Retained artifact 12330781347 shows commit-exclusion causes invalid WAIF publication domain or timestamp panic and info:1 unconfirmed publication; driver correctly fails despite Elle false. Baseline and PR have identical workload, store_cow.go and waif_image.go. Harness chooses then closes game port; Barn binds ephemeral HTTP endpoints before game listeners.
 
@@ -22,7 +22,7 @@ Focused commands:
 `BARN_ELLE_FAULT=commit-exclusion go test -tags elle ./internal/isolationprobe -run '^TestCommitExclusionFaultInactiveOutsideHeldPair$' -count=1 -v`
 Both exit 0 on Linux; Windows equivalents also exit 0. git diff --check exit 0.
 
-GitHub before publication check: remote master remains 30700d516213cb71b2e9ef0fb2c4507008a0fda4; only open PRs are #482 (unchanged head 1b817f1b) and unrelated #464. Local draft remains unpublished because owner contact was denied and ownership coordination remains unconfirmed.
+GitHub before publication check: remote master remains 30700d516213cb71b2e9ef0fb2c4507008a0fda4; only open PRs are #482 (unchanged head 1b817f1b) and unrelated #464.
 
 ## Decisions and why
 Smallest candidate fixes: reserve actual game listeners before optional HTTP listeners and retain those sockets through Start (roughly 35 production lines); scope commit-exclusion fault to its existing held write-skew pair (roughly 15 checker-only lines). Preserve startup probes, all workload waves, strict incomplete-evidence rejection and fault witnesses. No changes to PR #482, 20-run or notification checks.
@@ -46,4 +46,6 @@ Initial helper failed before build because WSL Git could not resolve a Windows w
 Final GitHub check: master remains 30700d516213cb71b2e9ef0fb2c4507008a0fda4; PR #482 remains 1b817f1b. Only other open PR is unrelated #464. No overlapping owner fix found.
 
 ## Next step
-Parent can resolve denied owner contact, inspect local commits/evidence, and publish a separate draft PR after rechecking overlap. Do not alter PR #482. Requested local end-to-end verification is complete; hosted CI on this unpublished branch has not run. No external disclaimers were posted. Do not modify live MUDs or workflow security settings.
+Pre-publication review traced actual reservation cleanup through WebSocket listeners. New regression TestReleaseUnstartedWebSocketReservation failed: http.Server.Close does not close a listener before Serve starts. Both early reservation release and partial-bind rollback now explicitly close the socket as well as the HTTP server. Preserve the held write-skew pair and strict Elle evidence validation unchanged.
+
+Publish a focused PR, verify exact-head CI and the merge queue, then verify post-merge checks. Do not alter PR #482, deploy live servers, retry denied agent contact, or delete branches.
