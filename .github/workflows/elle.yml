@@ -27,6 +27,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
+      - name: Demonstrate issue 423 red regression
+        env:
+          BARN_ELLE_FAULT: finished-task-index
+        run: go test -tags elle ./engine -run '^TestUncaughtHandlerBeforeYieldedParent$' -count=1 -v -timeout=1m
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
