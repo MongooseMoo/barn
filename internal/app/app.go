@@ -283,6 +283,18 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	} else {
 		trace.Init(false, nil, nil)
 	}
+	state := newLifecycle()
+	srv, err := server.NewServerWithOptions(cfg.DatabasePath, specs, cfg.CheckpointInterval, options)
+	if err != nil {
+		state.Failed()
+		return fmt.Errorf("create server: %w", err)
+	}
+	releaseListeners, err := srv.ReserveListeners()
+	if err != nil {
+		state.Failed()
+		return fmt.Errorf("reserve listeners: %w", err)
+	}
+	defer releaseListeners()
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
 		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
 		if err != nil {
@@ -291,7 +303,6 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			defer debugSrv.shutdown()
 		}
 	}
-	state := newLifecycle()
 	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
 		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
 		if err != nil {
@@ -299,11 +310,6 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		} else {
 			defer operatorSrv.shutdown()
 		}
-	}
-	srv, err := server.NewServerWithOptions(cfg.DatabasePath, specs, cfg.CheckpointInterval, options)
-	if err != nil {
-		state.Failed()
-		return fmt.Errorf("create server: %w", err)
 	}
 	srv.SetLifecycleObserver(state)
 	if cfg.ProfileManifest != "" {
