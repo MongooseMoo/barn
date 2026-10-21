@@ -283,29 +283,14 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	} else {
 		trace.Init(false, nil, nil)
 	}
-	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
-		if err != nil {
-			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
-		} else {
-			defer debugSrv.shutdown()
-		}
-	}
 	state := newLifecycle()
-	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
-		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
-		if err != nil {
-			slog.Warn("operator endpoint unavailable", slog.Any("err", err))
-		} else {
-			defer operatorSrv.shutdown()
-		}
-	}
 	srv, err := server.NewServerWithOptions(cfg.DatabasePath, specs, cfg.CheckpointInterval, options)
 	if err != nil {
 		state.Failed()
 		return fmt.Errorf("create server: %w", err)
 	}
-	srv.SetLifecycleObserver(state)
+	// Managed clients use a TCP connection as their startup signal. Publish
+	// complete profile evidence before reserving a connectable game socket.
 	if cfg.ProfileManifest != "" {
 		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry()})
 		if err != nil {
@@ -315,6 +300,29 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			return fmt.Errorf("write profile manifest: %w", err)
 		}
 	}
+	releaseListeners, err := srv.ReserveListeners()
+	if err != nil {
+		state.Failed()
+		return fmt.Errorf("reserve listeners: %w", err)
+	}
+	defer releaseListeners()
+	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
+		if err != nil {
+			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer debugSrv.shutdown()
+		}
+	}
+	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
+		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
+		if err != nil {
+			slog.Warn("operator endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer operatorSrv.shutdown()
+		}
+	}
+	srv.SetLifecycleObserver(state)
 	if err := srv.LoadDatabase(); err != nil {
 		state.Failed()
 		return fmt.Errorf("load database: %w", err)
