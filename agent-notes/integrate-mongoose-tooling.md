@@ -36,7 +36,7 @@ source reconciliation must follow the actual overlapping code.
 
 ## Next step
 
-Integrate fetched master, publish Barn and shared-suite PRs, and follow their CI.
+Master integration completed without conflict at `6fb2839d98a0921211720c5ee42e0bac0d695193`, with parents `2f979b19` and fetched master `704a1b20`. Publish Barn and shared-suite PRs and follow their CI.
 The shared fixtures must be in suite main before the final Barn CI can claim
 that coverage: Barn CI checks out that repository's main branch. Preserve all
 failed history and avoid a new gameplay speed or memory claim. Once integration
