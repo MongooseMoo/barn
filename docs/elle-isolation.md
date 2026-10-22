@@ -148,6 +148,27 @@ wide. Normal server builds compile away the hooks, the pause points and the
 faults, and cannot disable validation through this environment variable. Never
 ship a server built with this checker tag.
 
+## Task lifecycle ordering
+
+The same CI driver runs `TestUncaughtHandlerBeforeYieldedParent` with healthy
+behavior and with the `finished-task-index` fault. The test holds a real fork's
+uncaught-error handler before its write, after the fork committed 194. A
+concurrent scheduler pass must leave the yielding parent blocked. After release,
+the handler must commit `{194, 1}` and the parent must read that value.
+The fault drops killed tasks from the unfinished index before their physical
+execution ends, reproducing issue 423's premature `{194, 0}` read. It exists only
+in the `elle` build. The driver requires a completed healthy pass and a completed
+fault failure with that specific premature-read witness; other failures do not
+count as rejection. Both raw Go logs and commands/verdicts are retained.
+
+This is an explicit ordering assertion alongside Elle, not an Elle isolation
+anomaly. Serializable histories alone permit a read between the fork's commit
+and its handler's commit; the model remains unchanged.
+
+The ordinary conformance CI job also repeats the unchanged issue 423 scenario
+in 20 managed sessions, each with canonical capability admission, while two
+CPU load workers run. It retains each session's JUnit and admission evidence.
+
 The driver requires literal `true` and exit zero for every healthy history,
 and `false`, exit one and an anomaly witness for every fault append history.
 `unknown`, missing verdicts, unexpected subprocess exits, incomplete Go runs
