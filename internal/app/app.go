@@ -145,7 +145,7 @@ func validGitCommit(commit string) bool {
 	}
 	for i := range len(commit) {
 		c := commit[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

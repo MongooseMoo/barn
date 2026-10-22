@@ -13,6 +13,8 @@ source reconciliation must follow the actual overlapping code.
 ## State
 
 - Integration worktree: `C:/Users/Q/code/barn-mongoose-integration`; branch `integrate/mongoose-tooling`, starting at repair tip `225bc93b`. Fetched master is `704a1b204221380a78f536ffd8ce7246303f9b91`; primary checkout and old evidence worktrees remain untouched.
+- PRs are Barn #484 and shared-suite #134. October 22: Barn head `922b6be4` passes conformance/Elle but fails golangci-lint QF1001 at internal/app/app.go:148. Q authorized reading/fixing that failure with "Yup". Smallest repair is one equivalent boolean line, expanding the negation; no new guard or local CI run.
+- Shared-suite head `a885465f9480a6a609d3c868ef7f08a4ef7b61fe` has successful existing CI, including all three Toast profiles. Source review and exact-head merge checks remain to be completed.
 - The following measurements and checks describe the October 18 source-bound cohort, not the integrated October 21 tree. CI on the new PR must establish its current result.
 - Go repair head `05f3680ccfcddf6a94e0d73ebc57a725d6ac17d9`: numeric prepositions validated/canonicalized; parent `82c04213` buffers the WAIF identity sidecar. Earlier immutable-source sharing remains in the ancestry.
 - Controller head `f08fd946d2442c2d6cbad9c20032ab48d1599d29`: ENODATA-only readiness-log retry within the existing deadline; errors remain visible in bounded metadata.
@@ -36,7 +38,7 @@ source reconciliation must follow the actual overlapping code.
 
 ## Next step
 
-Master integration completed without conflict at `6fb2839d98a0921211720c5ee42e0bac0d695193`, with parents `2f979b19` and fetched master `704a1b20`. Publish Barn and shared-suite PRs and follow their CI.
+Master integration completed without conflict at `6fb2839d98a0921211720c5ee42e0bac0d695193`, with parents `2f979b19` and fetched master `704a1b20`. Push the one-line lint correction to Barn #484 and follow PR CI. Review/merge the valid shared-suite #134, then ensure final Barn CI consumes that suite revision.
 The shared fixtures must be in suite main before the final Barn CI can claim
 that coverage: Barn CI checks out that repository's main branch. Preserve all
 failed history and avoid a new gameplay speed or memory claim. Once integration
