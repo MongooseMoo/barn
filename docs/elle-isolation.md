@@ -127,18 +127,16 @@ reject the resulting append history with an anomaly witness:
 | `map-key-reads` | validation of map entries read through keyed access | map-entry wave |
 | `map-key-rebase` | rebuilding a keyed write's map on the live one at commit | two-entry wave |
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
-| `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
+| `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
 that fault's interleaving made, on the row it targets. With the rounds left in,
 a fault corrupts so much that Graphviz spends minutes plotting the cycles.
-The `commit-exclusion` fault skips the synchronized waves and uses its held
-write-skew pair. Running unrelated concurrent WAIF writes without the publication
-lock can panic on duplicate image timestamps before the intended witness runs.
-The single-threaded preflight still covers every row; healthy histories and the
-row-specific faults still run all waves. Native errors and unconfirmed outcomes
-remain failures.
+The commit-exclusion fault is active only around the held write-skew pair;
+the other waves retain publication serialization, including the WAIF wave whose
+image timestamps require it. The fault still must produce an Elle anomaly,
+and every generated workload must finish without unknown publication outcomes.
 
 A checker that has never been shown to reject a class of defect is not evidence
 that the class is absent. When you add a protection to validation or

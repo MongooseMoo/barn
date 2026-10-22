@@ -485,14 +485,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			// commit. Healthy validation retries three of them; the fault that
 			// removes that row's validation deterministically loses their appends.
 			if model == "list-append" && paths["parallel"] {
-				waves := elleWaves
-				if fault == "commit-exclusion" {
-					// Its witness is the held write-skew pair below. Without the
-					// publication lock, unrelated same-WAIF waves can panic on
-					// duplicate timestamps before that pair runs.
-					waves = nil
-				}
-				for wave, source := range waves {
+				for wave, source := range elleWaves {
 					var batch []*task.Task
 					for worker := 0; worker < 4; worker++ {
 						token := 100 + wave*10 + worker
