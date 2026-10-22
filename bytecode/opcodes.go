@@ -201,6 +201,17 @@ const (
 	OP_FOR_LIST_LOAD_VALUE                                            // [valuesVar,cursorVar,valueVar]
 )
 
+// Keyed access to a map-valued property, so the store can track the entry a
+// task reads or writes rather than the whole value (db/store/store_txn_mapkeys.go).
+// Each stands for the Toast opcode named and charges what it charges; the
+// property name is a static constant [index:short].
+const (
+	OP_GET_PROP_KEYED   OpCode = OP_FOR_LIST_LOAD_VALUE + 1 + iota // obj.prop of obj.prop[key] (OP_PUSH_GET_PROP): pop obj; push obj, obj.prop
+	OP_INDEX_KEYED                                                 // [key] of obj.prop[key] (OP_REF): pop key, coll, obj; push coll[key]
+	OP_GET_PROP_KEYBASE                                            // obj.prop of obj.prop[key] = v (OP_PUSH_GET_PROP): pop obj; push obj.prop
+	OP_SET_PROP_KEYED                                              // writeback of obj.prop[key] = v (OP_PUT_PROP): pop obj, key, value; set obj.prop
+)
+
 // TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
 // at or above EOP_CATCH, decrements the budget without testing it.
 const TicksUnchecked byte = 0x80
@@ -304,6 +315,10 @@ var OpCodeNames = map[OpCode]string{
 	OP_ITER_PREP_COLUMNS:     "ITER_PREP_COLUMNS",
 	OP_FOR_LIST_LOAD_COLUMNS: "FOR_LIST_LOAD_COLUMNS",
 	OP_FOR_LIST_LOAD_VALUE:   "FOR_LIST_LOAD_VALUE",
+	OP_GET_PROP_KEYED:        "GET_PROP_KEYED",
+	OP_INDEX_KEYED:           "INDEX_KEYED",
+	OP_GET_PROP_KEYBASE:      "GET_PROP_KEYBASE",
+	OP_SET_PROP_KEYED:        "SET_PROP_KEYED",
 }
 
 // String returns the name of an opcode
@@ -332,7 +347,8 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 8
 	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
 		OP_TRY_FINALLY, OP_END_FINALLY, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
-		OP_CALL_BUILTIN, OP_CALL_VERB:
+		OP_CALL_BUILTIN, OP_CALL_VERB,
+		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return 2
 	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
 		OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
@@ -415,6 +431,7 @@ var tickTable = func() (t [256]uint8) {
 		// OP_GET_PROP / OP_PUSH_GET_PROP / OP_PUT_PROP
 		OP_GET_PROP, OP_SET_PROP, OP_GET_PROP_DYNAMIC, OP_SET_PROP_DYNAMIC,
 		OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+		OP_GET_PROP_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED,
 		// arithmetic, comparison, logic, unary
 		OP_ADD, OP_STRING_APPEND, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_NEG,
 		OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_IN, OP_NOT,
@@ -424,7 +441,7 @@ var tickTable = func() (t [256]uint8) {
 		// OP_FOR_RANGE (the per-iteration test)
 		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE,
 		// OP_REF / OP_INDEXSET / OP_RANGE_REF / OP_CHECK_LIST_FOR_SPLICE
-		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE,
+		OP_INDEX, OP_INDEX_SET, OP_RANGE, OP_SPLICE, OP_INDEX_KEYED,
 		// OP_FORK / OP_FORK_WITH_ID
 		OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE,
 	} {

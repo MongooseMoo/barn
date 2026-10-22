@@ -7,6 +7,7 @@ package isolationprobe
 const Enabled = false
 
 func Fault(string) bool           { return false }
+func SetCommitExclusionPair(bool) {}
 func ActiveFault() string         { return "" }
 func SetPause(func(string))       {}
 func Pause(string)                {}

@@ -443,6 +443,10 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return errCode
 	}
+	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
+		tx.lostValidation()
+		return errCode
+	}
 	isolationprobe.Pause("commit/validated")
 
 	// Reserve the timestamp without moving the clock. A snapshot reads at the
@@ -558,6 +562,16 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			s.rememberOldImageLocked(old)
 		}
 		s.publishLocked(id, img)
+	}
+	// Each WAIF guards its own images with its own mutex. The store's WAIF history
+	// index has one mutator at a time: here under commitMu, elsewhere under
+	// store.mu.Lock, which the RLock held here excludes. A publication that
+	// changes a WAIF's references advances types.WaifGraphEpoch itself; it leaves
+	// the WAIFs that object properties hold, which waifRootsEpoch tracks, alone.
+	for _, image := range tx.waifs {
+		if image.staged != nil {
+			s.publishWaifLocked(image, ts)
+		}
 	}
 	// Every image of this commit is published: let snapshots reach it. The swap
 	// fails only if something moved the clock during the publication, which would

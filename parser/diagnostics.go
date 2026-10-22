@@ -37,6 +37,18 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 	return nil, errors.Join(errs...)
 }
 
+// ParseStoredProgram parses verb source read from a database. Toast's loader
+// gives the parser a warning callback (db_io.cc parser_client), so a call to a
+// builtin that unknown reports missing compiles as call_function("name", @args)
+// instead of failing (parser.y, tID '(' arglist ')'). unknown is asked once per
+// call, at its closing token, and owns the warning. Every other diagnostic
+// still fails the parse.
+func (p *Parser) ParseStoredProgram(unknown func(string, verb.Position) bool) (*verb.Program, error) {
+	p.lowerBuiltin = unknown
+	defer func() { p.lowerBuiltin = nil }()
+	return p.ParseProgram()
+}
+
 // ParseProgramWithDiagnostics continues only through syntactically complete
 // constructs with independent validation errors. It never skips tokens to find
 // another statement after a syntax error. checkBuiltin is compiler-owned name

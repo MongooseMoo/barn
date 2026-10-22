@@ -127,6 +127,8 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	if tx.terminalErr != types.E_NONE {
 		return tx, false, tx.terminalErr
 	}
+	// The renewed transaction carries version-checked reads only.
+	tx.degradeMapKeys()
 	if errCode := tx.validateReads(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return tx, false, errCode
@@ -378,7 +380,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// excludes RLock readers and decentralized committers, making the in-place anon
 	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	if len(tx.waifs) == 0 && !tx.liveMutated && !tx.writeFootprintHasAnon() {
+	// A WAIF read or write takes either path: both validate WAIF reads and publish
+	// staged WAIF images at the commit timestamp.
+	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		commitErr = tx.commitDecentralized()
 		if commitErr == types.E_NONE {
 			isolationprobe.Note("parallel")
@@ -401,6 +405,10 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	}
 	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
+	}
+	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
+		tx.lostValidation()
+		return errCode
 	}
 	commitErr = tx.applyStagedToLiveLocked()
 	if commitErr == types.E_NONE {

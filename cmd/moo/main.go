@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/config"
-	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 )
@@ -101,15 +100,7 @@ func openStore(path string) (*dbstore.Store, error) {
 	if path == "" {
 		return dbtool.NewMinimalStore()
 	}
-	database, err := dbformat.LoadDatabaseReadOnly(path)
-	if err != nil {
-		return nil, fmt.Errorf("load database: %w", err)
-	}
-	store, err := database.NewStoreFromDatabase()
-	if err != nil {
-		return nil, fmt.Errorf("construct store from database: %w", err)
-	}
-	return store, nil
+	return dbtool.LoadStore(path, config.DefaultOptions())
 }
 
 // repl evaluates one input per line until EOF, every line in the same session.

@@ -231,6 +231,9 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 	}
 
 	if task.GetState() != TaskSuspended {
+		if task.ReplaceWakeValue(value) {
+			return types.E_NONE
+		}
 		return types.E_INVARG
 	}
 

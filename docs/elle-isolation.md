@@ -10,8 +10,10 @@ Java is needed only by the separate checker job, never by Barn.
 ## Models and evidence
 
 The append history contains property values, contents, children, property
-definitions, verb definitions, verb code, names, inherited property values and
-a property of one WAIF that a persistent property holds.
+definitions, verb definitions, verb code, names, inherited property values,
+a property of one WAIF that a persistent property holds, and two entries of
+one map-valued property, read and written as `#0.elle_map[key]` so the store
+tracks them per key.
 Fresh objects, definition names and literal lines carry unique integer tokens.
 MOO normalizes each row into a list. A single-threaded preflight appends twice
 to every row and asserts exact order before concurrent work starts.
@@ -49,10 +51,17 @@ invariant operation and every committed append/register key. Probe counters are
 coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
-Before the random rounds, the append workload runs five synchronized waves and
+Before the random rounds, the append workload runs eight synchronized waves and
 two held pairs. In a wave, four tasks read the same row, wait at a barrier until
-all four have read, then append: property value, name, verb code, contents and
-WAIF property, one wave for each validation stage. In the write-skew pair, each task reads the
+all four have read, then append: property value, name, verb code, contents,
+WAIF property and one map entry, one wave for each validation stage. In the
+seventh wave two tasks append to map entry `a` and two to entry `b`; a commit
+to one entry keeps the other's appends only because the map it publishes is
+rebuilt on the live one. In the eighth wave the map is captured before its index
+expression writes the same entry. Each task observes the captured list, then
+appends to that list; only the final list is published. The read must keep its
+snapshot dependency even though index evaluation has now written the entry.
+In the write-skew pair, each task reads the
 row the other appends to, and both are held after validation, before
 publication, until both have validated or two seconds pass. A healthy commit
 excludes the second task while the first is held, so the first times out and
@@ -115,12 +124,19 @@ reject the resulting append history with an anomaly witness:
 | `verb-reads` | verb read, scan and dispatch-memo validation | verb-code wave |
 | `relationship-reads` | location/contents/children read validation | contents wave |
 | `waif-reads` | WAIF image read validation | WAIF wave |
-| `commit-exclusion` | the commit mutex: one commit validating and publishing at a time | write-skew pair |
+| `map-key-reads` | validation of map entries read through keyed access | map-entry wave |
+| `map-key-rebase` | rebuilding a keyed write's map on the live one at commit | two-entry wave |
+| `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
+| `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
 that fault's interleaving made, on the row it targets. With the rounds left in,
 a fault corrupts so much that Graphviz spends minutes plotting the cycles.
+The commit-exclusion fault is active only around the held write-skew pair;
+the other waves retain publication serialization, including the WAIF wave whose
+image timestamps require it. The fault still must produce an Elle anomaly,
+and every generated workload must finish without unknown publication outcomes.
 
 A checker that has never been shown to reject a class of defect is not evidence
 that the class is absent. When you add a protection to validation or

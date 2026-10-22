@@ -73,6 +73,7 @@ import (
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // --- stub connection manager ------------------------------------------------
@@ -442,6 +443,13 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase(%s): %v", dbPath, err)
 	}
+	// Mirror server boot (server.LoadDatabase): the runtime's registry compiles
+	// the snapshot's calls to builtins it lacks as call_function calls.
+	registry, err := builtins.NewRegistryFromDescriptors(config.DefaultCapabilities(), vm.Descriptors())
+	if err != nil {
+		t.Fatalf("builtin registry: %v", err)
+	}
+	database.LowerUnknownBuiltinCalls(registry.Compiler())
 	store, _ := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
 	if memStats {
@@ -487,7 +495,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// Strict arithmetic manufactures per-look E_TYPE storms this database's code
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
-	s := newRuntimeWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
+	s := newRuntimeWithRegistry(store, opts, runtime.GOMAXPROCS(0), registry)
 	// Mirror server/input_processor.go processRuntimeTick: the input processor
 	// drives the runtime's ready-task loop on a ticker. Nothing else runs a
 	// forked, suspended, or resumed task, so without this loop the fork(0)

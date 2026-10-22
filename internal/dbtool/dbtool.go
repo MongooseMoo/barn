@@ -10,11 +10,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // parseObjID parses "#N" or "N" to types.ObjID
@@ -221,6 +223,26 @@ func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession,
 }
 
 func (s *EvalSession) Close() { s.runtime.Stop() }
+
+// LoadStore reads the database at path without changing any file and builds
+// its store as the server does, compiling calls to builtins missing from the
+// registry an EvalSession with these options runs on as call_function calls.
+func LoadStore(path string, options config.Options) (*dbstore.Store, error) {
+	database, err := dbformat.LoadDatabaseReadOnly(path)
+	if err != nil {
+		return nil, fmt.Errorf("load database: %w", err)
+	}
+	registry, err := builtins.NewRegistryFromDescriptors(options.Capabilities(), vm.Descriptors())
+	if err != nil {
+		return nil, fmt.Errorf("construct builtin registry: %w", err)
+	}
+	database.LowerUnknownBuiltinCalls(registry.Compiler())
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		return nil, fmt.Errorf("construct store from database: %w", err)
+	}
+	return store, nil
+}
 
 // firstWizard mirrors Toast's emergency mode (server.cc emergency_mode): the
 // lowest-numbered object carrying the wizard flag.

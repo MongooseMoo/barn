@@ -18,6 +18,7 @@ type Parser struct {
 	collecting   bool
 	diagnostics  []*ParseError
 	checkBuiltin func(string, verb.Position) error
+	lowerBuiltin func(string, verb.Position) bool
 	sourceLoops  []sourceLoop
 	indexDepth   int
 }
@@ -404,8 +405,13 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 					}
 				}
 			}
+			name := ident.Name
+			if p.lowerBuiltin != nil && p.lowerBuiltin(ident.Name, p.current.Position) {
+				args = append([]verb.Expr{&verb.LiteralExpr{Pos: ident.Pos, Kind: verb.LiteralString, StringValue: ident.Name}}, args...)
+				name = "call_function"
+			}
 			p.nextToken() // consume ')'
-			left = &verb.BuiltinCallExpr{Pos: ident.Pos, Name: ident.Name, Args: args}
+			left = &verb.BuiltinCallExpr{Pos: ident.Pos, Name: name, Args: args}
 
 		case TOKEN_LBRACKET:
 			pos := p.current.Position

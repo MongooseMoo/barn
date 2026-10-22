@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/config"
-	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
@@ -245,13 +244,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)
 	}
 	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
-		database, err := dbformat.LoadDatabaseReadOnly(cfg.DatabasePath)
+		store, err := dbtool.LoadStore(cfg.DatabasePath, options)
 		if err != nil {
-			return fmt.Errorf("load database: %w", err)
-		}
-		store, err := database.NewStoreFromDatabase()
-		if err != nil {
-			return fmt.Errorf("construct store from database: %w", err)
+			return err
 		}
 		// As the server does after loading: return what the load allocated
 		// and no longer needs, so -eval 'memory_usage()' reports what a
@@ -319,29 +314,14 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	} else {
 		trace.Init(false, nil, nil)
 	}
-	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
-		if err != nil {
-			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
-		} else {
-			defer debugSrv.shutdown()
-		}
-	}
 	state := newLifecycle()
-	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
-		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
-		if err != nil {
-			slog.Warn("operator endpoint unavailable", slog.Any("err", err))
-		} else {
-			defer operatorSrv.shutdown()
-		}
-	}
 	srv, err := server.NewServerWithOptions(cfg.DatabasePath, specs, cfg.CheckpointInterval, options)
 	if err != nil {
 		state.Failed()
 		return fmt.Errorf("create server: %w", err)
 	}
-	srv.SetLifecycleObserver(state)
+	// Managed clients use a TCP connection as their startup signal. Publish
+	// complete profile evidence before reserving a connectable game socket.
 	if cfg.ProfileManifest != "" {
 		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry()})
 		if err != nil {
@@ -351,6 +331,29 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			return fmt.Errorf("write profile manifest: %w", err)
 		}
 	}
+	releaseListeners, err := srv.ReserveListeners()
+	if err != nil {
+		state.Failed()
+		return fmt.Errorf("reserve listeners: %w", err)
+	}
+	defer releaseListeners()
+	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
+		if err != nil {
+			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer debugSrv.shutdown()
+		}
+	}
+	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
+		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
+		if err != nil {
+			slog.Warn("operator endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer operatorSrv.shutdown()
+		}
+	}
+	srv.SetLifecycleObserver(state)
 	if err := srv.LoadDatabase(); err != nil {
 		state.Failed()
 		return fmt.Errorf("load database: %w", err)

@@ -1144,6 +1144,12 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeGetPropWide()
 	case bytecode.OP_SET_PROP_WIDE:
 		return vm.executeSetPropWide()
+	case bytecode.OP_GET_PROP_KEYED:
+		return vm.executeGetPropKeyed()
+	case bytecode.OP_GET_PROP_KEYBASE:
+		return vm.executeGetPropKeyBase()
+	case bytecode.OP_SET_PROP_KEYED:
+		return vm.executeSetPropKeyed()
 
 	// Arithmetic operations
 	case bytecode.OP_ADD:
@@ -1320,6 +1326,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Collection operations
 	case bytecode.OP_INDEX:
 		return vm.executeIndex()
+	case bytecode.OP_INDEX_KEYED:
+		return vm.executeIndexKeyed()
 	case bytecode.OP_INDEX_SET:
 		return vm.executeIndexSet()
 	case bytecode.OP_RANGE:

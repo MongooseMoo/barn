@@ -16,7 +16,15 @@ const Enabled = true
 var fault = os.Getenv("BARN_ELLE_FAULT")
 
 // Fault reports whether the named deliberate fault is active.
-func Fault(name string) bool { return fault == name }
+func Fault(name string) bool {
+	return fault == name && (name != "commit-exclusion" || commitExclusionPair.Load())
+}
+
+var commitExclusionPair atomic.Bool
+
+// SetCommitExclusionPair limits the selected commit-exclusion fault to the
+// held write-skew pair. Other waves must retain publication serialization.
+func SetCommitExclusionPair(active bool) { commitExclusionPair.Store(active) }
 
 // ActiveFault is the fault this process runs under, or "".
 func ActiveFault() string { return fault }
