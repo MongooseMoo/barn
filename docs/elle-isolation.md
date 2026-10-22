@@ -133,6 +133,12 @@ A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
 that fault's interleaving made, on the row it targets. With the rounds left in,
 a fault corrupts so much that Graphviz spends minutes plotting the cycles.
+The `commit-exclusion` fault skips the synchronized waves and uses its held
+write-skew pair. Running unrelated concurrent WAIF writes without the publication
+lock can panic on duplicate image timestamps before the intended witness runs.
+The single-threaded preflight still covers every row; healthy histories and the
+row-specific faults still run all waves. Native errors and unconfirmed outcomes
+remain failures.
 
 A checker that has never been shown to reject a class of defect is not evidence
 that the class is absent. When you add a protection to validation or
