@@ -520,10 +520,14 @@ func TestElleIsolationHistories(t *testing.T) {
 					case <-time.After(2 * time.Second):
 					}
 				})
-				elleDrain(t, rt, []*task.Task{
-					elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
-					elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
-				})
+				func() {
+					isolationprobe.SetCommitExclusionPair(true)
+					defer isolationprobe.SetCommitExclusionPair(false)
+					elleDrain(t, rt, []*task.Task{
+						elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
+						elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
+					})
+				}()
 				isolationprobe.SetPause(nil)
 				id += 2
 				// Torn snapshot: one commit appends to two rows and is held once it

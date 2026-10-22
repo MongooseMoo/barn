@@ -36,6 +36,7 @@ type Server struct {
 	checkpointedConns   []dbformat.ActiveConnection
 	dbPath              string
 	listenerSpecs       []listener.Spec
+	listenersReserved   bool
 	checkpointInterval  time.Duration
 	ordinaryDumpStarted atomic.Bool
 	options             config.Options
@@ -94,6 +95,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 	return &Server{
 		dbPath:             dbPath,
 		listenerSpecs:      append([]listener.Spec(nil), listenerSpecs...),
+		connManager:        NewConnectionManager(int(listenerSpecs[0].Port)),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
 		registry:           registry,
@@ -117,7 +119,6 @@ func (s *Server) LoadDatabase() error {
 	}
 	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
 	s.input = NewInputProcessor(s.store, s.runtime)
-	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
 
 	// Loading allocates several times what the store keeps. Collect it and
@@ -275,6 +276,19 @@ func (s *Server) GetStore() *dbstore.Store {
 	return s.store
 }
 
+// ReserveListeners binds the startup sockets before optional application
+// endpoints can consume their ports. Call before Start; the returned release
+// function also handles failures before Start takes ownership of shutdown.
+func (s *Server) ReserveListeners() (func(), error) {
+	if !s.listenersReserved {
+		if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+			return nil, err
+		}
+		s.listenersReserved = true
+	}
+	return s.connManager.CloseListeners, nil
+}
+
 // Start starts the server
 func (s *Server) Start() error {
 	s.mu.Lock()
@@ -293,7 +307,7 @@ func (s *Server) Start() error {
 
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
-	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+	if _, err := s.ReserveListeners(); err != nil {
 		if s.lifecycle != nil {
 			s.lifecycle.Failed()
 		}

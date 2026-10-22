@@ -113,9 +113,8 @@ func (cm *ConnectionManager) BindListeners(specs []listener.Spec) error {
 				if record != nil {
 					if record.httpServer != nil {
 						_ = record.httpServer.Close()
-					} else {
-						_ = record.listener.Close()
 					}
+					_ = record.listener.Close()
 				}
 			}
 			cm.listenPort = originalPort
@@ -177,8 +176,8 @@ func (cm *ConnectionManager) CloseListeners() {
 	for _, item := range records {
 		if item.record.httpServer != nil {
 			_ = item.record.httpServer.Close()
-			continue
 		}
+		// Before Serve starts, http.Server does not yet own this socket.
 		_ = item.record.listener.Close()
 	}
 	for _, item := range records {
