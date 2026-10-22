@@ -514,6 +514,13 @@ def completed_command(conn: LineConn, line: str, timeout: float) -> list[str] | 
             body.append(got)
 
 
+class ControlEvalError(RuntimeError):
+    """A failed eval retains all native output, including before background noise."""
+    def __init__(self, message, output):
+        super().__init__(message)
+        self.native_output = list(output)
+
+
 class Control:
     """A logged-in wizard connection used for eval."""
 
@@ -534,7 +541,9 @@ class Control:
         makes the server print the OUTPUTSUFFIX at suspension and the `=> `
         result line afterwards, outside the bracket; the nonce lets us wait for
         exactly this call's result and ignore stale ones. Eval output lines are
-        truncated by the server around 6000 chars, so keep results compact.
+        truncated by the world's formatter (observed near 1000 chars in the
+        gameplay checkpoint), so keep results compact. Invalid or truncated
+        literals raise ControlEvalError with the complete received output.
         Returns (value, lines) where value is None only when allow_no_result
         and the eval raised (Mongoose's #0:handle_uncaught_error swallows the
         traceback, so a failed eval is an empty bracket).
@@ -565,12 +574,15 @@ class Control:
         if result_line is None:
             if allow_no_result:
                 return None, body
-            raise RuntimeError(f"eval produced no result: {flat[:80]!r} -> {body[-8:]}")
+            raise ControlEvalError(f"eval produced no result: {flat[:80]!r} -> {body[-8:]}", body)
         try:
             tagged = parse_moo(result_line[3:])
             return tagged[1], body
-        except (ValueError, IndexError, TypeError):
-            return result_line[3:], body
+        except (ValueError, IndexError, TypeError) as error:
+            raise ControlEvalError(
+                f"eval result could not be parsed ({type(error).__name__}); "
+                "the server may have truncated it; use smaller result values", body
+            ) from None
 
     def close(self) -> None:
         self.conn.close()

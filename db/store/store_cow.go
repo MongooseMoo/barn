@@ -276,6 +276,51 @@ func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) 
 	return &img
 }
 
+// buildImageForVerbArgs detaches every non-verb facet as a full clone would, but
+// shares unchanged verb nodes whose backing arrays have already been copied.
+// The resolved target is an identity, not a map key: a shadowed primary name may
+// still select a different node through one of its aliases. The returned target
+// is always fresh; the caller stamps/edits only that node under store.mu.Lock.
+func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
+	img := cloneObjectNonVerbState(old)
+	var updated *Verb
+	if target.backingOwned {
+		copy := *target
+		updated = &copy
+	} else {
+		updated = cloneVerbForReadTxn(target)
+	}
+	var detached map[*Verb]*Verb
+	imageNode := func(node *Verb) *Verb {
+		if node == target {
+			return updated
+		}
+		if node == nil || node.backingOwned {
+			return node
+		}
+		if copy, ok := detached[node]; ok {
+			return copy
+		}
+		copy := cloneVerbForReadTxn(node)
+		if detached == nil {
+			detached = make(map[*Verb]*Verb)
+		}
+		detached[node] = copy
+		return copy
+	}
+	img.verbList = make([]*Verb, 0, len(old.verbList))
+	for _, node := range old.verbList {
+		img.verbList = append(img.verbList, imageNode(node))
+	}
+	img.verbs = make(map[string]*Verb, len(old.verbs))
+	for key, node := range old.verbs {
+		img.verbs[key] = imageNode(node)
+	}
+	// Args do not alter alias spellings/order or the index's list positions.
+	img.verbIdx = old.verbIdx
+	return img, updated
+}
+
 // buildImageWithVerbDelete returns a new immutable image with the exact current
 // verb-list index removed. Transaction commit calls it in staged order only
 // after validating the starting verb-list generation and every shifted index.

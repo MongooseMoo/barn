@@ -172,3 +172,28 @@ multiple times, and background work could contaminate even a one-player sample.
 Use the cohort commit census or task-filtered records. `max` now means the true
 maximum successful-command latency observed, including outside the percentile
 reservoir; `p999` is printed separately. Failed/unsettled commands remain separate.
+
+With diagnostics and debug logging enabled, `terminal task exception` records
+identify the originating task before the database's error handler runs. They
+contain its task ID, root receiver/verb, native error enum, `intrinsic_eval` and
+`committed`. A false `committed` identifies a terminal commit failure rather than
+an application exception whose writes published. Discarded retries, caught errors,
+suspensions and canceled tasks do not produce terminal exception records.
+Intrinsic eval exceptions do produce records, even though they bypass the
+database handler. The handler currently runs as a separate Barn task; its
+`task_id()` must not be used as the originating ID.
+
+`reason` is typed metadata from the actual VM guard: `frame_depth`, `tick_budget`
+or `seconds_budget`. `unknown` includes explicit `raise(E_MAXREC)`, unclassified
+errors and old checkpoints without this metadata. Error messages cannot supply
+a reason. Finally/suspension carries the pending error's reason; catching or
+replacing that error does not transfer it to a new exception. This metadata is
+not added to MOO-visible error tuples.
+
+`barn_logs -runtime -task ID` and its JSON output include a fixed-vocabulary
+terminal exception census, split by enum, reason, intrinsic eval and commit
+outcome. Detailed records exclude messages, exception values, arguments and
+source. A capture with no records cannot prove there were no exceptions: it may
+predate this collector, start late or have diagnostics disabled. Correlate the
+origin ID with task-filtered runtime records and profiles from the same process;
+an actor's latest issue can belong to unrelated work.

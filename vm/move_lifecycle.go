@@ -129,5 +129,7 @@ func moveLifecycleErrorResult(err error) types.Result {
 	if errCode == types.E_NONE {
 		errCode = types.E_INVARG
 	}
-	return types.Err(errCode)
+	result := types.Err(errCode)
+	result.Reason = exceptionReason(err)
+	return result
 }

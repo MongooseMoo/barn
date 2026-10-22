@@ -7,6 +7,8 @@ import (
 	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Phase is a fixed vocabulary: no task IDs, verbs, SQL or arguments become
@@ -151,5 +153,18 @@ func RuntimeEvent(stage string, id Identity, generation uint64, accepted bool) {
 			slog.String("stage", stage), slog.Int64("task_id", id.TaskID),
 			slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.Uint64("generation", generation), slog.Bool("accepted", accepted))
+	}
+}
+
+// TerminalException identifies a finalized exception before a database handler
+// can replace the current task or issue history. Call only after retry,
+// cancellation and suspension decisions. Payloads and rendered errors are never
+// accepted here. Like phase records, this requires diagnostic opt-in and debug.
+func TerminalException(id Identity, code types.ErrorCode, reason types.ExceptionReason, intrinsicEval, committed bool) {
+	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		slog.LogAttrs(context.Background(), slog.LevelDebug, "terminal task exception",
+			slog.Int64("task_id", id.TaskID), slog.Int64("this", id.This), slog.String("verb", id.Verb),
+			slog.String("error", code.String()), slog.String("reason", reason.String()),
+			slog.Bool("intrinsic_eval", intrinsicEval), slog.Bool("committed", committed))
 	}
 }

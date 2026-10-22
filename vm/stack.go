@@ -166,7 +166,7 @@ func (vm *VM) Return(value types.Value) error {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {
 		case types.FlowException:
-			return VMException{Code: result.Error, Value: result.Val}
+			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
 			return nil
 		case types.FlowNormal, types.FlowReturn:
@@ -180,7 +180,7 @@ func (vm *VM) Return(value types.Value) error {
 		result := vm.resumeRecycleLifecycle(recycleContinuation, types.Ok(value))
 		switch result.Flow {
 		case types.FlowException:
-			return VMException{Code: result.Error, Value: result.Val}
+			return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 		case types.FlowBuiltinPush:
 			return nil
 		case types.FlowNormal, types.FlowReturn:

@@ -1,0 +1,84 @@
+name: repeated_list_halving
+description: >
+  The immutable Mongoose list builder uses integer halving and list splices.
+  Preserve its body and invoke it through an explicit test-owned driver.
+# Source: FAB6957... checkpoint #55:make, fingerprint
+# cc454a0bf08c08fac30bdad9d0bebb142bdaa5bf700cd1524fadaa4ff3594cfb.
+requires:
+  builtins: [create, recycle, add_property, add_verb, set_verb_code]
+tests:
+  - name: repeated_list_halving_explicit_driver
+    steps:
+      - run: |
+          low = create($nothing);
+          low.programmer = 1;
+          helper = create($nothing);
+          driver = create($nothing);
+          try
+            add_property(driver, "target", helper, {low, "r"});
+            add_verb(helper, {low, "rxd", "repeat_elements"}, {"this", "none", "this"});
+            errors = set_verb_code(helper, "repeat_elements", {
+              "\":make(n[,elt]) => a list of n elements, each of which == elt. elt defaults to 0.\";",
+              "{n, ?elt = 0} = args;",
+              "if (n < 0)",
+              "return E_INVARG;",
+              "endif",
+              "ret = {};",
+              "build = {elt};",
+              "while (1)",
+              "if (n % 2)",
+              "ret = {@ret, @build};",
+              "endif",
+              "if (n = n / 2)",
+              "build = {@build, @build};",
+              "else",
+              "return ret;",
+              "endif",
+              "endwhile"
+            });
+            if (errors) raise(E_INVARG, "helper compile failed", errors); endif
+            add_verb(helper, {low, "rxd", "checked_repeat"}, {"this", "none", "this"});
+            errors = set_verb_code(helper, "checked_repeat", {
+              "if (caller != args[1]) raise(E_INVARG); endif",
+              "return this:repeat_elements(@args[2..$]);"
+            });
+            if (errors) raise(E_INVARG, "wrapper compile failed", errors); endif
+            add_verb(driver, {low, "rxd", "invoke"}, {"this", "none", "this"});
+            errors = set_verb_code(driver, "invoke", {
+              "if (this != args[1]) raise(E_INVARG); endif",
+              "return this.target:checked_repeat(this, @args[2..$]);"
+            });
+            if (errors) raise(E_INVARG, "driver compile failed", errors); endif
+            add_verb(driver, {low, "rxd", "computed_splice"}, {"this", "none", "this"});
+            errors = set_verb_code(driver, "computed_splice", {
+              "if (this != args[1]) raise(E_INVARG); endif",
+              "all = args[2]; shorts = args[3]; nothers = {};",
+              "nothers = {@nothers, @this.target:repeat_elements(length(all)-1, length(shorts))};",
+              "return nothers;"
+            });
+            if (errors) raise(E_INVARG, "splice driver compile failed", errors); endif
+            result = {};
+            for n in ({0, 1, 2, 3, 5})
+              result = {@result, driver:invoke(driver, n, 7)};
+            endfor
+            result = {@result, driver:invoke(driver, 3)};
+            result = {@result, driver:computed_splice(driver, {"at"}, {"at"})};
+            result = {@result, driver:computed_splice(driver, {"at", "to"}, {"at"})};
+            result = {@result, driver:computed_splice(driver, {"at", "to", "with"}, {"at", "to"})};
+          finally
+            recycle(driver);
+            recycle(helper);
+            recycle(low);
+          endtry
+          return result;
+        as: wizard
+        expect:
+          value: [[], [7], [7, 7], [7, 7, 7], [7, 7, 7, 7, 7], [0, 0, 0], [], [1], [2, 2]]
+  - name: repeated_list_integer_halving_assignment
+    steps:
+      - run: |
+          n = 1;
+          if (n = n / 2) return {"taken", n}; endif
+          return {"done", n};
+        expect:
+          value: ["done", 0]

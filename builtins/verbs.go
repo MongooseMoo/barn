@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -27,6 +28,32 @@ func matchPrepSpec(s string) int {
 		return -2 // Special value for none/any
 	}
 	return int(prep)
+}
+
+// canonicalSetterPrepSpec accepts named prepositions and unsigned decimal
+// table indices. Signs, whitespace, trailing text and overflowing indices are
+// invalid; MOO code can use the first out-of-range error to end enumeration.
+func canonicalSetterPrepSpec(s string) (string, bool) {
+	if prep, ok := languageverb.ParsePreposition(s); ok {
+		return prep.Canonical()
+	}
+	if s == "" {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return "", false
+		}
+	}
+	code, err := strconv.Atoi(s)
+	if err != nil {
+		return "", false
+	}
+	prep, ok := languageverb.PrepositionFromCode(code)
+	if !ok {
+		return "", false
+	}
+	return prep.Canonical()
 }
 
 // unparsePrepSpec returns the full prep string for a prep value stored in verb
@@ -622,7 +649,15 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 	// Parse args list (1-indexed)
 	// Accept either string or object values (objects get converted to string)
 	dobjStr := valueToArgSpec(argsList.Get(1))
-	prepStr := valueToArgSpec(argsList.Get(2))
+	prepValue := argsList.Get(2)
+	prepStr := valueToArgSpec(prepValue)
+	if prepValue.Type() == types.TYPE_STR {
+		var ok bool
+		prepStr, ok = canonicalSetterPrepSpec(prepStr)
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+	}
 	iobjStr := valueToArgSpec(argsList.Get(3))
 
 	argSpec := dbstore.VerbArgs{
