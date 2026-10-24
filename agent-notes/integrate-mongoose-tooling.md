@@ -38,11 +38,11 @@ source reconciliation must follow the actual overlapping code.
 
 ## Next step
 
-Master integration completed without conflict at `6fb2839d98a0921211720c5ee42e0bac0d695193`, with parents `2f979b19` and fetched master `704a1b20`. Lint correction `fb892565` is pushed and its three Barn CI checks pass. Shared-suite PR #134 is now `f38be333`, with a completed source-review gate and current Toast profiles last observed running.
+Master integration completed without conflict at `6fb2839d98a0921211720c5ee42e0bac0d695193`, with parents `2f979b19` and fetched master `704a1b20`. Lint correction `fb892565` is pushed and its three Barn CI checks pass. On October 24, root verified shared-suite PR #134 was merged by ctoth at `2026-10-24T19:36:02Z` as `c8a485b061ce29b449f13e0892485b51490638da`, with two parents and all current-head checks successful. Suite main is now `be876f59bd30815df46b7a318dc3e1bb0e6cc614`, also containing the resume-unrun coverage from #132; numeric fixture content still matches reviewed `f38be333`.
 
-Paused for Q after the verifier's convergence read failed: it named nonexistent `task/persistence.go` in a multi-file search (exit 2), contrary to the existing path-discovery instruction. Root confirmed `Test-Path=False`; no retry or source change followed. The Barn ledger honestly records only pass 1 complete (104 files/139 hunks), not a complete review. Q has been asked to resume read-only review using discovered paths, then finish CI/merge work. This handoff is committed locally without pushing another CI head while paused.
-The shared fixtures must be in suite main before the final Barn CI can claim
-that coverage: Barn CI checks out that repository's main branch. Preserve all
+The earlier pause followed the verifier naming nonexistent `task/persistence.go` in a multi-file search (exit 2), contrary to the existing path-discovery instruction. Root confirmed `Test-Path=False` and retained the incomplete review rather than claiming completion. Q resumed work with "Keepagoin" on October 24; the same verifier is completing the existing convergence pass using discovered paths. The existing ledger's pass 1 covers 104 files/139 hunks. No replacement review, new guard or local CI run is added.
+
+Publish this handoff-only update so final Barn PR CI runs after the shared fixtures reached suite main. Finish the existing current-head review gate, inspect final CI's actual suite checkout and numeric-case results, and merge PR #484 only if valid. Its earlier green run predates the merged numeric coverage and does not establish that final check. Preserve all
 failed history and avoid a new gameplay speed or memory claim. Once integration
 is merged, regroup around work rooted at `#1007:s_run` and property-slice lifetime
 as separate bounded investigations; this integration adds no further optimization.
