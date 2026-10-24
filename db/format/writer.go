@@ -165,6 +165,11 @@ func (w *Writer) writeBool(b bool) error {
 
 // writeValue writes a type-tagged value (type code on its own line, then value)
 func (w *Writer) writeValue(v types.Value) error {
+	// The internal uninitialized-local sentinel reports TYPE_INT publicly,
+	// but native runtime environments persist it as NONE without a payload.
+	if v.IsUnbound() {
+		return w.writeInt(TypeNone)
+	}
 	// None (the de-boxed nil sentinel) represents CLEAR (for clear properties).
 	// IsNone MUST be checked before the Type() switch: None.Type() reports
 	// TYPE_INT, so a tag switch alone would mis-serialize it as integer 0.

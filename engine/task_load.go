@@ -7,6 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -123,7 +124,6 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	t.ForkCreator = s
 	t.ForkInfo = &types.ForkInfo{
 		SourceLines: append([]string(nil), saved.Code...),
-		Variables:   copyValueMap(saved.Variables),
 		ThisObj:     saved.This,
 		Player:      saved.Player,
 		Caller:      saved.Player,
@@ -143,8 +143,26 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
-	for name, value := range saved.Variables {
-		vm.SetLocalByName(frame, prog, name, value)
+	// A restored fork runs the recompiled isolated body. Its environment must
+	// use that program's names, not the enclosing parent's saved name table.
+	// Native reorder_rt_env leaves unmatched slots uninitialized, including
+	// implicit type constants; this is not a fresh verb's initialization.
+	t.ForkInfo.Variables = make(map[string]types.Value, len(prog.VarNames))
+	for slot, name := range prog.VarNames {
+		value := types.Unbound
+		matched := false
+		for savedName, savedValue := range saved.Variables {
+			if strings.EqualFold(savedName, name) {
+				// The reader's map has lost serialized order. Reject ambiguous
+				// spellings instead of guessing native's first-match value.
+				if matched {
+					return fmt.Errorf("ambiguous saved local %q", name)
+				}
+				value, matched = savedValue, true
+			}
+		}
+		frame.Locals[slot] = value
+		t.ForkInfo.Variables[name] = frame.Locals[slot]
 	}
 	t.SetBytecodeVM(machine)
 
@@ -170,15 +188,4 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		}
 	}
 	return nil
-}
-
-func copyValueMap(values map[string]types.Value) map[string]types.Value {
-	if len(values) == 0 {
-		return nil
-	}
-	copied := make(map[string]types.Value, len(values))
-	for key, value := range values {
-		copied[key] = value
-	}
-	return copied
 }

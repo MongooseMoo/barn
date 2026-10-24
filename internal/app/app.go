@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/dbtool"
@@ -102,23 +103,53 @@ func formatListenerSpecs(specs []listener.Spec) string {
 }
 
 func gitImplementationRef() string {
-	commit, err := gitOutput("rev-parse", "HEAD")
-	if err != nil {
+	// Optional provenance must not indefinitely delay loading or listening.
+	// Both commands consume this one budget, including time spent reading HEAD.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	commit, err := gitOutput(ctx, "rev-parse", "HEAD")
+	if err != nil || !validGitCommit(commit) {
 		return "unknown tracked_dirty=unknown"
 	}
-	dirty := "false"
-	if err := exec.Command("git", "diff", "--quiet", "--").Run(); err != nil {
-		dirty = "true"
+	dirty := "unknown"
+	cmd := exec.CommandContext(ctx, "git", "diff", "--quiet", "--")
+	cmd.WaitDelay = 100 * time.Millisecond
+	err = cmd.Run()
+	if ctx.Err() == nil {
+		if err == nil {
+			dirty = "false"
+		} else {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				dirty = "true"
+			}
+		}
 	}
 	return fmt.Sprintf("%s tracked_dirty=%s", commit, dirty)
 }
 
-func gitOutput(args ...string) (string, error) {
-	out, err := exec.Command("git", args...).Output()
+func gitOutput(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	// A child can exit while a descendant still holds its output pipe open.
+	cmd.WaitDelay = 100 * time.Millisecond
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func validGitCommit(commit string) bool {
+	if len(commit) != 40 && len(commit) != 64 {
+		return false
+	}
+	for i := range len(commit) {
+		c := commit[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func printProfiles(out, errOut io.Writer, registry profile.Registry) {

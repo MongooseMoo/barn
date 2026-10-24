@@ -63,6 +63,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 		}
 		if frame.PendingError != nil {
 			saved.PendingError.Present = true
+			saved.PendingError.Reason = exceptionReason(frame.PendingError)
 			switch pending := frame.PendingError.(type) {
 			case VMException:
 				saved.PendingError.Code = pending.Code
@@ -164,8 +165,9 @@ func RestoreVMSnapshot(
 		}
 		if saved.PendingError.Present {
 			frame.PendingError = VMException{
-				Code:  saved.PendingError.Code,
-				Value: saved.PendingError.Value,
+				Code:   saved.PendingError.Code,
+				Value:  saved.PendingError.Value,
+				Reason: saved.PendingError.Reason,
 			}
 		}
 		machine.Frames = append(machine.Frames, frame)
@@ -205,6 +207,9 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	stackBase := 0
 	for frameIndex := range snapshot.Frames {
 		saved := &snapshot.Frames[frameIndex]
+		if !saved.PendingError.ValidExceptionReason() {
+			return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+		}
 		if err := bytecode.VerifyProgram(&saved.Program); err != nil {
 			return fmt.Errorf("frame %d: %w", frameIndex, err)
 		}

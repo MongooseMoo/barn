@@ -382,10 +382,25 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	}
 
 	pending := value.Get(8)
+	// This list is Barn-private frame metadata, not a MOO exception tuple.
+	// Older checkpoints have three fields and leave the native origin unknown.
+	if pending.Type() != types.TYPE_LIST || (pending.Len() != 3 && pending.Len() != 4) {
+		return frame, fmt.Errorf("invalid pending error metadata")
+	}
 	frame.PendingError = task.VMErrorSnapshot{
 		Present: pending.Get(1).Truthy(),
 		Code:    types.ErrorCode(pending.Get(2).Int()),
 		Value:   pending.Get(3),
+	}
+	if pending.Len() == 4 {
+		reason := pending.Get(4)
+		if reason.Type() != types.TYPE_INT || reason.Int() < 0 || reason.Int() > int64(types.ExceptionReasonSecondsBudget) {
+			return frame, fmt.Errorf("invalid pending error reason")
+		}
+		frame.PendingError.Reason = types.ExceptionReason(reason.Int())
+	}
+	if !frame.PendingError.ValidExceptionReason() {
+		return frame, fmt.Errorf("invalid pending error reason")
 	}
 	flags := value.Get(9)
 	frame.VerbDebug = flags.Get(1).Truthy()

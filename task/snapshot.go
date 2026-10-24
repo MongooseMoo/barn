@@ -100,6 +100,14 @@ type VMErrorSnapshot struct {
 	Present bool
 	Code    types.ErrorCode
 	Value   types.Value
+	Reason  types.ExceptionReason
+}
+
+// ValidExceptionReason rejects metadata that cannot originate at these guards.
+// Legacy or manually raised errors have an unknown reason, for any error code.
+func (s VMErrorSnapshot) ValidExceptionReason() bool {
+	return s.Reason <= types.ExceptionReasonSecondsBudget &&
+		(s.Reason == types.ExceptionReasonUnknown || (s.Present && s.Code == types.E_MAXREC))
 }
 
 // IsInterruptedForPersistence reports whether the database writer emits this

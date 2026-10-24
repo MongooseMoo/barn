@@ -319,7 +319,9 @@ func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
 	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, &resolved); err != nil {
-		return types.Err(errorCode(err))
+		result := types.Err(errorCode(err))
+		result.Reason = exceptionReason(err)
+		return result
 	}
 	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread
 	// mode rather than the default one (functions.cc call_bi_func).

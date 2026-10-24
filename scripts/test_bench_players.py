@@ -116,6 +116,30 @@ class ScriptedConnection:
         return next(self.lines, None)
 
 
+class ControlResultTests(unittest.TestCase):
+    def control(self):
+        control = bench.Control.__new__(bench.Control)
+        control.conn = ScriptedConnection([])
+        control._seq = 0
+        return control
+
+    def test_truncated_tagged_result_fails_with_native_output(self):
+        output = ['=> {"bp1", ["cycle" -> 3, "velocity" -> {0.499909530400231, ...']
+        with patch.object(bench, "bracketed", return_value=output):
+            with self.assertRaises(bench.ControlEvalError) as raised:
+                self.control().eval('return ["cycle" -> 3];')
+        self.assertEqual(raised.exception.native_output, output)
+        self.assertIn("could not be parsed", str(raised.exception))
+
+    def test_complete_tagged_map_preserves_typed_values(self):
+        output = ['=> {"bp1", ["actor" -> #42, "velocity" -> {0.499909530400231, -0.866077630131976, 0.0}]}']
+        with patch.object(bench, "bracketed", return_value=output):
+            value, native = self.control().eval('return ["actor" -> #42];')
+        self.assertIsInstance(value["actor"], bench.MooObj)
+        self.assertEqual(value["velocity"], [0.499909530400231, -0.866077630131976, 0.0])
+        self.assertEqual(native, output)
+
+
 class CommandCompletionTests(unittest.TestCase):
     # run_window fixes its deadline before the worker thread starts. The first
     # unacknowledged command stops the worker, so a long window costs nothing,
