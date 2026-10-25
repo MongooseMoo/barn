@@ -21,6 +21,7 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 	}
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
+		tx.markObjectScalarRead(objID, obj)
 		return types.E_NONE
 	}
 	if obj != nil && obj.recycled {
@@ -33,7 +34,14 @@ func (tx *StoreTxn) Valid(objID types.ObjID) bool {
 	if tx.direct {
 		return tx.store.valid(objID)
 	}
-	return validLiveObject(tx.object(objID))
+	// A true answer depends on objID staying live; the scalar read fails
+	// validation if a concurrent commit recycles it.
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return false
+	}
+	tx.markObjectScalarRead(objID, obj)
+	return true
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
