@@ -458,7 +458,7 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	perms := parseVerbPerms(permsStr.Str())
 
 	// Create the verb
-	verb := dbstore.NewVerb(names[0], names, ownerID, perms, dbstore.VerbArgs{
+	verb := dbstore.NewVerb(strings.Join(names, " "), names, ownerID, perms, dbstore.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,

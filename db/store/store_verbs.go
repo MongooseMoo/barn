@@ -570,7 +570,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	verb.names = append([]string(nil), names...)
 	verb.lowerNames = loweredNames(verb.names)
 	if len(verb.names) > 0 {
-		verb.name = verb.names[0]
+		verb.name = strings.Join(verb.names, " ")
 	}
 	obj.rebuildVerbIndex()
 	stampVerb(verb, ts)
