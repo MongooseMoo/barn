@@ -2,6 +2,7 @@ package store
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -102,7 +103,7 @@ func calculateObjectBytes(obj *Object) int {
 
 	for _, verb := range obj.verbList {
 		count += 32
-		count += len(verb.name) + 1
+		count += len(strings.Join(verb.names, " ")) + 1
 		// Compiled programs are cached outside the verb (package bytecode), so
 		// the estimate leaves them out.
 	}

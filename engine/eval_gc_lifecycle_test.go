@@ -29,7 +29,6 @@ func TestEvalRunGCCallbackCreatedAnonymousSurvivesNextEvalYield(t *testing.T) {
 		}
 	}
 	recycleVerb := dbstore.NewVerb(
-		"recycle",
 		[]string{"recycle"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -109,7 +108,6 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 		}
 	}
 	recycleVerb := dbstore.NewVerb(
-		"recycle",
 		[]string{"recycle"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

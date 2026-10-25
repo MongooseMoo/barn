@@ -181,9 +181,10 @@ type Verb struct {
 	// carried by every struct copy of the node (code edits, renames, COW images,
 	// txn clones). Transaction read and write sets key verbs by it. Never
 	// persisted; a load assigns fresh ids.
-	id    uint64
-	name  string
-	names []string // All verb names (aliases) - first is primary
+	id uint64
+	// names is every alias in order; the first is primary. The persisted name
+	// string is strings.Join(names, " "), which the loader splits back.
+	names []string
 	// lowerNames mirrors names, pre-lowercased for dispatch. Verb-name matching
 	// is case-insensitive and runs per-alias per-candidate on every verb call;
 	// lowering here once (profile: strings.ToLower was 8.7% of total CPU on the
@@ -230,7 +231,6 @@ type Verb struct {
 // headers by value (the backing arrays are read-only at call sites); the store
 // never hands out a live *Verb to external callers.
 type VerbView struct {
-	Name    string
 	Names   []string
 	Owner   types.ObjID
 	Perms   VerbPerms
@@ -368,9 +368,8 @@ func (o *Object) verbByID(id uint64) *Verb {
 // NewVerb builds a Verb value from its fields. It is the only way for external
 // packages (the loader in db/format, builtins, the conformance fixture, and
 // tests) to construct a Verb without touching unexported fields.
-func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
+func NewVerb(names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
 	return Verb{
-		name:       name,
 		names:      names,
 		lowerNames: loweredNames(names),
 		owner:      owner,
@@ -420,7 +419,6 @@ func (v *Verb) setCodeCopy(lines []string) {
 // View returns a flat read-only snapshot of the verb.
 func (v *Verb) View() VerbView {
 	return VerbView{
-		Name:       v.name,
 		Names:      v.names,
 		Owner:      v.owner,
 		Perms:      v.perms,

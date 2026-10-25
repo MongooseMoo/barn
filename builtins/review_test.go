@@ -36,7 +36,7 @@ func mustCreate(t *testing.T, store *dbstore.Store, parents []types.ObjID, owner
 // mustAddVerb adds a verb to an object and fails the test on error.
 func mustAddVerb(t *testing.T, store *dbstore.Store, objID types.ObjID, verbName string, owner types.ObjID, perms dbstore.VerbPerms) {
 	t.Helper()
-	verb := dbstore.NewVerb(verbName, []string{verbName}, owner, perms, dbstore.VerbArgs{
+	verb := dbstore.NewVerb([]string{verbName}, owner, perms, dbstore.VerbArgs{
 		This: "none", Prep: "none", That: "none",
 	}, []string{`return 1;`})
 	if _, ec := store.AddVerb(objID, verb); ec != types.E_NONE {

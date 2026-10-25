@@ -96,7 +96,6 @@ func TestDeferredAnonymousGCRecycleUsesStandaloneCallerWithCompletedTask(t *test
 		t.Fatalf("create anonymous class: %v", errCode)
 	}
 	if _, errCode := store.AddVerb(class, dbstore.NewVerb(
-		"recycle",
 		[]string{"recycle"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -143,7 +142,6 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 	probeVerb := dbstore.NewVerb(
-		"sweep_probe",
 		[]string{"sweep_probe"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -392,7 +390,6 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 	verb := dbstore.NewVerb(
-		"server_probe",
 		[]string{"server_probe"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

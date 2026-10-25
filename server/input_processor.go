@@ -747,7 +747,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", match.Verb.Name))
+	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", strings.Join(match.Verb.Names, " ")))
 }
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {

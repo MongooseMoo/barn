@@ -333,7 +333,7 @@ func (s *Store) verbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		names = append(names, verb.name)
+		names = append(names, strings.Join(verb.names, " "))
 	}
 	return names, types.E_NONE
 }
@@ -522,9 +522,6 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	verb.perms = perms
 	verb.names = append([]string(nil), names...)
 	verb.lowerNames = loweredNames(verb.names)
-	if len(verb.names) > 0 {
-		verb.name = strings.Join(verb.names, " ")
-	}
 	obj.rebuildVerbIndex()
 	stampVerb(verb, ts)
 	stampObjectVerbs(obj, ts)

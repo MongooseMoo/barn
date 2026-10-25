@@ -231,7 +231,7 @@ return {before, verbs(#0)};
 // outer VM unwinds at its next builtin boundary. The effect runs exactly once.
 func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	initialize := dbstore.NewVerb("initialize", []string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+	initialize := dbstore.NewVerb([]string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{`server_log("nested-once");`, "return 1;"})
 	if _, ec := store.AddVerb(0, initialize); ec != types.E_NONE {
 		t.Fatalf("AddVerb initialize: %v", ec)

@@ -178,7 +178,6 @@ func inspectionStore(t *testing.T) *dbstore.Store {
 		t.Fatalf("add object: %v", err)
 	}
 	verb := dbstore.NewVerb(
-		"look l*ook",
 		[]string{"look", "l*ook"},
 		1,
 		dbstore.VerbRead|dbstore.VerbExecute,

@@ -77,7 +77,7 @@ func TestHeldStartupFinalizationSurvivesFlushUntilReleased(t *testing.T) {
 	if err := store.Add(wizard.Build()); err != nil {
 		t.Fatalf("add recycle owner: %v", err)
 	}
-	verb := dbstore.NewVerb(":recycle", []string{":recycle"}, 3,
+	verb := dbstore.NewVerb([]string{":recycle"}, 3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"recycle_called();"})
@@ -144,7 +144,7 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	if err := store.Add(wizard.Build()); err != nil {
 		t.Fatalf("add recycle owner: %v", err)
 	}
-	verb := dbstore.NewVerb(":recycle", []string{":recycle"}, 3,
+	verb := dbstore.NewVerb([]string{":recycle"}, 3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"shutdown(); recycle_returned();"})

@@ -287,7 +287,7 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		names = append(names, verb.name)
+		names = append(names, strings.Join(verb.names, " "))
 	}
 	return names, types.E_NONE
 }

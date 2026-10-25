@@ -198,7 +198,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		if errCode := store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty scratch failed: %v", errCode)
 		}
-		if _, errCode := store.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
+		if _, errCode := store.AddVerb(id, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
 			t.Fatalf("AddVerb failed: %v", errCode)
 		}
 		ids[i] = id

@@ -109,7 +109,7 @@ func TestComputedPropertyAssignmentEvaluatesTargetBeforeValue(t *testing.T) {
 
 func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("target", []string{"target"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"target"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return args[1];"})); errCode != types.E_NONE {
@@ -147,7 +147,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 		t.Fatalf("DefineProperty last_value failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_set_index", []string{":_set_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_set_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{
 			"this.last_key = args[1];",
 			"this.last_value = args[2];",
@@ -155,7 +155,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 		})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb _set_index failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{
 			"return {args[1], this.last_key, this.last_value, typeof(this) == WAIF};",
 		})); errCode != types.E_NONE {
@@ -204,7 +204,7 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{":_index"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return args[1];"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb _index failed: %v", errCode)
 	}
@@ -530,15 +530,15 @@ func newBytecodeVerbStore() *dbstore.Store {
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
 	debugPerms := execPerms | dbstore.VerbDebug
-	store.AddVerb(0, dbstore.NewVerb("test_return", []string{"test_return"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_return"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return 42;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_throw", []string{"test_throw"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_throw"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_chain_b", []string{"test_chain_b"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_chain_b"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return this:test_chain_c();"}))
-	store.AddVerb(0, dbstore.NewVerb("test_chain_c", []string{"test_chain_c"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_chain_c"}, 0,
 		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
-	store.AddVerb(0, dbstore.NewVerb("test_no_exec", []string{"test_no_exec"}, 0,
+	store.AddVerb(0, dbstore.NewVerb([]string{"test_no_exec"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite, dbstore.VerbArgs{}, []string{"return 1;"}))
 	return store
 }
@@ -618,7 +618,7 @@ func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(obj, dbstore.NewVerb("foo", []string{"foo"}, 0,
+	if _, errCode := store.AddVerb(obj, dbstore.NewVerb([]string{"foo"}, 0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return pass();"})); errCode != types.E_NONE {
@@ -651,11 +651,11 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 	}
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug
-	if _, errCode := store.AddVerb(1, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb([]string{"pass_caller"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return caller;"})); errCode != types.E_NONE {
 		t.Fatalf("add pass target: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(2, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+	if _, errCode := store.AddVerb(2, dbstore.NewVerb([]string{"pass_caller"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return pass();"})); errCode != types.E_NONE {
 		t.Fatalf("add pass source: %s", errCode)
 	}
@@ -692,15 +692,15 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	}
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_inner", []string{"anon_inner"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"anon_inner"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return {typeof(this) == ANON, typeof(caller) == ANON, caller == this};"})); errCode != types.E_NONE {
 		t.Fatalf("add inner verb: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_outer", []string{"anon_outer"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"anon_outer"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return this:anon_inner();"})); errCode != types.E_NONE {
 		t.Fatalf("add outer verb: %s", errCode)
 	}
-	if _, errCode := store.AddVerb(0, dbstore.NewVerb("caller_type", []string{"caller_type"}, 0,
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb([]string{"caller_type"}, 0,
 		execPerms, dbstore.VerbArgs{}, []string{"return typeof(caller);"})); errCode != types.E_NONE {
 		t.Fatalf("add caller type verb: %s", errCode)
 	}

@@ -24,7 +24,7 @@ func newVerbArgsPublicationStore(t testing.TB, count, lines int) *Store {
 		for j := range code {
 			code[j] = fmt.Sprintf("x = %d;", j)
 		}
-		verb := NewVerb(name, []string{name, "alias_" + name, "wild_" + name + "*"}, 0,
+		verb := NewVerb([]string{name, "alias_" + name, "wild_" + name + "*"}, 0,
 			VerbRead|VerbExecute|VerbDebug, publicationArgsA, code)
 		if _, ec := s.AddVerb(0, verb); ec != types.E_NONE {
 			t.Fatal(ec)
@@ -100,7 +100,7 @@ func TestVerbArgsPublicationPreservesDefinitionOrder(t *testing.T) {
 	s := newVerbArgsPublicationStore(t, 0, 0)
 	for _, names := range [][]string{{"look", "l*ook", "glance"}, {"look", "glance", "other*"}} {
 		index := len(s.load(0).verbList)
-		if _, ec := s.AddVerb(0, NewVerb("look", names, 0, VerbRead|VerbExecute,
+		if _, ec := s.AddVerb(0, NewVerb(names, 0, VerbRead|VerbExecute,
 			publicationArgsA, []string{fmt.Sprintf("return %d;", index)})); ec != types.E_NONE {
 			t.Fatal(ec)
 		}
@@ -168,7 +168,7 @@ func TestVerbArgsPublicationDetachesBorrowedVerbInputs(t *testing.T) {
 		n := []string{fmt.Sprintf("v%03d", i), fmt.Sprintf("alias_%d", i)}
 		c := []string{fmt.Sprintf("return %d;", i)}
 		names, code = append(names, n), append(code, c)
-		verb := NewVerb(n[0], n, 0, VerbRead|VerbExecute, publicationArgsA, c)
+		verb := NewVerb(n, 0, VerbRead|VerbExecute, publicationArgsA, c)
 		if !published {
 			initial.AppendVerb(verb)
 		} else if _, ec := s.AddVerb(0, verb); ec != types.E_NONE {
@@ -218,7 +218,7 @@ func TestVerbArgsPublicationDetachesBorrowedObjectFacets(t *testing.T) {
 			b.SetProperty("p", NewProperty(types.NewInt(7), 0, PropRead|PropWrite, false, true))
 			b.SetPropDefsCount(1)
 			b.SetPropOrder(order)
-			b.AppendVerb(NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, publicationArgsA, nil))
+			b.AppendVerb(NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, publicationArgsA, nil))
 		case 1:
 			b.SetChildren([]types.ObjID{0})
 		case 2:

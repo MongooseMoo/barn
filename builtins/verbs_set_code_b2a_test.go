@@ -26,7 +26,6 @@ func b2aTestContext(t *testing.T) (*Execution, *dbstore.Store, types.ObjID) {
 	}
 
 	verb := dbstore.NewVerb(
-		"scratch",
 		[]string{"scratch"},
 		objID,
 		dbstore.VerbPerms(0),

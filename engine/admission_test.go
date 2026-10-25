@@ -27,7 +27,7 @@ func waitAdmission(t *testing.T, rt *Runtime, queued int) {
 
 func admissionVerb(t *testing.T, store *dbstore.Store, name string, source ...string) {
 	t.Helper()
-	if _, e := store.AddVerb(0, dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, source)); e != types.E_NONE {
+	if _, e := store.AddVerb(0, dbstore.NewVerb([]string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, source)); e != types.E_NONE {
 		t.Fatal(e)
 	}
 }

@@ -21,7 +21,7 @@ func conflictFixture(t *testing.T) (s *Store, a, b types.ObjID) {
 				t.Fatalf("DefineProperty #%d.%s: %v", id, name, ec)
 			}
 		}
-		if _, ec := s.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); ec != types.E_NONE {
+		if _, ec := s.AddVerb(id, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); ec != types.E_NONE {
 			t.Fatalf("AddVerb #%d:look: %v", id, ec)
 		}
 	}
@@ -180,7 +180,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				return tx.object(a).verbVersion
 			},
 			change: func(t *testing.T, s *Store, a, _ types.ObjID) {
-				if _, ec := s.AddVerb(a, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+				if _, ec := s.AddVerb(a, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 					t.Fatalf("AddVerb: %v", ec)
 				}
 			},
@@ -283,7 +283,7 @@ func TestValidationRecordsEveryConflict(t *testing.T) {
 	if ec := s.DirectTxn().SetObjectName(a, "renamed"); ec != types.E_NONE {
 		t.Fatalf("SetObjectName: %v", ec)
 	}
-	if _, ec := s.AddVerb(b, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(b, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}
 
@@ -337,7 +337,7 @@ func TestValidationKeepsReturnCodePrecedence(t *testing.T) {
 		defer tx.Release()
 		tx.markObjectRelationshipRead(b, tx.object(b))
 		tx.markVerbScan(a, tx.object(a))
-		if _, ec := s.AddVerb(a, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+		if _, ec := s.AddVerb(a, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 			t.Fatalf("AddVerb: %v", ec)
 		}
 		if err := s.Recycle(b); err != nil {

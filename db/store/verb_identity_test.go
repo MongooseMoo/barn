@@ -17,8 +17,8 @@ func verbIdentityLoadedStore(t *testing.T) *Store {
 	s := NewStore()
 	b := NewObjectBuilder(0)
 	b.SetName("obj")
-	b.AppendVerb(NewVerb("foo", []string{"foo"}, 0, VerbRead|VerbExecute, verbIdentityArgs, []string{"return 1;"}))
-	b.AppendVerb(NewVerb("foo bar", []string{"foo", "bar"}, 0, VerbRead|VerbExecute, verbIdentityArgs, []string{"return 2;"}))
+	b.AppendVerb(NewVerb([]string{"foo"}, 0, VerbRead|VerbExecute, verbIdentityArgs, []string{"return 1;"}))
+	b.AppendVerb(NewVerb([]string{"foo", "bar"}, 0, VerbRead|VerbExecute, verbIdentityArgs, []string{"return 2;"}))
 	if err := s.Add(b.Build()); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func verbIdentityAddedStore(t *testing.T) *Store {
 		if len(names) == 2 {
 			code = []string{"return 2;"}
 		}
-		if _, ec := s.AddVerb(0, NewVerb("", names, 0, VerbRead|VerbExecute, verbIdentityArgs, code)); ec != types.E_NONE {
+		if _, ec := s.AddVerb(0, NewVerb(names, 0, VerbRead|VerbExecute, verbIdentityArgs, code)); ec != types.E_NONE {
 			t.Fatalf("AddVerb(%v) = %v", names, ec)
 		}
 	}
@@ -131,7 +131,7 @@ func TestStagedVerbCodeSurvivesLiveRename(t *testing.T) {
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.PrepareLiveMutation()
-	if _, ec := s.AddVerb(0, NewVerb("old", []string{"old"}, 0, VerbRead|VerbExecute, verbIdentityArgs, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(0, NewVerb([]string{"old"}, 0, VerbRead|VerbExecute, verbIdentityArgs, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb = %v", ec)
 	}
 	tx.MarkLiveMutated()

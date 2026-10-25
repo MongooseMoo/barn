@@ -44,7 +44,6 @@ func staticNameBoundaryStore(t *testing.T) *dbstore.Store {
 		t.Fatalf("DefineProperty(%q) = %v, want E_NONE", staticNameBoundary, errCode)
 	}
 	if _, errCode := store.AddVerb(0, dbstore.NewVerb(
-		staticNameBoundary,
 		[]string{staticNameBoundary},
 		0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,

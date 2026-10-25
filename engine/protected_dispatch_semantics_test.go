@@ -64,7 +64,7 @@ func TestProtectedBuiltinDispatchIdentityInCommittingTask(t *testing.T) {
 	if got := s.EvalCommandOutput(2, setup); got != "{1, 1}" {
 		t.Fatal(got)
 	}
-	verb := dbstore.NewVerb("driver", []string{"driver"}, 2,
+	verb := dbstore.NewVerb([]string{"driver"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"return valid(task_id(), this);"})

@@ -169,7 +169,6 @@ func buildConcurrencyStore(t *testing.T, n, loop int) (*dbstore.Store, []types.O
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
 		verb := dbstore.NewVerb(
-			"work",
 			[]string{"work"},
 			3,
 			dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

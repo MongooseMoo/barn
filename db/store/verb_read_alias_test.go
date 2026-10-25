@@ -18,8 +18,7 @@ func TestAliasedVerbReadCommits(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	obj := ids[0]
 
-	full := "look l*ook glance"
-	v := NewVerb(full, []string{"look", "l*ook", "glance"}, 0,
+	v := NewVerb([]string{"look", "l*ook", "glance"}, 0,
 		VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"},
 		[]string{"return 1;"})
 	if _, ec := s.AddVerb(obj, v); ec != types.E_NONE {

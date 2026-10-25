@@ -208,7 +208,7 @@ func TestReadOnlyWaifCacheDoesNotKeepDroppedLocalAlive(t *testing.T) {
 				t.Fatal(ec)
 			}
 			for name, code := range map[string][]string{"new": {"return new_waif();"}, ":recycle": {"#0.v = #0.v + 1;"}} {
-				verb := dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, code)
+				verb := dbstore.NewVerb([]string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, code)
 				if _, ec := store.AddVerb(0, verb); ec != types.E_NONE {
 					t.Fatal(ec)
 				}

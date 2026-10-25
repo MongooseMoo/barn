@@ -72,7 +72,7 @@ func TestLoweredTaskPermissionsRejectPlayerWizardAuthority(t *testing.T) {
 
 func TestRespondToUsesTransactionAwareObjectReadAuthority(t *testing.T) {
 	ctx := loweredPermsExecution(t)
-	verb := dbstore.NewVerb("secret", []string{"secret"}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{}, nil)
+	verb := dbstore.NewVerb([]string{"secret"}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{}, nil)
 	if _, errCode := ctx.Store.AddVerb(3, verb); errCode != types.E_NONE {
 		t.Fatalf("add verb: %s", errCode)
 	}

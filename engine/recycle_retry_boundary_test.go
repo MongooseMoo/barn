@@ -21,7 +21,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newConflictTestStore(t)
-			verb := dbstore.NewVerb("recycle", []string{"recycle"}, 0,
+			verb := dbstore.NewVerb([]string{"recycle"}, 0,
 				dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 				dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{hook})
 			if _, ec := store.AddVerb(0, verb); ec != types.E_NONE {

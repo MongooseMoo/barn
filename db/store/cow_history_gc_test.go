@@ -381,7 +381,7 @@ func TestCOWHistoryDoesNotShareCollectionsWithLiveImage(t *testing.T) {
 	}
 	writer.Release()
 
-	if _, errCode := store.AddVerb(0, NewVerb("later", []string{"later"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"later"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
