@@ -2,6 +2,7 @@ package store
 
 import (
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"testing"
 	"unsafe"
 )
@@ -45,7 +46,7 @@ func TestBuildKeepsOnlyDefinedNamesInPropOrder(t *testing.T) {
 	obj := builder.Build()
 
 	want := []string{"Mine", "also_mine", "late"}
-	if !stringsEqual(obj.propOrder, want) {
+	if !slices.Equal(obj.propOrder, want) {
 		t.Fatalf("propOrder = %v, want %v", obj.propOrder, want)
 	}
 	if got := obj.properties.count(); got != 5 {
@@ -57,7 +58,7 @@ func TestBuildKeepsOnlyDefinedNamesInPropOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	names, code := s.definedPropertyNames(2)
-	if code != types.E_NONE || !stringsEqual(names, want) {
+	if code != types.E_NONE || !slices.Equal(names, want) {
 		t.Fatalf("definedPropertyNames = %v (%v), want %v", names, code, want)
 	}
 }

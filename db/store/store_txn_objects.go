@@ -254,7 +254,7 @@ func (tx *StoreTxn) MaxObject() types.ObjID {
 // on the decentralized path: it removes the object from its location's contents and its
 // parents' children (commutative deltas) and stages the recycled tombstone. It records a
 // relationship read on the object — the conflict guard: a concurrent move-into or
-// create-under it must conflict this recycle (do NOT ForgetObject, Fable P1-1). Returns
+// create-under it must conflict this recycle (so do NOT ForgetObject). Returns
 // handled=false for a COMPLEX object (has children or contents), so the caller falls
 // back to the coarse store.Recycle (which reparents children). Anonymous objects are not
 // routed here. recycledID is appended at commit time (under RLock), not here.

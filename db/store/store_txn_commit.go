@@ -331,7 +331,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	}
 	tx.validationFail = false
 
-	// Phase A observability: count exactly one attempt per real commit (writes
+	// Observability: count exactly one attempt per real commit (writes
 	// staged, store present), and account the outcome once via a deferred closure
 	// over the named return value — regardless of which of the many return sites
 	// (coarse path here, or commitDecentralized) fires. A non-E_NONE return is a
@@ -359,7 +359,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 
 	// COW decentralized fast path: a commit whose ENTIRE write footprint is within the
 	// decentralized write kinds — scalar (name/owner/flags), relationship (location),
-	// property DEFINE, property DEFINITION-DELETE (Phase 2 — the descendant-propagating
+	// property DEFINE, property DEFINITION-DELETE (the descendant-propagating
 	// walkers, whose full inheriting subtree is already staged as per-descendant
 	// propertyWrites/propertyDeletes), property-value, property-delete, verb-code — and
 	// that did not mutate the live store directly is applied decentralized: under
@@ -557,7 +557,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	// parents' childrenDeltas are applied by those loops, which resolve through
 	// liveObjectLocked and would fail E_INVIND on an unpublished id. This is the coarse
 	// counterpart of commitDecentralized's created-object publish — reached when a
-	// create-staged task also live-mutated or wrote an anon object (Fable P0-2).
+	// create-staged task also live-mutated or wrote an anon object.
 	for id, base := range tx.createdObjects {
 		img := cloneObjectForReadTxn(base)
 		stampObjectAll(img, ts)

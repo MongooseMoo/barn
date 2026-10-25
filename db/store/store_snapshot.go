@@ -449,6 +449,3 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 	// emitted: with no backing definition the reader has no slot for them.
 	return names
 }
-
-// Get retrieves an object by ID
-// Returns nil if object doesn't exist or is recycled

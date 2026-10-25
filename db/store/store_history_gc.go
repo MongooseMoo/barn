@@ -7,7 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// store_history_gc.go — bounded history GC (COW Phase 4).
+// store_history_gc.go — bounded history GC.
 //
 // s.history[id] holds the OLD immutable *Object versions a read-only transaction
 // needs for time-travel: a reader at readTS=R sees the newest version with

@@ -2,6 +2,7 @@ package store
 
 import (
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"testing"
 )
 
@@ -436,7 +437,53 @@ func TestChangeParentsAnonymousMovesAnonymousChildren(t *testing.T) {
 	if got, _ := tx.AnonymousChildren(p); len(got) != 0 {
 		t.Errorf("AnonymousChildren(old parent) = %v, want none", got)
 	}
-	if got, _ := tx.AnonymousChildren(q); !objIDsEqual(got, []types.ObjID{anon}) {
+	if got, _ := tx.AnonymousChildren(q); !slices.Equal(got, []types.ObjID{anon}) {
 		t.Errorf("AnonymousChildren(new parent) = %v, want [%v]", got, anon)
+	}
+}
+
+// TestSnapshotIncludesRuntimeAnonymousObject checks that an anonymous object
+// created at runtime and referenced from a numbered object's property is in
+// the store's Snapshot, and that the reference is not rewritten to NOTHING.
+// Without it a checkpoint would lose the object.
+func TestSnapshotIncludesRuntimeAnonymousObject(t *testing.T) {
+	s := NewStore()
+
+	// #0: a regular object that will hold a reference to the anonymous object
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+
+	// Create an anonymous object at runtime (as the VM would do)
+	anonID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+
+	// Store a reference to the anon object in #0's property so it is
+	// reference-reachable from a non-anonymous object (required for serialisation).
+	anonRef := types.NewAnon(anonID)
+	if ec := s.DirectTxn().DefineProperty(0, "anon_ref", NewProperty(anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty anon_ref: %v", ec)
+	}
+
+	snap := s.Snapshot()
+
+	if len(snap.AnonymousObjects) == 0 {
+		t.Errorf("runtime-created anonymous object #%d is absent from snapshot (data loss at checkpoint); AnonymousObjects=%v",
+			anonID, snap.AnonymousObjects)
+	}
+
+	so, ok := snap.Objects[0]
+	if !ok {
+		t.Fatal("snapshot missing #0")
+	}
+	refProp, hasProp := so.Properties["anon_ref"]
+	if !hasProp {
+		t.Fatal("snapshot #0 missing anon_ref property")
+	}
+	rv := refProp.Value
+	if (rv.Type() != types.TYPE_OBJ && rv.Type() != types.TYPE_ANON) || rv.ID() == types.ObjNothing {
+		t.Errorf("snapshot rewrote anon_ref to NOTHING; got %v", refProp.Value)
 	}
 }

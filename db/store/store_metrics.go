@@ -103,9 +103,8 @@ func calculateObjectBytes(obj *Object) int {
 	for _, verb := range obj.verbs {
 		count += 32
 		count += len(verb.name) + 1
-		// NOTE (verbcache spike): the AST (verb.Program) no longer lives on the
-		// verb, so the AST-size term is dropped here. A full landing would query
-		// the relocated bytecode cache for an accurate estimate.
+		// Compiled programs are cached outside the verb (package bytecode), so
+		// the estimate leaves them out.
 	}
 
 	for name, prop := range obj.properties.all() {
@@ -151,43 +150,32 @@ func calculateValueBytes(v types.Value) int {
 	return size
 }
 
-// Players returns all objects with the player flag set
+// verbCacheCleared is the bit of Store.verbCacheStats that records a cache
+// clear in the current interval; the bits below it count misses.
+const verbCacheCleared = uint64(1) << 63
 
+// NoteVerbCacheClear records a verb cache clear for verb_cache_stats(). A clear
+// starts a fresh interval for miss accounting.
 func (s *Store) NoteVerbCacheClear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verbCacheClears++
-	// A cache clear starts a fresh interval for miss accounting.
-	s.verbCacheMisses = 0
+	s.verbCacheStats.Store(verbCacheCleared)
 }
 
-// NoteVerbCacheMiss increments the compatibility miss counter used by verb_cache_stats().
-
+// NoteVerbCacheMiss counts a verb cache miss for verb_cache_stats().
 func (s *Store) NoteVerbCacheMiss() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verbCacheMisses++
+	s.verbCacheStats.Add(1)
 }
 
-// ConsumeVerbCacheStats returns a 17-element stats vector and resets interval counters.
-// Slot [1] tracks cache clears, slot [2] tracks misses; remaining slots are reserved.
-
+// ConsumeVerbCacheStats returns a 17-element stats vector and starts a new
+// interval. Slot [0] is 1 if the cache was cleared in the interval, slot [1]
+// counts misses since the last clear; the remaining slots are always 0.
 func (s *Store) ConsumeVerbCacheStats() []int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	stats := s.verbCacheStatsLocked()
-	s.verbCacheClears = 0
-	s.verbCacheMisses = 0
-	return stats
+	return verbCacheStatsVector(s.verbCacheStats.Swap(0))
 }
 
-// VerbCacheStatsSnapshot reads the current observation window without resetting
-// it. The returned vector is owned by the caller.
+// VerbCacheStatsSnapshot reads the current interval without resetting it. The
+// returned vector is owned by the caller.
 func (s *Store) VerbCacheStatsSnapshot() []int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.verbCacheStatsLocked()
+	return verbCacheStatsVector(s.verbCacheStats.Load())
 }
 
 // LogVerbCacheStats emits real counters using the caller's task-scoped logger.
@@ -198,20 +186,18 @@ func (s *Store) LogVerbCacheStats(logger *slog.Logger) {
 		slog.Int64("clear", stats[0]), slog.Int64("misses", stats[1]), slog.Any("stats", stats))
 }
 
-func (s *Store) verbCacheStatsLocked() []int64 {
+func verbCacheStatsVector(word uint64) []int64 {
 	stats := make([]int64, 17)
 	// Compatibility behavior: expose clear activity as a 0/1 interval flag.
 	// This avoids cross-test accumulation noise and matches conformance expectations.
-	if s.verbCacheClears > 0 {
+	if word&verbCacheCleared != 0 {
 		stats[0] = 1
 	}
-	stats[1] = s.verbCacheMisses
-
+	stats[1] = int64(word &^ verbCacheCleared)
 	return stats
 }
 
 // ResetMaxObject recomputes max_object() and allocation high-water marks from live objects.
-
 func (s *Store) ResetMaxObject() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

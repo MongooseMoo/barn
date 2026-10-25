@@ -64,7 +64,7 @@ func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 }
 
 func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
-	// Phase 2 read aliasing: numbered published images (and their history entries)
+	// Read aliasing: numbered published images (and their history entries)
 	// are IMMUTABLE after publish — every runtime mutation goes through
 	// republishForMutation, which supersedes the slot with a fresh image and never
 	// writes the old one. So a read transaction can ALIAS the image pointer directly

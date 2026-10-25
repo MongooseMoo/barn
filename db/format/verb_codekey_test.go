@@ -10,8 +10,8 @@ import (
 )
 
 // A verb read back through the loader must arrive with its content key already
-// computed: the loader fills verb source in a second pass (ObjectBuilder.
-// SetVerbCodeByIndex / Verb.SetCode), and a verb that reached the store without
+// computed: the loader fills verb source in a second pass
+// (ObjectBuilder.SetVerbCodeByIndex), and a verb that reached the store without
 // a key would make every call to it rehash its whole source.
 func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	s := store.NewStore()

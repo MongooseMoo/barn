@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
-// matchVerbNameLowered is matchVerbName with both sides already lowercased.
-// Dispatch pre-lowers the search once and matches against Verb.lowerNames,
-// keeping the per-alias hot loop free of ToLower allocations.
+// matchVerbNameLowered reports whether search matches the MOO verb name
+// pattern, where * marks the minimum abbreviation point: "co*nnect" matches
+// "co", "con", ..., "connect" (at least the prefix before *, and no more than
+// the full name). Both sides must already be lowercased: dispatch pre-lowers
+// the search once and matches against Verb.lowerNames, keeping the per-alias
+// hot loop free of ToLower allocations.
 func matchVerbNameLowered(pattern, search string) bool {
 
 	// Strip leading colon from the pattern when present.
@@ -163,13 +166,9 @@ func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool)
 	return VerbCandidate{}, false
 }
 
-// FindVerb looks up a verb on an object, following inheritance chain
-// Uses breadth-first search per spec
-// Returns the verb and the object it's defined on, or error
-
-// FindVerb resolves a verb (following the inheritance chain) and returns a flat,
-// read-only VerbView value plus the object it was found on. The store never
-// hands out a live *Verb to external callers.
+// findVerb resolves a verb, searching objID and then its ancestors
+// breadth-first, and returns a flat, read-only VerbView value plus the object
+// it was found on. The store never hands out a live *Verb to external callers.
 func (s *Store) findVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -181,8 +180,8 @@ func (s *Store) findVerb(objID types.ObjID, verbName string) (VerbView, types.Ob
 	return verb.View(), definer, nil
 }
 
-// FindCallableVerb resolves a verb for call dispatch (obj:verb(...) syntax).
-// Unlike FindVerb, a same-named verb without execute permission does not
+// findCallableVerb resolves a verb for call dispatch (obj:verb(...) syntax).
+// Unlike findVerb, a same-named verb without execute permission does not
 // shadow an executable verb of the same name defined further up the
 // ancestry chain; the search continues past it. See findCallableVerbLocked.
 func (s *Store) findCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
@@ -280,12 +279,11 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
 }
 
-// FindVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
+// findVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
 // the inheritance chain. The verb-metadata builtins (verb_info, verb_args,
 // verb_code) inspect only an object's own verbs: ToastStunt returns E_VERBNF
 // when the name resolves only to an inherited verb. Matching honors aliases and
-// the `*` wildcard, exactly like FindVerb but limited to this one object.
-
+// the `*` wildcard, exactly like findVerb but limited to this one object.
 func (s *Store) findVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -297,8 +295,8 @@ func (s *Store) findVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 	return verb.View(), nil
 }
 
-// ResolveVerbOnObject resolves verbName on objID itself and returns an opaque
-// reference suitable for DeleteResolvedVerb.
+// resolveVerbOnObject resolves verbName on objID itself and returns an opaque
+// reference suitable for deleteResolvedVerb.
 func (s *Store) resolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -322,8 +320,8 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 
-	// Definition-order scan (see FindVerb) so colliding aliases resolve to the
-	// first-declared verb.
+	// Definition-order scan (see findVerbWalkFromQueueLocked) so colliding
+	// aliases resolve to the first-declared verb.
 	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
 		for _, alias := range verb.lowerNames {
@@ -332,7 +330,7 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 			}
 		}
 	}
-	// See FindVerb: a lookup string containing "*" must not match a stored
+	// See findVerbWalkFromQueueLocked: a lookup string containing "*" must not match a stored
 	// wildcard name literally (Toast's verbcasecmp rejects "*" in the lookup
 	// word). The wildcard scan above already handled any legitimate match.
 	if !strings.Contains(verbName, "*") {
@@ -376,8 +374,8 @@ func (s *Store) verbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 	return obj.verbList[index].View(), types.E_NONE
 }
 
-// ResolveVerbByIndex resolves an index on objID to an opaque reference suitable
-// for DeleteResolvedVerb.
+// resolveVerbByIndex resolves an index on objID to an opaque reference suitable
+// for deleteResolvedVerb.
 func (s *Store) resolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -447,8 +445,8 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	return types.E_VERBNF
 }
 
-// DeleteResolvedVerb deletes exactly the definition previously selected by a
-// ResolveVerb call. If the object's verb list changed after resolution, it
+// deleteResolvedVerb deletes exactly the definition previously selected by
+// resolveVerbOnObject or resolveVerbByIndex. If the object's verb list changed after resolution, it
 // fails without mutation instead of applying a stale index to another verb.
 func (s *Store) deleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	s.mu.Lock()
@@ -457,7 +455,7 @@ func (s *Store) deleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	return s.deleteResolvedVerbLocked(resolved)
 }
 
-// DeleteResolvedVerbAuthorized validates the resolved verb identity and the
+// deleteResolvedVerbAuthorized validates the resolved verb identity and the
 // programmer's current live authority, then deletes the verb while holding one
 // store lock. It is the no-transaction fallback for delete_verb; transaction
 // callers stage deletion on StoreTxn so commit validation precedes mutation.
@@ -627,10 +625,9 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	return types.E_NONE
 }
 
-// SetVerbCode updates a verb's source. The AST/bytecode cache no longer lives on
-// the verb (it moved to github.com/MongooseMoo/barn/bytecode), so this only writes persistent source.
-// In a full landing this would also bump a per-verb code epoch to invalidate the
-// relocated cache; the spike proves topology only.
+// setVerbCode replaces the source of a verb defined on objID itself. Compiled
+// programs are not stored on the verb, so this writes the source and its
+// content key only.
 func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -683,9 +680,9 @@ func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	return types.E_NONE
 }
 
-// FindParentVerb resolves the verb pass() delegates to: the same-named verb
+// findParentVerb resolves the verb pass() delegates to: the same-named verb
 // on an ancestor of verbLoc, found by the same skip-non-executable-and-continue
-// walk as call dispatch (FindCallableVerb) — ToastStunt's pass() calls the
+// walk as call dispatch (findCallableVerb) — ToastStunt's pass() calls the
 // same db_find_callable_verb lookup obj:verb() dispatch uses, so a
 // non-executable same-named verb on an intermediate ancestor must not shadow
 // an executable one defined further up the chain.
@@ -737,5 +734,3 @@ func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) 
 	}
 	return false
 }
-
-// RegisterWaif registers a waif with its class object for invalidation tracking
