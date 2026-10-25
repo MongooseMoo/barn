@@ -306,13 +306,14 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 }
 
 // TestCOWSameObjectCommitsSerialize exercises the OTHER serialization edge: many
-// writers committing property-value writes to the SAME object. They must serialize
-// on commitMu (no torn image, no panic, no lost slot), and a final
-// read must see one of the committed values. Under -race this must be clean.
+// writers each incrementing one property of the SAME object, retrying a commit
+// that loses validation. Every increment must land exactly once, so the final
+// value is the number of increments; a lost update leaves it short. Under -race
+// this must be clean.
 func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	const (
-		nWriters    = 32
-		commitsEach = 100
+		nWriters    = 16
+		commitsEach = 50
 	)
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -329,24 +330,45 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	var wg sync.WaitGroup
 	for w := 0; w < nWriters; w++ {
 		wg.Add(1)
-		go func(base int) {
+		go func() {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginSnapshot(0)
-				// SetPropertyValue records a property read of the prop, so concurrent
-				// same-object committers may conflict (E_INVARG) — that is the correct
-				// optimistic-validation contract, not a failure. Tolerate it.
-				if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(int64(base*1000+c))); errCode != types.E_NONE {
-					t.Errorf("SetPropertyValue failed: %v", errCode)
-					return
+				for {
+					tx := store.BeginSnapshot(0)
+					value, errCode := tx.PropertyValue(id, "counter")
+					if errCode != types.E_NONE {
+						t.Errorf("PropertyValue failed: %v", errCode)
+						tx.Release()
+						return
+					}
+					if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
+						t.Errorf("SetPropertyValue failed: %v", errCode)
+						tx.Release()
+						return
+					}
+					errCode = tx.Commit()
+					lost := tx.ValidationFailed()
+					tx.Release()
+					if errCode == types.E_NONE {
+						break
+					}
+					// Losing validation to a concurrent same-object committer is the
+					// optimistic contract; retry from a fresh snapshot.
+					if !lost {
+						t.Errorf("Commit failed: %v", errCode)
+						return
+					}
 				}
-				_ = tx.Commit()
 			}
-		}(w)
+		}()
 	}
 	wg.Wait()
 
-	if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
+	value, errCode := store.DirectTxn().PropertyValue(id, "counter")
+	if errCode != types.E_NONE {
 		t.Fatalf("post-run PropertyValue failed: %v", errCode)
+	}
+	if got, want := value.Int(), int64(nWriters*commitsEach); got != want {
+		t.Fatalf("counter = %d after %d committed increments, want %d", got, want, want)
 	}
 }
