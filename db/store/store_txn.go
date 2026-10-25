@@ -181,12 +181,14 @@ func (tx *StoreTxn) IsDirect() bool {
 
 // HasStagedTopology reports whether the txn has staged TOPOLOGY writes that a coarse
 // builtin would read stale from the live store mid-task: created objects (absent from
-// live), relationship writes (location/contents/children), or verb-list deletions.
-// Property/scalar/verb-CODE writes are not included. A verb-list deletion crosses
-// this boundary through CommitAndRenew; the legacy unvalidated flush remains only
-// for the other coarse-immediate topology.
+// live), relationship writes (location/contents/children), verb-list deletions, or
+// property definitions and their deletions (the slot names a coarse create, chparent
+// or recycle copies from live parents). Property-value, scalar and verb-CODE writes
+// are not included. A verb-list deletion crosses this boundary through
+// CommitAndRenew; the legacy unvalidated flush remains only for the other
+// coarse-immediate topology.
 func (tx *StoreTxn) HasStagedTopology() bool {
-	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0)
+	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0)
 }
 
 // HasStagedVerbDeletes reports whether a coarse builtin must cross a normal
