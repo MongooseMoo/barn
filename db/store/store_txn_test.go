@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -1325,6 +1326,55 @@ func TestDeleteDefinedPropertyRemovesAnonymousChildOverride(t *testing.T) {
 		if value, errCode := store.DirectTxn().PropertyValue(anon, "a"); errCode != types.E_PROPNF {
 			t.Fatalf("snapshot=%v: anonymous PropertyValue after delete = %v, %v, want E_PROPNF", snapshot, value, errCode)
 		}
+	}
+}
+
+func TestTransactionDeleteMixedCasePropertyRemovesOrderEntry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		define string
+		want   []string
+	}{
+		{name: "redefine same name", define: "Foo", want: []string{"bar", "Foo"}},
+		{name: "define other name", define: "baz", want: []string{"bar", "baz"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewStore()
+			if err := store.Add(NewObject(0, 0)); err != nil {
+				t.Fatalf("Add root failed: %v", err)
+			}
+			for _, name := range []string{"Foo", "bar"} {
+				if errCode := store.DirectTxn().DefineProperty(0, name, NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+					t.Fatalf("DefineProperty %q failed: %v", name, errCode)
+				}
+			}
+
+			tx := store.BeginSnapshot(0)
+			defer tx.Release()
+			if errCode := tx.DeleteDefinedProperty(0, "Foo"); errCode != types.E_NONE {
+				t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+			}
+			if errCode := tx.DefineProperty(0, tc.define, NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+				t.Fatalf("DefineProperty %q failed: %v", tc.define, errCode)
+			}
+			names, errCode := tx.DefinedPropertyNames(0)
+			if errCode != types.E_NONE {
+				t.Fatalf("tx DefinedPropertyNames failed: %v", errCode)
+			}
+			if !slices.Equal(names, tc.want) {
+				t.Fatalf("tx DefinedPropertyNames = %q, want %q", names, tc.want)
+			}
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+			names, errCode = store.DirectTxn().DefinedPropertyNames(0)
+			if errCode != types.E_NONE {
+				t.Fatalf("live DefinedPropertyNames failed: %v", errCode)
+			}
+			if !slices.Equal(names, tc.want) {
+				t.Fatalf("live DefinedPropertyNames = %q, want %q", names, tc.want)
+			}
+		})
 	}
 }
 
