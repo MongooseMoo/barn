@@ -48,7 +48,8 @@ func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]st
 // lookupAnonymousLocked returns the live anonymous object with the given
 // identity id, regardless of which backing map holds it. Runtime-created and
 // database-loaded anonymous objects live in s.anonObjects; some test fixtures
-// (and any object added via Add with the anonymous flag) live in s.objects.
+// (and any object added via Add with the anonymous flag) live in the numbered
+// directory.
 // Anon scanning subsystems must consider both so the planner, GC candidate scan,
 // and serializer all operate over one consistent set of anonymous objects.
 // Caller holds s.mu.
@@ -425,6 +426,3 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	}
 	return closure
 }
-
-// LocalProperty returns a copy of the property slot defined on the object
-// itself. It does not search ancestors.

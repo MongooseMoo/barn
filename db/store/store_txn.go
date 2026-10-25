@@ -81,7 +81,7 @@ type StoreTxn struct {
 	recycleWrites map[types.ObjID]bool
 	maxObjID      types.ObjID
 	highWaterID   types.ObjID
-	// released guards the readTS deregistration (Phase 4 history GC) so the floor
+	// released guards the readTS deregistration (history GC) so the floor
 	// registration is removed exactly once whether by the runtime's explicit
 	// Release or the runtime-finalizer backstop. See store_history_gc.go.
 	released atomic.Bool

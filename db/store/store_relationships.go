@@ -364,7 +364,3 @@ func insertObjIDAtMOOPosition(slice []types.ObjID, id types.ObjID, position int6
 	copy(result[index+1:], slice[index:])
 	return result
 }
-
-// NextID returns the next available object ID
-// Uses highWaterID to ensure unique IDs (including anonymous objects)
-// Recycled slots are NOT automatically reused

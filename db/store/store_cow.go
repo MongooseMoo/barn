@@ -5,7 +5,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// store_cow.go — copy-on-write property-value publish (COW Phase 0).
+// store_cow.go — copy-on-write publication for the decentralized commit path.
 //
 // A published *Object is IMMUTABLE. The decentralized property-value commit path
 // never mutates a live object in place; it detaches the old image's collections,
@@ -19,15 +19,14 @@ import (
 //     Coarse writers hold store.mu.Lock (exclusive). RLock excludes Lock, so a
 //     decentralized publisher and ANY coarse writer are mutually exclusive.
 //   - Decentralized committers serialize on commitMu from validation through
-//     publication. They used to lock the slots of everything they read or wrote
-//     instead; on the Mongoose workload nearly every commit read the same few
-//     ancestors, so that was one lock with more steps.
+//     publication. Per-slot locks would buy nothing: on the Mongoose workload
+//     nearly every commit reads the same few ancestors.
 //   - A commit's timestamp becomes the clock only after all its images are
 //     published, so a snapshot sees all of a commit or none of it.
 //   - Readers (raw Store.* and the txn clone path) hold store.mu.RLock and Load the
 //     slot pointer once, then read FROZEN fields of an immutable image. A publisher
 //     stores a NEW image and never touches the old one the reader is reading — no
-//     race. This is the race the per-object-lock prototype could not close.
+//     race.
 
 // applyPropertyValueOwned applies one property-value write to img in place and
 // stamps its propertyVersion. The caller must exclusively own img and its
@@ -50,13 +49,12 @@ func applyPropertyValueOwned(img *Object, w propertyWrite, ts uint64) {
 	} else {
 		// New property slot on this object: the staged prop carries metadata; value
 		// comes from the write. Honor the staged clear flag: a normal inherited-override
-		// SetPropertyValue stages clear=false (store_txn.go:344), but a DESCENDANT
-		// clear-slot staged by a property-define propagation stages clear=true
-		// (propagateDefinedProperty, store_txn.go:1249-1260) — that write reseeds the
-		// inherited slot and MUST remain clear so reads fall through to the new
-		// definition. (The coarse path preserved this because the define loop created
-		// the clear=true slot first and its propertyWrites loop then hit the existing
-		// slot; under the decentralized path the descendant has only the propertyWrite,
+		// (StoreTxn.SetPropertyValue) stages clear=false, but a DESCENDANT clear-slot
+		// staged by a property-define propagation (StoreTxn.propagateDefinedProperty)
+		// stages clear=true — that write reseeds the inherited slot and MUST remain
+		// clear so reads fall through to the new definition. (On the coarse path the
+		// define loop creates the clear=true slot first and its propertyWrites loop
+		// then hits the existing slot; here the descendant has only the propertyWrite,
 		// so the clear flag must be honored here.)
 		np := w.prop
 		np.value = w.value
@@ -89,10 +87,11 @@ func buildImageWithScalar(old *Object, w objectScalarWrite, ts uint64) *Object {
 }
 
 // buildImageWithRelationship returns a NEW immutable *Object equal to old except for
-// the location write applied and the relationshipVersion stamped to ts. location is a
-// scalar ObjID field on the struct, so (like buildImageWithScalar) the shallow struct
-// copy shares every collection with the old image. (Phase 1 only decentralizes the
-// location relationship write; parents/children topology stays on the coarse path.)
+// the relationship write applied and the relationshipVersion stamped to ts. location
+// and lastMove are plain fields, so (like buildImageWithScalar) the shallow struct
+// copy carries them; contents and children deltas are applied to fresh slices. Every
+// other collection is shared with the old image. Parent changes stay on the coarse
+// path.
 func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint64) *Object {
 	img := *old // shallow struct copy
 	if w.locationSet {
@@ -155,10 +154,10 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 
 // buildImageWithPropertyDefine returns a NEW immutable *Object equal to old except for
 // the property `prop` newly DEFINED on the definer object O, with the propertyVersion
-// stamped to ts. This mirrors definePropertyLocked's mutation of the DEFINER ONLY
-// (store_properties.go:501-514): it does NOT propagate clear inherited slots to
-// descendants — that propagation is staged separately by the txn (propagateDefinedProperty,
-// store_txn.go:1219) as per-descendant propertyWrites and is applied to each descendant's
+// stamped to ts. This mirrors definePropertyLocked's mutation of the DEFINER ONLY:
+// it does NOT propagate clear inherited slots to descendants — that propagation is
+// staged separately by the txn (StoreTxn.propagateDefinedProperty) as
+// per-descendant propertyWrites and is applied to each descendant's
 // own image by applyPropertyValueOwned. Each descendant image is built independently
 // from its own published image, so define-on-O and the descendant clear-slot writes are
 // independent per-object builds within the same atomically-published footprint.
@@ -205,9 +204,9 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 // buildImageWithPropertyDefinitionDelete returns a NEW immutable *Object equal to old
 // except the property DEFINITION named actualName removed from the definer object O, with
 // the propertyVersion stamped to ts. This mirrors deleteDefinedPropertyLocked's mutation
-// of the DEFINER ONLY (store_properties.go:544-549): it does NOT remove inherited copies
-// from descendants — that removal is staged separately by the txn (removeInheritedProperty,
-// store_txn.go:1353) as per-descendant propertyDeletes and is applied to each descendant's
+// of the DEFINER ONLY: it does NOT remove inherited copies from descendants — that
+// removal is staged separately by the txn (StoreTxn.removeInheritedProperty) as
+// per-descendant propertyDeletes and is applied to each descendant's
 // own image by buildImageWithPropertyDelete.
 //
 // Both the properties map AND the propOrder slice are copied; every other collection is
@@ -235,9 +234,9 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 // buildImageWithVerbCode returns a NEW immutable *Object equal to old except for the
 // single verb (keyed by name) having its code replaced and hasProgram set, with the
 // edited verb's version and the object's verbVersion stamped to ts. Caller has already
-// verified the verb exists (verbExists). Only the verb collections are copied: a fresh
+// verified the verb exists (preflightStagedToLiveLocked). Only the verb collections are copied: a fresh
 // *Verb is built for the edited verb and substituted into BOTH verbs (map) and verbList
-// (slice) — they share *Verb pointers (object.go:32-33), so the substitution must be
+// (slice) — they share *Verb pointers (see Object.verbs), so the substitution must be
 // identity-preserving exactly like cloneObjectForReadTxn. Every other (unedited) *Verb
 // is shared by reference (immutable). All non-verb collections are shared too.
 func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) *Object {
@@ -360,12 +359,12 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 // images carry a timestamp the clock has not reached yet; the clock moves to it
 // once the last one is published.
 //
-// PROPERTY DEFINE/DELETE FOOTPRINT (Phase 2): a define/definition-delete on object O
+// PROPERTY DEFINE/DELETE FOOTPRINT: a define/definition-delete on object O
 // propagates to O's inheriting DESCENDANTS. The txn staging side has already enumerated
-// that subtree: StoreTxn.DefineProperty walks O's children BFS (propagateDefinedProperty,
-// store_txn.go:1219) and stages a per-descendant propertyWrites clear-slot for every
+// that subtree: StoreTxn.DefineProperty walks O's children BFS (propagateDefinedProperty)
+// and stages a per-descendant propertyWrites clear-slot for every
 // inheriting descendant; DeleteDefinedProperty stages per-descendant propertyDeletes
-// (removeInheritedProperty, :1353). So the define/delete itself applies ONLY to the
+// (removeInheritedProperty). So the define/delete itself applies ONLY to the
 // definer's image here, and the descendant images are built from the already-staged
 // propertyWrites/propertyDeletes. The footprint built below = definer ∪ every staged
 // descendant, covering the WHOLE affected subtree. Anonymous descendants never reach
@@ -489,11 +488,11 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 
 	// Build one new immutable image per object, applying all its staged writes in a
-	// fixed kind order, then publish. Detach every collection from the published old
-	// image first: later coarse writers mutate the current image in place, so sharing
-	// even an untouched map or slice here would let them corrupt the old image kept in
-	// history. Builders may safely share untouched collections with this unpublished
-	// detached image while composing the final replacement.
+	// fixed kind order, then publish. Each image starts from a full private clone of
+	// the published old image (or the created base), which stays in history
+	// unchanged; applyPropertyValueOwned writes into the clone's property table in
+	// place. Builders may share untouched collections with this unpublished clone
+	// while composing the final replacement.
 	waifRootsDirty := false
 	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
 	for _, id := range writeIDs {
@@ -581,7 +580,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		panic("store clock moved during a decentralized publication")
 	}
 
-	// History GC (Phase 4): now that this commit appended a fresh newest version to
+	// History GC: now that this commit appended a fresh newest version to
 	// each touched object, prune the now-dead old versions below the live-read floor.
 	// We still hold commitMu and store.mu.RLock; pruneObjectHistory takes historyMu
 	// (serializing with objectLocked's header capture). A snapshot that began while

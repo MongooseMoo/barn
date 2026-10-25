@@ -34,14 +34,14 @@ import (
 //   - A store-global memo stamped with the global commit clock would be WRONG
 //     for any transaction whose readTS lags the clock (a long-running or
 //     retried task reads an older snapshot through s.history —
-//     store_txn.go objectLocked). It would only be usable when
+//     StoreTxn.objectLocked). It would only be usable when
 //     tx.readTS == clock, which is exactly the case a global epoch cannot
 //     cheaply prove per lookup. Scoping the memo to the snapshot that produced
 //     it removes that class of bug entirely.
 //   - A per-txn memo needs no lock. StoreTxn is single-goroutine by
-//     construction: tx.object (store_txn.go:247-262) writes the unsynchronized
-//     tx.objects map on the pure-READ path, so two goroutines sharing one txn
-//     would already be a data race today.
+//     construction: tx.object writes the unsynchronized tx.objects map on the
+//     pure-READ path, so two goroutines sharing one txn would already be a
+//     data race.
 //
 // CORRECTNESS: read-tracking is preserved exactly. The walk records every
 // object it visited and whether it marked a scan or a read on it; a memo hit
@@ -309,10 +309,10 @@ type verbDispatchMemoEntry struct {
 // definer so a concurrent code edit is seen exactly as it would be by a walk.
 // err is the "verb not found" error of a negative resolution.
 //
-// local is the txn's own record of an earlier hit on this key, if any. A verb
-// called in a loop used to pay the shared map's lookup and both marks on every
-// call; the record carries the memo entry and which of the marks this txn
-// already holds, so a repeat hit only re-checks the clock and the definer. The
+// local is the txn's own record of an earlier hit on this key, if any. It
+// carries the memo entry and which of the marks this txn already holds, so a
+// verb called in a loop pays the shared map's lookup and both marks once, and a
+// repeat hit only re-checks the clock and the definer. The
 // record lives in tx.verbResolve, which is dropped wherever a binding in
 // tx.objects is replaced or a read mark is removed, so what it says is recorded
 // still is.
@@ -410,9 +410,9 @@ const (
 
 // recordVerbMemoHit gives the txn what it must hold for a memo resolution:
 // the walk's scan marks when precise, otherwise a place in verbMemoHits. Both
-// last for the txn, so each is recorded the first time an entry is used. A verb
-// called in a loop used to replay its whole ancestor path, or grow the hit
-// list, on every call. It reports false when the path cannot be replayed.
+// last for the txn, so each is recorded the first time an entry is used, not on
+// every call of a verb called in a loop. It reports false when the path cannot
+// be replayed.
 func (tx *StoreTxn) recordVerbMemoHit(key verbResolveKey, entry *verbDispatchMemoEntry, precise bool) bool {
 	seen := tx.verbMemoSeen[entry]
 	if precise {
