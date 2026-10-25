@@ -1,32 +1,20 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )
 
 // The published-image immutability invariant (store_core.go objectSlot contract):
-// once an *Object pointer is Stored into a slot, that object's fields and the
-// *Property/*Verb nodes it owns are never written again. Every runtime mutation
-// must publish a NEW image and retain the old one immutably, so a read
-// transaction that has ALIASED the published image (Phase 2) never observes it
-// change underfoot. These tests capture a published image pointer + a snapshot of
+// once readers can reach an *Object image, its fields and the *Property/*Verb
+// nodes it owns are never written again. Every runtime mutation must publish a
+// NEW image and retain the old one immutably, so a read transaction that has
+// ALIASED the published image never observes it change underfoot. These tests capture a published image pointer + a snapshot of
 // its mutated field BEFORE an operation and assert, AFTER the operation, that the
 // captured pointer's content is unchanged (not mutated in place) and that the slot
 // now holds a DIFFERENT pointer carrying the new value.
-
-func objIDsEqual(a, b []types.ObjID) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
 
 // immutFixture builds a tiny store with a wizard root and n plain objects.
 func immutFixture(t *testing.T, n int) (*Store, []types.ObjID) {
@@ -68,7 +56,7 @@ func TestMovePublishesNewImageNotInPlace(t *testing.T) {
 	if oldThing.location != thingLocBefore {
 		t.Errorf("published `thing` image mutated in place: location %v -> %v", thingLocBefore, oldThing.location)
 	}
-	if !objIDsEqual(oldA.contents, aContentsBefore) {
+	if !slices.Equal(oldA.contents, aContentsBefore) {
 		t.Errorf("published `roomA` image mutated in place: contents %v -> %v", aContentsBefore, oldA.contents)
 	}
 	// The slot must now hold a fresh image carrying the new state.
@@ -119,18 +107,6 @@ func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 	}
 }
 
-func stringsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // assertRepublished fails if the slot for id still holds oldPtr (i.e. the image
 // was NOT republished) — the second half of the invariant (the first half, that
 // oldPtr's content is unchanged, is checked per-field by each caller).
@@ -167,7 +143,7 @@ func TestCreateObjectPublishesNewParentImage(t *testing.T) {
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject: %v", ec)
 	}
-	if !objIDsEqual(oldParent.children, childrenBefore) {
+	if !slices.Equal(oldParent.children, childrenBefore) {
 		t.Errorf("CreateObject mutated parent's published children in place: %v -> %v", childrenBefore, oldParent.children)
 	}
 	assertRepublished(t, s, parent, oldParent, "CreateObject(child attach)")
@@ -196,10 +172,10 @@ func TestChangeParentsPublishesNewImages(t *testing.T) {
 	if ec := s.ChangeParents(obj, []types.ObjID{newP}); ec != types.E_NONE {
 		t.Fatalf("ChangeParents: %v", ec)
 	}
-	if !objIDsEqual(oldObj.parents, objParentsBefore) {
+	if !slices.Equal(oldObj.parents, objParentsBefore) {
 		t.Errorf("ChangeParents mutated obj's published parents in place: %v -> %v", objParentsBefore, oldObj.parents)
 	}
-	if !objIDsEqual(oldOldParent.children, oldParentChildrenBefore) {
+	if !slices.Equal(oldOldParent.children, oldParentChildrenBefore) {
 		t.Errorf("ChangeParents mutated old parent's published children in place: %v -> %v", oldParentChildrenBefore, oldOldParent.children)
 	}
 	assertRepublished(t, s, obj, oldObj, "ChangeParents(obj)")
@@ -217,7 +193,7 @@ func TestDefinePropertyPublishesNewImage(t *testing.T) {
 	if old.properties.count() != propsBefore {
 		t.Errorf("DefineProperty mutated published properties map in place (len %d -> %d)", propsBefore, old.properties.count())
 	}
-	if !stringsEqual(old.propOrder, orderBefore) {
+	if !slices.Equal(old.propOrder, orderBefore) {
 		t.Errorf("DefineProperty mutated published propOrder in place")
 	}
 	assertRepublished(t, s, id, old, "DefineProperty")
@@ -289,7 +265,7 @@ func TestSetVerbCodePublishesNewImage(t *testing.T) {
 	if ec := s.DirectTxn().SetVerbCode(id, "look", []string{"return 42;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)
 	}
-	if !stringsEqual(oldVerb.code, codeBefore) {
+	if !slices.Equal(oldVerb.code, codeBefore) {
 		t.Errorf("SetVerbCode mutated published verb node in place: %v -> %v", codeBefore, oldVerb.code)
 	}
 	assertRepublished(t, s, id, old, "SetVerbCode")

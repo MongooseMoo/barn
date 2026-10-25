@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -34,26 +35,14 @@ func TestApplyContentsDeltasAddIsIdempotentAcrossRetry(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			once := applyContentsDeltas(test.start, test.deltas)
 			twice := applyContentsDeltas(once, test.deltas) // deliberate apply retry
-			if !objIDSlicesEqual(once, test.want) {
+			if !slices.Equal(once, test.want) {
 				t.Errorf("first apply = %v, want %v", once, test.want)
 			}
-			if !objIDSlicesEqual(twice, test.want) {
+			if !slices.Equal(twice, test.want) {
 				t.Errorf("retried apply = %v, want %v", twice, test.want)
 			}
 		})
 	}
-}
-
-func objIDSlicesEqual(a, b []types.ObjID) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestStoreTxnTerminalPreflightFailureAndValidationConflictRemainDistinct(t *testing.T) {
