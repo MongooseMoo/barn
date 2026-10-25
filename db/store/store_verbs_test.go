@@ -351,3 +351,120 @@ func verbVersionForTest(t *testing.T, store *Store, objID types.ObjID, name stri
 	}
 	return verb.version
 }
+
+// TestDeleteVerbOfInheritedVerbIsVerbNotFound checks that DeleteVerb on an
+// object that only inherits the named verb returns E_VERBNF and leaves the
+// ancestor's verb in place.
+func TestDeleteVerbOfInheritedVerbIsVerbNotFound(t *testing.T) {
+	s := NewStore()
+
+	// #0: parent with verb "look"
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+		t.Fatalf("AddVerb look on #0: %v", ec)
+	}
+
+	// #1: child inheriting from #0
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject child: %v", ec)
+	}
+
+	// Precondition: child does NOT have "look" defined locally.
+	if s.HasLocalVerb(childID, "look") {
+		t.Fatal("precondition failed: child should not have look locally")
+	}
+
+	// DeleteVerb on the child for an inherited verb must return E_VERBNF,
+	// because the verb is not defined on the child itself.
+	ec = s.DeleteVerb(childID, "look")
+	if ec == types.E_NONE {
+		t.Errorf("DeleteVerb on inherited verb returned E_NONE (silent success); want E_VERBNF")
+	}
+
+	// Additionally confirm the parent's verb was not touched.
+	_, definer, err := s.DirectTxn().FindVerb(0, "look")
+	if err != nil {
+		t.Errorf("parent verb 'look' missing after DeleteVerb on child: %v", err)
+	} else if definer != 0 {
+		t.Errorf("parent verb 'look' found on #%d, want #0", definer)
+	}
+}
+
+// TestSetVerbCodeOfInheritedVerbLeavesAncestor checks that SetVerbCode on an
+// object that only inherits the named verb returns E_VERBNF and leaves the
+// ancestor's code unchanged.
+func TestSetVerbCodeOfInheritedVerbLeavesAncestor(t *testing.T) {
+	s := NewStore()
+
+	// #0: parent with verb "look" having specific code
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+	originalCode := []string{"return 1;"}
+	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, originalCode)); ec != types.E_NONE {
+		t.Fatalf("AddVerb look on #0: %v", ec)
+	}
+
+	// #1: child inheriting from #0
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject child: %v", ec)
+	}
+
+	newCode := []string{"return 2;"}
+	ec = s.DirectTxn().SetVerbCode(childID, "look", newCode)
+	if ec == types.E_NONE {
+		t.Errorf("SetVerbCode on inherited verb returned E_NONE; want E_VERBNF")
+	}
+
+	// Even if SetVerbCode returns E_NONE, verify the parent's code is untouched.
+	parentVerb, err := s.DirectTxn().FindVerbOnObject(0, "look")
+	if err != nil {
+		t.Fatalf("parent verb 'look' not found: %v", err)
+	}
+	if len(parentVerb.Code) > 0 && parentVerb.Code[0] == newCode[0] {
+		t.Errorf("SetVerbCode on child mutated parent verb: parent code[0] = %q, want %q",
+			parentVerb.Code[0], originalCode[0])
+	}
+}
+
+// TestSetVerbInfoOfInheritedVerbLeavesAncestor checks that SetVerbInfo on an
+// object that only inherits the named verb returns E_VERBNF and leaves the
+// ancestor's permissions unchanged.
+func TestSetVerbInfoOfInheritedVerbLeavesAncestor(t *testing.T) {
+	s := NewStore()
+
+	// #0: parent with verb "look" that is readable AND executable
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+	originalPerms := VerbRead | VerbExecute
+	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, originalPerms, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+		t.Fatalf("AddVerb look on #0: %v", ec)
+	}
+
+	// #1: child inheriting from #0
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject child: %v", ec)
+	}
+
+	// SetVerbInfo stripping the read permission via the child
+	newPerms := VerbExecute // no VerbRead
+	ec = s.SetVerbInfo(childID, "look", 0, newPerms, []string{"look"})
+	if ec == types.E_NONE {
+		t.Errorf("SetVerbInfo on inherited verb returned E_NONE; want E_VERBNF")
+	}
+
+	// Verify the parent verb is untouched.
+	parentVerb, err := s.DirectTxn().FindVerbOnObject(0, "look")
+	if err != nil {
+		t.Fatalf("parent verb 'look' not found: %v", err)
+	}
+	if !parentVerb.Perms.Has(VerbRead) {
+		t.Errorf("SetVerbInfo on child stripped VerbRead from parent's verb")
+	}
+}
