@@ -201,7 +201,6 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.location = types.ObjNothing
 
 	obj.properties = newPropTable(0)
-	obj.verbs = make(map[string]*Verb)
 
 	for _, parentID := range obj.parents {
 		parent := s.load(parentID)
@@ -484,7 +483,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// re-stamp other under COW only when an owner reference actually changes.
 		ownerTouched := other.owner == oldID || other.owner == newID
 		if !ownerTouched {
-			for _, v := range other.verbs {
+			for _, v := range other.verbList {
 				if v.owner == oldID || v.owner == newID {
 					ownerTouched = true
 					break
@@ -502,7 +501,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		if ownerTouched {
 			other = s.republishForMutation(other)
 			other.owner = rewriteOwner(other.owner)
-			for _, v := range other.verbs {
+			for _, v := range other.verbList {
 				v.owner = rewriteOwner(v.owner)
 			}
 			for name, p := range other.properties.all() {

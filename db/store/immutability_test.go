@@ -260,7 +260,7 @@ func TestSetVerbCodePublishesNewImage(t *testing.T) {
 		t.Fatalf("AddVerb: %v", ec)
 	}
 	old := s.load(id)
-	oldVerb := old.verbs["look"]
+	oldVerb := old.verbList[0]
 	codeBefore := append([]string(nil), oldVerb.code...)
 	if ec := s.DirectTxn().SetVerbCode(id, "look", []string{"return 42;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)

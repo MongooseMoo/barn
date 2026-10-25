@@ -161,7 +161,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 		},
 		"verb": {
 			read: func(t *testing.T, tx *StoreTxn, a types.ObjID) uint64 {
-				verb := tx.object(a).verbs["look"]
+				verb := tx.object(a).verbList[0] // "look"
 				tx.markVerbRead(a, verb)
 				return verb.version
 			},
@@ -171,7 +171,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				}
 			},
 			want: func(s *Store, a types.ObjID) ReadConflict {
-				return ReadConflict{Kind: ConflictVerb, ObjID: a, Name: "look", Live: s.load(a).verbs["look"].version}
+				return ReadConflict{Kind: ConflictVerb, ObjID: a, Name: "look", Live: s.load(a).verbList[0].version}
 			},
 		},
 		"verb-scan": {
@@ -376,7 +376,7 @@ func TestCleanValidationDoesNotAllocate(t *testing.T) {
 	tx.markObjectRelationshipRead(a, tx.object(a))
 	tx.markPropertyScan(b, tx.object(b))
 	tx.markVerbScan(a, tx.object(a))
-	tx.markVerbRead(a, tx.object(a).verbs["look"])
+	tx.markVerbRead(a, tx.object(a).verbList[0])
 
 	allocs := testing.AllocsPerRun(200, func() {
 		if ec := tx.validateReads(); ec != types.E_NONE {

@@ -283,8 +283,8 @@ func TestNewObject(t *testing.T) {
 		t.Errorf("Properties len = %d, want 0", obj.properties.count())
 	}
 
-	if len(obj.verbs) != 0 {
-		t.Errorf("Verbs len = %d, want 0", len(obj.verbs))
+	if len(obj.verbList) != 0 {
+		t.Errorf("Verbs len = %d, want 0", len(obj.verbList))
 	}
 
 	// Check default flags (not readable or writable per MOO semantics)

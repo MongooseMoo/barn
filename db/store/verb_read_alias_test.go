@@ -10,7 +10,7 @@ import (
 // multi-alias string ("look l*ook glance") and stages any write must commit
 // cleanly. Regression for the retry storm found on mongoose.db: the loader
 // stores Verb.name as the full space-separated alias string, but Object.verbs
-// is keyed by names[0]; markVerbRead used verb.name as the read-set key, so
+// was keyed by names[0]; markVerbRead used verb.name as the read-set key, so
 // validateVerbReadsLocked could never find the verb again and every commit
 // failed E_INVARG — each affected task then re-ran to the 64-attempt retry cap
 // (~300ms and ~100MB of allocations per command on the real database).

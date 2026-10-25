@@ -39,8 +39,7 @@ type Object struct {
 	properties    propTable
 	propDefsCount int      // Number of properties defined on this object (not inherited)
 	propOrder     []string // Names of the properties defined on this object, in definition order, in display case
-	verbs         map[string]*Verb
-	verbList      []*Verb // Ordered list for verb code indexing
+	verbList      []*Verb  // Ordered list for verb code indexing
 	// verbIdx accelerates dispatch-time alias lookup over verbList. It is an
 	// immutable value shared by every image and clone whose verbList carries
 	// the same aliases in the same order; each site that changes verbList or a
@@ -366,19 +365,6 @@ func (o *Object) verbByID(id uint64) *Verb {
 	return nil
 }
 
-// mapKey returns the key this verb occupies in Object.verbs: the first alias
-// (builder.go keys the map by names[0]). Verb.name may hold the full
-// space-separated alias string (the loader stores it verbatim for dump
-// round-tripping), so name is NOT a valid map key for multi-alias verbs —
-// transaction read/write sets must key by mapKey or validation can never
-// find the verb again (every commit then fails E_INVARG and retries).
-func (v *Verb) mapKey() string {
-	if len(v.names) > 0 {
-		return v.names[0]
-	}
-	return v.name
-}
-
 // NewVerb builds a Verb value from its fields. It is the only way for external
 // packages (the loader in db/format, builtins, the conformance fixture, and
 // tests) to construct a Verb without touching unexported fields.
@@ -583,7 +569,6 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		location:         types.ObjNothing,
 		lastMove:         types.NewEmptyMap(),
 		properties:       newPropTable(0),
-		verbs:            make(map[string]*Verb),
 		flags:            0, // Default: not readable or writable (MOO semantics)
 		chparentChildren: make(map[types.ObjID]bool),
 	}

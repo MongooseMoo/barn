@@ -194,7 +194,6 @@ func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute 
 	queue := append(sc.queue[:0], objID)
 
 	searchLower := strings.ToLower(verbName)
-	hasWildcard := strings.Contains(verbName, "*")
 
 	var found *Verb
 	definer := types.ObjNothing
@@ -216,18 +215,6 @@ walk:
 		if verb := obj.findVerbByAlias(searchLower, requireExecute); verb != nil {
 			found, definer = verb, current
 			break walk
-		}
-		if !hasWildcard {
-			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				found, definer = verb, current
-				break walk
-			}
-			if !requireExecute {
-				if verb, ok := obj.verbs[":"+verbName]; ok {
-					found, definer = verb, current
-					break walk
-				}
-			}
 		}
 		queue = append(queue, obj.parents...)
 	}
@@ -283,16 +270,6 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 				tx.markVerbRead(objID, verb)
 				return verb, nil
 			}
-		}
-	}
-	if !strings.Contains(verbName, "*") {
-		if verb, ok := obj.verbs[verbName]; ok {
-			tx.markVerbRead(objID, verb)
-			return verb, nil
-		}
-		if verb, ok := obj.verbs[":"+verbName]; ok {
-			tx.markVerbRead(objID, verb)
-			return verb, nil
 		}
 	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
@@ -370,7 +347,6 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	sc.visited.reset()
 	queue := append(sc.queue[:0], verbLocObj.parents...)
 	searchLower := strings.ToLower(verbName)
-	hasWildcard := strings.Contains(verbName, "*")
 
 	var found *Verb
 	definer := types.ObjNothing
@@ -392,12 +368,6 @@ walk:
 		if verb := obj.findVerbByAlias(searchLower, true); verb != nil {
 			found, definer = verb, current
 			break walk
-		}
-		if !hasWildcard {
-			if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
-				found, definer = verb, current
-				break walk
-			}
 		}
 		queue = append(queue, obj.parents...)
 	}

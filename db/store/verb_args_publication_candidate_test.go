@@ -34,11 +34,6 @@ func TestVerbArgsCandidateSharesOnlyDetachedNodes(t *testing.T) {
 	if fresh.verbList[2] == old.verbList[2] {
 		t.Fatal("newly borrowed nonselected node was shared")
 	}
-	for _, node := range fresh.verbList {
-		if fresh.verbs[node.mapKey()] != node {
-			t.Fatal("map and ordered list disagree about replacement identity")
-		}
-	}
 	if fresh.verbIdx != old.verbIdx {
 		t.Fatal("argument-only update rebuilt the unchanged alias index")
 	}
@@ -64,8 +59,8 @@ func TestVerbArgsCandidateSelectsNonMapWinnerByAlias(t *testing.T) {
 		t.Fatal(ec)
 	}
 	fresh := s.load(0)
-	if fresh.verbs["look"] != old.verbList[0] || fresh.verbList[0] != old.verbList[0] {
-		t.Fatal("updating a shadowed primary name changed its first map winner")
+	if fresh.verbList[0] != old.verbList[0] {
+		t.Fatal("updating a shadowed primary name changed the first verb with that name")
 	}
 	if fresh.verbList[1] == old.verbList[1] || fresh.verbList[1].argSpec != publicationArgsB || old.verbList[1].argSpec != publicationArgsA {
 		t.Fatal("alias did not update exactly the selected private node")

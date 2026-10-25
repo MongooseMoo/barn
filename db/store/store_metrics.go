@@ -100,7 +100,7 @@ func calculateObjectBytes(obj *Object) int {
 
 	count += len(obj.name) + 1
 
-	for _, verb := range obj.verbs {
+	for _, verb := range obj.verbList {
 		count += 32
 		count += len(verb.name) + 1
 		// Compiled programs are cached outside the verb (package bytecode), so

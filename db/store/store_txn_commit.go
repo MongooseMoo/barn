@@ -721,7 +721,6 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		live.contents = []types.ObjID{}
 		live.location = types.ObjNothing
 		live.properties = newPropTable(0)
-		live.verbs = make(map[string]*Verb)
 		live.recycled = true
 		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)
 		stampObjectAll(live, ts)

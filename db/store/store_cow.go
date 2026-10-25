@@ -125,7 +125,6 @@ func buildImageRecycled(old *Object, ts uint64) *Object {
 	img.contents = []types.ObjID{}
 	img.location = types.ObjNothing
 	img.properties = newPropTable(0)
-	img.verbs = make(map[string]*Verb)
 	img.recycled = true
 	img.flags = img.flags.Set(FlagRecycled | FlagInvalid)
 	stampObjectAll(&img, ts)
@@ -234,29 +233,18 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 // buildImageWithVerbCode returns a NEW immutable *Object equal to old except for the
 // single verb (selected by id) having its code replaced and hasProgram set, with the
 // edited verb's version and the object's verbVersion stamped to ts. Caller has already
-// verified the verb exists (preflightStagedToLiveLocked). Only the verb collections are copied: a fresh
-// *Verb is built for the edited verb and substituted into BOTH verbs (map) and verbList
-// (slice) — they share *Verb pointers (see Object.verbs), so the substitution must be
-// identity-preserving exactly like cloneObjectForReadTxn. Every other (unedited) *Verb
-// is shared by reference (immutable). All non-verb collections are shared too.
+// verified the verb exists (preflightStagedToLiveLocked). Only the verb list is copied:
+// a fresh *Verb is built for the edited verb and substituted into its slot. Every other
+// (unedited) *Verb is shared by reference (immutable). All non-verb collections are
+// shared too.
 func buildImageWithVerbCode(old *Object, id uint64, code []string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
 	target := old.verbByID(id)
-	// Build the replacement node once; substitute it for `target` everywhere the
-	// old object aliased that pointer (the map key plus its slot in verbList).
 	updated := *target
 	updated.setCodeCopy(code)
 	updated.version = ts
 
-	newVerbs := make(map[string]*Verb, len(old.verbs))
-	for vname, verb := range old.verbs {
-		if verb == target {
-			newVerbs[vname] = &updated
-		} else {
-			newVerbs[vname] = verb
-		}
-	}
 	newVerbList := make([]*Verb, 0, len(old.verbList))
 	for _, verb := range old.verbList {
 		if verb == target {
@@ -266,7 +254,6 @@ func buildImageWithVerbCode(old *Object, id uint64, code []string, ts uint64) *O
 		}
 	}
 
-	img.verbs = newVerbs
 	img.verbList = newVerbList
 	img.rebuildVerbIndex()
 	img.verbVersion = ts
@@ -275,9 +262,8 @@ func buildImageWithVerbCode(old *Object, id uint64, code []string, ts uint64) *O
 
 // buildImageForVerbArgs detaches every non-verb facet as a full clone would, but
 // shares unchanged verb nodes whose backing arrays have already been copied.
-// The resolved target is an identity, not a map key: a shadowed primary name may
-// still select a different node through one of its aliases. The returned target
-// is always fresh; the caller stamps/edits only that node under store.mu.Lock.
+// The returned target is always fresh; the caller stamps/edits only that node
+// under store.mu.Lock.
 func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
 	img := cloneObjectNonVerbState(old)
 	var updated *Verb
@@ -287,31 +273,15 @@ func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
 	} else {
 		updated = cloneVerbForReadTxn(target)
 	}
-	var detached map[*Verb]*Verb
-	imageNode := func(node *Verb) *Verb {
-		if node == target {
-			return updated
-		}
-		if node == nil || node.backingOwned {
-			return node
-		}
-		if copy, ok := detached[node]; ok {
-			return copy
-		}
-		copy := cloneVerbForReadTxn(node)
-		if detached == nil {
-			detached = make(map[*Verb]*Verb)
-		}
-		detached[node] = copy
-		return copy
-	}
 	img.verbList = make([]*Verb, 0, len(old.verbList))
 	for _, node := range old.verbList {
-		img.verbList = append(img.verbList, imageNode(node))
-	}
-	img.verbs = make(map[string]*Verb, len(old.verbs))
-	for key, node := range old.verbs {
-		img.verbs[key] = imageNode(node)
+		switch {
+		case node == target:
+			node = updated
+		case node != nil && !node.backingOwned:
+			node = cloneVerbForReadTxn(node)
+		}
+		img.verbList = append(img.verbList, node)
 	}
 	// Args do not alter alias spellings/order or the index's list positions.
 	img.verbIdx = old.verbIdx
