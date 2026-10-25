@@ -7,8 +7,11 @@ then `add_property(o,"Foo",...)` publishes properties() = {"Foo","Foo"}; and
 
 ## State
 - Conformance worktree C:/Users/Q/code/mct-store-b8, branch test/store-b8 (off origin/main
-  be876f5): two tests appended to src/moo_conformance/_tests/builtins/properties.yaml.
-- Barn worktree C:/Users/Q/code/barn-store-b8, branch fix/store-b8 (off origin/master 90681354).
+  be876f5): two tests in new file src/moo_conformance/_tests/builtins/properties_delete_mixed_case.yaml.
+- Barn worktree C:/Users/Q/code/barn-store-b8, branch fix/store-b8, rebased onto origin/master
+  3cb7e64c (#486 merged). Regression and `go test ./db/store` green after rebase.
+- #489 (perf/456-share-created-slots) edits store_properties.go and
+  store_txn_property_inheritance.go in other hunks; no propOrder/removeString changes. Not test-merged.
 - Go regression TestTransactionDeleteMixedCasePropertyRemovesOrderEntry (db/store/store_txn_test.go)
   is red on unfixed code: tx names ["Foo" "Foo" "bar"] and ["baz" "bar"].
 - First Toast run (tests appended to properties.yaml): 3 selected, 3 passed in 823.98s.
@@ -37,4 +40,5 @@ then `add_property(o,"Foo",...)` publishes properties() = {"Foo","Foo"}; and
 - WSL git cannot read these worktrees (.git file holds a Windows path); run git from Windows.
 
 ## Next step
-Run the two new tests on the managed WSL Toast oracle.
+Wait for the Toast rerun on the new file and the Barn red run (unfixed bin/barn); then red run on
+the new file with that binary, then `make conformance-k` (rebuilds fixed Barn) for green.
