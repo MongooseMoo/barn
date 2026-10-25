@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
@@ -312,6 +313,9 @@ func (s TaskState) finished() bool {
 // before its uncaught-error hook runs, and the task that forked it stays held
 // until that slice ends, so the state alone does not settle it.
 func (t *Task) settledLocked() bool {
+	if isolationprobe.Fault("finished-task-index") {
+		return t.State.finished()
+	}
 	return t.State.finished() && !t.executionActive
 }
 

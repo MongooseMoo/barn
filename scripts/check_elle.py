@@ -34,6 +34,21 @@ def run(command, log, env=None):
     return result.returncode, log.read_text(encoding="utf-8")
 
 
+def lifecycle_verdict(code, output, fault):
+    name = "TestUncaughtHandlerBeforeYieldedParent"
+    status = "FAIL" if fault else "PASS"
+    marker = rf"^--- {status}: {name} \([^)]+\)$"
+    footer = r"^FAIL\s+github.com/MongooseMoo/barn/engine\s" if fault else r"^ok\s+github.com/MongooseMoo/barn/engine\s"
+    expected_code = 1 if fault else 0
+    witness = "parent observed {194, 0}, want {194, 1}; dispatched while handler held=1"
+    if (code != expected_code or not re.search(marker, output, re.MULTILINE)
+            or not re.search(footer, output, re.MULTILINE)
+            or (fault and witness not in output)):
+        raise ValueError(f"expected {name} {status} with exit {expected_code}"
+                         + (" and the premature-read witness" if fault else ""))
+    return "rejected" if fault else "passed"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jar", type=Path, required=True)
@@ -49,6 +64,22 @@ def main():
     args.jar = args.jar.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     results, errors = [], []
+    # Serializable histories do not establish scheduler order. Require the real
+    # fork/handler/parent assertion separately, with its historical defect.
+    for fault in ("", "finished-task-index"):
+        label = "lifecycle-" + (fault or "healthy")
+        env = os.environ.copy()
+        env.update(BARN_ELLE_FAULT=fault, GOMAXPROCS="4")
+        command = ["go", "test", "-tags", "elle", "./engine", "-run",
+                   "^TestUncaughtHandlerBeforeYieldedParent$", "-count=1", "-v", "-timeout=1m"]
+        code, output = run(command, args.output / f"{label}-go.log", env)
+        record = {"case": label, "fault": fault, "go_command": command, "exit_code": code}
+        try:
+            record["verdict"] = lifecycle_verdict(code, output, fault)
+            print(f"{label}: {record['verdict']}", flush=True)
+        except ValueError as error:
+            errors.append(f"{label}: {error}; actual exit={code}")
+        results.append(record)
     # Same workload and seed under healthy validation and under each fault. The
     # synchronized waves and the held write-skew pair make every negative control
     # independent of lucky timing.

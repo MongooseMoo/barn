@@ -1,0 +1,26 @@
+# Issue 423: uncaught-error handler ordering
+
+## Goal
+Diagnose issue 423 in this isolated worktree. Establish Toast behavior, capture a deterministic Barn failure, publish red CI, then make the smallest fix and establish green CI. Complete 20 managed conformance runs under load. Evaluate an explicit Elle negative control for the demonstrated defect.
+
+## State
+Q authorized fixing both CI failures. Saved artifact 12330781347 proves the commit-exclusion fault hit an invalid-WAIF-publication-timestamp panic in an unrelated wave (task 100028), leaving info:1. Integrated master 704a1b20 (PR #483) in merge commit b4c5e79f: its source enables the commit-exclusion fault only around the held pair and reserves game sockets before optional HTTP endpoints. Previous DefaultConfig used ephemeral debug/operator ports; internal/app/listener_reservation_test.go forces that same-address collision. Removed our overlapping skip-waves change and closed redundant companion moo-conformance-tests#133. All healthy/fault waves and lifecycle coverage remain. Historical port occupant remains unknown; the saved log does not identify it. Final exact-head PR CI is pending; query PR #482 for current run IDs.
+Audit-correction head a7359df1 passed both complete CI workflows: runs 39707954838 (CI) and 39707954657 (Elle). Loaded managed session 20/20 logged 2 passed, 63 deselected. This is acceptance evidence, not proof the intermittent infrastructure failures were repaired.
+Q requested addressing audit findings. Both workflows now pin verified action commits and disable checkout credential persistence; ci.yml explicitly grants contents: read. actionlint exited 0; zizmor --offline exited 0: "No findings to report. Good job! (23 suppressed)". No new suppressions added. setup-uv v5 is annotated; verified dereferenced commit d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86.
+Earlier green-attempt commit 1b817f1b63e83515e4f89941dd1bfbdcff6f386c did not pass overall CI. Elle run 39567258003 logged lifecycle-healthy: passed and lifecycle-finished-task-index: rejected, but the commit-exclusion workload exited 1 (artifact 12330781347). CI run 39567258059 passed unit tests and loaded managed sessions 1-14; session 15 failed to bind 127.0.0.1:44631 before admission (artifact 12331375267). These failed cohorts remain distinct from the later successful cohorts and the subsequently merged source corrections.
+PR #482 is draft. Red commit 700b54ff, Elle CI run 39566782997: parent dispatched=1 while handler held, parent observed {194,0}, test failed with exit 1. Focused authored healthy test passed locally: parent dispatched=0; handler and parent both observed {194,1}. This reproduces the historical defect by a checker-tag-only fault, not on healthy master.
+Commit 1b817f1b already removed the temporary red workflow step, required healthy pass and specific fault rejection in scripts/check_elle.py, retained raw logs/results, and added 20 loaded managed conformance sessions to CI. Managed WSL Toast completed: 2 passed, 13170 deselected in 325.42s; session 4685. Issue remains open.
+
+## Decisions and why
+Q approved proceeding with stronger coverage after learning the fix already exists. Smallest coverage change: about 100 lines for a real VM/scheduler regression, a compile-away fault at settledLocked (about 4 lines), and about 30 lines in the existing Elle driver to require both healthy success and a specific negative-control failure. Keep serializable checking unchanged: task ordering is a separate assertion alongside Elle.
+Smallest intended change: one deterministic engine regression and the production ordering correction it demonstrates; size unknown until reproduction. Existing Elle checks request serializable histories, which may not detect scheduler ordering violations. Do not strengthen the whole model without evidence.
+
+## Surprises
+The remembered reports/toast-oracle-wsl.md does not exist. Current Makefile documents the managed conformance-toast target and includes capability admission automatically for focused selection.
+
+Current master already contains cd84cb267811b43cf3c3ceb61a2c6cf18f56c891, whose message explicitly identifies this exact [194,0] failure. Verified implementation: task/task.go settledLocked retains terminal tasks while executionActive; task/manager.go Unfinished uses that index. Existing task/manager_test.go TestUnfinishedKeepsFinishedTaskUntilItsSliceEnds tests both killed and completed states. No remaining production defect demonstrated. Toast execute.cc:3171 synchronously invokes do_server_verb_task for the uncaught error handler.
+
+## Next step
+Inspect final exact-head PR CI, including lifecycle logs, all Elle verdicts/manifests and all 20 loaded managed sessions; update PR description with that evidence. Preserve existing merged fixes and lifecycle controls. No merge of PR #482 authorized.
+
+Managed oracle command: wsl -d Debian --exec bash -lc 'set -euo pipefail; cd /mnt/c/Users/Q/code/barn-issue-423; make conformance-toast K=tick_exhaustion_extended_opcode_does_not_test_the_budget'. Final scope includes the engine test, checker-tag fault, Elle driver/verdict tests/docs, managed repetition CI, and audit corrections. A developer checkpoint also exists at C:/Users/Q/code/barn/notes-issue-423-checkpoint.md.
