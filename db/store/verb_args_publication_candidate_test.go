@@ -158,7 +158,6 @@ func TestVerbArgsCandidateCodeInstallClearsOwnershipProof(t *testing.T) {
 	}{
 		{"owned", func(v *Verb, code []string) { v.setCodeOwned(code) }},
 		{"copy", func(v *Verb, code []string) { v.setCodeCopy(code) }},
-		{"loader", func(v *Verb, code []string) { v.SetCode(code) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			borrowed := NewVerb("look", []string{"look"}, 0, VerbRead, publicationArgsA, []string{"return 1;"})

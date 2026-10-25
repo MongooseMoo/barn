@@ -38,7 +38,7 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 	}
 	if anonymous {
 		// Anonymous objects live out-of-band in s.anonObjects, never in the
-		// numbered s.objects map (see the field comment in store_core.go and
+		// numbered directory (see the field comment in store_core.go and
 		// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
 		// has id == NOTHING and is removed from the numbered objects[] array
 		// (db_make_anonymous, db_objects.cc:449); it is only assigned an
@@ -61,19 +61,19 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 	return newID, types.E_NONE
 }
 
+// NextID returns the next id the allocator will hand out: one past the highest
+// id ever allocated, anonymous objects included. Recycled ids are not reused.
 func (s *Store) NextID() types.ObjID {
 	return s.highWater() + 1
 }
 
-// MaxObject returns the highest allocated object ID
-// Includes recycled objects (high-water mark)
-
+// maxObject returns max_object(): the highest numbered (non-anonymous) id
+// allocated, recycled ids included.
 func (s *Store) maxObject() types.ObjID {
 	return s.maxObjectID()
 }
 
-// Valid checks if an object exists and is not recycled
-
+// valid reports whether id names a live object, numbered or anonymous.
 func (s *Store) valid(id types.ObjID) bool {
 	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
 	if id < 0 {
@@ -89,15 +89,14 @@ func (s *Store) valid(id types.ObjID) bool {
 	}
 
 	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
-	// runtime-created via create(...,1), which now lives only in s.anonObjects)
+	// runtime-created via create(...,1), which lives only in s.anonObjects)
 	// is reported valid, not just numbered objects. liveObjectLocked already
 	// excludes recycled/invalidated objects.
 	return s.liveObjectLocked(id) != nil
 }
 
-// IsRecycled checks if an object ID was recycled (vs never existed)
-// Returns true only if the object existed and was recycled
-
+// isRecycled reports whether id names a recycled numbered object, as opposed to
+// a live one or an id that never existed.
 func (s *Store) isRecycled(id types.ObjID) bool {
 	if id < 0 {
 		return false
@@ -114,49 +113,8 @@ func (s *Store) isRecycled(id types.ObjID) bool {
 	return obj.recycled
 }
 
-// invalidateAnonymousChildrenLocked marks anonymous children under rootID as invalid.
-// Includes the root object's own anonymous children and all descendants' anonymous children.
-// Caller must hold s.mu lock.
-
-func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
-	queue := []types.ObjID{rootID}
-	visited := make(map[types.ObjID]bool)
-
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := s.load(currentID)
-		if current == nil || current.recycled {
-			continue
-		}
-
-		for _, childID := range current.anonymousChildren {
-			child := s.load(childID)
-			if child != nil && child.anonymous {
-				child = s.republishForMutation(child)
-				child.flags = child.flags.Set(FlagInvalid)
-				stampObjectScalar(child, ts)
-			}
-		}
-		current = s.republishForMutation(current)
-		current.anonymousChildren = nil
-		stampObjectRelationship(current, ts)
-
-		queue = append(queue, current.children...)
-	}
-}
-
-// Recycle marks an object as recycled
-// Returns error if object doesn't exist or is already recycled
-
+// Recycle marks an object as recycled.
+// Returns error if object doesn't exist or is already recycled.
 func (s *Store) Recycle(id types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -268,9 +226,8 @@ func (s *Store) Recycle(id types.ObjID) error {
 	return nil
 }
 
-// Recreate recreates a recycled object slot (wizard only)
-// Returns error if object is not recycled
-
+// Recreate recreates a recycled object slot.
+// Returns error if object is not recycled.
 func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -323,7 +280,6 @@ func removeRecycledID(ids []types.ObjID, id types.ObjID) []types.ObjID {
 
 // All returns flat, read-only ObjectViews for every valid (non-recycled)
 // object. The store never hands out live *Object values to external callers.
-
 func (s *Store) All() []ObjectView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -339,6 +295,7 @@ func (s *Store) All() []ObjectView {
 	return result
 }
 
+// Players returns all objects with the player flag set.
 func (s *Store) Players() []types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -354,9 +311,8 @@ func (s *Store) Players() []types.ObjID {
 	return result
 }
 
-// LowestFreeID finds the lowest available object ID
-// Checks recycled slots and gaps in the ID sequence
-
+// LowestFreeID finds the lowest available object ID.
+// Checks recycled slots and gaps in the ID sequence.
 func (s *Store) LowestFreeID() types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -396,9 +352,8 @@ func (s *Store) LowestFreeID() types.ObjID {
 	return maxID + 1
 }
 
-// Renumber moves an object from oldID to newID, updating all references
-// Returns the new ID, or error if object doesn't exist
-
+// Renumber moves an object from oldID to newID, updating all references.
+// Returns an error if the object doesn't exist or newID is taken.
 func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -559,13 +514,10 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		return true
 	})
 
-	// Fix references in anonymous objects as well. Before F2 (commit 7318d24)
-	// runtime anonymous objects lived in the numbered s.objects map, so the
-	// structural walk above rewrote their parent/location/etc. references to a
-	// renumbered object. F2 moved them out-of-band into s.anonObjects, so they
-	// must be walked here to preserve that behavior — otherwise an anonymous
-	// child of a renumbered object keeps a stale parent id and property access
-	// through it fails (E_PROPNF). Toast walks anonymous_objects in
+	// Fix references in anonymous objects as well. They live in s.anonObjects,
+	// not the directory walked above, so without this an anonymous child of a
+	// renumbered object keeps a stale parent id and property access through it
+	// fails (E_PROPNF). Toast walks anonymous_objects in
 	// db_renumber_object for the same reason (db_objects.cc:686-705); anonymous
 	// objects carry no verbdefs, so only object/propval owners are rewritten for
 	// ownership, alongside the structural parent/child/location/contents refs.
@@ -610,10 +562,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	return nil
 }
 
-// FindProperty looks up a property on an object, following the inheritance chain
-// breadth-first. Permission metadata comes from the nearest property slot, while
-// a clear slot inherits the first non-clear value from an ancestor.
-
+// RegisterWaif registers a waif with its class object, and unregisters it when
+// the waif is collected.
 func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	identity := waif.WaifIdentity()
 	s.mu.Lock()
@@ -645,8 +595,7 @@ func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity)
 	}
 }
 
-// WaifCount returns the total number of live waifs across all classes
-
+// WaifCount returns the total number of live waifs across all classes.
 func (s *Store) WaifCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -658,8 +607,7 @@ func (s *Store) WaifCount() int {
 	return count
 }
 
-// WaifCountByClass returns a map of class ID to waif count
-
+// WaifCountByClass returns a map of class ID to waif count.
 func (s *Store) WaifCountByClass() map[types.ObjID]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -672,15 +620,3 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 	}
 	return result
 }
-
-// InvalidateAnonymousChildren marks all anonymous children of an object as invalid
-// This is called when the parent hierarchy changes (recycle, chparents, add_property, delete_property, renumber)
-
-func (s *Store) InvalidateAnonymousChildren(parentID types.ObjID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.invalidateAnonymousChildrenLocked(parentID)
-}
-
-// NoteVerbCacheClear increments the compatibility clear counter used by verb_cache_stats().

@@ -49,17 +49,6 @@ func TestNewVerbCarriesItsSourceKey(t *testing.T) {
 	assertKeyMatchesCode(t, verbViewForTest(t, store, 0, "look"), "NewVerb")
 }
 
-func TestVerbSetCodeRefreshesKey(t *testing.T) {
-	verb := NewVerb("look", []string{"look"}, 0, VerbRead, VerbArgs{}, nil)
-	before := verb.View().CodeKey
-	verb.SetCode([]string{"return 1;"})
-	after := verb.View()
-	assertKeyMatchesCode(t, after, "Verb.SetCode")
-	if after.CodeKey == before {
-		t.Fatalf("Verb.SetCode left the key unchanged")
-	}
-}
-
 func TestObjectBuilderSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 	builder := NewObjectBuilder(1)
 	builder.AppendVerb(NewVerb("look", []string{"look"}, 0, VerbRead, VerbArgs{}, nil))

@@ -123,9 +123,9 @@ type Property struct {
 }
 
 // Object.properties is keyed by the CANONICAL lowercase name (propertyNameKey)
-// so case-insensitive lookup is a single map hit — the old fallback (an
-// EqualFold scan over the whole map on any case mismatch or absent name) was
-// 15% of total CPU on the real-mongoose workload. Display case is NOT stored
+// so case-insensitive lookup is a single map hit (an EqualFold scan over the
+// whole map on any case mismatch or absent name measured 15% of total CPU on
+// the real-mongoose workload). Display case is NOT stored
 // per Property (that would grow the most-cloned struct past its 48-byte
 // budget); it lives only in propOrder, which is sufficient because the dump
 // serializes names solely for locally-defined properties, and those are
@@ -373,8 +373,8 @@ func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, ar
 		codeKey:    sourcekey.Of(code),
 		// A verb constructed with non-empty source already has a program. An
 		// empty/nil code slice means "no program yet" (add_verb, or the loader's
-		// metadata pass before the verb-code section is read); SetCode promotes
-		// it to hasProgram=true when a program entry is actually present.
+		// metadata pass before the verb-code section is read); setCodeOwned
+		// promotes it to hasProgram=true when a program entry is actually present.
 		hasProgram: len(code) > 0,
 	}
 }
@@ -386,14 +386,6 @@ func loweredNames(names []string) []string {
 		lower[i] = strings.ToLower(n)
 	}
 	return lower
-}
-
-// SetCode replaces the verb's source lines. It exists for the loader in
-// db/format, which reads verb metadata and verb source in two separate passes
-// and must fill in the source on an already-constructed verb. Production verb
-// edits go through the store's SetVerbCode/SetVerbCodeByIndex methods.
-func (v *Verb) SetCode(lines []string) {
-	v.setCodeOwned(lines)
 }
 
 // setCodeOwned installs lines as the verb's source, taking ownership of the

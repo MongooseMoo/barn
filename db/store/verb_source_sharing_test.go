@@ -19,7 +19,8 @@ func TestVerbSourceClonesDetachBorrowedInputs(t *testing.T) {
 			code := []string{"x = 7;", "return x;"}
 			v := NewVerb("look", names, 0, VerbRead|VerbExecute, publicationArgsA, code)
 			if loader {
-				v.SetCode(code)
+				// ObjectBuilder.SetVerbCodeByIndex installs loaded source this way.
+				v.setCodeOwned(code)
 			}
 			first := cloneVerbForReadTxn(&v)
 			second := cloneVerbForReadTxn(first)
@@ -39,7 +40,6 @@ func TestVerbSourceSequentialClonesPreserveRetainedSource(t *testing.T) {
 		name    string
 		install func(*Verb, []string)
 	}{
-		{"SetCode", (*Verb).SetCode},
 		{"owned", (*Verb).setCodeOwned},
 		{"copy", (*Verb).setCodeCopy},
 	} {

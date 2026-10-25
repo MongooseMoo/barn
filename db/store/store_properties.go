@@ -70,7 +70,7 @@ func (s *Store) reseedInheritedPropertiesLocked(obj *Object, ts uint64) {
 	obj.properties = newProps
 }
 
-// FindProperty resolves a property (with inheritance) and returns a flat,
+// findProperty resolves a property (with inheritance) and returns a flat,
 // read-only PropertyView value. The store never hands out a live *Property to
 // external callers.
 func (s *Store) findProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
@@ -142,9 +142,8 @@ func validLiveObject(obj *Object) bool {
 	return obj != nil && !obj.recycled && !obj.flags.Has(FlagInvalid)
 }
 
-// DefinedPropertyNames returns properties defined directly on an object in
+// definedPropertyNames returns properties defined directly on an object in
 // definition order.
-
 func (s *Store) definedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -164,9 +163,8 @@ func (s *Store) definedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	return names, types.E_NONE
 }
 
-// DefinedPropertyNamesInAncestry returns every property name defined on objID
+// definedPropertyNamesInAncestry returns every property name defined on objID
 // or its ancestors.
-
 func (s *Store) definedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -361,7 +359,7 @@ func (s *Store) truthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 	return result, types.E_NONE
 }
 
-// LocalProperty returns a flat read-only view of a property slot defined or
+// localProperty returns a flat read-only view of a property slot defined or
 // inherited directly on objID (not resolved up the parent chain).
 func (s *Store) localProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	s.mu.RLock()
@@ -380,7 +378,6 @@ func (s *Store) localProperty(objID types.ObjID, name string) (PropertyView, boo
 
 // DefinedProperty returns a read-only view of a property defined directly on the
 // object.
-
 func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	prop, ok, err := s.localProperty(objID, name)
 	if err != types.E_NONE || !ok || !prop.Defined {
@@ -389,19 +386,8 @@ func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, b
 	return prop, true, types.E_NONE
 }
 
-func (s *Store) HasLocalProperty(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	_, ok, err := s.localProperty(objID, name)
-	return ok, err
-}
-
-func (s *Store) IsPropertyDefinedOnObject(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	_, ok, err := s.DefinedProperty(objID, name)
-	return ok, err
-}
-
-// PropertyClearState reports whether an existing inherited property is clear on
+// propertyClearState reports whether an existing inherited property is clear on
 // the target object. A missing local slot means the property is inherited.
-
 func (s *Store) propertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -420,8 +406,7 @@ func (s *Store) propertyClearState(objID types.ObjID, name string) (bool, types.
 	return prop.clear, types.E_NONE
 }
 
-// SetPropertyInfo updates owner and/or permissions on a local property slot.
-
+// setPropertyInfo updates owner and/or permissions on a local property slot.
 func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -449,9 +434,8 @@ func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	return types.E_NONE
 }
 
-// SetPropertyValue updates an existing local property slot or creates a local
+// setPropertyValue updates an existing local property slot or creates a local
 // override for an inherited property.
-
 func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -488,9 +472,8 @@ func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Val
 	return types.E_NONE
 }
 
-// DefineProperty adds a new property definition to an object and propagates
+// defineProperty adds a new property definition to an object and propagates
 // inherited clear slots to existing descendants.
-
 func (s *Store) defineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -531,9 +514,8 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	return types.E_NONE
 }
 
-// DeleteDefinedProperty removes a property defined directly on an object and
+// deleteDefinedProperty removes a property defined directly on an object and
 // removes inherited copies from descendants.
-
 func (s *Store) deleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -568,9 +550,8 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	return types.E_NONE
 }
 
-// ClearPropertyOverride removes a local inherited-property slot so reads fall
+// clearPropertyOverride removes a local inherited-property slot so reads fall
 // through to the parent chain.
-
 func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -619,38 +600,6 @@ func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 		}
 	}
 	return false
-}
-
-func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	// Read-only scan first: only republish if there is an inherited slot to drop, so
-	// a no-op reset does not needlessly supersede the image. The delete loop then
-	// mutates the fresh copy, never the published image (which pre-existing read
-	// aliases may hold).
-	changed := false
-	for _, prop := range obj.properties.all() {
-		if !prop.defined {
-			changed = true
-			break
-		}
-	}
-	if changed {
-		obj = s.republishForMutation(obj)
-		for name, prop := range obj.properties.all() {
-			if !prop.defined {
-				obj.properties.remove(name)
-			}
-		}
-		stampObjectProperties(obj, s.bumpClockLocked())
-		s.noteWaifRootsChanged()
-	}
-	return types.E_NONE
 }
 
 func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name string, prop Property, ts uint64) {
@@ -755,11 +704,3 @@ func removeStringFold(items []string, value string) []string {
 	}
 	return result
 }
-
-// matchVerbName checks if a search name matches a MOO verb name pattern
-// Supports MOO wildcard matching where * marks the minimum abbreviation point
-// Example: "co*nnect" matches "co", "con", "conn", "conne", "connec", "connect"
-//   - Must type at least "co" (prefix before *)
-//   - Can type any prefix of the full name "connect"
-//
-// Example: "get_conj*ugation" matches "get_conj", "get_conju", ..., "get_conjugation"
