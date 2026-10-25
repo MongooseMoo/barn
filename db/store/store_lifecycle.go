@@ -259,8 +259,11 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.flags = obj.flags.Set(FlagRecycled | FlagInvalid)
 	stampObjectAll(obj, ts)
 
-	// Track for potential reuse
-	s.recycledID = append(s.recycledID, id)
+	// Track for potential reuse. An anonymous object's id is its permanent
+	// identity (see AddAnonymous), so it is never reused.
+	if !obj.anonymous {
+		s.recycledID = append(s.recycledID, id)
+	}
 
 	return nil
 }
@@ -377,7 +380,12 @@ func (s *Store) LowestFreeID() types.ObjID {
 	for id := types.ObjID(0); id <= maxID; id++ {
 		obj := s.load(id)
 		if obj == nil {
-			return id
+			// An id with no numbered slot may belong to an anonymous object,
+			// which never gives up its id to a numbered object.
+			if s.anonObjects[id] == nil {
+				return id
+			}
+			continue
 		}
 		if obj.recycled {
 			return id

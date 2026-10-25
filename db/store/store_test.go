@@ -161,6 +161,34 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 	}
 }
 
+// Anonymous objects take no object number in ToastStunt (db_renumber_object scans
+// only objects[], db_objects.cc:550-552), so LowestFreeID must never offer the id
+// of a live or recycled anonymous object to renumber().
+func TestLowestFreeIDSkipsAnonymousObjectIDs(t *testing.T) {
+	for _, recycleAnon := range []bool{false, true} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, -1)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, true)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject(anonymous) failed: %v", errCode)
+		}
+		if recycleAnon {
+			if err := store.Recycle(anon); err != nil {
+				t.Fatalf("Recycle(anonymous) failed: %v", err)
+			}
+		}
+		obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject failed: %v", errCode)
+		}
+		if next := store.LowestFreeID(); next <= obj {
+			t.Errorf("recycled anon %v: LowestFreeID = %d, want above #%d (anon is #%d)", recycleAnon, next, obj, anon)
+		}
+	}
+}
+
 func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(9, 9)); err != nil {
