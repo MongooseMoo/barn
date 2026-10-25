@@ -9,7 +9,9 @@ makes `children(q)` list the anonymous object. Fix conformance-test-first.
   Row `builtins/objects.yaml::chparent_anonymous_not_added_to_parent_children`, commit ff64290.
   Managed WSL Toast (aecc51e9, binary sha256 72fb1cf9...): PASSED. Barn origin/master
   (90681354): FAILED, got `[[[], []], [], ['#11'], [], ['#11'], 1]`.
-- Barn: C:/Users/Q/code/barn-store-b3, branch fix/store-b3 off origin/master (90681354).
+- Barn: C:/Users/Q/code/barn-store-b3, branch fix/store-b3, first cut off origin/master
+  90681354, rebased cleanly onto 3cb7e64c (merge of #486, inherited aliases) on 2026-10-25;
+  regression test and `go test ./db/store` rerun green after the rebase.
   Fix in db/store/store_relationships.go `ChangeParents`; regression
   `TestChangeParentsAnonymousMovesAnonymousChildren` in db/store/store_test.go.
   Red before fix (children of new parent, stale old-parent anonymousChildren, missing
