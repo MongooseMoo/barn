@@ -10,12 +10,14 @@ import (
 	"sync/atomic"
 )
 
-// objectSlot is the per-id storage cell in Store.objects. The published image
-// (slot.ptr) is an IMMUTABLE *Object: once a pointer is Stored into a slot, that
-// *Object's fields and the *Property/*Verb nodes it owns are never written again.
-// Readers Load() the pointer once and use that frozen snapshot — no lock, no torn
-// read. The copy-on-write committer builds a NEW *Object and publishes it via
-// slot.ptr.Store while holding Store.commitMu, so one commit publishes at a time.
+// objectSlot is the per-id storage cell in Store.dir. The published image
+// (slot.ptr) is an IMMUTABLE *Object once readers can reach it: its fields and
+// the *Property/*Verb nodes it owns are never written again. Readers Load() the
+// pointer once and use that frozen snapshot — no lock, no torn read. The
+// decentralized committer builds a NEW *Object and publishes it via
+// slot.ptr.Store while holding Store.commitMu, so one commit publishes at a
+// time. A coarse writer publishes a fresh clone and mutates it while still
+// holding store.mu.Lock, before any reader can load it (republishForMutation).
 //
 // A slot has stable identity for its lifetime in the directory.
 type objectSlot struct {
@@ -59,7 +61,7 @@ type Store struct {
 	maxObjID           atomic.Int64
 	highWaterID        atomic.Int64
 	recycledMu         sync.Mutex    // guards recycledID against concurrent decentralized recyclers
-	recycledID         []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	recycledID         []types.ObjID // recycled numbered ids, offered again by LowestFreeID
 	clock              atomic.Uint64
 	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
 	history            map[types.ObjID][]objectHistory
@@ -88,7 +90,7 @@ type Store struct {
 	// contention). Sharding by readTS keeps each shard's multiset self-consistent
 	// (a given readTS always maps to the same shard), and historyFloor() = min key
 	// across shards (or clock if empty). readTSFloorMu prevents a scan from missing a
-	// completed registration in a shard it already visited. COW Phase 4 history GC.
+	// completed registration in a shard it already visited. See store_history_gc.go.
 	readTSShards [readTSShardCount]readTSShard
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object
@@ -101,20 +103,22 @@ type Store struct {
 
 	// anonObjects holds anonymous objects out-of-band, keyed by the identity id
 	// they were loaded/created with. Anonymous objects NEVER live in the regular
-	// numbered object space (objects map) and never occupy a regular numeric id:
+	// numbered object space (dir) and never occupy a regular numeric id:
 	// in ToastStunt they exist only as _TYPE_ANON values at runtime and are
 	// assigned above-max serialization ids at dump time. Keeping them here (not in
-	// objects) preserves that invariant and avoids the id collisions that crash
+	// dir) preserves that invariant and avoids the id collisions that crash
 	// Toast's loader.
 	anonObjects map[types.ObjID]*Object
 
-	// MVCC commit observability counters (Phase A instrumentation). Bumped
-	// lock-free, mirroring the anonCreations pattern. commitAttempts/Successes/
-	// Conflicts are bumped inside StoreTxn.Commit; commitRetries is bumped by the
-	// execution runtime each time it loops back after a retryable conflict. These are
-	// observation-only and never affect control flow.
+	// MVCC commit observability counters. Bumped lock-free, mirroring the
+	// anonCreations pattern. commitAttempts/Successes/Conflicts are bumped inside
+	// StoreTxn.Commit; commitRetries is bumped by the execution runtime each time
+	// it loops back after a retryable conflict. These are observation-only and
+	// never affect control flow.
 	commitAttempts  atomic.Uint64
 	commitSuccesses atomic.Uint64
+	commitConflicts atomic.Uint64
+	commitRetries   atomic.Uint64
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
@@ -131,8 +135,6 @@ type Store struct {
 	verbDispatchMemo     atomic.Pointer[sync.Map]
 	verbDispatchMemoSize atomic.Int64
 	verbShapeChangeTS    atomic.Uint64
-	commitConflicts      atomic.Uint64
-	commitRetries        atomic.Uint64
 	// hotProps tracks the properties whose reads keep losing validation, and
 	// the hotRead counters what renewing a transaction at such a read did. See
 	// store_hot_read.go.
@@ -155,9 +157,11 @@ type Store struct {
 	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
 
-	waifRegistry    map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
-	verbCacheClears int64
-	verbCacheMisses int64
+	waifRegistry map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
+	// verbCacheStats is verb_cache_stats()'s current interval: the
+	// verbCacheCleared bit plus the miss count. One word, so a clear, a miss and
+	// a consume each take effect whole.
+	verbCacheStats atomic.Uint64
 
 	pendingFinalizations []types.Value
 
@@ -232,9 +236,9 @@ func casMaxID(a *atomic.Int64, v types.ObjID) {
 
 // load returns the currently-published immutable *Object for id, or nil if the
 // slot does not exist. The returned *Object is a frozen snapshot: read its fields
-// freely; never mutate it (it may be shared with concurrent readers). Callers on
-// the read paths hold store.mu.RLock so the map skeleton is stable during the
-// lookup; the atomic Load itself is the acquire barrier that publishes the image.
+// freely; never mutate it (it may be shared with concurrent readers). The
+// directory lookup is lock-free; the atomic Load is the acquire barrier that
+// publishes the image.
 func (s *Store) load(id types.ObjID) *Object {
 	if slot := s.dir.slot(id); slot != nil {
 		return slot.ptr.Load()
@@ -250,8 +254,9 @@ func (s *Store) slotFor(id types.ObjID) *objectSlot {
 	return s.dir.getOrCreate(id)
 }
 
-// publishLocked publishes obj into id's slot. Used by the coarse (store.mu-held)
-// writers and by object insertion; the map skeleton is mutated under store.mu.
+// publishLocked publishes obj into id's slot, creating the slot if needed.
+// Callers hold store.mu.Lock, or store.mu.RLock plus commitMu
+// (commitDecentralized).
 func (s *Store) publishLocked(id types.ObjID, obj *Object) {
 	s.slotFor(id).ptr.Store(obj)
 }
@@ -277,7 +282,7 @@ func (s *Store) AnonCreationCount() uint64 {
 	return s.anonCreations.Load()
 }
 
-// MVCC commit observability accessors (Phase A). All lock-free.
+// MVCC commit observability accessors. All lock-free.
 func (s *Store) CommitAttempts() uint64  { return s.commitAttempts.Load() }
 func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
 
@@ -302,9 +307,8 @@ func (s *Store) ActiveReadTransactions() int {
 	return total
 }
 
-// NoteCommitRetry records one engine-side conflict retry (loop-back). It is
-// the only exported mutator; the engine lives in another package and cannot
-// touch the unexported counter fields directly.
+// NoteCommitRetry records one engine-side conflict retry (loop-back). The
+// engine, which does the retrying, lives in another package.
 func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
 
 func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
@@ -402,7 +406,7 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 		obj: cloneObjectForReadTxn(obj),
 	})
 
-	// History GC (Phase 4): prune this object's now-dead old versions below the
+	// History GC: prune this object's now-dead old versions below the
 	// live-read floor. The coarse path holds store.mu.Lock (exclusive), so this is
 	// safe against objectLocked and the decentralized committer (both hold only
 	// store.mu.RLock); pruneObjectHistory takes historyMu as a leaf lock (always
@@ -495,7 +499,7 @@ func stampObjectAll(obj *Object, ts uint64) {
 }
 
 // liveObjectLocked resolves the live object with identity id, whether it lives in
-// the numbered s.objects map or out-of-band in s.anonObjects. It is the single
+// the numbered directory (s.dir) or out-of-band in s.anonObjects. It is the single
 // source of truth for "where does a live object with this id live", and every
 // per-id resolver routes through it so that a valid object value resolves
 // identically regardless of which map backs it — a numbered object, a
@@ -503,8 +507,7 @@ func stampObjectAll(obj *Object, ts uint64) {
 // (create(...,1) routes to s.anonObjects; see CreateObject). Unlike
 // lookupAnonymousLocked it does NOT require obj.anonymous: it resolves ANY live
 // object. Recycled/invalid objects resolve to nil (validLiveObject filter).
-// Caller holds s.mu. This completes F2 (commit 7318d24), which taught the
-// snapshot/GC scans about s.anonObjects but left the per-id resolvers numbered-only.
+// Caller holds s.mu.
 //
 // MVCC note: the numbered lookup goes through s.load (slot.ptr.Load) so the
 // resolved image is the currently-published immutable snapshot, not a raw slot.
@@ -546,9 +549,8 @@ func (s *Store) GetUnsafe(id types.ObjID) (ObjectView, bool) {
 	return obj.view(), true
 }
 
-// Add adds a new object to the store
-// Returns error if object ID already exists
-
+// Add adds a new object to the store.
+// Returns error if object ID already exists.
 func (s *Store) Add(obj *Object) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -568,7 +570,7 @@ func (s *Store) Add(obj *Object) error {
 // AddAnonymous ingests an anonymous object loaded from the database into the
 // store's out-of-band anonymous collection. The object is keyed by the
 // above-max serialization id it was loaded with; this id never enters the
-// objects map or maxObjID (max_object() excludes anons). It MUST raise
+// directory or maxObjID (max_object() excludes anons). It MUST raise
 // highWaterID, though: a Barn anon's identity id is permanent (values are
 // NewAnon(id), unlike Toast's pointer identity), so if allocateID later handed
 // the same id to a regular object, every loaded _TYPE_ANON reference would
