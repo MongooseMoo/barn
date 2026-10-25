@@ -1259,6 +1259,44 @@ func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 	}
 }
 
+func TestDeleteDefinedPropertyRemovesAnonymousChildOverride(t *testing.T) {
+	for _, snapshot := range []bool{true, false} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, 0)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("DefineProperty failed: %v", errCode)
+		}
+		anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, true)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject anonymous failed: %v", errCode)
+		}
+		if errCode := store.DirectTxn().SetPropertyValue(anon, "a", types.NewInt(99)); errCode != types.E_NONE {
+			t.Fatalf("anonymous SetPropertyValue failed: %v", errCode)
+		}
+
+		if snapshot {
+			tx := store.BeginSnapshot(0)
+			if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+				t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+			}
+			if value, errCode := tx.PropertyValue(anon, "a"); errCode != types.E_PROPNF {
+				t.Fatalf("txn anonymous PropertyValue = %v, %v, want E_PROPNF", value, errCode)
+			}
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+		} else if errCode := store.DirectTxn().DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+			t.Fatalf("direct DeleteDefinedProperty failed: %v", errCode)
+		}
+
+		if value, errCode := store.DirectTxn().PropertyValue(anon, "a"); errCode != types.E_PROPNF {
+			t.Fatalf("snapshot=%v: anonymous PropertyValue after delete = %v, %v, want E_PROPNF", snapshot, value, errCode)
+		}
+	}
+}
+
 func TestTransactionDeleteThenRedefinePropertyCommitsReplacementOnCoarsePath(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

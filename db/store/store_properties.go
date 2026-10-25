@@ -717,6 +717,19 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 			}
 			queue = append(queue, childID)
 		}
+		// Anonymous children lose the slot too (Toast remove_prop_recursively,
+		// db_properties.cc:325-328, :340-341).
+		for _, anonID := range current.anonymousChildren {
+			anon := s.liveObjectLocked(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, prop, ok := anon.properties.find(name); ok && !prop.defined {
+				anon = s.republishForMutation(anon)
+				anon.properties.remove(actualName)
+				stampObjectProperties(anon, ts)
+			}
+		}
 	}
 }
 
