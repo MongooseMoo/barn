@@ -560,7 +560,7 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := findVerbForRead(ctx, objID, nameVal.Str())
+	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Str())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -635,7 +635,7 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := findVerbForRead(ctx, objID, nameVal.Str())
+	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Str())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -694,7 +694,7 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 	var verb dbstore.VerbView
 	switch args[1].Type() {
 	case types.TYPE_STR:
-		found, _, err := findVerbForRead(ctx, objID, args[1].Str())
+		found, err := findVerbOnObjectForRead(ctx, objID, args[1].Str())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}

@@ -349,7 +349,7 @@ func TestVerbDispatchMemoRepeatHitSeesOwnStagedVerbChanges(t *testing.T) {
 	s, user := memoUserTxn(t)
 	shared, _ := lookTimes(t, user, 10)
 
-	if ec := user.SetVerbCode(2, "look", []string{"return 2;"}); ec != types.E_NONE {
+	if ec := user.SetVerbCode(0, "look", []string{"return 2;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)
 	}
 	private, definer := lookTimes(t, user, 10)
@@ -357,7 +357,7 @@ func TestVerbDispatchMemoRepeatHitSeesOwnStagedVerbChanges(t *testing.T) {
 		t.Fatalf("after staged code write: shared=%v definer=#%d code=%v", private == shared, definer, private.code)
 	}
 	// #0 is private now, so this write replaces no binding in the txn.
-	if ec := user.SetVerbCode(2, "look", []string{"return 3;"}); ec != types.E_NONE {
+	if ec := user.SetVerbCode(0, "look", []string{"return 3;"}); ec != types.E_NONE {
 		t.Fatalf("second SetVerbCode: %v", ec)
 	}
 	if again, _ := lookTimes(t, user, 10); again.code[0] != "return 3;" {

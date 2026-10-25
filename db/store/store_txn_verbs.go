@@ -76,20 +76,22 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	if tx.direct {
 		return tx.store.setVerbCode(objID, name, lines)
 	}
-	verb, definer, err := tx.findVerb(objID, name, false)
-	if err != nil || verb == nil {
+	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
+	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
+	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
+	if _, err := tx.findVerbOnObject(objID, name); err != nil {
 		return types.E_VERBNF
 	}
-	// stageVerbCode mutates the verb node in place. Privatize the DEFINER object and
+	// stageVerbCode mutates the verb node in place. Privatize the object and
 	// re-resolve so the verb node we edit belongs to a txn-private copy, not a shared
-	// alias. findVerb reads through tx.object, so the re-resolve returns the clone's
-	// node once mutableObject has installed it.
-	tx.mutableObject(definer)
-	verb, definer, err = tx.findVerb(objID, name, false)
-	if err != nil || verb == nil {
+	// alias. findVerbOnObject reads through tx.object, so the re-resolve returns the
+	// clone's node once mutableObject has installed it.
+	tx.mutableObject(objID)
+	verb, err := tx.findVerbOnObject(objID, name)
+	if err != nil {
 		return types.E_VERBNF
 	}
-	tx.stageVerbCode(definer, verb, lines)
+	tx.stageVerbCode(objID, verb, lines)
 	return types.E_NONE
 }
 
