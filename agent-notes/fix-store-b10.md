@@ -17,7 +17,8 @@ drafted in the session scratchpad (pr-b10-barn.md, pr-b10-mct.md).
   src/moo_conformance/_tests/builtins/property_definition_anonymous_descendants.yaml
   (7 rows, LF). WSL Toast: 8 passed (admission + 7). Barn 3cb7e64c: 3 failed,
   5 passed; failures are the overridden-slot rows ([7, 7] for [7, E_PROPNF];
-  [7, 0] for [9, 1]; separate-task step got 7).
+  [7, 0] for [9, 1]; the separate-task row failed in its final step, but the
+  captured output was cut off before the value).
 - barn fix/store-b10 (worktree C:/Users/Q/code/barn-store-b10), written on
   origin/master 3cb7e64c, rebased onto 3f97e9ba (#489 merged meanwhile); on the
   rebased tree go test ./db/store ok and the new conformance file 8 passed again:
