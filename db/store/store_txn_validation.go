@@ -131,20 +131,33 @@ func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
 		if tx.createdObjects[key.objID] != nil {
 			continue
 		}
-		c := ReadConflict{Kind: ConflictVerb, ObjID: key.objID, Name: key.name, Read: version}
+		c := ReadConflict{Kind: ConflictVerb, ObjID: key.objID, Read: version}
 		errCode := types.E_INVARG
 		if live := tx.store.liveObjectLocked(key.objID); !validLiveObject(live) {
 			c.Missing, errCode = true, types.E_INVIND
-		} else if verb := live.verbs[key.name]; verb == nil {
+		} else if verb := live.verbByID(key.id); verb == nil {
 			c.Missing = true
 		} else if verb.version != version {
 			c.Live = verb.version
 		} else {
 			continue
 		}
+		c.Name = tx.verbConflictName(key)
 		tx.noteConflict(first, errCode, c)
 	}
 	tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
+}
+
+// verbConflictName names a conflicting verb read for the census by the first
+// alias of the transaction's own view of that verb, or "" when the view no
+// longer has it.
+func (tx *StoreTxn) verbConflictName(key verbKey) string {
+	if obj := tx.objects[key.objID]; obj != nil {
+		if verb := obj.verbByID(key.id); verb != nil && len(verb.names) > 0 {
+			return verb.names[0]
+		}
+	}
+	return ""
 }
 
 func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {

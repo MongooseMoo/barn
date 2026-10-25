@@ -232,17 +232,17 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 }
 
 // buildImageWithVerbCode returns a NEW immutable *Object equal to old except for the
-// single verb (keyed by name) having its code replaced and hasProgram set, with the
+// single verb (selected by id) having its code replaced and hasProgram set, with the
 // edited verb's version and the object's verbVersion stamped to ts. Caller has already
 // verified the verb exists (preflightStagedToLiveLocked). Only the verb collections are copied: a fresh
 // *Verb is built for the edited verb and substituted into BOTH verbs (map) and verbList
 // (slice) — they share *Verb pointers (see Object.verbs), so the substitution must be
 // identity-preserving exactly like cloneObjectForReadTxn. Every other (unedited) *Verb
 // is shared by reference (immutable). All non-verb collections are shared too.
-func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) *Object {
+func buildImageWithVerbCode(old *Object, id uint64, code []string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
-	target := old.verbs[name]
+	target := old.verbByID(id)
 	// Build the replacement node once; substitute it for `target` everywhere the
 	// old object aliased that pointer (the map key plus its slot in verbList).
 	updated := *target
@@ -480,7 +480,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 	verbWritesByObj := make(map[types.ObjID][]verbWrite2)
 	for key, w := range tx.verbWrites {
-		verbWritesByObj[key.objID] = append(verbWritesByObj[key.objID], verbWrite2{name: key.name, code: w.code})
+		verbWritesByObj[key.objID] = append(verbWritesByObj[key.objID], verbWrite2{id: key.id, code: w.code})
 	}
 	verbDeletesByObj := make(map[types.ObjID][]int)
 	for _, deletion := range tx.verbDeletes {
@@ -541,7 +541,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			img = buildImageWithPropertyDelete(img, actualName, ts)
 		}
 		for _, w := range verbWritesByObj[id] {
-			img = buildImageWithVerbCode(img, w.name, w.code, ts)
+			img = buildImageWithVerbCode(img, w.id, w.code, ts)
 		}
 		for _, index := range verbDeletesByObj[id] {
 			img = buildImageWithVerbDelete(img, index, ts)
@@ -604,8 +604,8 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	return types.E_NONE
 }
 
-// verbWrite2 pairs a verb-code write with its verb name for grouping by object.
+// verbWrite2 pairs a verb-code write with its verb id for grouping by object.
 type verbWrite2 struct {
-	name string
+	id   uint64
 	code []string
 }

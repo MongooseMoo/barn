@@ -74,6 +74,7 @@ func (b *ObjectBuilder) AppendContent(id types.ObjID) { b.obj.contents = append(
 // AppendVerb appends a verb (by value) to the ordered verb list and indexes it
 // under its primary name. Returns the index of the appended verb.
 func (b *ObjectBuilder) AppendVerb(v Verb) int {
+	v.id = nextVerbID.Add(1)
 	vp := &v
 	b.obj.verbList = append(b.obj.verbList, vp)
 	if len(v.names) > 0 {

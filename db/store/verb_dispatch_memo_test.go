@@ -94,7 +94,7 @@ func TestVerbDispatchMemoHitSkipsAncestryScans(t *testing.T) {
 	if len(second.verbScans) != 0 {
 		t.Fatalf("memo hit recorded ancestry scans: %v", second.verbScans)
 	}
-	if _, ok := second.verbReads[verbReadKey{objID: 0, name: v1.mapKey()}]; !ok {
+	if _, ok := second.verbReads[verbKey{objID: 0, id: v1.id}]; !ok {
 		t.Fatalf("memo hit did not mark the resolved verb read: %v", second.verbReads)
 	}
 	if ec := second.Commit(); ec != types.E_NONE {
@@ -244,7 +244,7 @@ func TestVerbDispatchMemoRepeatHitKeepsVerbReadMark(t *testing.T) {
 	s, user := memoUserTxn(t)
 	first, _ := lookTimes(t, user, 1)
 	want := snapshotReadSet(user)
-	if _, marked := want.verbReads[verbReadKey{objID: 0, name: first.mapKey()}]; !marked {
+	if _, marked := want.verbReads[verbKey{objID: 0, id: first.id}]; !marked {
 		t.Fatalf("first hit left no read mark: %v", want.verbReads)
 	}
 	if again, definer := lookTimes(t, user, 50); again != first || definer != 0 {

@@ -401,6 +401,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	verbCopy := verb
+	verbCopy.id = nextVerbID.Add(1)
 	verbPtr := &verbCopy
 	stampVerb(verbPtr, ts)
 	if _, exists := obj.verbs[verbPtr.mapKey()]; !exists {

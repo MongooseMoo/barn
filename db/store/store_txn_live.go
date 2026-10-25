@@ -105,7 +105,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		if key.objID != objID {
 			continue
 		}
-		verb := obj.verbs[key.name]
+		verb := obj.verbByID(key.id)
 		if verb == nil {
 			continue
 		}
@@ -118,7 +118,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		if key.objID != objID {
 			continue
 		}
-		if verb := live.verbs[key.name]; verb != nil {
+		if verb := live.verbByID(key.id); verb != nil {
 			tx.verbReads[key] = verb.version
 			continue
 		}
@@ -320,7 +320,7 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	}
 	for key, write := range tx.verbWrites {
 		if key.objID == objID {
-			if verb := obj.verbs[key.name]; verb != nil {
+			if verb := obj.verbByID(key.id); verb != nil {
 				verb.setCodeCopy(write.code)
 			}
 		}
@@ -441,7 +441,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.propertyReads = make(map[propertyReadKey]uint64)
 	tx.propertyScans = make(map[types.ObjID]uint64)
 	tx.propertyShapeScans = make(map[types.ObjID]uint64)
-	tx.verbReads = make(map[verbReadKey]uint64)
+	tx.verbReads = make(map[verbKey]uint64)
 	tx.verbScans = make(map[types.ObjID]uint64)
 	tx.verbMemoSeen = nil
 

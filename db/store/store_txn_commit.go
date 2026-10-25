@@ -158,7 +158,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	for id, version := range tx.propertyShapeScans {
 		propertyShapeScans[id] = version
 	}
-	verbReads := make(map[verbReadKey]uint64, len(tx.verbReads))
+	verbReads := make(map[verbKey]uint64, len(tx.verbReads))
 	for key, version := range tx.verbReads {
 		verbReads[key] = version
 	}
@@ -229,7 +229,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 				if key.objID != id {
 					continue
 				}
-				if verb := live.verbs[key.name]; verb != nil {
+				if verb := live.verbByID(key.id); verb != nil {
 					verbReads[key] = verb.version
 				} else {
 					delete(verbReads, key)
@@ -504,7 +504,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 		return s.liveObjectLocked(id)
 	}
 	for key := range tx.verbWrites {
-		if baseObject(key.objID).verbs[key.name] == nil {
+		if baseObject(key.objID).verbByID(key.id) == nil {
 			return types.E_VERBNF
 		}
 	}
@@ -680,7 +680,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if live.verbs[key.name] == nil {
+		if live.verbByID(key.id) == nil {
 			return types.E_VERBNF
 		}
 		if !remembered[key.objID] {
@@ -689,7 +689,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		}
 		// Fetch the verb from the (possibly freshly republished) image so we edit the
 		// fresh node, not the old one now retained immutably in history.
-		verb := live.verbs[key.name]
+		verb := live.verbByID(key.id)
 		verb.setCodeCopy(write.code)
 		stampVerb(verb, ts)
 		stampObjectVerbs(live, ts)

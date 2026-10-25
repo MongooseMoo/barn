@@ -43,7 +43,7 @@ type readSetSnapshot struct {
 	propertyReads      map[propertyReadKey]uint64
 	propertyScans      map[types.ObjID]uint64
 	propertyShapeScans map[types.ObjID]uint64
-	verbReads          map[verbReadKey]uint64
+	verbReads          map[verbKey]uint64
 	verbScans          map[types.ObjID]uint64
 }
 

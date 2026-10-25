@@ -18,7 +18,7 @@ func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 	if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName stage: %v", errCode)
 	}
-	lazySet(&tx.verbWrites, verbWriteKey{objID: 1, name: "missing"}, verbWrite{code: []string{"return 1;"}})
+	lazySet(&tx.verbWrites, verbKey{objID: 1, id: ^uint64(0)}, verbWrite{code: []string{"return 1;"}}) // no verb has this id
 
 	cached := tx.objects[0]
 	wantScalarRead := tx.scalarReads[0]

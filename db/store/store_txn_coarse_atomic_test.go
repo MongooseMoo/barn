@@ -30,7 +30,7 @@ func stageCoarsePreflightFailure(t *testing.T, s *Store) *StoreTxn {
 	}
 	// Deliberately model a topology race discovered only at publication: the
 	// object is live, but its staged verb-code target no longer exists.
-	lazySet(&tx.verbWrites, verbWriteKey{objID: 1, name: "missing"}, verbWrite{code: []string{"return 1;"}})
+	lazySet(&tx.verbWrites, verbKey{objID: 1, id: ^uint64(0)}, verbWrite{code: []string{"return 1;"}}) // no verb has this id
 	return tx
 }
 

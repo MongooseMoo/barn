@@ -1678,8 +1678,8 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {
@@ -1702,8 +1702,8 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {

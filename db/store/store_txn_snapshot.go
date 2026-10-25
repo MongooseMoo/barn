@@ -187,10 +187,11 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if tx == nil || verb == nil {
 		return
 	}
-	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.mapKey()}]; staged {
+	key := verbKey{objID: objID, id: verb.id}
+	if _, staged := tx.verbWrites[key]; staged {
 		return
 	}
-	tx.verbReads[verbReadKey{objID: objID, name: verb.mapKey()}] = verb.version
+	tx.verbReads[key] = verb.version
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/sourcekey"
 	"github.com/MongooseMoo/barn/types"
@@ -176,6 +177,12 @@ func (p Property) View(name string) PropertyView {
 // obtained from an Object's VerbList) and construct verbs through NewVerb. A
 // direct field write to Verb from outside db/store is a compile error.
 type Verb struct {
+	// id is the verb's runtime identity: assigned from nextVerbID when a new
+	// node joins a verb list (ObjectBuilder.AppendVerb, Store.AddVerb) and
+	// carried by every struct copy of the node (code edits, renames, COW images,
+	// txn clones). Transaction read and write sets key verbs by it. Never
+	// persisted; a load assigns fresh ids.
+	id    uint64
 	name  string
 	names []string // All verb names (aliases) - first is primary
 	// lowerNames mirrors names, pre-lowercased for dispatch. Verb-name matching
@@ -343,6 +350,20 @@ func (o *Object) findVerbByAlias(searchLower string, requireExecute bool) *Verb 
 		return idx.lookup(o.verbList, searchLower, requireExecute)
 	}
 	return scanVerbList(o.verbList, searchLower, requireExecute)
+}
+
+// nextVerbID numbers verb nodes process-wide, so ids are unique per object
+// even with several Stores in one process.
+var nextVerbID atomic.Uint64
+
+// verbByID returns the verb with the given runtime id, or nil.
+func (o *Object) verbByID(id uint64) *Verb {
+	for _, verb := range o.verbList {
+		if verb.id == id {
+			return verb
+		}
+	}
+	return nil
 }
 
 // mapKey returns the key this verb occupies in Object.verbs: the first alias
