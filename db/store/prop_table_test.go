@@ -384,7 +384,7 @@ func TestShareLoadedPropertySlotsKeepsEveryObjectsProperties(t *testing.T) {
 	before := read()
 	_, slotsBefore, clearBefore, privateBefore := s.PropertySlotCensus()
 
-	s.ShareLoadedPropertySlots()
+	s.ShareLoadedPropertySlots(nil)
 
 	after := read()
 	for key, want := range before {

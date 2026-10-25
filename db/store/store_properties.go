@@ -27,18 +27,19 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
 			if _, exists := result.lookup(name); exists {
 				continue
 			}
-			result.put(name, Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: prop.version,
-			})
+			result.put(name, inheritedSlot(prop))
 		}
 		queue = append(queue, current.parents...)
 	}
 
 	return result
+}
+
+// inheritedSlot is the slot an object gets for a property it inherits and has
+// not written: clear, with no value of its own, as a loaded object's is. Reads
+// take the value from the ancestor.
+func inheritedSlot(from Property) Property {
+	return Property{value: types.None, owner: from.owner, perms: from.perms, clear: true}
 }
 
 func propertyNameKey(name string) string {
@@ -52,8 +53,15 @@ func PropertyNameKey(name string) string {
 	return propertyNameKey(name)
 }
 
-func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
+// reseedInheritedPropertiesLocked rebuilds obj's inherited slots from its
+// current parents. Each is a rewrite at ts: a read of a clear slot depends on
+// the ancestry it resolved through, so its version must change with it.
+func (s *Store) reseedInheritedPropertiesLocked(obj *Object, ts uint64) {
 	newProps := s.copyInheritedPropertiesLocked(obj.parents)
+	for name, prop := range newProps.all() {
+		prop.version = ts
+		newProps.put(name, prop)
+	}
 	for name, prop := range obj.properties.all() {
 		if prop.defined {
 			newProps.put(name, prop)
@@ -674,13 +682,9 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 			} else {
 				child = s.republishForMutation(child)
 			}
-			child.properties.put(propertyNameKey(name), Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: ts,
-			})
+			slot := inheritedSlot(prop)
+			slot.version = ts
+			child.properties.put(propertyNameKey(name), slot)
 			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
 		}

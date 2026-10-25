@@ -27,6 +27,7 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 		s.anonCreations.Add(1)
 	}
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
+	s.shareCreatedProperties(obj.properties)
 	stampObjectAll(obj, ts)
 
 	// Snapshot the numbered parents before attachChildToParentsLocked mutates
@@ -294,6 +295,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 		newObj.parents = []types.ObjID{parent}
 	}
 	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
+	s.shareCreatedProperties(newObj.properties)
 	stampObjectAll(newObj, ts)
 
 	s.publishLocked(id, newObj)

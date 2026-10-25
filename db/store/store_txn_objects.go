@@ -189,6 +189,7 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 	obj := NewObject(newID, owner)
 	obj.parents = append([]types.ObjID(nil), parents...)
 	obj.properties = tx.copyInheritedProperties(parents)
+	tx.store.shareCreatedProperties(obj.properties)
 	// Placeholder versions; the commit build re-stamps every version to the commit ts
 	// (a brand-new object is entirely at its creation version).
 	stampObjectAll(obj, tx.readTS)

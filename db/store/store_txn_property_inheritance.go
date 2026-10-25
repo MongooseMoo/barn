@@ -217,13 +217,7 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) propTable {
 			if _, _, exists := result.find(name); exists {
 				continue
 			}
-			result.put(name, Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: prop.version,
-			})
+			result.put(name, inheritedSlot(prop))
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -263,19 +257,13 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
-			override := Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				defined: false,
-			}
+			override := inheritedSlot(prop)
 			child.properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
 				name:  name,
-				value: prop.value,
+				value: override.value,
 				prop:  override,
 			})
 			queue = append(queue, childID)

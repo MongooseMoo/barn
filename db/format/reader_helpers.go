@@ -120,9 +120,10 @@ func prepToCode(prep string) int {
 // objects are resolved one at a time, in any order, and each object's table is
 // built once, already shared.
 func (database *Database) resolvePropertyNames() {
+	database.propPool = store.NewPropSharePool()
 	resolver := slotResolver{
 		database: database,
-		pool:     store.NewPropSharePool(),
+		pool:     database.propPool,
 		layouts:  make(map[types.ObjID]*store.SlotLayout, len(database.Objects)),
 		visiting: make(map[types.ObjID]bool),
 	}

@@ -330,7 +330,7 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		s.republishForMutation(s.load(parentID))
 	}
 	s.attachChildToParentsLocked(objID, obj.parents, false, true)
-	s.reseedInheritedPropertiesLocked(obj)
+	s.reseedInheritedPropertiesLocked(obj, ts)
 	stampObjectRelationship(obj, ts)
 	stampObjectProperties(obj, ts)
 	for _, parentID := range obj.parents {
