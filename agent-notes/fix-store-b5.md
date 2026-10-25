@@ -14,7 +14,10 @@ Smallest fix only; stable verb identity is Wave 3a, not this branch.
   `format.LoadDatabase`. Red before the fix (`[["peek"] ["foo"]]`), green after.
 - Conformance: `server/verb_alias_dump_persistence.yaml` on
   `C:/Users/Q/code/mct-store-b5` branch `test/store-b5` (dump_database +
-  restart_server).
+  restart_server). Narrowed managed runs (file path + `-k capability_admission or
+  (verb_alias_dump_persistence)`): WSL Toast 3 passed; Barn at base 796df225
+  2 failed (E_VERBNF calling the second alias after restart); Barn at the fix
+  3 passed.
 - Not pushed; no PR. PR drafts are in the session scratchpad (pr-b5-barn.md, pr-b5-mct.md).
 
 ## Decisions and why
@@ -32,8 +35,18 @@ Smallest fix only; stable verb identity is Wave 3a, not this branch.
 ## Surprises
 - Before the fix `verbs(o)` also returned only the first alias for a runtime-added
   verb, with no dump involved, since `VerbNames` reads `verb.name`.
-- Managed Toast runs from `/mnt/c` spend >10 minutes in collection (process in
-  `p9_client_rpc`), with several agents running at once.
+- Managed runs over the whole suite from `/mnt/c` spend 5-17 minutes collecting
+  13153 items (process in `p9_client_rpc`). Passing the YAML path narrows it to
+  about 10 s.
+- Separate Barn bug, NOT fixed here: `set_verb_code(o, v, ...)` then
+  `set_verb_info(o, v, ...)` in ONE task returns E_VERBNF from set_verb_info on
+  master and on this branch (`bin/moo -e 'add_verb(#1, {#3, "rxd", "old"},
+  {"this","none","this"}); set_verb_code(#1, "old", {"return 7;"}); return
+  set_verb_info(#1, "old", {#3, "rxd", "new alt"});'` => `Error: E_VERBNF`;
+  without the set_verb_code => `0`; the same two calls in separate tasks => `0`).
+  Toast passed the original one-task form of the conformance step. The B5 test
+  puts set_verb_info in its own step. Not diagnosed; it is a candidate for its own
+  conformance test and fix.
 
 ## Next step
 Lead checks the drafts, pushes both branches, opens the PRs.
