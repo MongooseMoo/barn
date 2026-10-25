@@ -574,3 +574,23 @@ func TestFindParentVerbScratchWalk(t *testing.T) {
 		t.Fatal("FindParentVerb from the root resolved, want not found")
 	}
 }
+
+// pass() matches the parent verb the way verb calls do (Toast's
+// db_find_callable_verb with verbcasecmp): wildcards and case-insensitively.
+func TestFindParentVerbMatchesWildcardAndCase(t *testing.T) {
+	for _, parentName := range []string{"gr*eet", "GREET"} {
+		s := testChainStore(t)
+		addVerbT(t, s, 0, []string{parentName}, VerbRead|VerbExecute)
+		addVerbT(t, s, 1, []string{"greet"}, VerbRead|VerbExecute)
+
+		tx := s.BeginSnapshot(0)
+		v, d, err := tx.FindParentVerb(1, "greet")
+		tx.Release()
+		if err != nil {
+			t.Fatalf("FindParentVerb(greet) with parent %q: %v", parentName, err)
+		}
+		if d != 0 || v.Names[0] != parentName {
+			t.Fatalf("FindParentVerb(greet) = %q on #%d, want %q on #0", v.Names[0], d, parentName)
+		}
+	}
+}
