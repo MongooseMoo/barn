@@ -3,6 +3,7 @@ package store
 import (
 	"slices"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,7 +22,7 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 	}
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
-		tx.markObjectScalarRead(objID, obj)
+		tx.markExistenceRead(objID, obj)
 		return types.E_NONE
 	}
 	if obj != nil && obj.recycled {
@@ -34,14 +35,20 @@ func (tx *StoreTxn) Valid(objID types.ObjID) bool {
 	if tx.direct {
 		return tx.store.valid(objID)
 	}
-	// A true answer depends on objID staying live; the scalar read fails
-	// validation if a concurrent commit recycles it.
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false
 	}
-	tx.markObjectScalarRead(objID, obj)
+	tx.markExistenceRead(objID, obj)
 	return true
+}
+
+// markExistenceRead records that a result depends on live obj staying live; the
+// scalar read fails validation if a concurrent commit recycles it.
+func (tx *StoreTxn) markExistenceRead(objID types.ObjID, obj *Object) {
+	if !isolationprobe.Fault("valid-reads") {
+		tx.markObjectScalarRead(objID, obj)
+	}
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {

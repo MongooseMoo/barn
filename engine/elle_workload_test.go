@@ -40,7 +40,7 @@ func elleObject(kind int) int {
 func elleWorld(t *testing.T) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
-	for _, id := range []int{0, 11, 12, 13, 14, 15, 16, 17, 18, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47} {
+	for _, id := range []int{0, 11, 12, 13, 14, 15, 16, 17, 18, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47, 50} {
 		b := dbstore.NewObjectBuilder(types.ObjID(id))
 		b.SetOwner(0)
 		b.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagFertile)
@@ -203,8 +203,9 @@ var elleExpectedExceptions = map[int64]bool{}
 
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
-// each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion"}
+// each validation stage, the write-skew pair for commit exclusion, and the
+// valid/recycle pair for the read a true valid() records.
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
@@ -391,6 +392,29 @@ func TestElleIsolationHistories(t *testing.T) {
 				return types.Err(types.E_QUOTA)
 			}
 		}
+		// elle_valid(step) sequences the valid/recycle pair. 0: the recycler waits
+		// until the checker has read valid(#50). 1: the checker has read; it waits
+		// until the recycle has published. 2: the recycler announces its
+		// publication through a commit effect.
+		validRead, validPublished := make(chan struct{}), make(chan struct{})
+		var validReadOnce, validPublishedOnce sync.Once
+		var validStep builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
+			wait := validRead
+			switch args[0].Int() {
+			case 1:
+				validReadOnce.Do(func() { close(validRead) })
+				wait = validPublished
+			case 2:
+				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
+				return types.Ok(types.NewInt(0))
+			}
+			select {
+			case <-wait:
+				return types.Ok(types.NewInt(0))
+			case <-time.After(10 * time.Second):
+				return types.Err(types.E_QUOTA)
+			}
+		}
 		var invariantMark builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			ops := args[0].Elements()
 			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
@@ -435,6 +459,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
 			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
 			testBuiltinSlot("elle_torn", 1, 1, []int64{int64(types.TYPE_INT)}, &torn),
+			testBuiltinSlot("elle_valid", 1, 1, []int64{int64(types.TYPE_INT)}, &validStep),
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
 			testBuiltinSlot("elle_hot_release", 0, 0, nil, &hotRelease),
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
@@ -581,6 +606,18 @@ func TestElleIsolationHistories(t *testing.T) {
 				elleDrain(t, rt, nil)
 				isolationprobe.SetPause(nil)
 				id += 2
+				// Valid/recycle skew: the "valid" row reads {} while #50 is valid
+				// and {50} once it is recycled; recycling it appends 50. The checker
+				// reads that row through valid() and appends to "property"; the
+				// recycler reads "property" after the checker's read and publishes
+				// first. A healthy checker then loses validation on #50 and retries.
+				// Under the valid-reads fault both commit, each missing the other.
+				elleDrain(t, rt, []*task.Task{
+					elleTask(t, rt, id, `v=valid(#50) ? {} | {50}; elle_observe("r","valid",v); elle_valid(1);`+elleAppend(0, 197)),
+					elleTask(t, rt, id+1, `elle_valid(0); v=#0:read_row(0,#11); elle_observe("r","property",v); recycle(#50); elle_observe("append","valid",50); elle_valid(2);`),
+				})
+				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id+2, `elle_observe("r","valid",valid(#50) ? {} | {50});`)})
+				id += 3
 			}
 			if model == "list-append" && paths["hot_renewal"] {
 				// Hold an old reader until a newer hot-key publication has completed.

@@ -52,7 +52,7 @@ coverage evidence only. They do not participate in Elle's correctness graph.
 The synchronized hot reader and append waves make those paths reproducible.
 
 Before the random rounds, the append workload runs eight synchronized waves and
-two held pairs. In a wave, four tasks read the same row, wait at a barrier until
+three held pairs. In a wave, four tasks read the same row, wait at a barrier until
 all four have read, then append: property value, name, verb code, contents,
 WAIF property and one map entry, one wave for each validation stage. In the
 seventh wave two tasks append to map entry `a` and two to entry `b`; a commit
@@ -73,6 +73,13 @@ begins a snapshot inside that hold, reads the first row, lets the commit
 publish, then reads the second row. It must observe both appends or neither.
 No fault is needed for this one: it failed on the unmodified store until a
 commit's timestamp became the clock only after its last image was published.
+
+In the valid/recycle pair, the `valid` row reads `{}` while `#50` is valid and
+`{50}` once it is recycled. A checker reads that row through `valid(#50)`, then
+waits until a recycler has published before appending to the property row. The
+recycler reads the property row after the checker's read, recycles `#50` and
+appends 50 to `valid`. A healthy checker loses validation on `#50` and retries;
+without the read `valid()` records, both commit and each misses the other's write.
 
 For focused experiments, direct generation accepts `BARN_ELLE_PATHS` as a
 comma-separated selection of `parallel,exclusive,exclusive_gate,hot_renewal,
@@ -128,6 +135,7 @@ reject the resulting append history with an anomaly witness:
 | `map-key-rebase` | rebuilding a keyed write's map on the live one at commit | two-entry wave |
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
+| `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly

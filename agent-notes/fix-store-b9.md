@@ -14,11 +14,23 @@ transactions; if shown, make the smallest fix.
   the recycler reads y.flag = 0 and recycles x; recycler commits, then the checker
   commits too. On origin/master 3cb7e64c both subtests fail with
   `x recycled=true, y.flag=1; no serial order gives both`.
-- Fix: when the object is live, both methods call `markObjectScalarRead`.
-  `validateObjectReadsLocked` (`store_txn_validation.go`) records a Missing
+- Fix: when the object is live, both methods call `markExistenceRead`, which
+  calls `markObjectScalarRead`. `validateObjectReadsLocked` (`store_txn_validation.go`) records a Missing
   conflict (E_INVIND) once live is no longer a valid object, so the checker
   retries. Both subtests pass; `go test ./db/store -count=1` passes.
-- Committed on `fix/store-b9`; not pushed, no PR.
+- Elle fault `valid-reads` (Q's decision, 2026-10-25): `markExistenceRead` skips the
+  read under it. Workload: the valid/recycle held pair in
+  `engine/elle_workload_test.go` (world object #50, builtin `elle_valid`), after the
+  torn-snapshot pair, plus one read of the `valid` row afterwards. Listed in
+  `elleFaults`, `FAULTS` (`scripts/check_elle.py`) and the table in
+  `docs/elle-isolation.md`.
+- Evidence (WSL, seed 412, pinned jar under /root/.cache/barn-elle-412):
+  fault history `/tmp/b9-valid-fault/list-append.edn` -> Elle `false`, exit 1,
+  G2-item witness on the pair (checker read `valid` = [] yet the recycler did not
+  see its append of 197 to `property`). Healthy Go run: list-append `true`,
+  rw-register `true`, exit 0; the checker's committed attempt read `valid` = [50].
+  The full `check_elle.py` matrix was not run locally; the PR's Elle CI job is the gate.
+- Two commits on `fix/store-b9`; not pushed, no PR.
 
 ## Decisions and why
 - Mark only when the answer is true. Marking a recycled tombstone's scalar read
@@ -35,12 +47,12 @@ transactions; if shown, make the smallest fix.
   location and parents only.
 
 ## Not done / unverified
-- No engine-level (two real MOO tasks) reproduction; the store test calls the same
-  StoreTxn methods the builtins call.
+- The two-real-task reproduction exists only under the Elle fault (the
+  valid/recycle pair); with the fix in place, the Go store test is the regression.
 - The false direction (valid(#N) = false, then a concurrent commit makes #N valid)
   is not covered and not shown either way.
-- Elle: not run locally. `docs/elle-isolation.md:142-144` asks for a fault plus
-  workload for each new validation protection; not added (outside smallest fix).
+- The valid/recycle pair adds #50 to the Elle world for healthy runs too. Seeds
+  395/396 were not run locally.
 
 ## Next step
-Lead decides on push/PR and whether the Elle fault/workload is wanted.
+Lead pushes and opens the PR; read its Elle CI result.
