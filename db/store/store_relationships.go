@@ -315,6 +315,9 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 			continue
 		}
 		oldParent = s.republishForMutation(oldParent)
+		if obj.anonymous {
+			oldParent.anonymousChildren = removeObjID(oldParent.anonymousChildren, objID)
+		}
 		oldParent.children = removeObjID(oldParent.children, objID)
 		if oldParent.chparentChildren != nil {
 			delete(oldParent.chparentChildren, objID)
@@ -329,7 +332,7 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		// parent.children via s.load) writes the fresh image, not a shared alias.
 		s.republishForMutation(s.load(parentID))
 	}
-	s.attachChildToParentsLocked(objID, obj.parents, false, true)
+	s.attachChildToParentsLocked(objID, obj.parents, obj.anonymous, true)
 	s.reseedInheritedPropertiesLocked(obj, ts)
 	stampObjectRelationship(obj, ts)
 	stampObjectProperties(obj, ts)
