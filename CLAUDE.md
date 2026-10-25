@@ -252,8 +252,11 @@ disposable database behavior, login-script environment mechanism, required run
 record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
 `plans/barn-toast-mongoose-convergence-workstreams.md`.
 
-Manual reproduction is exceptional and requires the user's explicit approval,
-as specified in `AGENTS.md`.
+Manual reproduction (launching a Barn or Toast server yourself) is exceptional
+and requires the user's explicit approval, as specified in `AGENTS.md`.
+Investigating Barn needs no approval: read the code, write a Go test, run
+`bin/moo` or `barn -eval`, or use a debugger. "That would need a manual repro"
+is never a reason to stop at "I don't know".
 
 ## Reviewing What Happened On A Run
 
