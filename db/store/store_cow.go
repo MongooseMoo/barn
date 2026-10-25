@@ -163,18 +163,16 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 // from its own published image, so define-on-O and the descendant clear-slot writes are
 // independent per-object builds within the same atomically-published footprint.
 //
-// Both the properties map AND the propOrder slice are copied (the two collections this
-// write mutates); every other collection (verbs/verbList/parents/children/contents/...) is
-// shared by reference with the old image. The new defined property is a freshly-allocated
-// *Property so the old image is never mutated. Caller has already validated that the
-// property does not already exist on O (the staging side enforced E_INVARG).
+// Both the properties table AND the propOrder slice are copied (the two collections this
+// write mutates); the table copy keeps its shared base, so the new name is stored
+// privately and the object stays shared. Every other collection
+// (verbs/verbList/parents/children/contents/...) is shared by reference with the old
+// image. Caller has already validated that the property does not already exist on O
+// (the staging side enforced E_INVARG).
 func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *Object {
 	img := *old // shallow struct copy: shares all slices/maps/pointers with old
 
-	newProps := newPropTable(old.properties.count() + 1)
-	for name, p := range old.properties.all() {
-		newProps.put(name, p)
-	}
+	newProps := old.properties.clone()
 
 	// Mirror definePropertyLocked: stamp the defined property; the map key is
 	// canonical while def.name (display) goes into propOrder below.

@@ -44,6 +44,10 @@ type Database struct {
 	// loadedSlots collects the property slots of the object being read. Each
 	// object's builder copies what it keeps, so one serves the whole parse.
 	loadedSlots store.LoadedSlots
+
+	// propPool interns the shared property bases of the loaded objects. The
+	// store keeps it so objects created later share the same bases.
+	propPool *store.PropSharePool
 }
 
 // loadedStr returns the string value for s, reusing the value made for an
@@ -88,7 +92,7 @@ func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 	}
 	// Nothing reads the store yet, so the loaded objects' slots can be moved
 	// onto shared bases in place.
-	s.ShareLoadedPropertySlots()
+	s.ShareLoadedPropertySlots(database.propPool)
 	// Ingest anonymous objects out-of-band. They are kept separate from the
 	// regular numbered object space (never in the objects map, never at a regular
 	// numeric id) and are assigned above-max serialization ids only at dump time,

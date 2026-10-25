@@ -160,6 +160,12 @@ type Store struct {
 	verbCacheMisses int64
 
 	pendingFinalizations []types.Value
+
+	// propPool interns the shared property bases of every object, loaded or
+	// created, for the life of the store. propPoolMu guards it: transactional
+	// creates share their tables without holding mu.
+	propPoolMu sync.Mutex
+	propPool   *propSharePool
 }
 
 func NewStore() *Store {
@@ -168,6 +174,7 @@ func NewStore() *Store {
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
 		waifDomain:  new(types.WaifDomain),
+		propPool:    newPropSharePool(),
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true

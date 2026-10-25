@@ -37,20 +37,35 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots, privateSlots i
 // on each slot point at one base and keep privately only the slots they set.
 // What any object's properties read as does not change.
 //
+// The store keeps pool, the one the loader built shared tables through, or
+// its own when pool is nil, so objects created afterwards find the same bases.
+//
 // Call it once, after the last loaded object is added and before the store is
-// served. Objects created afterwards are not shared.
-func (s *Store) ShareLoadedPropertySlots() {
+// served.
+func (s *Store) ShareLoadedPropertySlots(pool *PropSharePool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.propPoolMu.Lock()
+	defer s.propPoolMu.Unlock()
 
-	pool := newPropSharePool()
+	if pool != nil {
+		s.propPool = pool
+	}
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj != nil && !obj.recycled {
-			obj.properties.share(pool)
+			obj.properties.share(s.propPool)
 		}
 		return true
 	})
+}
+
+// shareCreatedProperties moves a new object's table onto a shared base. The
+// table must not yet be visible to any other goroutine.
+func (s *Store) shareCreatedProperties(props propTable) {
+	s.propPoolMu.Lock()
+	defer s.propPoolMu.Unlock()
+	props.share(s.propPool)
 }
 
 func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
