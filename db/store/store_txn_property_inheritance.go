@@ -386,7 +386,9 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 					key := propertyWriteKey{objID: childID, name: propertyNameKey(actualName)}
 					delete(tx.propertyDefines, key)
 					delete(tx.propertyWrites, key)
-					delete(tx.propertyDeletes, key)
+					// The decentralized commit removes the definition from the definer
+					// only; each descendant's slot goes through its own staged delete.
+					lazySet(&tx.propertyDeletes, key, actualName)
 				}
 			} else {
 				tx.markPropertyScan(childID, child)

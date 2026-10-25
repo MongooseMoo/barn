@@ -1223,6 +1223,37 @@ func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *te
 	}
 }
 
+func TestTransactionDeleteDefinedPropertyRemovesCommittedChildOverride(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(99)); errCode != types.E_NONE {
+		t.Fatalf("child SetPropertyValue failed: %v", errCode)
+	}
+
+	tx := store.BeginSnapshot(0)
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if _, ok, errCode := store.DirectTxn().LocalProperty(child, "a"); errCode != types.E_NONE || ok {
+		t.Fatalf("live child LocalProperty ok=%v err=%v, want no local slot", ok, errCode)
+	}
+	if value, errCode := store.DirectTxn().PropertyValue(child, "a"); errCode != types.E_PROPNF {
+		t.Fatalf("live child PropertyValue after commit = %v, %v, want E_PROPNF", value, errCode)
+	}
+}
+
 func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
