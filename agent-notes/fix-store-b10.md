@@ -18,8 +18,9 @@ drafted in the session scratchpad (pr-b10-barn.md, pr-b10-mct.md).
   (7 rows, LF). WSL Toast: 8 passed (admission + 7). Barn 3cb7e64c: 3 failed,
   5 passed; failures are the overridden-slot rows ([7, 7] for [7, E_PROPNF];
   [7, 0] for [9, 1]; separate-task step got 7).
-- barn fix/store-b10 (worktree C:/Users/Q/code/barn-store-b10) on origin/master
-  3cb7e64c:
+- barn fix/store-b10 (worktree C:/Users/Q/code/barn-store-b10), written on
+  origin/master 3cb7e64c, rebased onto 3f97e9ba (#489 merged meanwhile); on the
+  rebased tree go test ./db/store ok and the new conformance file 8 passed again:
   - removeInheritedProperty (store_txn_property_inheritance.go) also visits each
     visited object's anonymousChildren: removes the non-defined slot from the txn
     copy and stages a propertyDeletes entry (puts the anon in the footprint, so
@@ -58,10 +59,12 @@ drafted in the session scratchpad (pr-b10-barn.md, pr-b10-mct.md).
 
 ## Overlap
 - PR #491 (fix/store-b1) edits removeInheritedProperty's children loop (one
-  line); this branch appends a loop after it in the same function. Rebase after
-  #491 merges; see merge-tree result in the PR draft.
-- PR #489 touches copyInheritedProperties/propagateDefinedProperty and
-  buildImageWithPropertyDefine, not the delete walkers or this comment.
+  line); this branch appends a loop after it in the same function.
+  `git merge-tree` against #491's head exits 0 (textual only, not test-run
+  combined). Rebase after #491 merges.
+- PR #489 (merged as 3f97e9ba) touched copyInheritedProperties,
+  propagateDefinedProperty and buildImageWithPropertyDefine, not the delete
+  walkers or this comment; the branch is rebased onto it.
 
 ## Next step
 Team lead reviews; push and PRs only on their/Q's go. Merge order: barn PR,
