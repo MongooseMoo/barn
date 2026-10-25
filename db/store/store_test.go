@@ -408,3 +408,35 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 		t.Fatalf("FindProperty() after delete = %v, want E_PROPNF", errCode)
 	}
 }
+
+// Toast db_change_parents (db_objects.cc:1086-1115) moves an anonymous object
+// between its parents' anonymous_objects entries and never touches children.
+func TestChangeParentsAnonymousMovesAnonymousChildren(t *testing.T) {
+	s, ids := immutFixture(t, 2)
+	p, q := ids[0], ids[1]
+	anon, ec := s.DirectTxn().CreateObject([]types.ObjID{p}, 0, true)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+
+	if ec := s.ChangeParents(anon, []types.ObjID{q}); ec != types.E_NONE {
+		t.Fatalf("ChangeParents: %v", ec)
+	}
+
+	tx := s.DirectTxn()
+	for _, id := range []types.ObjID{p, q} {
+		children, ec := tx.Children(id)
+		if ec != types.E_NONE {
+			t.Fatalf("Children(#%d): %v", id, ec)
+		}
+		if len(children) != 0 {
+			t.Errorf("Children(#%d) = %v, want none", id, children)
+		}
+	}
+	if got, _ := tx.AnonymousChildren(p); len(got) != 0 {
+		t.Errorf("AnonymousChildren(old parent) = %v, want none", got)
+	}
+	if got, _ := tx.AnonymousChildren(q); !objIDsEqual(got, []types.ObjID{anon}) {
+		t.Errorf("AnonymousChildren(new parent) = %v, want [%v]", got, anon)
+	}
+}
