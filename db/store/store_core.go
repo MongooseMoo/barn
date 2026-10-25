@@ -788,20 +788,17 @@ func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
 	return result
 }
 
-// VisitAliasStrings calls fn with each string element of objID's own "aliases"
-// property until fn returns false. It does nothing for an invalid object or a
-// missing or non-list value. fn runs under the store read lock and must not
-// call back into the store.
+// VisitAliasStrings calls fn with each string element of objID's "aliases"
+// property, resolved as any property read is (a clear slot reads its
+// ancestor's value), until fn returns false. It does nothing for an invalid
+// object or a missing or non-list value. fn runs under the store read lock and
+// must not call back into the store.
 func (s *Store) VisitAliasStrings(objID types.ObjID, fn func(string) bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return
-	}
-	prop, ok := obj.properties.lookup("aliases")
-	if !ok {
+	_, prop, errCode := s.findPropertyLocked(objID, "aliases")
+	if errCode != types.E_NONE {
 		return
 	}
 	listVal := prop.value
