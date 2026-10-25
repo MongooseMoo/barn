@@ -80,6 +80,30 @@ func TestSetVerbInfoRefreshesTransactionVerbView(t *testing.T) {
 	}
 }
 
+// Toast validate_verb_info skips leading spaces and rejects an empty remainder
+// (src/verbs.cc:115-119).
+func TestSetVerbInfoRejectsBlankNames(t *testing.T) {
+	for _, names := range []string{"", "   "} {
+		ctx, _ := verbMetadataTxnTestContext(t)
+
+		result := builtinSetVerbInfo(ctx, []types.Value{
+			types.NewObj(0),
+			types.NewStr("look"),
+			types.NewList([]types.Value{
+				types.NewObj(0),
+				types.NewStr("rxd"),
+				types.NewStr(names),
+			}),
+		})
+		if !result.IsError() || result.Error != types.E_INVARG {
+			t.Fatalf("set_verb_info names %q = %v, want E_INVARG", names, result)
+		}
+		if _, _, err := ctx.StoreTxn.FindVerb(0, "look"); err != nil {
+			t.Fatalf("names %q: verb look no longer found: %v", names, err)
+		}
+	}
+}
+
 func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 

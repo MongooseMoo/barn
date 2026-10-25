@@ -589,6 +589,10 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	if namesStr.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
+	// Toast validate_verb_info skips leading spaces and rejects an empty remainder.
+	if strings.TrimLeft(namesStr.Str(), " ") == "" {
+		return types.Err(types.E_INVARG)
+	}
 
 	errCode := store.SetVerbInfo(objID, nameVal.Str(), owner.ID(), parseVerbPerms(permsStr.Str()), strings.Fields(namesStr.Str()))
 	if errCode != types.E_NONE {
