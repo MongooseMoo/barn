@@ -369,6 +369,8 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	sc.inUse = true
 	sc.visited.reset()
 	queue := append(sc.queue[:0], verbLocObj.parents...)
+	searchLower := strings.ToLower(verbName)
+	hasWildcard := strings.Contains(verbName, "*")
 
 	var found *Verb
 	definer := types.ObjNothing
@@ -386,17 +388,15 @@ walk:
 		tx.markVerbScan(current, obj)
 		// Call dispatch (pass()) skips a same-named verb that lacks execute
 		// permission so it never shadows an executable verb further up the chain,
-		// matching Store.FindParentVerb's callable walk.
-		if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
+		// and matches names exactly as walkVerb does for obj:verb() calls.
+		if verb := obj.findVerbByAlias(searchLower, true); verb != nil {
 			found, definer = verb, current
 			break walk
 		}
-		for _, verb := range obj.verbList {
-			for _, alias := range verb.names {
-				if alias == verbName && verb.perms.Has(VerbExecute) {
-					found, definer = verb, current
-					break walk
-				}
+		if !hasWildcard {
+			if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
+				found, definer = verb, current
+				break walk
 			}
 		}
 		queue = append(queue, obj.parents...)
