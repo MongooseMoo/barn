@@ -1721,6 +1721,38 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	}
 }
 
+// set_verb_code by name resolves only verbs defined on the named object (Toast
+// verbs.cc:229-236 find_described_verb -> db_find_defined_verb). A verb the
+// object only inherits is E_VERBNF, and the ancestor keeps its code.
+func TestTransactionSetVerbCodeInheritedVerbIsVerbNotFound(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	childID, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child failed: %v", errCode)
+	}
+
+	tx := store.BeginSnapshot(0)
+	if errCode := tx.SetVerbCode(childID, "look", []string{"return 9;"}); errCode != types.E_VERBNF {
+		t.Fatalf("tx SetVerbCode on inherited verb = %v, want E_VERBNF", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("tx Commit failed: %v", errCode)
+	}
+	parentVerb, err := store.DirectTxn().FindVerbOnObject(0, "look")
+	if err != nil {
+		t.Fatalf("parent FindVerbOnObject failed: %v", err)
+	}
+	if len(parentVerb.Code) != 1 || parentVerb.Code[0] != "return 1;" {
+		t.Fatalf("parent verb code = %#v, want original code", parentVerb.Code)
+	}
+}
+
 func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
