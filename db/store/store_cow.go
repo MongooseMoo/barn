@@ -368,10 +368,13 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 // (removeInheritedProperty, :1353). So the define/delete itself applies ONLY to the
 // definer's image here, and the descendant images are built from the already-staged
 // propertyWrites/propertyDeletes. The footprint built below = definer ∪ every staged
-// descendant, covering the WHOLE affected subtree. The walkers traverse `children` only,
-// never `anonymousChildren`, so anonymous descendants are never in the footprint — which
-// matches Toast (a parent property-schema change does NOT touch anon descendants;
-// builtins/properties.go:343-344). Topology cannot shift under us: only coarse
+// descendant, covering the WHOLE affected subtree. Anonymous descendants never reach
+// here: removeInheritedProperty stages a propertyDelete on each anonymous child that
+// holds the slot (Toast remove_prop_recursively strips them, db_properties.cc:325-341),
+// and an anon id in the footprint routes the commit to the coarse path
+// (writeFootprintHasAnon). propagateDefinedProperty does not visit anonymous children
+// (Toast insert_prop_recursively does, :162-179); such an anon reads the new property
+// through its parent. Topology cannot shift under us: only coarse
 // store.mu.Lock mutators change parents/children, and we hold store.mu.RLock (excludes
 // Lock), so the subtree the staging enumerated is frozen through build+publish.
 //

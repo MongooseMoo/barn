@@ -383,5 +383,27 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 			}
 			queue = append(queue, childID)
 		}
+		// Anonymous children lose the slot too (Toast remove_prop_recursively,
+		// db_properties.cc:325-328, :340-341). The staged delete puts the anon id
+		// in the write footprint, which routes the commit to the coarse path.
+		for _, anonID := range current.anonymousChildren {
+			anon := tx.object(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			actualName, prop, ok := anon.properties.find(name)
+			if !ok {
+				tx.markPropertyScan(anonID, anon)
+				continue
+			}
+			tx.markPropertyRead(anonID, actualName, prop)
+			if prop.defined {
+				continue
+			}
+			tx.mutableObject(anonID).properties.remove(actualName)
+			key := propertyWriteKey{objID: anonID, name: propertyNameKey(actualName)}
+			delete(tx.propertyWrites, key)
+			lazySet(&tx.propertyDeletes, key, actualName)
+		}
 	}
 }
