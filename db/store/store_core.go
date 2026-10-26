@@ -57,6 +57,9 @@ type Store struct {
 	// each write is staged on a private transaction and published at once
 	// (writeNow). It never accumulates transaction state.
 	directTxn StoreTxn
+	// writer is that private transaction: writeNow resets and uses it under
+	// mu.Lock, so one writer serves every direct write (lockedWriter).
+	writer StoreTxn
 	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
 	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the

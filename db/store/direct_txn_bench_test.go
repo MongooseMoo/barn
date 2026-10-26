@@ -75,6 +75,28 @@ func BenchmarkDirectSetObjectName(b *testing.B) {
 	}
 }
 
+// BenchmarkDirectDefinePropertyWide defines and deletes a property on an object
+// with 1,000 children: the widest kind of direct write, one staged slot per
+// descendant.
+func BenchmarkDirectDefinePropertyWide(b *testing.B) {
+	s := benchChainStore(b, 1, 0)
+	d := s.DirectTxn()
+	for range 1000 {
+		if _, ec := d.CreateObject([]types.ObjID{0}, 0); ec != types.E_NONE {
+			b.Fatal(ec)
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if ec := d.DefineProperty(0, "wide", NewProperty(types.NewInt(1), 0, PropRead, false, true)); ec != types.E_NONE {
+			b.Fatal(ec)
+		}
+		if ec := d.DeleteDefinedProperty(0, "wide"); ec != types.E_NONE {
+			b.Fatal(ec)
+		}
+	}
+}
+
 func BenchmarkDirectMoveObject(b *testing.B) {
 	s := benchChainStore(b, 6, 8)
 	d := s.DirectTxn()

@@ -168,37 +168,75 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	return tx
 }
 
-// newLockedWriter returns the private transaction writeNow stages on. The caller
-// holds store.mu.Lock until the writer is done: it reads the store as it is now
-// and registers no read timestamp, because it is never validated or released.
-func (s *Store) newLockedWriter() *StoreTxn {
-	return &StoreTxn{
-		readTS:        math.MaxUint64,
-		store:         s,
-		locked:        true,
-		objects:       make(map[types.ObjID]*Object),
-		maxObjID:      s.maxObjectID(),
-		highWaterID:   s.highWater(),
-		conflictLabel: ConflictLabel{Obj: types.ObjNothing},
+// writerKeepLimit bounds what the store's writeNow writer keeps between writes.
+// Maps never shrink, so a writer that staged more entries or cached more objects
+// than this is dropped after its write instead of reused: one wide write, such
+// as a definition reaching every descendant of a class, does not pin its maps for
+// the life of the store. An ordinary direct write touches one to three objects.
+const writerKeepLimit = 256
+
+// lockedWriter resets the store's one writeNow writer and returns it. The caller
+// holds store.mu.Lock until the writer is done, so the writer is never in use
+// twice. It reads the store as it is now and registers no read timestamp,
+// because it is never validated or released. The reset names everything it
+// keeps (emptied maps and walk scratch); every other field starts at its zero
+// value, so nothing staged by an earlier write survives.
+func (s *Store) lockedWriter() *StoreTxn {
+	w := &s.writer
+	objects, owned := w.objects, w.owned
+	clear(objects)
+	clear(owned)
+	if objects == nil {
+		objects = make(map[types.ObjID]*Object)
 	}
+	*w = StoreTxn{
+		readTS:                    math.MaxUint64,
+		store:                     s,
+		locked:                    true,
+		objects:                   objects,
+		owned:                     owned,
+		scalarWrites:              w.scalarWrites,
+		relationshipWrites:        w.relationshipWrites,
+		propertyDefines:           w.propertyDefines,
+		propertyDefinitionDeletes: w.propertyDefinitionDeletes,
+		propertyWrites:            w.propertyWrites,
+		propertyDeletes:           w.propertyDeletes,
+		verbWrites:                w.verbWrites,
+		verbDeletes:               w.verbDeletes,
+		createdObjects:            w.createdObjects,
+		recycleWrites:             w.recycleWrites,
+		verbWalk:                  w.verbWalk,
+		propWalk:                  w.propWalk,
+		parentWalk:                w.parentWalk,
+		maxObjID:                  s.maxObjectID(),
+		highWaterID:               s.highWater(),
+		conflictLabel:             ConflictLabel{Obj: types.ObjNothing},
+	}
+	w.clearStagedWrites()
+	return w
 }
 
-// writeNow is how the direct transaction writes: op runs on a private writer
-// that reads the live store under store.mu.Lock, and what it staged is published
-// before the lock is released. Nothing else can run between the reads and the
-// publication, so there is nothing to validate. A failed op publishes nothing.
+// writeNow is how the direct transaction writes: op runs on the store's writer,
+// which reads the live store under store.mu.Lock, and what it staged is
+// published before the lock is released. Nothing else can run between the reads
+// and the publication, so there is nothing to validate. A failed op publishes
+// nothing.
 func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	w := s.newLockedWriter()
-	if errCode := op(w); errCode != types.E_NONE || !w.hasStagedWrites() {
-		return errCode
+	w := s.lockedWriter()
+	errCode := op(w)
+	wide := w.stagedEntries() > writerKeepLimit || len(w.objects) > writerKeepLimit
+	if errCode == types.E_NONE && w.hasStagedWrites() {
+		// The writer walked every definer's children under this lock, so no child
+		// can have joined since: the store need not walk them again.
+		writes := w.writesByObject()
+		w.publishStagedLocked(&writes, s.clock.Load()+1, false)
 	}
-	// The writer walked every definer's children under this lock, so no child
-	// can have joined since: the store need not walk them again.
-	writes := w.writesByObject()
-	w.publishStagedLocked(&writes, s.clock.Load()+1, false)
-	return types.E_NONE
+	if wide {
+		s.writer = StoreTxn{}
+	}
+	return errCode
 }
 
 // live reports whether tx reads the store as it is now: the shared direct

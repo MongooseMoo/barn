@@ -117,13 +117,18 @@ func (ws *writeSet) at(id types.ObjID) *objectWrites {
 
 func (ws *writeSet) len() int { return len(ws.entries) }
 
+// stagedEntries counts the entries in the staged write maps, an upper bound on
+// the objects a commit publishes.
+func (tx *StoreTxn) stagedEntries() int {
+	return len(tx.createdObjects) + len(tx.scalarWrites) + len(tx.relationshipWrites) +
+		len(tx.propertyDefinitionDeletes) + len(tx.propertyDefines) + len(tx.propertyWrites) +
+		len(tx.propertyDeletes) + len(tx.verbWrites) + len(tx.verbDeletes) + len(tx.recycleWrites)
+}
+
 // writesByObject gathers the staged writes by the object they change: one entry
 // for every object the commit publishes an image for.
 func (tx *StoreTxn) writesByObject() writeSet {
-	staged := len(tx.createdObjects) + len(tx.scalarWrites) + len(tx.relationshipWrites) +
-		len(tx.propertyDefinitionDeletes) + len(tx.propertyDefines) + len(tx.propertyWrites) +
-		len(tx.propertyDeletes) + len(tx.verbWrites) + len(tx.verbDeletes) + len(tx.recycleWrites)
-	writes := writeSet{entries: make([]objectWrites, 0, min(staged, objIDSetLinearMax))}
+	writes := writeSet{entries: make([]objectWrites, 0, min(tx.stagedEntries(), objIDSetLinearMax))}
 	at := writes.at
 	for id, base := range tx.createdObjects {
 		at(id).created = base

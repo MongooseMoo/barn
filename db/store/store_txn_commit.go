@@ -406,15 +406,17 @@ func (tx *StoreTxn) preflightStagedToLiveLocked(writes *writeSet) types.ErrorCod
 // clearStagedWrites runs only after successful publication. Read dependencies,
 // cached/owned objects, memo state, gate exemption and terminal state belong to
 // their callers' lifecycle boundaries and must survive this bookkeeping step.
+// The maps are emptied, not dropped, so a transaction that stages again (or the
+// store's reused writeNow writer) does not allocate them again.
 func (tx *StoreTxn) clearStagedWrites() {
-	tx.scalarWrites = nil
-	tx.relationshipWrites = nil
-	tx.propertyDefines = nil
-	tx.propertyDefinitionDeletes = nil
-	tx.propertyWrites = nil
-	tx.propertyDeletes = nil
-	tx.verbWrites = nil
-	tx.verbDeletes = nil
-	tx.createdObjects = nil
-	tx.recycleWrites = nil
+	clear(tx.scalarWrites)
+	clear(tx.relationshipWrites)
+	clear(tx.propertyDefines)
+	clear(tx.propertyDefinitionDeletes)
+	clear(tx.propertyWrites)
+	clear(tx.propertyDeletes)
+	clear(tx.verbWrites)
+	tx.verbDeletes = tx.verbDeletes[:0]
+	clear(tx.createdObjects)
+	clear(tx.recycleWrites)
 }
