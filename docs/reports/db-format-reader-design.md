@@ -43,7 +43,7 @@ The producer comparison agrees on the important layout boundaries: ToastStunt `e
 
 ## Audit dependencies and explicit limits
 
-The #516 report, `docs/reports/db-format-audit.md`, was read in the audit worktree before this design was finalized. Its historical-layout section keeps old clocks and activation records unresolved. The following source observations were independently read for this design; the audit's runtime observations are not repeated here as independently verified findings:
+The [#516 report](https://github.com/MongooseMoo/barn/blob/54d1b4f343b90a2017b83dd393d19047d585d854/docs/reports/db-format-audit.md) was read in the audit worktree before this design was finalized. Its historical-layout section keeps old clocks and activation records unresolved. The following source observations were independently read for this design; the audit's runtime observations are not repeated here as independently verified findings:
 
 - `reader_task.go:115–132` consumes typed this, verb location and threading unconditionally. Upstream version conditions above differ. Establish real historical producer fixtures before choosing repairs.
 - `reader_task.go:41–49` consumes only a clock header. A broad legacy parser should not assert that all historical clock sections are empty.

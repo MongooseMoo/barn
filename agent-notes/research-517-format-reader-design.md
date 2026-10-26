@@ -18,7 +18,7 @@ Both v4 and v5 currently ignore trailing connection data, although only v4 calls
 
 ## Next step
 
-Parent owns source verification/publication and the Q decision before implementation. Design reflects the #516 report's unresolved historical contracts and separates count repairs from helper consolidation. No claim of runtime compatibility or performance improvement is available. Add the pinned audit report link when its commit is available.
+Parent owns source verification/publication and the Q decision before implementation. Design reflects the #516 report's unresolved historical contracts and separates count repairs from helper consolidation. No claim of runtime compatibility or performance improvement is available. Audit report citation now pins 54d1b4f343b90a2017b83dd393d19047d585d854.
 
 ## PR draft
 
