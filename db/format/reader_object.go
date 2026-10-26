@@ -331,6 +331,10 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 			if obj != nil {
 				obj.SetAnonymous(true)
 				database.AnonymousObjs = append(database.AnonymousObjs, obj)
+				if database.loadedAnonymous == nil {
+					database.loadedAnonymous = make(map[types.ObjID]*store.ObjectBuilder)
+				}
+				database.loadedAnonymous[obj.ID()] = obj
 			}
 		}
 	}
@@ -378,6 +382,11 @@ func (database *Database) readVerbCode(r *bufio.Reader) error {
 
 	// Store code in verb using the builder's ordered verb list for proper indexing
 	obj := database.Objects[types.ObjID(objID)]
+	if obj == nil {
+		// Recycled numbered slots have no builder, so an anonymous object
+		// using such a saved ID also resolves through this separate index.
+		obj = database.loadedAnonymous[types.ObjID(objID)]
+	}
 	if obj != nil {
 		obj.SetVerbCodeByIndex(verbIndex, codeLines)
 	}
