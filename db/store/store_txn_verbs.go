@@ -104,16 +104,15 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	if _, _, err := tx.findVerbOnObject(objID, name); err != nil {
 		return types.E_VERBNF
 	}
-	// stageVerbCode mutates the verb node in place. Privatize the object and
-	// re-resolve so the verb node we edit belongs to a txn-private copy, not a shared
-	// alias. findVerbOnObject reads through tx.object, so the re-resolve returns the
-	// clone's node once mutableObject has installed it.
+	// stageVerbCode changes the verb in the txn-private copy. Privatize the object
+	// and re-resolve: findVerbOnObject reads through tx.object, so the re-resolve
+	// returns the copy and the verb's index in it.
 	tx.mutableObject(objID)
 	obj, index, err := tx.findVerbOnObject(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
-	tx.stageVerbCode(objID, obj.verbList[index], lines)
+	tx.stageVerbCode(objID, obj, index, lines)
 	return types.E_NONE
 }
 
@@ -121,8 +120,8 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 	if tx.direct {
 		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetVerbCodeByIndex(objID, index, lines) })
 	}
-	// stageVerbCode mutates the verb node in place, so resolve it from a txn-private
-	// copy of the object rather than a shared alias.
+	// stageVerbCode changes the verb in a txn-private copy of the object, never in
+	// a shared image.
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -131,13 +130,16 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 		return types.E_RANGE
 	}
 	tx.markVerbScan(objID, obj)
-	verb := obj.verbList[index]
-	tx.markVerbRead(objID, verb)
-	tx.stageVerbCode(objID, verb, lines)
+	tx.markVerbRead(objID, obj.verbList[index])
+	tx.stageVerbCode(objID, obj, index, lines)
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
+// stageVerbCode sets the code of the verb at index in obj, the txn's private
+// copy of objID, and stages the write. The private copy may share the node with
+// a published image, so the node is replaced by its own copy first.
+func (tx *StoreTxn) stageVerbCode(objID types.ObjID, obj *Object, index int, lines []string) {
+	verb := ownVerbAt(obj, index)
 	verb.setCodeCopy(lines)
 	lazySet(&tx.verbWrites, verbKey{objID: objID, id: verb.id}, verbWrite{
 		code: append([]string(nil), lines...),

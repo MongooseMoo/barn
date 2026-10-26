@@ -65,7 +65,7 @@ func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 	// disables property and store-global memos, since `owned` never shrinks.
 	// Transaction-local verb entries may still describe entirely unowned paths.)
 	tx.invalidateResolveCaches()
-	clone := cloneObjectForReadTxn(base)
+	clone := cloneObjectSharingVerbs(base)
 	tx.objects[objID] = clone
 	if tx.owned == nil {
 		tx.owned = make(map[types.ObjID]bool)
@@ -252,6 +252,35 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 	}
 
 	return clone
+}
+
+// cloneObjectSharingVerbs is cloneObjectForReadTxn without copying the verb
+// nodes: the clone has its own verb list holding the same nodes, except that a
+// node over borrowed input is copied. A node is never written while the clone
+// shares it; the code that changes one replaces it first (ownVerbAt).
+func cloneObjectSharingVerbs(obj *Object) *Object {
+	clone := cloneObjectNonVerbState(obj)
+	if clone == nil {
+		return nil
+	}
+	clone.verbList = make([]*Verb, len(obj.verbList))
+	for i, verb := range obj.verbList {
+		if verb != nil && !verb.backingOwned {
+			verb = cloneVerbForReadTxn(verb)
+		}
+		clone.verbList[i] = verb
+	}
+	return clone
+}
+
+// ownVerbAt replaces obj.verbList[index] with a copy obj alone holds and returns
+// it. obj is a private copy or an image a commit is building, whose list may
+// share its nodes with a published image. The copy shares the node's names and
+// code, which a write replaces rather than changes.
+func ownVerbAt(obj *Object, index int) *Verb {
+	verb := *obj.verbList[index]
+	obj.verbList[index] = &verb
+	return &verb
 }
 
 func cloneVerbForReadTxn(verb *Verb) *Verb {

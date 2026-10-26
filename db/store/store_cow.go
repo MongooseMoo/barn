@@ -1,6 +1,8 @@
 package store
 
 import (
+	"slices"
+
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -166,7 +168,8 @@ func (tx *StoreTxn) writesByObject() writeSet {
 // ownImage gives w an image of id that this commit may change: a clone of the
 // created base with every version at ts, the anonymous object itself (anonymous
 // objects have no slot and are changed in place, under store.mu.Lock), or a
-// clone of the published image, which w.old keeps for history.
+// clone of the published image, which w.old keeps for history. The clone shares
+// the published image's verb nodes; applyTailWrites copies one before changing it.
 func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 	if w.created != nil {
 		w.img = cloneObjectForReadTxn(w.created)
@@ -179,7 +182,7 @@ func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 		return
 	}
 	w.old = live
-	w.img = cloneObjectForReadTxn(live)
+	w.img = cloneObjectSharingVerbs(live)
 }
 
 // applyHeadWrites applies w's scalar, relationship and property-definition
@@ -283,10 +286,14 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 		// A commit's preflight found the verb; a renumber replay
 		// (ApplyStagedObjectWrites) can meet a live image without it. A code edit
 		// leaves aliases and positions, and so the verb index, unchanged.
-		if verb := img.verbByID(write.id); verb != nil {
-			verb.setCodeCopy(write.code)
-			verb.version = ts
-			img.verbVersion = ts
+		for index, verb := range img.verbList {
+			if verb.id == write.id {
+				verb = ownVerbAt(img, index)
+				verb.setCodeCopy(write.code)
+				verb.version = ts
+				img.verbVersion = ts
+				break
+			}
 		}
 	}
 	for _, index := range w.verbDeletes {
@@ -429,29 +436,12 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 // buildImageForVerbArgs detaches every non-verb facet as a full clone would, but
 // shares unchanged verb nodes whose backing arrays have already been copied.
 // The returned target is always fresh; the caller stamps/edits only that node
-// under store.mu.Lock.
+// under store.mu.Lock. Args do not alter alias spellings/order or the index's
+// list positions, so the image keeps old's verb index.
 func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
-	img := cloneObjectNonVerbState(old)
-	var updated *Verb
-	if target.backingOwned {
-		copy := *target
-		updated = &copy
-	} else {
-		updated = cloneVerbForReadTxn(target)
-	}
-	img.verbList = make([]*Verb, 0, len(old.verbList))
-	for _, node := range old.verbList {
-		switch {
-		case node == target:
-			node = updated
-		case node != nil && !node.backingOwned:
-			node = cloneVerbForReadTxn(node)
-		}
-		img.verbList = append(img.verbList, node)
-	}
-	// Args do not alter alias spellings/order or the index's list positions.
-	img.verbIdx = old.verbIdx
-	return img, updated
+	img := cloneObjectSharingVerbs(old)
+	index := slices.Index(old.verbList, target)
+	return img, ownVerbAt(img, index)
 }
 
 // rememberOldImageLocked stashes an already-immutable old published image as the
