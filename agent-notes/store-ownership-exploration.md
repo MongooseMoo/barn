@@ -410,8 +410,26 @@ additional migration surface from #548. They are not recalculated measured diffs
 
 ## Next step
 
-Present both reports and the checked comparison to Q for selection. Do not code
-until Q says "make it so". No implementation, tests or benchmarks were changed or
-run in this research. Research notes are the only intended commit content; no
-push or PR publication is part of this task. Performance and isolation acceptance
-remain future empirical work through the existing workflows described above.
+Q requested a further agent investigation of the central unresolved question:
+Can one ownership model cover numbered objects, anonymous objects, WAIFs and
+retained snapshots while preserving behavior and eliminating enough machinery
+to make the whole store simpler?
+
+Smallest authorized deliverable: extend the existing immutable-root report with
+a source-backed answer, approximately 150-300 Markdown lines if needed; zero
+implementation lines. Reuse the Astra immutable_world_roots researcher and its
+existing report. No new production protocol, representation or dependency is
+selected by this research request. Treat the parent's proposed "one ownership
+model" as a hypothesis to test, not a required affirmative conclusion.
+
+The report must distinguish Go allocation reachability, snapshot visibility,
+identity/domain ownership, MOO semantic liveness/finalization and checkpoint
+capture; show whether these can actually share authority. Compare the simplest
+unified proposal against keeping separate owners. Account for replacement code,
+retained memory, publication and hot-path costs, and identify counterexamples
+using real producers. Do not claim performance or behavioral parity from source.
+
+Do not code until Q says "make it so". No implementation, tests or benchmarks were
+changed or run in this research. Research notes are the only intended commit
+content; no push or PR publication is part of this task. Parent will check the
+agent's substantive claims against primary source before relaying its answer.
