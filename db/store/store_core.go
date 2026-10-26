@@ -392,17 +392,28 @@ func objectVersion(obj *Object) uint64 {
 	return version
 }
 
+// withHistoryEntry returns entries with entry recorded as the newest superseded
+// image. One timestamp identifies one commit, and a commit can supersede the same
+// object more than once at its timestamp, so an entry with the newest entry's ts
+// is the later image of that commit and replaces it. The replacement is a new
+// slice: readers walk captured slice headers outside historyMu.
+func withHistoryEntry(entries []objectHistory, entry objectHistory) []objectHistory {
+	n := len(entries)
+	if n == 0 || entries[n-1].ts != entry.ts {
+		return append(entries, entry)
+	}
+	replaced := make([]objectHistory, n)
+	copy(replaced, entries[:n-1])
+	replaced[n-1] = entry
+	return replaced
+}
+
 func (s *Store) rememberObjectLocked(obj *Object) {
 	if obj == nil {
 		return
 	}
-	ts := objectVersion(obj)
-	entries := s.history[obj.id]
-	if len(entries) > 0 && entries[len(entries)-1].ts == ts {
-		return
-	}
-	s.history[obj.id] = append(entries, objectHistory{
-		ts:  ts,
+	s.history[obj.id] = withHistoryEntry(s.history[obj.id], objectHistory{
+		ts:  objectVersion(obj),
 		obj: cloneObjectForReadTxn(obj),
 	})
 
@@ -451,11 +462,7 @@ func (s *Store) republishForMutation(old *Object) *Object {
 	// clone needed, mirroring rememberObjectLocked minus the copy. Touching
 	// s.history directly is safe: the caller holds s.mu.Lock (exclusive), which
 	// excludes the decentralized committers that guard history with historyMu.
-	ts := objectVersion(old)
-	entries := s.history[old.id]
-	if len(entries) == 0 || entries[len(entries)-1].ts != ts {
-		s.history[old.id] = append(entries, objectHistory{ts: ts, obj: old})
-	}
+	s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
 	s.pruneObjectHistory(old.id, s.historyFloor())
 	return fresh
 }
