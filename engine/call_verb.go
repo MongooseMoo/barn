@@ -131,9 +131,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	bcVM.Task = parentTask
 	// Its ticks are absorbed into the caller's below, so profile samples taken
 	// here bill them, and carry the caller's frames.
-	if callingVM, ok := parent.CallingVM.(*vm.VM); ok {
-		bcVM.SetProfileParent(callingVM)
-	}
+	bcVM.SetProfileParent(parent.ProfileParent)
 	// A builtin callback is part of the current execution slice. Preserve any
 	// earlier callback charges until the outer VM consumes them, and keep this
 	// child from consuming those charges a second time.

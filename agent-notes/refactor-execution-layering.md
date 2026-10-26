@@ -23,6 +23,16 @@ Earlier runs 40284826132 and 40284826145 failed on the repaired alias defect.
 No merge or release for this task yet. The original checkout has unrelated
 untracked work; it is not this task's edit target.
 
+The profiling boundary is implemented locally: Execution.ProfileParent carries
+the four mooprof sampling operations instead of CallingVM any. The live-frame
+and baseline loops were extracted into VM methods, retaining the cached
+Execution binding. Existing vm/profile_test.go covers nested stack attribution
+and tick accounting; its CI result for this change is pending. No new tests.
+The task Status field semantic rename is also local preparation for inline State;
+it is not part of the profiling commit. Typed saved-machine ownership remains
+to implement. All three jobs on documentation head 95a0a1af completed SUCCESS
+(runs 40286736548 and 40286736504); those precede this profiling implementation.
+
 ## Decisions and why
 
 The target is explicit ownership: task execution state below the interpreter;
@@ -85,8 +95,23 @@ scheduler ownership upward as well. It must retain one allocation/lock for the
 task, support unregistered direct work, and keep snapshot capture atomic with
 machine publication. Do not implement an embedded-pointer wrapper, new mutex,
 generic Task[T], or broad Machine interface merely to compile around the cycle.
-The exact construction and cross-package locking design is still unresolved;
-no second-slice production code has been written.
+The selected construction is now an inline task.State in engine.Task, with a
+concrete private *vm.VM and the existing shared mutex. The catalog and scheduler
+move into engine so they retain concrete executable ownership. Lower state
+notifies settlement through a narrow observer bound to its containing Task;
+there is no extra catalog, task allocation, or lock. Rename the enum-valued
+State field to Status before embedding. Preserve constructor defaults through
+in-place initialization. Combined persistence capture stays under the same lock.
+The report docs/reports/execution-ownership.md records the exact move and test
+migration. Estimated substantive production change: 150-300 lines, with about
+1,000-1,300 catalog/scheduler lines relocated and mechanical caller changes.
+
+First implement the independently separable profiling boundary: replace
+CallingVM any and its assertion with mooprof.Parent's four sampling operations,
+extracted from vm/profile.go's current loops. This preserves live ancestor
+frames and tick/time baselines without exposing VM execution to builtins.
+Expected change about 60 production lines; no new tests or profiling algorithm.
+Then perform the executable ownership move above.
 
 Builtin test dependencies also matter: builtins/task_manager_test.go wires the
 current task.Manager; several authority/completion/IO tests depend on it.
@@ -142,8 +167,27 @@ VM/int_arith_1M-4      19.00 -> 19.00 allocs/op
 VM/builtin_abs_200k-4  26.00 -> 26.00 allocs/op
 ```
 
-Only these paths were measured. Continuation cohorts, real Mongoose workloads,
-and any further ownership change still need their own comparison.
+Only these interpreter paths were measured in that comparison. Real Mongoose
+workloads and any further ownership change still need their own comparison.
+
+The next sequential base/head comparison uses the existing
+BenchmarkThreadedContinuations, four cohorts (1/16 players, writes false/true),
+same machine/toolchain/GOMAXPROCS, 300ms, count=10, with no diagnostics enabled.
+Head source is unchanged at documentation commit 95a0a1af. Raw files are
+execution-layering-base-continuations.txt and
+execution-layering-context-continuations.txt; full benchstat output is
+execution-layering-continuations-benchstat.txt. All four timing comparisons
+are indistinguishable (p=0.315,0.796,0.190,0.190); allocation-count comparisons
+are also indistinguishable (p=0.672,0.274,0.207,0.118). Both runs completed their
+terminal-result checks. These synthetic cohorts do not establish real-workload
+performance or isolation coverage. Machine isolation/frequency limitations
+above still apply.
+
+The researcher skill is active for the unresolved ownership design. Native
+agent /root/execution_ownership is assigned only the report
+docs/reports/execution-ownership.md under
+prompts/research-execution-ownership.md. It may not implement or publish.
+Parent must verify each proposed source claim before using or relaying it.
 
 ## Surprises
 
@@ -153,9 +197,8 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit the preliminary measurement evidence and this source-backed design
-record. Resolve the executable-task/state split's construction and lock ownership,
-write its smallest exact move here, then implement the second slice. Q already
+Implement the typed profiling boundary, then the executable-task/state split
+and its catalog/scheduler ownership changes. Q already
 authorized the cleanup; routine implementation choices do not require reapproval.
 Do not mistake the green first slice or these two microbenchmarks for completion
 of the broader layering goal.

@@ -5,6 +5,7 @@ import (
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/mooprof"
 	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -30,10 +31,9 @@ type Execution struct {
 	// CanSuspend reports that a FlowSuspend returned now is honored: the call
 	// runs on the task's root VM, which the runtime saves and later resumes.
 	CanSuspend bool
-	// CallingVM is the VM running this builtin (a *vm.VM, opaque here). A verb
-	// the builtin runs on a nested VM links to it so MOO profile samples carry
-	// the caller's frames.
-	CallingVM any
+	// ProfileParent supplies the caller's live frames and sampling baselines
+	// when a builtin starts a nested execution.
+	ProfileParent mooprof.Parent
 }
 
 // NewExecution binds task state and an optional concrete task to this session.

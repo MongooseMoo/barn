@@ -24,7 +24,7 @@ import (
 // profileState is the per-VM sampling baseline. It is zero on a fresh or
 // pooled VM; reset clears it with the rest of the struct.
 type profileState struct {
-	parent  *VM // VM whose builtin started this one, in the same task
+	parent  mooprof.Parent // Interpreter whose builtin started this one, in the same task
 	session *mooprof.Session
 	ticks   int64     // Ticks at the previous sample
 	time    time.Time // when the previous sample (or slice start) was taken
@@ -34,7 +34,7 @@ type profileState struct {
 // SetProfileParent links a nested VM to the VM whose builtin started it, so
 // its samples carry the caller's frames. The caller must absorb this VM's
 // Ticks into its own once the nested call returns.
-func (vm *VM) SetProfileParent(parent *VM) {
+func (vm *VM) SetProfileParent(parent mooprof.Parent) {
 	vm.prof.parent = parent
 }
 
@@ -47,11 +47,13 @@ func (vm *VM) profileEnter() {
 		return
 	}
 	vm.profileBind(s)
-	if p := vm.prof.parent; p != nil && p.prof.session == s {
-		vm.prof.time = p.prof.time
-	} else {
-		vm.prof.time = time.Now()
+	if p := vm.prof.parent; p != nil {
+		if baseline, ok := p.ProfileTime(s); ok {
+			vm.prof.time = baseline
+			return
+		}
 	}
+	vm.prof.time = time.Now()
 }
 
 // profileExit bills what the loop did since its last checkpoint. After the
@@ -88,21 +90,15 @@ func (vm *VM) profileSample(s *mooprof.Session) {
 		// The session started while this loop was running: there is no
 		// baseline for it, so this checkpoint only opens one.
 		vm.profileBind(s)
-		for p := vm; p != nil; p = p.prof.parent {
-			p.prof.time = now
-		}
+		vm.ResetProfileTime(now)
 		return
 	}
 	ticks := vm.Ticks - vm.prof.ticks
 	wall := now.Sub(vm.prof.time).Nanoseconds()
 	vm.prof.ticks = vm.Ticks
 	vm.prof.time = now
-	for p := vm.prof.parent; p != nil; p = p.prof.parent {
-		if p.prof.session != s {
-			p.profileBind(s)
-		}
-		p.prof.ticks += ticks
-		p.prof.time = now
+	if p := vm.prof.parent; p != nil {
+		p.ChargeProfileChild(s, ticks, now)
 	}
 	if ticks <= 0 && wall <= 0 {
 		return
@@ -114,19 +110,49 @@ func (vm *VM) profileSample(s *mooprof.Session) {
 // innermost first. A VM whose loop has completed, leaving no frames, reports
 // the verb it was entered with.
 func (vm *VM) profileStack() []mooprof.Frame {
-	var stack []mooprof.Frame
-	for m := vm; m != nil; m = m.prof.parent {
-		if len(m.Frames) == 0 && m.prof.entry != "" {
-			stack = append(stack, mooprof.Frame{Func: m.prof.entry})
+	return vm.AppendProfileFrames(nil)
+}
+
+// ProfileTime returns this execution's baseline for the requested session.
+func (vm *VM) ProfileTime(s *mooprof.Session) (time.Time, bool) {
+	return vm.prof.time, vm.prof.session == s
+}
+
+// ResetProfileTime opens a wall-time interval for this execution and ancestors.
+func (vm *VM) ResetProfileTime(now time.Time) {
+	vm.prof.time = now
+	if p := vm.prof.parent; p != nil {
+		p.ResetProfileTime(now)
+	}
+}
+
+// ChargeProfileChild excludes a nested execution's sample from ancestor samples.
+func (vm *VM) ChargeProfileChild(s *mooprof.Session, ticks int64, now time.Time) {
+	if vm.prof.session != s {
+		vm.profileBind(s)
+	}
+	vm.prof.ticks += ticks
+	vm.prof.time = now
+	if p := vm.prof.parent; p != nil {
+		p.ChargeProfileChild(s, ticks, now)
+	}
+}
+
+// AppendProfileFrames appends live frames, innermost first, including ancestors.
+func (vm *VM) AppendProfileFrames(stack []mooprof.Frame) []mooprof.Frame {
+	if len(vm.Frames) == 0 && vm.prof.entry != "" {
+		stack = append(stack, mooprof.Frame{Func: vm.prof.entry})
+	}
+	for i := len(vm.Frames) - 1; i >= 0; i-- {
+		f := vm.Frames[i]
+		line := 0
+		if f.Program != nil {
+			line = f.Program.LineForIP(f.IP)
 		}
-		for i := len(m.Frames) - 1; i >= 0; i-- {
-			f := m.Frames[i]
-			line := 0
-			if f.Program != nil {
-				line = f.Program.LineForIP(f.IP)
-			}
-			stack = append(stack, mooprof.Frame{Func: profileFuncName(f.VerbLoc, f.Verb), Line: int64(line)})
-		}
+		stack = append(stack, mooprof.Frame{Func: profileFuncName(f.VerbLoc, f.Verb), Line: int64(line)})
+	}
+	if p := vm.prof.parent; p != nil {
+		return p.AppendProfileFrames(stack)
 	}
 	return stack
 }
