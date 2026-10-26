@@ -76,4 +76,13 @@ func TestCheckpointKeepsSuspendedTaskWaifAndAnonymousRootsTaskOwned(t *testing.T
 	if direct := local.Get(3); direct.Type() != types.TYPE_ANON {
 		t.Fatalf("independent task-owned anonymous root = %v, want anonymous object", direct)
 	}
+	for i := 0; i < 2; i++ {
+		loadedStore, err := loaded.NewStoreFromDatabase()
+		if err != nil {
+			t.Fatalf("construct store %d: %v", i, err)
+		}
+		if got := loadedStore.WaifCountByClass()[9]; got != 1 {
+			t.Fatalf("store %d class #9 WAIF count = %d, want 1", i, got)
+		}
+	}
 }

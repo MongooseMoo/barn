@@ -236,7 +236,10 @@ func propertyNamesSelfFirstRecursive(obj *store.ObjectBuilder, parent func(types
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
 func (database *Database) resolveWaifProperties() {
 	namesByClass := make(map[types.ObjID][]string)
-	for _, wd := range database.savedWaifs {
+	for i, wd := range database.savedWaifs {
+		// Retain the definition for Store registration; only the indexed
+		// property scratch map is loading-only. wd keeps it for this pass.
+		database.savedWaifs[i].propsByIndex = nil
 		classObj := database.Objects[wd.waif.Class()]
 		if classObj == nil {
 			continue
@@ -260,9 +263,6 @@ func (database *Database) resolveWaifProperties() {
 			}
 		}
 	}
-
-	// Free the loading-only data.
-	database.savedWaifs = nil
 }
 
 // collectWaifPropNames returns an ordered list of ":" prefixed property names
