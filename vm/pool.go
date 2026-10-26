@@ -20,7 +20,7 @@ import (
 // back by a call site that has proven nothing outlives the call — see ReleaseVM's
 // refusal conditions and the audit notes on each call site. The task VMs
 // (engine/task_runtime.go, task_factory.go, task_load.go) are deliberately NOT
-// pooled: they are stored on the task via SetBytecodeVM and resumed after a
+// pooled: they are stored on the engine task via SetVM and resumed after a
 // suspend, and are walked for GC roots by other goroutines.
 const (
 	// defaultTickLimit and defaultMaxStackDepth are the values NewVM has always

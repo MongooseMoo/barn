@@ -99,32 +99,16 @@ func TestReview_IDCollisionManagerAndRuntimeCountersAreIndependent(t *testing.T)
 	}
 }
 
-// -----------------------------------------------------------------------------
-// BUG-3 (SUSPECTED race, confirmed structurally): Runtime.liveTaskVMs reads
-// t.BytecodeVM holding s.mu but NOT task.mu, while Runtime.runTask writes
-// t.BytecodeVM holding NEITHER lock. When the main/checkpoint goroutine calls
-// RunServerVerbTask concurrently with the InputProcessor calling
-// ProcessReadyTasks, liveTaskVMs on one goroutine reads BytecodeVM of a task
-// whose runTask on the other goroutine is simultaneously writing it.
-//
-// runtime.go: read: queued.BytecodeVM.(*vm.VM) [under s.mu only]
-// task_runtime.go:239 write: t.BytecodeVM = bcVM         [no lock at all]
-// task_runtime.go:314 write: t.BytecodeVM = nil          [no lock at all]
-//
-// To detect: run with -race flag.
-// The test sets up two concurrent goroutines:
-//
-//	goroutine A runs a suspending task (writes BytecodeVM at line 239)
-//	goroutine B runs a completing task whose liveTaskVMs call reads goroutine A's task BytecodeVM
-//
-// -----------------------------------------------------------------------------
+// Concurrent suspension and completion exercise saved-VM publication under
+// the race detector. Task.VM and SetVM share State.Mu; runtime execution leases
+// separately govern whether a VM's mutable frames may be walked.
 func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 
-	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
+	// taskA retains its interpreter across suspension.
 	programA, diagnostics := s.registry.Compiler().CompileMOO([]string{"suspend(100);"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile taskA: %v", diagnostics)
@@ -140,8 +124,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	taskA.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(taskA)
 
-	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
-	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
+	// taskB completes while taskA may be publishing its saved interpreter.
 	programB, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile taskB: %v", diagnostics)
@@ -159,17 +142,16 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	// Goroutine A: run taskA (suspend path — writes taskA.BytecodeVM without lock).
+	// Goroutine A runs the suspending task.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Yield so goroutine B is likely scheduled before we start writing BytecodeVM.
+		// Allow the completing task to run before this task suspends.
 		runtime.Gosched()
 		_ = s.runTask(taskA)
 	}()
 
-	// Goroutine B: run taskB (completion path — liveTaskVMs reads taskA.BytecodeVM under s.mu).
-	// The s.mu read-lock does NOT protect against the unguarded write in goroutine A.
+	// Goroutine B runs the completing task.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -179,11 +161,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	wg.Wait()
 
-	// This test does not call t.Error unconditionally; it exposes the race
-	// structurally for the race detector.  Run as:
+	// The race detector supplies this test's failure signal. Run as:
 	//   go test -race ./engine/ -run TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask -count=10
-	// The race may not trigger on every run due to goroutine scheduling.
-	// Confirmed structurally: liveTaskVMs holds s.mu but NOT task.mu; runTask
-	// writes BytecodeVM with NO lock; they CAN overlap when called concurrently
-	// from different OS goroutines (mainLoop vs InputProcessor).
+	// The interleaving varies with goroutine scheduling.
 }

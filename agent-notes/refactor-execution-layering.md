@@ -12,7 +12,7 @@ with "Make it so!" on 2026-10-26. Q delegated tooling choices.
 Worktree: `C:/Users/Q/code/barn-execution-layering`, branch
 `refactor/execution-layering`, base `5b0cd9ca7379a5c8cb22df2a1c5b96b78cd2349e`.
 The context slice is implemented: kernel/context.go and its tests moved to task;
-callers now use task.Context and task.NewContext. PR #542 source head is
+callers now use task.Context and task.NewContext. The first slice reached
 6e54bba7 (context move 0d5c074f plus selector repair).
 CI run 40285084528 reports Build & unit tests pass (1m9s), MOO conformance suite
 pass (7m38s); run 40285084536 reports Serializable histories and negative control
@@ -264,8 +264,16 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit/push the follow-up measurements, then finish the full current-head
-layering review and CI. Review target is PR #542 against master 11a17d8c;
+The implementation/evidence head is 59c21c54. Its build/unit, conformance and
+Elle jobs passed (1m5s, 7m25s, 2m35s). Full review is underway against master
+11a17d8c; production and test diffs have first-pass ledger coverage, with
+documentation/evidence and the second pass remaining. The six moved builtin
+integration test bodies compare equal after explicit constructor, dispatch and
+suspension relocation; their assertions and signature-wrapper entry are retained.
+Smallest remaining prose cleanup: update pool ownership terminology and shorten
+old race-test commentary that describes removed unlocked fields as current.
+About twenty comment lines removed; test behavior stays unchanged.
+Finish that cleanup, then complete current-head review and CI. Review target is PR #542;
 review_gate.py requires every PR hunk and two converged passes. No completed
 review or merge verdict has been claimed.
 The source-based research report describes the design, but is not verification.

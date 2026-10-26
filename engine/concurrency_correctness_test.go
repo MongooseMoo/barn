@@ -96,8 +96,8 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 }
 
 // TestOptimisticConcurrentSuspendsNoRace probes the suspend path specifically: many
-// fresh AST tasks call suspend(0), so they batch optimistically and run concurrently.
-// When one saves its VM on suspend (t.BytecodeVM = ...) while a sibling's orphan-GC
+// fresh compiled tasks call suspend(0), so they batch optimistically and run concurrently.
+// When one saves its VM on suspend (Task.SetVM) while a sibling's orphan-GC
 // scans live task VMs, an unsynchronized field access would surface here under -race.
 // Run with `go test -race -run TestOptimisticConcurrentSuspendsNoRace -count=5`.
 func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
