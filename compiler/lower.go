@@ -28,7 +28,6 @@ type lowerer struct {
 	variables            map[string]int       // Source variable name -> index mapping
 	internalVariables    map[string]int       // Compiler-only local name -> index mapping
 	loops                []loopContext        // Loop context stack for break/continue
-	scopes               []scope              // Variable scope stack
 	tempCount            int                  // Counter for unique temporary variable names
 	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
 	registry             map[string]int       // Immutable builtin name-to-ID view
@@ -50,7 +49,6 @@ func newLowerer(registry map[string]int) *lowerer {
 		variables:         make(map[string]int),
 		internalVariables: make(map[string]int),
 		loops:             make([]loopContext, 0, 8),
-		scopes:            make([]scope, 0, 8),
 		registry:          registry,
 		indexContextVar:   -1,
 	}
@@ -66,7 +64,6 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 		return nil, err
 	}
 	stmts := program.Statements
-	c.beginScope()
 
 	if len(stmts) > 0 {
 		// Compile all but the last statement using compileBlock (which pops loop results)
@@ -97,8 +94,6 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 	} else {
 		c.emit(bytecode.OP_RETURN_NONE)
 	}
-
-	c.endScope()
 
 	// VarNames is already populated by declareVariable via compileBlock,
 	// but ensure the mapping is complete by building from the variables map.
