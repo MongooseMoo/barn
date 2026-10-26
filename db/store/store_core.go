@@ -30,15 +30,17 @@ type objectSlot struct {
 // historyFloor()'s per-commit cross-shard scan cheap.
 const readTSShardCount = 16
 
-// readTSShard is one shard of the live-readTS multiset. It is padded to a cache
-// line so adjacent shards' mutexes never false-share.
+// readTSShard is one shard of the live-readTS multiset. The pad spaces shards 56
+// bytes apart, less than a 64-byte line, so neighbours can still share one.
+// BenchmarkReadTSRegistryParallel measured 56 bytes as fast as a full 64, and
+// the unpadded 24 bytes 16-20% slower at 4-16 workers.
 type readTSShard struct {
 	mu     sync.Mutex
 	counts map[uint64]int
 	// oldest is the smallest key in counts plus one, or zero when counts is
 	// empty. It is written under mu and read without it by oldestLiveReadTS.
 	oldest atomic.Uint64
-	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56; rounded clear of a line
+	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56
 }
 
 // idAllocator is the store's object id allocator.
