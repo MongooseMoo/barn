@@ -178,6 +178,75 @@ func TestSetVerbInfoTabOnlyNamesIsOneName(t *testing.T) {
 	}
 }
 
+// A non-wizard cannot change a verb's or a property's owner; the owner may keep
+// itself as owner. Toast: src/verbs.cc:349-354, src/property.cc:172-175.
+func TestSetVerbAndPropertyInfoOwnerChangeRequiresWizard(t *testing.T) {
+	list := func(vals ...types.Value) types.Value { return types.NewList(vals) }
+	str := types.NewStr
+	cases := []struct {
+		name      string
+		fn        func(*Execution, []types.Value) types.Result
+		item      string
+		arg       types.Value
+		wizard    bool
+		want      types.ErrorCode
+		wantOwner types.ObjID
+	}{
+		{"verb non-wizard owner change", builtinSetVerbInfo, "mine", list(types.NewObj(0), str("rx"), str("mine")), false, types.E_PERM, 1},
+		{"verb non-wizard same owner", builtinSetVerbInfo, "mine", list(types.NewObj(1), str("r"), str("mine")), false, types.E_NONE, 1},
+		{"verb wizard owner change", builtinSetVerbInfo, "mine", list(types.NewObj(0), str("rx"), str("mine")), true, types.E_NONE, 0},
+		{"property non-wizard owner change", builtinSetPropertyInfo, "p", list(types.NewObj(0), str("r")), false, types.E_PERM, 1},
+		{"property non-wizard same owner", builtinSetPropertyInfo, "p", list(types.NewObj(1), str("rw")), false, types.E_NONE, 1},
+		{"property wizard owner change", builtinSetPropertyInfo, "p", list(types.NewObj(0), str("r")), true, types.E_NONE, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, store := verbMetadataTxnTestContext(t)
+			addTxnObject(t, store, 1, 1, dbstore.FlagProgrammer)
+			verb := dbstore.NewVerb([]string{"mine"}, 1, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, nil)
+			if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
+				t.Fatalf("AddVerb failed: %v", errCode)
+			}
+			if errCode := store.DirectTxn().DefineProperty(0, "p", dbstore.NewProperty(types.NewInt(0), 1, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+				t.Fatalf("DefineProperty failed: %v", errCode)
+			}
+			ctx.StoreTxn.Release()
+			ctx.StoreTxn = store.BeginSnapshot(0)
+			if !tc.wizard {
+				ctx.IsWizard = false
+				ctx.Player = 1
+				ctx.Programmer = 1
+			}
+
+			result := tc.fn(ctx, []types.Value{types.NewObj(0), str(tc.item), tc.arg})
+			if tc.want == types.E_NONE && result.IsError() {
+				t.Fatalf("got %v, want success", result)
+			}
+			if tc.want != types.E_NONE && (!result.IsError() || result.Error != tc.want) {
+				t.Fatalf("got %v, want %v", result, tc.want)
+			}
+
+			var owner types.ObjID
+			if tc.item == "mine" {
+				v, _, err := ctx.StoreTxn.FindVerb(0, "mine")
+				if err != nil {
+					t.Fatalf("verb mine not found: %v", err)
+				}
+				owner = v.Owner
+			} else {
+				p, ok, errCode := localPropertyForRead(ctx, 0, "p")
+				if !ok || errCode != types.E_NONE {
+					t.Fatalf("property p not found: %v", errCode)
+				}
+				owner = p.Owner
+			}
+			if owner != tc.wantOwner {
+				t.Fatalf("owner = #%d, want #%d", owner, tc.wantOwner)
+			}
+		})
+	}
+}
+
 func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 

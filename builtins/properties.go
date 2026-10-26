@@ -145,6 +145,9 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Just owner (leave perms unchanged)
 		owner := args[2].ID()
+		if !ctx.IsWizard && owner != prop.Owner {
+			return types.Err(types.E_PERM)
+		}
 		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, nil)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -172,6 +175,10 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(err)
 		}
 		owner := ownerVal.ID()
+		// Only a wizard may change the owner (Toast src/property.cc:172-175).
+		if !ctx.IsWizard && owner != prop.Owner {
+			return types.Err(types.E_PERM)
+		}
 		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, &perms)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
