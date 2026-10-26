@@ -4,7 +4,15 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// object returns the transaction's view of objID. The direct transaction is
+// shared between goroutines and keeps no cache: its readTS is the largest
+// timestamp, so each call returns what is published now.
 func (tx *StoreTxn) object(objID types.ObjID) *Object {
+	if tx.direct {
+		tx.store.mu.RLock()
+		defer tx.store.mu.RUnlock()
+		return tx.objectLocked(objID)
+	}
 	if obj, ok := tx.objects[objID]; ok {
 		return obj
 	}
@@ -102,8 +110,11 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 	return nil
 }
 
+// The mark helpers record a snapshot transaction's read set. The direct
+// transaction reads the live store and has no read set to validate.
+
 func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
-	if tx == nil || obj == nil {
+	if tx == nil || tx.direct || obj == nil {
 		return
 	}
 	if _, exists := tx.scalarReads[objID]; exists {
@@ -113,7 +124,7 @@ func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
-	if tx == nil || obj == nil {
+	if tx == nil || tx.direct || obj == nil {
 		return
 	}
 	if _, exists := tx.relationshipReads[objID]; exists {
@@ -123,7 +134,7 @@ func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Property) {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return
 	}
 	tx.markPropertyReadKey(objID, propertyNameKey(name), prop)
@@ -133,7 +144,7 @@ func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Proper
 // (lowercase) key form — the map key returned by a properties lookup — so the
 // hot read path lowers a name once per resolution instead of once per mark.
 func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Property) {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return
 	}
 	wkey := propertyWriteKey{objID: objID, name: key}
@@ -167,7 +178,7 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
-	if tx == nil || obj == nil {
+	if tx == nil || tx.direct || obj == nil {
 		return
 	}
 	tx.propertyScans[objID] = obj.propertyVersion
@@ -177,14 +188,14 @@ func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 // obj HAS (an ancestry walk fell through it), not on any slot's value. It is
 // validated against propertyShapeVersion, which value writes do not move.
 func (tx *StoreTxn) markPropertyShapeScan(objID types.ObjID, obj *Object) {
-	if tx == nil || obj == nil {
+	if tx == nil || tx.direct || obj == nil {
 		return
 	}
 	tx.propertyShapeScans[objID] = obj.propertyShapeVersion
 }
 
 func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
-	if tx == nil || verb == nil {
+	if tx == nil || tx.direct || verb == nil {
 		return
 	}
 	key := verbKey{objID: objID, id: verb.id}
@@ -195,7 +206,7 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
-	if tx == nil || obj == nil {
+	if tx == nil || tx.direct || obj == nil {
 		return
 	}
 	if _, exists := tx.verbScans[objID]; exists {

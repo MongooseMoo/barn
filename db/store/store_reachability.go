@@ -144,31 +144,12 @@ func (s *Store) HasAnonymousAtOrAbove(minID types.ObjID) bool {
 	return found
 }
 
-func (s *Store) expandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
-	if len(refs) == 0 {
-		return
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	queue := make([]types.ObjID, 0, len(refs))
-	for id := range refs {
-		queue = append(queue, id)
-	}
-	s.expandAnonymousReachabilityLocked(reachable, queue, true)
-}
-
 // ExpandAnonymousReachability expands anonymous roots through this transaction's
 // object view, including property values staged by the current task. A live-store
 // walk cannot see those values until commit and may otherwise collect an object
 // that is reachable through the task's in-flight anonymous graph.
 func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if tx == nil || len(refs) == 0 {
-		return
-	}
-	if tx.direct {
-		tx.store.expandAnonymousReachability(reachable, refs)
 		return
 	}
 

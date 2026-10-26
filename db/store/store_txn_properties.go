@@ -114,9 +114,6 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Prop
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.findProperty(objID, name)
-	}
 	prop, actualName, errCode := tx.findProperty(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
@@ -145,10 +142,11 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, stri
 // resolution plus the ordered record of every object it visited (which the memo
 // stores so a later hit can reproduce the identical read set). The scratch it
 // walks on is reused across calls; a (currently impossible) reentrant call
-// falls back to a private scratch rather than corrupting the outer walk.
+// falls back to a private scratch rather than corrupting the outer walk, and
+// so does the direct transaction, which goroutines share.
 func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode, []propWalkStep) {
 	sc := &tx.propWalk
-	if sc.inUse {
+	if sc.inUse || tx.direct {
 		sc = &propScratch{}
 	}
 	sc.inUse = true
@@ -217,9 +215,6 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 }
 
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyValue(objID, name)
-	}
 	prop, errCode := tx.FindProperty(objID, name)
 	if errCode != types.E_NONE {
 		return types.None, errCode
@@ -228,9 +223,6 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 }
 
 func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyValues(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -246,9 +238,6 @@ func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.Erro
 }
 
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.localProperty(objID, name)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
@@ -263,9 +252,6 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 }
 
 func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.definedPropertyNames(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -282,9 +268,6 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 }
 
 func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.truthyPropertiesWithPrefixInAncestry(objID, prefix)
-	}
 	if !validLiveObject(tx.object(objID)) {
 		return nil, types.E_INVIND
 	}
@@ -329,9 +312,6 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 }
 
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyClearState(objID, name)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND

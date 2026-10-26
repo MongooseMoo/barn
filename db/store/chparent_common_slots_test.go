@@ -82,7 +82,7 @@ func TestChangeParentsKeepsCommonAncestorSlots(t *testing.T) {
 			}
 
 			for obj, want := range map[types.ObjID]int64{x: 42, y: 7} {
-				view, code := s.findProperty(obj, "q")
+				view, code := s.DirectTxn().FindProperty(obj, "q")
 				if code != types.E_NONE {
 					t.Fatalf("#%d.q: %v", obj, code)
 				}
@@ -91,7 +91,7 @@ func TestChangeParentsKeepsCommonAncestorSlots(t *testing.T) {
 				}
 			}
 			for obj, owner := range map[types.ObjID]types.ObjID{x: 40, y: 50} {
-				view, code := s.findProperty(obj, "cx")
+				view, code := s.DirectTxn().FindProperty(obj, "cx")
 				if code != types.E_NONE {
 					t.Fatalf("#%d.cx: %v", obj, code)
 				}

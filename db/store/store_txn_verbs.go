@@ -77,7 +77,7 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
 	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
-	if _, err := tx.findVerbOnObject(objID, name); err != nil {
+	if _, _, err := tx.findVerbOnObject(objID, name); err != nil {
 		return types.E_VERBNF
 	}
 	// stageVerbCode mutates the verb node in place. Privatize the object and
@@ -85,11 +85,11 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	// alias. findVerbOnObject reads through tx.object, so the re-resolve returns the
 	// clone's node once mutableObject has installed it.
 	tx.mutableObject(objID)
-	verb, err := tx.findVerbOnObject(objID, name)
+	obj, index, err := tx.findVerbOnObject(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
-	tx.stageVerbCode(objID, verb, lines)
+	tx.stageVerbCode(objID, obj.verbList[index], lines)
 	return types.E_NONE
 }
 
@@ -121,9 +121,6 @@ func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string)
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	if tx.direct {
-		return tx.store.findVerb(objID, verbName)
-	}
 	verb, definer, err := tx.findVerb(objID, verbName, false)
 	if err != nil {
 		return VerbView{}, definer, err
@@ -131,14 +128,13 @@ func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, type
 	return verb.View(), definer, nil
 }
 
-// FindCallableVerb is the transactional counterpart of Store.FindCallableVerb:
-// it resolves a verb for call dispatch (obj:verb(...)), so a same-named verb
-// without execute permission does not shadow an executable verb further up the
-// ancestry chain — the walk treats it as a non-match and keeps searching.
+// FindCallableVerb resolves a verb for call dispatch (obj:verb(...)), so a
+// same-named verb without execute permission does not shadow an executable verb
+// further up the ancestry chain — the walk treats it as a non-match and keeps
+// searching. ToastStunt's verb-call dispatch behaves this way: a subclass can
+// define a private, non-executable verb of a given name without breaking calls
+// that resolve through it to a public, executable verb defined higher up.
 func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	if tx.direct {
-		return tx.store.findCallableVerb(objID, verbName)
-	}
 	verb, definer, err := tx.findVerb(objID, verbName, true)
 	if err != nil {
 		return VerbView{}, definer, err
@@ -185,7 +181,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 // visited, which the memo stores so a hit reproduces the identical read set.
 func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, []verbWalkStep) {
 	sc := &tx.verbWalk
-	if sc.inUse {
+	if sc.inUse || tx.direct {
 		sc = &verbScratch{}
 	}
 	sc.inUse = true
@@ -205,8 +201,11 @@ walk:
 			continue
 		}
 
+		// Get object (skip if invalid). tx.object resolves both numbered and
+		// anonymous objects, so a verb call dispatched on an anonymous value
+		// (a:verb()) finds the anonymous entry node, then walks its numbered parents.
 		obj := tx.object(current)
-		if obj == nil || obj.recycled {
+		if !validLiveObject(obj) {
 			sc.steps = append(sc.steps, verbWalkStep{id: current, obj: obj})
 			continue
 		}
@@ -227,58 +226,51 @@ walk:
 	return found, definer, sc.steps
 }
 
+// FindVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
+// the inheritance chain. The verb-metadata builtins (verb_info, verb_args,
+// verb_code) inspect only an object's own verbs: ToastStunt returns E_VERBNF
+// when the name resolves only to an inherited verb. Matching honors aliases and
+// the `*` wildcard, exactly like FindVerb but limited to this one object.
 func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
-	if tx.direct {
-		return tx.store.findVerbOnObject(objID, verbName)
-	}
-	verb, err := tx.findVerbOnObject(objID, verbName)
+	obj, index, err := tx.findVerbOnObject(objID, verbName)
 	if err != nil {
 		return VerbView{}, err
 	}
-	return verb.View(), nil
+	return obj.verbList[index].View(), nil
 }
 
 // ResolveVerbOnObject resolves verbName against the transaction's current
 // object view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
-	if tx.direct {
-		return tx.store.resolveVerbOnObject(objID, verbName)
-	}
-	verb, err := tx.findVerbOnObject(objID, verbName)
+	obj, index, err := tx.findVerbOnObject(objID, verbName)
 	if err != nil {
 		return ResolvedVerb{}, err
 	}
-	obj := tx.object(objID)
-	for index, candidate := range obj.verbList {
-		if candidate == verb {
-			return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, nil
-		}
-	}
-	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
+	return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, nil
 }
 
-func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
+// findVerbOnObject returns the view of objID it searched and the index of the
+// first verb, in definition order, whose name or alias matches verbName: Toast
+// resolves alias collisions by definition order.
+func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Object, int, error) {
 	obj := tx.object(objID)
-	if obj == nil || obj.recycled {
-		return nil, fmt.Errorf("verb not found: %s", verbName)
+	if !validLiveObject(obj) {
+		return nil, -1, fmt.Errorf("verb not found: %s", verbName)
 	}
 	tx.markVerbScan(objID, obj)
 	searchLower := strings.ToLower(verbName)
-	for _, verb := range obj.verbList {
+	for index, verb := range obj.verbList {
 		for _, alias := range verb.lowerNames {
 			if matchVerbNameLowered(alias, searchLower) {
 				tx.markVerbRead(objID, verb)
-				return verb, nil
+				return obj, index, nil
 			}
 		}
 	}
-	return nil, fmt.Errorf("verb not found: %s", verbName)
+	return nil, -1, fmt.Errorf("verb not found: %s", verbName)
 }
 
 func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.verbNames(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -293,9 +285,6 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.verbByIndex(objID, index)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return VerbView{}, types.E_INVIND
@@ -312,9 +301,6 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 // ResolveVerbByIndex resolves an index against the transaction's current object
 // view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.resolveVerbByIndex(objID, index)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return ResolvedVerb{}, types.E_INVIND
@@ -328,10 +314,11 @@ func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVe
 	return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
 }
 
+// FindParentVerb resolves the verb pass() delegates to: the same-named verb on an
+// ancestor of verbLoc, found by the same skip-non-executable-and-continue walk as
+// call dispatch (FindCallableVerb). ToastStunt's pass() calls the same
+// db_find_callable_verb lookup obj:verb() dispatch uses.
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	if tx.direct {
-		return tx.store.findParentVerb(verbLoc, verbName)
-	}
 	verbLocObj := tx.object(verbLoc)
 	if !validLiveObject(verbLocObj) {
 		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
@@ -340,7 +327,7 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	// Reusable walk scratch (see store_resolve_cache.go): pass() dispatch is hot
 	// enough that the per-call queue slice and visited map were pure waste.
 	sc := &tx.parentWalk
-	if sc.inUse {
+	if sc.inUse || tx.direct {
 		sc = &plainScratch{}
 	}
 	sc.inUse = true

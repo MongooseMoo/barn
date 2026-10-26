@@ -5,9 +5,6 @@ import (
 )
 
 func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDuplicateDefinedPropertyAmong(ids)
-	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
 		obj := tx.object(id)
@@ -30,9 +27,6 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 }
 
 func (tx *StoreTxn) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.definedPropertyNamesInAncestry(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -71,9 +65,6 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 }
 
 func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyConflictWithAncestry(objID, parentIDs)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -95,9 +86,6 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 }
 
 func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasChparentDescendantPropertyConflict(objID, names)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -372,9 +360,6 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 }
 
 func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyInDescendants(objID, name)
-	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {

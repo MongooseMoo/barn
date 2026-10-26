@@ -214,9 +214,10 @@ type propResolveEntry struct {
 }
 
 // resolveCacheActive gates property memoization. Local verb entries instead
-// validate that every object on their path is unowned.
+// validate that every object on their path is unowned. The direct transaction
+// reads the live store, which no memo describes, and goroutines share it.
 func (tx *StoreTxn) resolveCacheActive() bool {
-	return len(tx.owned) == 0
+	return !tx.direct && len(tx.owned) == 0
 }
 
 // verbMemoActive gates the store-global verb dispatch memo. A memo entry names
@@ -228,7 +229,7 @@ func (tx *StoreTxn) resolveCacheActive() bool {
 // materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
 // predates a verb-shape change (validateVerbReadsLocked).
 func (tx *StoreTxn) verbMemoActive() bool {
-	return !tx.privateVerbShape
+	return !tx.direct && !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -444,7 +445,7 @@ func (tx *StoreTxn) setVerbMemoSeen(entry *verbDispatchMemoEntry, state uint8) {
 // this txn's view, so the caller can fall back to a real walk.
 func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
 	for _, id := range path {
-		if obj := tx.object(id); obj == nil || obj.recycled {
+		if !validLiveObject(tx.object(id)) {
 			return false
 		}
 	}
@@ -531,6 +532,9 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
+	if tx.direct {
+		return
+	}
 	for _, step := range steps {
 		if tx.owned[step.id] {
 			return

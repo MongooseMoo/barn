@@ -86,15 +86,15 @@ func TestCreatedChildSharesLoadedSiblingsBase(t *testing.T) {
 				t.Fatalf("created child stores %d slots privately, want 0", n)
 			}
 			for _, name := range []string{"p000", "p007", "p019"} {
-				view, code := s.findProperty(child, name)
+				view, code := s.DirectTxn().FindProperty(child, name)
 				if code != types.E_NONE {
 					t.Fatalf("%s: %v", name, code)
 				}
-				parentView, _ := s.findProperty(parent, name)
+				parentView, _ := s.DirectTxn().FindProperty(parent, name)
 				if !view.Value.Equal(parentView.Value) {
 					t.Fatalf("%s = %v, want the parent's %v", name, view.Value, parentView.Value)
 				}
-				if clear, _ := s.propertyClearState(child, name); !clear {
+				if clear, _ := s.DirectTxn().PropertyClearState(child, name); !clear {
 					t.Fatalf("%s is not clear on the created child", name)
 				}
 			}

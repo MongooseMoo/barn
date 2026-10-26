@@ -69,21 +69,7 @@ func (s *Store) shareCreatedProperties(props propTable) {
 	props.share(s.propPool)
 }
 
-func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return 0, types.E_INVIND
-	}
-	return calculateObjectBytes(obj), types.E_NONE
-}
-
 func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectByteEstimate(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND

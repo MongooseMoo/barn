@@ -342,12 +342,9 @@ func TestDeleteVerbHandlesLoadedMultiAliasRawName(t *testing.T) {
 func verbVersionForTest(t *testing.T, store *Store, objID types.ObjID, name string) uint64 {
 	t.Helper()
 
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
-	verb, _, err := store.findVerbLocked(objID, name)
+	verb, _, err := store.DirectTxn().findVerb(objID, name, false)
 	if err != nil {
-		t.Fatalf("findVerbLocked(%q) failed: %v", name, err)
+		t.Fatalf("findVerb(%q) failed: %v", name, err)
 	}
 	return verb.version
 }

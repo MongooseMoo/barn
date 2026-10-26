@@ -67,52 +67,6 @@ func (s *Store) NextID() types.ObjID {
 	return s.highWater() + 1
 }
 
-// maxObject returns max_object(): the highest numbered (non-anonymous) id
-// allocated, recycled ids included.
-func (s *Store) maxObject() types.ObjID {
-	return s.maxObjectID()
-}
-
-// valid reports whether id names a live object, numbered or anonymous.
-func (s *Store) valid(id types.ObjID) bool {
-	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Check if ID exceeds high water mark (includes anonymous objects)
-	if id > s.highWater() {
-		return false
-	}
-
-	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
-	// runtime-created via create(...,1), which lives only in s.anonObjects)
-	// is reported valid, not just numbered objects. liveObjectLocked already
-	// excludes recycled/invalidated objects.
-	return s.liveObjectLocked(id) != nil
-}
-
-// isRecycled reports whether id names a recycled numbered object, as opposed to
-// a live one or an id that never existed.
-func (s *Store) isRecycled(id types.ObjID) bool {
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.load(id)
-	if obj == nil {
-		return false
-	}
-
-	return obj.recycled
-}
-
 // Recycle marks an object as recycled.
 // Returns error if object doesn't exist or is already recycled.
 func (s *Store) Recycle(id types.ObjID) error {

@@ -17,9 +17,6 @@ type objectScalarWrite struct {
 }
 
 func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
-	if tx.direct {
-		return tx.store.objectExists(objID)
-	}
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
 		tx.markExistenceRead(objID, obj)
@@ -32,9 +29,6 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 }
 
 func (tx *StoreTxn) Valid(objID types.ObjID) bool {
-	if tx.direct {
-		return tx.store.valid(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false
@@ -52,9 +46,6 @@ func (tx *StoreTxn) markExistenceRead(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectName(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
@@ -67,9 +58,6 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 // when the name is written and shared by every reader, so `.name` does not
 // allocate per read.
 func (tx *StoreTxn) ObjectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectNameValue(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.None, types.E_INVIND
@@ -79,9 +67,6 @@ func (tx *StoreTxn) ObjectNameValue(objID types.ObjID) (types.Value, types.Error
 }
 
 func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectOwner(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -91,9 +76,6 @@ func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode
 }
 
 func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectFlags(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
@@ -103,9 +85,6 @@ func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode
 }
 
 func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasObjectFlag(objID, flag)
-	}
 	flags, errCode := tx.ObjectFlags(objID)
 	if errCode != types.E_NONE {
 		return false, errCode
@@ -114,9 +93,6 @@ func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, ty
 }
 
 func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectIsAnonymous(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -239,13 +215,14 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 }
 
 // MaxObject returns the highest non-anonymous id visible to this txn, including its own
-// staged creates (read-your-writes for max_object()).
+// staged creates (read-your-writes for max_object()). For the direct txn that is the
+// store's highest numbered id now, recycled ids included.
 func (tx *StoreTxn) MaxObject() types.ObjID {
-	if tx.direct {
-		return tx.store.maxObject()
-	}
 	if tx == nil {
 		return -1
+	}
+	if tx.direct {
+		return tx.store.maxObjectID()
 	}
 	return tx.maxObjID
 }
@@ -302,16 +279,15 @@ func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorC
 	return true, types.E_NONE
 }
 
-// IsRecycled reports whether id resolves to a recycled tombstone in this txn's view —
-// including a recycle this task staged decentrally but has not yet committed. Mirrors
-// Store.IsRecycled, which sees only committed live state.
+// IsRecycled reports whether id resolves to a recycled numbered tombstone in this txn's
+// view, including a recycle this task staged decentrally but has not yet committed. A
+// recycled anonymous object is not a recycled id: Toast's recycled_objects() lists only
+// numbered ids (bf_recycled_objects, objects.cc:1258-1276), and an anonymous create does
+// not take one (db_make_anonymous, db_objects.cc:425-437).
 func (tx *StoreTxn) IsRecycled(id types.ObjID) bool {
-	if tx.direct {
-		return tx.store.isRecycled(id)
-	}
 	if tx.recycleWrites[id] {
 		return true
 	}
 	obj := tx.object(id)
-	return obj != nil && obj.recycled
+	return obj != nil && obj.recycled && !obj.anonymous
 }
