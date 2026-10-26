@@ -254,8 +254,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 
 	// Observability: count exactly one attempt per real commit (writes
 	// staged, store present), and account the outcome once via a deferred closure
-	// over the named return value — regardless of which of the many return sites
-	// (coarse path here, or commitDecentralized) fires. A non-E_NONE return is a
+	// over the named return value — regardless of which return site fires. A
+	// non-E_NONE return is a
 	// conflict ONLY when tx.validationFail is set (a read-set validation failure);
 	// non-conflict apply failures (E_INVIND/E_VERBNF/E_PROPNF) leave it false and
 	// are not counted as conflicts. Observation-only: no control flow changes.
@@ -278,48 +278,32 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 	}()
 
-	// COW decentralized fast path: a commit whose ENTIRE write footprint is within the
-	// decentralized write kinds — scalar (name/owner/flags), relationship (location),
-	// property DEFINE, property DEFINITION-DELETE (the descendant-propagating
-	// walkers, whose full inheriting subtree is already staged as per-descendant
-	// propertyWrites/propertyDeletes), property-value, property-delete, verb-code — and
-	// that did not mutate the live store directly is applied decentralized: under
-	// store.mu.RLock + commitMu, building and publishing new immutable images
-	// instead of taking the exclusive store.mu.Lock, so readers are not shut out
-	// while it runs. A liveMutated task falls back to the coarse exclusive path below
-	// (unchanged in-place apply). The earlier guard already established at least one
-	// write is staged, so reaching here with !liveMutated means at least one
-	// decentralized write exists.
-	// An anonymous object lives out-of-band in s.anonObjects with NO COW slot and
-	// NO per-id history (see store_core.go liveObjectLocked). The decentralized
-	// committer publishes new immutable images into numbered slots, so it cannot
-	// apply a write that targets an anon id (no slot -> E_INVIND, and any in-place
-	// anon mutation under its RLock would race the readers that share that RLock).
-	// Route any commit whose staged write
-	// footprint includes an anon id onto the coarse exclusive path, exactly as a
-	// liveMutated task is routed; that path holds store.mu.Lock EXCLUSIVE, which
-	// excludes RLock readers and decentralized committers, making the in-place anon
-	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
-	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	// A WAIF read or write takes either path: both validate WAIF reads and publish
-	// staged WAIF images at the commit timestamp.
+	// Every commit validates, preflights and publishes the same way; the route
+	// decides only which lock it holds. A commit normally runs under
+	// store.mu.RLock, so readers proceed beside it, plus commitMu from validation
+	// through publication, so two commits that each read what the other writes
+	// cannot both validate against images the other is about to replace. It takes
+	// store.mu.Lock instead when the task has mutated the live store directly, or
+	// when it writes an anonymous object: those live out-of-band in s.anonObjects
+	// with no slot and no history and are changed in place, which only the
+	// exclusive lock keeps away from readers. writesTouchAnon takes store.mu.RLock
+	// and releases it before that Lock (RWMutex is not upgradable).
 	writes := tx.writesByObject()
-	if !tx.liveMutated && !tx.writesTouchAnon(writes) {
-		commitErr = tx.commitDecentralized(writes)
-		if commitErr == types.E_NONE {
-			isolationprobe.Note("parallel")
-			if tx.gateExempt {
-				isolationprobe.Note("exclusive_gate")
-			}
+	exclusive := tx.liveMutated || tx.writesTouchAnon(writes)
+	s := tx.store
+	if exclusive {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	} else {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		// The commit-exclusion fault drops commitMu, so two commits that each read
+		// what the other writes can both validate before either publishes.
+		if !isolationprobe.Fault("commit-exclusion") {
+			s.commitMu.Lock()
+			defer s.commitMu.Unlock()
 		}
-		if commitErr != types.E_NONE && !tx.validationFail {
-			tx.markTerminal(commitErr)
-		}
-		return commitErr
 	}
-
-	tx.store.mu.Lock()
-	defer tx.store.mu.Unlock()
 
 	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.lostValidation()
@@ -332,8 +316,29 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		tx.lostValidation()
 		return errCode
 	}
-	tx.publishStagedLocked(writes, tx.store.clock.Load()+1, true)
-	isolationprobe.Note("exclusive")
+	// The Elle workload holds commits at these points while other tasks begin
+	// snapshots, which needs store.mu.RLock; only a shared-lock commit can wait.
+	if !exclusive {
+		isolationprobe.Pause("commit/validated")
+	}
+	// Reserve the timestamp without moving the clock. A snapshot reads at the
+	// clock, so it must not be able to reach this timestamp until every image
+	// stamped with it is published; until then it resolves these objects to
+	// their previous images. Nothing else moves the clock meanwhile: every other
+	// bump runs under store.mu.Lock, which either lock held here excludes.
+	ts := s.clock.Load() + 1
+	if !exclusive {
+		isolationprobe.Pause("commit/timestamped")
+	}
+	// Only the exclusive route walks a definer's live children (see
+	// publishStagedLocked). On the shared route, staging recorded a relationship
+	// read on every object it walked, so validation fails if a child joined since.
+	tx.publishStagedLocked(writes, ts, exclusive)
+	if exclusive {
+		isolationprobe.Note("exclusive")
+	} else {
+		isolationprobe.Note("parallel")
+	}
 	if tx.gateExempt {
 		isolationprobe.Note("exclusive_gate")
 	}
