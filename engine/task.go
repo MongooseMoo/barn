@@ -17,7 +17,7 @@ type Task struct {
 
 func NewTask(id int64, owner types.ObjID, ticks int64, seconds float64) *Task {
 	t := &Task{}
-	t.State.Init(id, owner, ticks, seconds)
+	t.Init(id, owner, ticks, seconds)
 	t.BindSchedulingLocked(t, nil)
 	return t
 }
@@ -60,7 +60,7 @@ func (t *Task) TaskSettled(settled bool) {
 func (t *Task) PersistenceSnapshot() task.Snapshot {
 	t.Mu.RLock()
 	defer t.Mu.RUnlock()
-	snapshot := t.State.PersistenceSnapshotLocked()
+	snapshot := t.PersistenceSnapshotLocked()
 	if t.machine != nil {
 		snapshot.VM = t.machine.PersistenceVMSnapshot()
 	}
