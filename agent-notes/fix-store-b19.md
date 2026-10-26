@@ -82,6 +82,18 @@ object check order, set_property_info.
   Not run on the oracle.
 - set_property_info rename (above).
 
+## Done (not pushed)
+- Rebased: barn fix/store-b19 onto origin/master 474da18a (no builtins/
+  changes upstream since c537d6c9); mct test/store-b19 onto origin/main
+  04e3014 (99a8f1e).
+- On 474da18a: `go test ./builtins` ok; focused file Barn `52 passed in
+  282.55s`. On c537d6c9: wider selection K="verb_prop_builtin_
+  precedence or delete_verb or add_verb or disassemble or verb_info or
+  verb_args or verb_code or set_property_info or owner_change_permission or
+  verb_setter or verb_flags_descriptors": Barn `3420 passed, 2 skipped` in
+  466.08s, Toast `3420 passed, 2 skipped` in 411.38s.
+- PR drafts: session scratchpad pr-b19-barn.md, pr-b19-mct.md.
+
 ## Next step
-Commit both branches, rebase onto latest origin, rerun focused tests and a
-wider -k selection on both engines, write PR drafts.
+Push both branches and open PRs (barn first) when the lead or Q says so.
+Property rename needs a db/store propdef rename: a separate decision.
