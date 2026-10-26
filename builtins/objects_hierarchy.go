@@ -228,7 +228,7 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -357,7 +357,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -689,7 +689,7 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(obj.ID(), nil); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 

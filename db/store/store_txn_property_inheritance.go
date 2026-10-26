@@ -132,31 +132,56 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 	return check(obj), types.E_NONE
 }
 
-func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
+// ReseedInheritedProperties rebuilds the inherited slots of objID, whose
+// parents were oldParents, and of every descendant of objID, as the live
+// reseed in Store.ChangeParents does.
+func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID, oldParents []types.ObjID) types.ErrorCode {
 	if tx.direct {
 		return types.E_NONE
 	}
+	object := func(id types.ObjID) *Object {
+		if o := tx.object(id); validLiveObject(o) {
+			return o
+		}
+		return nil
+	}
+	seen := map[types.ObjID]bool{objID: true}
+	queue := []types.ObjID{objID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		obj, code := tx.reseedObjectInheritedProperties(id, objID, oldParents, object)
+		if code != types.E_NONE {
+			return code
+		}
+		for _, childID := range append(append([]types.ObjID(nil), obj.children...), obj.anonymousChildren...) {
+			if !seen[childID] && object(childID) != nil {
+				seen[childID] = true
+				queue = append(queue, childID)
+			}
+		}
+	}
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) reseedObjectInheritedProperties(objID, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object) (*Object, types.ErrorCode) {
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
-		return types.E_INVIND
+		return nil, types.E_INVIND
 	}
 	if tx.store == nil {
-		return types.E_INVARG
+		return nil, types.E_INVARG
 	}
 
 	newProps := tx.copyInheritedProperties(obj.parents, obj.owner)
-	for name, prop := range obj.properties.all() {
-		if prop.defined {
-			newProps.put(name, prop)
-		}
-	}
+	keepCommonAncestorSlots(obj, newProps, keptInheritedNames(objID, moved, movedOldParents, object))
 	obj.properties = newProps
 
 	tx.store.mu.RLock()
 	live := tx.store.liveObjectLocked(objID)
 	if !validLiveObject(live) {
 		tx.store.mu.RUnlock()
-		return types.E_INVIND
+		return nil, types.E_INVIND
 	}
 	obj.propertyVersion = live.propertyVersion
 	obj.propertyShapeVersion = live.propertyShapeVersion
@@ -192,7 +217,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 			prop:  prop,
 		})
 	}
-	return types.E_NONE
+	return obj, types.E_NONE
 }
 
 func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.ObjID) propTable {

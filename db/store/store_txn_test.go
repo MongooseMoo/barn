@@ -1103,7 +1103,7 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if errCode := tx.AdoptLiveRelationships(child, 0, left); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveRelationships left failed: %v", errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{0}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties left failed: %v", errCode)
 	}
 	if errCode := tx.SetPropertyValue(child, "foo", types.NewStr("override")); errCode != types.E_NONE {
@@ -1116,7 +1116,7 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if errCode := tx.AdoptLiveRelationships(child, left, right); errCode != types.E_NONE {
 		t.Fatalf("AdoptLiveRelationships right failed: %v", errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{left}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties right failed: %v", errCode)
 	}
 
