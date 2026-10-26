@@ -66,5 +66,11 @@ on direct and snapshot txn paths. No `features: [anonymous]` gate on conformance
   related store tests; it cannot compile on master (new signature), so the red
   evidence is the Barn-master conformance run.
 
+- Barn master 284c86b3: 3 failed, 4 passed (other-definer and descendant-value tests
+  pass on master: coverage). Branch (pre-rebase): 7 passed. 7th match is existing
+  `audit/divergence_parenting_task_lifecycle.yaml::chparent_keeps_explicit_child_value`.
+- Rebased over #511/#512 (clean), new Go test passes. PRs: mct #155, barn #518.
+
 ## Next step
-Barn-master run result; Barn branch run; commit; PRs (mct first), merge when green.
+Q's merge decision for #155 and #518; then remove worktrees `barn-499-chparent`,
+`mct-chparent-keep` and their branches.
