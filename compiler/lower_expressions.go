@@ -44,27 +44,6 @@ var builtinConstants = map[string]types.Value{
 
 // compileIdentifier compiles a variable reference
 func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
-	// User variables take precedence over built-in type constants so code can
-	// intentionally use names like NUM/INT as loop counters or temporaries.
-	if idx, ok := c.resolveVariable(n.Name); ok {
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(idx))
-		return nil
-	}
-
-	// Check for built-in type constants (OBJ, STR, INT, etc.)
-	if _, ok := builtinConstants[canonicalIdentifier(n.Name)]; ok {
-		// Type constants are mutable implicit locals. Reading before a later
-		// assignment must see the initial value, then the assigned value on
-		// subsequent loop iterations or in forked activations.
-		idx := c.declareVariable(n.Name)
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(idx))
-		return nil
-	}
-
-	// Variable not found - this will be a runtime error (E_VARNF)
-	// For now, declare it (MOO has dynamic scoping)
 	idx := c.declareVariable(n.Name)
 
 	c.emit(bytecode.OP_GET_VAR)

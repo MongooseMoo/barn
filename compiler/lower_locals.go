@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// scope tracks variables in a lexical scope.
-type scope struct {
-	Variables map[string]int
-	Parent    *scope
-}
-
 // canonicalIdentifier returns the semantic identity of a MOO identifier.
 // Source spelling is retained on syntax nodes and in diagnostics; only name
 // resolution uses this key.
@@ -18,25 +12,7 @@ func canonicalIdentifier(name string) string {
 	return strings.ToUpper(name)
 }
 
-// beginScope starts a new variable scope
-func (c *lowerer) beginScope() {
-	scope := scope{
-		Variables: make(map[string]int),
-	}
-	if len(c.scopes) > 0 {
-		scope.Parent = &c.scopes[len(c.scopes)-1]
-	}
-	c.scopes = append(c.scopes, scope)
-}
-
-// endScope ends the current variable scope
-func (c *lowerer) endScope() {
-	if len(c.scopes) > 0 {
-		c.scopes = c.scopes[:len(c.scopes)-1]
-	}
-}
-
-// declareVariable declares a variable in current scope.
+// declareVariable returns an existing source variable's slot or allocates one.
 // If the variable count exceeds 256 (the maximum addressable by a single byte),
 // sets c.err and returns 0 as a safe fallback index.
 func (c *lowerer) declareVariable(name string) int {
@@ -69,11 +45,6 @@ func (c *lowerer) declareVariable(name string) int {
 		c.program.NumLocals = idx + 1
 	}
 
-	// Add to current scope
-	if len(c.scopes) > 0 {
-		c.scopes[len(c.scopes)-1].Variables[key] = idx
-	}
-
 	return idx
 }
 
@@ -100,12 +71,6 @@ func (c *lowerer) declareInternalVariable(name string) int {
 		c.program.NumLocals = idx + 1
 	}
 	return idx
-}
-
-// resolveVariable resolves a variable name to its index
-func (c *lowerer) resolveVariable(name string) (int, bool) {
-	idx, ok := c.variables[canonicalIdentifier(name)]
-	return idx, ok
 }
 
 // tempVar generates a unique temporary variable name

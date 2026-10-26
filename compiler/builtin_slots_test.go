@@ -9,7 +9,6 @@ import (
 
 func TestCompilerResolvesBuiltinVariableSlots(t *testing.T) {
 	lowerer := newLowerer(nil)
-	lowerer.beginScope()
 
 	lowerer.declareVariable("ordinary")
 	lowerer.declareVariable("this")
