@@ -238,6 +238,59 @@ return result;
 	}
 }
 
+// Toast's do_move re-checks both objects after :accept returns and does not
+// move into a destination that :accept recycled (src/objects.cc:154-158).
+func TestMoveIntoDestinationRecycledByAcceptDoesNotMove(t *testing.T) {
+	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+	store, _ := database.NewStoreFromDatabase()
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject player failed: %v", errCode)
+	}
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
+		}
+	}
+
+	s := NewRuntime(store)
+	defer s.Stop()
+	const setup = `
+old = create($nothing);
+what = create($nothing);
+dest = create($nothing);
+move(what, old);
+add_property(what, "move_trace", {}, {player, "rw"});
+add_verb(old, {player, "rxd", "exitfunc"}, {"this", "none", "this"});
+set_verb_code(old, "exitfunc", {"args[1].move_trace = {@args[1].move_trace, \"exitfunc\"};"});
+add_verb(dest, {player, "rxd", "accept"}, {"this", "none", "this"});
+set_verb_code(dest, "accept", {"args[1].move_trace = {@args[1].move_trace, \"accept\"};", "recycle(this);", "return 1;"});
+add_verb(dest, {player, "rxd", "enterfunc"}, {"this", "none", "this"});
+set_verb_code(dest, "enterfunc", {"args[1].move_trace = {@args[1].move_trace, \"enterfunc\"};"});
+`
+	const check = `{r, what.location == old, what in old.contents, valid(dest), what.move_trace}`
+	const want = `{1, {0, 1, 1, 0, {"accept"}}}`
+
+	// Same task as the creates.
+	if line := s.EvalCommandOutput(player, setup+"r = `move(what, dest) ! ANY';\nreturn "+check+";"); line != want {
+		t.Errorf("same task: line = %q, want %q", line, want)
+	}
+
+	// The move in a fresh task.
+	if line := s.EvalCommandOutput(player, `add_property(#0, "b18_objects", {}, {player, "rw"});`+setup+"#0.b18_objects = {old, what, dest};\nreturn 1;"); line != "{1, 1}" {
+		t.Fatalf("fresh task setup: line = %q", line)
+	}
+	if line := s.EvalCommandOutput(player, "{old, what, dest} = #0.b18_objects;\nr = `move(what, dest) ! ANY';\nreturn "+check+";"); line != want {
+		t.Errorf("fresh task: line = %q, want %q", line, want)
+	}
+	if line := s.EvalCommandOutput(player, "{old, what, dest} = #0.b18_objects;\nreturn {what.location == old, what in old.contents, valid(dest)};"); line != "{1, {1, 1, 0}}" {
+		t.Fatalf("fresh task after commit: line = %q, want {1, {1, 1, 0}}", line)
+	}
+}
+
 func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
 	if err != nil {
