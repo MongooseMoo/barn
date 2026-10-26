@@ -493,6 +493,27 @@ Parent's fresh source checks for this follow-up:
   reference interpretation, not automatic Barn equivalence:
   https://docs.racket-lang.org/reference/willexecutor.html (read 2026-10-26).
 
-The Astra researcher is constructing the typed model and testing transitions.
-No code/tests/benchmarks run. Await its writeup, verify the substantive claims,
-then update this same note with the result.
+The Astra typed-model writeup is complete in store-immutable-roots-research.md
+under "Constructive follow-up: typed references". Parent checked its core
+construction against the paths above, store_snapshot.go:308-331 (detached export
+payload with same identity), store_pending.go:83-113 (current-graph ownership
+subtraction), and vm/anonymous_gc.go:423-491 (captured candidate set and ordered
+callback contexts). No code/tests/benchmarks run.
+
+Positive result: a virtual graph with typed roots, selected images and captured
+sets can express these cases together. A pending edge keeps callback data but
+does not seed semantic reachability. Callback this supplies an ordinary live
+edge. Query state contains projection, image selector and capture/view; it does
+not require a newly allocated graph or new global registry. Frozen members emit
+identities without re-expanding present-day properties. Checkpoint copies remain
+separate payloads despite equal identity. Anonymous resolution stays with its
+existing store owner and lock scope.
+
+The direct/current/retained traversal table is a concrete unification, not a
+proof of measured code reduction. Existing root admission, closure, set union,
+candidate subtraction and export transformation fit the model; histories,
+capture timing, callback contexts and publication still perform necessary work.
+The verified duplicate WAIF walkers supply a bounded deletion opportunity. Wider
+value traversal consolidation needs its adapters counted; no large savings or
+performance parity established. Research is complete for this question. No
+implementation is authorized; present the positive model and its limits to Q.

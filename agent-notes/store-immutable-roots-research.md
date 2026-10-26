@@ -806,3 +806,252 @@ producers above. One implementation owning multiple typed policies is possible;
 this research has not demonstrated that it removes enough machinery to shrink the
 whole store. That is a negative result for the proposed collapse, not a proof
 against every common representation or a claim that the store cannot be beautified.
+
+## Constructive follow-up: typed references, 2026-10-26
+
+**Answer: yes, a pending recycle reference fits a coherent common graph.** The
+previous negative result excludes ordinary unqualified reachability, not this
+construction. Pending can retain the callback value without counting as a live
+root for eligibility. Different traversals of the same graph need not imply
+different ownership models. The construction below actually derives the queries;
+it does not claim that naming them alike deletes their implementation.
+
+Read against implementation `b91e36f5`; note HEAD advanced during this reading
+from `f18758b9` to `53578fda`. No implementation or experiment was performed.
+This section supersedes the preceding recommendation to stop at counterexamples:
+there is a concrete algebra worth using to simplify existing traversal code.
+
+### Smallest graph that covers the observed cases
+
+Use a **virtual graph**, not a second allocated heap or registry. Its nodes are:
+
+* A value occurrence: scalar, list/map element, or reference to an entity.
+* An entity identity, qualified by its owning domain where applicable.
+* An image/payload occurrence: a numbered-object image, anonymous object payload,
+  WAIF image, constructor payload, or detached checkpoint payload.
+* A view/capture: current store, transaction, retained-image collection, export,
+  or a frozen set of already-computed identities.
+
+Identity is the comparison key; image is the thing traversed. They cannot be the
+same node: snapshot rewriting creates `NewWaifWithIdentity` and a fresh payload
+(`store_snapshot.go:308-331`). A detached export and a live WAIF can therefore
+compare equal while exposing different edges. No new globally allocated identity
+node is required: existing keys and values implement these conceptual nodes.
+
+Edges have these roles, all already represented by existing fields:
+
+| Edge | Existing representation | Meaning |
+|---|---|---|
+| live | VM values/context/task roots, current store properties | Seed semantic queries |
+| pending | pending finalization queues plus callback context | Retain candidate; do not seed semantic queries |
+| contains | list element or map key/value | Propagate the query unchanged |
+| resolves | entity to image selected by a view | Choose payload before following properties |
+| property | image to property value | Propagate allowed query through selected payload |
+| held image | history or transaction retaining a payload | Keep readable bytes; not automatically a semantic seed |
+| weak discovery | class WAIF registry, history bookkeeping | Enumerate if still present; never confer ownership |
+| frozen member | captured OwnRefs or batch eligibility set | Emit identity; never re-expand its current properties |
+
+Physical retention follows actual Go strong references, including pending and
+held-image edges. A virtual traversal need not duplicate Go's collector. Semantic
+eligibility follows a selected subgraph. Snapshot visibility is image resolution;
+checkpoint selection is another selected subgraph followed by a transformation.
+These are compact operations over one representation, rather than one universal
+boolean called alive. The existing owner remains responsible for adding/removing
+its edges; no new retain/release call on every property assignment is proposed.
+
+### Closure algebra and the finite policy table
+
+Write `C(q, R)` for the least fixed point obtained from roots R under query q.
+The query is `(projection, image selector, capture)`. Projection is one of direct
+finalizable roots, WAIF closure, or anonymous closure. Image selector is current,
+retained, transaction-visible, or detached export. Capture identifies the view or
+sampling event; timestamps are parameters, not another finite color per timestamp.
+
+| Encounter | Direct roots | WAIF closure | Anonymous closure |
+|---|---|---|---|
+| list/map | recurse in existing order | recurse | recurse |
+| WAIF | emit identity/value, stop | emit, then selected properties | selected properties, do not emit WAIF |
+| anonymous reference | emit ID, stop | stop | emit ID; store expansion may resolve its object |
+| numbered reference | stop | stop | stop |
+| already-expanded node | stop | stop | stop |
+| frozen member | emit if requested species matches, stop | same | same |
+
+The anonymous projection has two existing stages: collecting IDs from values,
+then resolving those IDs and feeding object properties back through the collector.
+Keep that boundary: it encodes validity checks, transaction resolution and locking.
+`store_reachability.go:169-176` reads `obj := tx.object(id)` and then calls
+`collectAnonymousObjectRefsVisited(..., true)` on properties. Its current-store
+counterpart at 193-201 uses `s.lookupAnonymousLocked(id)` and the selected retained
+flag. A common value traversal need not acquire store locks or import store types.
+
+Important disproof attempt: following **every** entity property edge produces a
+different graph from today's implementation. The WAIF walker has WAIF/list/map
+cases only (`vm/waif_gc.go:52-89`); anonymous expansion collects anonymous IDs
+through WAIF properties (`store_reachability.go:12-45,184-205`). A WAIF query does
+not automatically dereference an anonymous ID. The finite projection table
+preserves this asymmetry. Source establishes existing behavior, not that every
+asymmetry is necessary MOO semantics; changing it needs a separate decision.
+
+Within a fixed query/view, existing identity sets terminate self/cycles. If walks
+are combined, the visited key must include query and payload/view: a result bit
+for one mode must not suppress expansion newly required by another. A worklist
+could propagate only newly added mode bits. **Do not implement that machinery
+merely because the algebra permits it.** Separate walks with simple existing sets
+are the smaller implementation until a real shared-walk benefit is measured.
+
+Root admission is also a finite table: live roots seed semantic queries; pending
+roots seed direct-candidate and export-pending queries; retained snapshot handles
+seed image retention/visibility; weak registry entries seed none. `valueRootKind`
+already distinguishes live from pending (`vm/value_roots.go:8-9,132-135`), and
+`CollectWaifsFromVMInto` admits only live (`vm/waif_gc.go:119-124`). These are the
+seed of a shared engine, not evidence that a new root registry is needed.
+
+### Derivation 1: dropped WAIF, pending reference, callback, escape
+
+Producer: VM local release queues finalizable values (`vm/vm.go:558` and
+`vm/waif_gc.go:19-46`). Queue entries carry the actual WAIF value, so pending
+already supplies the strong reference Q suggests. Deferral attaches context and
+task (`engine/waif_lifecycle.go:96-98`: `Waif: waif, Ctx: ctx, Task: owner`).
+
+1. Removing a local removes one live root; adding pending adds a retaining edge.
+2. Pending alone seeds no semantic closure. It does **not** make the target's
+   properties semantically live either. Otherwise a pending self-edge or cycle
+   could make its own callback ineligible. It still physically retains whatever
+   payload its actual strong Go references retain.
+3. At deferral, OwnRefs is already a closure from the still-live VM, captured by
+   `vm.CollectWaifsFromVM(ownVM, &ownRefs)` (`engine/waif_lifecycle.go:69-72`).
+   Model these as frozen member edges, not roots to re-traverse later.
+4. At sweep, eligibility is `pending identities minus L`, where L is current
+   persistent closure union captured sibling identities union every OwnRefs set.
+   Source computes `live := s.liveWaifs(roots)` once, before the callback loop
+   (`engine/waif_lifecycle.go:307-316`). Preserve candidate order and context.
+5. Entering the callback adds ordinary live references:
+   `recycleCtx.ThisValue = waif` (:485) and local `this` (:498). Its properties
+   now participate when a live-root query is actually performed. This does not
+   retroactively change the already-captured batch L.
+6. Leaving execution releases those execution references according to existing
+   VM/context lifecycle. If the callback stores the value in a persistent property,
+   that write creates a live edge for subsequent captures; no special resurrection
+   bit is required. This is a permitted ordinary VM write path, not an assertion
+   that a particular running database contains a resurrection verb.
+
+Strongest temporal trap: recomputing L after each callback, or re-expanding frozen
+OwnRefs through today's properties, changes the algorithm. A callback can execute
+ordinary writes; the code does not re-evaluate later entries against them. The
+construction preserves the frozen decision, including this limitation. It makes
+no claim that current ordering is ideal or required by Toast.
+
+### Derivation 2: hidden old edge, checkpoint, same-identity detached value
+
+Producer: `store_txn_waif_test.go:218-235` describes parent WAIF's old image holding
+child after the current edge is removed; `:262` covers the pending export case.
+Implementation: `types/waif_image.go:115-134` visits retained image properties;
+`store_pending.go:90-99` passes `false` for current-only task export traversal.
+
+Retained-mode closure from live parent reaches child through the old image. A
+current export query does not. Therefore child can remain protected for existing
+runtime readers and still require its own pending checkpoint entry. The same
+physical graph supports both by changing the selector, without contradictory
+ownership. The snapshot rewriter memoizes by identity within its export and
+creates detached payloads (`store_snapshot.go:308-331`); aliases inside that export
+share the frozen payload. Never merge that memo with a live-world traversal memo.
+
+When the reader releases, existing WAIF history pruning removes its held-image
+edge and graph-epoch invalidation makes the cached closure stale. The algebra
+does not remove pruning by itself. A persistent root design could supply held
+images differently, but it still must expose the same retained-edge projection
+if behavior is to stay unchanged. Nor should every old numbered-object history
+become a new semantic root: current persistent scanning starts at live directory
+slots (`store_reachability.go:382-394`), not all historical numbered images.
+
+### Derivation 3: anonymous pending batch and callback-created objects
+
+Producer: `RecycleOrphanAnonymousBatch` (`vm/anonymous_gc.go:423-465`). It unions
+captured OwnRefs and sibling IDs, expands them with current-store resolution,
+then freezes `AnonymousRecycleCandidates(reachable, minFloor)` at :460. The
+source comment explicitly identifies callbacks creating/persisting new anonymous
+objects (:455-459). Request routing preserves floors/context and deduplicates
+IDs (:472-491). This is a real producer, not a synthetic lifetime case.
+
+In the graph, request edges carry floor/context; candidate selection is a frozen
+projection of identities minus closure at this phase. Callback-created entities
+are outside that frozen domain. Entering a recycle continuation adds a live
+reference to its request object (`vm/value_roots.go:52`); callback exit/removal
+does not require retroactive traversal of the prior capture. Anonymous IDs remain
+store-resolved keys. Export's ID mapping remains a transformation, not runtime
+renumbering of graph identity. These rules derive the current sequence without
+requiring anonymous objects to acquire WAIF's domain/history semantics.
+
+### Other attempts to break the construction
+
+* Task-only WAIFs: `builtins/objects_misc.go:101-130` produces one and registers it
+  weakly before returning it. Live task roots supply ownership; registry supplies
+  class discovery only. Detached first access can still bind domain with baseline
+  image zero (`types/waif_image.go:28-45`); no current-world root is prerequisite.
+* Rename/delete: weak enumeration and commit-time `moveUnstagedWaifValuesLocked`
+  (`store_txn_waif.go:203-257`) remain an operation over discoverable identities,
+  including late live values. Reachability does not derive property-name moves.
+* Retry/error/renewal: private transaction and retry-checkpoint roots remain view
+  edges until their current owners release them. Root typing is compatible with
+  `markTerminal` preserving readable error state; it does not authorize early
+  release or change image resolution after renewal.
+* Checkpoint task ownership is set subtraction under current selectors:
+  `store_pending.go:103-111` excludes task-owned pending entries. Canonical pending
+  roots additionally require ordering/coverage reduction, not only closure:
+  `vm/anonymous_gc.go:195-215,237-251` sorts closures and accumulates coverage.
+  A graph library cannot delete that policy by relabeling it a traversal.
+
+### Prior art supports the positive construction
+
+[Racket wills](https://docs.racket-lang.org/reference/willexecutor.html) explicitly
+combine retained registrants, eligibility that excludes registration, and explicit
+executor scheduling. This supports Q's pending-reference idea. It does not prove
+Barn's callbacks or timing equivalent. [Racket ephemerons](https://docs.racket-lang.org/reference/ephemerons.html)
+likewise show conditional tracing rules handling cycles without treating every
+retaining path as eligibility. Barn need not adopt ephemerons: Go strong references
+already retain pending values; Barn already computes semantic closure explicitly.
+Both sources are official documentation, read as HTML, not extracted papers.
+
+### Deletion potential and finished bounded next step
+
+The positive algebra is broader than a helper: root admission, image selection,
+projection, fixed-point traversal, captured-set union, candidate subtraction and
+export transformation now describe every investigated sequence. Its narrowest
+useful implementation would consolidate structural traversal while preserving
+the existing root owners and timing. A full explicit graph heap would instead
+add mutation barriers/edge bookkeeping and duplicate Go retention without a
+source-demonstrated need.
+
+Unmeasured planning ledger, excluding tests/docs and without claiming savings:
+
+| Scope | Gross removal candidate | Replacement | Likely net |
+|---|---|---|---|
+| Identical WAIF closure walkers | two ~35-line bodies | one ~35-line body plus call-site changes | tens of lines deleted |
+| Value recursion for direct/anonymous/WAIF projections | roughly 100–180 additional lines across VM/store | roughly 70–150 lines of typed traversal and adapters | could save tens; could break even |
+| Root capture, pending contexts, frozen sets, canonicalization | no demonstrated deletion | keep current owners | zero justified savings |
+| Histories, validation, publication, rename propagation, serialization | no deletion follows from this algebra | keep existing implementation | zero justified savings |
+
+Finish the bounded design at that boundary: retain `valueRootKind`; centralize
+container/WAIF traversal in `types` with explicit direct/current/retained choices
+and typed result collection; leave store anonymous resolution and VM root
+enumeration at their existing owners. Avoid user-supplied policy callbacks and a
+general scheduler framework. Preserve first-seen ordering, current cycle keys,
+fast finalizable filters, caching, and query boundaries. If adapters erase the
+deletion or broaden semantics, keep only the exact duplicate consolidation.
+
+After Q chooses implementation, existing focused lifecycle/history/checkpoint
+tests and ordinary PR workflows are the correctness experiment; the documented
+Elle workflow applies if isolation/publication is touched. Existing workload
+profiles/benchmarks would assess traversal allocation and latency, not justify a
+fresh parallel benchmark harness. Unknown: net code after adapters, callback
+delay/allocation effects, cache behavior, and whether combining any walks pays.
+No tests or measurements were run for this research.
+
+**Verdict:** Q's typed-reference hypothesis works as a compact model. Pending
+references, snapshot-held images and callback execution fit it without changing
+their meaning. It justifies bounded representation/traversal simplification;
+it does not yet justify replacing store ownership or promise a large size cut.
+The strongest remaining obstacle is temporal and operational bookkeeping, not
+an algebraic contradiction: captured closures, batch order/context, publication,
+identity binding and export rewriting still do actual work after graph queries
+are unified. Whether more of that work can share implementation remains empirical.
