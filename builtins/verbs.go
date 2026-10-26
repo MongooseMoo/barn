@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -547,14 +546,30 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	infoList := args[2]
-	if infoList.Type() != types.TYPE_LIST || infoList.Len() != 3 {
+	// Toast bf_set_verb_info (src/verbs.cc:330-352) checks the object and the
+	// whole info list (validate_verb_info, verbs.cc:77-122) before it looks the
+	// verb up (E_VERBNF) or checks permission (E_PERM).
+	objID := objVal.ID()
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+	infoList := args[2]
+	if infoList.Type() != types.TYPE_LIST || infoList.Len() != 3 {
+		return types.Err(types.E_TYPE)
+	}
+	owner := infoList.Get(1)
+	permsStr := infoList.Get(2)
+	namesStr := infoList.Get(3)
+	if !isObjectRef(owner) || permsStr.Type() != types.TYPE_STR || namesStr.Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	if !validForRead(ctx, owner.ID()) || !validVerbPerms(permsStr.Str()) {
+		return types.Err(types.E_INVARG)
+	}
+	// Toast validate_verb_info skips leading spaces and rejects an empty remainder.
+	if strings.TrimLeft(namesStr.Str(), " ") == "" {
+		return types.Err(types.E_INVARG)
 	}
 
 	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Str())
@@ -568,30 +583,9 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Parse info list (1-indexed)
-	owner := infoList.Get(1)
-	if !isObjectRef(owner) {
-		return types.Err(types.E_TYPE)
-	}
-
-	permsStr := infoList.Get(2)
-	if permsStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if !validVerbPerms(permsStr.Str()) {
-		return types.Err(types.E_INVARG)
-	}
-
-	namesStr := infoList.Get(3)
-	if namesStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	// Toast validate_verb_info skips leading spaces and rejects an empty remainder.
-	if strings.TrimLeft(namesStr.Str(), " ") == "" {
-		return types.Err(types.E_INVARG)
-	}
-
-	errCode := store.SetVerbInfo(objID, nameVal.Str(), owner.ID(), parseVerbPerms(permsStr.Str()), strings.Fields(namesStr.Str()))
+	// Only spaces separate verb names; a tab is part of a name.
+	names := strings.FieldsFunc(namesStr.Str(), func(r rune) bool { return r == ' ' })
+	errCode := store.SetVerbInfo(objID, nameVal.Str(), owner.ID(), parseVerbPerms(permsStr.Str()), names)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -626,14 +620,26 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	argsList := args[2]
-	if argsList.Type() != types.TYPE_LIST || argsList.Len() != 3 {
+	// Toast bf_set_verb_args (src/verbs.cc:421-457) checks the object and the
+	// whole args list (validate_verb_args, verbs.cc:156-171) before it looks the
+	// verb up (E_VERBNF) or checks permission (E_PERM).
+	objID := objVal.ID()
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+	argsList := args[2]
+	if argsList.Type() != types.TYPE_LIST || argsList.Len() != 3 {
+		return types.Err(types.E_TYPE)
+	}
+	dobjVal, prepVal, iobjVal := argsList.Get(1), argsList.Get(2), argsList.Get(3)
+	if dobjVal.Type() != types.TYPE_STR || prepVal.Type() != types.TYPE_STR || iobjVal.Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	dobjStr, iobjStr := dobjVal.Str(), iobjVal.Str()
+	prepStr, ok := canonicalSetterPrepSpec(prepVal.Str())
+	if !ok || !matchArgSpec(dobjStr) || !matchArgSpec(iobjStr) {
+		return types.Err(types.E_INVARG)
 	}
 
 	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Str())
@@ -646,20 +652,6 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
-
-	// Parse args list (1-indexed)
-	// Accept either string or object values (objects get converted to string)
-	dobjStr := valueToArgSpec(argsList.Get(1))
-	prepValue := argsList.Get(2)
-	prepStr := valueToArgSpec(prepValue)
-	if prepValue.Type() == types.TYPE_STR {
-		var ok bool
-		prepStr, ok = canonicalSetterPrepSpec(prepStr)
-		if !ok {
-			return types.Err(types.E_INVARG)
-		}
-	}
-	iobjStr := valueToArgSpec(argsList.Get(3))
 
 	argSpec := dbstore.VerbArgs{
 		This: dobjStr,
@@ -822,20 +814,6 @@ func normalizeVerbSourceLines(lines []string) []string {
 		return nil
 	}
 	return normalized
-}
-
-// valueToArgSpec converts a Value to an arg spec string
-// Accepts string values directly, converts object values to their string representation
-func valueToArgSpec(v types.Value) string {
-	switch v.Type() {
-	case types.TYPE_STR:
-		return v.Str()
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		// Convert object ID to string - cow_py compatibility
-		return fmt.Sprintf("%d", v.ID())
-	default:
-		return ""
-	}
 }
 
 // parseVerbPerms converts permission string like "rxd" to VerbPerms
