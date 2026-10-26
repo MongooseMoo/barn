@@ -148,11 +148,15 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, stri
 // resolution plus the ordered record of every object it visited (which the memo
 // stores so a later hit can reproduce the identical read set). The scratch it
 // walks on is reused across calls; a (currently impossible) reentrant call
-// falls back to a private scratch rather than corrupting the outer walk, and
-// so does the direct transaction, which goroutines share.
+// falls back to a private scratch rather than corrupting the outer walk. The
+// direct transaction, which goroutines share, walks on a pooled scratch.
 func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode, []propWalkStep) {
 	sc := &tx.propWalk
-	if sc.inUse || tx.direct {
+	switch {
+	case tx.direct:
+		sc = directPropScratch.Get().(*propScratch)
+		defer directPropScratch.Put(sc)
+	case sc.inUse:
 		sc = &propScratch{}
 	}
 	sc.inUse = true
@@ -217,6 +221,9 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 
 	sc.queue = queue[:0]
 	sc.inUse = false
+	if tx.direct {
+		return resultProp, resultName, resultErr, nil
+	}
 	return resultProp, resultName, resultErr, sc.steps
 }
 

@@ -205,7 +205,11 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 // visited, which the memo stores so a hit reproduces the identical read set.
 func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, []verbWalkStep) {
 	sc := &tx.verbWalk
-	if sc.inUse || tx.direct {
+	switch {
+	case tx.direct:
+		sc = directVerbScratch.Get().(*verbScratch)
+		defer directVerbScratch.Put(sc)
+	case sc.inUse:
 		sc = &verbScratch{}
 	}
 	sc.inUse = true
@@ -246,6 +250,9 @@ walk:
 	sc.inUse = false
 	if found != nil {
 		tx.markVerbRead(definer, found)
+	}
+	if tx.direct {
+		return found, definer, nil
 	}
 	return found, definer, sc.steps
 }
@@ -351,7 +358,11 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	// Reusable walk scratch (see store_resolve_cache.go): pass() dispatch is hot
 	// enough that the per-call queue slice and visited map were pure waste.
 	sc := &tx.parentWalk
-	if sc.inUse || tx.direct {
+	switch {
+	case tx.direct:
+		sc = directPlainScratch.Get().(*plainScratch)
+		defer directPlainScratch.Put(sc)
+	case sc.inUse:
 		sc = &plainScratch{}
 	}
 	sc.inUse = true

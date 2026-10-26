@@ -170,6 +170,15 @@ type plainScratch struct {
 	inUse   bool
 }
 
+// The direct transaction is shared between goroutines, so its walks cannot use
+// its own scratch: each takes one from these pools and puts it back. A direct
+// walk's steps are never read (its memos are off), so it returns none.
+var (
+	directVerbScratch  = sync.Pool{New: func() any { return new(verbScratch) }}
+	directPropScratch  = sync.Pool{New: func() any { return new(propScratch) }}
+	directPlainScratch = sync.Pool{New: func() any { return new(plainScratch) }}
+)
+
 // verbResolveKey keys the verb memo by the QUERIED name, verbatim. Storing the
 // resolved target under the exact string the caller asked for is what preserves
 // alias and `*` wildcard semantics (matchVerbNameLowered): the memo never has
