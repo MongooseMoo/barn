@@ -7,7 +7,6 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -66,7 +65,7 @@ func TestThreadedSortInsideNestedVerbRunsInline(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3106, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3106, 0, compileTestProgram(t, s.registry, `
 c = create(#0);
 return {valid(c), #0.write_value};
 `), ticks, seconds)

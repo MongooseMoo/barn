@@ -18,7 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -166,10 +165,10 @@ func elleAddVerb(t *testing.T, store *dbstore.Store, id types.ObjID, name string
 	}
 }
 
-func elleTask(t *testing.T, rt *Runtime, id int64, code string) *task.Task {
+func elleTask(t *testing.T, rt *Runtime, id int64, code string) *Task {
 	t.Helper()
-	tk := task.NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
-	rt.populateTaskContextDependencies(tk.Context)
+	tk := NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
+	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
 	tk.ForkCreator = rt
@@ -177,7 +176,7 @@ func elleTask(t *testing.T, rt *Runtime, id int64, code string) *task.Task {
 	return tk
 }
 
-func elleDrain(t *testing.T, rt *Runtime, tasks []*task.Task) {
+func elleDrain(t *testing.T, rt *Runtime, tasks []*Task) {
 	t.Helper()
 	for _, tk := range tasks {
 		rt.QueueTask(tk)
@@ -366,7 +365,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				return types.Err(types.E_QUOTA)
 			}
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
 			return types.Ok(types.NewInt(0))
 		}
 		// elle_torn(step) sequences the torn-snapshot pair. 0: the reader waits
@@ -382,7 +381,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				tornReadOnce.Do(func() { close(tornRead) })
 				wait = tornPublished
 			case 2:
-				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
 				return types.Ok(types.NewInt(0))
 			}
 			select {
@@ -405,7 +404,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				validReadOnce.Do(func() { close(validRead) })
 				wait = validPublished
 			case 2:
-				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
 				return types.Ok(types.NewInt(0))
 			}
 			select {
@@ -417,7 +416,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		}
 		var invariantMark builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			ops := args[0].Elements()
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() {
 				for _, op := range ops {
 					isolationprobe.Note("operation/" + op.Str())
 				}
@@ -495,15 +494,15 @@ func TestElleIsolationHistories(t *testing.T) {
 			// recorded reads must contain exactly the declared append tokens in order.
 			if model == "list-append" {
 				// One WAIF, held by a property, carries the "waif" row for the run.
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`)})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`)})
 				id++
 				for kind := range elleRows {
 					source := elleAppend(kind, kind*2+1) + elleAppend(kind, kind*2+2) + fmt.Sprintf(`if (!equal(#0:read_row(%d,#%d), {%d,%d})) raise(E_INVARG); endif`, kind, elleObject(kind), kind*2+1, kind*2+2)
-					elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, source)})
+					elleDrain(t, rt, []*Task{elleTask(t, rt, id, source)})
 					id++
 				}
 			} else {
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
 				id++
 			}
 			// Per wave, four first attempts read the same value before any may
@@ -511,7 +510,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			// removes that row's validation deterministically loses their appends.
 			if model == "list-append" && paths["parallel"] {
 				for wave, source := range elleWaves {
-					var batch []*task.Task
+					var batch []*Task
 					for worker := 0; worker < 4; worker++ {
 						token := 100 + wave*10 + worker
 						batch = append(batch, elleTask(t, rt, id, strings.NewReplacer("WAVE", strconv.Itoa(wave), "TOKEN", strconv.Itoa(token)).Replace(source)))
@@ -520,7 +519,7 @@ func TestElleIsolationHistories(t *testing.T) {
 					elleDrain(t, rt, batch)
 				}
 				// Extend both observed prefixes so lost suffixes conflict with append order.
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, elleAppend(9, 180)+elleAppend(10, 181))})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, elleAppend(9, 180)+elleAppend(10, 181))})
 				id++
 				// Write skew: each task reads the row the other appends to. Both are
 				// held after validation until both have validated. A healthy commit
@@ -551,7 +550,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				func() {
 					isolationprobe.SetCommitExclusionPair(true)
 					defer isolationprobe.SetCommitExclusionPair(false)
-					elleDrain(t, rt, []*task.Task{
+					elleDrain(t, rt, []*Task{
 						elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
 						elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
 					})
@@ -579,7 +578,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				// The reader's second slice must start while the writer is still
 				// held, so this pair is dispatched without waiting for the batch,
 				// as the server loop does; elleDrain then checks how it settled.
-				pair := []*task.Task{
+				pair := []*Task{
 					elleTask(t, rt, id, elleAppend(0, 195)+elleAppend(7, 196)+`elle_torn(2);`),
 					elleTask(t, rt, id+1, `elle_torn(0); suspend(0); v=#0:read_row(0,#11); elle_observe("r","property",v); elle_torn(1); w=#0:read_row(7,#18); elle_observe("r","inherited-property",w);`),
 				}
@@ -615,23 +614,23 @@ func TestElleIsolationHistories(t *testing.T) {
 				// recycler reads "property" after the checker's read and publishes
 				// first. A healthy checker then loses validation on #50 and retries.
 				// Under the valid-reads fault both commit, each missing the other.
-				elleDrain(t, rt, []*task.Task{
+				elleDrain(t, rt, []*Task{
 					elleTask(t, rt, id, `v=valid(#50) ? {} | {50}; elle_observe("r","valid",v); elle_valid(1);`+elleAppend(0, 197)),
 					elleTask(t, rt, id+1, `elle_valid(0); v=#0:read_row(0,#11); elle_observe("r","property",v); recycle(#50); elle_observe("append","valid",50); elle_valid(2);`),
 				})
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id+2, `elle_observe("r","valid",valid(#50) ? {} | {50});`)})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id+2, `elle_observe("r","valid",valid(#50) ? {} | {50});`)})
 				id += 3
 			}
 			if model == "list-append" && paths["hot_renewal"] {
 				// Hold an old reader until a newer hot-key publication has completed.
-				elleDrain(t, rt, []*task.Task{
+				elleDrain(t, rt, []*Task{
 					elleTask(t, rt, id, `elle_hot_wait();`+elleReadAll()),
 					elleTask(t, rt, id+1, elleAppend(0, 200)+`elle_hot_release();`),
 				})
 				id += 2
 			}
 			for round := 0; round < rounds; round++ {
-				var batch []*task.Task
+				var batch []*Task
 				for worker := 0; worker < 4; worker++ {
 					var source string
 					for slice := 0; slice < 2; slice++ {
@@ -699,7 +698,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			} else {
 				final = elleRegisterReads() + final
 			}
-			elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, final)})
+			elleDrain(t, rt, []*Task{elleTask(t, rt, id, final)})
 		}()
 	}
 	manifest["coverage"] = coverage

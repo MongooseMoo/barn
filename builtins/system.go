@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -12,9 +11,10 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-
 	"strings"
 	"time"
+
+	"github.com/MongooseMoo/barn/config"
 
 	"github.com/MongooseMoo/barn/internal/buildinfo"
 	"github.com/MongooseMoo/barn/types"
@@ -231,7 +231,7 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 
 	// Launch subprocess in background goroutine
 	go func() {
@@ -841,7 +841,7 @@ func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	go func() {
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)
@@ -891,7 +891,7 @@ func builtinReadStdin(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	t.WakeErrorAsValue = true
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	if !stdin.ReadLineAsync(t) {
 		return types.Err(types.E_INVARG)
 	}

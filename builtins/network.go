@@ -3,15 +3,15 @@ package builtins
 import (
 	"bytes"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/config"
+
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -34,7 +34,7 @@ type ConnectionManager interface {
 // Connection interface to avoid import cycle.
 type Connection interface {
 	Send(message string) error
-	SendNotification(kernel.PendingNotification) error
+	SendNotification(taskpkg.PendingNotification) error
 	Buffer(message string)
 	Flush() error
 	RemoteAddr() string
@@ -68,7 +68,7 @@ type InputForcer interface {
 }
 
 type httpReadWaiter struct {
-	task *task.Task
+	task *taskpkg.State
 	kind string
 }
 
@@ -112,7 +112,7 @@ func compactHTTPBuffer(state *httpHeldInput) {
 }
 
 type httpWake struct {
-	task  *task.Task
+	task  *taskpkg.State
 	value types.Value
 }
 
@@ -647,7 +647,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 	return true, nil
 }
 
-func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
+func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *taskpkg.State) (types.Value, bool) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
@@ -682,7 +682,7 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 	}
 	kept := state.waiters[:0]
 	for _, waiter := range state.waiters {
-		if waiter.task != nil && waiter.task.GetState() == task.TaskSuspended {
+		if waiter.task != nil && waiter.task.GetState() == taskpkg.TaskSuspended {
 			kept = append(kept, waiter)
 		}
 	}
@@ -892,10 +892,10 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	}
 	// Capture framing now: connection options may change before the task's
 	// deferred output is published.
-	note := kernel.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline}
+	note := taskpkg.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind:         kernel.PendingEffectNotification,
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind:         taskpkg.PendingEffectNotification,
 			Notification: note,
 		})
 		return types.Ok(types.NewInt(0))
@@ -1095,8 +1095,8 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind:       kernel.PendingEffectBootPlayer,
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind:       taskpkg.PendingEffectBootPlayer,
 			BootPlayer: player,
 		})
 		return types.Ok(types.NewInt(0))
@@ -1132,9 +1132,9 @@ func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind: kernel.PendingEffectConnectionSwitch,
-			ConnectionSwitch: kernel.PendingConnectionSwitch{
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind: taskpkg.PendingEffectConnectionSwitch,
+			ConnectionSwitch: taskpkg.PendingConnectionSwitch{
 				OldPlayer: args[0].ID(),
 				NewPlayer: args[1].ID(),
 			},
@@ -1421,7 +1421,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if mgr.FindReadingTask(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
+	if mgr.FindReadingTaskState(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1436,7 +1436,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	t.IsHTTPReadSuspended = true
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	return types.Suspend(-1)
 }
 

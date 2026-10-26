@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -106,9 +106,9 @@ func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 
 func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 	ctx := newTestExecution()
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxStringConcat: 1,
 		},
 	}}
@@ -143,9 +143,9 @@ func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	decoded := types.NewList([]types.Value{types.NewInt(120), types.NewInt(120)})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: ValueBytes(decoded),
 		},
 	}}
@@ -159,9 +159,9 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := newTestExecution()
 	decoded := types.NewList([]types.Value{types.NewStr("xx")})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: ValueBytes(decoded),
 		},
 	}}

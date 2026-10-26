@@ -15,9 +15,8 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
-	"github.com/MongooseMoo/barn/engine/internal/scheduler"
+
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -26,13 +25,13 @@ import (
 
 // Runtime manages task and VM execution.
 type Runtime struct {
-	taskManager             *task.Manager
+	taskManager             *TaskManager
 	lifecycle               finalization.Coordinator
-	scheduler               *scheduler.Scheduler
+	scheduler               *scheduler
 	admission               *admission.Controller
 	inputAdmissionContext   context.Context
 	closeInputAdmission     context.CancelFunc
-	leasedTasks             map[int64]*task.Task // includes direct tasks absent from the catalog
+	leasedTasks             map[int64]*Task // includes direct tasks absent from the catalog
 	admissionRoots          map[*admissionRoot][]types.Value
 	nextTaskID              int64
 	registry                *builtins.Registry
@@ -83,7 +82,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	inputContext, closeInput := context.WithCancel(ctx)
-	manager := task.NewManager()
+	manager := NewTaskManager()
 
 	s := &Runtime{
 		inputAdmissionContext: inputContext,
@@ -99,9 +98,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	host := builtins.Host{TaskManager: manager}
 	host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
-		var tc *kernel.TaskContext
+		var tc *task.Context
 		if execution != nil {
-			tc = execution.TaskContext
+			tc = execution.Context
 		}
 		player := types.ObjNothing
 		if tc != nil {
@@ -129,7 +128,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		return s.CallVerb(objID, verbName, args, player)
 	}
 	host.RunGC = func(execution *builtins.Execution, beforeSweep func() bool) error {
-		ctx := execution.TaskContext
+		ctx := execution.Context
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
 		if !s.lifecycle.SweepMu.TryLock() {
@@ -143,7 +142,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		if ownerID, claimed, attributable := s.executionContextClaim(ctx); claimed && !attributable {
 			return nil
 		} else if claimed {
-			current = &task.Task{ID: ownerID}
+			current = &task.State{ID: ownerID}
 		}
 		siblingAnon, ok := s.collectExplicitGlobalGCSiblingRefs(current)
 		if !ok {
@@ -187,9 +186,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		}
 	}
 	s.session = builtins.NewSession(registry, host)
-	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
+	s.scheduler = newScheduler(workerCount, taskIsConflictRetryable, s.runTask)
 	s.scheduler.SetLane(forkFirstRunLane)
-	manager.SetResumeScheduler(func(t *task.Task, value types.Value, readier *task.Task) bool {
+	manager.SetResumeScheduler(func(t *Task, value types.Value, readier *task.State) bool {
 		return s.scheduler.Resume(t, value, readier, time.Now())
 	})
 	limit := options.AdmissionLimit
@@ -199,13 +198,13 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	s.admission = admission.New(admission.Options{Limit: limit, PrincipalLimit: options.AdmissionPrincipalLimit,
 		InputWeight: options.AdmissionInputWeight, BackgroundWeight: options.AdmissionBackgroundWeight,
 		AnonymousWeight: options.AdmissionAnonymousWeight, SystemWeight: options.AdmissionSystemWeight})
-	s.scheduler.SetOrdering(func(tasks []*task.Task) {
+	s.scheduler.SetOrdering(func(tasks []*Task) {
 		keys := make([]admission.Key, len(tasks))
 		for i, t := range tasks {
 			keys[i] = backgroundAdmissionKey(t)
 		}
 		order := s.admission.Order(keys)
-		before := append([]*task.Task(nil), tasks...)
+		before := append([]*Task(nil), tasks...)
 		for i, j := range order {
 			tasks[i] = before[j]
 		}
@@ -236,7 +235,7 @@ func (s *Runtime) LiveTaskCount() int64 {
 	return int64(s.taskManager.Len())
 }
 
-func (s *Runtime) acquireTaskExecution(t *task.Task) bool {
+func (s *Runtime) acquireTaskExecution(t *Task) bool {
 	if s.lifecycle.ExecutionStartObserver != nil {
 		s.lifecycle.ExecutionStartObserver()
 	}
@@ -249,7 +248,7 @@ func (s *Runtime) acquireTaskExecution(t *task.Task) bool {
 	}
 	s.lifecycle.ExecutingTasks[t.ID]++
 	if s.leasedTasks == nil {
-		s.leasedTasks = make(map[int64]*task.Task)
+		s.leasedTasks = make(map[int64]*Task)
 	}
 	s.leasedTasks[t.ID] = t
 	return true
@@ -280,7 +279,7 @@ func (s *Runtime) acquireInheritedTaskExecution(taskID int64) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+func (s *Runtime) acquireExecutionContext(ctx *task.Context, taskID int64) {
 	if ctx == nil {
 		return
 	}
@@ -294,7 +293,7 @@ func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64)
 	s.mu.Unlock()
 }
 
-func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+func (s *Runtime) releaseExecutionContext(ctx *task.Context, taskID int64) {
 	if ctx == nil {
 		return
 	}
@@ -311,7 +310,7 @@ func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64)
 	s.mu.Unlock()
 }
 
-func (s *Runtime) executionContextOwner(ctx *kernel.TaskContext) (int64, bool) {
+func (s *Runtime) executionContextOwner(ctx *task.Context) (int64, bool) {
 	ownerID, claimed, attributable := s.executionContextClaim(ctx)
 	return ownerID, claimed && attributable
 }
@@ -320,7 +319,7 @@ func (s *Runtime) executionContextOwner(ctx *kernel.TaskContext) (int64, bool) {
 // physical execution owner is ambiguous. Ambiguity makes global GC a
 // successful no-op; treating it as absent could fall back to ctx.Task and
 // exclude the wrong sole lease.
-func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64, claimed, attributable bool) {
+func (s *Runtime) executionContextClaim(ctx *task.Context) (ownerID int64, claimed, attributable bool) {
 	if ctx == nil {
 		return 0, false, false
 	}
@@ -339,7 +338,7 @@ func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64,
 	return 0, false, false
 }
 
-func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
+func (s *Runtime) acquireSweepContext(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}
@@ -348,7 +347,7 @@ func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
+func (s *Runtime) releaseSweepContext(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}
@@ -361,7 +360,7 @@ func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
+func (s *Runtime) isSweepOwnedContext(ctx *task.Context) bool {
 	if ctx == nil {
 		return false
 	}
@@ -371,7 +370,7 @@ func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
 	return owned
 }
 
-func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
+func (s *Runtime) populateContextDependencies(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}
@@ -539,7 +538,7 @@ func (s *Runtime) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 
 // flushTaskOutput consumes the input command suffix at its first return or
 // suspension. Resumed tasks still flush output, but never repeat the suffix.
-func (s *Runtime) flushTaskOutput(t *task.Task) {
+func (s *Runtime) flushTaskOutput(t *Task) {
 	if s.taskOutputFlusher != nil {
 		suffix := t.CommandOutputSuffix
 		t.CommandOutputSuffix = ""
@@ -575,7 +574,7 @@ func (s *Runtime) ProcessReadyBatch() int {
 // flight and returns how many it started. It does not wait for them: each
 // task's completion requests a fresh scan through ScheduleChanged.
 func (s *Runtime) DispatchReady() int {
-	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*task.Task).ReserveAdmission, func(result scheduler.Result) {
+	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*Task).ReserveAdmission, func(result schedulerResult) {
 		s.settleTaskResult(result)
 		s.flushDeferredGC()
 		s.taskManager.NotifyScheduleChange()
@@ -590,7 +589,7 @@ func (s *Runtime) NextTaskWake() time.Time {
 	return s.scheduler.NextWake(time.Now(), s.taskManager.Unfinished())
 }
 
-func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
+func (s *Runtime) runReadyTasks(readyTasks []*Task) int {
 	if len(readyTasks) == 0 {
 		return 0
 	}
@@ -610,13 +609,13 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) int {
 	return count
 }
 
-func (s *Runtime) runTaskBatch(readyTasks []*task.Task) {
+func (s *Runtime) runTaskBatch(readyTasks []*Task) {
 	for _, result := range s.scheduler.Run(readyTasks) {
 		s.settleTaskResult(result)
 	}
 }
 
-func (s *Runtime) settleTaskResult(result scheduler.Result) {
+func (s *Runtime) settleTaskResult(result schedulerResult) {
 	t := result.Task
 	if result.Err != nil {
 		slog.Error("task error",
@@ -670,7 +669,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		case task.TaskRunning:
 			return nil, nil, false
 		}
-		if exec, isVM := t.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+		if exec := t.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
@@ -683,7 +682,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 // inspect an actively executing sibling's mutating VM, and unlike per-task floor
 // GC it also cannot prove that the sibling has no reference to an existing
 // candidate. It therefore fails closed on any other physical execution lease.
-func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
+func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.State) (anonRefs map[types.ObjID]struct{}, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, count := range s.lifecycle.ExecutingTasks {
@@ -703,7 +702,7 @@ func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRe
 		case task.TaskRunning:
 			return nil, false
 		}
-		if exec, isVM := sibling.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+		if exec := sibling.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 		}
 	}
@@ -722,7 +721,7 @@ func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRe
 //     dispatch and physical execution-lease acquisition both take s.mu, no sibling
 //     can begin executing — and thus begin mutating its VM — while we read it. Walking
 //     the pointers after releasing s.mu would race exactly that transition.
-func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
+func (s *Runtime) collectSiblingGCRefs(exclude *task.State) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -745,7 +744,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 		if state == task.TaskRunning {
 			return nil, nil, false
 		}
-		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
+		if exec := queued.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}

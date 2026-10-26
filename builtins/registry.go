@@ -5,8 +5,8 @@ import (
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/internal/mooprof"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -15,8 +15,8 @@ import (
 // production dispatch; tests of pure builtins can use Session.NewExecution
 // with a nil Task and callbacks.
 type Execution struct {
-	*kernel.TaskContext
-	Task     *task.Task
+	*taskpkg.Context
+	Task     *taskpkg.State
 	Registry *Registry
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
@@ -31,15 +31,14 @@ type Execution struct {
 	// CanSuspend reports that a FlowSuspend returned now is honored: the call
 	// runs on the task's root VM, which the runtime saves and later resumes.
 	CanSuspend bool
-	// CallingVM is the VM running this builtin (a *vm.VM, opaque here). A verb
-	// the builtin runs on a nested VM links to it so MOO profile samples carry
-	// the caller's frames.
-	CallingVM any
+	// ProfileParent supplies the caller's live frames and sampling baselines
+	// when a builtin starts a nested execution.
+	ProfileParent mooprof.Parent
 }
 
 // NewExecution binds task state and an optional concrete task to this session.
-func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
-	execution := &Execution{TaskContext: ctx, Task: task, Registry: s.registry, Session: s}
+func (s *Session) NewExecution(ctx *taskpkg.Context, task *taskpkg.State) *Execution {
+	execution := &Execution{Context: ctx, Task: task, Registry: s.registry, Session: s}
 	execution.ensureStoreTxn()
 	return execution
 }
@@ -47,14 +46,14 @@ func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execut
 // Rebind points a reused Execution at the current task state. Callers that
 // issue many builtin calls from one VM keep a single Execution (and its
 // service closures) alive instead of allocating one per call.
-func (ctx *Execution) Rebind(taskCtx *kernel.TaskContext, task *task.Task) {
-	ctx.TaskContext = taskCtx
+func (ctx *Execution) Rebind(taskCtx *taskpkg.Context, task *taskpkg.State) {
+	ctx.Context = taskCtx
 	ctx.Task = task
 	ctx.ensureStoreTxn()
 }
 
 func (ctx *Execution) ensureStoreTxn() {
-	if ctx != nil && ctx.TaskContext != nil && ctx.StoreTxn == nil && ctx.Store != nil {
+	if ctx != nil && ctx.Context != nil && ctx.StoreTxn == nil && ctx.Store != nil {
 		ctx.StoreTxn = ctx.Store.DirectTxn()
 	}
 }
@@ -113,7 +112,7 @@ func (r *Registry) install(d Descriptor) {
 	if d.Effect == Irreversible || d.Effect == CommitGateReentrant {
 		guarded := d.Effect == Irreversible
 		invoke = func(ctx *Execution, args []types.Value) types.Result {
-			if ctx != nil && ctx.TaskContext != nil {
+			if ctx != nil && ctx.Context != nil {
 				// The first irreversible effect of an attempt is the runtime's last
 				// chance to re-run the task instead of letting a later commit
 				// conflict surface as an uncatchable error. If it asks to stop,

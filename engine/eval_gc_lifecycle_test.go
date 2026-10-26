@@ -48,7 +48,7 @@ func TestEvalRunGCCallbackCreatedAnonymousSurvivesNextEvalYield(t *testing.T) {
 	rt := NewRuntime(store)
 	defer rt.Stop()
 	defer removeTasksForOwner(rt, 0)
-	runEvalTask := func(code string) *task.Task {
+	runEvalTask := func(code string) *Task {
 		program := compileTestProgram(t, rt.registry, code)
 		taskID := rt.CreateBackgroundTask(0, program, 0)
 		running := rt.GetTask(taskID)

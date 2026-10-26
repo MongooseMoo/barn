@@ -3,12 +3,13 @@ package format
 import (
 	"bufio"
 	"fmt"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // readFinalizations reads pending finalizations (v17)

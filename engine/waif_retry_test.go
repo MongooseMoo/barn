@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -30,8 +29,8 @@ func TestLostCommitRetryDoesNotReapplyWaifWrite(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	}
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	run := func(id int64, src string) *task.Task {
-		tk := task.NewTaskFull(id, 0, compileTestProgram(t, s.registry, src), ticks, seconds)
+	run := func(id int64, src string) *Task {
+		tk := NewTaskFull(id, 0, compileTestProgram(t, s.registry, src), ticks, seconds)
 		tk.Context.IsWizard = true
 		if err := s.runTask(tk); err != nil {
 			t.Fatalf("runTask %d failed: %v", id, err)
@@ -85,11 +84,11 @@ func TestConcurrentWaifIncrementsRetryWithoutDirtyReads(t *testing.T) {
 	}
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	program := compileTestProgram(t, s.registry, `w = #0.holder; n = w.count; w.count = n + 1; waif_barrier(); return w.count;`)
-	tasks := []*task.Task{task.NewTaskFull(5301, 0, program, ticks, seconds), task.NewTaskFull(5302, 0, program, ticks, seconds)}
+	tasks := []*Task{NewTaskFull(5301, 0, program, ticks, seconds), NewTaskFull(5302, 0, program, ticks, seconds)}
 	done := make(chan error, 2)
 	for _, tk := range tasks {
 		tk.Context.IsWizard = true
-		go func(tk *task.Task) { done <- s.runTask(tk) }(tk)
+		go func(tk *Task) { done <- s.runTask(tk) }(tk)
 	}
 	for range tasks {
 		select {
@@ -139,7 +138,7 @@ func TestWaifOnlyWritesPublishAtSuspendAndNestedEvalSharesView(t *testing.T) {
 	defer s.Stop()
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	program := compileTestProgram(t, s.registry, `w = #0.holder; w.count = 1; eval("#0.holder.count = #0.holder.count + 1;"); suspend(0); w.count = w.count + 1; return w.count;`)
-	tk := task.NewTaskFull(5401, 0, program, ticks, seconds)
+	tk := NewTaskFull(5401, 0, program, ticks, seconds)
 	tk.IntrinsicEval = true
 	tk.Context.IsWizard = true
 	s.taskManager.RegisterTask(tk)
@@ -185,7 +184,7 @@ func TestWaifConflictRetriesBeforeIrreversibleEffect(t *testing.T) {
 	defer s.Stop()
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	program := compileTestProgram(t, s.registry, `w = #0.holder; w.count = w.count + 1; waif_interfere(); waif_effect(); w.count = w.count + 1; return w.count;`)
-	tk := task.NewTaskFull(5501, 0, program, ticks, seconds)
+	tk := NewTaskFull(5501, 0, program, ticks, seconds)
 	tk.Context.IsWizard = true
 	if err := s.runTask(tk); err != nil {
 		t.Fatal(err)
@@ -221,7 +220,7 @@ func TestReadOnlyWaifCacheDoesNotKeepDroppedLocalAlive(t *testing.T) {
 				source += `suspend(0); `
 			}
 			program := compileTestProgram(t, s.registry, source+`return n;`)
-			tk := task.NewTaskFull(5601, 0, program, ticks, seconds)
+			tk := NewTaskFull(5601, 0, program, ticks, seconds)
 			tk.IntrinsicEval = true
 			tk.Context.IsWizard = true
 			s.taskManager.RegisterTask(tk)

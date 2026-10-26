@@ -7,7 +7,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -223,14 +222,14 @@ func TestLegacyDynamicNameSentinelsRemainExecutableAfterPersistence(t *testing.T
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := staticNameBoundaryStore(t)
-			ctx := kernel.NewTaskContext()
+			ctx := task.NewContext()
 			ctx.Player = 0
 			ctx.Programmer = 0
 			ctx.Store = store
 			registry := BuildVMRegistry()
 			machine := NewVM(store, newTestSession(registry))
 			machine.Context = ctx
-			machine.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+			machine.Task = task.NewState(1, 0, ctx.TicksRemaining, 1)
 			result := machine.Run(tc.program)
 			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != tc.want {
 				t.Fatalf("Run(persisted Program) = flow %v value %v error %v, want return %d", result.Flow, result.Val, result.Error, tc.want)

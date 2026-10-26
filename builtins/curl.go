@@ -40,7 +40,7 @@ func builtinCurl(ctx *Execution, args []types.Value) types.Result {
 	if threadedCall(ctx) {
 		return runInBackground(ctx, request)
 	}
-	if ctx.TaskContext != nil {
+	if ctx.Context != nil {
 		if !beginIrreversible(ctx) {
 			return abortedAttempt()
 		}

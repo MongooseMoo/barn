@@ -8,7 +8,7 @@ import (
 )
 
 func TestExternalCompletionReadyTimeConsumedOnce(t *testing.T) {
-	task := NewTask(1, 0, 1000, 1)
+	task := NewState(1, 0, 1000, 1)
 	task.SuspendIndefinite()
 	before := time.Now()
 	if !task.CompleteExec(types.NewInt(7)) {

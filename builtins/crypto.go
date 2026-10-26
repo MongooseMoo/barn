@@ -55,7 +55,7 @@ func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Session.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.Context)
 	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -152,7 +152,7 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Session.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.Context)
 	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
@@ -225,7 +225,7 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+		if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
@@ -257,7 +257,7 @@ func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 
 	result := types.NewList(elements)
 	// Check size limit
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -338,7 +338,7 @@ func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	maxBcryptCost, maxSHARounds := ctx.Session.GetCryptWorkLimits()
-	if pending := pendingServerOptions(ctx.TaskContext); pending != nil {
+	if pending := pendingServerOptions(ctx.Context); pending != nil {
 		maxBcryptCost = pending.MaxCryptBcryptCost
 		maxSHARounds = pending.MaxCryptSHARounds
 	}
@@ -1421,7 +1421,7 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	// Check string length limit before generating bytes (update from load_server_options cache first)
 	// The encoded string will be longer than count due to ~XX escapes
 	// but checking count first prevents unnecessary work
-	ctx.Session.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.Context)
 	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

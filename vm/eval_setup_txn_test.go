@@ -1,14 +1,14 @@
 package vm
 
 import (
-	dbformat "github.com/MongooseMoo/barn/db/format"
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 const auditProxySetupSource = `
@@ -95,13 +95,13 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginSnapshot(0)
-	taskValue := task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewState(1, player, 30000, 1)
 
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx
@@ -155,13 +155,13 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginSnapshot(0)
-	taskValue := task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewState(1, player, 30000, 1)
 
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx

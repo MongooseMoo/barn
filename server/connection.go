@@ -2,11 +2,12 @@ package server
 
 import (
 	"context"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/types"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type programmingMode struct {
@@ -21,7 +22,7 @@ type Connection struct {
 	transport    Transport
 	player       types.ObjID
 	loggedIn     bool
-	outputBuffer []kernel.PendingNotification
+	outputBuffer []task.PendingNotification
 	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
 	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
 	resolvedName string
@@ -65,7 +66,7 @@ func NewConnection(id int64, transport Transport) *Connection {
 		transport:      transport,
 		player:         types.ObjID(-1), // Not logged in yet
 		loggedIn:       false,
-		outputBuffer:   make([]kernel.PendingNotification, 0),
+		outputBuffer:   make([]task.PendingNotification, 0),
 		listenerObject: 0,
 		connectedAt:    time.Now(),
 		lastInput:      time.Now(),
@@ -79,7 +80,7 @@ func (c *Connection) Send(message string) error {
 	return c.transport.WriteOutput(message, true)
 }
 
-func (c *Connection) SendNotification(note kernel.PendingNotification) error {
+func (c *Connection) SendNotification(note task.PendingNotification) error {
 	if validator, ok := c.transport.(OutputValidator); ok {
 		if err := validator.ValidateOutput(note.Message); err != nil {
 			return err
@@ -101,7 +102,7 @@ func (c *Connection) SendNotification(note kernel.PendingNotification) error {
 func (c *Connection) Buffer(message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.outputBuffer = append(c.outputBuffer, kernel.PendingNotification{Message: message})
+	c.outputBuffer = append(c.outputBuffer, task.PendingNotification{Message: message})
 }
 
 // Flush flushes the output buffer
@@ -117,7 +118,7 @@ func (c *Connection) flushLocked() error {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
-		c.outputBuffer[i] = kernel.PendingNotification{}
+		c.outputBuffer[i] = task.PendingNotification{}
 	}
 	c.outputBuffer = c.outputBuffer[:0]
 	return nil

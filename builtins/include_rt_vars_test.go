@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 )
 
 func TestIncludeRTVarsCacheRefresh(t *testing.T) {
@@ -11,7 +11,7 @@ func TestIncludeRTVarsCacheRefresh(t *testing.T) {
 	if session.runtime.serverOptions.includeRTVars {
 		t.Fatal("runtime variables enabled by default")
 	}
-	session.applyServerOptionsSnapshot(&kernel.PendingServerOptions{IncludeRTVars: true})
+	session.applyServerOptionsSnapshot(&task.PendingServerOptions{IncludeRTVars: true})
 	if !session.runtime.serverOptions.includeRTVars {
 		t.Fatal("runtime variable option was not loaded")
 	}

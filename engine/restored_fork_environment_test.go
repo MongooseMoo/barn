@@ -13,10 +13,9 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
 )
 
-func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *task.Task) {
+func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *Task) {
 	t.Helper()
 	runtime := NewRuntime(dbstore.NewStore())
 	t.Cleanup(runtime.Stop)
@@ -27,14 +26,14 @@ func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *tas
 	if loaded == nil {
 		t.Fatal("loaded queued task is absent")
 	}
-	machine, ok := loaded.BytecodeVMValue().(*vm.VM)
-	if !ok || machine.CurrentFrame() == nil || machine.CurrentFrame().Program != loaded.Program {
+	machine := loaded.VM()
+	if machine == nil || machine.CurrentFrame() == nil || machine.CurrentFrame().Program != loaded.Program {
 		t.Fatal("production loader did not install the executable cached frame")
 	}
 	return runtime, loaded
 }
 
-func queuedForkWriterRoundtrip(t *testing.T, runtime *Runtime, loaded *task.Task) *dbformat.QueuedTask {
+func queuedForkWriterRoundtrip(t *testing.T, runtime *Runtime, loaded *Task) *dbformat.QueuedTask {
 	t.Helper()
 	var buffer bytes.Buffer
 	writer := dbformat.NewWriter(&buffer, runtime.store.Snapshot())
@@ -72,7 +71,7 @@ func TestRestoredForkCanonicalEnvironmentRoundtrip(t *testing.T) {
 				}}
 			for checkpoint := 0; checkpoint < 2; checkpoint++ {
 				runtime, loaded := loadedForkForTest(t, saved)
-				frame := loaded.BytecodeVMValue().(*vm.VM).CurrentFrame()
+				frame := loaded.VM().CurrentFrame()
 				if len(loaded.Program.VarNames) != 1 || !frame.Locals[0].Equal(types.NewInt(73)) {
 					t.Fatalf("compiled names=%v executable local=%v, want canonical saved value 73", loaded.Program.VarNames, frame.Locals[0])
 				}
@@ -107,7 +106,7 @@ func TestRestoredForkAbsentLocalIsUnbound(t *testing.T) {
 	saved := &dbformat.QueuedTask{ID: 8822, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
 		Code: []string{"return missing;"}, Variables: map[string]types.Value{}}
 	runtime, loaded := loadedForkForTest(t, saved)
-	frame := loaded.BytecodeVMValue().(*vm.VM).CurrentFrame()
+	frame := loaded.VM().CurrentFrame()
 	if !frame.Locals[0].IsUnbound() {
 		t.Fatalf("absent local=%v, want uninitialized", frame.Locals[0])
 	}
@@ -123,7 +122,7 @@ func TestRestoredForkAbsentPredefinedLocalIsUnbound(t *testing.T) {
 	saved := &dbformat.QueuedTask{ID: 8824, This: 0, Player: 0, Programmer: 0, VerbLoc: 0, Verb: "restored",
 		Code: []string{"return STR;"}, Variables: map[string]types.Value{}}
 	runtime, loaded := loadedForkForTest(t, saved)
-	frame := loaded.BytecodeVMValue().(*vm.VM).CurrentFrame()
+	frame := loaded.VM().CurrentFrame()
 	if !frame.Locals[0].IsUnbound() {
 		t.Fatalf("absent predefined local=%v, want native uninitialized slot", frame.Locals[0])
 	}
@@ -155,7 +154,7 @@ func TestRestoredForkCanonicalValuesDoNotAliasSavedMap(t *testing.T) {
 	_, loaded := loadedForkForTest(t, saved)
 	saved.Variables["USED"] = types.NewInt(1)
 	snapshot := loaded.PersistenceSnapshot()
-	frame := loaded.BytecodeVMValue().(*vm.VM).CurrentFrame()
+	frame := loaded.VM().CurrentFrame()
 	if len(snapshot.Fork.Variables) != 1 || !snapshot.Fork.Variables["used"].Equal(types.NewInt(73)) ||
 		!frame.Locals[0].Equal(snapshot.Fork.Variables["used"]) {
 		t.Fatalf("canonical frame/snapshot changed with saved map: %+v", snapshot.Fork)
@@ -170,7 +169,7 @@ func TestRestoredForkAbsentLocalRoundtripPreservesUnbound(t *testing.T) {
 		saved = queuedForkWriterRoundtrip(t, runtime, loaded)
 	}
 	runtime, loaded := loadedForkForTest(t, saved)
-	frame := loaded.BytecodeVMValue().(*vm.VM).CurrentFrame()
+	frame := loaded.VM().CurrentFrame()
 	if !frame.Locals[0].IsUnbound() {
 		t.Fatalf("checkpoint changed absent variable to %v", frame.Locals[0])
 	}

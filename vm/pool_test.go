@@ -1,12 +1,12 @@
 package vm
 
 import (
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 	"reflect"
 	"testing"
+
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // dirtyVM sets every field of a VM to a detectably non-zero value. The
@@ -20,8 +20,8 @@ func dirtyVM(machine *VM) {
 	machine.FP = 3
 	machine.Store = dbstore.NewStore()
 	machine.Builtins = newTestSession(BuildVMRegistry())
-	machine.Context = kernel.NewTaskContext()
-	machine.Task = task.NewTask(1, 0, 1, 1)
+	machine.Context = task.NewContext()
+	machine.Task = task.NewState(1, 0, 1, 1)
 	machine.TickLimit = 123
 	machine.MaxStackDepth = 456
 	machine.Ticks = 789
@@ -227,7 +227,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 	session := newTestSession(registry)
 
 	run := func(code string) types.Result {
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Store = store
 
 		prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
@@ -236,7 +236,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		}
 		machine := AcquireVM(store, session)
 		machine.Context = ctx
-		machine.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
+		machine.Task = task.NewState(1, types.ObjID(0), 30000, 1)
 		result := machine.Run(prog)
 		ReleaseVM(machine)
 		return result

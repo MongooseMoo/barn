@@ -10,8 +10,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -20,8 +19,8 @@ import (
 // by Elle. Pending effects already implement commit/discard and carry through hot
 // renewal; an irreversible boundary flushes the current group inside a slice.
 type elleTxn struct {
-	task       *task.Task
-	context    *kernel.TaskContext
+	task       *taskpkg.State
+	context    *taskpkg.Context
 	start, end int
 	ops        [][]any
 	committed  bool
@@ -30,12 +29,12 @@ type elleTxn struct {
 type elleRecorder struct {
 	sync.Mutex
 	clock  int
-	active map[*kernel.TaskContext]*elleTxn
+	active map[*taskpkg.Context]*elleTxn
 	txns   []*elleTxn
 }
 
 func newElleRecorder() *elleRecorder {
-	return &elleRecorder{active: make(map[*kernel.TaskContext]*elleTxn)}
+	return &elleRecorder{active: make(map[*taskpkg.Context]*elleTxn)}
 }
 
 func elleObserved(v types.Value) (any, error) {
@@ -70,15 +69,15 @@ func (r *elleRecorder) observe(ctx *builtins.Execution, args []types.Value) type
 	}
 	r.Lock()
 	defer r.Unlock()
-	tx := r.active[ctx.TaskContext]
+	tx := r.active[ctx.Context]
 	if tx == nil {
 		r.clock++
-		tx = &elleTxn{task: ctx.Task, context: ctx.TaskContext, start: r.clock}
-		r.active[ctx.TaskContext] = tx
+		tx = &elleTxn{task: ctx.Task, context: ctx.Context, start: r.clock}
+		r.active[ctx.Context] = tx
 		r.txns = append(r.txns, tx)
-		taskCtx := ctx.TaskContext
-		ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{
-			Kind: kernel.PendingEffectAsyncStart,
+		taskCtx := ctx.Context
+		ctx.PendingEffects = append(ctx.PendingEffects, taskpkg.PendingEffect{
+			Kind: taskpkg.PendingEffectAsyncStart,
 			Start: func() {
 				r.Lock()
 				defer r.Unlock()

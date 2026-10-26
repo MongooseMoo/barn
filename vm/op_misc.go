@@ -14,7 +14,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	execution := vm.builtinExec
 	if execution == nil {
 		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
-		execution.CallingVM = vm
+		execution.ProfileParent = vm
 		execution.PushEval = vm.pushEval
 		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
@@ -90,7 +90,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	}
 
 	// The runtime is abandoning this attempt at its irreversible-effect boundary
-	// (see TaskContext.BeforeIrreversibleEffect): unwind without running any
+	// (see Context.BeforeIrreversibleEffect): unwind without running any
 	// handler. Nothing the attempt did is kept. The flag also catches a stop
 	// that happened inside a nested verb-call VM, whose result went back to the
 	// builtin that ran it rather than to the runtime.

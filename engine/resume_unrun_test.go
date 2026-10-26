@@ -1,20 +1,21 @@
-package task
+package engine
 
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // Toast's do_resume finds a task woken from a suspension until its slice starts,
 // and only replaces the value its suspend returns.
 func TestResumeTaskReachesWokenTaskUntilItRuns(t *testing.T) {
-	manager := NewManager()
+	manager := NewTaskManager()
 	parked := NewTask(1, 2, 100, 5)
 	manager.RegisterTask(parked)
-	parked.SetState(TaskRunning)
-	manager.SuspendTask(parked, 0)
-	if state := parked.GetState(); state != TaskQueued {
+	parked.SetState(task.TaskRunning)
+	parked.SuspendSeconds(0)
+	if state := parked.GetState(); state != task.TaskQueued {
 		t.Fatalf("suspend(0) state = %v, want queued", state)
 	}
 
@@ -37,10 +38,10 @@ func TestResumeTaskReachesWokenTaskUntilItRuns(t *testing.T) {
 }
 
 func TestResumeTaskRejectsUnrunForkedTask(t *testing.T) {
-	manager := NewManager()
+	manager := NewTaskManager()
 	forked := NewTask(1, 2, 100, 5)
 	manager.RegisterTask(forked)
-	forked.SetState(TaskQueued)
+	forked.SetState(task.TaskQueued)
 	if errCode := manager.ResumeTask(1, types.NewInt(42), 2, false, nil); errCode != types.E_INVARG {
 		t.Fatalf("resume of a forked task that has not run = %v, want E_INVARG", errCode)
 	}

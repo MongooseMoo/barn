@@ -11,7 +11,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -22,19 +21,18 @@ type VM struct {
 	// Boxed command-environment strings reused across verb calls (commandStr).
 	cmdStrSrc [4]string
 	cmdStrVal [4]types.Value
-	cmdStrSet [4]bool
 
-	Stack         []types.Value       // Operand stack
-	SP            int                 // Stack pointer
-	Frames        []*StackFrame       // Call stack
-	FP            int                 // Frame pointer
-	Store         *dbstore.Store      // Object store
-	Builtins      *builtins.Session   // Builtin dispatch and mutable session
-	Context       *kernel.TaskContext // Task context for builtins
-	Task          *task.Task          // Runtime task owning this execution
-	TickLimit     int64               // Maximum ticks before E_MAXREC
-	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
-	Ticks         int64               // Current tick count
+	Stack         []types.Value     // Operand stack
+	SP            int               // Stack pointer
+	Frames        []*StackFrame     // Call stack
+	FP            int               // Frame pointer
+	Store         *dbstore.Store    // Object store
+	Builtins      *builtins.Session // Builtin dispatch and mutable session
+	Context       *task.Context     // Task context for builtins
+	Task          *task.State       // Runtime task owning this execution
+	TickLimit     int64             // Maximum ticks before E_MAXREC
+	MaxStackDepth int               // Maximum VM call frames before E_MAXREC
+	Ticks         int64             // Current tick count
 	// Preempt is set only on a root VM whose owner may lend its admission
 	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
 	// may run while their caller holds locks other invocations need.
@@ -42,7 +40,10 @@ type VM struct {
 	// Resumable is set only on the root VM the runtime saves and resumes when
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
-	Resumable    bool
+	Resumable bool
+	cmdStrSet [4]bool
+	yielded   bool // VM has yielded control (suspend/fork)
+
 	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
@@ -65,7 +66,6 @@ type VM struct {
 	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
 	localStack      []types.Value
 	framePool       []*StackFrame
-	yielded         bool         // VM has yielded control (suspend/fork)
 	yieldResult     types.Result // Why we yielded
 	resumeError     types.ErrorCode
 	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
@@ -564,7 +564,7 @@ func (vm *VM) releaseLocal(previous types.Value) {
 
 func (vm *VM) ensureContextDependencies() {
 	if vm.Context == nil {
-		vm.Context = kernel.NewTaskContext()
+		vm.Context = task.NewContext()
 	}
 	vm.Context.Store = vm.Store
 	if vm.Context.StoreTxn == nil && vm.Store != nil {

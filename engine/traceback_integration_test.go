@@ -1,11 +1,12 @@
 package engine
 
 import (
+	"strings"
+	"testing"
+
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"strings"
-	"testing"
 )
 
 // A verb that raises an uncaught error must produce exactly one log record
@@ -165,8 +166,8 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile spin: %v", diagnostics)
 	}
-	timeoutTask := task.NewTaskFull(1, 2, program, 20, 1)
-	s.populateTaskContextDependencies(timeoutTask.Context)
+	timeoutTask := NewTaskFull(1, 2, program, 20, 1)
+	s.populateContextDependencies(timeoutTask.Context)
 	timeoutTask.Programmer = 2
 	timeoutTask.This = 0
 	timeoutTask.Caller = 2

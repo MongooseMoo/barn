@@ -10,7 +10,7 @@ import (
 )
 
 func suspendedHTTPWaiter(id int64) httpReadWaiter {
-	t := task.NewTask(id, 7, 1000, 5)
+	t := task.NewState(id, 7, 1000, 5)
 	t.SetState(task.TaskSuspended)
 	return httpReadWaiter{task: t, kind: "request"}
 }

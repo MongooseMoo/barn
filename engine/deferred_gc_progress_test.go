@@ -13,7 +13,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -40,7 +40,7 @@ func TestDeferredGCProgressAfterThrottledRuntimeBecomesIdle(t *testing.T) {
 	rt.lifecycle.LastGCCost = cheapGCSweep
 	rt.lifecycle.LastGCSweep = time.Now().Add(-gcSweepInterval + 100*time.Millisecond)
 	rt.lifecycle.Mu.Unlock()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.IsWizard = true
 	rt.deferAnonGC(ctx, candidate, nil)
@@ -98,7 +98,7 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 	if code != types.E_NONE {
 		t.Fatal(code)
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.IsWizard = true
 	// Already due, so maintenance must exclude fresh owners rather than

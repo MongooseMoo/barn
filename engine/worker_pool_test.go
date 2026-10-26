@@ -26,10 +26,10 @@ func compileTestProgram(t *testing.T, registry *builtins.Registry, code string) 
 	return prog
 }
 
-func newReadyTestTask(t *testing.T, registry *builtins.Registry, id int64, owner types.ObjID) *task.Task {
+func newReadyTestTask(t *testing.T, registry *builtins.Registry, id int64, owner types.ObjID) *Task {
 	t.Helper()
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(id, owner, compileTestProgram(t, registry, "return 1;"), ticks, seconds)
+	queued := NewTaskFull(id, owner, compileTestProgram(t, registry, "return 1;"), ticks, seconds)
 	queued.StartTime = time.Now().Add(-time.Second)
 	queued.Done = make(chan struct{})
 	return queued
@@ -71,10 +71,10 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	first := task.NewTaskFull(1101, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 1;"), ticks, seconds)
+	first := NewTaskFull(1101, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 1;"), ticks, seconds)
 	first.StartTime = time.Now().Add(-time.Second)
 	first.Done = make(chan struct{})
-	second := task.NewTaskFull(1102, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 2;"), ticks, seconds)
+	second := NewTaskFull(1102, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 2;"), ticks, seconds)
 	second.StartTime = time.Now().Add(-time.Second)
 	second.Done = make(chan struct{})
 	s.QueueTask(first)
@@ -84,7 +84,7 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		s.runTaskBatch([]*task.Task{first, second})
+		s.runTaskBatch([]*Task{first, second})
 		done <- 2
 	}()
 
@@ -100,7 +100,7 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	if got := entered.Load(); got != 2 {
 		t.Fatalf("parallel_gate entries = %d, want 2", got)
 	}
-	for _, queued := range []*task.Task{first, second} {
+	for _, queued := range []*Task{first, second} {
 		if queued.Result.Flow != types.FlowReturn {
 			t.Fatalf("task %d flow = %v err=%v, want return", queued.ID, queued.Result.Flow, queued.Result.Error)
 		}
@@ -112,10 +112,10 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	first := task.NewTaskFull(1201, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
-	second := task.NewTaskFull(1202, 7, compileTestProgram(t, s.registry, "#1.b = 3;"), ticks, seconds)
+	first := NewTaskFull(1201, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
+	second := NewTaskFull(1202, 7, compileTestProgram(t, s.registry, "#1.b = 3;"), ticks, seconds)
 
-	batches := s.scheduler.Plan([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -136,10 +136,10 @@ func TestReadyTaskBatchesCoScheduleConflictingRetryableWrites(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	first := task.NewTaskFull(1211, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
-	second := task.NewTaskFull(1212, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
+	first := NewTaskFull(1211, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
+	second := NewTaskFull(1212, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.scheduler.Plan([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -158,10 +158,10 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
-	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
+	first := NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
+	second := NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.scheduler.Plan([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -179,11 +179,11 @@ func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
+	first := NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
 	first.IsForked = true // not conflict-retryable
-	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
+	second := NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.scheduler.Plan([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*Task{first, second})
 
 	if len(batches) != 2 {
 		t.Fatalf("batch count = %d, want 2", len(batches))
@@ -263,7 +263,7 @@ func TestSuspendedCommandFlushesSuffixOnlyOnce(t *testing.T) {
 		flushed = append(flushed, suffix)
 	})
 	program := compileTestProgram(t, s.registry, "suspend(0); return 1;")
-	queued := task.NewTaskFull(2010, 7, program, 10000, 5)
+	queued := NewTaskFull(2010, 7, program, 10000, 5)
 	queued.StartTime = time.Now()
 	queued.CommandOutputSuffix = "end"
 	s.QueueTask(queued)
@@ -304,7 +304,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3001, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3001, 0, compileTestProgram(t, s.registry, `
 first = #0.snapshot_value;
 mutate_snapshot_value();
 return {first, #0.snapshot_value};
@@ -357,7 +357,7 @@ func TestRunTaskKeepsForksAfterSuccessfulCommit(t *testing.T) {
 
 	owner := types.ObjID(7702)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3002, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3002, owner, compileTestProgram(t, s.registry, `
 fork child (30)
   suspend(5);
 endfork
@@ -408,7 +408,7 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 	// yin() yields when FEWER than min_ticks remain (Toast bf_yield_if_needed), and
 	// min_ticks must stay under the foreground limit, so burn a few ticks first to
 	// put the budget below the threshold.
-	queued := task.NewTaskFull(3010, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3010, owner, compileTestProgram(t, s.registry, `
 #0.yield_order = {"main-before"};
 fork (0)
   #0.yield_order = listappend(#0.yield_order, "fork");
@@ -492,7 +492,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	// The `for` loop drops the tick budget below min_ticks so yin() actually
 	// yields: Toast's yin yields when FEWER than min_ticks remain, and min_ticks
 	// must stay under the foreground limit.
-	queued := task.NewTaskFull(3012, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3012, owner, compileTestProgram(t, s.registry, `
 #0.snapshot_value = "before-yin";
 fork child (30)
   suspend(5);
@@ -553,7 +553,7 @@ func TestForkedSuspendZeroRefreshesAfterPreResumeCommit(t *testing.T) {
 
 	owner := types.ObjID(7711)
 	ticks, seconds := backgroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3011, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3011, owner, compileTestProgram(t, s.registry, `
 #0.yield_progress = "after-long-suspend";
 suspend(0);
 #0.yield_progress = "after-yield";
@@ -620,7 +620,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 
 	owner := types.ObjID(7703)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3003, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3003, owner, compileTestProgram(t, s.registry, `
 before = #0.snapshot_value;
 fork child (30)
   suspend(5);
@@ -682,7 +682,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3004, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3004, 0, compileTestProgram(t, s.registry, `
 before = #0.snapshot_value;
 mutate_snapshot_value_once();
 stage_snapshot_value();
@@ -736,7 +736,7 @@ func TestRunTaskDoesNotRetryAfterIrreversibleSideEffect(t *testing.T) {
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3005, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3005, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 server_log("irreversible-once");
 mutate_read_value();
@@ -773,7 +773,7 @@ func TestRunTaskFlushesBufferedEffectsInCallOrder(t *testing.T) {
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = manager })
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3006, 7, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3006, 7, compileTestProgram(t, s.registry, `
 boot_player(#7);
 notify(#7, "after boot");
 return 0;
@@ -812,7 +812,7 @@ func TestRunTaskReleasesTerminalStoreTransaction(t *testing.T) {
 			s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 			defer s.Stop()
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
-			queued := task.NewTaskFull(3007, 0, compileTestProgram(t, s.registry, test.code), ticks, seconds)
+			queued := NewTaskFull(3007, 0, compileTestProgram(t, s.registry, test.code), ticks, seconds)
 			queued.Context.IsWizard = true
 
 			if err := s.runTask(queued); err != nil {
@@ -843,7 +843,7 @@ func TestRunTaskDoesNotReplaceResultAfterDeferredEffectFailure(t *testing.T) {
 	conn := &evalCommandStubConn{sendErr: errors.New("send failed")}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 7, conn: conn} })
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
 #0.value = 1;
 notify(#7, "deferred failure");
 return 42;

@@ -30,14 +30,14 @@ type AnonymousGCStats struct {
 
 // TaskLister supplies the task collections inspected by task builtins.
 type TaskLister interface {
-	GetAllTasks() []*task.Task
-	GetQueuedTasks() []*task.Task
+	GetAllTasks() []*task.State
+	GetQueuedTasks() []*task.State
 }
 
 // TaskFinder locates tasks by ID or by the player whose input they await.
 type TaskFinder interface {
-	GetTask(id int64) *task.Task
-	FindReadingTask(player types.ObjID) *task.Task
+	FindTaskState(id int64) *task.State
+	FindReadingTaskState(player types.ObjID) *task.State
 }
 
 // TaskController applies task lifecycle operations requested by builtins.
@@ -46,8 +46,7 @@ type TaskController interface {
 	// cross the irreversible boundary only for a kill that will happen.
 	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
-	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.Task) types.ErrorCode
-	SuspendTask(task *task.Task, seconds float64)
+	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.State) types.ErrorCode
 }
 
 // TaskManager is the builtin-facing task capability composed from its small

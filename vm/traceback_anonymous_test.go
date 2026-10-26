@@ -3,13 +3,12 @@ package vm
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestBuildTracebackInvalidatesAnonymousThis(t *testing.T) {
-	taskValue := task.NewTask(1, 2, 1000, 1)
+	taskValue := task.NewState(1, 2, 1000, 1)
 	taskValue.PushFrame(types.ActivationFrame{
 		This:       12,
 		ThisValue:  types.NewAnon(12),
@@ -18,7 +17,7 @@ func TestBuildTracebackInvalidatesAnonymousThis(t *testing.T) {
 		VerbLoc:    0,
 		Player:     2,
 	})
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 
 	machine := NewVM(nil, nil)
 	machine.Context = ctx

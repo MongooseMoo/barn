@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -30,13 +29,13 @@ func runOn(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, code strin
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO: %v", diagnostics[0])
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Programmer = 0
 	ctx.Store = store
 	ctx.StoreTxn = txn
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx
-	machine.Task = task.NewTask(1, 0, 30000, 1)
+	machine.Task = task.NewState(1, 0, 30000, 1)
 	machine.PrepareVerbFrame(prog, types.ObjNothing, 0, 0, "", types.ObjNothing, []types.Value{})
 	if result := machine.ExecuteLoop(); result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("%q: flow %v: %v", code, result.Flow, result.Error)

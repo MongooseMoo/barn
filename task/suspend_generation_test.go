@@ -11,7 +11,7 @@ import (
 // later suspension of the same task (the retried or re-suspended task would
 // otherwise receive a value that belongs to an abandoned attempt).
 func TestResumeGenerationIgnoresCompletionFromEarlierSuspension(t *testing.T) {
-	tk := NewTask(1, 2, 100, 5)
+	tk := NewState(1, 2, 100, 5)
 	tk.SetState(TaskRunning)
 
 	tk.SuspendIndefinite()
@@ -59,7 +59,7 @@ func TestResumeGenerationIgnoresCompletionFromEarlierSuspension(t *testing.T) {
 // from an earlier timed suspend: the scheduler would treat it as due and resume
 // it with 0 before the operation it is waiting on completes.
 func TestIndefiniteSuspendClearsStaleWakeTime(t *testing.T) {
-	tk := NewTask(1, 2, 100, 5)
+	tk := NewState(1, 2, 100, 5)
 	tk.SetState(TaskRunning)
 
 	tk.Suspend(time.Millisecond)

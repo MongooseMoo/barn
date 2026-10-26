@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 )
 
 func TestNotificationBytesAndBufferedOrder(t *testing.T) {
@@ -17,7 +17,7 @@ func TestNotificationBytesAndBufferedOrder(t *testing.T) {
 	conn := NewConnection(1, NewTCPTransport(server))
 	done := make(chan error, 1)
 	go func() {
-		for _, note := range []kernel.PendingNotification{
+		for _, note := range []task.PendingNotification{
 			{Message: "part", NoFlush: true, NoNewline: true},
 			{Message: "ial"},
 			{Message: "\xffraw\n", NoNewline: true},

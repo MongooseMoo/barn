@@ -2,7 +2,7 @@ package builtins
 
 import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -108,8 +108,8 @@ func builtinSetPlayerFlag(ctx *Execution, args []types.Value) types.Result {
 		if tx.IsDirect() {
 			_ = cm.BootPlayer(objVal.ID())
 		} else {
-			enqueuePendingEffect(ctx, kernel.PendingEffect{
-				Kind:       kernel.PendingEffectBootPlayer,
+			enqueuePendingEffect(ctx, task.PendingEffect{
+				Kind:       task.PendingEffectBootPlayer,
 				BootPlayer: objVal.ID(),
 			})
 		}

@@ -1,6 +1,6 @@
 package builtins
 
-import "github.com/MongooseMoo/barn/kernel"
+import "github.com/MongooseMoo/barn/task"
 
 func newTestExecution() *Execution {
 	registry := NewRegistry()
@@ -8,7 +8,7 @@ func newTestExecution() *Execution {
 }
 
 func newTestExecutionForSession(session *Session) *Execution {
-	return session.NewExecution(kernel.NewTaskContext(), nil)
+	return session.NewExecution(task.NewContext(), nil)
 }
 
 func configureTestHost(session *Session, configure func(*Host)) {

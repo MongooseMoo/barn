@@ -440,7 +440,7 @@ func TestHTTPReadingTaskUsesInterruptedSection(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
-	queued := task.NewTask(31, 2, 100, 1)
+	queued := task.NewState(31, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -470,7 +470,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	for i := 0; i < 64; i++ {
 		var buf bytes.Buffer
 		writer := NewWriter(&buf, store.NewStore().Snapshot())
-		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 		if err := writer.writeQueuedTasks(); err != nil {
 			t.Fatalf("writeQueuedTasks iteration %d: %v", i, err)
 		}
@@ -484,7 +484,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
-	queued := task.NewTask(37, 2, 100, 1)
+	queued := task.NewState(37, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -509,7 +509,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}
@@ -523,7 +523,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 }
 
 func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
-	queued := task.NewTask(43, 2, 100, 1)
+	queued := task.NewState(43, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -548,7 +548,7 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}

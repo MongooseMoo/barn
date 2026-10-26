@@ -172,20 +172,14 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	}
 }
 
-type vmSnapshotter interface {
-	PersistenceVMSnapshot() *VMSnapshot
-}
-
-// PersistenceSnapshot copies the task fields needed for checkpoint output while
-// holding the task lock.
-func (t *Task) PersistenceSnapshot() Snapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
+// PersistenceSnapshotLocked copies task metadata for checkpoint output. The
+// caller holds Mu or owns unpublished state; the engine captures its saved
+// interpreter under the same lock.
+func (t *State) PersistenceSnapshotLocked() Snapshot {
 	snapshot := Snapshot{
 		ID:                  t.ID,
 		Owner:               t.Owner,
-		State:               t.State,
+		State:               t.Status,
 		StartTime:           t.StartTime,
 		WakeValue:           t.WakeValue,
 		TaskLocal:           t.TaskLocal,
@@ -199,7 +193,7 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ExecCommandName:     t.ExecCommandName,
 		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
-	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
 		snapshot.StartTime = t.WakeTime
 	}
 	if t.ForkInfo != nil {
@@ -218,9 +212,6 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
 		}
-	}
-	if machine, ok := t.BytecodeVM.(vmSnapshotter); ok && machine != nil {
-		snapshot.VM = machine.PersistenceVMSnapshot()
 	}
 	return snapshot
 }

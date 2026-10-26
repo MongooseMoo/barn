@@ -1,4 +1,4 @@
-package task
+package engine
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestScheduleChangesCoalesceAndCoverExternalResumes(t *testing.T) {
-	m := NewManager()
+	m := NewTaskManager()
 	tk := NewTask(1, 0, 100, 1)
 	m.RegisterTask(tk)
 	<-m.ScheduleChanged()

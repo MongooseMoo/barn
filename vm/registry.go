@@ -60,11 +60,11 @@ func vmDescriptors() []builtins.Descriptor {
 
 			if ctx.PushEval == nil {
 				evalVM := NewVM(store, ctx.Session)
-				evalVM.Context = ctx.TaskContext
+				evalVM.Context = ctx.Context
 				evalVM.Task = ctx.Task
 				// No scheduler is running (inspection tools); honor the session's
 				// foreground tick budget the way the engine path does.
-				evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
+				evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.Context, false)
 				frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
 				SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
 				SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))

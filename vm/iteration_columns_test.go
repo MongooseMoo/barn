@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,11 +20,11 @@ func TestValueOnlyMapIterationRetainsKeyRoots(t *testing.T) {
 		t.Fatal(diagnostics)
 	}
 	store := dbstore.NewStore()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	m := NewVM(store, newTestSessionWithTaskManager(registry))
 	m.Context = ctx
-	m.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	m.Task = task.NewState(1, 0, ctx.TicksRemaining, 1)
 	result := m.RunWithVerbContext(program, 0, 0, 0, "roots", 0, []types.Value{input})
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("result = %+v", result)

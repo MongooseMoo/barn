@@ -16,7 +16,7 @@ type ProcessStdin struct {
 	reader *bufio.Reader
 
 	mu      sync.Mutex
-	waiters []*task.Task
+	waiters []*task.State
 	reading bool
 }
 
@@ -24,7 +24,7 @@ func NewProcessStdin(input io.Reader) *ProcessStdin {
 	return &ProcessStdin{reader: bufio.NewReader(input)}
 }
 
-func (p *ProcessStdin) ReadLineAsync(t *task.Task) bool {
+func (p *ProcessStdin) ReadLineAsync(t *task.State) bool {
 	if p == nil || p.reader == nil || t == nil {
 		return false
 	}
@@ -43,7 +43,7 @@ func (p *ProcessStdin) readOne() {
 	line, err := p.reader.ReadString('\n')
 	value := readStdinValue(line, err)
 
-	var waiter *task.Task
+	var waiter *task.State
 	p.mu.Lock()
 	if len(p.waiters) > 0 {
 		last := len(p.waiters) - 1

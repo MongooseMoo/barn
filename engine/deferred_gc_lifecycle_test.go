@@ -8,7 +8,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -111,17 +110,17 @@ func TestDeferredAnonymousGCRecycleUsesStandaloneCallerWithCompletedTask(t *test
 
 	rt := NewRuntime(store)
 	defer rt.Stop()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = 0
 	ctx.Programmer = 0
 	ctx.IsWizard = true
 	ctx.ThisObj = 0
 	ctx.Store = store
-	completed := task.NewTask(98001, 0, 1000, 10)
+	completed := NewTask(98001, 0, 1000, 10)
 	completed.SetState(task.TaskCompleted)
 	machine := vm.NewVM(store, rt.session)
 	machine.Context = ctx
-	machine.Task = completed
+	machine.Task = &completed.State
 
 	rt.deferAnonGC(ctx, candidate, machine)
 	rt.flushDeferredGC()
@@ -199,7 +198,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("create first sweep candidate: %v", errCode)
 	}
-	gcCtx := kernel.NewTaskContext()
+	gcCtx := task.NewContext()
 	gcCtx.Player = 0
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true
@@ -319,7 +318,7 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	}
 
-	gcCtx := kernel.NewTaskContext()
+	gcCtx := task.NewContext()
 	gcCtx.Player = 0
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true
@@ -429,7 +428,7 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 	var attemptOnce sync.Once
 	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
 
-	gcCtx := kernel.NewTaskContext()
+	gcCtx := task.NewContext()
 	gcCtx.Player = 0
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true

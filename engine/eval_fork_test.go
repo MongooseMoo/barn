@@ -12,7 +12,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -25,7 +25,7 @@ func (c *evalCommandStubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
 	return c.sendErr
 }
-func (c *evalCommandStubConn) SendNotification(note kernel.PendingNotification) error {
+func (c *evalCommandStubConn) SendNotification(note task.PendingNotification) error {
 	if note.NoFlush {
 		return nil
 	}

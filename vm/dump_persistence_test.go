@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -17,7 +17,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 
 	store, _ := loaded.NewStoreFromDatabase()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = 3
 	ctx.Programmer = 3
 	ctx.IsWizard = true

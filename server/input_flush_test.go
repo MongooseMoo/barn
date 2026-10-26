@@ -7,7 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -29,7 +29,7 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 		t.Fatalf("switch player: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
@@ -93,7 +93,7 @@ func TestSupersededConnectionDisconnectPreservesReplacementHeldInput(t *testing.
 		t.Fatalf("switch replacement connection: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true

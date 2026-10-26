@@ -68,10 +68,9 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/internal/mooprof"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/metrics"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
@@ -87,14 +86,14 @@ type benchConnection struct {
 	lastActive  atomic.Int64 // unix seconds
 }
 
-func (c *benchConnection) Send(string) error                                 { return nil }
-func (c *benchConnection) SendNotification(kernel.PendingNotification) error { return nil }
-func (c *benchConnection) Buffer(string)                                     {}
-func (c *benchConnection) Flush() error                                      { return nil }
-func (c *benchConnection) RemoteAddr() string                                { return "bench-harness" }
-func (c *benchConnection) GetOutputPrefix() string                           { return "" }
-func (c *benchConnection) GetOutputSuffix() string                           { return "" }
-func (c *benchConnection) BufferedOutputLength() int                         { return 0 }
+func (c *benchConnection) Send(string) error                                  { return nil }
+func (c *benchConnection) SendNotification(taskpkg.PendingNotification) error { return nil }
+func (c *benchConnection) Buffer(string)                                      {}
+func (c *benchConnection) Flush() error                                       { return nil }
+func (c *benchConnection) RemoteAddr() string                                 { return "bench-harness" }
+func (c *benchConnection) GetOutputPrefix() string                            { return "" }
+func (c *benchConnection) GetOutputSuffix() string                            { return "" }
+func (c *benchConnection) BufferedOutputLength() int                          { return 0 }
 func (c *benchConnection) ConnectedSeconds() int64 {
 	return int64(time.Since(c.connectedAt).Seconds())
 }
@@ -203,7 +202,7 @@ func defaultRealShapes() []realShape {
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
 	runtime *Runtime
-	task    *task.Task
+	task    *Task
 	result  chan types.Result
 }
 
@@ -235,12 +234,12 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
 	seen := map[int64]bool{c.task.ID: true}
-	held := []*task.Task{c.task}
+	held := []*Task{c.task}
 	for len(held) != 0 {
 		target := held[0]
 		held = held[1:]
 		for _, other := range catalog {
-			if other == nil || other.PendingReadier(now) != target {
+			if other == nil || other.PendingReadier(now) != &target.State {
 				continue
 			}
 			c.runtime.mu.Lock()
@@ -251,7 +250,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 			if len(stack) != 0 {
 				top = fmt.Sprintf("%s:%d", stack[len(stack)-1].Verb, stack[len(stack)-1].LineNumber)
 			}
-			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.BytecodeVMValue() != nil, other.VerbName, top))
+			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.VM() != nil, other.VerbName, top))
 			if !seen[other.ID] {
 				seen[other.ID] = true
 				held = append(held, other)
@@ -286,7 +285,7 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			status, _ := json.Marshal(c.runtime.AdmissionStats())
 			admissionStatus = string(status)
 		}
-		saved := c.task.BytecodeVMValue() != nil
+		saved := c.task.VM() != nil
 		c.task.Kill()
 		select {
 		case <-c.task.Done:

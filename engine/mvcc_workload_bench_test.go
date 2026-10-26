@@ -43,7 +43,6 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -262,9 +261,9 @@ func compileShapes(t *testing.T, reg *builtins.Registry, fx *mongooseFixture, pl
 // buildLiveTask constructs a fresh, ready-to-run task around a precompiled
 // program — the cheap allocation-only path (no MOO parsing), mirroring
 // buildBenchTask minus the *testing.T.
-func buildLiveTask(s *Runtime, id int64, wizardID types.ObjID, prog *bytecode.Program) *task.Task {
-	tk := task.NewTaskFull(id, wizardID, prog, 1<<50, 1e9)
-	s.populateTaskContextDependencies(tk.Context)
+func buildLiveTask(s *Runtime, id int64, wizardID types.ObjID, prog *bytecode.Program) *Task {
+	tk := NewTaskFull(id, wizardID, prog, 1<<50, 1e9)
+	s.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.Programmer = wizardID
 	tk.Context.Programmer = wizardID

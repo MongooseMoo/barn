@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -19,8 +18,8 @@ import (
 // shutdown claims them before the deferred sweep runs.
 type PendingWaif struct {
 	Waif        types.Value
-	Ctx         *kernel.TaskContext
-	Task        *task.Task
+	Ctx         *task.Context
+	Task        *task.State
 	OwnRefs     []types.Value
 	DirectRoots vm.DirectFinalizationRoots
 }
@@ -30,8 +29,8 @@ type PendingWaif struct {
 // the parent engine tree; Go's internal-package boundary keeps this private.
 type Coordinator struct {
 	ExecutingTasks         map[int64]int
-	ExecutionContexts      map[*kernel.TaskContext]map[int64]int
-	SweepContexts          map[*kernel.TaskContext]int
+	ExecutionContexts      map[*task.Context]map[int64]int
+	SweepContexts          map[*task.Context]int
 	ExecutionStartObserver func()
 
 	SweepMu   sync.Mutex
@@ -60,8 +59,8 @@ type Coordinator struct {
 func NewCoordinator() Coordinator {
 	return Coordinator{
 		ExecutingTasks:    make(map[int64]int),
-		ExecutionContexts: make(map[*kernel.TaskContext]map[int64]int),
-		SweepContexts:     make(map[*kernel.TaskContext]int),
+		ExecutionContexts: make(map[*task.Context]map[int64]int),
+		SweepContexts:     make(map[*task.Context]int),
 		ShutdownReady:     make(chan struct{}),
 		MaintenanceWake:   make(chan struct{}, 1),
 		MaintenanceDone:   make(chan struct{}),

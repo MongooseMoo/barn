@@ -2,11 +2,12 @@ package builtins
 
 import (
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/MongooseMoo/barn/config"
 
 	"github.com/MongooseMoo/barn/types"
 	"github.com/rivo/uniseg"
@@ -241,7 +242,7 @@ func builtinEncodeChars(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 	result := encodeBinaryStr([]byte(encoded))
-	ctx.Session.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.Context)
 	if err := ctx.CheckStringLimit(len(result)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -278,7 +279,7 @@ func builtinDecodeChars(ctx *Execution, args []types.Value) types.Result {
 	}
 	text = strings.TrimPrefix(text, "\ufeff")
 
-	ctx.Session.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.Context)
 	var elements []types.Value
 	if fully {
 		for _, r := range text {
@@ -301,7 +302,7 @@ func builtinDecodeChars(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 	result := types.NewList(elements)
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 	return types.Ok(result)
@@ -326,7 +327,7 @@ func builtinGraphemes(ctx *Execution, args []types.Value) types.Result {
 		elements = append(elements, types.NewStr(cluster))
 	}
 	result := types.NewList(elements)
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 	return types.Ok(result)

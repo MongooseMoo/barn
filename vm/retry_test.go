@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,9 +20,9 @@ func retryTestVM(t testing.TB, code string) *VM {
 	}
 	store := dbstore.NewStore()
 	machine := NewVM(store, newTestSessionWithTaskManager(registry))
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	machine.Context.Store = store
-	machine.Task = task.NewTask(1, 0, 30000, 3)
+	machine.Task = task.NewState(1, 0, 30000, 3)
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {
 		t.Fatalf("flow=%v, want suspended fixture", result.Flow)
 	}

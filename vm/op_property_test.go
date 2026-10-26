@@ -5,7 +5,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -63,7 +63,7 @@ func TestBuiltinPropertyWritePermissions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := builtinPropertyTestStore(t, false)
-			ctx := &kernel.TaskContext{Programmer: 2, Store: store}
+			ctx := &task.Context{Programmer: 2, Store: store}
 			handled, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, tt.name, tt.value, ctx)
 			if !handled || errCode != types.E_PERM {
 				t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (true, E_PERM)", tt.name, handled, errCode)
@@ -80,7 +80,7 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "name" {
 				value = types.NewStr("renamed")
 			}
-			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
+			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &task.Context{Programmer: 1, Store: store}); errCode != types.E_NONE {
 				t.Fatalf("owner setting %q returned %v", name, errCode)
 			}
 		})
@@ -93,17 +93,17 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "owner" {
 				value = types.NewObj(2)
 			}
-			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &task.Context{Programmer: 1, Store: store}); errCode != types.E_PERM {
 				t.Fatalf("owner setting %q returned %v, want E_PERM", name, errCode)
 			}
 		})
 	}
 
 	store := builtinPropertyTestStore(t, true)
-	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "name", types.NewStr("renamed"), &task.Context{Programmer: 1, Store: store}); errCode != types.E_PERM {
 		t.Fatalf("owner renaming player returned %v, want E_PERM", errCode)
 	}
-	wizard := &kernel.TaskContext{Programmer: 0, IsWizard: true, Store: store}
+	wizard := &task.Context{Programmer: 0, IsWizard: true, Store: store}
 	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
 		t.Fatalf("wizard setting wizard returned %v", errCode)
 	}
@@ -111,7 +111,7 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 
 func TestBuiltinPropertyErrorOrdering(t *testing.T) {
 	store := builtinPropertyTestStore(t, false)
-	nonWizard := &kernel.TaskContext{Programmer: 2, Store: store}
+	nonWizard := &task.Context{Programmer: 2, Store: store}
 	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
 		t.Fatalf("invalid owner value returned %v, want E_TYPE before E_PERM", errCode)
 	}
@@ -139,7 +139,7 @@ func TestBuiltinPropertyProtectionOption(t *testing.T) {
 	session := newTestSession(registry)
 	session.LoadProtectedBuiltinsFromStore(store)
 
-	ctx := &kernel.TaskContext{Programmer: 1, Store: store}
+	ctx := &task.Context{Programmer: 1, Store: store}
 	if _, errCode := setBuiltinProperty(session, store.DirectTxn(), 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
 		t.Fatalf("owner setting protected r returned %v, want E_PERM", errCode)
 	}

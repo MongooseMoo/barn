@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -12,7 +12,7 @@ func BenchmarkBuiltinAdmission(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			s := NewSession(NewRegistry(), NoHost())
 			defer s.Close()
-			ctx := s.NewExecution(&kernel.TaskContext{}, nil)
+			ctx := s.NewExecution(&task.Context{}, nil)
 			id, _ := s.Registry().GetID(name)
 			args := []types.Value{types.NewStr("abc")}
 			if name == "strsub" {

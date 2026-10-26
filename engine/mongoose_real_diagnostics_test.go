@@ -5,12 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestRealCommandCompletionRetainsExceptionFramesAfterUnwind(t *testing.T) {
-	tk := task.NewTask(42, 83, 1000, 1)
+	tk := NewTask(42, 83, 1000, 1)
 	tk.Done = make(chan struct{})
 	result := types.Result{Flow: types.FlowException, Error: types.E_NACC, CallStack: []types.ActivationFrame{
 		{This: 83, VerbLoc: 36, Verb: "home", Programmer: 83, Player: 83, LineNumber: 15},
@@ -39,7 +38,7 @@ func TestRealCommandCompletionRetainsExceptionFramesAfterUnwind(t *testing.T) {
 }
 
 func TestRealCommandTimeoutRetainsFrameIdentityWithoutPayloads(t *testing.T) {
-	tk := task.NewTask(43, 83, 1000, 1)
+	tk := NewTask(43, 83, 1000, 1)
 	tk.Done = make(chan struct{})
 	tk.CallStack = []types.ActivationFrame{{This: 83, VerbLoc: 2200, Verb: "loc_enter", Programmer: 36,
 		Player: 83, LineNumber: 7, SourceLine: `secret = "private-timeout-sentinel";`}}

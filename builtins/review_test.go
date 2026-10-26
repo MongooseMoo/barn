@@ -10,7 +10,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// newReviewCtx builds a minimal TaskContext backed by a real Store and Registry.
+// newReviewCtx builds a minimal Context backed by a real Store and Registry.
 func newReviewCtx(t *testing.T) (*Execution, *dbstore.Store) {
 	t.Helper()
 	store := dbstore.NewStore()

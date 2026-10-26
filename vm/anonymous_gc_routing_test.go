@@ -5,13 +5,13 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestRecycleFrozenAnonymousCandidatesPreservesRouting(t *testing.T) {
-	context := func(programmer types.ObjID) *kernel.TaskContext {
-		ctx := kernel.NewTaskContext()
+	context := func(programmer types.ObjID) *task.Context {
+		ctx := task.NewContext()
 		ctx.Programmer = programmer
 		return ctx
 	}
@@ -55,7 +55,7 @@ func BenchmarkRecycleFrozenAnonymousCandidates(b *testing.B) {
 		candidates[i] = types.ObjID(i + 1)
 		wantSum += uint64(i + 1)
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	for _, requestCount := range []int{1, 128, 4096} {
 		b.Run(fmt.Sprintf("requests_%d", requestCount), func(b *testing.B) {
 			requests := make([]AnonGCRequest, requestCount)

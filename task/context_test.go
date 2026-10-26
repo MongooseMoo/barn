@@ -1,4 +1,4 @@
-package kernel
+package task
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func TestNewTaskContext(t *testing.T) {
-	ctx := NewTaskContext()
+func TestNewContext(t *testing.T) {
+	ctx := NewContext()
 
 	if ctx.TicksRemaining != 300000 {
 		t.Errorf("Expected default tick limit of 300000, got %d", ctx.TicksRemaining)
@@ -31,7 +31,7 @@ func TestNewTaskContext(t *testing.T) {
 }
 
 func TestConsumeTick(t *testing.T) {
-	ctx := NewTaskContext()
+	ctx := NewContext()
 	initialTicks := ctx.TicksRemaining
 
 	// Consume one tick

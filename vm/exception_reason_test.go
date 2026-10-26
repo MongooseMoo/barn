@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -23,8 +22,8 @@ func reasonFrameProgram(t *testing.T, code string) (*VM, types.Result) {
 		t.Fatal(diagnostics)
 	}
 	machine := NewVM(store, newTestSessionWithTaskManager(registry))
-	machine.Context = kernel.NewTaskContext()
-	machine.Task = task.NewTask(1, 0, 30_000, 10)
+	machine.Context = task.NewContext()
+	machine.Task = task.NewState(1, 0, 30_000, 10)
 	machine.MaxStackDepth = 1
 	machine.Resumable = true
 	return machine, machine.Run(program)
@@ -49,7 +48,7 @@ func TestExceptionReasonActualGuards(t *testing.T) {
 	})
 	t.Run("seconds", func(t *testing.T) {
 		machine, program := newTickTestVM(t, `while (1) endwhile`)
-		machine.Task = task.NewTask(1, 0, 100_000, 0)
+		machine.Task = task.NewState(1, 0, 100_000, 0)
 		machine.TickLimit = 100_000
 		requireExceptionReason(t, machine.Run(program), types.ExceptionReasonSecondsBudget)
 	})
@@ -104,7 +103,7 @@ func TestExceptionReasonNestedBuiltinResultBridge(t *testing.T) {
 				t.Fatal(diagnostics)
 			}
 			machine := NewVM(newBytecodeVerbStore(), newTestSessionWithTaskManager(registry))
-			machine.Context = kernel.NewTaskContext()
+			machine.Context = task.NewContext()
 			requireExceptionReason(t, machine.Run(program), want)
 			if calls != 1 {
 				t.Fatalf("nested guard calls = %d, want 1", calls)
@@ -154,7 +153,7 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 	if saved.Frames[0].PendingError.Reason != types.ExceptionReasonFrameDepth {
 		t.Fatal("checkpoint lost pending native reason")
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = machine.Store
 	restored, err := RestoreVMSnapshot(saved, machine.Store, machine.Builtins, ctx)
 	if err != nil {
@@ -195,7 +194,7 @@ func TestExceptionReasonRestoreRejectsIncompatiblePendingMetadata(t *testing.T) 
 	} {
 		snapshot := validRestoredSnapshot()
 		snapshot.Frames[0].PendingError = pending
-		if _, err := RestoreVMSnapshot(snapshot, nil, nil, kernel.NewTaskContext()); err == nil {
+		if _, err := RestoreVMSnapshot(snapshot, nil, nil, task.NewContext()); err == nil {
 			t.Fatalf("restored incompatible pending reason %#v", pending)
 		}
 	}
@@ -230,7 +229,7 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 			registry := BuildVMRegistry()
 			calls := 0
 			session := builtins.NewSession(registry, builtins.Host{
-				TaskManager: task.NewManager(),
+				TaskManager: emptyTaskHost{},
 				VerbCaller: func(object types.ObjID, verb string, args []types.Value, _ *builtins.Execution) types.Result {
 					if object != 10 || verb != "exitfunc" || len(args) != 1 || args[0].ID() != 12 {
 						t.Fatalf("unexpected lifecycle call #%d:%s", object, verb)
@@ -248,11 +247,11 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 				t.Fatal(diagnostics)
 			}
 			machine := NewVM(store, session)
-			machine.Context = kernel.NewTaskContext()
+			machine.Context = task.NewContext()
 			machine.Context.Store = store
 			machine.Context.Programmer = 0
 			machine.Context.IsWizard = true
-			machine.Task = task.NewTask(1, 0, 300_000, 30)
+			machine.Task = task.NewState(1, 0, 300_000, 30)
 			machine.Resumable = true
 			result := machine.Run(program)
 			if resume {

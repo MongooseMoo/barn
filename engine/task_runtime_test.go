@@ -49,7 +49,7 @@ func TestQueueTaskInitializesNewTaskFullContextBeforeRetryCapture(t *testing.T) 
 	s := NewRuntime(store)
 	defer s.Stop()
 	program := compileTestProgram(t, s.registry, "return 42;")
-	queued := task.NewTaskFull(99001, types.ObjNothing, program, 1000, 10)
+	queued := NewTaskFull(99001, types.ObjNothing, program, 1000, 10)
 	if queued.Context.Store != nil {
 		t.Fatal("NewTaskFull unexpectedly populated its context store")
 	}
@@ -89,8 +89,8 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 		t.Fatalf("compile: %v", diagnostics)
 	}
 	id := atomic.AddInt64(&s.nextTaskID, 1)
-	tk := task.NewTaskFull(id, types.ObjNothing, program, ticks, seconds)
-	s.populateTaskContextDependencies(tk.Context)
+	tk := NewTaskFull(id, types.ObjNothing, program, ticks, seconds)
+	s.populateContextDependencies(tk.Context)
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s
 	s.mu.Lock()
@@ -227,7 +227,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 		t.Fatalf("parent state = %v, want TaskCompleted", got)
 	}
 
-	var outer *task.Task
+	var outer *Task
 	for _, queued := range s.taskManager.Snapshot() {
 		if queued.IsForked {
 			outer = queued

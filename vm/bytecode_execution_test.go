@@ -5,20 +5,19 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *kernel.TaskContext) types.Result {
+func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *task.Context) types.Result {
 	t.Helper()
 	if store == nil {
 		store = dbstore.NewStore()
 	}
 	if ctx == nil {
-		ctx = kernel.NewTaskContext()
+		ctx = task.NewContext()
 	}
-	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
@@ -214,11 +213,11 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 }
 
 func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultList),
 		},
 	}}
@@ -228,11 +227,11 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -243,11 +242,11 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
 		},
 	}}
@@ -257,12 +256,12 @@ func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
 }
 
 func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: types.ValueBytes(resultMap),
 			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
 		},
@@ -586,10 +585,10 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	taskValue := task.NewTask(1, 0, 30_000, 1)
+	taskValue := task.NewState(1, 0, 30_000, 1)
 	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	machine.Context.ThisObj = 7
 	machine.Context.Programmer = 7
 	machine.Context.IsWizard = false
@@ -670,7 +669,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 		t.Fatalf("compile inherited verb: %v", diagnostics)
 	}
 	machine := NewVM(store, newTestSession(registry))
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	result := machine.RunWithVerbContext(prog, 3, 3, 3, "pass_caller", defObjID, nil)
 	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != 3 {
 		t.Fatalf("pass target caller = %v, want original caller #3", result.Val)
@@ -708,7 +707,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	requireList(t, runBytecodeProgram(t, "return #0.anon:anon_outer();", store, nil),
 		types.NewInt(1), types.NewInt(1), types.NewInt(1))
 
-	staleContext := kernel.NewTaskContext()
+	staleContext := task.NewContext()
 	staleContext.ThisValue = types.NewAnon(1)
 	requireInt(t, runBytecodeProgram(t, "return #0:caller_type();", store, staleContext), int64(types.TYPE_OBJ))
 }
@@ -876,8 +875,8 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	ctx := kernel.NewTaskContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	ctx := task.NewContext()
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`suspend(); return 9;`})
 	if len(diagnostics) > 0 {
@@ -913,8 +912,8 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	ctx := kernel.NewTaskContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	ctx := task.NewContext()
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`
 		try
