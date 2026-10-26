@@ -33,6 +33,23 @@ func TestReadLineBytesReturnsWhatReadStringWould(t *testing.T) {
 	}
 }
 
+func TestReadLinePreservesEOFWithoutLosingFinalLine(t *testing.T) {
+	for _, tc := range []struct{ text, last string }{{"\nlast", "last"}, {"\r\nlast\n", "last"}, {"\n.", "."}} {
+		r := smallReader(tc.text)
+		if line, err := readLine(r); line != "" || err != nil {
+			t.Fatalf("first line of %q = %q, %v", tc.text, line, err)
+		}
+		if line, err := readLine(r); line != tc.last || err != nil {
+			t.Fatalf("last line of %q = %q, %v; want %q", tc.text, line, err, tc.last)
+		}
+		for i := 0; i < 2; i++ {
+			if line, err := readLine(r); line != "" || err != io.EOF {
+				t.Fatalf("after final line of %q = %q, %v; want EOF", tc.text, line, err)
+			}
+		}
+	}
+}
+
 func TestReadIntAndObjIDParseLinesOfAnyLength(t *testing.T) {
 	padded := strings.Repeat(" ", 40) + "123" + strings.Repeat(" ", 40)
 	r := smallReader("5\n-17\r\n" + padded + "\n#9\n-1\n" + strings.Repeat(" ", 40) + "#77\n")

@@ -58,10 +58,11 @@ func readLineBytes(r *bufio.Reader) ([]byte, error) {
 	return long, err
 }
 
-// readLine reads a line and returns it without the newline
+// readLine returns a line without the newline, accepting a nonempty final line
+// without a delimiter. Once no bytes remain, preserve EOF for required readers.
 func readLine(r *bufio.Reader) (string, error) {
 	line, err := r.ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && (err != io.EOF || len(line) == 0) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\n\r"), nil
