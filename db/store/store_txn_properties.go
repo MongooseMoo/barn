@@ -454,6 +454,9 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 
 	prop.defined = true
 	prop.clear = false
+	if prop.perms.Has(PropChown) {
+		prop.owner = obj.owner
+	}
 
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)

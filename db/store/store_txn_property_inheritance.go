@@ -144,7 +144,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 		return types.E_INVARG
 	}
 
-	newProps := tx.copyInheritedProperties(obj.parents)
+	newProps := tx.copyInheritedProperties(obj.parents, obj.owner)
 	for name, prop := range obj.properties.all() {
 		if prop.defined {
 			newProps.put(name, prop)
@@ -195,7 +195,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) propTable {
+func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.ObjID) propTable {
 	result := newPropTable(0)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
@@ -217,7 +217,7 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) propTable {
 			if _, _, exists := result.find(name); exists {
 				continue
 			}
-			result.put(name, inheritedSlot(prop))
+			result.put(name, inheritedSlot(prop, owner))
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -257,7 +257,7 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
-			override := inheritedSlot(prop)
+			override := inheritedSlot(prop, child.owner)
 			child.properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)

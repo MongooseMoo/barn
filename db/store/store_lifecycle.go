@@ -26,7 +26,7 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 		// fast-path can detect creations since a task's floor without s.mu.
 		s.anonCreations.Add(1)
 	}
-	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
+	obj.properties = s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
 	s.shareCreatedProperties(obj.properties)
 	stampObjectAll(obj, ts)
 
@@ -297,7 +297,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 		}
 		newObj.parents = []types.ObjID{parent}
 	}
-	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
+	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents, newObj.owner)
 	s.shareCreatedProperties(newObj.properties)
 	stampObjectAll(newObj, ts)
 

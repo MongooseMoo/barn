@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID, owner types.ObjID) propTable {
 	result := newPropTable(0)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
@@ -27,7 +27,7 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
 			if _, exists := result.lookup(name); exists {
 				continue
 			}
-			result.put(name, inheritedSlot(prop))
+			result.put(name, inheritedSlot(prop, owner))
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -35,11 +35,15 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
 	return result
 }
 
-// inheritedSlot is the slot an object gets for a property it inherits and has
-// not written: clear, with no value of its own, as a loaded object's is. Reads
-// take the value from the ancestor.
-func inheritedSlot(from Property) Property {
-	return Property{value: types.None, owner: from.owner, perms: from.perms, clear: true}
+// inheritedSlot is the slot an object owned by owner gets for a property it
+// inherits and has not written: clear, with no value of its own, as a loaded
+// object's is. Reads take the value from the ancestor. With the c flag the
+// slot belongs to the object's owner (Toast db_properties.cc:974).
+func inheritedSlot(from Property, owner types.ObjID) Property {
+	if !from.perms.Has(PropChown) {
+		owner = from.owner
+	}
+	return Property{value: types.None, owner: owner, perms: from.perms, clear: true}
 }
 
 func propertyNameKey(name string) string {
@@ -57,7 +61,7 @@ func PropertyNameKey(name string) string {
 // current parents. Each is a rewrite at ts: a read of a clear slot depends on
 // the ancestry it resolved through, so its version must change with it.
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object, ts uint64) {
-	newProps := s.copyInheritedPropertiesLocked(obj.parents)
+	newProps := s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
 	for name, prop := range newProps.all() {
 		prop.version = ts
 		newProps.put(name, prop)
@@ -514,6 +518,9 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
+	if prop.perms.Has(PropChown) {
+		prop.owner = obj.owner
+	}
 
 	obj.properties.put(propertyNameKey(name), prop)
 
@@ -682,7 +689,7 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 			} else {
 				child = s.republishForMutation(child)
 			}
-			slot := inheritedSlot(prop)
+			slot := inheritedSlot(prop, child.owner)
 			slot.version = ts
 			child.properties.put(propertyNameKey(name), slot)
 			stampObjectProperties(child, ts)
