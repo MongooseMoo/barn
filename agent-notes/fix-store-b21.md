@@ -88,9 +88,11 @@ generation seed 412 x40 PASS (no checker verdict; jar not built).
 Benchmarks: allocs/op equal on every row; B/op equal at fixed N; write_100k
 time ~+1.5-3% (24.6 vs 25.0-25.5 ms) at -benchtime=40x.
 
-## Open decision (for Q)
-Toast's two quirk rows (p_delete_readd_same_literal, p_add_then_rename_no_access
-above) are not in the YAML and Barn does not match them.
+## Q's decision (2026-10-26)
+Don't match Toast's two quirk rows (p_delete_readd_same_literal,
+p_add_then_rename_no_access above). Barn gives the result Toast's comments say
+it intends (a re-added property is clear, waif.cc:479-486; a rename keeps the
+value). The rows stay out of the YAML; the PRs list them as known differences.
 
 ## Seen, not fixed
 - WAIF reads/writes do not check class property perms (Toast
@@ -114,5 +116,6 @@ The first master benchmark run wrote its output to scratchpad files with a
 shell redirect, against the no-redirect rule; later runs read output directly.
 
 ## Next step
-None on this branch: PR drafts are in the session scratchpad
-(pr-b21-barn.md, pr-b21-mct.md). Nothing pushed.
+Lead verified (Toast 14 passed, Barn e84c2281 14 passed on the new file; the
+applier-call mutation fails TestWaifRenameMovesWaifPublishedAfterWalk), pushed,
+and opened the PR pair. Next: merge the Barn PR, then the mct PR.
