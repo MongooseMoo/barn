@@ -75,7 +75,7 @@ func applyContentsDeltas(contents []types.ObjID, deltas []contentsDelta) []types
 
 func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectLocationRaw(objID, location)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectLocationRaw(objID, location) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -113,15 +113,21 @@ func (tx *StoreTxn) stageChildrenDelta(objID types.ObjID, d contentsDelta) {
 // on the rooms — so two moves into the same room both commit and merely take their
 // turn to publish, instead of one aborting and re-running the whole verb. It mutates the txn's cached images for read-your-writes. Retry-safe.
 //
-// Mirrors store.MoveObject's imperative order (remove from old, set location, insert
-// into new) so a same-location move re-orders identically.
+// A destination that is not valid in the txn's view is E_INVARG, so no move can
+// publish a location naming a recycled object; a destination recycled by a
+// concurrent commit fails this one's preflight, since the move writes its contents.
+// The order is remove from old, set location, insert into new, so a same-location move
+// re-orders.
 func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) types.ErrorCode {
 	if tx.direct {
-		return tx.store.moveObject(whatID, whereID, position)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.MoveObject(whatID, whereID, position) })
 	}
 	what := tx.object(whatID)
 	if !validLiveObject(what) {
 		return types.E_INVIND
+	}
+	if whereID != types.ObjNothing && !validLiveObject(tx.object(whereID)) {
+		return types.E_INVARG
 	}
 	oldLocID := what.location
 	tx.markObjectRelationshipRead(whatID, what)
@@ -153,11 +159,9 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	// Insert `what` into the new location's contents at the MOO position (commutative
 	// delta; no room read).
 	if whereID != types.ObjNothing {
-		if where := tx.object(whereID); validLiveObject(where) {
-			mw := tx.mutableObject(whereID)
-			mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
-			tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
-		}
+		mw := tx.mutableObject(whereID)
+		mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
+		tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
 	}
 	return types.E_NONE
 }

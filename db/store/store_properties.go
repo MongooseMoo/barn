@@ -393,185 +393,9 @@ func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, b
 	return prop, true, types.E_NONE
 }
 
-// setPropertyInfo updates owner and/or permissions on a local property slot.
-func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, prop, ok := obj.properties.find(name)
-	if !ok {
-		return types.E_PROPNF
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	if owner != nil {
-		prop.owner = *owner
-	}
-	if perms != nil {
-		prop.perms = *perms
-	}
-	prop.version = ts
-	obj.properties.put(actualName, prop)
-	stampObjectProperties(obj, ts)
-	return types.E_NONE
-}
-
-// setPropertyValue updates an existing local property slot or creates a local
-// override for an inherited property.
-func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	if actualName, prop, ok := obj.properties.find(name); ok {
-		prop.clear = false
-		prop.value = value
-		prop.version = ts
-		obj.properties.put(actualName, prop)
-		stampObjectProperties(obj, ts)
-		return types.E_NONE
-	}
-
-	inheritedName, inherited, err := s.findPropertyLocked(objID, name)
-	if err != types.E_NONE {
-		return err
-	}
-	obj.properties.put(inheritedName, Property{
-		value:   value,
-		owner:   inherited.owner,
-		perms:   inherited.perms,
-		clear:   false,
-		defined: false,
-		version: ts,
-	})
-	stampObjectProperties(obj, ts)
-	return types.E_NONE
-}
-
-// defineProperty adds a new property definition to an object and propagates
-// inherited clear slots to existing descendants.
-func (s *Store) defineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.definePropertyLocked(objID, name, prop)
-}
-
-func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Property) types.ErrorCode {
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	if _, _, exists := obj.properties.find(name); exists {
-		return types.E_INVARG
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	prop.defined = true
-	prop.clear = false
-	prop.version = ts
-	if prop.perms.Has(PropChown) {
-		prop.owner = obj.owner
-	}
-
-	obj.properties.put(propertyNameKey(name), prop)
-
-	pos := obj.propDefsCount
-	if pos > len(obj.propOrder) {
-		pos = len(obj.propOrder)
-	}
-	obj.propOrder = append(obj.propOrder, "")
-	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-	obj.propOrder[pos] = name
-	obj.propDefsCount++
-	stampObjectProperties(obj, ts)
-
-	s.propagatePropertyToDescendantsLocked(liveImages{s}, objID, name, prop, ts)
-	return types.E_NONE
-}
-
-// deleteDefinedProperty removes a property defined directly on an object and
-// removes inherited copies from descendants.
-func (s *Store) deleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.deleteDefinedPropertyLocked(objID, name)
-}
-
-func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string) types.ErrorCode {
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, prop, ok := obj.properties.find(name)
-	if !ok || !prop.defined {
-		return types.E_PROPNF
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-
-	obj.properties.remove(actualName)
-	// propOrder keeps display case while actualName is the canonical map key,
-	// so the order entry is removed case-insensitively.
-	obj.propOrder = removeStringFold(obj.propOrder, actualName)
-	if obj.propDefsCount > 0 {
-		obj.propDefsCount--
-	}
-	stampObjectProperties(obj, ts)
-	s.removeInheritedPropertyLocked(liveImages{s}, objID, actualName, ts)
-	return types.E_NONE
-}
-
-// clearPropertyOverride removes a local inherited-property slot so reads fall
-// through to the parent chain.
-func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, _, ok := obj.properties.find(name)
-	if ok {
-		obj = s.republishForMutation(obj)
-		ts := s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-		obj.properties.remove(actualName)
-		stampObjectProperties(obj, ts)
-	}
-	return types.E_NONE
-}
-
-// objectImages is what a store-side propagation walk reads objects through and
-// takes a changeable image of an object from.
-type objectImages interface {
-	view(id types.ObjID) *Object
-	own(obj *Object) *Object
-}
-
-// liveImages serves a direct store write: each object the walk changes is
-// republished on its own.
-type liveImages struct{ s *Store }
-
-func (l liveImages) view(id types.ObjID) *Object { return l.s.liveObjectLocked(id) }
-func (l liveImages) own(obj *Object) *Object     { return l.s.republishForMutation(obj) }
-
-func (s *Store) propagatePropertyToDescendantsLocked(images objectImages, objID types.ObjID, name string, prop Property, ts uint64) {
+// propagatePropertyToDescendantsLocked gives each descendant of objID, as an
+// exclusive commit is building it, the inherited slot of a definition.
+func (s *Store) propagatePropertyToDescendantsLocked(images commitImages, objID types.ObjID, name string, prop Property, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -630,7 +454,9 @@ func (s *Store) propagatePropertyToDescendantsLocked(images objectImages, objID 
 	}
 }
 
-func (s *Store) removeInheritedPropertyLocked(images objectImages, objID types.ObjID, name string, ts uint64) {
+// removeInheritedPropertyLocked takes a deleted definition's inherited slot
+// away from each descendant of objID, as an exclusive commit is building it.
+func (s *Store) removeInheritedPropertyLocked(images commitImages, objID types.ObjID, name string, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {

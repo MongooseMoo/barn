@@ -15,7 +15,9 @@ import (
 // (publishStagedLocked). Each object gets one image per commit timestamp, and
 // history keeps the image it replaced. Anonymous objects have no slot and no
 // history; a commit that writes one holds store.mu.Lock and changes it in place.
-// Direct store writers republish a fresh clone and mutate that under
+// The direct transaction's writes go through the same applier (writeNow). The
+// coarse store operations that have no transaction form (recycle, chparent,
+// renumber, verb edits) republish a fresh clone and mutate that under
 // store.mu.Lock — see republishForMutation.
 //
 // Coherence:

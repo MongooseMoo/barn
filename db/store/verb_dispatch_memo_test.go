@@ -49,7 +49,7 @@ func TestVerbDispatchMemoPreservesDuplicateAliasWinner(t *testing.T) {
 				}
 			}
 			check("return 1;")
-			if ec := s.setVerbCodeByIndex(0, 1, []string{"return 2;"}); ec != types.E_NONE {
+			if ec := s.DirectTxn().SetVerbCodeByIndex(0, 1, []string{"return 2;"}); ec != types.E_NONE {
 				t.Fatalf("edit second verb: %v", ec)
 			}
 			check("return 2;")
@@ -252,7 +252,7 @@ func TestVerbDispatchMemoRepeatHitKeepsVerbReadMark(t *testing.T) {
 	}
 	requireSameReadSet(t, "repeat hits", want, snapshotReadSet(user))
 
-	if ec := s.setVerbCodeByIndex(0, 0, []string{"return 2;"}); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetVerbCodeByIndex(0, 0, []string{"return 2;"}); ec != types.E_NONE {
 		t.Fatalf("concurrent code edit: %v", ec)
 	}
 	if again, _ := lookTimes(t, user, 1); again != first || again.code[0] != "return 1;" {

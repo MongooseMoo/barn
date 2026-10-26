@@ -103,7 +103,7 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 
 func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectName(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectName(objID, name) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -120,7 +120,7 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 
 func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectOwner(objID, owner)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectOwner(objID, owner) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -137,7 +137,7 @@ func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.E
 
 func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectFlag(objID, flag, enabled)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectFlag(objID, flag, enabled) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -163,13 +163,20 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 // footprint), records a PRISTINE base image in createdObjects (commit rebuilds from a
 // clone + this id's staged self-writes, so published memory never aliases txn state),
 // caches it for read-your-writes, and stages a commutative children-add on each parent.
-// Anonymous creation stays coarse (out-of-band, no slot) — callers must not route it
-// here. Retry-safe: on retry the whole txn is dropped and a fresh id is allocated (the
-// abandoned id is wasted, never a live slot).
+// Anonymous creation is coarse from any txn (out-of-band, no slot: a staged create is
+// published into the numbered directory). Retry-safe: on retry the whole txn is dropped
+// and a fresh id is allocated (the abandoned id is wasted, never a live slot).
 func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous ...bool) (types.ObjID, types.ErrorCode) {
-	isAnonymous := len(anonymous) > 0 && anonymous[0]
-	if tx.direct || isAnonymous {
-		return tx.store.createObject(parents, owner, isAnonymous)
+	if len(anonymous) > 0 && anonymous[0] {
+		return tx.store.createAnonymous(parents, owner)
+	}
+	if tx.direct {
+		var newID types.ObjID
+		errCode := tx.store.writeNow(func(w *StoreTxn) (errCode types.ErrorCode) {
+			newID, errCode = w.CreateObject(parents, owner)
+			return errCode
+		})
+		return newID, errCode
 	}
 	newID := tx.store.allocateID()
 	if owner == types.ObjNothing {

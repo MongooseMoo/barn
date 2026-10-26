@@ -1,8 +1,6 @@
 package store
 
 import (
-	"time"
-
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -24,47 +22,6 @@ func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.
 			parent.chparentChildren[childID] = true
 		}
 	}
-}
-
-func (s *Store) moveObject(whatID types.ObjID, whereID types.ObjID, position int64) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	what := s.load(whatID)
-	if !validLiveObject(what) {
-		return types.E_INVIND
-	}
-	if whereID != types.ObjNothing && !validLiveObject(s.load(whereID)) {
-		return types.E_INVARG
-	}
-
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	oldLocation := what.location
-	if oldLocation != types.ObjNothing {
-		if oldLoc := s.load(oldLocation); validLiveObject(oldLoc) {
-			oldLoc = s.republishForMutation(oldLoc)
-			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
-			stampObjectRelationship(oldLoc, ts)
-		}
-	}
-
-	what = s.republishForMutation(what)
-	what.location = whereID
-	what.lastMove = types.NewMap([][2]types.Value{
-		{types.NewStr("time"), types.NewInt(time.Now().Unix())},
-		{types.NewStr("source"), types.NewObj(oldLocation)},
-	})
-	stampObjectRelationship(what, ts)
-
-	if whereID != types.ObjNothing {
-		if where := s.load(whereID); validLiveObject(where) {
-			where = s.republishForMutation(where)
-			where.contents = insertObjIDAtMOOPosition(where.contents, whatID, position)
-			stampObjectRelationship(where, ts)
-		}
-	}
-	return types.E_NONE
 }
 
 // ancestorWalkInline is how many queued parent ids a HasAncestor walk holds on

@@ -175,7 +175,7 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 
-	// Definition-order scan (see findVerbWalkFromQueueLocked) so colliding
+	// Definition-order scan (as StoreTxn.findVerbOnObject) so colliding
 	// aliases resolve to the first-declared verb.
 	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
@@ -239,43 +239,6 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		}
 	}
 	return types.E_VERBNF
-}
-
-// deleteResolvedVerb deletes exactly the definition previously selected by
-// resolveVerbOnObject or resolveVerbByIndex. If the object's verb list changed after resolution, it
-// fails without mutation instead of applying a stale index to another verb.
-func (s *Store) deleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.deleteResolvedVerbLocked(resolved)
-}
-
-// deleteResolvedVerbAuthorized validates the resolved verb identity and the
-// programmer's current live authority, then deletes the verb while holding one
-// store lock. It is the no-transaction fallback for delete_verb; transaction
-// callers stage deletion on StoreTxn so commit validation precedes mutation.
-// Identity validation precedes authority validation so a stale or missing
-// descriptor retains delete_verb's E_VERBNF-before-E_PERM precedence.
-func (s *Store) deleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if errCode := s.validateResolvedVerbDeleteAuthorityLocked(resolved, programmer, isWizard); errCode != types.E_NONE {
-		return errCode
-	}
-	return s.deleteResolvedVerbLocked(resolved)
-}
-
-func (s *Store) validateResolvedVerbDeleteAuthorityLocked(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
-	if errCode := s.validateResolvedVerbLocked(resolved); errCode != types.E_NONE {
-		return errCode
-	}
-	obj := s.liveObjectLocked(resolved.objID)
-	if !ObjectAllows(obj.owner, obj.flags, programmer, isWizard, FlagWrite) {
-		return types.E_PERM
-	}
-	return types.E_NONE
 }
 
 func (s *Store) validateResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode {
@@ -422,61 +385,6 @@ func (s *Store) setVerbArgs(objID types.ObjID, find func() *Verb, argSpec VerbAr
 	verb.argSpec = argSpec
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
-	s.noteVerbShapeChanged()
-	return types.E_NONE
-}
-
-// setVerbCode replaces the source of a verb defined on objID itself. Compiled
-// programs are not stored on the verb, so this writes the source and its
-// content key only.
-func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.liveObjectLocked(objID) == nil {
-		return types.E_INVIND
-	}
-	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
-	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
-	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
-	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
-	verb, err := s.findVerbOnObjectLocked(objID, name)
-	if err != nil {
-		return types.E_VERBNF
-	}
-	s.republishForMutation(s.load(objID))
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
-		return types.E_VERBNF
-	}
-	ts := s.bumpClockLocked()
-	// set_verb_code installs a program (even an empty one) on the verb, and
-	// setCodeCopy refreshes the content key with it.
-	verb.setCodeCopy(lines)
-	stampVerb(verb, ts)
-	stampObjectVerbs(s.load(objID), ts)
-	s.noteVerbShapeChanged()
-	return types.E_NONE
-}
-
-func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	if index < 0 || index >= len(obj.verbList) {
-		return types.E_RANGE
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	verb := obj.verbList[index]
-	// set_verb_code installs a program (even an empty one) on the verb, and
-	// setCodeCopy refreshes the content key with it.
-	verb.setCodeCopy(lines)
-	stampVerb(verb, ts)
-	stampObjectVerbs(obj, ts)
 	s.noteVerbShapeChanged()
 	return types.E_NONE
 }

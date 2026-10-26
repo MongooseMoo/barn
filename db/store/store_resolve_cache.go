@@ -214,10 +214,10 @@ type propResolveEntry struct {
 }
 
 // resolveCacheActive gates property memoization. Local verb entries instead
-// validate that every object on their path is unowned. The direct transaction
-// reads the live store, which no memo describes, and goroutines share it.
+// validate that every object on their path is unowned. A live transaction
+// reads the store as it is now, which no memo describes.
 func (tx *StoreTxn) resolveCacheActive() bool {
-	return !tx.direct && len(tx.owned) == 0
+	return !tx.live() && len(tx.owned) == 0
 }
 
 // verbMemoActive gates the store-global verb dispatch memo. A memo entry names
@@ -229,7 +229,7 @@ func (tx *StoreTxn) resolveCacheActive() bool {
 // materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
 // predates a verb-shape change (validateVerbReadsLocked).
 func (tx *StoreTxn) verbMemoActive() bool {
-	return !tx.direct && !tx.privateVerbShape
+	return !tx.live() && !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -532,7 +532,7 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
-	if tx.direct {
+	if tx.live() {
 		return
 	}
 	for _, step := range steps {

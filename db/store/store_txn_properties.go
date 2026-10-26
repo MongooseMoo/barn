@@ -60,7 +60,13 @@ func (tx *StoreTxn) propertyDefinesByObject() map[types.ObjID][]propertyDefine {
 		grouped[key.objID] = nil
 		if obj := tx.objects[key.objID]; obj != nil {
 			for _, name := range obj.propOrder {
-				if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: propertyNameKey(name)}]; ok {
+				// A name can appear in the order more than once (a defined slot
+				// removed without its order entry); its define applies once.
+				lower := propertyNameKey(name)
+				if slices.ContainsFunc(grouped[key.objID], func(d propertyDefine) bool { return propertyNameKey(d.name) == lower }) {
+					continue
+				}
+				if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: lower}]; ok {
 					grouped[key.objID] = append(grouped[key.objID], def)
 					ordered++
 				}
@@ -330,7 +336,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 
 func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setPropertyValue(objID, name, value)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetPropertyValue(objID, name, value) })
 	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
@@ -388,7 +394,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 
 func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setPropertyInfo(objID, name, owner, perms)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetPropertyInfo(objID, name, owner, perms) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -424,7 +430,7 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 
 func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	if tx.direct {
-		return tx.store.defineProperty(objID, name, prop)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DefineProperty(objID, name, prop) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -462,7 +468,7 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 
 func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.clearPropertyOverride(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.ClearPropertyOverride(objID, name) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {

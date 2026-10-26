@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -11,9 +12,12 @@ import (
 )
 
 type StoreTxn struct {
-	readTS                    uint64
-	store                     *Store
-	direct                    bool
+	readTS uint64
+	store  *Store
+	direct bool
+	// locked is set on the private writer of writeNow, whose caller holds
+	// store.mu.Lock for the writer's whole life.
+	locked                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
 	gateWait                  func(time.Duration)
@@ -160,6 +164,45 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
+}
+
+// newLockedWriter returns the private transaction writeNow stages on. The caller
+// holds store.mu.Lock until the writer is done: it reads the store as it is now
+// and registers no read timestamp, because it is never validated or released.
+func (s *Store) newLockedWriter() *StoreTxn {
+	return &StoreTxn{
+		readTS:        math.MaxUint64,
+		store:         s,
+		locked:        true,
+		objects:       make(map[types.ObjID]*Object),
+		maxObjID:      s.maxObjectID(),
+		highWaterID:   s.highWater(),
+		conflictLabel: ConflictLabel{Obj: types.ObjNothing},
+	}
+}
+
+// writeNow is how the direct transaction writes: op runs on a private writer
+// that reads the live store under store.mu.Lock, and what it staged is published
+// before the lock is released. Nothing else can run between the reads and the
+// publication, so there is nothing to validate. A failed op publishes nothing.
+func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.newLockedWriter()
+	if errCode := op(w); errCode != types.E_NONE || !w.hasStagedWrites() {
+		return errCode
+	}
+	// The writer walked every definer's children under this lock, so no child
+	// can have joined since: the store need not walk them again.
+	w.publishStagedLocked(w.writesByObject(), s.clock.Load()+1, false)
+	return types.E_NONE
+}
+
+// live reports whether tx reads the store as it is now: the shared direct
+// transaction, or a writeNow writer. Neither is validated, so neither records
+// reads or memoizes resolutions.
+func (tx *StoreTxn) live() bool {
+	return tx.direct || tx.locked
 }
 
 func (tx *StoreTxn) ReadTimestamp() uint64 {

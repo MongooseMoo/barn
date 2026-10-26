@@ -34,21 +34,14 @@ type verbDelete struct {
 // and ordered-list staging. The resolution scan supplies the generation guard.
 func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	if tx.direct {
-		return tx.store.deleteResolvedVerb(resolved)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DeleteResolvedVerb(resolved) })
 	}
-	if tx == nil || tx.store == nil || resolved.store != tx.store {
-		return types.E_VERBNF
-	}
-	obj := tx.object(resolved.objID)
-	if !validLiveObject(obj) {
-		return types.E_INVIND
-	}
-	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
-		return types.E_VERBNF
+	if _, errCode := tx.resolvedVerbObject(resolved); errCode != types.E_NONE {
+		return errCode
 	}
 	tx.invalidateResolveCaches()
 	tx.privateVerbShape = true
-	obj = tx.mutableObject(resolved.objID)
+	obj := tx.mutableObject(resolved.objID)
 	if !validLiveObject(obj) || obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
 		return types.E_VERBNF
 	}
@@ -60,19 +53,50 @@ func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	return types.E_NONE
 }
 
-// DeleteResolvedVerbAuthorized preserves the direct path's atomic authority and
-// identity validation while snapshot transactions continue to validate identity
-// at commit after the caller's snapshot-based permission check.
+// resolvedVerbObject returns this transaction's view of the object resolved names,
+// if the verb list it was resolved against is still the one in view.
+func (tx *StoreTxn) resolvedVerbObject(resolved ResolvedVerb) (*Object, types.ErrorCode) {
+	if tx == nil || tx.store == nil || resolved.store != tx.store {
+		return nil, types.E_VERBNF
+	}
+	obj := tx.object(resolved.objID)
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
+		return nil, types.E_VERBNF
+	}
+	return obj, types.E_NONE
+}
+
+// DeleteResolvedVerbAuthorized deletes the resolved verb if programmer may write
+// its object. Identity is checked before authority, so a stale or missing
+// descriptor keeps delete_verb's E_VERBNF-before-E_PERM precedence. On the
+// direct transaction the check and the delete run under one store lock; a
+// snapshot transaction's commit validates what the check read.
 func (tx *StoreTxn) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
 	if tx.direct {
-		return tx.store.deleteResolvedVerbAuthorized(resolved, programmer, isWizard)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode {
+			return w.DeleteResolvedVerbAuthorized(resolved, programmer, isWizard)
+		})
+	}
+	obj, errCode := tx.resolvedVerbObject(resolved)
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	tx.markObjectScalarRead(resolved.objID, obj)
+	if !ObjectAllows(obj.owner, obj.flags, programmer, isWizard, FlagWrite) {
+		return types.E_PERM
 	}
 	return tx.DeleteResolvedVerb(resolved)
 }
 
 func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setVerbCode(objID, name, lines)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetVerbCode(objID, name, lines) })
+	}
+	if !validLiveObject(tx.object(objID)) {
+		return types.E_INVIND
 	}
 	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
@@ -95,7 +119,7 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 
 func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setVerbCodeByIndex(objID, index, lines)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetVerbCodeByIndex(objID, index, lines) })
 	}
 	// stageVerbCode mutates the verb node in place, so resolve it from a txn-private
 	// copy of the object rather than a shared alias.

@@ -395,7 +395,7 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 
 func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.deleteDefinedProperty(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DeleteDefinedProperty(objID, name) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
