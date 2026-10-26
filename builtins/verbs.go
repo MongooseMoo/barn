@@ -578,8 +578,9 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
-	// object writability does not grant this to a non-owner).
-	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+	// object writability does not grant this to a non-owner), and only a wizard
+	// may change its owner (Toast src/verbs.cc:349-354).
+	if !ctx.IsWizard && (ctx.Programmer != verb.Owner || owner.ID() != verb.Owner) {
 		return types.Err(types.E_PERM)
 	}
 
