@@ -114,7 +114,7 @@ func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 		t.Fatalf("Flush: %v", err)
 	}
 
-	database := &Database{}
+	database := &Database{Version: 17}
 	if err := database.readQueuedTasks(bufio.NewReader(bytes.NewReader(dump.Bytes()))); err != nil {
 		t.Fatalf("readQueuedTasks: %v", err)
 	}
