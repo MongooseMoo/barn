@@ -130,9 +130,12 @@ func (tx *StoreTxn) stagedEntries() int {
 }
 
 // writesByObject gathers the staged writes by the object they change: one entry
-// for every object the commit publishes an image for.
+// for every object the commit publishes an image for. The entries are reserved
+// once: no more than the staged entries, and past objIDSetLinearMax no more than
+// the objects the txn viewed, so many writes to one object reserve few entries.
 func (tx *StoreTxn) writesByObject() writeSet {
-	writes := writeSet{entries: make([]objectWrites, 0, min(tx.stagedEntries(), objIDSetLinearMax))}
+	reserve := min(tx.stagedEntries(), max(objIDSetLinearMax, len(tx.objects)))
+	writes := writeSet{entries: make([]objectWrites, 0, reserve)}
 	at := writes.at
 	for id, base := range tx.createdObjects {
 		at(id).created = base
