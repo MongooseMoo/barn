@@ -209,7 +209,9 @@ type Store struct {
 	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
 
-	waifRegistry map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
+	// Live waifs by class. Weak, so the registry roots nothing; a class
+	// property rename or delete reaches every WAIF of the class through it.
+	waifRegistry map[types.ObjID]map[types.WaifIdentity]types.WeakWaif
 	// verbCacheStats is verb_cache_stats()'s current interval: the
 	// verbCacheCleared bit plus the miss count. One word, so a clear, a miss and
 	// a consume each take effect whole.

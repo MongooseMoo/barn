@@ -2,6 +2,8 @@ package store
 
 import (
 	"container/heap"
+	"slices"
+	"strings"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -76,8 +78,19 @@ func (tx *StoreTxn) WaifProperties(value types.Value) (map[string]types.Value, t
 }
 
 func (tx *StoreTxn) SetWaifProperty(value types.Value, name string, next types.Value) types.ErrorCode {
+	_, ec := tx.setWaifProperty(value, name, next, false)
+	return ec
+}
+
+// ReplaceWaifProperty writes name only when the WAIF already holds a value
+// for it, and reports whether it did.
+func (tx *StoreTxn) ReplaceWaifProperty(value types.Value, name string, next types.Value) (bool, types.ErrorCode) {
+	return tx.setWaifProperty(value, name, next, true)
+}
+
+func (tx *StoreTxn) setWaifProperty(value types.Value, name string, next types.Value, onlyHeld bool) (bool, types.ErrorCode) {
 	if tx == nil || tx.store == nil {
-		return types.E_INVARG
+		return false, types.E_INVARG
 	}
 	if tx.direct {
 		tx.store.mu.Lock()
@@ -88,16 +101,159 @@ func (tx *StoreTxn) SetWaifProperty(value types.Value, name string, next types.V
 	}
 	image, ec := tx.waifImageLocked(value)
 	if ec != types.E_NONE {
-		return ec
+		return false, ec
 	}
-	if image.staged == nil {
+	created := image.staged == nil
+	if created {
 		image.staged = image.base.Properties()
 	}
+	// A write that adds a name grows the map; onlyHeld takes it back.
+	held := len(image.staged)
 	image.staged[name] = next
+	if onlyHeld && len(image.staged) != held {
+		delete(image.staged, name)
+		if created {
+			image.staged = nil
+		}
+		return false, types.E_NONE
+	}
 	if tx.direct {
 		tx.store.publishWaifLocked(image, tx.store.bumpClockLocked())
 	}
-	return types.E_NONE
+	return true, types.E_NONE
+}
+
+// waifMove is what a rename or delete of a class property does to WAIF
+// values, which are keyed by the property name without its ":". to is empty
+// when the value goes away: the property is deleted, or renamed to a name
+// WAIFs do not have.
+type waifMove struct{ from, to string }
+
+// newWaifMove is false when from is not a WAIF property or the key stays.
+func newWaifMove(from, to string) (waifMove, bool) {
+	if !strings.HasPrefix(from, ":") {
+		return waifMove{}, false
+	}
+	move := waifMove{from: propertyNameKey(from[1:])}
+	if strings.HasPrefix(to, ":") {
+		move.to = propertyNameKey(to[1:])
+	}
+	return move, move.from != move.to
+}
+
+// moveWaifProperties applies moves to properties, which the caller owns, as
+// one substitution, so the moves of a swap of two names swap the values.
+func moveWaifProperties(properties map[string]types.Value, moves []waifMove) {
+	values := make([]types.Value, len(moves))
+	held := make([]bool, len(moves))
+	for i, move := range moves {
+		values[i], held[i] = properties[move.from]
+		delete(properties, move.from)
+	}
+	for i, move := range moves {
+		if held[i] && move.to != "" {
+			properties[move.to] = values[i]
+		}
+	}
+}
+
+// moveWaifValues stages a rename (or, with to "", a delete) of objID's
+// property from on every live WAIF of objID and its descendant classes, so
+// the value follows the name (Toast renames the WAIF propdefs in place,
+// rename_waif_prop_recursively, db_properties.cc:233-249; a delete drops the
+// value, remove_prop2 and update_waif_propdefs, waif.cc:412-575).
+func (tx *StoreTxn) moveWaifValues(objID types.ObjID, from, to string) {
+	move, ok := newWaifMove(from, to)
+	if !ok {
+		return
+	}
+	classes, ec := tx.Descendants(objID, true)
+	if ec != types.E_NONE {
+		return
+	}
+	if !tx.locked {
+		tx.store.mu.RLock()
+		defer tx.store.mu.RUnlock()
+	}
+	for _, class := range classes {
+		for _, weak := range tx.store.waifRegistry[class] {
+			value, alive := weak.Value()
+			if !alive {
+				continue
+			}
+			image, ec := tx.waifImageLocked(value)
+			if ec != types.E_NONE {
+				continue
+			}
+			if image.staged == nil {
+				if _, held := image.base.Property(move.from); !held {
+					continue
+				}
+				image.staged = image.base.Properties()
+			}
+			moveWaifProperties(image.staged, []waifMove{move})
+		}
+	}
+}
+
+// moveUnstagedWaifValuesLocked publishes this txn's renames and deletes of
+// WAIF class properties, at ts, on the WAIFs it did not read: one another
+// task published after this txn walked the class. The definitions are already
+// published, so the live subtrees are this commit's.
+func (tx *StoreTxn) moveUnstagedWaifValuesLocked(ts uint64) {
+	if len(tx.propertyRenames) == 0 && len(tx.propertyDefinitionDeletes) == 0 {
+		return
+	}
+	s := tx.store
+	var moves map[types.ObjID][]waifMove
+	add := func(definer types.ObjID, from, to string) {
+		move, ok := newWaifMove(from, to)
+		if !ok {
+			return
+		}
+		classes := []types.ObjID{definer}
+		for i := 0; i < len(classes); i++ {
+			if obj := s.liveObjectLocked(classes[i]); obj != nil {
+				for _, child := range obj.children {
+					if !slices.Contains(classes, child) {
+						classes = append(classes, child)
+					}
+				}
+			}
+		}
+		for _, class := range classes {
+			lazySet(&moves, class, append(moves[class], move))
+		}
+	}
+	for key, rename := range tx.propertyRenames {
+		add(key.objID, rename.from, rename.to)
+	}
+	for key, name := range tx.propertyDefinitionDeletes {
+		add(key.objID, name, "")
+	}
+	for class, classMoves := range moves {
+		for identity, weak := range s.waifRegistry[class] {
+			if _, read := tx.waifs[identity]; read {
+				continue
+			}
+			value, alive := weak.Value()
+			if !alive {
+				continue
+			}
+			live, ok := value.WaifImageAt(s.waifs.domain, s.readTimestamp())
+			if !ok {
+				continue
+			}
+			for _, move := range classMoves {
+				if _, held := live.Property(move.from); held {
+					properties := live.Properties()
+					moveWaifProperties(properties, classMoves)
+					s.publishWaifLocked(&waifTxnImage{value: value, base: live, staged: properties}, ts)
+					break
+				}
+			}
+		}
+	}
 }
 
 func (tx *StoreTxn) hasWaifWrites() bool {

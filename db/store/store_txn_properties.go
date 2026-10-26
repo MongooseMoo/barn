@@ -537,6 +537,7 @@ func (tx *StoreTxn) RenameProperty(objID types.ObjID, from, to string) types.Err
 	}
 
 	tx.renameInheritedProperty(objID, actualName, to)
+	tx.moveWaifValues(objID, actualName, to)
 	return types.E_NONE
 }
 

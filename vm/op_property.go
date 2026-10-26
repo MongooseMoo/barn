@@ -364,15 +364,43 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	}
 
 	// Check for self-reference (circular reference)
-	contains, ec := containsWaif(vm.Context.StoreTxn, value, waif)
+	txn := vm.Context.StoreTxn
+	contains, ec := containsWaif(txn, value, waif)
 	if ec != types.E_NONE {
 		return fmt.Errorf("%s: WAIF containment read", ec)
+	}
+
+	// A WAIF holds values only for the ":" properties its class defines, so a
+	// name it holds needs no class lookup. A name it lacks is looked up on the
+	// class (Toast waif_put_prop, waif.cc:737-830) before the containment
+	// error; the lookup is a read, so a rename or delete of the definition
+	// committed meanwhile conflicts with it.
+	key := dbstore.PropertyNameKey(propName)
+	if !contains {
+		replaced, ec := txn.ReplaceWaifProperty(waif, key, value)
+		if ec != types.E_NONE {
+			return fmt.Errorf("%s: WAIF property write", ec)
+		}
+		if replaced {
+			return nil
+		}
+	}
+	if _, held, ec := txn.WaifProperty(waif, key); ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	} else if !held {
+		classID := waif.Class()
+		if errCode := objectExistsForRead(txn, classID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid waif class #%d", classID)
+		}
+		if _, errCode := findPropertyForRead(txn, classID, ":"+propName); errCode != types.E_NONE {
+			return newMooErrorf(types.E_PROPNF, "property not found: %s", propName)
+		}
 	}
 	if contains {
 		return newMooError(types.E_RECMOVE, "value contains the waif itself")
 	}
 
-	if ec := vm.Context.StoreTxn.SetWaifProperty(waif, dbstore.PropertyNameKey(propName), value); ec != types.E_NONE {
+	if ec := txn.SetWaifProperty(waif, key, value); ec != types.E_NONE {
 		return fmt.Errorf("%s: WAIF property write", ec)
 	}
 
