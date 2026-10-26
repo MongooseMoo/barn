@@ -459,3 +459,40 @@ does not prove typed representation unification impossible; substantial net
 deletion is unproven. No full-world rewrite is recommended from this evidence.
 No code, tests or benchmarks were changed/run. The research answer is complete;
 further implementation or architectural investment awaits Q's direction.
+
+## Follow-up: typed-reference graph
+
+Q challenged the inference: a pending recycle reference can be a distinct kind
+of edge in one model. The parent agrees. The earlier counterexamples exclude
+unqualified reachability, not shared ownership machinery with typed references.
+Treating different meanings as proof of separate machinery was too strong.
+
+Q authorized continuing research. Smallest deliverable: extend the existing
+immutable-roots report with a concrete typed-reference model and source-backed
+transition examples (roughly 150-300 Markdown lines, zero implementation lines).
+Reuse the existing Astra researcher. Determine traversal state, propagation and
+root-selection rules; show whether pending callback retention, semantic liveness,
+snapshot visibility and export ownership follow from those rules. Compare with
+existing typed VM roots and retained/current walkers; count actual deletions and
+replacement obligations. No generic graph framework or code is authorized.
+
+Parent's fresh source checks for this follow-up:
+- vm/value_roots.go:5-12 already labels live and pending roots.
+- vm/waif_gc.go:52 and db/store/store_reachability.go:263 have matching recursive
+  WAIF/list/map closure logic with retained/current selection. This is a concrete
+  shared-walker opportunity, not yet evidence for deleting lifecycle machinery.
+- engine/waif_lifecycle.go:65 captures OwnRefs at defer time; :307-316 adds those
+  captured identities to a live set computed before the callback batch. A model
+  must preserve capture phase as well as edge kind. Rewalking current edges or
+  recomputing after each callback is not source-equivalent by assumption.
+- types/waifset.go:40 suppresses repeat expansion by identity; sharing a visited
+  set across different views/modes would require additional reasoning. Separate
+  calls to a shared traversal can preserve today's smaller identity set.
+- Racket's official will-executor documentation explicitly separates eligibility
+  from retaining the registrant for callback execution. This supports the typed
+  reference interpretation, not automatic Barn equivalence:
+  https://docs.racket-lang.org/reference/willexecutor.html (read 2026-10-26).
+
+The Astra researcher is constructing the typed model and testing transitions.
+No code/tests/benchmarks run. Await its writeup, verify the substantive claims,
+then update this same note with the result.
