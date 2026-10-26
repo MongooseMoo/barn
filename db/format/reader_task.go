@@ -123,19 +123,24 @@ func (database *Database) readQueuedTaskActivation(r *bufio.Reader, task *Queued
 	if _, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation temp value: %w", err)
 	}
-	if tempThis, err := database.readValue(r); err != nil {
-		return fmt.Errorf("read activation this value: %w", err)
-	} else if id, ok := asObjID(tempThis); ok {
-		task.This = id
+	if database.Version >= 11 { // DBV_This
+		if tempThis, err := database.readValue(r); err != nil {
+			return fmt.Errorf("read activation this value: %w", err)
+		} else if id, ok := asObjID(tempThis); ok {
+			task.This = id
+		}
 	}
-	if tempVerbLoc, err := database.readValue(r); err != nil {
-		return fmt.Errorf("read activation verb location: %w", err)
-	} else if id, ok := asObjID(tempVerbLoc); ok {
-		task.VerbLoc = id
+	if database.Version >= 13 { // DBV_Anon
+		if tempVerbLoc, err := database.readValue(r); err != nil {
+			return fmt.Errorf("read activation verb location: %w", err)
+		} else if id, ok := asObjID(tempVerbLoc); ok {
+			task.VerbLoc = id
+		}
 	}
-
-	if _, err := r.ReadString('\n'); err != nil {
-		return fmt.Errorf("read activation threaded flag: %w", err)
+	if database.Version >= 16 { // DBV_Threaded
+		if _, err := r.ReadString('\n'); err != nil {
+			return fmt.Errorf("read activation threaded flag: %w", err)
+		}
 	}
 
 	line, err := r.ReadString('\n')

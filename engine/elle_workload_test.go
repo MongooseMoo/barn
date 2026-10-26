@@ -518,6 +518,9 @@ func TestElleIsolationHistories(t *testing.T) {
 					}
 					elleDrain(t, rt, batch)
 				}
+				// Extend both observed prefixes so lost suffixes conflict with append order.
+				elleDrain(t, rt, []*task.State{elleTask(t, rt, id, elleAppend(9, 180)+elleAppend(10, 181))})
+				id++
 				// Write skew: each task reads the row the other appends to. Both are
 				// held after validation until both have validated. A healthy commit
 				// excludes the second for as long as the first is held, so the first
