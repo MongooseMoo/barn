@@ -57,8 +57,11 @@ nonzero required paths. See experiments/execution-layering-ownership-elle-summar
   nested VM/finalization paths use lower State. Saved-machine assertions removed.
 
 No local test/typecheck CI steps were run.
-Remaining: full current-head inspection, resolving continuation timing evidence,
-and CI on the layout correction. Current architecture is documented in
+Layout correction and evidence are pushed as 58a72043. Build/unit and Elle jobs
+passed (1m4s/2m33s); conformance pending at the last check. Longer unprofiled
+base/head/head/base continuation repeats do not consistently reproduce the
+short-run slowdown (timing p=.165); host variability limits the conclusion.
+Remaining: full current-head inspection and current CI. Current architecture is documented in
 docs/execution-ownership.md. Performance evidence, fixture hashes and limitations
 are in experiments/execution-layering-performance.md. The real workload has run
 on both sources: baseline failed with a deadline; head exited successfully but
@@ -261,8 +264,10 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit/push the VM layout correction and evidence, then resolve continuation
-timing uncertainty and finish the full current-head layering review.
+Commit/push the follow-up measurements, then finish the full current-head
+layering review and CI. Review target is PR #542 against master 11a17d8c;
+review_gate.py requires every PR hunk and two converged passes. No completed
+review or merge verdict has been claimed.
 The source-based research report describes the design, but is not verification.
 Q already
 authorized the cleanup; routine implementation choices do not require reapproval.

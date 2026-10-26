@@ -62,6 +62,18 @@ copies. The benchmark's ready loop calls ProcessReadyTasks then Gosched when
 idle (engine/continuation_bench_test.go), so polling work is not fixed per command.
 No source change is justified by these profiles alone.
 
+An unprofiled follow-up reused those same binaries in base/head/head/base order,
+five 1s samples per batch (ten per revision). All four batches are retained as
+`execution-layering-single-write-{base,packed}-{a,b}.txt`; the combined summary
+is `execution-layering-single-write-benchstat.txt`. The command used quoted
+`-test.run=^$`, `-test.bench=^BenchmarkThreadedContinuations$/^players=1$/^writes=true$`,
+`-test.benchtime=1s`, `-test.count=5`, and `-test.benchmem` arguments.
+The first unquoted PowerShell invocation rejected `-test`; it ran no benchmark.
+Across the complete follow-up, timing p=.165, bytes p=.306 and allocations p=.252
+are inconclusive. The earlier short-run slowdown is not reproduced consistently;
+host/scheduling variability remains material. This bounds the performance claim
+to the measured VM allocation correction, not general nonregression or speedup.
+
 An earlier profile selector matched both 1p and 16p because `players=1` was
 not end-anchored. Its timing is not the single-cohort comparison above. The first
 packed relative-path profile outputs could not be located; no conclusion uses
