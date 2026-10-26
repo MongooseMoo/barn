@@ -23,6 +23,12 @@ C:/Users/Q/code/barn-commit-applier off origin/master 491d7462.
   TestFlushDefineReachesChildAddedAfterStaging (Probe 3).
 - Step 2: objectWrites + writesByObject (store_cow.go); preflight, writesTouchAnon,
   CommitAndRenewCarryingReads use it; writeFootprintObjects/HasAnon deleted.
+- Step 2 committed ea643e42. Step 3 committed 9d8704ca: ownImage, applyHeadWrites,
+  applyTailWrites, publishStagedLocked in store_cow.go; commitDecentralized on them;
+  buildImageWith*, applyPropertyValueOwned, buildImageRecycled, verbWrite2 deleted.
+- Step 4 1663c943 (coarse + flush on publishStagedLocked with walkers; 1a green), step 5
+  cbe9e278 (one Commit body), step 6 a595e8ae (ApplyStagedObjectWrites on the applier;
+  1c green). go test ./db/store, ./builtins, ./engine green after step 6.
 - Baseline allocs (491d7462 + tests): CommitScratch objects1 34, objects8 142, objects32
   546; TxnPropertyWriteCommit 33 (4703-4715 B); TxnReadOnlyCommit 17.
 
@@ -51,6 +57,16 @@ C:/Users/Q/code/barn-commit-applier off origin/master 491d7462.
 
 ## Surprises
 
+- The design's objectWrites carried propertyWrite values. Gathered before the lock (the
+  anon routing check needs the keys), they missed rebaseMapKeyWritesLocked
+  (store_txn_mapkeys.go:293-331), which rewrites tx.propertyWrites values after
+  preflight: TestMapKeyWritesToDifferentEntriesBothCommit failed ("a = 1, want 2").
+  objectWrites.props now holds the keys; applyTailWrites reads tx.propertyWrites[key].
+
+- ApplyStagedObjectWrites needs a nil guard on verb code (old C had one): the adopted live
+  image may lack the verb. Commits never hit it (preflight E_VERBNF).
+
 ## Next step
 
-Step 3: applyWrites + publishStagedLocked; commitDecentralized on them; delete builders.
+Step 7: comments (store_cow.go header, stale references to commitDecentralized,
+writeFootprintHasAnon, applyStagedToLiveLocked, "coarse path" apply).
