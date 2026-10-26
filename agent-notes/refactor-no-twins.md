@@ -98,5 +98,28 @@ change since c537d6c9). Baselines (every run so far): pre-3b Direct 5/5/1/24/25/
   ./db/... ./builtins ./engine ./server ok, conformance 6648 passed; race and Elle not re-run
   on this base (db/store and engine unchanged by #541). The fix-up for #535 is 517e79a8.
 
+## Wide-define fix and history rebuild (Q "make it so", lead brief 2026-10-26)
+Spec: session scratchpad design-3c-wide-define.md (B+J+N), then the CommitScratch/objects32
+B/op regression.
+- History rebuilt by design section 8 (no editor), original kept as branch
+  refactor/no-twins-orig (e2c531d5). Rebuilt head e75dc48f: `git diff --stat e2c531d5`
+  empty; all 12 commits pass go build ./..., go vet ./..., and db/store test compile.
+  e30a1202 and 517e79a8 are folded into e2648443 and 1ca23b29.
+- origin/master is 11a17d8c (#544: engine elle test, docs only); db/store unchanged since
+  c537d6c9, so the master baseline stands.
+
+- f1602317 B+J+N (design section 6 plus the replaceImageLocked helper, the publishStagedLocked
+  doc, the writeNow comment, and the writerKeepLimit comment, whose wide-define example B made
+  untrue). Mutation check rerun here: walkLive=false with the early returns fails
+  TestChownFlagSlotsOwnedByEachObjectOwner, TestDeleteDefinedPropertyRemovesAnonymousChildOverride,
+  TestDefinePropertyGivesAnonymousDescendantsOwnSlot. Bench: wide define 12,110 allocs /
+  2,359,065 B (master 14,085 / 2,378,333); every other row at or below master except
+  CommitScratch/objects32 B/op 114,321.
+- ce1db733: writesByObject reserves min(stagedEntries, max(24, len(tx.objects))).
+  objects32 98,705 B / 436 allocs (master 102,288 / 567; pre-3b 99,313 / 546). Chose sizing
+  over slimming the entry: one line, identical for commits of 24 or fewer entries, and
+  len(tx.objects) keeps many writes on one object at 24. tx.objects is a hint, not a bound
+  (a move's room delta is staged without a read), so an undercount only regrows.
+
 ## Next step
-Frozen for the lead. Open: the wide direct write defect needs a design decision.
+Rebase onto 11a17d8c, final three-tree bench, gates, PR draft scratchpad/pr-3c-barn.md.
