@@ -39,7 +39,7 @@ func BenchmarkPruneWaifHistoryLargeRetainedSmallPrunable(b *testing.B) {
 				waifs[i] = publish()
 			}
 			s.clock.Store(1)
-			if got := len(s.waifHistory); got != retained {
+			if got := len(s.waifs.history); got != retained {
 				b.Fatalf("history before releases = %d, want %d", got, retained)
 			}
 			batch := make([]types.Value, prunable)
@@ -50,13 +50,13 @@ func BenchmarkPruneWaifHistoryLargeRetainedSmallPrunable(b *testing.B) {
 				for j := range batch {
 					batch[j] = publish()
 				}
-				if got := len(s.waifHistory); got != retained+prunable {
+				if got := len(s.waifs.history); got != retained+prunable {
 					b.Fatalf("history before release = %d, want %d", got, retained+prunable)
 				}
 				reader.Release()
 			}
 			b.StopTimer()
-			if got := len(s.waifHistory); got != retained {
+			if got := len(s.waifs.history); got != retained {
 				b.Fatalf("history after releases = %d, want %d", got, retained)
 			}
 			runtime.KeepAlive(waifs)

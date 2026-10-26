@@ -123,8 +123,8 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	old := tx.object(0)
-	clock, shape := s.clock.Load(), s.verbShapeChangeTS.Load()
-	history := len(s.history[0])
+	clock, shape := s.clock.Load(), s.dispatch.shapeChangeTS.Load()
+	history := len(s.history.byID[0])
 	for _, tc := range []struct {
 		id   types.ObjID
 		name string
@@ -133,7 +133,7 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 		if ec := s.SetVerbArgs(tc.id, tc.name, publicationArgsB); ec != tc.want {
 			t.Fatalf("error = %s, want %s", ec, tc.want)
 		}
-		if s.load(0) != old || s.clock.Load() != clock || s.verbShapeChangeTS.Load() != shape || len(s.history[0]) != history {
+		if s.load(0) != old || s.clock.Load() != clock || s.dispatch.shapeChangeTS.Load() != shape || len(s.history.byID[0]) != history {
 			t.Fatal("failed operation published or changed generation/history")
 		}
 	}
@@ -142,14 +142,14 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 		t.Fatal(ec)
 	}
 	fresh := s.load(0)
-	if fresh == old || fresh.verbVersion <= old.verbVersion || fresh.verbList[0].version <= old.verbList[0].version || s.verbShapeChangeTS.Load() <= shape {
+	if fresh == old || fresh.verbVersion <= old.verbVersion || fresh.verbList[0].version <= old.verbList[0].version || s.dispatch.shapeChangeTS.Load() <= shape {
 		t.Fatal("successful same-args update lost publication or generation changes")
 	}
 	if fresh.scalarVersion != old.scalarVersion || fresh.relationshipVersion != old.relationshipVersion || fresh.propertyVersion != old.propertyVersion || fresh.verbList[1].version != old.verbList[1].version {
 		t.Fatal("argument-only publication changed unrelated generations")
 	}
 	found := false
-	for _, entry := range s.history[0] {
+	for _, entry := range s.history.byID[0] {
 		found = found || entry.obj == old
 	}
 	if !found {

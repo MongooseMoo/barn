@@ -123,20 +123,20 @@ func TestFailedDirectWriteLeavesNoTrace(t *testing.T) {
 	d := s.DirectTxn()
 	obj, _ := d.CreateObject([]types.ObjID{0}, 0)
 	clock := s.readTimestamp()
-	epoch := s.waifRootsEpoch.Load()
+	epoch := s.waifRoots.epoch.Load()
 	if ec := d.SetPropertyValue(obj, "missing", types.NewInt(1)); ec != types.E_PROPNF {
 		t.Fatalf("SetPropertyValue = %s, want E_PROPNF", ec)
 	}
 	if got := s.readTimestamp(); got != clock {
 		t.Errorf("clock moved %d -> %d", clock, got)
 	}
-	s.historyMu.Lock()
-	entries := len(s.history[obj])
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	entries := len(s.history.byID[obj])
+	s.history.mu.Unlock()
 	if entries != 0 {
 		t.Errorf("history entries for #%d = %d, want 0", obj, entries)
 	}
-	if got := s.waifRootsEpoch.Load(); got != epoch {
+	if got := s.waifRoots.epoch.Load(); got != epoch {
 		t.Errorf("WAIF-roots epoch moved %d -> %d", epoch, got)
 	}
 }

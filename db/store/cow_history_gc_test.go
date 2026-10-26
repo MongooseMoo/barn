@@ -131,7 +131,7 @@ func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
 	store.registerReadTS(newerTS)
 	t.Cleanup(func() { store.deregisterReadTS(newerTS) })
 
-	blockedShard := &store.readTSShards[1]
+	blockedShard := &store.readers.shards[1]
 	blockedShard.mu.Lock()
 	shardLocked := true
 	t.Cleanup(func() {
@@ -183,17 +183,17 @@ func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
 
 // historyLen returns the number of retained old versions for id (test-only).
 func (s *Store) historyLen(id types.ObjID) int {
-	s.historyMu.Lock()
-	defer s.historyMu.Unlock()
-	return len(s.history[id])
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	return len(s.history.byID[id])
 }
 
 // activeFloorCount returns the number of distinct live readTS registrations
 // (test-only). Used to assert the floor registry is not leaking.
 func (s *Store) activeFloorCount() int {
 	n := 0
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		n += len(sh.counts)
 		sh.mu.Unlock()

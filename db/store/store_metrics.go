@@ -46,16 +46,16 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots, privateSlots i
 func (s *Store) ShareLoadedPropertySlots(pool *PropSharePool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.propPoolMu.Lock()
-	defer s.propPoolMu.Unlock()
+	s.propPool.mu.Lock()
+	defer s.propPool.mu.Unlock()
 
 	if pool != nil {
-		s.propPool = pool
+		s.propPool.pool = pool
 	}
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj != nil && !obj.recycled {
-			obj.properties.share(s.propPool)
+			obj.properties.share(s.propPool.pool)
 		}
 		return true
 	})
@@ -64,9 +64,9 @@ func (s *Store) ShareLoadedPropertySlots(pool *PropSharePool) {
 // shareCreatedProperties moves a new object's table onto a shared base. The
 // table must not yet be visible to any other goroutine.
 func (s *Store) shareCreatedProperties(props propTable) {
-	s.propPoolMu.Lock()
-	defer s.propPoolMu.Unlock()
-	props.share(s.propPool)
+	s.propPool.mu.Lock()
+	defer s.propPool.mu.Unlock()
+	props.share(s.propPool.pool)
 }
 
 func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
@@ -206,6 +206,6 @@ func (s *Store) ResetMaxObject() {
 		return true
 	})
 
-	s.highWaterID.Store(int64(maxAny))
-	s.maxObjID.Store(int64(maxNonAnon))
+	s.ids.highWater.Store(int64(maxAny))
+	s.ids.max.Store(int64(maxNonAnon))
 }

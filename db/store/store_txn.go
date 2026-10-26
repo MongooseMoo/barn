@@ -43,7 +43,7 @@ type StoreTxn struct {
 	waifs                     map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
-	// resolution and must instead fail validation if verbShapeChangeTS moved
+	// resolution and must instead fail validation if dispatch.shapeChangeTS moved
 	// past its snapshot. verbMemoHits lists those resolutions so that, before
 	// the txn's first live mutation moves the clock itself, they can be
 	// re-walked on the still-pristine snapshot into ordinary scan marks
@@ -164,7 +164,7 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		highWaterID: s.highWater(),
 		// readClocks is left nil and allocated by the first sampled read.
 		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
-		sampleReadClocks: s.conflictTracking.Load(),
+		sampleReadClocks: s.conflicts.tracking.Load(),
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx

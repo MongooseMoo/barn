@@ -41,6 +41,93 @@ type readTSShard struct {
 	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56; rounded clear of a line
 }
 
+// idAllocator is the store's object id allocator.
+type idAllocator struct {
+	// max (highest non-anon id, for max_object()) and highWater (highest
+	// allocated id incl. anon, for NextID()) are atomic so a decentralized
+	// committer (holding only store.mu.RLock) can allocate an id and CAS-max them
+	// without the exclusive lock. After NewStore, allocateID(), casMaxID() and
+	// ResetMaxObject() are the only mutators.
+	max        atomic.Int64
+	highWater  atomic.Int64
+	recycledMu sync.Mutex    // guards recycled against concurrent decentralized recyclers
+	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
+}
+
+// waifVersions holds the domain WAIF images are published in, and the
+// histories of superseded WAIF images kept for older readers. See
+// store_txn_waif.go.
+type waifVersions struct {
+	domain  *types.WaifDomain
+	history map[types.WaifIdentity]*waifHistoryEntry
+	queue   waifHistoryQueue // the same entries, ordered by due
+	pending atomic.Bool
+	// due is the smallest due timestamp in queue, or zero when it is empty. A
+	// reader floor below it can prune nothing; every publication lowers it to
+	// cover new history before sampling that floor.
+	due atomic.Uint64
+	// pruneVisits counts the entries pruneWaifHistoryLocked has examined.
+	pruneVisits uint64
+}
+
+// readerRegistry registers the read timestamps of live transactions, so
+// historyFloor knows which old images a reader may still need. See
+// store_history_gc.go.
+type readerRegistry struct {
+	// floorMu makes choosing/registering a read timestamp linearizable with
+	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
+	// sample through the shard insertion; historyFloor holds it exclusively while
+	// scanning. Registrations remain concurrent with each other, and deregistration
+	// stays shard-local because missing a reader that has already released is safe.
+	floorMu sync.RWMutex
+
+	// shards holds the multiset of readTS values of currently-live read-only
+	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
+	// the commit-dominated path: every Begin/Release/commit touches this registry, so
+	// a single global mutex serialized all 32 workers here (measured 88% of mutex
+	// contention). Sharding by readTS keeps each shard's multiset self-consistent
+	// (a given readTS always maps to the same shard), and historyFloor() = min key
+	// across shards (or clock if empty). floorMu prevents a scan from missing a
+	// completed registration in a shard it already visited.
+	shards [readTSShardCount]readTSShard
+}
+
+// historyIndex holds each object's superseded images, for readers whose
+// snapshot predates the live image. See store_history_gc.go.
+type historyIndex struct {
+	mu   sync.Mutex // guards byID appends from concurrent COW committers
+	byID map[types.ObjID][]objectHistory
+}
+
+// waifRootsMemo memoizes the PersistentWaifRoots top-level scan. epoch
+// advances whenever the set of WAIFs held directly by live objects' property
+// values may have changed; cache is valid for one epoch. See
+// noteWaifRootsChanged.
+type waifRootsMemo struct {
+	epoch atomic.Uint64
+	cache atomic.Pointer[persistentWaifRootsEntry]
+}
+
+// verbDispatch is the store-level verb dispatch memo. memo caches verb
+// resolution (object, name, execute-required) -> (definer, map key) across
+// transactions, and size counts its entries so it can be swapped whole when
+// full. shapeChangeTS is the clock value taken after the most recent change
+// that can alter any resolution (verb add/delete/rename/code image, parents,
+// recycle, renumber). See StoreTxn.lookupVerbDispatchMemo.
+type verbDispatch struct {
+	memo          atomic.Pointer[sync.Map]
+	size          atomic.Int64
+	shapeChangeTS atomic.Uint64
+}
+
+// lockedPropPool interns the shared property bases of every object, loaded or
+// created, for the life of the store. mu guards pool: transactional creates
+// share their tables without holding the store's mu.
+type lockedPropPool struct {
+	mu   sync.Mutex
+	pool *propSharePool
+}
+
 type Store struct {
 	mu sync.RWMutex
 	// commitMu serializes decentralized commits. It is taken inside
@@ -60,44 +147,16 @@ type Store struct {
 	// writer is that private transaction: writeNow resets and uses it under
 	// mu.Lock, so one writer serves every direct write (lockedWriter).
 	writer StoreTxn
-	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
-	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
-	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
-	// exclusive lock. allocateID()/casMaxID() are the only mutators.
-	maxObjID           atomic.Int64
-	highWaterID        atomic.Int64
-	recycledMu         sync.Mutex    // guards recycledID against concurrent decentralized recyclers
-	recycledID         []types.ObjID // recycled numbered ids, offered again by LowestFreeID
-	clock              atomic.Uint64
-	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
-	history            map[types.ObjID][]objectHistory
-	waifDomain         *types.WaifDomain
-	waifHistory        map[types.WaifIdentity]*waifHistoryEntry
-	waifHistoryQueue   waifHistoryQueue // the same entries, ordered by due
-	waifHistoryPending atomic.Bool
-	// waifHistoryDue is the smallest due timestamp in waifHistoryQueue, or zero
-	// when it is empty. A reader floor below it can prune nothing; every
-	// publication lowers it to cover new history before sampling that floor.
-	waifHistoryDue atomic.Uint64
-	// waifPruneVisits counts the entries pruneWaifHistoryLocked has examined.
-	waifPruneVisits uint64
+	// ids allocates object ids and keeps recycled ones (idAllocator).
+	ids   idAllocator
+	clock atomic.Uint64
+	// history holds superseded object images (historyIndex).
+	history historyIndex
+	// waifs versions WAIF images (waifVersions).
+	waifs waifVersions
 
-	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
-	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
-	// sample through the shard insertion; historyFloor holds it exclusively while
-	// scanning. Registrations remain concurrent with each other, and deregistration
-	// stays shard-local because missing a reader that has already released is safe.
-	readTSFloorMu sync.RWMutex
-
-	// readTSShards holds the multiset of readTS values of currently-live read-only
-	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
-	// the commit-dominated path: every Begin/Release/commit touches this registry, so
-	// a single global mutex serialized all 32 workers here (measured 88% of mutex
-	// contention). Sharding by readTS keeps each shard's multiset self-consistent
-	// (a given readTS always maps to the same shard), and historyFloor() = min key
-	// across shards (or clock if empty). readTSFloorMu prevents a scan from missing a
-	// completed registration in a shard it already visited. See store_history_gc.go.
-	readTSShards [readTSShardCount]readTSShard
+	// readers registers live transactions' read timestamps (readerRegistry).
+	readers readerRegistry
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object
 	// is created via CreateObject(..., anonymous=true). It lets the orphan-anon GC
@@ -128,31 +187,18 @@ type Store struct {
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
-	// waifRootsEpoch advances whenever the set of WAIFs held directly by live
-	// objects' property values may have changed; waifRootsCache memoizes the
-	// PersistentWaifRoots top-level scan for one epoch. See noteWaifRootsChanged.
-	waifRootsEpoch atomic.Uint64
-	waifRootsCache atomic.Pointer[persistentWaifRootsEntry]
-	// verbDispatchMemo caches verb resolution (object, name, execute-required)
-	// -> (definer, map key) across transactions; verbShapeChangeTS is the clock
-	// value taken after the most recent change that can alter any resolution
-	// (verb add/delete/rename/code image, parents, recycle, renumber). See
-	// StoreTxn.lookupVerbDispatchMemo.
-	verbDispatchMemo     atomic.Pointer[sync.Map]
-	verbDispatchMemoSize atomic.Int64
-	verbShapeChangeTS    atomic.Uint64
+	// waifRoots memoizes the PersistentWaifRoots scan (waifRootsMemo).
+	waifRoots waifRootsMemo
+	// dispatch is the verb dispatch memo and its invalidation stamp
+	// (verbDispatch).
+	dispatch verbDispatch
 	// hotProps tracks the properties whose reads keep losing validation, and
-	// the hotRead counters what renewing a transaction at such a read did. See
+	// counts what renewing a transaction at such a read did. See
 	// store_hot_read.go.
-	hotProps        hotProperties
-	hotReadRenewals atomic.Uint64
-	hotReadRefusals atomic.Uint64
-	hotReadDeclines atomic.Uint64
-	// conflicts counts, per key, what commits lost validation on;
-	// conflictTracking has transactions sample the clock at their property
-	// reads for it. See store_conflict_census.go.
-	conflicts        conflictCensus
-	conflictTracking atomic.Bool
+	hotProps hotProperties
+	// conflicts counts, per key, what commits lost validation on. See
+	// store_conflict_census.go.
+	conflicts conflictCensus
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
@@ -171,26 +217,23 @@ type Store struct {
 
 	pendingFinalizations []types.Value
 
-	// propPool interns the shared property bases of every object, loaded or
-	// created, for the life of the store. propPoolMu guards it: transactional
-	// creates share their tables without holding mu.
-	propPoolMu sync.Mutex
-	propPool   *propSharePool
+	// propPool interns shared property bases (lockedPropPool).
+	propPool lockedPropPool
 }
 
 func NewStore() *Store {
 	s := &Store{
 		anonObjects: make(map[types.ObjID]*Object),
-		recycledID:  []types.ObjID{},
-		history:     make(map[types.ObjID][]objectHistory),
-		waifDomain:  new(types.WaifDomain),
-		propPool:    newPropSharePool(),
+		ids:         idAllocator{recycled: []types.ObjID{}},
+		history:     historyIndex{byID: make(map[types.ObjID][]objectHistory)},
+		waifs:       waifVersions{domain: new(types.WaifDomain)},
+		propPool:    lockedPropPool{pool: newPropSharePool()},
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true
 	s.directTxn.readTS = math.MaxUint64
-	s.maxObjID.Store(-1)
-	s.highWaterID.Store(-1)
+	s.ids.max.Store(-1)
+	s.ids.highWater.Store(-1)
 	return s
 }
 
@@ -205,25 +248,25 @@ func (s *Store) DirectTxn() *StoreTxn {
 }
 
 // maxObjectID returns the highest non-anonymous object id, or -1 if none. Lock-free.
-func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.maxObjID.Load()) }
+func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.ids.max.Load()) }
 
 // highWater returns the highest allocated id (including anonymous), or -1. Lock-free.
-func (s *Store) highWater() types.ObjID { return types.ObjID(s.highWaterID.Load()) }
+func (s *Store) highWater() types.ObjID { return types.ObjID(s.ids.highWater.Load()) }
 
-// allocateID atomically allocates the next unique object id (bumping highWaterID). It
+// allocateID atomically allocates the next unique object id (bumping ids.highWater). It
 // is the SINGLE id allocator for numbered, anonymous, and decentralized creates, so
 // no two allocations ever collide even without the store lock.
-func (s *Store) allocateID() types.ObjID { return types.ObjID(s.highWaterID.Add(1)) }
+func (s *Store) allocateID() types.ObjID { return types.ObjID(s.ids.highWater.Add(1)) }
 
-// appendRecycledID records id as recycled, guarded by recycledMu so a decentralized
+// appendRecycledID records id as recycled, guarded by ids.recycledMu so a decentralized
 // recycle committer (holding only store.mu.RLock) does not race LowestFreeID's read.
 // Coarse recyclers append under store.mu.Lock (which excludes RLock committers), so the
-// two never run concurrently; recycledMu serializes concurrent decentralized appends
+// two never run concurrently; ids.recycledMu serializes concurrent decentralized appends
 // and the RLock read.
 func (s *Store) appendRecycledID(id types.ObjID) {
-	s.recycledMu.Lock()
-	s.recycledID = append(s.recycledID, id)
-	s.recycledMu.Unlock()
+	s.ids.recycledMu.Lock()
+	s.ids.recycled = append(s.ids.recycled, id)
+	s.ids.recycledMu.Unlock()
 }
 
 // casMaxID raises *a to v when v is larger — a monotonic max safe under concurrent
@@ -303,8 +346,8 @@ func (s *Store) CommitRetries() uint64         { return s.commitRetries.Load() }
 // registered with history GC, including multiple transactions at the same timestamp.
 func (s *Store) ActiveReadTransactions() int {
 	total := 0
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		for _, count := range sh.counts {
 			total += count
@@ -352,7 +395,7 @@ func (s *Store) bumpClockLocked() uint64 {
 // publishes. A value write whose old and
 // new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
 // epoch alone, which is what keeps the memo hot on ordinary workloads.
-func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
+func (s *Store) noteWaifRootsChanged() { s.waifRoots.epoch.Add(1) }
 
 // noteVerbShapeChanged records that verb resolution may now differ from any
 // memoized result. It must run AFTER the change is visible (after publish under
@@ -360,21 +403,21 @@ func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
 // transactions whose snapshot predates this clock
 // value stop using the memo, and a transaction that already dispatched
 // through it fails validation and retries.
-func (s *Store) noteVerbShapeChanged() { s.verbShapeChangeTS.Store(s.bumpClock()) }
+func (s *Store) noteVerbShapeChanged() { s.dispatch.shapeChangeTS.Store(s.bumpClock()) }
 
 // verbDispatchMemoCap bounds the memo; when exceeded the whole map is swapped
 // for a fresh one rather than evicting entry by entry.
 const verbDispatchMemoCap = 1 << 17
 
 func (s *Store) verbMemo() *sync.Map {
-	if m := s.verbDispatchMemo.Load(); m != nil {
+	if m := s.dispatch.memo.Load(); m != nil {
 		return m
 	}
 	fresh := &sync.Map{}
-	if s.verbDispatchMemo.CompareAndSwap(nil, fresh) {
+	if s.dispatch.memo.CompareAndSwap(nil, fresh) {
 		return fresh
 	}
-	return s.verbDispatchMemo.Load()
+	return s.dispatch.memo.Load()
 }
 
 type objectHistory struct {
@@ -403,7 +446,7 @@ func objectVersion(obj *Object) uint64 {
 // image. One timestamp identifies one commit, and a commit can supersede the same
 // object more than once at its timestamp, so an entry with the newest entry's ts
 // is the later image of that commit and replaces it. The replacement is a new
-// slice: readers walk captured slice headers outside historyMu.
+// slice: readers walk captured slice headers outside history.mu.
 func withHistoryEntry(entries []objectHistory, entry objectHistory) []objectHistory {
 	n := len(entries)
 	if n == 0 || entries[n-1].ts != entry.ts {
@@ -419,7 +462,7 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 	if obj == nil {
 		return
 	}
-	s.history[obj.id] = withHistoryEntry(s.history[obj.id], objectHistory{
+	s.history.byID[obj.id] = withHistoryEntry(s.history.byID[obj.id], objectHistory{
 		ts:  objectVersion(obj),
 		obj: cloneObjectForReadTxn(obj),
 	})
@@ -427,7 +470,7 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 	// History GC: prune this object's now-dead old versions below the
 	// live-read floor. The coarse path holds store.mu.Lock (exclusive), so this is
 	// safe against objectLocked and the decentralized committer (both hold only
-	// store.mu.RLock); pruneObjectHistory takes historyMu as a leaf lock (always
+	// store.mu.RLock); pruneObjectHistory takes history.mu as a leaf lock (always
 	// nested inside store.mu — no lock-order inversion). The just-appended entry
 	// carries the pre-mutation version; the caller stamps a strictly-newer version
 	// onto the live image right after, so the live (current) image is never in
@@ -467,9 +510,9 @@ func (s *Store) republishForMutation(old *Object) *Object {
 	s.publishLocked(old.id, fresh)
 	// Retain the OLD (now superseded, immutable) image as the history node — no
 	// clone needed, mirroring rememberObjectLocked minus the copy. Touching
-	// s.history directly is safe: the caller holds s.mu.Lock (exclusive), which
-	// excludes the decentralized committers that guard history with historyMu.
-	s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
+	// s.history.byID directly is safe: the caller holds s.mu.Lock (exclusive), which
+	// excludes the decentralized committers that guard it with history.mu.
+	s.history.byID[old.id] = withHistoryEntry(s.history.byID[old.id], objectHistory{ts: objectVersion(old), obj: old})
 	s.pruneObjectHistory(old.id, s.historyFloor())
 	return fresh
 }
@@ -584,8 +627,8 @@ func (s *Store) Add(obj *Object) error {
 // AddAnonymous ingests an anonymous object loaded from the database into the
 // store's out-of-band anonymous collection. The object is keyed by the
 // above-max serialization id it was loaded with; this id never enters the
-// directory or maxObjID (max_object() excludes anons). It MUST raise
-// highWaterID, though: a Barn anon's identity id is permanent (values are
+// directory or ids.max (max_object() excludes anons). It MUST raise
+// ids.highWater, though: a Barn anon's identity id is permanent (values are
 // NewAnon(id), unlike Toast's pointer identity), so if allocateID later handed
 // the same id to a regular object, every loaded _TYPE_ANON reference would
 // silently resolve to that object — recycle(loaded_anon) then recycles (and
@@ -603,7 +646,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
-	casMaxID(&s.highWaterID, obj.id)
+	casMaxID(&s.ids.highWater, obj.id)
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {
@@ -612,9 +655,9 @@ func (s *Store) insertObjectLocked(obj *Object) {
 	// High water ID tracks all allocations (including anonymous); max object ID
 	// excludes anonymous. Both are monotonic maxes (CAS) so concurrent decentralized
 	// committers never lose the larger value.
-	casMaxID(&s.highWaterID, obj.id)
+	casMaxID(&s.ids.highWater, obj.id)
 	if !obj.anonymous {
-		casMaxID(&s.maxObjID, obj.id)
+		casMaxID(&s.ids.max, obj.id)
 	}
 }
 

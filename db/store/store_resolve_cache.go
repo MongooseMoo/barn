@@ -33,7 +33,7 @@ import (
 //     memo has a real working set to amortize over.
 //   - A store-global memo stamped with the global commit clock would be WRONG
 //     for any transaction whose readTS lags the clock (a long-running or
-//     retried task reads an older snapshot through s.history —
+//     retried task reads an older snapshot through s.history.byID —
 //     StoreTxn.objectLocked). It would only be usable when
 //     tx.readTS == clock, which is exactly the case a global epoch cannot
 //     cheaply prove per lookup. Scoping the memo to the snapshot that produced
@@ -314,7 +314,7 @@ type verbDispatchMemoEntry struct {
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
 // replaces the per-ancestor verb-scan marks with a single txn-level
-// dependency on verbShapeChangeTS (validated at commit) plus the usual read
+// dependency on dispatch.shapeChangeTS (validated at commit) plus the usual read
 // mark on the resolved verb, which is re-fetched from this txn's view of the
 // definer so a concurrent code edit is seen exactly as it would be by a walk.
 // err is the "verb not found" error of a negative resolution.
@@ -333,7 +333,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 		// scan marks, not the clock; it must never hold mark-less resolutions.
 		return nil, types.ObjNothing, nil, false
 	}
-	last := s.verbShapeChangeTS.Load()
+	last := s.dispatch.shapeChangeTS.Load()
 	if tx.readTS < last {
 		return nil, types.ObjNothing, nil, false
 	}
@@ -472,7 +472,7 @@ func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
 
 // PrepareLiveMutation must run before a task's first direct mutation of the
 // live store (a staged-topology flush or a coarse builtin). Those mutations
-// move verbShapeChangeTS themselves, after which the memo's single clock check
+// move dispatch.shapeChangeTS themselves, after which the memo's single clock check
 // cannot distinguish the task's own change from a concurrent one and a
 // live-mutated task cannot retry. So every resolution taken from the memo is
 // re-walked here, on the snapshot the memo hit was equivalent to, into the
@@ -531,9 +531,9 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 	}
 	memo := s.verbMemo()
 	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
-		if s.verbDispatchMemoSize.Add(1) > verbDispatchMemoCap {
-			s.verbDispatchMemo.Store(&sync.Map{})
-			s.verbDispatchMemoSize.Store(0)
+		if s.dispatch.size.Add(1) > verbDispatchMemoCap {
+			s.dispatch.memo.Store(&sync.Map{})
+			s.dispatch.size.Store(0)
 		}
 	} else {
 		memo.Store(key, entry)

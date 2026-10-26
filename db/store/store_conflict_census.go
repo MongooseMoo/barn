@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -159,6 +160,9 @@ type conflictCensus struct {
 	refused  uint64
 	keys     map[conflictKey]*ConflictCount
 	overflow ConflictCount
+	// tracking has transactions sample the clock at their property reads for
+	// the census (SetConflictCensusTracking).
+	tracking atomic.Bool
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -285,7 +289,7 @@ func (s *Store) ResetConflictCensus() {
 // read of a property slot, which is what StaleAtRead is counted from. It takes
 // effect for transactions begun afterwards.
 func (s *Store) SetConflictCensusTracking(on bool) {
-	s.conflictTracking.Store(on)
+	s.conflicts.tracking.Store(on)
 }
 
 // Conflicts returns the reads the last validation of tx found stale. It is
@@ -327,9 +331,9 @@ func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) boo
 		return false
 	}
 	s := tx.store
-	s.historyMu.Lock()
-	history := s.history[key.objID]
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	history := s.history.byID[key.objID]
+	s.history.mu.Unlock()
 
 	passedRead := false
 	rewrittenAt := func(image *Object) (uint64, bool) {

@@ -25,7 +25,7 @@ func (tx *StoreTxn) waifImageLocked(value types.Value) (*waifTxnImage, types.Err
 	if tx.direct {
 		ts = tx.store.readTimestamp()
 	}
-	base, ok := value.WaifImageAt(tx.store.waifDomain, ts)
+	base, ok := value.WaifImageAt(tx.store.waifs.domain, ts)
 	if !ok {
 		return nil, types.E_INVARG
 	}
@@ -111,7 +111,7 @@ func (tx *StoreTxn) hasWaifWrites() bool {
 
 func (tx *StoreTxn) validateWaifsLocked(first *types.ErrorCode) {
 	for identity, image := range tx.waifs {
-		live, ok := image.value.WaifImageAt(tx.store.waifDomain, tx.store.readTimestamp())
+		live, ok := image.value.WaifImageAt(tx.store.waifs.domain, tx.store.readTimestamp())
 		if ok && live.Timestamp() == image.base.Timestamp() {
 			continue
 		}
@@ -158,39 +158,39 @@ func (q *waifHistoryQueue) Pop() any {
 }
 
 func (s *Store) publishWaifLocked(image *waifTxnImage, ts uint64) {
-	image.value.PublishWaifImage(s.waifDomain, ts, image.staged)
-	image.base, _ = image.value.WaifImageAt(s.waifDomain, ts)
+	image.value.PublishWaifImage(s.waifs.domain, ts, image.staged)
+	image.base, _ = image.value.WaifImageAt(s.waifs.domain, ts)
 	image.staged = nil
 	// Advertise history before sampling the reader floor. A last reader that
 	// deregisters after its shard was sampled must see pending work and prune
 	// after this publication releases store.mu, rather than miss cleanup forever.
 	// An untracked WAIF held one image, so this publication is what it is due at.
 	identity := image.value.WaifIdentity()
-	entry := s.waifHistory[identity]
+	entry := s.waifs.history[identity]
 	if entry == nil {
 		entry = &waifHistoryEntry{identity: identity, due: ts}
-		lazySet(&s.waifHistory, identity, entry)
-		heap.Push(&s.waifHistoryQueue, entry)
+		lazySet(&s.waifs.history, identity, entry)
+		heap.Push(&s.waifs.queue, entry)
 	}
 	entry.weak = image.value.WeakWaif()
 	s.advertiseWaifHistoryLocked()
-	if due, retained := image.value.PruneWaifImages(s.waifDomain, s.historyFloor()); !retained {
-		delete(s.waifHistory, identity)
-		heap.Remove(&s.waifHistoryQueue, entry.index)
+	if due, retained := image.value.PruneWaifImages(s.waifs.domain, s.historyFloor()); !retained {
+		delete(s.waifs.history, identity)
+		heap.Remove(&s.waifs.queue, entry.index)
 	} else if due != entry.due {
 		entry.due = due
-		heap.Fix(&s.waifHistoryQueue, entry.index)
+		heap.Fix(&s.waifs.queue, entry.index)
 	}
 	s.advertiseWaifHistoryLocked()
 }
 
 func (s *Store) advertiseWaifHistoryLocked() {
 	due := uint64(0)
-	if len(s.waifHistoryQueue) != 0 {
-		due = s.waifHistoryQueue[0].due
+	if len(s.waifs.queue) != 0 {
+		due = s.waifs.queue[0].due
 	}
-	s.waifHistoryDue.Store(due)
-	s.waifHistoryPending.Store(due != 0)
+	s.waifs.due.Store(due)
+	s.waifs.pending.Store(due != 0)
 }
 
 // pruneWaifHistory avoids the publication lock when the reader floor is below
@@ -198,7 +198,7 @@ func (s *Store) advertiseWaifHistoryLocked() {
 // Most releases leave an older reader live; seeing one below due proves the
 // floor has not reached it, without the floor scan's exclusive lock.
 func (s *Store) pruneWaifHistory() {
-	due := s.waifHistoryDue.Load()
+	due := s.waifs.due.Load()
 	if due == 0 {
 		return
 	}
@@ -217,19 +217,19 @@ func (s *Store) pruneWaifHistory() {
 // others. A history that keeps superseded images is due again above the floor.
 func (s *Store) pruneWaifHistoryLocked() {
 	floor := s.historyFloor()
-	for len(s.waifHistoryQueue) != 0 && s.waifHistoryQueue[0].due <= floor {
-		entry := s.waifHistoryQueue[0]
-		s.waifPruneVisits++
+	for len(s.waifs.queue) != 0 && s.waifs.queue[0].due <= floor {
+		entry := s.waifs.queue[0]
+		s.waifs.pruneVisits++
 		due, retained := uint64(0), false
 		if value, alive := entry.weak.Value(); alive {
-			due, retained = value.PruneWaifImages(s.waifDomain, floor)
+			due, retained = value.PruneWaifImages(s.waifs.domain, floor)
 		}
 		if retained {
 			entry.due = due
-			heap.Fix(&s.waifHistoryQueue, 0)
+			heap.Fix(&s.waifs.queue, 0)
 		} else {
-			heap.Pop(&s.waifHistoryQueue)
-			delete(s.waifHistory, entry.identity)
+			heap.Pop(&s.waifs.queue)
+			delete(s.waifs.history, entry.identity)
 		}
 	}
 	s.advertiseWaifHistoryLocked()

@@ -195,7 +195,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 			},
 			change: func(t *testing.T, s *Store, _, _ types.ObjID) { s.noteVerbShapeChanged() },
 			want: func(s *Store, _ types.ObjID) ReadConflict {
-				return ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Live: s.verbShapeChangeTS.Load()}
+				return ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Live: s.dispatch.shapeChangeTS.Load()}
 			},
 		},
 		"waif": {
@@ -211,7 +211,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				}
 			},
 			want: func(s *Store, _ types.ObjID) ReadConflict {
-				live, _ := waif.WaifImageAt(s.waifDomain, s.readTimestamp())
+				live, _ := waif.WaifImageAt(s.waifs.domain, s.readTimestamp())
 				return ReadConflict{Kind: ConflictWaif, ObjID: types.ObjNothing, Name: waif.WaifIdentity().String(), Live: live.Timestamp()}
 			},
 		},

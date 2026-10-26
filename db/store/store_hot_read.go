@@ -59,6 +59,11 @@ type hotProperties struct {
 	events uint32
 	// set is the hot keys, replaced wholesale so readers load it lock-free.
 	set atomic.Pointer[map[propertyReadKey]struct{}]
+	// renewals, refusals and declines count what renewing a transaction at a
+	// stale hot read did (HotReadStats).
+	renewals atomic.Uint64
+	refusals atomic.Uint64
+	declines atomic.Uint64
 }
 
 // noteHotProperty scores one lost validation on key, or one stale read of it
@@ -136,7 +141,7 @@ func (s *Store) MarkHotProperty(objID types.ObjID, name string) {
 // because a carried read was stale too, and renewals declined because the
 // transaction had staged something other than property values.
 func (s *Store) HotReadStats() (renewed, refused, declined uint64) {
-	return s.hotReadRenewals.Load(), s.hotReadRefusals.Load(), s.hotReadDeclines.Load()
+	return s.hotProps.renewals.Load(), s.hotProps.refusals.Load(), s.hotProps.declines.Load()
 }
 
 // FindPropertyRenewing is FindProperty for a caller that can replace its
@@ -197,17 +202,17 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 		}
 	}
 	if !tx.onlyPropertyValuesStaged() {
-		s.hotReadDeclines.Add(1)
+		s.hotProps.declines.Add(1)
 		debugHotRead("declined", staleKey)
 		return nil
 	}
 	next := tx.renewAtCurrentClock(tx.newReads)
 	if next == nil {
-		s.hotReadRefusals.Add(1)
+		s.hotProps.refusals.Add(1)
 		debugHotRead("refused", staleKey)
 		return nil
 	}
-	s.hotReadRenewals.Add(1)
+	s.hotProps.renewals.Add(1)
 	isolationprobe.Note("hot_renewal")
 	debugHotRead("renewed", staleKey)
 	return next
@@ -243,7 +248,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	// A memoized verb resolution holds while no verb shape has changed since the
 	// snapshot it was made on; next's own commit covers changes after its own.
 	// max_object() and the like answer from the watermarks without a read mark.
-	if (tx.usedVerbMemo && s.verbShapeChangeTS.Load() > tx.readTS) ||
+	if (tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS) ||
 		next.maxObjID != tx.maxObjID || next.highWaterID != tx.highWaterID {
 		next.Release()
 		return nil

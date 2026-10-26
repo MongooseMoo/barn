@@ -45,8 +45,8 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	// scan, and serializer over a single set of anonymous objects, so a
 	// runtime-created anon survives a checkpoint just like a loaded one.
 	//
-	// allocateID already bumped highWaterID so the identity id (newID) is never
-	// handed out again; we do NOT touch maxObjID (anonymous objects must not affect
+	// allocateID already bumped ids.highWater so the identity id (newID) is never
+	// handed out again; we do NOT touch ids.max (anonymous objects must not affect
 	// max_object()).
 	s.anonObjects[newID] = obj
 	s.attachChildToParentsLocked(newID, obj.parents, true, false)
@@ -168,7 +168,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// Track for potential reuse. An anonymous object's id is its permanent
 	// identity (see AddAnonymous), so it is never reused.
 	if !obj.anonymous {
-		s.recycledID = append(s.recycledID, id)
+		s.ids.recycled = append(s.ids.recycled, id)
 	}
 
 	return nil
@@ -207,7 +207,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	stampObjectAll(newObj, ts)
 
 	s.publishLocked(id, newObj)
-	s.recycledID = removeRecycledID(s.recycledID, id)
+	s.ids.recycled = removeRecycledID(s.ids.recycled, id)
 	if parent != types.ObjNothing {
 		s.republishForMutation(s.load(parent))
 		s.attachChildToParentsLocked(id, newObj.parents, false, false)
@@ -265,21 +265,21 @@ func (s *Store) LowestFreeID() types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// First check for recycled slots (lowest first). recycledMu guards against a
+	// First check for recycled slots (lowest first). ids.recycledMu guards against a
 	// concurrent decentralized recycle append (also under store.mu.RLock).
 	lowestRecycled := types.ObjID(-1)
-	s.recycledMu.Lock()
-	for _, id := range s.recycledID {
+	s.ids.recycledMu.Lock()
+	for _, id := range s.ids.recycled {
 		if lowestRecycled == -1 || id < lowestRecycled {
 			lowestRecycled = id
 		}
 	}
-	s.recycledMu.Unlock()
+	s.ids.recycledMu.Unlock()
 	if lowestRecycled != -1 {
 		return lowestRecycled
 	}
 
-	// Check for gaps in ID sequence (0 to maxObjID)
+	// Check for gaps in ID sequence (0 to ids.max)
 	maxID := s.maxObjectID()
 	for id := types.ObjID(0); id <= maxID; id++ {
 		obj := s.load(id)
@@ -351,15 +351,15 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.publishLocked(oldID, tombstone)
 	s.publishLocked(newID, renumbered)
 
-	// Update recycledID list - remove newID if present, add oldID
+	// Update ids.recycled list - remove newID if present, add oldID
 	newRecycled := []types.ObjID{}
-	for _, rid := range s.recycledID {
+	for _, rid := range s.ids.recycled {
 		if rid != newID {
 			newRecycled = append(newRecycled, rid)
 		}
 	}
 	newRecycled = append(newRecycled, oldID)
-	s.recycledID = newRecycled
+	s.ids.recycled = newRecycled
 
 	// rewriteOwner mirrors ToastStunt's owner-fix rule in db_renumber_object
 	// (src/db_objects.cc:666-669, applied identically to verbdef owners at

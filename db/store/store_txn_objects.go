@@ -238,7 +238,7 @@ func (tx *StoreTxn) MaxObject() types.ObjID {
 // create-under it must conflict this recycle (so do NOT ForgetObject). Returns
 // handled=false for a COMPLEX object (has children or contents), so the caller falls
 // back to the coarse store.Recycle (which reparents children). Anonymous objects are not
-// routed here. recycledID is appended at commit time (under RLock), not here.
+// routed here. ids.recycled is appended at commit time (under RLock), not here.
 func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorCode) {
 	if tx.direct {
 		return false, types.E_NONE

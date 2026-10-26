@@ -444,8 +444,8 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		}
 		switch {
 		case w.created != nil:
-			// highWaterID was raised at allocation.
-			casMaxID(&s.maxObjID, id)
+			// ids.highWater was raised at allocation.
+			casMaxID(&s.ids.max, id)
 			s.publishLocked(id, w.img)
 		case w.old != nil:
 			s.replaceImageLocked(id, w.old, w.img)
@@ -462,7 +462,7 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	// index has one mutator at a time: under commitMu or store.mu.Lock. A
 	// publication that changes a WAIF's references advances types.WaifGraphEpoch
 	// itself; it leaves the WAIFs that object properties hold, which
-	// waifRootsEpoch tracks, alone.
+	// waifRoots.epoch tracks, alone.
 	for _, image := range tx.waifs {
 		if image.staged != nil {
 			s.publishWaifLocked(image, ts)
@@ -476,7 +476,7 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	}
 
 	// History GC: prune each touched object's versions below the live-read floor.
-	// pruneObjectHistory takes historyMu (serializing with objectLocked's header
+	// pruneObjectHistory takes history.mu (serializing with objectLocked's header
 	// capture). A snapshot that began while the images above were being published
 	// reads just below ts and is served the images this commit replaced. It
 	// registered before the clock moved, so the floor sampled here is at or below
@@ -519,14 +519,14 @@ func (s *Store) replaceImageLocked(id types.ObjID, old, img *Object) {
 
 // rememberOldImageLocked stashes an already-immutable old published image as the
 // history node for its id (no clone — under COW the replaced image IS a complete
-// immutable snapshot). historyMu guards the shared history map against concurrent
+// immutable snapshot). history.mu guards the shared history map against concurrent
 // shared-lock committers. A same-ts newest entry is replaced, as in
 // withHistoryEntry.
 func (s *Store) rememberOldImageLocked(old *Object) {
 	if old == nil {
 		return
 	}
-	s.historyMu.Lock()
-	s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	s.history.byID[old.id] = withHistoryEntry(s.history.byID[old.id], objectHistory{ts: objectVersion(old), obj: old})
+	s.history.mu.Unlock()
 }

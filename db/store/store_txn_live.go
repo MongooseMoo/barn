@@ -10,7 +10,7 @@ import (
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
-		// The live op has already moved verbShapeChangeTS, so the memo's clock
+		// The live op has already moved dispatch.shapeChangeTS, so the memo's clock
 		// check can no longer tell this txn's own change from a concurrent one.
 		// Callers reach PrepareLiveMutation first; this is the safety net.
 		tx.materializeVerbMemoMarks()
@@ -46,7 +46,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	}
 	tx.objects[objID] = cloneObjectForReadTxn(live)
 	// Anonymous objects do not participate in max_object() (CreateObject /
-	// insertObjectLocked bump only highWaterID for anon); mirror that here.
+	// insertObjectLocked bump only ids.highWater for anon); mirror that here.
 	if !live.anonymous && objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}
