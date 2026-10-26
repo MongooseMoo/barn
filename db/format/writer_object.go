@@ -153,11 +153,18 @@ func (w *Writer) writeObject(obj *store.SnapshotObject) error {
 
 // writeObjectList writes a list of object IDs as a MOO list value
 func (w *Writer) writeObjectList(ids []types.ObjID) error {
-	elements := make([]types.Value, len(ids))
-	for i, id := range ids {
-		elements[i] = types.NewObj(id)
+	if err := w.writeInt(TypeList); err != nil {
+		return err
 	}
-	return w.writeValue(types.NewList(elements))
+	if err := w.writeInt(len(ids)); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := w.writeValue(types.NewObj(id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeParents writes parents - single OBJ if one, list if multiple, #-1 if none
@@ -168,11 +175,7 @@ func (w *Writer) writeParents(parents []types.ObjID) error {
 	case 1:
 		return w.writeValue(types.NewObj(parents[0]))
 	default:
-		elements := make([]types.Value, len(parents))
-		for i, id := range parents {
-			elements[i] = types.NewObj(id)
-		}
-		return w.writeValue(types.NewList(elements))
+		return w.writeObjectList(parents)
 	}
 }
 
