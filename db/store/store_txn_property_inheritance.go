@@ -268,6 +268,33 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			})
 			queue = append(queue, childID)
 		}
+		// Anonymous children get the slot too (Toast insert_prop_recursively,
+		// db_properties.cc:162-166, :176-179). The staged write puts the anon id
+		// in the write set, which routes the commit to the exclusive path.
+		for _, anonID := range current.anonymousChildren {
+			anon := tx.object(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, existing, ok := anon.properties.find(name); ok {
+				tx.markPropertyRead(anonID, actualName, existing)
+				if existing.defined {
+					continue
+				}
+				tx.mutableObject(anonID).properties.remove(actualName)
+			} else {
+				tx.markPropertyScan(anonID, anon)
+			}
+			override := inheritedSlot(prop, anon.owner)
+			tx.mutableObject(anonID).properties.put(propertyNameKey(name), override)
+			key := propertyWriteKey{objID: anonID, name: propertyNameKey(name)}
+			delete(tx.propertyDeletes, key)
+			lazySet(&tx.propertyWrites, key, propertyWrite{
+				name:  name,
+				value: override.value,
+				prop:  override,
+			})
+		}
 	}
 }
 

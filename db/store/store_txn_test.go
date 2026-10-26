@@ -1329,6 +1329,52 @@ func TestDeleteDefinedPropertyRemovesAnonymousChildOverride(t *testing.T) {
 	}
 }
 
+func TestDefinePropertyGivesAnonymousDescendantsOwnSlot(t *testing.T) {
+	const anonOwner = types.ObjID(5)
+	for _, snapshot := range []bool{true, false} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, 0)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		mid, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject failed: %v", errCode)
+		}
+		var anons []types.ObjID
+		for _, parent := range []types.ObjID{0, mid} {
+			anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{parent}, anonOwner, true)
+			if errCode != types.E_NONE {
+				t.Fatalf("CreateObject anonymous failed: %v", errCode)
+			}
+			anons = append(anons, anon)
+		}
+		prop := NewProperty(types.NewInt(1), 0, PropRead|PropChown, false, true)
+
+		checkSlots := func(tx *StoreTxn, when string) {
+			t.Helper()
+			for _, anon := range anons {
+				view, ok, errCode := tx.LocalProperty(anon, "x")
+				if errCode != types.E_NONE || !ok || view.Owner != anonOwner || !view.Clear {
+					t.Fatalf("snapshot=%v %s: anonymous %v slot = %+v, %v, %v; want clear slot owned by %v", snapshot, when, anon, view, ok, errCode, anonOwner)
+				}
+			}
+		}
+		if snapshot {
+			tx := store.BeginSnapshot(0)
+			if errCode := tx.DefineProperty(0, "x", prop); errCode != types.E_NONE {
+				t.Fatalf("DefineProperty failed: %v", errCode)
+			}
+			checkSlots(tx, "in txn")
+			if errCode := tx.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit failed: %v", errCode)
+			}
+		} else if errCode := store.DirectTxn().DefineProperty(0, "x", prop); errCode != types.E_NONE {
+			t.Fatalf("direct DefineProperty failed: %v", errCode)
+		}
+		checkSlots(store.DirectTxn(), "after")
+	}
+}
+
 func TestTransactionDeleteMixedCasePropertyRemovesOrderEntry(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

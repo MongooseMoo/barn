@@ -654,6 +654,27 @@ func (s *Store) propagatePropertyToDescendantsLocked(images objectImages, objID 
 			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
 		}
+		// Anonymous children get the slot too (Toast insert_prop_recursively,
+		// db_properties.cc:162-166, :176-179).
+		for _, anonID := range current.anonymousChildren {
+			anon := images.view(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, existing, ok := anon.properties.find(name); ok {
+				if existing.defined {
+					continue
+				}
+				anon = images.own(anon)
+				anon.properties.remove(actualName)
+			} else {
+				anon = images.own(anon)
+			}
+			slot := inheritedSlot(prop, anon.owner)
+			slot.version = ts
+			anon.properties.put(propertyNameKey(name), slot)
+			stampObjectProperties(anon, ts)
+		}
 	}
 }
 
