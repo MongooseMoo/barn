@@ -54,6 +54,13 @@ type idAllocator struct {
 	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
 }
 
+// historyIndex holds each object's superseded images, for readers whose
+// snapshot predates the live image. See store_history_gc.go.
+type historyIndex struct {
+	mu   sync.Mutex // guards byID appends from concurrent COW committers
+	byID map[types.ObjID][]objectHistory
+}
+
 // waifRootsMemo memoizes the PersistentWaifRoots top-level scan. epoch
 // advances whenever the set of WAIFs held directly by live objects' property
 // values may have changed; cache is valid for one epoch. See
@@ -103,10 +110,10 @@ type Store struct {
 	// mu.Lock, so one writer serves every direct write (lockedWriter).
 	writer StoreTxn
 	// ids allocates object ids and keeps recycled ones (idAllocator).
-	ids                idAllocator
-	clock              atomic.Uint64
-	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
-	history            map[types.ObjID][]objectHistory
+	ids   idAllocator
+	clock atomic.Uint64
+	// history holds superseded object images (historyIndex).
+	history            historyIndex
 	waifDomain         *types.WaifDomain
 	waifHistory        map[types.WaifIdentity]*waifHistoryEntry
 	waifHistoryQueue   waifHistoryQueue // the same entries, ordered by due
@@ -202,7 +209,7 @@ func NewStore() *Store {
 	s := &Store{
 		anonObjects: make(map[types.ObjID]*Object),
 		ids:         idAllocator{recycled: []types.ObjID{}},
-		history:     make(map[types.ObjID][]objectHistory),
+		history:     historyIndex{byID: make(map[types.ObjID][]objectHistory)},
 		waifDomain:  new(types.WaifDomain),
 		propPool:    lockedPropPool{pool: newPropSharePool()},
 	}
@@ -423,7 +430,7 @@ func objectVersion(obj *Object) uint64 {
 // image. One timestamp identifies one commit, and a commit can supersede the same
 // object more than once at its timestamp, so an entry with the newest entry's ts
 // is the later image of that commit and replaces it. The replacement is a new
-// slice: readers walk captured slice headers outside historyMu.
+// slice: readers walk captured slice headers outside history.mu.
 func withHistoryEntry(entries []objectHistory, entry objectHistory) []objectHistory {
 	n := len(entries)
 	if n == 0 || entries[n-1].ts != entry.ts {
@@ -439,7 +446,7 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 	if obj == nil {
 		return
 	}
-	s.history[obj.id] = withHistoryEntry(s.history[obj.id], objectHistory{
+	s.history.byID[obj.id] = withHistoryEntry(s.history.byID[obj.id], objectHistory{
 		ts:  objectVersion(obj),
 		obj: cloneObjectForReadTxn(obj),
 	})
@@ -447,7 +454,7 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 	// History GC: prune this object's now-dead old versions below the
 	// live-read floor. The coarse path holds store.mu.Lock (exclusive), so this is
 	// safe against objectLocked and the decentralized committer (both hold only
-	// store.mu.RLock); pruneObjectHistory takes historyMu as a leaf lock (always
+	// store.mu.RLock); pruneObjectHistory takes history.mu as a leaf lock (always
 	// nested inside store.mu — no lock-order inversion). The just-appended entry
 	// carries the pre-mutation version; the caller stamps a strictly-newer version
 	// onto the live image right after, so the live (current) image is never in
@@ -487,9 +494,9 @@ func (s *Store) republishForMutation(old *Object) *Object {
 	s.publishLocked(old.id, fresh)
 	// Retain the OLD (now superseded, immutable) image as the history node — no
 	// clone needed, mirroring rememberObjectLocked minus the copy. Touching
-	// s.history directly is safe: the caller holds s.mu.Lock (exclusive), which
-	// excludes the decentralized committers that guard history with historyMu.
-	s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
+	// s.history.byID directly is safe: the caller holds s.mu.Lock (exclusive), which
+	// excludes the decentralized committers that guard it with history.mu.
+	s.history.byID[old.id] = withHistoryEntry(s.history.byID[old.id], objectHistory{ts: objectVersion(old), obj: old})
 	s.pruneObjectHistory(old.id, s.historyFloor())
 	return fresh
 }

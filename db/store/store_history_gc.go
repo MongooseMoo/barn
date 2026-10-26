@@ -9,7 +9,7 @@ import (
 
 // store_history_gc.go — bounded history GC.
 //
-// s.history[id] holds the OLD immutable *Object versions a read-only transaction
+// s.history.byID[id] holds the OLD immutable *Object versions a read-only transaction
 // needs for time-travel: a reader at readTS=R sees the newest version with
 // version<=R; if the live image's version is > R it walks history newest->oldest
 // for the newest entry with ts<=R. Without pruning the list grows unbounded
@@ -141,7 +141,7 @@ func (s *Store) historyFloor() uint64 {
 }
 
 // pruneHistoryBelowFloorLocked drops the dead old versions of object id from
-// s.history given floor. It is called holding s.historyMu (so it is serialized
+// s.history.byID given floor. It is called holding s.history.mu (so it is serialized
 // with objectLocked's header capture and with concurrent committers' appends).
 //
 // entries are append-ordered, hence ascending by ts (each commit draws a strictly
@@ -255,7 +255,7 @@ func pruneHistoryToReaders(entries []objectHistory, readers []uint64, clock uint
 }
 
 // pruneObjectHistory prunes object id's history to the current floor under
-// historyMu, and to its readers when that is due. Safe to call from the
+// history.mu, and to its readers when that is due. Safe to call from the
 // decentralized publish path (which holds store.mu.RLock + commitMu) and
 // from the coarse path (store.mu.Lock).
 //
@@ -263,31 +263,31 @@ func pruneHistoryToReaders(entries []objectHistory, readers []uint64, clock uint
 // losing transaction's snapshot (propertyWasStaleAtRead), so while it is
 // tracking, history is pruned to the floor only.
 func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
-	s.historyMu.Lock()
+	s.history.mu.Lock()
 	remaining := 0
-	if entries, ok := s.history[id]; ok {
+	if entries, ok := s.history.byID[id]; ok {
 		pruned := pruneHistoryBelowFloorLocked(entries, floor)
 		if len(pruned) == 0 {
-			delete(s.history, id)
+			delete(s.history.byID, id)
 		} else if len(pruned) != len(entries) {
-			s.history[id] = pruned
+			s.history.byID[id] = pruned
 		}
 		remaining = len(pruned)
 	}
-	s.historyMu.Unlock()
+	s.history.mu.Unlock()
 	if !readerPruneDue(remaining) || s.conflicts.tracking.Load() {
 		return
 	}
-	// The registry is scanned outside historyMu. Entries appended in between
+	// The registry is scanned outside history.mu. Entries appended in between
 	// are kept by the rule above whatever the scan saw.
 	readers, clock := s.liveReadTimestamps()
-	s.historyMu.Lock()
-	if entries, ok := s.history[id]; ok {
+	s.history.mu.Lock()
+	if entries, ok := s.history.byID[id]; ok {
 		if pruned := pruneHistoryToReaders(entries, readers, clock); len(pruned) != len(entries) {
-			s.history[id] = pruned
+			s.history.byID[id] = pruned
 		}
 	}
-	s.historyMu.Unlock()
+	s.history.mu.Unlock()
 }
 
 // HistoryStats is a point-in-time count of the superseded object images the
@@ -304,15 +304,15 @@ type HistoryStats struct {
 func (s *Store) HistoryStats() HistoryStats {
 	stats := HistoryStats{Floor: s.historyFloor(), Clock: s.clock.Load()}
 	s.mu.RLock()
-	s.historyMu.Lock()
-	for id, entries := range s.history {
+	s.history.mu.Lock()
+	for id, entries := range s.history.byID {
 		stats.Objects++
 		stats.Entries += len(entries)
 		if len(entries) > stats.MostEntries {
 			stats.MostObject, stats.MostEntries = id, len(entries)
 		}
 	}
-	s.historyMu.Unlock()
+	s.history.mu.Unlock()
 	s.mu.RUnlock()
 	for i := range s.readTSShards {
 		sh := &s.readTSShards[i]

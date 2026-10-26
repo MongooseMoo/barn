@@ -183,9 +183,9 @@ func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
 
 // historyLen returns the number of retained old versions for id (test-only).
 func (s *Store) historyLen(id types.ObjID) int {
-	s.historyMu.Lock()
-	defer s.historyMu.Unlock()
-	return len(s.history[id])
+	s.history.mu.Lock()
+	defer s.history.mu.Unlock()
+	return len(s.history.byID[id])
 }
 
 // activeFloorCount returns the number of distinct live readTS registrations

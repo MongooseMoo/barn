@@ -124,7 +124,7 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 	defer tx.Release()
 	old := tx.object(0)
 	clock, shape := s.clock.Load(), s.dispatch.shapeChangeTS.Load()
-	history := len(s.history[0])
+	history := len(s.history.byID[0])
 	for _, tc := range []struct {
 		id   types.ObjID
 		name string
@@ -133,7 +133,7 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 		if ec := s.SetVerbArgs(tc.id, tc.name, publicationArgsB); ec != tc.want {
 			t.Fatalf("error = %s, want %s", ec, tc.want)
 		}
-		if s.load(0) != old || s.clock.Load() != clock || s.dispatch.shapeChangeTS.Load() != shape || len(s.history[0]) != history {
+		if s.load(0) != old || s.clock.Load() != clock || s.dispatch.shapeChangeTS.Load() != shape || len(s.history.byID[0]) != history {
 			t.Fatal("failed operation published or changed generation/history")
 		}
 	}
@@ -149,7 +149,7 @@ func TestVerbArgsPublicationErrorsStampsHistoryAndSameArgs(t *testing.T) {
 		t.Fatal("argument-only publication changed unrelated generations")
 	}
 	found := false
-	for _, entry := range s.history[0] {
+	for _, entry := range s.history.byID[0] {
 		found = found || entry.obj == old
 	}
 	if !found {

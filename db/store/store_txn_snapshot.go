@@ -141,15 +141,15 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 		return cloneObjectForReadTxn(anon)
 	}
 
-	// The history slice header is read under historyMu: a decentralized COW
+	// The history slice header is read under history.mu: a decentralized COW
 	// committer (holding only store.mu.RLock, which does not exclude this reader's
-	// RLock) appends to s.history under historyMu. Capturing the slice header here
+	// RLock) appends to s.history.byID under history.mu. Capturing the slice header here
 	// is enough — append never mutates the existing entries the walk reads, and the
 	// committer reassigns the map value to a (possibly new) header, so the captured
 	// header is a stable snapshot. The clone below runs outside the lock.
-	tx.store.historyMu.Lock()
-	history := tx.store.history[objID]
-	tx.store.historyMu.Unlock()
+	tx.store.history.mu.Lock()
+	history := tx.store.history.byID[objID]
+	tx.store.history.mu.Unlock()
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].ts <= tx.readTS {
 			// History entries are superseded published images (numbered objects only —

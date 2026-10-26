@@ -130,9 +130,9 @@ func TestFailedDirectWriteLeavesNoTrace(t *testing.T) {
 	if got := s.readTimestamp(); got != clock {
 		t.Errorf("clock moved %d -> %d", clock, got)
 	}
-	s.historyMu.Lock()
-	entries := len(s.history[obj])
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	entries := len(s.history.byID[obj])
+	s.history.mu.Unlock()
 	if entries != 0 {
 		t.Errorf("history entries for #%d = %d, want 0", obj, entries)
 	}

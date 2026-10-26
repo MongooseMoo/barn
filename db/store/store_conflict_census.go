@@ -331,9 +331,9 @@ func (tx *StoreTxn) propertyWasStaleAtRead(key propertyReadKey, read uint64) boo
 		return false
 	}
 	s := tx.store
-	s.historyMu.Lock()
-	history := s.history[key.objID]
-	s.historyMu.Unlock()
+	s.history.mu.Lock()
+	history := s.history.byID[key.objID]
+	s.history.mu.Unlock()
 
 	passedRead := false
 	rewrittenAt := func(image *Object) (uint64, bool) {

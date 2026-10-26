@@ -33,7 +33,7 @@ import (
 //     memo has a real working set to amortize over.
 //   - A store-global memo stamped with the global commit clock would be WRONG
 //     for any transaction whose readTS lags the clock (a long-running or
-//     retried task reads an older snapshot through s.history —
+//     retried task reads an older snapshot through s.history.byID —
 //     StoreTxn.objectLocked). It would only be usable when
 //     tx.readTS == clock, which is exactly the case a global epoch cannot
 //     cheaply prove per lookup. Scoping the memo to the snapshot that produced
