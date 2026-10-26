@@ -76,7 +76,7 @@ func newParityVM(t *testing.T) (*VM, func(string) *bytecode.Program) {
 	ctx.TicksRemaining = 1 << 40
 	m := NewVM(store, newTestSession(registry))
 	m.Context = ctx
-	m.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+	m.Task = task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 	m.TickLimit = 1 << 40
 	return m, compile
 }

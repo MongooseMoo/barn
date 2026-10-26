@@ -440,7 +440,7 @@ func TestHTTPReadingTaskUsesInterruptedSection(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
-	queued := task.NewTask(31, 2, 100, 1)
+	queued := task.NewState(31, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -484,7 +484,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 }
 
 func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
-	queued := task.NewTask(37, 2, 100, 1)
+	queued := task.NewState(37, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4
@@ -523,7 +523,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 }
 
 func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
-	queued := task.NewTask(43, 2, 100, 1)
+	queued := task.NewState(43, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)
 	queued.Programmer = 3
 	queued.This = 4

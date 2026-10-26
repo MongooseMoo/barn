@@ -41,7 +41,7 @@ func TestIndexedIterationAllocationGrowth(t *testing.T) {
 					machine := NewVM(store, session)
 					machine.Context = ctx
 					machine.TickLimit = 1 << 60
-					machine.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+					machine.Task = task.NewState(1, 0, ctx.TicksRemaining, 1)
 					result := machine.RunWithVerbContext(program, 0, 0, 0, "iteration", 0, args)
 					if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewInt(int64(n*(n+1)/2))) {
 						t.Fatalf("result = %+v", result)

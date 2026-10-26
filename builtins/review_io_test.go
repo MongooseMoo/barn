@@ -161,8 +161,8 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	const earlierID = int64(88801)
 	const laterID = int64(88802)
 
-	earlier := task.NewTask(earlierID, 1, 10000, 30)
-	later := task.NewTask(laterID, 1, 10000, 30)
+	earlier := task.NewState(earlierID, 1, 10000, 30)
+	later := task.NewState(laterID, 1, 10000, 30)
 
 	// Set a non-empty verb name so GetQueuedTasks does not filter them as
 	// eval scaffolding (which filters IsForked && VerbName == "").
@@ -247,8 +247,8 @@ func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
 	const timedID = int64(88811)
 	const indefID = int64(88812)
 
-	timed := task.NewTask(timedID, 1, 10000, 30)
-	indef := task.NewTask(indefID, 1, 10000, 30)
+	timed := task.NewState(timedID, 1, 10000, 30)
+	indef := task.NewState(indefID, 1, 10000, 30)
 
 	timed.VerbName = "review_timed_verb"
 	indef.VerbName = "review_indef_verb"

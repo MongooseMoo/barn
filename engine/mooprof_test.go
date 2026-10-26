@@ -22,8 +22,8 @@ func profileCall(t *testing.T, setup, call string) (*profile.Profile, types.Valu
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
 	t.Cleanup(s.Stop)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	run := func(id int64, src string) *task.Task {
-		tk := task.NewTaskFull(id, 0, compileTestProgram(t, s.registry, src), ticks, seconds)
+	run := func(id int64, src string) *task.State {
+		tk := task.NewStateFull(id, 0, compileTestProgram(t, s.registry, src), ticks, seconds)
 		tk.Context.IsWizard = true
 		if err := s.runTask(tk); err != nil {
 			t.Fatalf("runTask %d failed: %v", id, err)

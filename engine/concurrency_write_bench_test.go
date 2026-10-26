@@ -150,7 +150,7 @@ func runWriteWorkers(t *testing.T, n, distinct, loop int, pool bool, workers int
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 
-	tasks := make([]*task.Task, n)
+	tasks := make([]*task.State, n)
 	for k := 0; k < n; k++ {
 		target := ids[k%distinct]
 		var code string

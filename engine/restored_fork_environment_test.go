@@ -16,7 +16,7 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *task.Task) {
+func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *task.State) {
 	t.Helper()
 	runtime := NewRuntime(dbstore.NewStore())
 	t.Cleanup(runtime.Stop)
@@ -34,7 +34,7 @@ func loadedForkForTest(t *testing.T, saved *dbformat.QueuedTask) (*Runtime, *tas
 	return runtime, loaded
 }
 
-func queuedForkWriterRoundtrip(t *testing.T, runtime *Runtime, loaded *task.Task) *dbformat.QueuedTask {
+func queuedForkWriterRoundtrip(t *testing.T, runtime *Runtime, loaded *task.State) *dbformat.QueuedTask {
 	t.Helper()
 	var buffer bytes.Buffer
 	writer := dbformat.NewWriter(&buffer, runtime.store.Snapshot())

@@ -43,7 +43,7 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 				defer rt.releaseSweepContext(ctx)
 				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, nil))
 			case "owned_hook":
-				owner := &task.Task{ID: 91001, Owner: 0}
+				owner := &task.State{ID: 91001, Owner: 0}
 				if !rt.acquireTaskExecution(owner) {
 					t.Fatal("could not acquire hook owner")
 				}
@@ -92,7 +92,7 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			rt := newTestRuntimeWithBuiltins(t, store)
 			defer rt.Stop()
 			admissionVerb(t, store, "nested_probe", "total = 0; for i in [1..2000] total = total + i; endfor return total;")
-			parent := &task.Task{Owner: 0}
+			parent := &task.State{Owner: 0}
 			anchor := time.Now()
 			parent.ResetExecutionBudget(40000, 2, anchor)
 			deadline := anchor.Add(2 * time.Second)

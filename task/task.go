@@ -34,7 +34,7 @@ const (
 
 // ForkCreator interface allows tasks to create forked children without importing server
 type ForkCreator interface {
-	CreateForkedTask(parent *Task, info *types.ForkInfo) int64
+	CreateForkedTask(parent *State, info *types.ForkInfo) int64
 }
 
 func (s TaskState) String() string {
@@ -56,12 +56,12 @@ func (s TaskState) String() string {
 	}
 }
 
-// Task represents a MOO task (unit of execution)
-type Task struct {
+// State holds a MOO task's execution context, lifecycle, and language-visible data.
+type State struct {
 	ID                int64
 	Owner             types.ObjID
 	Kind              TaskKind // Type of task (input, forked, suspended)
-	State             TaskState
+	Status            TaskState
 	StartTime         time.Time
 	QueueTime         time.Time // When task was queued
 	TicksUsed         int64
@@ -77,7 +77,7 @@ type Task struct {
 	WakeTime            time.Time
 	suspendGen          uint64      // Bumped by every Suspend/SuspendIndefinite; see ResumeGeneration
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
-	readier             *Task       // Task whose fork or resume() readied this one; retained until physical handoff
+	readier             *State      // Task whose fork or resume() readied this one; retained until physical handoff
 	forkFamily          int64       // ID of the unforked task this one descends from; zero for that task itself
 	WakeValue           types.Value // Value to return when resumed
 	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
@@ -126,7 +126,6 @@ type Task struct {
 	OnComplete func(Result types.Result)
 	onFailure  func(error)
 
-	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
 	doneClosed       bool // guards Done against double-close
@@ -145,67 +144,68 @@ type Task struct {
 	// task finishes, and when a finished task is made runnable again.
 	catalog *Manager
 
-	mu sync.RWMutex
+	// Mu protects state and, when embedded in an executable task, its saved VM.
+	Mu sync.RWMutex
 }
 
 // ReadingPlayerValue returns the player whose input this task is waiting for.
-func (t *Task) ReadingPlayerValue() types.ObjID {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ReadingPlayerValue() types.ObjID {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.ReadingPlayer
 }
 
 // SetReadingPlayer records the player whose input this task is waiting for.
-func (t *Task) SetReadingPlayer(player types.ObjID) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetReadingPlayer(player types.ObjID) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.ReadingPlayer = player
 }
 
 // IsReadingFrom reports whether the task is suspended waiting for player input.
-func (t *Task) IsReadingFrom(player types.ObjID) bool {
-	_, _, ok := t.readingOrder(player)
+func (t *State) IsReadingFrom(player types.ObjID) bool {
+	_, _, ok := t.ReadingOrder(player)
 	return ok
 }
 
-// readingOrder atomically snapshots the deterministic order of a matching
+// ReadingOrder atomically snapshots the deterministic order of a matching
 // read()-suspended task. QueueSeq is the primary FIFO key; ID makes selection
 // deterministic for tasks that have the same (including default-zero) sequence.
-func (t *Task) readingOrder(player types.ObjID) (queueSeq, id int64, ok bool) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	if t.State != TaskSuspended || t.ReadingPlayer != player {
+func (t *State) ReadingOrder(player types.ObjID) (queueSeq, id int64, ok bool) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	if t.Status != TaskSuspended || t.ReadingPlayer != player {
 		return 0, 0, false
 	}
 	return t.QueueSeq, t.ID, true
 }
 
 // SetOnComplete installs the callback invoked when the task terminates.
-func (t *Task) SetOnComplete(onComplete func(Result types.Result)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetOnComplete(onComplete func(Result types.Result)) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.OnComplete = onComplete
 }
 
 // TakeOnComplete atomically removes and returns the terminal callback.
 // A nil return means that no callback is pending.
-func (t *Task) TakeOnComplete() func(Result types.Result) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) TakeOnComplete() func(Result types.Result) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	onComplete := t.OnComplete
 	t.OnComplete = nil
 	return onComplete
 }
 
-func (t *Task) SetOnFailure(callback func(error)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetOnFailure(callback func(error)) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.onFailure = callback
 }
 
-func (t *Task) TakeOnFailure() func(error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) TakeOnFailure() func(error) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	callback := t.onFailure
 	t.onFailure = nil
 	return callback
@@ -214,9 +214,9 @@ func (t *Task) TakeOnFailure() func(error) {
 // CloseDone closes the task's Done channel exactly once. It is a no-op when
 // Done is nil or has already been closed, so callers may invoke it on every
 // terminal-state transition without risking a close-of-closed-channel panic.
-func (t *Task) CloseDone() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) CloseDone() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if t.Done == nil || t.doneClosed {
 		return
 	}
@@ -224,15 +224,24 @@ func (t *Task) CloseDone() {
 	close(t.Done)
 }
 
-// NewTask creates a new task
-func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64) *Task {
+// NewState creates task state with the standard execution budgets and defaults.
+func NewState(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64) *State {
+	t := &State{}
+	t.Init(id, owner, tickLimit, secondsLimit)
+	return t
+}
+
+// Init initializes fresh, unpublished state in place. This lets its executable
+// owner embed State without allocating a second object or copying a used mutex.
+// It must not be called after the state has been shared or used.
+func (t *State) Init(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64) {
 	now := time.Now()
-	return &Task{
+	*t = State{
 		ID:            id,
 		Owner:         owner,
 		Programmer:    owner,     // Default programmer is owner
 		Kind:          TaskInput, // Default to input task
-		State:         TaskCreated,
+		Status:        TaskCreated,
 		StartTime:     now,
 		QueueTime:     now,
 		TicksUsed:     0,
@@ -248,52 +257,33 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 	}
 }
 
-// NewTaskFull creates a task with full execution context.
-func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLimit int64, secondsLimit float64) *Task {
+// NewStateFull creates a task with full execution context.
+func NewStateFull(id int64, owner types.ObjID, program *bytecode.Program, tickLimit int64, secondsLimit float64) *State {
 	ctx := NewContext()
 	ctx.Player = owner
 	ctx.Programmer = owner
 	ctx.TicksRemaining = tickLimit
 
-	now := time.Now()
-	t := &Task{
-		ID:            id,
-		Owner:         owner,
-		Programmer:    owner,
-		Kind:          TaskInput,
-		State:         TaskCreated,
-		StartTime:     now,
-		QueueTime:     now,
-		TicksUsed:     0,
-		TicksLimit:    tickLimit,
-		SecondsUsed:   0,
-		SecondsLimit:  secondsLimit,
-		CallStack:     make([]types.ActivationFrame, 0),
-		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
-		WakeValue:     types.NewInt(0),
-		ReadingPlayer: types.ObjNothing,
-		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
-		Iobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
-		Program:       program,
-		Context:       ctx,
-	}
+	t := NewState(id, owner, tickLimit, secondsLimit)
+	t.Program = program
+	t.Context = ctx
 	return t
 }
 
 // GetState returns the current state (thread-safe)
-func (t *Task) GetState() TaskState {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.State
+func (t *State) GetState() TaskState {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return t.Status
 }
 
 // SetState sets the state (thread-safe)
-func (t *Task) SetState(state TaskState) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetState(state TaskState) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	// Count the transition, not the assignment: a task can be marked killed more
 	// than once as an error unwinds, and it only died once.
-	if state == TaskKilled && t.State != TaskKilled {
+	if state == TaskKilled && t.Status != TaskKilled {
 		metrics.TasksKilled.Add(1)
 	}
 	t.setStateLocked(state)
@@ -310,15 +300,15 @@ func (s TaskState) finished() bool {
 // its slice is no longer executing. A task that dies with an error is killed
 // before its uncaught-error hook runs, and the task that forked it stays held
 // until that slice ends, so the state alone does not settle it.
-func (t *Task) settledLocked() bool {
-	return t.State.finished() && !t.executionActive
+func (t *State) settledLocked() bool {
+	return t.Status.finished() && !t.executionActive
 }
 
 // setStateLocked is the only place a registered task's state changes, so the
 // manager's index of unfinished tasks stays exact. The caller holds t.mu.
-func (t *Task) setStateLocked(state TaskState) {
+func (t *State) setStateLocked(state TaskState) {
 	was := t.settledLocked()
-	t.State = state
+	t.Status = state
 	if state != TaskQueued {
 		t.wokenUnrun = false
 	}
@@ -327,13 +317,13 @@ func (t *Task) setStateLocked(state TaskState) {
 
 // setExecutionActiveLocked is the only place the execution lease changes, for
 // the same reason. The caller holds t.mu.
-func (t *Task) setExecutionActiveLocked(active bool) {
+func (t *State) setExecutionActiveLocked(active bool) {
 	was := t.settledLocked()
 	t.executionActive = active
 	t.noteSettledLocked(was)
 }
 
-func (t *Task) noteSettledLocked(was bool) {
+func (t *State) noteSettledLocked(was bool) {
 	if now := t.settledLocked(); now != was && t.catalog != nil {
 		t.catalog.noteFinished(t, now)
 	}
@@ -341,7 +331,7 @@ func (t *Task) noteSettledLocked(was bool) {
 
 // Only a nonblocking channel send runs under the task lock; no scheduler or
 // runtime callback may acquire locks in the reverse direction.
-func (t *Task) notifyScheduleLocked() {
+func (t *State) notifyScheduleLocked() {
 	select {
 	case t.scheduleChanged <- struct{}{}:
 	default:
@@ -358,33 +348,33 @@ type ReadinessSnapshot struct {
 	SuspendGeneration uint64    `json:"suspend_generation"`
 }
 
-func (t *Task) ReadinessSnapshot() ReadinessSnapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return ReadinessSnapshot{State: t.State.String(), ExecutionActive: t.executionActive,
+func (t *State) ReadinessSnapshot() ReadinessSnapshot {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return ReadinessSnapshot{State: t.Status.String(), ExecutionActive: t.executionActive,
 		AdmissionPending: t.admissionPending, WaitingForInput: t.waitingForInput,
 		ExternalReadyAt: t.execReadyAt, SuspendGeneration: t.suspendGen}
 }
 
 // ReadyDeadline reports the next time this task could be selected. Zero means
 // no scheduled wake, including VMs whose physical execution has not ended.
-func (t *Task) ReadyDeadline(now time.Time) time.Time {
+func (t *State) ReadyDeadline(now time.Time) time.Time {
 	if t.awaitingReadier() {
 		return time.Time{}
 	}
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.readyDeadlineLocked(now)
 }
 
-func (t *Task) readyDeadlineLocked(now time.Time) time.Time {
+func (t *State) readyDeadlineLocked(now time.Time) time.Time {
 	if t.executionActive || t.admissionPending || t.waitingForInput {
 		return time.Time{}
 	}
-	if t.State == TaskSuspended {
+	if t.Status == TaskSuspended {
 		return t.WakeTime
 	}
-	if t.State != TaskQueued {
+	if t.Status != TaskQueued {
 		return time.Time{}
 	}
 	at := t.StartTime
@@ -399,9 +389,9 @@ func (t *Task) readyDeadlineLocked(now time.Time) time.Time {
 
 // SetExecutionActive brackets physical VM execution, which can outlast its
 // logical running state. Publishing the handoff must wake a sleeping selector.
-func (t *Task) SetExecutionActive(active bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetExecutionActive(active bool) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.setExecutionActiveLocked(active)
 	if !active {
 		t.readier = nil
@@ -410,10 +400,10 @@ func (t *Task) SetExecutionActive(active bool) {
 }
 
 // StartExecution atomically checks cancellation and publishes VM ownership.
-func (t *Task) StartExecution() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State == TaskKilled {
+func (t *State) StartExecution() bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status == TaskKilled {
 		return false
 	}
 	t.setExecutionActiveLocked(true)
@@ -424,10 +414,10 @@ func (t *Task) StartExecution() bool {
 // TryClaimQueued atomically takes the execution claim for a queued task.
 // Dispatchers must claim a task before handing it to runTask so two concurrent
 // scheduling paths cannot execute the same saved VM.
-func (t *Task) TryClaimQueued() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State != TaskQueued || t.executionActive || t.waitingForInput {
+func (t *State) TryClaimQueued() bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskQueued || t.executionActive || t.waitingForInput {
 		return false
 	}
 	t.setStateLocked(TaskRunning)
@@ -436,43 +426,43 @@ func (t *Task) TryClaimQueued() bool {
 
 // ReserveAdmission keeps an unstarted VM inspectable while preventing duplicate
 // dispatch by the input and background scheduling paths.
-func (t *Task) ReserveAdmission() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State != TaskQueued || t.executionActive || t.admissionPending || t.waitingForInput {
+func (t *State) ReserveAdmission() bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskQueued || t.executionActive || t.admissionPending || t.waitingForInput {
 		return false
 	}
 	t.admissionPending = true
 	return true
 }
 
-func (t *Task) ReleaseAdmission() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ReleaseAdmission() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.admissionPending = false
 	t.notifyScheduleLocked()
 }
 
 // PushFrame pushes an activation frame onto the call stack
-func (t *Task) PushFrame(frame types.ActivationFrame) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) PushFrame(frame types.ActivationFrame) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.CallStack = append(t.CallStack, frame)
 }
 
 // PopFrame pops an activation frame from the call stack
-func (t *Task) PopFrame() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) PopFrame() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if len(t.CallStack) > 0 {
 		t.CallStack = t.CallStack[:len(t.CallStack)-1]
 	}
 }
 
 // GetCallStack returns a copy of the call stack (thread-safe)
-func (t *Task) GetCallStack() []types.ActivationFrame {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) GetCallStack() []types.ActivationFrame {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	// Make a copy
 	stack := make([]types.ActivationFrame, len(t.CallStack))
 	copy(stack, t.CallStack)
@@ -482,9 +472,9 @@ func (t *Task) GetCallStack() []types.ActivationFrame {
 // CallStackProgrammer returns the programmer of the frame depth below the top
 // (0 is the running frame) and the number of frames, without copying the
 // stack. With fewer than depth+1 frames the programmer is ObjNothing.
-func (t *Task) CallStackProgrammer(depth int) (programmer types.ObjID, frames int) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) CallStackProgrammer(depth int) (programmer types.ObjID, frames int) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	frames = len(t.CallStack)
 	if depth < 0 || depth >= frames {
 		return types.ObjNothing, frames
@@ -493,9 +483,9 @@ func (t *Task) CallStackProgrammer(depth int) (programmer types.ObjID, frames in
 }
 
 // ClearCallStack removes every activation frame atomically.
-func (t *Task) ClearCallStack() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ClearCallStack() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.CallStack = nil
 }
 
@@ -515,9 +505,9 @@ type RetrySnapshot struct {
 	ExecCommandName                      string
 }
 
-func (t *Task) RetryStateSnapshot() RetrySnapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) RetryStateSnapshot() RetrySnapshot {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return RetrySnapshot{
 		Context: t.Context, CallStack: append([]types.ActivationFrame(nil), t.CallStack...),
 		TaskLocal: t.TaskLocal, WakeValue: t.WakeValue, WakeErrorAsValue: t.WakeErrorAsValue,
@@ -528,9 +518,9 @@ func (t *Task) RetryStateSnapshot() RetrySnapshot {
 }
 
 // RestoreRetryState atomically publishes all task-owned state for a retry.
-func (t *Task) RestoreRetryState(saved RetrySnapshot) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) RestoreRetryState(saved RetrySnapshot) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.Result = types.Result{}
 	t.CallStack = saved.CallStack
 	t.TaskLocal = saved.TaskLocal
@@ -548,9 +538,9 @@ func (t *Task) RestoreRetryState(saved RetrySnapshot) {
 }
 
 // ContextValue returns the current execution context pointer safely.
-func (t *Task) ContextValue() *Context {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ContextValue() *Context {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.Context
 }
 
@@ -558,9 +548,9 @@ func (t *Task) ContextValue() *Context {
 // The update must happen while holding the lock: returning a pointer into
 // CallStack would allow a concurrent append to move the slice before the caller
 // writes through the pointer.
-func (t *Task) SetTopFrameProgrammer(who types.ObjID) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetTopFrameProgrammer(who types.ObjID) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if len(t.CallStack) == 0 {
 		return false
 	}
@@ -569,9 +559,9 @@ func (t *Task) SetTopFrameProgrammer(who types.ObjID) bool {
 }
 
 // UpdateLineNumber updates the line number of the top activation frame
-func (t *Task) UpdateLineNumber(line int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) UpdateLineNumber(line int) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if len(t.CallStack) > 0 {
 		t.CallStack[len(t.CallStack)-1].LineNumber = line
 	}
@@ -580,9 +570,9 @@ func (t *Task) UpdateLineNumber(line int) {
 // UpdateCallStackLineNumbers bulk-updates line numbers for all frames in the
 // call stack.  lineNumbers[0] corresponds to CallStack[0], etc.  Extra
 // entries in either slice are ignored.
-func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) UpdateCallStackLineNumbers(lineNumbers []int) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	for i := 0; i < len(lineNumbers) && i < len(t.CallStack); i++ {
 		t.CallStack[i].LineNumber = lineNumbers[i]
 	}
@@ -590,9 +580,9 @@ func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
 
 // UpdateCallStackRuntimeVariableSnapshots installs immutable local snapshots.
 // Each snapshot corresponds to the activation at the same index.
-func (t *Task) UpdateCallStackRuntimeVariableSnapshots(snapshots []*types.RuntimeVariableSnapshot) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) UpdateCallStackRuntimeVariableSnapshots(snapshots []*types.RuntimeVariableSnapshot) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	for i := 0; i < len(snapshots) && i < len(t.CallStack); i++ {
 		t.CallStack[i].RuntimeVariables = types.None
 		t.CallStack[i].RuntimeVariableSnapshot = snapshots[i]
@@ -600,18 +590,18 @@ func (t *Task) UpdateCallStackRuntimeVariableSnapshots(snapshots []*types.Runtim
 }
 
 // TicksLeft returns remaining ticks
-func (t *Task) TicksLeft() int64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) TicksLeft() int64 {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.TicksLimit - t.TicksUsed
 }
 
 // ResetExecutionBudget starts a fresh execution slice and returns the values
 // needed to construct its deadline. Keeping this update atomic prevents task
 // introspection from observing a mixture of old and new limits.
-func (t *Task) ResetExecutionBudget(ticks int64, seconds float64, start time.Time) (time.Time, float64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ResetExecutionBudget(ticks int64, seconds float64, start time.Time) (time.Time, float64) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.TicksLimit = ticks
 	t.TicksUsed = 0
 	t.SecondsLimit = seconds
@@ -621,34 +611,34 @@ func (t *Task) ResetExecutionBudget(ticks int64, seconds float64, start time.Tim
 }
 
 // ExecutionBudget returns a consistent deadline budget snapshot.
-func (t *Task) ExecutionBudget() (time.Time, float64) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ExecutionBudget() (time.Time, float64) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.StartTime, t.SecondsLimit
 }
 
 // SetCancelFunc publishes the cancellation function safely.
-func (t *Task) SetCancelFunc(cancel context.CancelFunc) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetCancelFunc(cancel context.CancelFunc) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.CancelFunc = cancel
-	if t.State == TaskKilled && cancel != nil {
+	if t.Status == TaskKilled && cancel != nil {
 		cancel()
 	}
 }
 
 // SetQueueSeq records the runtime's enqueue sequence under the task lock.
-func (t *Task) SetQueueSeq(sequence int64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetQueueSeq(sequence int64) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.QueueSeq = sequence
 }
 
 // PrepareYieldRequeue stamps a zero-delay suspension and its enqueue order as
 // one atomic scheduling update.
-func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) PrepareYieldRequeue(sequence int64, now time.Time) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.waitingForInput = t.pendingInput != 0
 	if t.WakeTime.IsZero() {
 		t.WakeTime = now
@@ -659,9 +649,9 @@ func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
 // ForkFamily identifies a task together with every task forked from it,
 // directly or through its forks. suspend(0) lets work a task started finish
 // its slice first, and that is the work in its family.
-func (t *Task) ForkFamily() int64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ForkFamily() int64 {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	if t.forkFamily != 0 {
 		return t.forkFamily
 	}
@@ -669,30 +659,30 @@ func (t *Task) ForkFamily() int64 {
 }
 
 // JoinForkFamily records that t was forked by parent.
-func (t *Task) JoinForkFamily(parent *Task) {
+func (t *State) JoinForkFamily(parent *State) {
 	family := parent.ForkFamily()
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.forkFamily = family
 }
 
 // SetReadier records the task whose fork made this task ready.
-func (t *Task) SetReadier(readier *Task) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetReadier(readier *State) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.readier = readier
 }
 
 // PendingReadier identifies a task whose next slice must follow this readied
 // slice. Retain the relation through admission and physical execution, including
 // retries and logical suspension. A future delayed fork does not hold its parent.
-func (t *Task) PendingReadier(now time.Time) *Task {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) PendingReadier(now time.Time) *State {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	if t.readier == nil || t.readier == t || t.readier.ID == 0 {
 		return nil
 	}
-	if t.executionActive || t.State == TaskRunning || (t.admissionPending && t.State == TaskQueued) {
+	if t.executionActive || t.Status == TaskRunning || (t.admissionPending && t.Status == TaskQueued) {
 		return t.readier
 	}
 	if at := t.readyDeadlineLocked(now); !at.IsZero() && !at.After(now) {
@@ -707,28 +697,28 @@ func (t *Task) PendingReadier(now time.Time) *Task {
 // readier's lease release notifies the scheduler. Lightweight server-hook
 // tasks all carry ID 0, and the runtime keys execution leases by task ID, so
 // their lease flag is not a reliable end-of-slice signal and is not waited on.
-func (t *Task) awaitingReadier() bool {
-	t.mu.RLock()
+func (t *State) awaitingReadier() bool {
+	t.Mu.RLock()
 	readier := t.readier
-	t.mu.RUnlock()
+	t.Mu.RUnlock()
 	if readier == nil || readier == t || readier.ID == 0 {
 		return false
 	}
-	readier.mu.RLock()
-	defer readier.mu.RUnlock()
+	readier.Mu.RLock()
+	defer readier.Mu.RUnlock()
 	return readier.executionActive
 }
 
 // NewInputReceipt records causally prior input without waiting inside its
 // builtin. The receiver resolves it after its first slice (or on discard).
 // read() delivery deliberately does not consult this zero-delay-yield fence.
-func (t *Task) NewInputReceipt() func() {
-	t.mu.Lock()
+func (t *State) NewInputReceipt() func() {
+	t.Mu.Lock()
 	t.pendingInput++
-	t.mu.Unlock()
+	t.Mu.Unlock()
 	return sync.OnceFunc(func() {
-		t.mu.Lock()
-		defer t.mu.Unlock()
+		t.Mu.Lock()
+		defer t.Mu.Unlock()
 		t.pendingInput--
 		if t.pendingInput == 0 && t.waitingForInput {
 			t.waitingForInput = false
@@ -738,16 +728,16 @@ func (t *Task) NewInputReceipt() func() {
 }
 
 // SchedulingSnapshot returns immutable heap ordering keys.
-func (t *Task) SchedulingSnapshot() (time.Time, time.Time, int64) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) SchedulingSnapshot() (time.Time, time.Time, int64) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.StartTime, t.WakeTime, t.QueueSeq
 }
 
 // SecondsLeft returns remaining seconds
-func (t *Task) SecondsLeft() float64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) SecondsLeft() float64 {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	if !t.executionDeadline.IsZero() {
 		return math.Max(0, math.Ceil(time.Until(t.executionDeadline).Seconds()))
 	}
@@ -756,40 +746,40 @@ func (t *Task) SecondsLeft() float64 {
 
 // SetExecutionDeadline starts the timer only once execution has acquired its
 // resources. Queueing and waiting for the commit gate do not consume it.
-func (t *Task) SetExecutionDeadline(deadline time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetExecutionDeadline(deadline time.Time) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.executionDeadline = deadline
 }
 
 // ExcludeExecutionWait keeps server-side contention out of the MOO budget.
-func (t *Task) ExcludeExecutionWait(wait time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ExcludeExecutionWait(wait time.Duration) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if !t.executionDeadline.IsZero() {
 		t.executionDeadline = t.executionDeadline.Add(wait)
 	}
 }
 
 // ConsumeTick increments tick count and returns true if ticks remain
-func (t *Task) ConsumeTick() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ConsumeTick() bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.TicksUsed++
 	return t.TicksUsed < t.TicksLimit
 }
 
 // GetTaskLocal returns the task-local value
-func (t *Task) GetTaskLocal() types.Value {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) GetTaskLocal() types.Value {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.TaskLocal
 }
 
 // SetTaskLocal sets the task-local value
-func (t *Task) SetTaskLocal(val types.Value) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetTaskLocal(val types.Value) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.TaskLocal = val
 }
 
@@ -801,17 +791,17 @@ func (t *Task) SetTaskLocal(val types.Value) {
 // This accessor is a leaf with respect to the runtime's mutex: it never
 // acquires any other lock, so the runtime may safely hold that mutex while calling
 // it (lock order: s.mu -> task.mu, never the reverse).
-func (t *Task) BytecodeVMValue() interface{} {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) BytecodeVMValue() interface{} {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.BytecodeVM
 }
 
 // SetBytecodeVM stores (or clears, with nil) the bytecode VM handle (thread-safe).
 // See BytecodeVMValue for the locking rationale and ordering.
-func (t *Task) SetBytecodeVM(machine interface{}) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SetBytecodeVM(machine interface{}) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.BytecodeVM = machine
 }
 
@@ -827,9 +817,9 @@ var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 // Suspend suspends the task for a duration. A zero duration is a scheduler
 // yield with no wake deadline, so any WakeTime left over from an earlier timed
 // suspend is cleared rather than letting the scheduler treat the yield as due.
-func (t *Task) Suspend(duration time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) Suspend(duration time.Duration) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.setStateLocked(TaskSuspended)
 	t.suspendGen++
 	t.WakeTime = time.Time{}
@@ -847,9 +837,9 @@ func (t *Task) Suspend(duration time.Duration) {
 // far-future IndefiniteSuspendStartTime sentinel so the task sorts LAST in
 // queued_tasks() (ascending by start time), matching ToastStunt's INTNUM_MAX
 // start_tv.
-func (t *Task) SuspendIndefinite() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) SuspendIndefinite() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.setStateLocked(TaskSuspended)
 	t.suspendGen++
 	t.WakeTime = time.Time{}
@@ -862,18 +852,18 @@ func (t *Task) SuspendIndefinite() {
 // generation at suspend time can tell (via ResumeGeneration) whether the task is
 // still waiting on it or has since been retried, resumed by someone else, or
 // suspended again.
-func (t *Task) SuspendGeneration() uint64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) SuspendGeneration() uint64 {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.suspendGen
 }
 
 // ResumeGeneration resumes the task like Resume, but only while it is still in
 // the suspension identified by gen. A stale completion (one belonging to an
 // abandoned attempt or an earlier suspension) is ignored and returns false.
-func (t *Task) ResumeGeneration(gen uint64, value types.Value) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ResumeGeneration(gen uint64, value types.Value) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if t.suspendGen != gen {
 		return false
 	}
@@ -888,14 +878,14 @@ func (t *Task) ResumeGeneration(gen uint64, value types.Value) bool {
 
 // Resume resumes the task with a value
 // Returns false if task is not suspended or is exec-suspended
-func (t *Task) Resume(value types.Value) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) Resume(value types.Value) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	return t.resumeLocked(value)
 }
 
-func (t *Task) resumeLocked(value types.Value) bool {
-	if t.State != TaskSuspended {
+func (t *State) resumeLocked(value types.Value) bool {
+	if t.Status != TaskSuspended {
 		return false
 	}
 	// Can't resume exec-suspended tasks - they must complete on their own or be killed
@@ -922,10 +912,10 @@ func (t *Task) resumeLocked(value types.Value) bool {
 // ReplaceWakeValue is resume() of a task already woken from a suspension whose
 // slice has not started: Toast's do_resume gives it the new value and leaves its
 // place in the queue. It returns false for any other task.
-func (t *Task) ReplaceWakeValue(value types.Value) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State != TaskQueued || !t.wokenUnrun || t.executionActive {
+func (t *State) ReplaceWakeValue(value types.Value) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskQueued || !t.wokenUnrun || t.executionActive {
 		return false
 	}
 	t.WakeValue = value
@@ -936,9 +926,9 @@ func (t *Task) ReplaceWakeValue(value types.Value) bool {
 // the ready queue at once, so the resume is stamped as a readiness event at now
 // with enqueue order sequence; an early resume of a timed suspension drops its
 // future wake deadline.
-func (t *Task) ResumeFrom(value types.Value, readier *Task, sequence int64, now time.Time) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) ResumeFrom(value types.Value, readier *State, sequence int64, now time.Time) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	if !t.resumeLocked(value) {
 		return false
 	}
@@ -951,10 +941,10 @@ func (t *Task) ResumeFrom(value types.Value, readier *Task, sequence int64, now 
 // ResumeAndClaim resumes a suspended task directly into the running state.
 // It is used by synchronous resume paths, where publishing TaskQueued even
 // briefly would allow the ordinary scheduler to dispatch the same task.
-func (t *Task) ResumeAndClaim(value types.Value) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State != TaskSuspended || t.IsExecSuspended {
+func (t *State) ResumeAndClaim(value types.Value) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskSuspended || t.IsExecSuspended {
 		return false
 	}
 	t.setStateLocked(TaskRunning)
@@ -969,10 +959,10 @@ func (t *Task) ResumeAndClaim(value types.Value) bool {
 // CompleteExec resumes an exec-suspended task with the subprocess result.
 // Unlike Resume(), this works even when IsExecSuspended is true.
 // Called from the exec goroutine when the subprocess finishes.
-func (t *Task) CompleteExec(value types.Value) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.State != TaskSuspended {
+func (t *State) CompleteExec(value types.Value) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskSuspended {
 		return false
 	}
 	t.IsExecSuspended = false
@@ -989,32 +979,32 @@ func (t *Task) CompleteExec(value types.Value) bool {
 }
 
 // ExecReadyTime returns when an external result made the task ready.
-func (t *Task) ExecReadyTime() time.Time {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ExecReadyTime() time.Time {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.execReadyAt
 }
 
 // TakeExecReadyTime consumes the observation timestamp once, under the task lock.
-func (t *Task) TakeExecReadyTime() time.Time {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) TakeExecReadyTime() time.Time {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	ready := t.execReadyAt
 	t.execReadyAt = time.Time{}
 	return ready
 }
 
 // WakeDue reports whether a suspended task has a timed wake deadline due.
-func (t *Task) WakeDue(now time.Time) bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.State == TaskSuspended && !t.WakeTime.IsZero() && !t.WakeTime.After(now)
+func (t *State) WakeDue(now time.Time) bool {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return t.Status == TaskSuspended && !t.WakeTime.IsZero() && !t.WakeTime.After(now)
 }
 
 // Kill kills the task
-func (t *Task) Kill() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (t *State) Kill() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
 	t.cancelRequested = true
 	t.setStateLocked(TaskKilled)
 	t.notifyScheduleLocked()
@@ -1031,9 +1021,9 @@ func (t *Task) Kill() {
 	t.IsHTTPReadSuspended = false
 }
 
-func (t *Task) CancellationRequested() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) CancellationRequested() bool {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.cancelRequested
 }
 
@@ -1041,22 +1031,22 @@ func (t *Task) CancellationRequested() bool {
 // The optional final map is present when queued_tasks(1) requests variables.
 // Format: {task_id, start_time, clock_id, bg_ticks, programmer, verb_loc, verb_name, line, this, bytes[, variables]}
 // Note: For primitive prototype calls, 'this' is #-1 (matching Toast).
-func (t *Task) ToQueuedTaskInfo(includeVariables bool) types.Value {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) ToQueuedTaskInfo(includeVariables bool) types.Value {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.toQueuedTaskInfoLocked(includeVariables)
 }
 
 // QueuedTaskSnapshot atomically captures both a task's sort keys and its
 // queued_tasks() representation. Callers can sort these immutable snapshots
 // without comparing fields that another worker may be changing.
-func (t *Task) QueuedTaskSnapshot(includeVariables bool) (time.Time, int64, int64, types.Value) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) QueuedTaskSnapshot(includeVariables bool) (time.Time, int64, int64, types.Value) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	return t.StartTime, t.QueueSeq, t.ID, t.toQueuedTaskInfoLocked(includeVariables)
 }
 
-func (t *Task) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
+func (t *State) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 
 	// Get information from the top frame if call stack exists
 	var verbName string
@@ -1090,7 +1080,7 @@ func (t *Task) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 	bytes := int64(0)
 
 	reportedStart := t.StartTime
-	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
 		reportedStart = t.WakeTime
 	}
 	startValue := types.NewInt(reportedStart.Add(500 * time.Millisecond).Unix())

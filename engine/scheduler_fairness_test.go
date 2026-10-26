@@ -52,8 +52,8 @@ func TestConcurrentReadierHandoffPreservesForkOrder(t *testing.T) {
 	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 1)
 	defer s.Stop()
 	for attempt := range 10000 {
-		parent := task.NewTask(int64(2*attempt+1), 0, 1000, 1)
-		child := task.NewTask(int64(2*attempt+2), 0, 1000, 1)
+		parent := task.NewState(int64(2*attempt+1), 0, 1000, 1)
+		child := task.NewState(int64(2*attempt+2), 0, 1000, 1)
 		if !s.acquireTaskExecution(parent) {
 			t.Fatal("parent did not acquire execution")
 		}

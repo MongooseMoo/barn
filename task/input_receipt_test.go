@@ -9,7 +9,7 @@ import (
 
 func TestInputReceiptFencesOnlyYieldingSource(t *testing.T) {
 	m := NewManager()
-	source := NewTask(1, 0, 100, 1)
+	source := NewState(1, 0, 100, 1)
 	m.RegisterTask(source)
 	complete := source.NewInputReceipt()
 	source.SetState(TaskQueued)
@@ -17,7 +17,7 @@ func TestInputReceiptFencesOnlyYieldingSource(t *testing.T) {
 	if !source.ReadyDeadline(time.Now()).IsZero() || source.ReserveAdmission() {
 		t.Fatal("yield continuation overtook its injected input")
 	}
-	other := NewTask(2, 0, 100, 1)
+	other := NewState(2, 0, 100, 1)
 	other.SetState(TaskQueued)
 	if !other.ReserveAdmission() {
 		t.Fatal("input receipt blocked unrelated work")
@@ -36,7 +36,7 @@ func TestInputReceiptFencesOnlyYieldingSource(t *testing.T) {
 }
 
 func TestInputReceiptDoesNotBlockItsOwnReadDelivery(t *testing.T) {
-	source := NewTask(1, 0, 100, 1)
+	source := NewState(1, 0, 100, 1)
 	complete := source.NewInputReceipt()
 	defer complete()
 	source.SuspendIndefinite()

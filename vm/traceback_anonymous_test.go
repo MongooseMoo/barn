@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildTracebackInvalidatesAnonymousThis(t *testing.T) {
-	taskValue := task.NewTask(1, 2, 1000, 1)
+	taskValue := task.NewState(1, 2, 1000, 1)
 	taskValue.PushFrame(types.ActivationFrame{
 		This:       12,
 		ThisValue:  types.NewAnon(12),

@@ -44,7 +44,7 @@ func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 	session := newTestSessionWithTaskManager(registry)
 	ctx := task.NewContext()
 	ctx.Store = store
-	taskValue := task.NewTask(1, 2, ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, 2, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{
 		"total = 0; keys = {};",

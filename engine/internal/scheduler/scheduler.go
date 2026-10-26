@@ -15,12 +15,12 @@ import (
 
 // Result associates a completed execution with its task.
 type Result struct {
-	Task *task.Task
+	Task *task.State
 	Err  error
 }
 
 type workItem struct {
-	task    *task.Task
+	task    *task.State
 	results chan<- Result
 }
 
@@ -28,12 +28,12 @@ type workItem struct {
 type Scheduler struct {
 	mu        sync.Mutex
 	waiting   taskQueue
-	pending   []*task.Task
+	pending   []*task.State
 	queueSeq  int64
 	workers   int
-	retryable func(*task.Task) bool
-	order     func([]*task.Task)
-	run       func(*task.Task) error
+	retryable func(*task.State) bool
+	order     func([]*task.State)
+	run       func(*task.State) error
 	work      chan workItem
 	wg        sync.WaitGroup
 	ctx       context.Context
@@ -42,7 +42,7 @@ type Scheduler struct {
 	// Slots taken by Dispatch. A task in a lane excludes only that lane.
 	inFlight      int
 	lanesInFlight map[any]bool
-	lane          func(*task.Task) any
+	lane          func(*task.State) any
 
 	// suspend(0) lets work the yielding task started finish its slice before the
 	// task resumes. Each dispatched slice takes the next flight number; a
@@ -50,18 +50,18 @@ type Scheduler struct {
 	// below it that belongs to its fork family. Slices of unrelated tasks do
 	// not hold it: one of those can run for its whole seconds limit.
 	flightSeq     int64
-	flights       map[int64]*task.Task
-	yieldBarriers map[*task.Task]int64
+	flights       map[int64]*task.State
+	yieldBarriers map[*task.State]int64
 }
 
 // New starts a scheduler with workerCount workers.
-func New(workerCount int, retryable func(*task.Task) bool, run func(*task.Task) error) *Scheduler {
+func New(workerCount int, retryable func(*task.State) bool, run func(*task.State) error) *Scheduler {
 	if workerCount < 1 {
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Scheduler{workers: workerCount, retryable: retryable, run: run, work: make(chan workItem), ctx: ctx, cancel: cancel, lanesInFlight: make(map[any]bool),
-		flights: make(map[int64]*task.Task), yieldBarriers: make(map[*task.Task]int64)}
+		flights: make(map[int64]*task.State), yieldBarriers: make(map[*task.State]int64)}
 	heap.Init(&s.waiting)
 	for range workerCount {
 		s.wg.Add(1)
@@ -86,19 +86,19 @@ func (s *Scheduler) worker() {
 func (s *Scheduler) Stop() { s.cancel(); s.wg.Wait() }
 
 // SetOrdering is configured at runtime construction, before dispatch starts.
-func (s *Scheduler) SetOrdering(order func([]*task.Task)) { s.order = order }
+func (s *Scheduler) SetOrdering(order func([]*task.State)) { s.order = order }
 
 // ReleaseExecution publishes a slice's physical handoff between readiness
 // scans. Otherwise a scan can hold its child while the parent is active, then
 // select the parent after its lease clears midway through the same scan.
-func (s *Scheduler) ReleaseExecution(t *task.Task) {
+func (s *Scheduler) ReleaseExecution(t *task.State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t.SetExecutionActive(false)
 }
 
 // Enqueue adds a task to the ready-time heap and assigns its FIFO sequence.
-func (s *Scheduler) Enqueue(t *task.Task) {
+func (s *Scheduler) Enqueue(t *task.State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queueSeq++
@@ -107,7 +107,7 @@ func (s *Scheduler) Enqueue(t *task.Task) {
 }
 
 // RequeueYield places a suspend(0) task behind work that was already ready.
-func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
+func (s *Scheduler) RequeueYield(t *task.State, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queueSeq++
@@ -118,7 +118,7 @@ func (s *Scheduler) RequeueYield(t *task.Task, now time.Time) {
 
 // yieldHeldLocked reports whether a slice of t's fork family that was running
 // when t yielded is still running.
-func (s *Scheduler) yieldHeldLocked(t *task.Task) bool {
+func (s *Scheduler) yieldHeldLocked(t *task.State) bool {
 	barrier, yielded := s.yieldBarriers[t]
 	if !yielded {
 		return false
@@ -135,7 +135,7 @@ func (s *Scheduler) yieldHeldLocked(t *task.Task) bool {
 // Resume applies resume() by readier and queues the task at now, behind work
 // that was already ready. The selection lock keeps the state change and its
 // queue position atomic with respect to readiness scans.
-func (s *Scheduler) Resume(t *task.Task, value types.Value, readier *task.Task, now time.Time) bool {
+func (s *Scheduler) Resume(t *task.State, value types.Value, readier *task.State, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !t.ResumeFrom(value, readier, s.queueSeq+1, now) {
@@ -148,7 +148,7 @@ func (s *Scheduler) Resume(t *task.Task, value types.Value, readier *task.Task, 
 
 // Ready selects tasks ready at now, including resumed catalog tasks. Selection
 // does not claim execution: unstarted siblings must remain visible to MOO code.
-func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
+func (s *Scheduler) Ready(now time.Time, catalog []*task.State) []*task.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.readyLocked(now, catalog)
@@ -156,7 +156,7 @@ func (s *Scheduler) Ready(now time.Time, catalog []*task.Task) []*task.Task {
 
 // ReadyBatch admits arrivals and selects at most one retry-compatible batch.
 // Unselected tasks retain their admission order without claiming execution.
-func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task {
+func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.State) []*task.State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ready := s.readyLocked(now, catalog)
@@ -174,7 +174,7 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 	}
 	s.pending = append(s.pending, ready[n:]...)
 	// Give the caller separate storage: claiming a batch compacts its slice.
-	return append([]*task.Task(nil), ready[:n]...)
+	return append([]*task.State(nil), ready[:n]...)
 }
 
 // Dispatch starts every ready task that can run beside the work already in
@@ -183,9 +183,9 @@ func (s *Scheduler) ReadyBatch(now time.Time, catalog []*task.Task) []*task.Task
 // holds back batchable work: a continuation whose external call finished must
 // not wait for an unrelated long slice to end. done runs after each task's
 // slice, once the scheduler has released its slot.
-func (s *Scheduler) Dispatch(now time.Time, catalog []*task.Task, claim func(*task.Task) bool, done func(Result)) int {
+func (s *Scheduler) Dispatch(now time.Time, catalog []*task.State, claim func(*task.State) bool, done func(Result)) int {
 	type started struct {
-		task   *task.Task
+		task   *task.State
 		lane   any
 		flight int64
 	}
@@ -241,7 +241,7 @@ type soloLane struct{}
 
 // laneOf returns nil for a task that runs beside any other work, and otherwise
 // the lane in which it runs one at a time.
-func (s *Scheduler) laneOf(t *task.Task) any {
+func (s *Scheduler) laneOf(t *task.State) any {
 	if s.retryable(t) {
 		return nil
 	}
@@ -262,12 +262,12 @@ func (s *Scheduler) heldLocked(lane any) bool {
 // SetLane is configured at runtime construction, before dispatch starts. lane
 // narrows the exclusion of a task that cannot share a batch: tasks returning
 // the same non-nil key run one at a time, and different keys run side by side.
-func (s *Scheduler) SetLane(lane func(*task.Task) any) { s.lane = lane }
+func (s *Scheduler) SetLane(lane func(*task.State) any) { s.lane = lane }
 
-func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Task {
+func (s *Scheduler) readyLocked(now time.Time, catalog []*task.State) []*task.State {
 	blocked := s.blockedReadiersLocked(now, catalog)
-	var admitted []*task.Task
-	var held []*task.Task
+	var admitted []*task.State
+	var held []*task.State
 	seen := make(map[int64]bool, len(s.pending))
 	for _, t := range s.pending {
 		if t.GetState() == task.TaskQueued && !seen[t.ID] {
@@ -280,7 +280,7 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 		}
 	}
 	s.pending = held
-	var ready []*task.Task
+	var ready []*task.State
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
 		start, _, _ := t.SchedulingSnapshot()
@@ -319,11 +319,11 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 	// Toast admits completed external tasks at time zero, ahead of waiting
 	// forks. Preserve the existing order of all other work; re-sorting ordinary
 	// resumptions by their old StartTime can repeatedly overtake fresh forks.
-	var completions map[*task.Task]time.Time
+	var completions map[*task.State]time.Time
 	for _, t := range ready {
 		if at := t.ExecReadyTime(); !at.IsZero() {
 			if completions == nil {
-				completions = make(map[*task.Task]time.Time)
+				completions = make(map[*task.State]time.Time)
 			}
 			completions[t] = at
 		}
@@ -345,20 +345,20 @@ func (s *Scheduler) readyLocked(now time.Time, catalog []*task.Task) []*task.Tas
 
 // A task that forked/resumed ready work and yielded must observe that work's
 // next completed slice. Unrelated tasks remain eligible for optimistic batches.
-func (s *Scheduler) blockedReadiersLocked(now time.Time, catalog []*task.Task) map[*task.Task]bool {
-	var blocked map[*task.Task]bool
-	visit := func(t *task.Task) {
+func (s *Scheduler) blockedReadiersLocked(now time.Time, catalog []*task.State) map[*task.State]bool {
+	var blocked map[*task.State]bool
+	visit := func(t *task.State) {
 		if t == nil {
 			return
 		}
 		if readier := t.PendingReadier(now); readier != nil {
 			if blocked == nil {
-				blocked = make(map[*task.Task]bool)
+				blocked = make(map[*task.State]bool)
 			}
 			blocked[readier] = true
 		}
 	}
-	for _, tasks := range [][]*task.Task{s.pending, s.waiting, catalog} {
+	for _, tasks := range [][]*task.State{s.pending, s.waiting, catalog} {
 		for _, t := range tasks {
 			visit(t)
 		}
@@ -368,12 +368,12 @@ func (s *Scheduler) blockedReadiersLocked(now time.Time, catalog []*task.Task) m
 
 // NextWake includes queued heap work, retained batches and timed/resumed VMs.
 // It does not mutate readiness or consume change notifications.
-func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
+func (s *Scheduler) NextWake(now time.Time, catalog []*task.State) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	blocked := s.blockedReadiersLocked(now, catalog)
 	var next time.Time
-	visit := func(t *task.Task) {
+	visit := func(t *task.State) {
 		// Read the synchronized deadline before inspecting VM-derived lanes.
 		// Logical suspension/requeue can precede the physical VM handoff; an
 		// active or admission-reserved task has no deadline and is unsafe to
@@ -409,18 +409,18 @@ func (s *Scheduler) NextWake(now time.Time, catalog []*task.Task) time.Time {
 }
 
 // Plan partitions tasks into optimistic retry-safe batches.
-func (s *Scheduler) Plan(ready []*task.Task) [][]*task.Task {
+func (s *Scheduler) Plan(ready []*task.State) [][]*task.State {
 	if s.workers <= 1 {
-		out := make([][]*task.Task, 0, len(ready))
+		out := make([][]*task.State, 0, len(ready))
 		for _, t := range ready {
-			out = append(out, []*task.Task{t})
+			out = append(out, []*task.State{t})
 		}
 		return out
 	}
-	var out [][]*task.Task
+	var out [][]*task.State
 	for _, t := range ready {
 		if !s.retryable(t) {
-			out = append(out, []*task.Task{t})
+			out = append(out, []*task.State{t})
 			continue
 		}
 		if len(out) == 0 || len(out[len(out)-1]) >= s.workers || !s.retryable(out[len(out)-1][0]) {
@@ -432,7 +432,7 @@ func (s *Scheduler) Plan(ready []*task.Task) [][]*task.Task {
 }
 
 // Run dispatches a batch and returns results in input order.
-func (s *Scheduler) Run(batch []*task.Task) []Result {
+func (s *Scheduler) Run(batch []*task.State) []Result {
 	results := make(chan Result, len(batch))
 	for _, t := range batch {
 		s.work <- workItem{task: t, results: results}
@@ -449,7 +449,7 @@ func (s *Scheduler) Run(batch []*task.Task) []Result {
 	return ordered
 }
 
-type taskQueue []*task.Task
+type taskQueue []*task.State
 
 func (q taskQueue) Len() int { return len(q) }
 func (q taskQueue) Less(i, j int) bool {
@@ -467,7 +467,7 @@ func (q taskQueue) Less(i, j int) bool {
 	return a.Before(b)
 }
 func (q taskQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
-func (q *taskQueue) Push(x any)   { *q = append(*q, x.(*task.Task)) }
+func (q *taskQueue) Push(x any)   { *q = append(*q, x.(*task.State)) }
 
 // Pop hands the last task to container/heap and clears its slot. The scheduler
 // outlives any one drain, so a slot left populated past len would keep the
@@ -480,7 +480,7 @@ func (q *taskQueue) Pop() any {
 	*q = old[:n-1]
 	return x
 }
-func (q taskQueue) Peek() *task.Task {
+func (q taskQueue) Peek() *task.State {
 	if len(q) == 0 {
 		return nil
 	}

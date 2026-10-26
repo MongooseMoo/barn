@@ -16,7 +16,7 @@ import (
 // with a nil Task and callbacks.
 type Execution struct {
 	*taskpkg.Context
-	Task     *taskpkg.Task
+	Task     *taskpkg.State
 	Registry *Registry
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
@@ -37,7 +37,7 @@ type Execution struct {
 }
 
 // NewExecution binds task state and an optional concrete task to this session.
-func (s *Session) NewExecution(ctx *taskpkg.Context, task *taskpkg.Task) *Execution {
+func (s *Session) NewExecution(ctx *taskpkg.Context, task *taskpkg.State) *Execution {
 	execution := &Execution{Context: ctx, Task: task, Registry: s.registry, Session: s}
 	execution.ensureStoreTxn()
 	return execution
@@ -46,7 +46,7 @@ func (s *Session) NewExecution(ctx *taskpkg.Context, task *taskpkg.Task) *Execut
 // Rebind points a reused Execution at the current task state. Callers that
 // issue many builtin calls from one VM keep a single Execution (and its
 // service closures) alive instead of allocating one per call.
-func (ctx *Execution) Rebind(taskCtx *taskpkg.Context, task *taskpkg.Task) {
+func (ctx *Execution) Rebind(taskCtx *taskpkg.Context, task *taskpkg.State) {
 	ctx.Context = taskCtx
 	ctx.Task = task
 	ctx.ensureStoreTxn()

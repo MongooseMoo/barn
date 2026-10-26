@@ -19,7 +19,7 @@ import (
 // by Elle. Pending effects already implement commit/discard and carry through hot
 // renewal; an irreversible boundary flushes the current group inside a slice.
 type elleTxn struct {
-	task       *taskpkg.Task
+	task       *taskpkg.State
 	context    *taskpkg.Context
 	start, end int
 	ops        [][]any

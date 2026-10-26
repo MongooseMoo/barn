@@ -92,7 +92,7 @@ func (c *competingWriter) wait(t *testing.T) types.ErrorCode {
 	}
 }
 
-func findForkedChild(s *Runtime, owner types.ObjID) *task.Task {
+func findForkedChild(s *Runtime, owner types.ObjID) *task.State {
 	for _, candidate := range s.taskManager.Snapshot() {
 		if candidate != nil && candidate.IsForked && candidate.Owner == owner {
 			return candidate
@@ -101,7 +101,7 @@ func findForkedChild(s *Runtime, owner types.ObjID) *task.Task {
 	return nil
 }
 
-func runUntilTerminal(t *testing.T, s *Runtime, target *task.Task) {
+func runUntilTerminal(t *testing.T, s *Runtime, target *task.State) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -137,7 +137,7 @@ func TestForkedFirstRunRetriesLostCommit(t *testing.T) {
 
 	owner := types.ObjID(7801)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	parent := task.NewTaskFull(3101, owner, compileTestProgram(t, s.registry, `
+	parent := task.NewStateFull(3101, owner, compileTestProgram(t, s.registry, `
 fork (0)
   before = #0.v;
   conflict_once();
@@ -180,7 +180,7 @@ func TestResumedSliceRetriesConcurrentWrite(t *testing.T) {
 
 	owner := types.ObjID(7802)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3102, owner, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3102, owner, compileTestProgram(t, s.registry, `
 suspend(0);
 start_competitor();
 #0.v = #0.v + 1;
@@ -225,7 +225,7 @@ func TestRetriedAttemptReleasesItsSnapshot(t *testing.T) {
 
 	owner := types.ObjID(7803)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3103, owner, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3103, owner, compileTestProgram(t, s.registry, `
 suspend(0);
 start_competitor();
 #0.v = #0.v + 1;
@@ -258,7 +258,7 @@ func TestForkedContinuationRetriesConcurrentWrite(t *testing.T) {
 
 	owner := types.ObjID(7803)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	parent := task.NewTaskFull(3103, owner, compileTestProgram(t, s.registry, `
+	parent := task.NewStateFull(3103, owner, compileTestProgram(t, s.registry, `
 fork (0)
   suspend(0);
   start_competitor();
@@ -308,7 +308,7 @@ func TestDumpDatabaseInGatedSliceQueuesCheckpointRequest(t *testing.T) {
 
 	owner := types.ObjID(7804)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3104, owner, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3104, owner, compileTestProgram(t, s.registry, `
 suspend(0);
 #0.v = 7;
 return dump_database();

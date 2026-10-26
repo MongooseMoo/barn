@@ -66,7 +66,7 @@ func TestThreadedSortInsideNestedVerbRunsInline(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3106, 0, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3106, 0, compileTestProgram(t, s.registry, `
 c = create(#0);
 return {valid(c), #0.write_value};
 `), ticks, seconds)

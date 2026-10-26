@@ -87,7 +87,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 }
 
 func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
-	task := NewTaskFull(42, 7, nil, 100, 1)
+	task := NewStateFull(42, 7, nil, 100, 1)
 	task.StartTime = time.Unix(123, 0)
 	task.SetState(TaskQueued)
 	task.IsExecSuspended = true
@@ -148,7 +148,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 }
 
 func TestQueuedTaskInfoRoundsStartTimeLikeCheckpoint(t *testing.T) {
-	taskValue := NewTask(72, 2, 1000, 1)
+	taskValue := NewState(72, 2, 1000, 1)
 	taskValue.StartTime = time.Unix(100, 600*time.Millisecond.Nanoseconds())
 	taskValue.PushFrame(types.ActivationFrame{
 		This:       4,
@@ -163,7 +163,7 @@ func TestQueuedTaskInfoRoundsStartTimeLikeCheckpoint(t *testing.T) {
 		t.Fatalf("queued start time = %d, want rounded %d", got, want)
 	}
 
-	taskValue.State = TaskSuspended
+	taskValue.Status = TaskSuspended
 	taskValue.WakeTime = time.Unix(200, 600*time.Millisecond.Nanoseconds())
 	info = taskValue.ToQueuedTaskInfo(false)
 	if got, want := info.Get(2).Int(), int64(201); got != want {

@@ -14,7 +14,7 @@ import (
 func TestCreateForkedTaskRejectsNilParentProgram(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
-	parent := task.NewTaskFull(8800, 0, nil, 1000, 1)
+	parent := task.NewStateFull(8800, 0, nil, 1000, 1)
 	if got := s.CreateForkedTask(parent, &types.ForkInfo{
 		Body: &bytecode.ForkBody{},
 	}); got != 0 {
@@ -30,7 +30,7 @@ func (metadataOnlyForkBody) FirstLine() int          { return 1 }
 func TestCreateForkedTaskRejectsInvalidExecutionDescriptors(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
-	parent := task.NewTaskFull(8801, 0, nil, 1000, 1)
+	parent := task.NewStateFull(8801, 0, nil, 1000, 1)
 	var typedNil *bytecode.ForkBody
 	for _, test := range []struct {
 		name string

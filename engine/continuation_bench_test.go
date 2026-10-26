@@ -53,10 +53,10 @@ func BenchmarkThreadedContinuations(b *testing.B) {
 				defer func() { close(stop); <-stopped }()
 				b.ReportAllocs()
 				for b.Loop() {
-					cohort := make([]*task.Task, players)
+					cohort := make([]*task.State, players)
 					for i := range cohort {
 						ticks, seconds := foregroundTaskLimits(rt.session)
-						queued := task.NewTaskFull(rt.newTaskID(), types.ObjID(i+1), program, ticks, seconds)
+						queued := task.NewStateFull(rt.newTaskID(), types.ObjID(i+1), program, ticks, seconds)
 						queued.Context.IsWizard = true
 						queued.Done = make(chan struct{})
 						cohort[i] = queued

@@ -235,7 +235,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 func TestExplicitGlobalGCExcludesOnlyOneCallerExecutionLease(t *testing.T) {
 	rt := NewRuntime(dbstore.NewStore())
 	defer rt.Stop()
-	caller := task.NewTask(91001, 0, 1000, 10)
+	caller := task.NewState(91001, 0, 1000, 10)
 
 	rt.acquireTaskExecution(caller)
 	rt.acquireTaskExecution(caller)
@@ -332,7 +332,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		<-releaseNested
 		return types.Ok(types.NewInt(0))
 	}
-	caller := task.NewTask(93001, 0, 1000, 10)
+	caller := task.NewState(93001, 0, 1000, 10)
 	ctx := task.NewContext()
 	ctx.Player = 0
 	ctx.Programmer = 0

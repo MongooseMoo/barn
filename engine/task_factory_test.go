@@ -27,7 +27,7 @@ func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
 
-	reading := task.NewTaskFull(6001, 7, nil, 1000, 1)
+	reading := task.NewStateFull(6001, 7, nil, 1000, 1)
 	reading.SetBytecodeVM(struct{}{}) // A saved VM makes a queued task scheduler-eligible.
 	reading.SetState(task.TaskSuspended)
 	reading.ReadingPlayer = 7
@@ -99,7 +99,7 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 	defer s.Stop()
 
 	program := compileTestProgram(t, s.registry, "return 1;")
-	parent := task.NewTaskFull(6101, 3, program, 1000, 1)
+	parent := task.NewStateFull(6101, 3, program, 1000, 1)
 	parent.Programmer = 3
 	parent.Context.Programmer = 2
 
@@ -137,7 +137,7 @@ func TestForkFirstRunLaneDoesNotExtractTheForkBody(t *testing.T) {
 	defer s.Stop()
 
 	program := compileTestProgram(t, s.registry, "x = 1; y = 2; return x + y;")
-	parent := task.NewTaskFull(6102, 3, program, 1000, 1)
+	parent := task.NewStateFull(6102, 3, program, 1000, 1)
 	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
 		Body:      &bytecode.ForkBody{Parent: program, Offset: 0, Length: len(program.Code)},
 		ThisObj:   7,
@@ -165,7 +165,7 @@ func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := backgroundTaskLimits(newTestRegistry())
-	killed := task.NewTaskFull(
+	killed := task.NewStateFull(
 		6200,
 		3,
 		compileTestProgram(t, s.registry, "suspend(100);"),
@@ -207,7 +207,7 @@ func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
 			Line:    6,
 		}},
 	}
-	parent := task.NewTaskFull(6102, 3, program, 1000, 1)
+	parent := task.NewStateFull(6102, 3, program, 1000, 1)
 
 	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
 		Body:      &bytecode.ForkBody{Parent: program, Offset: 0, Length: len(program.Code)},

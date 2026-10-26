@@ -60,7 +60,7 @@ func BenchmarkCollectionIteration(b *testing.B) {
 						ctx.TicksRemaining = 1 << 60
 						m := NewVM(store, session)
 						m.Context = ctx
-						m.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+						m.Task = task.NewState(1, 0, ctx.TicksRemaining, 1)
 						m.TickLimit = 1 << 60
 						res := m.RunWithVerbContext(prog, 0, 0, 0, "filter_survey", 0, args)
 						if res.Flow == types.FlowException || res.Val.Type() != types.TYPE_INT || res.Val.Int() != int64(expected) {

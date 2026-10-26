@@ -104,8 +104,8 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 	requireInt(t, childResult, 70)
 }
 
-func bytecodeTestContext(store *dbstore.Store) (*task.Context, *task.Task) {
+func bytecodeTestContext(store *dbstore.Store) (*task.Context, *task.State) {
 	ctx := task.NewContext()
 	ctx.Store = store
-	return ctx, task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+	return ctx, task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 }

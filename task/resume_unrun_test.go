@@ -10,7 +10,7 @@ import (
 // and only replaces the value its suspend returns.
 func TestResumeTaskReachesWokenTaskUntilItRuns(t *testing.T) {
 	manager := NewManager()
-	parked := NewTask(1, 2, 100, 5)
+	parked := NewState(1, 2, 100, 5)
 	manager.RegisterTask(parked)
 	parked.SetState(TaskRunning)
 	manager.SuspendTask(parked, 0)
@@ -38,7 +38,7 @@ func TestResumeTaskReachesWokenTaskUntilItRuns(t *testing.T) {
 
 func TestResumeTaskRejectsUnrunForkedTask(t *testing.T) {
 	manager := NewManager()
-	forked := NewTask(1, 2, 100, 5)
+	forked := NewState(1, 2, 100, 5)
 	manager.RegisterTask(forked)
 	forked.SetState(TaskQueued)
 	if errCode := manager.ResumeTask(1, types.NewInt(42), 2, false, nil); errCode != types.E_INVARG {

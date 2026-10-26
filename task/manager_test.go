@@ -16,11 +16,11 @@ import (
 func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 	const player types.ObjID = 7
 	manager := NewManager()
-	var oldest *Task
-	var nextOldest *Task
+	var oldest *State
+	var nextOldest *State
 
 	for sequence := int64(64); sequence >= 1; sequence-- {
-		candidate := NewTask(1000+sequence, 2, 100, 5)
+		candidate := NewState(1000+sequence, 2, 100, 5)
 		candidate.QueueSeq = sequence
 		candidate.SetReadingPlayer(player)
 		candidate.SetState(TaskSuspended)
@@ -54,7 +54,7 @@ func TestUnfinishedLeavesOutCompletedAndKilledTasks(t *testing.T) {
 	manager := NewManager()
 	states := map[int64]TaskState{1: TaskQueued, 2: TaskRunning, 3: TaskSuspended, 4: TaskCompleted, 5: TaskKilled}
 	for id, state := range states {
-		registered := NewTask(id, 2, 100, 5)
+		registered := NewState(id, 2, 100, 5)
 		registered.SetState(state)
 		manager.RegisterTask(registered)
 	}
@@ -78,25 +78,25 @@ func TestUnfinishedLeavesOutCompletedAndKilledTasks(t *testing.T) {
 // index without touching a task.
 func TestUnfinishedTakesNoTaskLock(t *testing.T) {
 	manager := NewManager()
-	finished := NewTask(1, 2, 100, 5)
+	finished := NewState(1, 2, 100, 5)
 	finished.SetState(TaskCompleted)
-	running := NewTask(2, 2, 100, 5)
+	running := NewState(2, 2, 100, 5)
 	running.SetState(TaskRunning)
 	manager.RegisterTask(finished)
 	manager.RegisterTask(running)
 
-	finished.mu.Lock()
-	running.mu.Lock()
-	done := make(chan []*Task, 1)
+	finished.Mu.Lock()
+	running.Mu.Lock()
+	done := make(chan []*State, 1)
 	go func() { done <- manager.Unfinished() }()
-	var got []*Task
+	var got []*State
 	select {
 	case got = <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Unfinished() waited for a task's lock")
 	}
-	running.mu.Unlock()
-	finished.mu.Unlock()
+	running.Mu.Unlock()
+	finished.Mu.Unlock()
 	if len(got) != 1 || got[0] != running {
 		t.Fatalf("Unfinished() = %v, want only the running task", got)
 	}
@@ -109,16 +109,16 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 	manager := NewManager()
 	check := func(step string) {
 		t.Helper()
-		want := map[int64]*Task{}
+		want := map[int64]*State{}
 		for _, registered := range manager.Snapshot() {
-			registered.mu.RLock()
+			registered.Mu.RLock()
 			settled := registered.settledLocked()
-			registered.mu.RUnlock()
+			registered.Mu.RUnlock()
 			if !settled {
 				want[registered.ID] = registered
 			}
 		}
-		got := map[int64]*Task{}
+		got := map[int64]*State{}
 		for _, unfinished := range manager.Unfinished() {
 			got[unfinished.ID] = unfinished
 		}
@@ -127,8 +127,8 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 		}
 	}
 
-	a, b, c := NewTask(1, 2, 100, 5), NewTask(2, 2, 100, 5), NewTask(3, 2, 100, 5)
-	for _, registered := range []*Task{a, b, c} {
+	a, b, c := NewState(1, 2, 100, 5), NewState(2, 2, 100, 5), NewState(3, 2, 100, 5)
+	for _, registered := range []*State{a, b, c} {
 		manager.RegisterTask(registered)
 	}
 	check("registering three new tasks")
@@ -153,7 +153,7 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 		{"a state change after removal", func() { b.SetState(TaskQueued) }},
 		{"RemoveTaskIf", func() { manager.RemoveTaskIf(c.ID, c) }},
 		{"replacing a task under the same ID", func() {
-			manager.RegisterTask(NewTask(a.ID, 2, 100, 5))
+			manager.RegisterTask(NewState(a.ID, 2, 100, 5))
 			a.SetState(TaskQueued)
 		}},
 		{"CleanupCompletedTasks", func() {
@@ -179,7 +179,7 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 func TestUnfinishedKeepsFinishedTaskUntilItsSliceEnds(t *testing.T) {
 	for _, final := range []TaskState{TaskKilled, TaskCompleted} {
 		manager := NewManager()
-		parent, child := NewTask(1, 2, 100, 5), NewTask(2, 2, 100, 5)
+		parent, child := NewState(1, 2, 100, 5), NewState(2, 2, 100, 5)
 		manager.RegisterTask(parent)
 		manager.RegisterTask(child)
 		child.SetReadier(parent)
@@ -218,7 +218,7 @@ func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write := regexp.MustCompile(`\.(State|executionActive)\s*=[^=]`)
+	write := regexp.MustCompile(`\.(Status|executionActive)\s*=[^=]`)
 	var sites []string
 	for _, file := range files {
 		if strings.HasSuffix(file, "_test.go") {
@@ -234,7 +234,7 @@ func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
 			}
 		}
 	}
-	if len(sites) != 2 || !strings.Contains(sites[0], "t.State = state") || !strings.Contains(sites[1], "t.executionActive = active") {
+	if len(sites) != 2 || !strings.Contains(sites[0], "t.Status = state") || !strings.Contains(sites[1], "t.executionActive = active") {
 		t.Fatalf("task state or execution lease is assigned outside its setter:\n%s", strings.Join(sites, "\n"))
 	}
 }
@@ -242,10 +242,10 @@ func TestTaskStateIsWrittenInOnePlace(t *testing.T) {
 func TestFindReadingTaskBreaksEqualQueueSequenceByTaskID(t *testing.T) {
 	const player types.ObjID = 7
 	manager := NewManager()
-	var lowestID *Task
+	var lowestID *State
 
 	for id := int64(1064); id >= 1001; id-- {
-		candidate := NewTask(id, 2, 100, 5)
+		candidate := NewState(id, 2, 100, 5)
 		candidate.QueueSeq = 1
 		candidate.SetReadingPlayer(player)
 		candidate.SetState(TaskSuspended)

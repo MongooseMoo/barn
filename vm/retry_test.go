@@ -22,7 +22,7 @@ func retryTestVM(t testing.TB, code string) *VM {
 	machine := NewVM(store, newTestSessionWithTaskManager(registry))
 	machine.Context = task.NewContext()
 	machine.Context.Store = store
-	machine.Task = task.NewTask(1, 0, 30000, 3)
+	machine.Task = task.NewState(1, 0, 30000, 3)
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {
 		t.Fatalf("flow=%v, want suspended fixture", result.Flow)
 	}

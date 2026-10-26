@@ -10,7 +10,7 @@ import (
 )
 
 func TestRealCommandCompletionWaitsForFinalOutputFlush(t *testing.T) {
-	queued := task.NewTask(1, 0, 30000, 3)
+	queued := task.NewState(1, 0, 30000, 3)
 	queued.Done = make(chan struct{})
 	completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
 	completion.result <- types.Ok(types.NewInt(1))
@@ -34,7 +34,7 @@ func TestRealCommandCompletionWaitsForFinalOutputFlush(t *testing.T) {
 }
 
 func TestRealCommandCompletionCannotCreditUnflushedCallback(t *testing.T) {
-	queued := task.NewTask(1, 0, 30000, 3)
+	queued := task.NewState(1, 0, 30000, 3)
 	queued.Done = make(chan struct{})
 	completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
 	completion.result <- types.Ok(types.NewInt(1))
@@ -67,7 +67,7 @@ func TestRealCommandSynchronousCompletionClosesAfterFlush(t *testing.T) {
 
 func TestRealCommandCompletionRejectsTerminalErrorsAndKills(t *testing.T) {
 	for _, killed := range []bool{false, true} {
-		queued := task.NewTask(1, 0, 30000, 3)
+		queued := task.NewState(1, 0, 30000, 3)
 		queued.Done = make(chan struct{})
 		completion := realCommandCompletion{task: queued, result: make(chan types.Result, 1)}
 		if !killed {

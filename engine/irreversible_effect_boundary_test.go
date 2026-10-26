@@ -83,7 +83,7 @@ func TestRunTaskRetriesStaleReadsBeforeFirstIrreversibleEffect(t *testing.T) {
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3101, 0, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3101, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 server_log("irreversible-once");
@@ -124,7 +124,7 @@ func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *te
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	owner := types.ObjID(7711)
-	queued := task.NewTaskFull(3102, owner, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3102, owner, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 server_log("irreversible-once");
@@ -162,7 +162,7 @@ func TestRunTaskIrreversibleEffectWithFreshReadsRunsOnce(t *testing.T) {
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3103, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 server_log("irreversible-once");
 #0.write_value = before + 10;
@@ -197,7 +197,7 @@ func TestRunTaskRetriesStaleReadsBeforeFirstCoarseBuiltin(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3104, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 add_verb(#0, {#0, "rxd", "coarse_probe"}, {"this", "none", "this"});
@@ -242,7 +242,7 @@ func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3105, 0, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(3105, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 c = create(#0);
@@ -283,12 +283,12 @@ func TestRefusedKillTaskKeepsAttemptRetryable(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	other := task.NewTaskFull(4201, 77, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	other := task.NewStateFull(4201, 77, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
 	other.SetState(task.TaskSuspended)
 	s.taskManager.RegisterTask(other)
 	defer s.taskManager.RemoveTaskIf(other.ID, other)
 
-	queued := task.NewTaskFull(4202, 5, compileTestProgram(t, s.registry, `
+	queued := task.NewStateFull(4202, 5, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 missing = `+"`kill_task(999999) ! ANY'"+`;
@@ -322,12 +322,12 @@ func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	victim := task.NewTaskFull(4301, 5, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	victim := task.NewStateFull(4301, 5, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
 	victim.SetState(task.TaskSuspended)
 	s.taskManager.RegisterTask(victim)
 	defer s.taskManager.RemoveTaskIf(victim.ID, victim)
 
-	killer := task.NewTaskFull(4302, 5, compileTestProgram(t, s.registry, "return kill_task(4301);"), ticks, seconds)
+	killer := task.NewStateFull(4302, 5, compileTestProgram(t, s.registry, "return kill_task(4301);"), ticks, seconds)
 	killer.Context.Programmer = 5
 	if err := s.runTask(killer); err != nil {
 		t.Fatalf("runTask failed: %v", err)

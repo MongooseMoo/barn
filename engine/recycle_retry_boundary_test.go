@@ -50,7 +50,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
 			program := compileTestProgram(t, s.registry,
 				`o = create(#0); try recycle(o); except (ANY) probe(); endtry probe(); return valid(o);`)
-			tk := task.NewTaskFull(5701, 0, program, ticks, seconds)
+			tk := task.NewStateFull(5701, 0, program, ticks, seconds)
 			tk.Context.IsWizard = true
 			s.taskManager.RegisterTask(tk)
 			if err := s.runTask(tk); err != nil {

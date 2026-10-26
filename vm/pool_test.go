@@ -20,7 +20,7 @@ func dirtyVM(machine *VM) {
 	machine.Store = dbstore.NewStore()
 	machine.Builtins = newTestSession(BuildVMRegistry())
 	machine.Context = task.NewContext()
-	machine.Task = task.NewTask(1, 0, 1, 1)
+	machine.Task = task.NewState(1, 0, 1, 1)
 	machine.TickLimit = 123
 	machine.MaxStackDepth = 456
 	machine.Ticks = 789
@@ -235,7 +235,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		}
 		machine := AcquireVM(store, session)
 		machine.Context = ctx
-		machine.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
+		machine.Task = task.NewState(1, types.ObjID(0), 30000, 1)
 		result := machine.Run(prog)
 		ReleaseVM(machine)
 		return result

@@ -100,7 +100,7 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginSnapshot(0)
-	taskValue := task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewState(1, player, 30000, 1)
 
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx
@@ -160,7 +160,7 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginSnapshot(0)
-	taskValue := task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewState(1, player, 30000, 1)
 
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx

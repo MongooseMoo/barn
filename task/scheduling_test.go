@@ -9,7 +9,7 @@ import (
 
 func TestScheduleChangesCoalesceAndCoverExternalResumes(t *testing.T) {
 	m := NewManager()
-	tk := NewTask(1, 0, 100, 1)
+	tk := NewState(1, 0, 100, 1)
 	m.RegisterTask(tk)
 	<-m.ScheduleChanged()
 	for _, resume := range []func() bool{
@@ -40,7 +40,7 @@ func TestScheduleChangesCoalesceAndCoverExternalResumes(t *testing.T) {
 }
 
 func TestReadyDeadlineTracksTimedAndIndefiniteSuspension(t *testing.T) {
-	tk := NewTask(1, 0, 100, 1)
+	tk := NewState(1, 0, 100, 1)
 	now := time.Now()
 	tk.Suspend(time.Hour)
 	_, wake, _ := tk.SchedulingSnapshot()

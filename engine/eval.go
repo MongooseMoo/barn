@@ -61,8 +61,8 @@ func (outcome EvalOutcome) CommandOutput() string {
 // StartEval runs the first slice on the input caller and hands every suspension
 // to the normal task scheduler. Completion is delivered once, after VM ownership
 // and admission have been released.
-func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome)) *task.Task {
-	var running *task.Task
+func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome)) *task.State {
+	var running *task.State
 	var once sync.Once
 	finish := func(out EvalOutcome) {
 		once.Do(func() {
@@ -94,7 +94,7 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 		return nil
 	}
 	ticks, seconds := foregroundTaskLimits(s.session)
-	running = task.NewTaskFull(s.newTaskID(), player, prog, ticks, seconds)
+	running = task.NewStateFull(s.newTaskID(), player, prog, ticks, seconds)
 	s.populateContextDependencies(running.Context)
 	running.Context.IsWizard = s.isWizard(player)
 	running.IntrinsicEval = true
@@ -161,7 +161,7 @@ func (s *Runtime) Eval(player types.ObjID, source []string) EvalOutcome {
 	}
 }
 
-func prepareIntrinsicEval(machine *vm.VM, t *task.Task) {
+func prepareIntrinsicEval(machine *vm.VM, t *task.State) {
 	prog, player := t.Program, t.Owner
 	frame := machine.PrepareVerbFrame(prog, types.ObjNothing, player, player, "", types.ObjNothing, []types.Value{})
 	vm.SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))

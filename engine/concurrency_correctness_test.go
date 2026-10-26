@@ -14,7 +14,7 @@ import (
 
 // runTasksThroughPool queues every task and drains them through the worker pool,
 // mirroring how ProcessReadyTasks dispatches a ready batch in production.
-func runTasksThroughPool(t *testing.T, s *Runtime, tasks []*task.Task) {
+func runTasksThroughPool(t *testing.T, s *Runtime, tasks []*task.State) {
 	t.Helper()
 	for _, tk := range tasks {
 		s.QueueTask(tk)
@@ -65,9 +65,9 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	defer removeTasksForOwner(s, 0)
 
 	const n = 64
-	tasks := make([]*task.Task, n)
+	tasks := make([]*task.State, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewTaskFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
+		tk := task.NewStateFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -121,9 +121,9 @@ func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
 	defer removeTasksForOwner(s, 0)
 
 	const n = 48
-	tasks := make([]*task.Task, n)
+	tasks := make([]*task.State, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewTaskFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
+		tk := task.NewStateFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -178,10 +178,10 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 
-	tasks := make([]*task.Task, n)
+	tasks := make([]*task.State, n)
 	for k := 0; k < n; k++ {
 		code := fmt.Sprintf("add_verb(#%d, {#3, \"rxd\", \"poked\"}, {\"this\", \"none\", \"none\"}); return verbs(#%d);", ids[k], ids[k])
-		tk := task.NewTaskFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
+		tk := task.NewStateFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.Programmer = 3

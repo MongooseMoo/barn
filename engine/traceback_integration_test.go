@@ -165,7 +165,7 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile spin: %v", diagnostics)
 	}
-	timeoutTask := task.NewTaskFull(1, 2, program, 20, 1)
+	timeoutTask := task.NewStateFull(1, 2, program, 20, 1)
 	s.populateContextDependencies(timeoutTask.Context)
 	timeoutTask.Programmer = 2
 	timeoutTask.This = 0

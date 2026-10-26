@@ -9,15 +9,15 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func testTask(id int64, at time.Time) *task.Task {
-	t := task.NewTask(id, 0, 1000, 1)
+func testTask(id int64, at time.Time) *task.State {
+	t := task.NewState(id, 0, 1000, 1)
 	t.StartTime = at
 	t.SetState(task.TaskQueued)
 	return t
 }
 
 func TestReadyBatchRetainsAdmittedTasksAheadOfNewCompletions(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return false }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	first, second := testTask(1, now), testTask(2, now)
@@ -36,12 +36,12 @@ func TestReadyBatchRetainsAdmittedTasksAheadOfNewCompletions(t *testing.T) {
 	if !completed.CompleteExec(types.NewInt(0)) {
 		t.Fatal("completion failed")
 	}
-	catalog := []*task.Task{second, completed}
+	catalog := []*task.State{second, completed}
 	batch = s.ReadyBatch(time.Now(), catalog)
 	if len(batch) != 1 || batch[0] != second {
 		t.Fatalf("admitted sibling lost its place: %v", batch)
 	}
-	batch = s.ReadyBatch(time.Now(), []*task.Task{completed})
+	batch = s.ReadyBatch(time.Now(), []*task.State{completed})
 	if len(batch) != 1 || batch[0] != completed {
 		t.Fatalf("completion lost or duplicated: %v", batch)
 	}
@@ -51,10 +51,10 @@ func TestReadyBatchRetainsAdmittedTasksAheadOfNewCompletions(t *testing.T) {
 }
 
 func TestReadyBatchSkipsKilledPendingTasksAndPreservesBatchBoundaries(t *testing.T) {
-	s := New(2, func(t *task.Task) bool { return t.ID != 3 }, func(*task.Task) error { return nil })
+	s := New(2, func(t *task.State) bool { return t.ID != 3 }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
-	tasks := []*task.Task{testTask(1, now), testTask(2, now), testTask(3, now), testTask(4, now)}
+	tasks := []*task.State{testTask(1, now), testTask(2, now), testTask(3, now), testTask(4, now)}
 	for _, task := range tasks {
 		s.Enqueue(task)
 	}
@@ -70,7 +70,7 @@ func TestReadyBatchSkipsKilledPendingTasksAndPreservesBatchBoundaries(t *testing
 }
 
 func TestReadyUsesFIFOForEqualReadyTimes(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return true }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	first, second := testTask(1, now), testTask(2, now)
@@ -83,7 +83,7 @@ func TestReadyUsesFIFOForEqualReadyTimes(t *testing.T) {
 }
 
 func TestReadyLeavesUnstartedSiblingsQueued(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return false }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	first, second := testTask(1, now), testTask(2, now)
@@ -101,7 +101,7 @@ func TestReadyLeavesUnstartedSiblingsQueued(t *testing.T) {
 }
 
 func TestReadyMergesCompletedExecBeforeLaterFork(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return false }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	completed := testTask(1, time.Now())
 	completed.SetBytecodeVM(struct{}{}) // Readiness marker only; no VM is executed.
@@ -115,16 +115,16 @@ func TestReadyMergesCompletedExecBeforeLaterFork(t *testing.T) {
 	s.Enqueue(earlier)
 	ordinary := testTask(4, time.Now().Add(-time.Hour))
 	ordinary.SetBytecodeVM(struct{}{})
-	ready := s.Ready(time.Now().Add(time.Second), []*task.Task{completed, later, earlier, ordinary})
+	ready := s.Ready(time.Now().Add(time.Second), []*task.State{completed, later, earlier, ordinary})
 	if len(ready) != 4 || ready[0] != completed || ready[1] != earlier || ready[2] != later || ready[3] != ordinary {
 		t.Fatalf("ready = %v; completed external task must precede waiting forks", ready)
 	}
 }
 
 func TestPlanIsolatesNonRetryableTasks(t *testing.T) {
-	s := New(2, func(t *task.Task) bool { return t.ID != 2 }, func(*task.Task) error { return nil })
+	s := New(2, func(t *task.State) bool { return t.ID != 2 }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
-	tasks := []*task.Task{testTask(1, time.Time{}), testTask(2, time.Time{}), testTask(3, time.Time{})}
+	tasks := []*task.State{testTask(1, time.Time{}), testTask(2, time.Time{}), testTask(3, time.Time{})}
 	batches := s.Plan(tasks)
 	if len(batches) != 3 || len(batches[1]) != 1 || batches[1][0] != tasks[1] {
 		t.Fatalf("batches = %#v, want retryable/non-retryable isolation", batches)
@@ -135,22 +135,22 @@ func TestNextWakeWaitsForPhysicalExecutionBeforeClassifyingVM(t *testing.T) {
 	for _, source := range []string{"waiting", "pending", "catalog"} {
 		t.Run(source, func(t *testing.T) {
 			classified := 0
-			s := New(2, func(*task.Task) bool {
+			s := New(2, func(*task.State) bool {
 				classified++
 				return true
-			}, func(*task.Task) error { return nil })
+			}, func(*task.State) error { return nil })
 			t.Cleanup(s.Stop)
 			now := time.Now()
 			tk := testTask(1, now)
 			tk.SetBytecodeVM(struct{}{}) // Catalog continuation marker; no VM is executed.
-			var catalog []*task.Task
+			var catalog []*task.State
 			switch source {
 			case "waiting":
 				s.Enqueue(tk)
 			case "pending":
 				s.pending = append(s.pending, tk)
 			case "catalog":
-				catalog = []*task.Task{tk}
+				catalog = []*task.State{tk}
 			}
 			if !tk.StartExecution() {
 				t.Fatal("task did not start")
@@ -185,7 +185,7 @@ func TestNextWakeWaitsForPhysicalExecutionBeforeClassifyingVM(t *testing.T) {
 
 func TestRunPreservesAssociationOrder(t *testing.T) {
 	wantErr := errors.New("second")
-	s := New(2, func(*task.Task) bool { return true }, func(t *task.Task) error {
+	s := New(2, func(*task.State) bool { return true }, func(t *task.State) error {
 		if t.ID == 2 {
 			return wantErr
 		}
@@ -194,7 +194,7 @@ func TestRunPreservesAssociationOrder(t *testing.T) {
 	})
 	t.Cleanup(s.Stop)
 	first, second := testTask(1, time.Time{}), testTask(2, time.Time{})
-	results := s.Run([]*task.Task{first, second})
+	results := s.Run([]*task.State{first, second})
 	if results[0].Task != first || results[1].Task != second || !errors.Is(results[1].Err, wantErr) {
 		t.Fatalf("results = %#v, want ordered task/result association", results)
 	}
@@ -210,7 +210,7 @@ func TestDispatchHoldsAYieldedTaskUntilItsFamilysRunningSlicesEnd(t *testing.T) 
 	started, release := make(chan struct{}), make(chan struct{})
 	var s *Scheduler
 	runs := map[int64]int{}
-	s = New(4, func(*task.Task) bool { return true }, func(t *task.Task) error {
+	s = New(4, func(*task.State) bool { return true }, func(t *task.State) error {
 		switch t.ID {
 		case child:
 			close(started)
@@ -226,7 +226,7 @@ func TestDispatchHoldsAYieldedTaskUntilItsFamilysRunningSlicesEnd(t *testing.T) 
 	})
 	t.Cleanup(s.Stop)
 	settled := make(chan int64, 4)
-	claim := func(*task.Task) bool { return true }
+	claim := func(*task.State) bool { return true }
 	done := func(result Result) { settled <- result.Task.ID }
 	next := func(want int64) {
 		t.Helper()
@@ -282,7 +282,7 @@ func TestDispatchHoldsAYieldedTaskUntilItsFamilysRunningSlicesEnd(t *testing.T) 
 }
 
 func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return false }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return false }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	parent := testTask(1, now)
@@ -302,7 +302,7 @@ func TestForkedTaskWaitsForForkingSliceToEnd(t *testing.T) {
 }
 
 func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
-	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	s := New(2, func(*task.State) bool { return true }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	resumer := testTask(1, now)
@@ -315,7 +315,7 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 	if !s.Resume(target, types.NewInt(0), resumer, now) {
 		t.Fatal("resume failed")
 	}
-	if batch := s.ReadyBatch(now, []*task.Task{target}); len(batch) != 0 {
+	if batch := s.ReadyBatch(now, []*task.State{target}); len(batch) != 0 {
 		t.Fatalf("target selected while the resuming slice runs: %v", batch)
 	}
 	// suspend(0) ends the resumer's slice and requeues it behind the target.
@@ -325,7 +325,7 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 	s.RequeueYield(resumer, now.Add(time.Millisecond))
 	resumer.SetExecutionActive(false)
 	later := now.Add(2 * time.Millisecond)
-	catalog := []*task.Task{resumer, target}
+	catalog := []*task.State{resumer, target}
 	if batch := s.ReadyBatch(later, catalog); len(batch) != 1 || batch[0] != target {
 		t.Fatalf("resumed target did not run first: %v", batch)
 	}
@@ -340,7 +340,7 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 }
 
 func TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork(t *testing.T) {
-	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	s := New(2, func(*task.State) bool { return true }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	parent, target, unrelated := testTask(1, now), testTask(2, now), testTask(3, now)
@@ -350,7 +350,7 @@ func TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork(t *testing.T) {
 	s.Enqueue(target)
 	s.Enqueue(unrelated)
 	s.Enqueue(parent)
-	catalog := []*task.Task{parent, target, unrelated}
+	catalog := []*task.State{parent, target, unrelated}
 	if batch := s.ReadyBatch(now, catalog); len(batch) != 2 || batch[0] != target || batch[1] != unrelated {
 		t.Fatalf("readied task and unrelated work should share a batch: %v", batch)
 	}
@@ -381,14 +381,14 @@ func TestResumerWaitsForReadiedPhysicalSliceWithUnrelatedWork(t *testing.T) {
 }
 
 func TestDelayedReadiedTaskDoesNotHoldItsReadier(t *testing.T) {
-	s := New(2, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	s := New(2, func(*task.State) bool { return true }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	now := time.Now()
 	parent, child := testTask(1, now), testTask(2, now.Add(time.Hour))
 	child.SetReadier(parent)
 	s.Enqueue(child)
 	s.Enqueue(parent)
-	if batch := s.ReadyBatch(now, []*task.Task{parent, child}); len(batch) != 1 || batch[0] != parent {
+	if batch := s.ReadyBatch(now, []*task.State{parent, child}); len(batch) != 1 || batch[0] != parent {
 		t.Fatalf("future fork held its readier: %v", batch)
 	}
 }
@@ -396,9 +396,9 @@ func TestDelayedReadiedTaskDoesNotHoldItsReadier(t *testing.T) {
 // assertQueueOwnsOnly checks the heap's whole backing array: the live region
 // holds exactly want, and every slot past len is nil so popped tasks are not
 // kept reachable by the long-lived scheduler.
-func assertQueueOwnsOnly(t *testing.T, q taskQueue, want ...*task.Task) {
+func assertQueueOwnsOnly(t *testing.T, q taskQueue, want ...*task.State) {
 	t.Helper()
-	live := make(map[*task.Task]bool, len(q))
+	live := make(map[*task.State]bool, len(q))
 	for _, queued := range q {
 		live[queued] = true
 	}
@@ -418,12 +418,12 @@ func assertQueueOwnsOnly(t *testing.T, q taskQueue, want ...*task.Task) {
 }
 
 func TestReadyReleasesPoppedTasksAcrossPartialAndCompleteDrains(t *testing.T) {
-	s := New(1, func(*task.Task) bool { return true }, func(*task.Task) error { return nil })
+	s := New(1, func(*task.State) bool { return true }, func(*task.State) error { return nil })
 	t.Cleanup(s.Stop)
 	base := time.Now()
 	// Enqueue out of time order so the drain exercises heap reordering.
 	offsets := []int{4, 1, 5, 0, 3, 2}
-	byOffset := make([]*task.Task, len(offsets))
+	byOffset := make([]*task.State, len(offsets))
 	for _, off := range offsets {
 		tk := testTask(int64(off+1), base.Add(time.Duration(off)*time.Second))
 		byOffset[off] = tk
@@ -462,20 +462,20 @@ func TestDispatchSerializesWithinALaneOnly(t *testing.T) {
 	const first, sibling, other = 1, 2, 3
 	release := make(chan struct{})
 	ran := make(chan int64, 3)
-	s := New(4, func(*task.Task) bool { return false }, func(t *task.Task) error {
+	s := New(4, func(*task.State) bool { return false }, func(t *task.State) error {
 		ran <- t.ID
 		<-release
 		return nil
 	})
 	t.Cleanup(s.Stop)
-	s.SetLane(func(t *task.Task) any {
+	s.SetLane(func(t *task.State) any {
 		if t.ID == other {
 			return "other"
 		}
 		return "siblings"
 	})
 	settled := make(chan int64, 3)
-	claim := func(*task.Task) bool { return true }
+	claim := func(*task.State) bool { return true }
 	done := func(result Result) { settled <- result.Task.ID }
 
 	now := time.Now()
@@ -511,7 +511,7 @@ func TestDispatchRunsBatchableWorkBesideALongSoloSlice(t *testing.T) {
 	const soloLong, batchable, soloNext = 1, 2, 3
 	started, release := make(chan struct{}), make(chan struct{})
 	ran := make(chan int64, 3)
-	s := New(4, func(t *task.Task) bool { return t.ID == batchable }, func(t *task.Task) error {
+	s := New(4, func(t *task.State) bool { return t.ID == batchable }, func(t *task.State) error {
 		if t.ID == soloLong {
 			close(started)
 			<-release
@@ -520,7 +520,7 @@ func TestDispatchRunsBatchableWorkBesideALongSoloSlice(t *testing.T) {
 		return nil
 	})
 	t.Cleanup(s.Stop)
-	claim := func(*task.Task) bool { return true }
+	claim := func(*task.State) bool { return true }
 	settled := make(chan int64, 3)
 	done := func(result Result) { settled <- result.Task.ID }
 	next := func(from <-chan int64, what string) int64 {

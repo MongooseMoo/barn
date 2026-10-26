@@ -27,7 +27,7 @@ endwhile
 #0.progress = 2;
 return 0;
 `)
-	running := task.NewTaskFull(99, 0, program, 1000000000, 0.01)
+	running := task.NewStateFull(99, 0, program, 1000000000, 0.01)
 	running.Context.IsWizard = true
 	if err := s.runTask(running); err != nil {
 		t.Fatal(err)

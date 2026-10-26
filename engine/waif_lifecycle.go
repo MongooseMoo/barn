@@ -88,7 +88,7 @@ func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ow
 		return
 	}
 	for _, waif := range pending {
-		var owner *task.Task
+		var owner *task.State
 		if ownVM != nil {
 			owner = ownVM.Task
 		}
@@ -113,7 +113,7 @@ func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM
 		return
 	}
 	var ownRefs map[types.ObjID]struct{}
-	var owner *task.Task
+	var owner *task.State
 	if ownVM != nil {
 		ownRefs = make(map[types.ObjID]struct{})
 		vm.CollectAnonymousRefsFromVM(ownVM, ownRefs)
@@ -458,7 +458,7 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, ano
 	}
 }
 
-func (s *Runtime) callWaifRecycle(parentCtx *task.Context, parentTask *task.Task, waif types.Value) {
+func (s *Runtime) callWaifRecycle(parentCtx *task.Context, parentTask *task.State, waif types.Value) {
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return

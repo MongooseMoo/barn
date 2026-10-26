@@ -403,7 +403,7 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Sess
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
 	Ctx       *task.Context
-	Task      *task.Task
+	Task      *task.State
 	MinID     types.ObjID
 	OwnRefs   map[types.ObjID]struct{}
 	TaskOwned bool

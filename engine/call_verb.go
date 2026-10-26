@@ -211,7 +211,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
-	var leasedTask *task.Task
+	var leasedTask *task.State
 	var inheritedLease bool
 	var ownedCtx *task.Context
 	// Recover from panics in compile/execute to avoid crashing the server
@@ -248,7 +248,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// publish ownership at the earliest safe entry. Anonymous/waif arguments are
 	// roots even during trace, lookup, and compile, before a VM frame exists to be
 	// scanned by GC.
-	t := &task.Task{
+	t := &task.State{
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
 		CallStack:   make([]types.ActivationFrame, 0),

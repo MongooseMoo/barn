@@ -43,7 +43,7 @@ func assertTerminalCommitFailure(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	running := task.NewTaskFull(94002, 0, compileTestProgram(t, s.registry, `
+	running := task.NewStateFull(94002, 0, compileTestProgram(t, s.registry, `
 force_terminal_commit();
 return 1;
 `), ticks, seconds)

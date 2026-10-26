@@ -85,7 +85,7 @@ func BenchmarkVM(b *testing.B) {
 				ctx.TicksRemaining = 1 << 60
 				m := NewVM(store, newTestSession(registry))
 				m.Context = ctx
-				m.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+				m.Task = task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 				m.TickLimit = 1 << 60
 				res := m.Run(prog)
 				if res.Flow == types.FlowException {

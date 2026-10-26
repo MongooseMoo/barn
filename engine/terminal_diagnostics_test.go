@@ -136,7 +136,7 @@ func TestTerminalExceptionDiagnostics(t *testing.T) {
 		rt := newTestRuntimeWithBuiltins(t, store, descriptor)
 		defer rt.Stop()
 		program := compileTestProgram(t, rt.registry, `v=#0.read_value; bump_read_value_live_once(); #0.write_value=v+7; raise(E_DIV);`)
-		tk := task.NewTaskFull(94003, 0, program, 1000000, 30)
+		tk := task.NewStateFull(94003, 0, program, 1000000, 30)
 		tk.IntrinsicEval = true
 		tk.Context.IsWizard = true
 		if err := rt.runTask(tk); err != nil {

@@ -18,7 +18,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
 
-	taskValue := task.NewTask(1, 2, 1000, 1)
+	taskValue := task.NewState(1, 2, 1000, 1)
 	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
 		ThisValue:  types.NewAnon(anon),
@@ -67,7 +67,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	}
 
 	const taskID = int64(91872)
-	taskValue := task.NewTask(taskID, 2, 1000, 1)
+	taskValue := task.NewState(taskID, 2, 1000, 1)
 	taskValue.VerbName = "delayed"
 	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
@@ -101,7 +101,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	const programmerTwoTaskID = int64(91873)
 	const programmerThreeTaskID = int64(91874)
 
-	programmerTwoTask := task.NewTask(programmerTwoTaskID, 3, 1000, 1)
+	programmerTwoTask := task.NewState(programmerTwoTaskID, 3, 1000, 1)
 	programmerTwoTask.VerbName = "programmer_two_delayed"
 	programmerTwoTask.ForkInfo = &types.ForkInfo{
 		Variables: map[string]types.Value{
@@ -118,7 +118,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	})
 	programmerTwoTask.SetState(task.TaskQueued)
 
-	programmerThreeTask := task.NewTask(programmerThreeTaskID, 2, 1000, 1)
+	programmerThreeTask := task.NewState(programmerThreeTaskID, 2, 1000, 1)
 	programmerThreeTask.VerbName = "programmer_three_delayed"
 	programmerThreeTask.ForkInfo = &types.ForkInfo{
 		Variables: map[string]types.Value{
@@ -249,7 +249,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 		{types.NewStr("zeta"), types.NewInt(1)},
 		{types.NewStr("alpha"), types.NewInt(2)},
 	})
-	taskValue := task.NewTask(taskID, 2, 1000, 1)
+	taskValue := task.NewState(taskID, 2, 1000, 1)
 	taskValue.PushFrame(types.ActivationFrame{
 		This:             7,
 		ThisValue:        types.NewObj(7),

@@ -49,7 +49,7 @@ const escalateAfterAttempts = 63
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
-func (s *Runtime) runTask(t *task.Task) (retErr error) {
+func (s *Runtime) runTask(t *task.State) (retErr error) {
 	defer t.ReleaseAdmission()
 	scope, _, cancel, err := s.enterBackground(t)
 	defer cancel()
@@ -73,7 +73,7 @@ type taskCompletion struct {
 	roots    *admissionRoot
 }
 
-func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+func (s *Runtime) runTaskAdmitted(t *task.State, scope *admission.Scope, ownsScope bool) (retErr error) {
 	var completion taskCompletion
 	defer func() {
 		if retErr != nil {
@@ -114,7 +114,7 @@ func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScop
 	return retErr
 }
 
-func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
+func (s *Runtime) runTaskSliceAdmitted(t *task.State, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
 	if ownsScope {
 		defer scope.Finish()
 	}
@@ -577,7 +577,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *task.Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *task.State, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
@@ -710,7 +710,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *task.Context, bcVM *vm.VM, pree
 // slice's garbage for the next flush, commits what the slice wrote since its
 // main commit, and saves the VM for the scheduler to resume. A failed commit
 // kills the task instead.
-func (s *Runtime) handOffSuspended(t *task.Task, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
+func (s *Runtime) handOffSuspended(t *task.State, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
 	// A suspend is a waif liveness boundary as well as an anonymous-object
 	// boundary. Values overwritten before the yield are no longer live in the
 	// saved VM, so queue them now; the flush-time scan of the registered VM
@@ -775,7 +775,7 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *task.Context, scope *admis
 // #0:handle_uncaught_error, then the fallback traceback. The slice's own
 // writes are already committed and the commit gate released by the time it
 // runs.
-func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, result types.Result) {
+func (s *Runtime) reportUncaughtException(t *task.State, scope *admission.Scope, result types.Result) {
 	t.SetState(task.TaskKilled)
 	handled := false
 	if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
@@ -951,7 +951,7 @@ type taskRetryState struct {
 // The runtime's own retry decision is wider than this scheduling predicate: a
 // forked task that has not yet run is also re-executable (forkFirstRunRebuilder),
 // but it keeps its solo batch here so co-scheduling behaviour is unchanged.
-func taskIsConflictRetryable(t *task.Task) bool {
+func taskIsConflictRetryable(t *task.State) bool {
 	if t == nil {
 		return false
 	}
@@ -977,7 +977,7 @@ type forkLane struct {
 //
 // The scheduler asks this for every ready task on every scan, so it must not
 // extract the fork body: CreateForkedTask already refused a fork without one.
-func forkFirstRunLane(t *task.Task) any {
+func forkFirstRunLane(t *task.State) any {
 	if t == nil || !t.IsForked || t.ForkInfo == nil {
 		return nil
 	}
@@ -994,7 +994,7 @@ func forkFirstRunLane(t *task.Task) any {
 // children instead use an in-memory continuation checkpoint. Without this,
 // every `fork (0) ... endfork` body that lost a
 // commit surfaced a frameless E_INVARG to MOO code (issue #296).
-func (s *Runtime) forkFirstRunRebuilder(t *task.Task, ticks int64) func() *vm.VM {
+func (s *Runtime) forkFirstRunRebuilder(t *task.State, ticks int64) func() *vm.VM {
 	if t == nil || !t.IsForked || t.ForkInfo == nil {
 		return nil
 	}
@@ -1015,7 +1015,7 @@ func (s *Runtime) forkFirstRunRebuilder(t *task.Task, ticks int64) func() *vm.VM
 	}
 }
 
-func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
+func (s *Runtime) captureTaskRetryState(t *task.State) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
@@ -1037,7 +1037,7 @@ func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 	return state
 }
 
-func (state taskRetryState) restore(t *task.Task) {
+func (state taskRetryState) restore(t *task.State) {
 	if t == nil || !state.canRetry {
 		return
 	}
@@ -1077,7 +1077,7 @@ func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.Activ
 	return cloned
 }
 
-func (s *Runtime) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) bool {
+func (s *Runtime) callTaskTimeoutHook(t *task.State, resource string, message types.Value) bool {
 	stack := t.GetCallStack()
 	stackValues := make([]types.Value, 0, len(stack))
 	for _, frame := range stack {
@@ -1115,7 +1115,7 @@ func (s *Runtime) sendTaskLine(player types.ObjID, line string) {
 	}
 }
 
-func (s *Runtime) discardCreatedForks(parent *task.Task) {
+func (s *Runtime) discardCreatedForks(parent *task.State) {
 	if parent == nil || len(parent.CreatedForks) == 0 {
 		return
 	}
@@ -1132,7 +1132,7 @@ func (s *Runtime) discardCreatedForks(parent *task.Task) {
 
 // drainForks handles FlowFork yields from the VM by creating child tasks
 // and resuming the parent until no more forks are pending.
-func (s *Runtime) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) types.Result {
+func (s *Runtime) drainForks(t *task.State, bcVM *vm.VM, result types.Result) types.Result {
 	for result.Flow == types.FlowFork {
 		var childID int64
 		if result.ForkInfo != nil {
@@ -1167,7 +1167,7 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
+	t := task.NewStateFull(taskID, player, program, ticks, seconds)
 	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner

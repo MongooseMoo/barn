@@ -14,7 +14,7 @@ func TestTaskStackRejectsRetainedTerminalTasks(t *testing.T) {
 			ctx.TaskID = 1
 			ctx.Programmer = 2
 			manager := wireTestTaskManager(ctx)
-			finished := task.NewTask(42, 2, 1000, 1)
+			finished := task.NewState(42, 2, 1000, 1)
 			finished.SetState(state)
 			manager.RegisterTask(finished)
 			result := admitTestBuiltin("task_stack", ctx, []types.Value{types.NewInt(42)})

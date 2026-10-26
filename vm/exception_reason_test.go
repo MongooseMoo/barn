@@ -23,7 +23,7 @@ func reasonFrameProgram(t *testing.T, code string) (*VM, types.Result) {
 	}
 	machine := NewVM(store, newTestSessionWithTaskManager(registry))
 	machine.Context = task.NewContext()
-	machine.Task = task.NewTask(1, 0, 30_000, 10)
+	machine.Task = task.NewState(1, 0, 30_000, 10)
 	machine.MaxStackDepth = 1
 	machine.Resumable = true
 	return machine, machine.Run(program)
@@ -48,7 +48,7 @@ func TestExceptionReasonActualGuards(t *testing.T) {
 	})
 	t.Run("seconds", func(t *testing.T) {
 		machine, program := newTickTestVM(t, `while (1) endwhile`)
-		machine.Task = task.NewTask(1, 0, 100_000, 0)
+		machine.Task = task.NewState(1, 0, 100_000, 0)
 		machine.TickLimit = 100_000
 		requireExceptionReason(t, machine.Run(program), types.ExceptionReasonSecondsBudget)
 	})
@@ -251,7 +251,7 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 			machine.Context.Store = store
 			machine.Context.Programmer = 0
 			machine.Context.IsWizard = true
-			machine.Task = task.NewTask(1, 0, 300_000, 30)
+			machine.Task = task.NewState(1, 0, 300_000, 30)
 			machine.Resumable = true
 			result := machine.Run(program)
 			if resume {

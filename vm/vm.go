@@ -30,7 +30,7 @@ type VM struct {
 	Store         *dbstore.Store    // Object store
 	Builtins      *builtins.Session // Builtin dispatch and mutable session
 	Context       *task.Context     // Task context for builtins
-	Task          *task.Task        // Runtime task owning this execution
+	Task          *task.State        // Runtime task owning this execution
 	TickLimit     int64             // Maximum ticks before E_MAXREC
 	MaxStackDepth int               // Maximum VM call frames before E_MAXREC
 	Ticks         int64             // Current tick count

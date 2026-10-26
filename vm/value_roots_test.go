@@ -53,7 +53,7 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 		{"context task local", func(vm *VM, v types.Value) { vm.Context.TaskLocal = v }},
 		{"task local", func(vm *VM, v types.Value) {
 			vm.Context = nil
-			vm.Task = task.NewTask(1, 1, 100, 1)
+			vm.Task = task.NewState(1, 1, 100, 1)
 			vm.Task.SetTaskLocal(v)
 		}},
 	}

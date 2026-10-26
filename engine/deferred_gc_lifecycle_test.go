@@ -116,7 +116,7 @@ func TestDeferredAnonymousGCRecycleUsesStandaloneCallerWithCompletedTask(t *test
 	ctx.IsWizard = true
 	ctx.ThisObj = 0
 	ctx.Store = store
-	completed := task.NewTask(98001, 0, 1000, 10)
+	completed := task.NewState(98001, 0, 1000, 10)
 	completed.SetState(task.TaskCompleted)
 	machine := vm.NewVM(store, rt.session)
 	machine.Context = ctx

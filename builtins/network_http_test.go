@@ -13,7 +13,7 @@ type recordingTaskManager struct {
 	suspended bool
 }
 
-func (m *recordingTaskManager) SuspendTask(t *task.Task, _ float64) {
+func (m *recordingTaskManager) SuspendTask(t *task.State, _ float64) {
 	m.suspended = true
 	t.SetState(task.TaskSuspended)
 }
@@ -35,7 +35,7 @@ func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizar
 		host.ConnManager = &stubConnManager{conn: &stubConn{lastInputTaskID: lastInputTaskID}}
 		host.TaskManager = manager
 	})
-	taskValue := task.NewTask(taskID, connection, 1000, 5)
+	taskValue := task.NewState(taskID, connection, 1000, 5)
 	ctx := session.NewExecution(&task.Context{
 		Player:     connection,
 		Programmer: programmer,
@@ -264,7 +264,7 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 		t.Fatal("expected held input to be intercepted")
 	}
 
-	readTask := task.NewTask(99, player, 1000, 5)
+	readTask := task.NewState(99, player, 1000, 5)
 	value, complete := r.prepareHTTPRead(player, "request", readTask)
 	if !complete {
 		t.Fatal("expected read to complete immediately")
@@ -282,7 +282,7 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	player := types.ObjID(8)
 	r := NewSession(NewRegistry(), NoHost())
 
-	pending := task.NewTask(101, player, 1000, 5)
+	pending := task.NewState(101, player, 1000, 5)
 	if value, complete := r.prepareHTTPRead(player, "request", pending); complete {
 		t.Fatalf("expected incomplete request to suspend, got %v", value)
 	}
@@ -304,7 +304,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 		t.Fatal("expected partial input to be intercepted")
 	}
 
-	stalled := task.NewTask(101, player, 1000, 5)
+	stalled := task.NewState(101, player, 1000, 5)
 	if value, complete := r.prepareHTTPRead(player, "request", stalled); complete {
 		t.Fatalf("expected partial request to suspend, got %v", value)
 	}
@@ -315,7 +315,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 		t.Fatal("expected fresh input to be intercepted")
 	}
 
-	fresh := task.NewTask(102, player, 1000, 5)
+	fresh := task.NewState(102, player, 1000, 5)
 	value, complete := r.prepareHTTPRead(player, "request", fresh)
 	if !complete {
 		t.Fatal("expected fresh request to parse immediately")

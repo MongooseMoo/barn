@@ -50,16 +50,16 @@ func TestHostValidationRejectsPartlyWiredServer(t *testing.T) {
 
 type taskManagerStub struct{}
 
-func (taskManagerStub) GetAllTasks() []*task.Task                          { return nil }
-func (taskManagerStub) GetQueuedTasks() []*task.Task                       { return nil }
-func (taskManagerStub) GetTask(int64) *task.Task                           { return nil }
-func (taskManagerStub) FindReadingTask(types.ObjID) *task.Task             { return nil }
+func (taskManagerStub) GetAllTasks() []*task.State                          { return nil }
+func (taskManagerStub) GetQueuedTasks() []*task.State                       { return nil }
+func (taskManagerStub) GetTask(int64) *task.State                           { return nil }
+func (taskManagerStub) FindReadingTask(types.ObjID) *task.State             { return nil }
 func (taskManagerStub) KillTask(int64, types.ObjID, bool) types.ErrorCode  { return types.E_NONE }
 func (taskManagerStub) CheckKill(int64, types.ObjID, bool) types.ErrorCode { return types.E_NONE }
-func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool, *task.Task) types.ErrorCode {
+func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool, *task.State) types.ErrorCode {
 	return types.E_NONE
 }
-func (taskManagerStub) SuspendTask(*task.Task, float64) {}
+func (taskManagerStub) SuspendTask(*task.State, float64) {}
 
 func TestExecutionCarriesRegistryAndSession(t *testing.T) {
 	registry := NewRegistry()

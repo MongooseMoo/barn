@@ -17,7 +17,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ta
 	if ctx == nil {
 		ctx = task.NewContext()
 	}
-	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
@@ -585,7 +585,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	taskValue := task.NewTask(1, 0, 30_000, 1)
+	taskValue := task.NewState(1, 0, 30_000, 1)
 	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
 	machine.Context = task.NewContext()
@@ -876,7 +876,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
 	ctx := task.NewContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`suspend(); return 9;`})
 	if len(diagnostics) > 0 {
@@ -913,7 +913,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
 	ctx := task.NewContext()
-	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
 	program, diagnostics := registry.Compiler().CompileMOO([]string{`
 		try

@@ -9,30 +9,30 @@ import (
 
 // Manager tracks the tasks owned by one execution engine.
 type Manager struct {
-	tasks           map[int64]*Task
+	tasks           map[int64]*State
 	mu              sync.RWMutex
 	scheduleChanged chan struct{}
-	resume          func(t *Task, value types.Value, readier *Task) bool
+	resume          func(t *State, value types.Value, readier *State) bool
 
 	// unfinished is the catalog's tasks that are neither completed nor killed,
-	// kept exact by Task.setStateLocked. unfinishedMu is a leaf lock: it is
+	// kept exact by State.setStateLocked. unfinishedMu is a leaf lock: it is
 	// taken under a task's lock and never the other way round.
 	unfinishedMu sync.Mutex
-	unfinished   map[int64]*Task
+	unfinished   map[int64]*State
 }
 
 // SetResumeScheduler routes resume() through the runtime scheduler, which
 // orders the resumed task among ready work. Without one, resume() only marks
 // the task queued.
-func (m *Manager) SetResumeScheduler(resume func(t *Task, value types.Value, readier *Task) bool) {
+func (m *Manager) SetResumeScheduler(resume func(t *State, value types.Value, readier *State) bool) {
 	m.resume = resume
 }
 
 // NewManager creates an empty task manager for one execution engine.
 func NewManager() *Manager {
 	return &Manager{
-		tasks:           make(map[int64]*Task),
-		unfinished:      make(map[int64]*Task),
+		tasks:           make(map[int64]*State),
+		unfinished:      make(map[int64]*State),
 		scheduleChanged: make(chan struct{}, 1),
 	}
 }
@@ -50,7 +50,7 @@ func (m *Manager) NotifyScheduleChange() {
 }
 
 // GetTask retrieves a task by ID
-func (m *Manager) GetTask(id int64) *Task {
+func (m *Manager) GetTask(id int64) *State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.tasks[id]
@@ -58,24 +58,24 @@ func (m *Manager) GetTask(id int64) *Task {
 
 // RegisterTask registers an externally created task with the manager
 // This allows builtins to find tasks created by the execution runtime.
-func (m *Manager) RegisterTask(t *Task) {
+func (m *Manager) RegisterTask(t *State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if replaced := m.tasks[t.ID]; replaced != nil && replaced != t {
 		m.forget(replaced)
 	}
 	m.tasks[t.ID] = t
-	t.mu.Lock()
+	t.Mu.Lock()
 	t.scheduleChanged = m.scheduleChanged
 	t.catalog = m
 	m.noteFinished(t, t.settledLocked())
-	t.mu.Unlock()
+	t.Mu.Unlock()
 	m.NotifyScheduleChange()
 }
 
 // noteFinished records that scheduling is done with t, or that it is not. The
 // caller holds t's lock.
-func (m *Manager) noteFinished(t *Task, finished bool) {
+func (m *Manager) noteFinished(t *State, finished bool) {
 	m.unfinishedMu.Lock()
 	defer m.unfinishedMu.Unlock()
 	if !finished {
@@ -87,13 +87,13 @@ func (m *Manager) noteFinished(t *Task, finished bool) {
 
 // forget detaches a task that has left the catalog, so a later state change
 // does not put it back among the unfinished. The caller holds m.mu.
-func (m *Manager) forget(t *Task) {
-	t.mu.Lock()
+func (m *Manager) forget(t *State) {
+	t.Mu.Lock()
 	if t.catalog == m {
 		t.catalog = nil
 	}
 	m.noteFinished(t, true)
-	t.mu.Unlock()
+	t.Mu.Unlock()
 }
 
 // RemoveTask removes a task from the manager
@@ -108,7 +108,7 @@ func (m *Manager) RemoveTask(id int64) {
 
 // RemoveTaskIf removes id only when it still names expected. It is used by
 // lifecycle cleanup paths which must not remove a newer task reusing the ID.
-func (m *Manager) RemoveTaskIf(id int64, expected *Task) bool {
+func (m *Manager) RemoveTaskIf(id int64, expected *State) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.tasks[id] != expected {
@@ -122,10 +122,10 @@ func (m *Manager) RemoveTaskIf(id int64, expected *Task) bool {
 }
 
 // Snapshot returns a stable copy of the manager's current task catalog.
-func (m *Manager) Snapshot() []*Task {
+func (m *Manager) Snapshot() []*State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	tasks := make([]*Task, 0, len(m.tasks))
+	tasks := make([]*State, 0, len(m.tasks))
 	for _, t := range m.tasks {
 		tasks = append(tasks, t)
 	}
@@ -138,10 +138,10 @@ func (m *Manager) Snapshot() []*Task {
 // ends. The rest stay in the catalog until the periodic cleanup, and under load
 // they outnumber live ones a hundred to one, so a scheduling scan must not walk
 // them: this reads the index and takes no task lock.
-func (m *Manager) Unfinished() []*Task {
+func (m *Manager) Unfinished() []*State {
 	m.unfinishedMu.Lock()
 	defer m.unfinishedMu.Unlock()
-	tasks := make([]*Task, 0, len(m.unfinished))
+	tasks := make([]*State, 0, len(m.unfinished))
 	for _, t := range m.unfinished {
 		tasks = append(tasks, t)
 	}
@@ -156,22 +156,22 @@ func (m *Manager) Len() int {
 }
 
 // GetAllTasks returns all tasks (for debugging)
-func (m *Manager) GetAllTasks() []*Task {
+func (m *Manager) GetAllTasks() []*State {
 	return m.Snapshot()
 }
 
 // GetQueuedTasks returns all queued (waiting) tasks
-func (m *Manager) GetQueuedTasks() []*Task {
+func (m *Manager) GetQueuedTasks() []*State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	tasks := make([]*Task, 0)
+	tasks := make([]*State, 0)
 	for _, task := range m.tasks {
 		state := task.GetState()
 		if state == TaskSuspended {
-			task.mu.RLock()
+			task.Mu.RLock()
 			evalScaffold := task.IsForked && task.VerbName == "" && !task.IsExecSuspended
-			task.mu.RUnlock()
+			task.Mu.RUnlock()
 			if evalScaffold {
 				continue
 			}
@@ -200,7 +200,7 @@ func (m *Manager) CheckKill(taskID int64, killerID types.ObjID, isWizard bool) t
 	return errCode
 }
 
-func (m *Manager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*Task, types.ErrorCode) {
+func (m *Manager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*State, types.ErrorCode) {
 	task := m.GetTask(taskID)
 	if task == nil {
 		return nil, types.E_INVARG
@@ -219,7 +219,7 @@ func (m *Manager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*
 }
 
 // ResumeTask resumes a suspended task with a value on behalf of task readier.
-func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *Task) types.ErrorCode {
+func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *State) types.ErrorCode {
 	task := m.GetTask(taskID)
 	if task == nil {
 		return types.E_INVARG
@@ -251,7 +251,7 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 }
 
 // SuspendTask suspends a task for a duration
-func (m *Manager) SuspendTask(task *Task, seconds float64) {
+func (m *Manager) SuspendTask(task *State, seconds float64) {
 	switch {
 	case seconds < 0:
 		// Indefinite suspension (requires explicit resume()). Stamp a
@@ -273,14 +273,14 @@ func (m *Manager) SuspendTask(task *Task, seconds float64) {
 // FindReadingTask returns the oldest suspended task that is read()ing from the
 // given player. QueueSeq provides FIFO order; task ID breaks equal-sequence ties.
 // Returns nil if no task is currently reading from that player.
-func (m *Manager) FindReadingTask(player types.ObjID) *Task {
+func (m *Manager) FindReadingTask(player types.ObjID) *State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var oldest *Task
+	var oldest *State
 	var oldestQueueSeq, oldestID int64
 	for _, t := range m.tasks {
-		queueSeq, id, ok := t.readingOrder(player)
+		queueSeq, id, ok := t.ReadingOrder(player)
 		if !ok {
 			continue
 		}

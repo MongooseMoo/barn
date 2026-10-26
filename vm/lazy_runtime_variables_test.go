@@ -9,7 +9,7 @@ import (
 )
 
 func TestLineSyncDoesNotMaterializeRuntimeVariables(t *testing.T) {
-	taskValue := &task.Task{}
+	taskValue := &task.State{}
 	taskValue.PushFrame(types.ActivationFrame{Verb: "raise"})
 	machine := &VM{
 		Context: &task.Context{},
@@ -64,7 +64,7 @@ func TestTracebackRuntimeVariablesFollowServerOption(t *testing.T) {
 			Kind:          task.PendingEffectServerOptions,
 			ServerOptions: &task.PendingServerOptions{IncludeRTVars: enabled},
 		}}}
-		taskValue := &task.Task{}
+		taskValue := &task.State{}
 		taskValue.PushFrame(types.ActivationFrame{Verb: "boom"})
 		machine := &VM{Context: ctx, Task: taskValue,
 			Builtins: newTestSessionWithTaskManager(BuildVMRegistry())}
@@ -92,7 +92,7 @@ func TestTracebackRuntimeVariablesFollowServerOption(t *testing.T) {
 }
 
 func TestRuntimeVariableSnapshotSurvivesResume(t *testing.T) {
-	taskValue := &task.Task{}
+	taskValue := &task.State{}
 	taskValue.PushFrame(types.ActivationFrame{Verb: "suspended"})
 	machine := &VM{Task: taskValue}
 	machine.pushFrame(&StackFrame{

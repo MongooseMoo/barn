@@ -47,7 +47,7 @@ func TestRootVMReadsAStaleHotPropertyAtTheCurrentClock(t *testing.T) {
 
 			machine := NewVM(store, newTestSession(registry))
 			machine.Context = ctx
-			machine.Task = task.NewTask(1, 0, 30000, 1)
+			machine.Task = task.NewState(1, 0, 30000, 1)
 			machine.Resumable = root
 			machine.PrepareVerbFrame(prog, types.ObjNothing, 0, 0, "", types.ObjNothing, []types.Value{})
 			result := machine.ExecuteLoop()

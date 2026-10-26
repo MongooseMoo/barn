@@ -178,14 +178,14 @@ type vmSnapshotter interface {
 
 // PersistenceSnapshot copies the task fields needed for checkpoint output while
 // holding the task lock.
-func (t *Task) PersistenceSnapshot() Snapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+func (t *State) PersistenceSnapshot() Snapshot {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 
 	snapshot := Snapshot{
 		ID:                  t.ID,
 		Owner:               t.Owner,
-		State:               t.State,
+		State:               t.Status,
 		StartTime:           t.StartTime,
 		WakeValue:           t.WakeValue,
 		TaskLocal:           t.TaskLocal,
@@ -199,7 +199,7 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ExecCommandName:     t.ExecCommandName,
 		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
-	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
 		snapshot.StartTime = t.WakeTime
 	}
 	if t.ForkInfo != nil {

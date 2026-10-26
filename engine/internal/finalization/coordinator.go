@@ -19,7 +19,7 @@ import (
 type PendingWaif struct {
 	Waif        types.Value
 	Ctx         *task.Context
-	Task        *task.Task
+	Task        *task.State
 	OwnRefs     []types.Value
 	DirectRoots vm.DirectFinalizationRoots
 }

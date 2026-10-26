@@ -23,14 +23,21 @@ Earlier runs 40284826132 and 40284826145 failed on the repaired alias defect.
 No merge or release for this task yet. The original checkout has unrelated
 untracked work; it is not this task's edit target.
 
-The profiling boundary is implemented locally: Execution.ProfileParent carries
+The profiling boundary is pushed as a92aba44: Execution.ProfileParent carries
 the four mooprof sampling operations instead of CallingVM any. The live-frame
 and baseline loops were extracted into VM methods, retaining the cached
 Execution binding. Existing vm/profile_test.go covers nested stack attribution
-and tick accounting; its CI result for this change is pending. No new tests.
-The task Status field semantic rename is also local preparation for inline State;
-it is not part of the profiling commit. Typed saved-machine ownership remains
-to implement. All three jobs on documentation head 95a0a1af completed SUCCESS
+and tick accounting. Build & unit tests passed (1m26s) in run 40288400397;
+Elle job passed (2m50s) in 40288400399; conformance is still pending. No new tests.
+The following preparation is implemented locally, separately from profiling:
+gopls semantic previews renamed task.Task to State, the enum field to Status,
+the shared mutex to Mu, readingOrder to ReadingOrder, and constructors to
+NewState/NewStateFull. Applied all previews through apply_patch. Updated the
+existing source-text setter test to recognize Status; retained its exact
+two-setter requirement. State.Init initializes fresh inline storage, and both
+constructors now share those defaults instead of duplicating them.
+Typed saved-machine ownership remains to implement. All three jobs on
+documentation head 95a0a1af completed SUCCESS
 (runs 40286736548 and 40286736504); those precede this profiling implementation.
 
 ## Decisions and why
@@ -197,8 +204,10 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Implement the typed profiling boundary, then the executable-task/state split
-and its catalog/scheduler ownership changes. Q already
+Commit/push the semantic state preparation, then implement engine.Task with
+inline State, typed VM, and the catalog/scheduler ownership changes described
+in the research report. Migrate production-manager builtin tests to the public
+engine boundary; preserve pure builtin State tests. Q already
 authorized the cleanup; routine implementation choices do not require reapproval.
 Do not mistake the green first slice or these two microbenchmarks for completion
 of the broader layering goal.

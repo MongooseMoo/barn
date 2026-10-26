@@ -38,7 +38,7 @@ func TestSuspendedActivationThreadModesSurviveCheckpointRoundTrip(t *testing.T) 
 		return ctx
 	}
 	ctx := newContext()
-	taskValue := task.NewTask(1, 2, ctx.TicksRemaining, 1)
+	taskValue := task.NewState(1, 2, ctx.TicksRemaining, 1)
 
 	program, diagnostics := registry.Compiler().CompileMOO([]string{
 		"set_thread_mode(0);",

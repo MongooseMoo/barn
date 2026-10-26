@@ -202,7 +202,7 @@ func defaultRealShapes() []realShape {
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
 	runtime *Runtime
-	task    *taskpkg.Task
+	task    *taskpkg.State
 	result  chan types.Result
 }
 
@@ -234,7 +234,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
 	seen := map[int64]bool{c.task.ID: true}
-	held := []*taskpkg.Task{c.task}
+	held := []*taskpkg.State{c.task}
 	for len(held) != 0 {
 		target := held[0]
 		held = held[1:]

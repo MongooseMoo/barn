@@ -98,7 +98,7 @@ func measureConcurrencyWorkers(t *testing.T, n, loop int, useVerb, pool bool, wo
 	defer removeTasksForOwner(s, 3)
 
 	// Build all tasks (including parse) BEFORE timing so only execution is timed.
-	tasks := make([]*task.Task, n)
+	tasks := make([]*task.State, n)
 	for k := 0; k < n; k++ {
 		var code string
 		if useVerb {
@@ -135,11 +135,11 @@ func measureConcurrencyWorkers(t *testing.T, n, loop int, useVerb, pool bool, wo
 	return elapsed
 }
 
-func (s *Runtime) buildBenchTask(t *testing.T, id int64, code string) *task.Task {
+func (s *Runtime) buildBenchTask(t *testing.T, id int64, code string) *task.State {
 	t.Helper()
 	stmts := compileTestProgram(t, s.registry, code)
 	// Generous tick/second budget so CPU loops never hit foreground limits.
-	tk := task.NewTaskFull(id, types.ObjID(3), stmts, 1<<50, 1e9)
+	tk := task.NewStateFull(id, types.ObjID(3), stmts, 1<<50, 1e9)
 	s.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.Programmer = 3

@@ -67,7 +67,7 @@ type InputForcer interface {
 }
 
 type httpReadWaiter struct {
-	task *taskpkg.Task
+	task *taskpkg.State
 	kind string
 }
 
@@ -111,7 +111,7 @@ func compactHTTPBuffer(state *httpHeldInput) {
 }
 
 type httpWake struct {
-	task  *taskpkg.Task
+	task  *taskpkg.State
 	value types.Value
 }
 
@@ -646,7 +646,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 	return true, nil
 }
 
-func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *taskpkg.Task) (types.Value, bool) {
+func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *taskpkg.State) (types.Value, bool) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
