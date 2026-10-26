@@ -43,6 +43,13 @@ type propertyDefine struct {
 	prop Property
 }
 
+// propertyRename is a staged rename of a property its object defines, keyed by
+// the new name: from is the name in the published image, to the new name in
+// display case.
+type propertyRename struct {
+	from, to string
+}
+
 // propertyDefinesByObject groups staged defines by object in each object's
 // property order, so several defines on one object apply in insertion order.
 // Only objects that carry a define are walked. A define missing from the view's
@@ -471,6 +478,91 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 
 	tx.propagateDefinedProperty(objID, name, prop)
 	return types.E_NONE
+}
+
+// RenameProperty renames the property objID defines from `from` to `to`. The
+// slot keeps its value, owner, perms and place in the definition order, and
+// each descendant's slot moves to the new name (Toast db_rename_propdef,
+// db_properties.cc:251-280). It is E_PROPNF unless objID defines from, and
+// E_INVARG when objID has another slot named to; the caller refuses the other
+// names Toast does (built-in, or defined by an ancestor or a descendant).
+func (tx *StoreTxn) RenameProperty(objID types.ObjID, from, to string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.RenameProperty(objID, from, to) })
+	}
+	// Keyed map dependencies and writes are kept by slot name; they become
+	// whole before the slot changes its name.
+	tx.degradeMapKeys()
+	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	actualName, prop, ok := obj.properties.find(from)
+	if !ok {
+		tx.markPropertyScan(objID, obj)
+		return types.E_PROPNF
+	}
+	tx.markPropertyRead(objID, actualName, prop)
+	if !prop.defined {
+		return types.E_PROPNF
+	}
+	oldKey := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
+	newKey := propertyWriteKey{objID: objID, name: propertyNameKey(to)}
+	if newKey != oldKey {
+		if existingName, existing, ok := obj.properties.find(to); ok {
+			tx.markPropertyRead(objID, existingName, existing)
+			return types.E_INVARG
+		}
+		tx.markPropertyScan(objID, obj)
+	}
+	renameSlots(obj, []propertyRename{{from: actualName, to: to}}, false, 0)
+
+	if def, staged := tx.propertyDefines[oldKey]; staged {
+		// A property this txn defined is published under its new name.
+		delete(tx.propertyDefines, oldKey)
+		def.name = to
+		lazySet(&tx.propertyDefines, newKey, def)
+	} else {
+		published := actualName
+		if earlier, renamed := tx.propertyRenames[oldKey]; renamed {
+			delete(tx.propertyRenames, oldKey)
+			published = earlier.from
+		}
+		lazySet(&tx.propertyRenames, newKey, propertyRename{from: published, to: to})
+		if write, staged := tx.propertyWrites[oldKey]; staged {
+			delete(tx.propertyWrites, oldKey)
+			write.name = to
+			lazySet(&tx.propertyWrites, newKey, write)
+		}
+	}
+
+	tx.renameInheritedProperty(objID, actualName, to)
+	return types.E_NONE
+}
+
+// renamesOf returns the renames staged on id.
+func (tx *StoreTxn) renamesOf(id types.ObjID) []propertyRename {
+	if len(tx.propertyRenames) == 0 {
+		return nil
+	}
+	var renames []propertyRename
+	for key, rename := range tx.propertyRenames {
+		if key.objID == id {
+			renames = append(renames, rename)
+		}
+	}
+	return renames
+}
+
+// renamedAway reports whether a staged rename moves the published slot key
+// names to another name.
+func (tx *StoreTxn) renamedAway(key propertyWriteKey) bool {
+	for newKey, rename := range tx.propertyRenames {
+		if newKey.objID == key.objID && newKey.name != key.name && propertyNameKey(rename.from) == key.name {
+			return true
+		}
+	}
+	return false
 }
 
 func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {

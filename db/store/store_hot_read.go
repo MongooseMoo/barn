@@ -226,7 +226,7 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 	return !tx.direct && !tx.gateExempt && !tx.liveMutated && !tx.validationFail &&
 		tx.terminalErr == types.E_NONE && !tx.privateVerbShape &&
 		len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 &&
-		len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 &&
+		len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyRenames) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 &&
 		len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0
 }
 

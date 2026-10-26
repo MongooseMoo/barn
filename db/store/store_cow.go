@@ -125,7 +125,7 @@ func (ws *writeSet) len() int { return len(ws.entries) }
 // the objects a commit publishes.
 func (tx *StoreTxn) stagedEntries() int {
 	return len(tx.createdObjects) + len(tx.scalarWrites) + len(tx.relationshipWrites) +
-		len(tx.propertyDefinitionDeletes) + len(tx.propertyDefines) + len(tx.propertyWrites) +
+		len(tx.propertyDefinitionDeletes) + len(tx.propertyRenames) + len(tx.propertyDefines) + len(tx.propertyWrites) +
 		len(tx.propertyDeletes) + len(tx.verbWrites) + len(tx.verbDeletes) + len(tx.recycleWrites)
 }
 
@@ -151,6 +151,11 @@ func (tx *StoreTxn) writesByObject() writeSet {
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		w := at(key.objID)
 		w.defDeletes = append(w.defDeletes, actualName)
+	}
+	// The renames stay in tx.propertyRenames (renamesOf): a field here would
+	// grow every entry of every commit.
+	for key := range tx.propertyRenames {
+		at(key.objID)
 	}
 	for id, defs := range tx.propertyDefinesByObject() {
 		at(id).defines = defs
@@ -198,9 +203,11 @@ func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 }
 
 // applyHeadWrites applies w's scalar, relationship and property-definition
-// writes to img, which the caller owns. Definition deletes go first, so a
-// delete-then-redefine of one name replaces the definition and keeps its order.
-func applyHeadWrites(img *Object, w *objectWrites, ts uint64) {
+// writes, and renames (the property renames staged on w's object), to img,
+// which the caller owns. Definition deletes go first, so a delete-then-redefine
+// of one name replaces the definition and keeps its order; renames go before
+// defines, so a name a rename gives up can be defined again.
+func applyHeadWrites(img *Object, w *objectWrites, renames []propertyRename, ts uint64) {
 	if w.hasScalar {
 		if w.scalar.nameSet {
 			img.setName(w.scalar.name)
@@ -240,6 +247,10 @@ func applyHeadWrites(img *Object, w *objectWrites, ts uint64) {
 		if img.propDefsCount > 0 {
 			img.propDefsCount--
 		}
+		stampObjectProperties(img, ts)
+	}
+	if len(renames) > 0 {
+		renameSlots(img, renames, false, ts)
 		stampObjectProperties(img, ts)
 	}
 	for _, def := range w.defines {
@@ -367,9 +378,9 @@ func (c commitImages) own(obj *Object) *Object {
 // store.mu.Lock, or store.mu.RLock and commitMu, and has validated and
 // preflighted writes.
 //
-// A define or definition delete changes the definer's image. A snapshot txn
-// staged each inheriting descendant's slot as its own write when it walked the
-// definer's children; the writeNow writer stages the definer's write only. With
+// A define, definition delete or rename changes the definer's image. A snapshot
+// txn staged each inheriting descendant's slot as its own write when it walked
+// the definer's children; the writeNow writer stages the definer's write only. With
 // walkLive, which only a caller holding store.mu.Lock may pass, the store walks
 // the children as they are now and gives each descendant its slot, or takes it
 // away: an unvalidated flush can meet a child that joined after staging, and the
@@ -383,7 +394,7 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	for i := range writes.entries {
 		w := &writes.entries[i]
 		s.ownImage(w.id, w, ts)
-		applyHeadWrites(w.img, w, ts)
+		applyHeadWrites(w.img, w, tx.renamesOf(w.id), ts)
 	}
 	if walkLive {
 		images := commitImages{s: s, writes: writes, ts: ts}
@@ -398,8 +409,19 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 				images.joinHint += len(definer.children)
 			}
 		}
+		for key := range tx.propertyRenames {
+			if definer := images.view(key.objID); definer != nil {
+				images.joinHint += len(definer.children)
+			}
+		}
 		for key, actualName := range tx.propertyDefinitionDeletes {
 			s.removeInheritedPropertyLocked(images, key.objID, actualName, ts)
+		}
+		for i := range writes.entries {
+			id := writes.entries[i].id
+			if renames := tx.renamesOf(id); len(renames) > 0 {
+				s.renameInheritedPropertiesLocked(images, id, renames, ts)
+			}
 		}
 		for key, def := range tx.propertyDefines {
 			s.propagatePropertyToDescendantsLocked(images, key.objID, def.name, def.prop, ts)
