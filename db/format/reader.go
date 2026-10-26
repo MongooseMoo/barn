@@ -203,14 +203,15 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	}
 	header = strings.TrimSpace(header)
 
-	// Parse version from header
-	if strings.Contains(header, "Format Version 4") {
+	// Match the complete header so numeric prefixes cannot select a format.
+	switch header {
+	case "** LambdaMOO Database, Format Version 4 **":
 		database.Version = 4
-	} else if strings.Contains(header, "Format Version 5") {
+	case "** LambdaMOO Database, Format Version 5 **":
 		database.Version = 5
-	} else if strings.Contains(header, "Format Version 17") {
+	case "** LambdaMOO Database, Format Version 17 **":
 		database.Version = 17
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported database format: %s", header)
 	}
 
