@@ -16,11 +16,17 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
+	if objCount < 0 {
+		return nil, fmt.Errorf("invalid object count %d", objCount)
+	}
 
 	// Line 2: total verbs
 	verbCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid verb count %d", verbCount)
 	}
 	database.DeclaredPrograms = verbCount
 
@@ -87,13 +93,16 @@ func (database *Database) readPlayersV4(r *bufio.Reader) error {
 		return err
 	}
 
-	database.Players = make([]types.ObjID, count)
+	if count < 0 {
+		return fmt.Errorf("invalid player count %d", count)
+	}
+	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		objID, err := readObjID(r)
 		if err != nil {
 			return err
 		}
-		database.Players[i] = objID
+		database.Players = append(database.Players, objID)
 	}
 	return nil
 }
@@ -200,6 +209,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 	if err != nil {
 		return nil, err
 	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid object verb count %d", verbCount)
+	}
 
 	// Read verb metadata
 	for i := 0; i < verbCount; i++ {
@@ -249,20 +261,27 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 		return nil, err
 	}
 
-	propDefs := make([]string, propDefCount)
+	if propDefCount < 0 {
+		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
+	}
+	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		propDefs[i], err = r.ReadString('\n')
+		name, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
+		name = strings.TrimSuffix(name, "\n")
+		name = strings.TrimSuffix(name, "\r") // Handle Windows line endings
+		propDefs = append(propDefs, name)
 	}
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)
 	if err != nil {
 		return nil, err
+	}
+	if totalPropCount < 0 {
+		return nil, fmt.Errorf("invalid property value count %d", totalPropCount)
 	}
 
 	// Store PropDefsCount for later name resolution

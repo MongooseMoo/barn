@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// maxTrustedListCount is the largest list a reader allocates up front on the
-// file's word for its length.
-const maxTrustedListCount = 4096
+// maxTrustedCount bounds initial allocations based only on an on-disk count.
+// Successfully decoded items may grow collections and record sections past it.
+const maxTrustedCount = 4096
 
 // Every empty list and every empty map read from a database is one shared
 // value. List and map values are never modified, so sharing is not observable.
@@ -75,7 +75,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		// bound. Building a longer result incrementally lets truncated or
 		// corrupt input fail while reading an element instead of attempting an
 		// attacker-controlled allocation.
-		elements := make([]types.Value, 0, min(count, maxTrustedListCount))
+		elements := make([]types.Value, 0, min(count, maxTrustedCount))
 		for i := 0; i < count; i++ {
 			element, err := database.readValue(r)
 			if err != nil {
@@ -137,7 +137,7 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		}
 		// As with lists, trust the file's count only up to a small bound and
 		// grow past it as successfully decoded pairs arrive.
-		pairs := make([][2]types.Value, 0, min(count, maxTrustedListCount))
+		pairs := make([][2]types.Value, 0, min(count, maxTrustedCount))
 		for i := 0; i < count; i++ {
 			key, err := database.readValue(r)
 			if err != nil {

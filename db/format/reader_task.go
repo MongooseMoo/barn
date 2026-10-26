@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,10 @@ func (database *Database) readFinalizations(r *bufio.Reader) error {
 		return fmt.Errorf("parse pending finalization count: %w", err)
 	}
 
-	database.PendingFinalizations = make([]types.Value, 0, count)
+	if count < 0 {
+		return fmt.Errorf("invalid pending finalization count %d", count)
+	}
+	database.PendingFinalizations = make([]types.Value, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		val, err := database.readValue(r)
 		if err != nil {
@@ -64,7 +68,10 @@ func (database *Database) readQueuedTasks(r *bufio.Reader) error {
 		return fmt.Errorf("parse queued tasks count: %w", err)
 	}
 
-	database.QueuedTasks = make([]*QueuedTask, 0, count)
+	if count < 0 {
+		return fmt.Errorf("invalid queued task count %d", count)
+	}
+	database.QueuedTasks = make([]*QueuedTask, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		task, err := database.readQueuedTask(r)
 		if err != nil {
@@ -176,7 +183,10 @@ func (database *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, er
 		return nil, fmt.Errorf("parse runtime environment header %q: %w", strings.TrimSpace(line), err)
 	}
 
-	vars := make(map[string]types.Value, count)
+	if count < 0 {
+		return nil, fmt.Errorf("invalid runtime variable count %d", count)
+	}
+	vars := make(map[string]types.Value, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		name, err := readLine(r)
 		if err != nil {
@@ -206,7 +216,10 @@ func (database *Database) readSuspendedTasks(r *bufio.Reader) error {
 		return fmt.Errorf("parse suspended tasks count: %w", err)
 	}
 
-	database.SuspendedTasks = make([]*SuspendedTask, 0, count)
+	if count < 0 {
+		return fmt.Errorf("invalid suspended task count %d", count)
+	}
+	database.SuspendedTasks = make([]*SuspendedTask, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		suspended, err := database.readSuspendedTask(r)
 		if err != nil {
@@ -270,6 +283,9 @@ func (database *Database) readInterruptedTasks(r *bufio.Reader) error {
 	if err != nil {
 		return fmt.Errorf("parse interrupted tasks count: %w", err)
 	}
+	if count < 0 {
+		return fmt.Errorf("invalid interrupted task count %d", count)
+	}
 
 	for i := 0; i < count; i++ {
 		interrupted, err := database.readInterruptedTask(r)
@@ -312,15 +328,15 @@ func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, 
 	}
 	_ = rootVector
 	_ = functionID
-	if top < 0 {
+	if top < 0 || top == math.MaxInt {
 		return nil, fmt.Errorf("invalid interrupted top activation %d", top)
 	}
 
 	vmSnapshot := &task.VMSnapshot{
 		MaxStackDepth: maxStack,
-		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
+		Frames:        make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
 	}
-	callStack := make([]types.ActivationFrame, 0, top+1)
+	callStack := make([]types.ActivationFrame, 0, min(top+1, maxTrustedCount))
 	for i := 0; i <= top; i++ {
 		frame, activation, err := database.readVMFrame(r)
 		if err != nil {
@@ -361,8 +377,11 @@ func (database *Database) readActiveConnections(r *bufio.Reader) error {
 		return fmt.Errorf("parse active connections count from %q: %w", line, err)
 	}
 
+	if count < 0 {
+		return fmt.Errorf("invalid active connection count %d", count)
+	}
 	withListeners := strings.Contains(line, "with listeners")
-	database.ActiveConnections = make([]ActiveConnection, 0, count)
+	database.ActiveConnections = make([]ActiveConnection, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		connectionLine, err := r.ReadString('\n')
 		if err != nil {
