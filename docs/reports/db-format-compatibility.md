@@ -88,7 +88,7 @@ No suitable Go replacement was established. This is a comparison of three named 
 
 - Modern mooR textdump is an explicitly different header/value/compiler-feature family; its native persistent storage is outside this textdump comparison. A `Moor ...` header is not another LambdaMOO format number.
 - [LPMOO's author documents][lpmoo] persistence using DGD binary state dumps. This is outside the line-oriented family. No DGD codec or migration fixture was inspected here.
-- [Ben Jackson's WAIF manual][waif-manual] identifies a LambdaMOO 1.8.2-based WAIF branch; matching it to exact on-disk tags and snapshots remains unverified. Do not equate all historical waif representations with Toast's tag 13.
+- [Ben Jackson's WAIF manual][waif-manual] is a discovered source candidate. The parent's publication-time fetch failed; its contents and matching on-disk tags and snapshots remain unverified here. Do not equate all historical waif representations with Toast's tag 13.
 - [GammaMOO's repository][gamma] is a discovered fork candidate; its codecs have not been inspected. EtaMOO and other historical patches remain inventory gaps. This report makes no support assertion for them.
 
 ## Prioritized next work

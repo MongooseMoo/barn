@@ -23,7 +23,7 @@ A GitHub ChangeLog lookup used the wrong filename and failed; the initial read w
 
 ## Next step
 
-Parent should verify the pinned functions/lines before publishing the PR draft below. Retain the issue's explicit corpus/provenance gaps; no successful-load claim is available. Parent has received the layout conclusions for #517. A higher-priority checkpoint hook required a separate uncommitted `C:/Users/Q/code/barn/notes-format-research-checkpoint.md`; it is outside this worktree and is not part of this deliverable.
+Parent checked the pinned codec functions, LambdaMOO variant warning, reuse implementations and fixture hashes. The WAIF manual fetch failed (`A socket operation was attempted to an unreachable network`), so the report now treats that link as an unverified candidate. Branch was rebased onto remote master; the report remains pinned to its inspected source. Publish the documentation PR and follow its CI. Historical corpus/provenance gaps remain; no successful-load claim is available. Parent has received the layout conclusions for #517. A higher-priority checkpoint hook required a separate uncommitted `C:/Users/Q/code/barn/notes-format-research-checkpoint.md`; it is outside this worktree and is not part of this deliverable.
 
 ## PR draft
 
