@@ -651,9 +651,13 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	// Toast db_verb_allows(h, progr, VF_WRITE) (src/db_verbs.cc:880-885): the
-	// verb's w flag, its owner or a wizard (object writability does not count).
-	if !verb.Perms.Has(dbstore.VerbWrite) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
+	// Toast (src/verbs.cc:532): !is_programmer(progr) || !db_verb_allows(h, progr,
+	// VF_WRITE) -> E_PERM. is_programmer is valid(progr) and the programmer flag,
+	// with no wizard exemption (db_objects.cc:1283-1286); db_verb_allows is the
+	// verb's w flag, its owner or a wizard (db_verbs.cc:880-885).
+	isProgrammer, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagProgrammer)
+	if errCode != types.E_NONE || !isProgrammer ||
+		(!verb.Perms.Has(dbstore.VerbWrite) && !ctx.IsWizard && ctx.Programmer != verb.Owner) {
 		return types.Err(types.E_PERM)
 	}
 

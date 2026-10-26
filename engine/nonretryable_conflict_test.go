@@ -24,7 +24,7 @@ func newConflictTestStore(t *testing.T) *dbstore.Store {
 	root := dbstore.NewObjectBuilder(0)
 	root.SetName("Root")
 	root.SetOwner(0)
-	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard | dbstore.FlagProgrammer)
 	root.SetProperty("v", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)

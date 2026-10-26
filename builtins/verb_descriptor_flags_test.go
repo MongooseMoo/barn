@@ -158,6 +158,27 @@ func TestVerbSettersHonorWriteFlag(t *testing.T) {
 	}
 }
 
+// Toast set_verb_code (src/verbs.cc:532) also requires is_programmer(progr), so
+// the w flag does not let a non-programmer rewrite the verb.
+func TestSetVerbCodeRequiresProgrammer(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	addTxnObject(t, store, 1, 1)
+	ctx.StoreTxn.Release()
+	ctx.StoreTxn = store.BeginSnapshot(0)
+	ctx.IsWizard = false
+	ctx.Player = 1
+	ctx.Programmer = 1
+
+	result := admitTestBuiltin("set_verb_code", ctx, []types.Value{types.NewObj(0), types.NewStr("look"), types.NewList([]types.Value{types.NewStr("return 2;")})})
+	if !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("set_verb_code by a non-programmer = %v, want E_PERM", result)
+	}
+	verb, err := findVerbOnObjectForRead(ctx, 0, "look")
+	if err != nil || len(verb.Code) != 1 || verb.Code[0] != "return 1;" {
+		t.Fatalf("verb code = %v (%v), want unchanged [return 1;]", verb.Code, err)
+	}
+}
+
 // Toast validate_verb_info (src/verbs.cc:80-86) requires a TYPE_OBJ owner, so
 // an anonymous owner is E_TYPE.
 func TestVerbInfoOwnerMustBeNumberedObject(t *testing.T) {

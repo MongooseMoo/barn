@@ -24,6 +24,13 @@ func b2aTestContext(t *testing.T) (*Execution, *dbstore.Store, types.ObjID) {
 	if err := store.Add(obj); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
+	// The task's progr is a wizard programmer (set_verb_code requires
+	// is_programmer(progr), Toast src/verbs.cc:532).
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer} {
+		if code := store.DirectTxn().SetObjectFlag(objID, flag, true); code != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, code)
+		}
+	}
 
 	verb := dbstore.NewVerb(
 		[]string{"scratch"},
