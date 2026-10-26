@@ -36,7 +36,7 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 	}
 
 	// Players section
-	if err := database.readPlayersV4(r); err != nil {
+	if err := database.readPlayers(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 

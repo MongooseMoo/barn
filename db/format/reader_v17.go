@@ -3,13 +3,12 @@ package format
 import (
 	"bufio"
 	"fmt"
-	"github.com/MongooseMoo/barn/types"
 )
 
 // parseV17 parses a version 17 database
 func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	// Players section
-	if err := database.readPlayersV17(r); err != nil {
+	if err := database.readPlayers(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 
@@ -90,26 +89,4 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	database.resolveWaifProperties()
 
 	return database, nil
-}
-
-// readPlayersV17 reads the players list for version 17 format
-func (database *Database) readPlayersV17(r *bufio.Reader) error {
-	// Format: nplayers, player[0], player[1], ...
-	count, err := readInt(r)
-	if err != nil {
-		return err
-	}
-
-	if count < 0 {
-		return fmt.Errorf("invalid player count %d", count)
-	}
-	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
-	for i := 0; i < count; i++ {
-		objID, err := readObjID(r)
-		if err != nil {
-			return err
-		}
-		database.Players = append(database.Players, objID)
-	}
-	return nil
 }
