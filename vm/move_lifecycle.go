@@ -73,7 +73,9 @@ func (vm *VM) resumeMoveLifecycle(state *task.MoveContinuationSnapshot, hookResu
 		} else if !hookResult.Val.Truthy() && vm.Context != nil && !vm.Context.IsWizard {
 			return types.Err(types.E_NACC)
 		}
-		if vm.Context == nil || !vm.Context.StoreTxn.Valid(state.What.ID()) {
+		// accept may have recycled either object; Toast then returns 0 without moving.
+		if vm.Context == nil || !vm.Context.StoreTxn.Valid(state.What.ID()) ||
+			(state.Where.ID() != types.ObjNothing && !vm.Context.StoreTxn.Valid(state.Where.ID())) {
 			return types.Ok(types.NewInt(0))
 		}
 
