@@ -16,7 +16,7 @@ func TestPersistenceSnapshotCopiesLiveForkDescriptorMetadata(t *testing.T) {
 	}
 	tk := NewStateFull(8100, 0, nil, 1000, 1)
 	tk.ForkInfo = &types.ForkInfo{Body: &bytecode.ForkBody{Parent: parent, Offset: 1, Length: 1}}
-	saved := tk.PersistenceSnapshot()
+	saved := tk.PersistenceSnapshotLocked()
 	if saved.Fork == nil || saved.Fork.FirstLine != 17 || !reflect.DeepEqual(saved.Fork.VariableNames, []string{"first", "second"}) {
 		t.Fatalf("live fork metadata=%+v", saved.Fork)
 	}
@@ -34,7 +34,7 @@ func TestPersistenceSnapshotUsesSourceRestoredForkProgramMetadata(t *testing.T) 
 	program := &bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}, VarNames: []string{"saved"}, LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 9}}}
 	tk := NewStateFull(8101, 0, program, 1000, 1)
 	tk.ForkInfo = &types.ForkInfo{SourceLines: []string{"return saved;"}, Variables: map[string]types.Value{"saved": types.NewInt(7)}}
-	saved := tk.PersistenceSnapshot()
+	saved := tk.PersistenceSnapshotLocked()
 	if saved.Fork == nil || saved.Fork.FirstLine != 9 || !reflect.DeepEqual(saved.Fork.VariableNames, []string{"saved"}) {
 		t.Fatalf("source-restored fork metadata=%+v", saved.Fork)
 	}
@@ -47,7 +47,7 @@ func TestPersistenceSnapshotHandlesTypedNilForkDescriptor(t *testing.T) {
 	tk := NewStateFull(8102, 0, nil, 1000, 1)
 	var body *bytecode.ForkBody
 	tk.ForkInfo = &types.ForkInfo{Body: body}
-	saved := tk.PersistenceSnapshot()
+	saved := tk.PersistenceSnapshotLocked()
 	if saved.Fork == nil || saved.Fork.FirstLine != 0 || len(saved.Fork.VariableNames) != 0 {
 		t.Fatalf("typed-nil descriptor metadata=%+v", saved.Fork)
 	}

@@ -185,7 +185,7 @@ func TestNextWakeWaitsForPhysicalExecutionBeforeClassifyingVM(t *testing.T) {
 }
 
 func TestRunPreservesAssociationOrder(t *testing.T) {
-	wantErr := errors.newScheduler("second")
+	wantErr := errors.New("second")
 	s := newScheduler(2, func(*Task) bool { return true }, func(t *Task) error {
 		if t.ID == 2 {
 			return wantErr

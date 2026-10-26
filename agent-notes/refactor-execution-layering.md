@@ -157,7 +157,11 @@ operation and assertions, not new scheduling behavior or a new test guard.
 ## Tooling and verification
 
 Use go list for current dependencies and gopls semantic rename previews for
-identifier edits, including import aliases. The first patch incorrectly used
+identifier edits, including import aliases and names inside relocated packages.
+Relocation is not an exception: rename symbols before moving the file, or edit
+the exact declaration/caller. The scheduler move used a word substitution for
+New and incorrectly changed errors.New to errors.newScheduler; CI 40291571255
+caught it, alongside missed lower fork-snapshot test callers. The first patch incorrectly used
 plain text replacement for task-package qualifiers; that also changed field
 selectors such as wake.task.Resume to wake.taskpkg.Resume. Replace that
 substitution approach with symbol-aware previews; restore the affected field
