@@ -2,6 +2,7 @@ package store
 
 import (
 	"github.com/MongooseMoo/barn/types"
+	"maps"
 	"strings"
 )
 
@@ -58,9 +59,15 @@ func PropertyNameKey(name string) string {
 }
 
 // reseedInheritedPropertiesLocked rebuilds the inherited slots of obj, whose
-// parents were oldParents, and of every descendant of obj. Each is a rewrite at
-// ts: a read of a clear slot depends on the ancestry it resolved through, so its
-// version must change with it.
+// parents were oldParents, and of every descendant of obj.
+//
+// obj's slots are each rewritten at ts: a read of a clear slot depends on the
+// ancestry it resolved through, so its version must change with it. A
+// descendant loses the slots of the ancestors obj lost and gains slots of those
+// obj gained, except ancestors it also reaches by a path that does not pass
+// through obj, and keeps the rest as they are: a read that resolves a clear slot
+// of it through obj records obj's rewritten slot. A descendant with no slot to
+// lose or gain is left alone.
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.ObjID, ts uint64) {
 	object := func(id types.ObjID) *Object {
 		if o := s.liveObjectLocked(id); validLiveObject(o) {
@@ -68,33 +75,195 @@ func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.
 		}
 		return nil
 	}
-	seen := map[types.ObjID]bool{obj.id: true}
-	queue := []*Object{obj}
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if current != obj {
-			current = s.republishForMutation(current)
+	subtree, inSubtree := inheritanceSubtree(obj.id, object)
+	lost, gained := changedAncestors(oldParents, obj.parents, object)
+	s.rebuildInheritedSlotsLocked(obj, obj.id, oldParents, object, ts)
+	others := otherAncestors(obj.id, inSubtree, object)
+	for _, id := range subtree[1:] {
+		current, other := object(id), others(id)
+		if !ancestorChangeTouches(current, lost, gained, other) {
+			continue
 		}
-		newProps := s.copyInheritedPropertiesLocked(current.parents, current.owner)
-		keepCommonAncestorSlots(current, newProps, keptInheritedNames(current.id, obj.id, oldParents, object))
-		for name, prop := range newProps.all() {
-			if !prop.defined {
-				prop.version = ts
-				newProps.put(name, prop)
-			}
+		current = s.republishForMutation(current)
+		applyAncestorChange(current, obj, lost, gained, other, ts)
+		stampObjectProperties(current, ts)
+	}
+}
+
+// ancestorChangeTouches reports whether applyAncestorChange would change any
+// slot of obj.
+func ancestorChangeTouches(obj *Object, lost, gained map[types.ObjID][]string, other map[types.ObjID]bool) bool {
+	for ancestorID, names := range lost {
+		if other[ancestorID] {
+			continue
 		}
-		current.properties = newProps
-		if current != obj {
-			stampObjectProperties(current, ts)
-		}
-		for _, childID := range append(append([]types.ObjID(nil), current.children...), current.anonymousChildren...) {
-			if child := object(childID); child != nil && !seen[childID] {
-				seen[childID] = true
-				queue = append(queue, child)
+		for _, name := range names {
+			if prop, ok := obj.properties.lookup(name); ok && !prop.defined {
+				return true
 			}
 		}
 	}
+	for ancestorID, names := range gained {
+		if !other[ancestorID] && len(names) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// rebuildInheritedSlotsLocked rebuilds current's inherited slots from its
+// parents, keeping those of ancestors common to its old and new ancestry, and
+// rewrites each at ts.
+func (s *Store) rebuildInheritedSlotsLocked(current *Object, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object, ts uint64) {
+	newProps := s.copyInheritedPropertiesLocked(current.parents, current.owner)
+	keepCommonAncestorSlots(current, newProps, keptInheritedNames(current.id, moved, movedOldParents, object))
+	for name, prop := range newProps.all() {
+		if !prop.defined {
+			prop.version = ts
+			newProps.put(name, prop)
+		}
+	}
+	current.properties = newProps
+}
+
+// applyAncestorChange removes obj's slots of the properties defined by the
+// ancestors in lost, and gives it a new clear slot, at ts and from moved's
+// slot, of each property defined by those in gained, skipping the ancestors in
+// other. Slots obj defines stay.
+func applyAncestorChange(obj, moved *Object, lost, gained map[types.ObjID][]string, other map[types.ObjID]bool, ts uint64) {
+	for ancestorID, names := range lost {
+		if other[ancestorID] {
+			continue
+		}
+		for _, name := range names {
+			if prop, ok := obj.properties.lookup(name); ok && !prop.defined {
+				obj.properties.remove(name)
+			}
+		}
+	}
+	for ancestorID, names := range gained {
+		if other[ancestorID] {
+			continue
+		}
+		for _, name := range names {
+			from, ok := moved.properties.lookup(name)
+			if !ok {
+				continue
+			}
+			if prop, ok := obj.properties.lookup(name); ok && prop.defined {
+				continue
+			}
+			slot := inheritedSlot(from, obj.owner)
+			slot.version = ts
+			obj.properties.put(name, slot)
+		}
+	}
+}
+
+// otherAncestors returns, for an object in moved's subtree (inSubtree), the
+// ancestors it reaches through a parent outside the subtree. Results are
+// memoized and shared between objects; callers must not modify them.
+func otherAncestors(moved types.ObjID, inSubtree map[types.ObjID]bool, object func(types.ObjID) *Object) func(types.ObjID) map[types.ObjID]bool {
+	memo := map[types.ObjID]map[types.ObjID]bool{moved: nil}
+	outside := make(map[types.ObjID]map[types.ObjID]bool)
+	var others func(types.ObjID) map[types.ObjID]bool
+	others = func(id types.ObjID) map[types.ObjID]bool {
+		if set, ok := memo[id]; ok {
+			return set
+		}
+		var result map[types.ObjID]bool
+		shared := true
+		current := object(id)
+		if current != nil {
+			for _, parentID := range current.parents {
+				var set map[types.ObjID]bool
+				if inSubtree[parentID] {
+					set = others(parentID)
+				} else {
+					if outside[parentID] == nil {
+						outside[parentID] = ancestorSet([]types.ObjID{parentID}, object)
+					}
+					set = outside[parentID]
+				}
+				switch {
+				case len(set) == 0:
+				case result == nil:
+					result = set
+				default:
+					if shared {
+						result = maps.Clone(result)
+						shared = false
+					}
+					maps.Copy(result, set)
+				}
+			}
+		}
+		memo[id] = result
+		return result
+	}
+	return others
+}
+
+// inheritanceSubtree returns id and its descendants, children and anonymous
+// children, each once and after the parent it was first reached from, and the
+// same objects as a set.
+func inheritanceSubtree(id types.ObjID, object func(types.ObjID) *Object) ([]types.ObjID, map[types.ObjID]bool) {
+	subtree := []types.ObjID{id}
+	in := map[types.ObjID]bool{id: true}
+	for i := 0; i < len(subtree); i++ {
+		current := object(subtree[i])
+		if current == nil {
+			continue
+		}
+		for _, childID := range append(append([]types.ObjID(nil), current.children...), current.anonymousChildren...) {
+			if !in[childID] && object(childID) != nil {
+				in[childID] = true
+				subtree = append(subtree, childID)
+			}
+		}
+	}
+	return subtree, in
+}
+
+// changedAncestors returns the ancestors that an object moving from oldParents
+// to newParents loses, and those it gains, each with the names of the
+// properties it defines.
+func changedAncestors(oldParents, newParents []types.ObjID, object func(types.ObjID) *Object) (lost, gained map[types.ObjID][]string) {
+	oldAncestry, newAncestry := ancestorSet(oldParents, object), ancestorSet(newParents, object)
+	only := func(ancestry, other map[types.ObjID]bool) map[types.ObjID][]string {
+		defs := make(map[types.ObjID][]string)
+		for ancestorID := range ancestry {
+			ancestor := object(ancestorID)
+			if other[ancestorID] || ancestor == nil {
+				continue
+			}
+			for name, prop := range ancestor.properties.all() {
+				if prop.defined {
+					defs[ancestorID] = append(defs[ancestorID], name)
+				}
+			}
+		}
+		return defs
+	}
+	return only(oldAncestry, newAncestry), only(newAncestry, oldAncestry)
+}
+
+// ancestorSet returns parents and all their ancestors.
+func ancestorSet(parents []types.ObjID, object func(types.ObjID) *Object) map[types.ObjID]bool {
+	seen := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), parents...)
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if current := object(id); current != nil {
+			queue = append(queue, current.parents...)
+		}
+	}
+	return seen
 }
 
 // keptInheritedNames returns the names of the properties defined by an
