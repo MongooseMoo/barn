@@ -77,7 +77,7 @@ type StoreTxn struct {
 	createdObjects map[types.ObjID]*Object
 	// recycleWrites marks numbered objects to be turned into recycled tombstones by
 	// this commit (decentralized recycle of a SIMPLE object — no children, no
-	// contents). The commit build applies buildImageRecycled LAST for these ids.
+	// contents). The commit applies the tombstone LAST for these ids (applyTailWrites).
 	recycleWrites map[types.ObjID]bool
 	maxObjID      types.ObjID
 	highWaterID   types.ObjID

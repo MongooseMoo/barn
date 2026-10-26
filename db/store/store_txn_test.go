@@ -2241,7 +2241,7 @@ func TestStoreTxnCommitAndRenewPublishesAndPreservesGateExemption(t *testing.T) 
 // numbered-aware, so create($object, 1) (-> tx.AdoptLiveObject on the anon id) and
 // any commit whose write footprint targets the anon returned E_INVIND, cascading to
 // 95 conformance failures. This test exercises both the adoption resolver and the
-// commit apply path (coarse routing via writeFootprintHasAnon).
+// commit apply path (coarse routing via writesTouchAnon).
 func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -2279,7 +2279,7 @@ func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 
 	// (3) SIBLING COVERAGE: stage a property-value write on the anon, then commit.
 	// This exercises the commit apply path; the anon write footprint must route to
-	// the coarse exclusive path (writeFootprintHasAnon) instead of commitDecentralized,
+	// the coarse exclusive path (writesTouchAnon) instead of the shared-lock route,
 	// which has no slot for the anon id and previously returned E_INVIND.
 	if errCode := tx.SetPropertyValue(anon, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue(anon, a) = %v, want E_NONE", errCode)

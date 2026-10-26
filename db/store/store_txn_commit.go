@@ -10,100 +10,21 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// writeFootprintHasAnon reports whether any staged write targets an anonymous
-// object (one that lives out-of-band in s.anonObjects). Commit uses it to keep an
-// anon write off the decentralized fast path and onto the coarse exclusive path
-// (anon has no COW slot). It takes store.mu.RLock for the membership scan and
-// releases it (deferred) before the caller takes the coarse store.mu.Lock — the
-// RWMutex is not upgradable, so the scan must complete and unlock first.
-func (tx *StoreTxn) writeFootprintHasAnon() bool {
-	if tx == nil || tx.store == nil {
-		return false
-	}
+// writesTouchAnon reports whether any staged write targets an anonymous object
+// (one that lives out-of-band in s.anonObjects). Commit uses it to keep an anon
+// write off the decentralized fast path and onto the coarse exclusive path (anon
+// has no COW slot). It takes store.mu.RLock for the membership scan and releases
+// it (deferred) before the caller takes the coarse store.mu.Lock — the RWMutex is
+// not upgradable, so the scan must complete and unlock first.
+func (tx *StoreTxn) writesTouchAnon(writes map[types.ObjID]*objectWrites) bool {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
-
-	isAnon := func(objID types.ObjID) bool {
-		return tx.store.anonObjects[objID] != nil
-	}
-	for objID := range tx.scalarWrites {
-		if isAnon(objID) {
-			return true
-		}
-	}
-	for objID := range tx.relationshipWrites {
-		if isAnon(objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDefines {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyWrites {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDeletes {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.verbWrites {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for _, deletion := range tx.verbDeletes {
-		if isAnon(deletion.objID) {
+	for id := range writes {
+		if tx.store.anonObjects[id] != nil {
 			return true
 		}
 	}
 	return false
-}
-
-// writeFootprintObjects lists every numbered object this transaction's staged
-// writes would publish a new image for.
-func (tx *StoreTxn) writeFootprintObjects() map[types.ObjID]bool {
-	footprint := make(map[types.ObjID]bool)
-	for id := range tx.scalarWrites {
-		footprint[id] = true
-	}
-	for id := range tx.relationshipWrites {
-		footprint[id] = true
-	}
-	for key := range tx.propertyDefines {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyWrites {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyDeletes {
-		footprint[key.objID] = true
-	}
-	for key := range tx.verbWrites {
-		footprint[key.objID] = true
-	}
-	for _, deletion := range tx.verbDeletes {
-		footprint[deletion.objID] = true
-	}
-	for id := range tx.createdObjects {
-		footprint[id] = true
-	}
-	for id := range tx.recycleWrites {
-		footprint[id] = true
-	}
-	return footprint
 }
 
 // CommitAndRenewCarryingReads is the boundary operation for a task slice that
@@ -137,7 +58,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	// renewal drops the memo and before any coarse mutation changes its clock.
 	tx.materializeVerbMemoMarks()
 
-	footprint := tx.writeFootprintObjects()
+	footprint := tx.writesByObject()
 	scalarReads := make(map[types.ObjID]uint64, len(tx.scalarReads))
 	for id, version := range tx.scalarReads {
 		scalarReads[id] = version
@@ -333,8 +254,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 
 	// Observability: count exactly one attempt per real commit (writes
 	// staged, store present), and account the outcome once via a deferred closure
-	// over the named return value — regardless of which of the many return sites
-	// (coarse path here, or commitDecentralized) fires. A non-E_NONE return is a
+	// over the named return value — regardless of which return site fires. A
+	// non-E_NONE return is a
 	// conflict ONLY when tx.validationFail is set (a read-set validation failure);
 	// non-conflict apply failures (E_INVIND/E_VERBNF/E_PROPNF) leave it false and
 	// are not counted as conflicts. Observation-only: no control flow changes.
@@ -357,70 +278,71 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 	}()
 
-	// COW decentralized fast path: a commit whose ENTIRE write footprint is within the
-	// decentralized write kinds — scalar (name/owner/flags), relationship (location),
-	// property DEFINE, property DEFINITION-DELETE (the descendant-propagating
-	// walkers, whose full inheriting subtree is already staged as per-descendant
-	// propertyWrites/propertyDeletes), property-value, property-delete, verb-code — and
-	// that did not mutate the live store directly is applied decentralized: under
-	// store.mu.RLock + commitMu, building and publishing new immutable images
-	// instead of taking the exclusive store.mu.Lock, so readers are not shut out
-	// while it runs. A liveMutated task falls back to the coarse exclusive path below
-	// (unchanged in-place apply). The earlier guard already established at least one
-	// write is staged, so reaching here with !liveMutated means at least one
-	// decentralized write exists.
-	// An anonymous object lives out-of-band in s.anonObjects with NO COW slot and
-	// NO per-id history (see store_core.go liveObjectLocked). The decentralized
-	// committer publishes new immutable images into numbered slots, so it cannot
-	// apply a write that targets an anon id (no slot -> E_INVIND, and any in-place
-	// anon mutation under its RLock would race the readers that share that RLock).
-	// Route any commit whose staged write
-	// footprint includes an anon id onto the coarse exclusive path, exactly as a
-	// liveMutated task is routed; that path holds store.mu.Lock EXCLUSIVE, which
-	// excludes RLock readers and decentralized committers, making the in-place anon
-	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
-	// releases it before the coarse Lock here (RWMutex is not upgradable).
-	// A WAIF read or write takes either path: both validate WAIF reads and publish
-	// staged WAIF images at the commit timestamp.
-	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
-		commitErr = tx.commitDecentralized()
-		if commitErr == types.E_NONE {
-			isolationprobe.Note("parallel")
-			if tx.gateExempt {
-				isolationprobe.Note("exclusive_gate")
-			}
+	// Every commit validates, preflights and publishes the same way; the route
+	// decides only which lock it holds. A commit normally runs under
+	// store.mu.RLock, so readers proceed beside it, plus commitMu from validation
+	// through publication, so two commits that each read what the other writes
+	// cannot both validate against images the other is about to replace. It takes
+	// store.mu.Lock instead when the task has mutated the live store directly, or
+	// when it writes an anonymous object: those live out-of-band in s.anonObjects
+	// with no slot and no history and are changed in place, which only the
+	// exclusive lock keeps away from readers. writesTouchAnon takes store.mu.RLock
+	// and releases it before that Lock (RWMutex is not upgradable).
+	writes := tx.writesByObject()
+	exclusive := tx.liveMutated || tx.writesTouchAnon(writes)
+	s := tx.store
+	if exclusive {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	} else {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		// The commit-exclusion fault drops commitMu, so two commits that each read
+		// what the other writes can both validate before either publishes.
+		if !isolationprobe.Fault("commit-exclusion") {
+			s.commitMu.Lock()
+			defer s.commitMu.Unlock()
 		}
-		if commitErr != types.E_NONE && !tx.validationFail {
-			tx.markTerminal(commitErr)
-		}
-		return commitErr
 	}
-
-	tx.store.mu.Lock()
-	defer tx.store.mu.Unlock()
 
 	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return errCode
 	}
-	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
 	}
 	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return errCode
 	}
-	commitErr = tx.applyStagedToLiveLocked()
-	if commitErr == types.E_NONE {
+	// The Elle workload holds commits at these points while other tasks begin
+	// snapshots, which needs store.mu.RLock; only a shared-lock commit can wait.
+	if !exclusive {
+		isolationprobe.Pause("commit/validated")
+	}
+	// Reserve the timestamp without moving the clock. A snapshot reads at the
+	// clock, so it must not be able to reach this timestamp until every image
+	// stamped with it is published; until then it resolves these objects to
+	// their previous images. Nothing else moves the clock meanwhile: every other
+	// bump runs under store.mu.Lock, which either lock held here excludes.
+	ts := s.clock.Load() + 1
+	if !exclusive {
+		isolationprobe.Pause("commit/timestamped")
+	}
+	// Only the exclusive route walks a definer's live children (see
+	// publishStagedLocked). On the shared route, staging recorded a relationship
+	// read on every object it walked, so validation fails if a child joined since.
+	tx.publishStagedLocked(writes, ts, exclusive)
+	if exclusive {
 		isolationprobe.Note("exclusive")
-		if tx.gateExempt {
-			isolationprobe.Note("exclusive_gate")
-		}
+	} else {
+		isolationprobe.Note("parallel")
 	}
-	if commitErr != types.E_NONE {
-		tx.markTerminal(commitErr)
+	if tx.gateExempt {
+		isolationprobe.Note("exclusive_gate")
 	}
-	return commitErr
+	return types.E_NONE
 }
 
 // preflightStagedToLiveLocked validates the complete staged operation footprint
@@ -428,7 +350,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 // shared by coarse Commit, the legacy unvalidated FlushStagedToLive boundary, and
 // the decentralized committer. The caller holds store.mu for reading or writing;
 // decentralized callers additionally hold commitMu.
-func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
+func (tx *StoreTxn) preflightStagedToLiveLocked(writes map[types.ObjID]*objectWrites) types.ErrorCode {
 	s := tx.store
 
 	// A concurrently occupied allocated id is a retryable allocation conflict: a
@@ -442,58 +364,9 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 		}
 	}
 
-	validateTarget := func(id types.ObjID) types.ErrorCode {
-		if tx.createdObjects[id] != nil {
-			return types.E_NONE
-		}
-		if !validLiveObject(s.liveObjectLocked(id)) {
+	for id, w := range writes {
+		if w.created == nil && !validLiveObject(s.liveObjectLocked(id)) {
 			return types.E_INVIND
-		}
-		return types.E_NONE
-	}
-	for id := range tx.scalarWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for id := range tx.relationshipWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDefines {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyWrites {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDeletes {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.verbWrites {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for _, deletion := range tx.verbDeletes {
-		if errCode := validateTarget(deletion.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for id := range tx.recycleWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
 		}
 	}
 
@@ -526,212 +399,6 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 			return types.E_PROPNF
 		}
 	}
-	return types.E_NONE
-}
-
-// applyStagedToLiveLocked applies a fully preflighted staged footprint to the LIVE
-// store in place (the coarse path): it publishes staged creates, then applies scalar,
-// relationship (location/contents/children), property, and verb writes, retaining
-// pre-mutation images in history, and clears the staged maps. It does NOT validate the
-// read set: callers complete required validation and operation preflight before
-// invoking it. WAIF images share the object publication timestamp and lock.
-// Caller holds store.mu.Lock.
-func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
-	ts := tx.store.bumpClockLocked()
-	tx.store.noteWaifRootsChanged()
-	// As in commitDecentralized: only verb edits and recycling a memoizable object
-	// reshape dispatch. Parent changes are live operations that note it themselves.
-	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
-	for id := range tx.recycleWrites {
-		if live := tx.store.liveObjectLocked(id); live != nil && !live.anonymous {
-			verbShapeDirty = true
-		}
-	}
-	if verbShapeDirty {
-		tx.store.noteVerbShapeChanged()
-	}
-	remembered := make(map[types.ObjID]bool)
-
-	// Publish staged creates FIRST (under the exclusive lock) so they are live before
-	// the write-apply loops below run: a created object's own self-writes and its
-	// parents' childrenDeltas are applied by those loops, which resolve through
-	// liveObjectLocked and would fail E_INVIND on an unpublished id. This is the coarse
-	// counterpart of commitDecentralized's created-object publish — reached when a
-	// create-staged task also live-mutated or wrote an anon object.
-	for id, base := range tx.createdObjects {
-		img := cloneObjectForReadTxn(base)
-		stampObjectAll(img, ts)
-		tx.store.publishLocked(id, img)
-		casMaxID(&tx.store.maxObjID, id)
-	}
-
-	for objID, write := range tx.scalarWrites {
-		// liveObjectLocked resolves anon ids out-of-band; anon are mutated in place
-		// under this exclusive lock with NO history snapshot (they carry no per-id
-		// history — see the MVCC note in liveObjectLocked / objectLocked).
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[objID] = true
-		}
-		if write.nameSet {
-			live.setName(write.name)
-		}
-		if write.ownerSet {
-			live.owner = write.owner
-		}
-		if write.flagsSet {
-			live.flags = write.flags
-		}
-		stampObjectScalar(live, ts)
-	}
-	for objID, write := range tx.relationshipWrites {
-		live := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[objID] = true
-		}
-		if write.locationSet {
-			live.location = write.location
-		}
-		if write.lastMoveSet {
-			live.lastMove = write.lastMove
-		}
-		if len(write.contentsDeltas) > 0 {
-			live.contents = applyContentsDeltas(live.contents, write.contentsDeltas)
-		}
-		if len(write.childrenDeltas) > 0 {
-			live.children = applyChildrenDeltas(live.children, write.childrenDeltas)
-		}
-		stampObjectRelationship(live, ts)
-	}
-	for key, actualName := range tx.propertyDefinitionDeletes {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if errCode := tx.store.deleteDefinedPropertyLocked(key.objID, actualName, ts); errCode != types.E_NONE {
-			return errCode
-		}
-		remembered[key.objID] = true
-	}
-	for objID, defs := range tx.propertyDefinesByObject() {
-		for _, def := range defs {
-			live := tx.store.liveObjectLocked(objID)
-			if !validLiveObject(live) {
-				return types.E_INVIND
-			}
-			if errCode := tx.store.definePropertyLocked(objID, def.name, def.prop, ts); errCode != types.E_NONE {
-				return errCode
-			}
-			remembered[objID] = true
-		}
-	}
-	for key, write := range tx.propertyWrites {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[key.objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[key.objID] = true
-		}
-		if liveActual, prop, ok := live.properties.find(write.name); ok {
-			prop.value = write.prop.value
-			prop.owner = write.prop.owner
-			prop.perms = write.prop.perms
-			prop.clear = write.prop.clear
-			prop.defined = write.prop.defined
-			prop.version = ts
-			live.properties.put(liveActual, prop)
-		} else {
-			prop := write.prop
-			prop.value = write.value
-			prop.clear = false
-			prop.version = ts
-			live.properties.put(propertyNameKey(write.name), prop)
-			// Only a new slot changes the shape, as in applyPropertyValueOwned.
-			live.propertyShapeVersion = ts
-		}
-		live.propertyVersion = ts
-	}
-	for key, actualName := range tx.propertyDeletes {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[key.objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[key.objID] = true
-		}
-		if liveActual, _, ok := live.properties.find(actualName); ok {
-			live.properties.remove(liveActual)
-		}
-		stampObjectProperties(live, ts)
-	}
-	for key, write := range tx.verbWrites {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if live.verbByID(key.id) == nil {
-			return types.E_VERBNF
-		}
-		if !remembered[key.objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[key.objID] = true
-		}
-		// Fetch the verb from the (possibly freshly republished) image so we edit the
-		// fresh node, not the old one now retained immutably in history.
-		verb := live.verbByID(key.id)
-		verb.setCodeCopy(write.code)
-		stampVerb(verb, ts)
-		stampObjectVerbs(live, ts)
-	}
-	for _, deletion := range tx.verbDeletes {
-		live := tx.store.liveObjectLocked(deletion.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[deletion.objID] {
-			live = tx.store.republishForMutation(live)
-			remembered[deletion.objID] = true
-		}
-		deleteVerbAtIndex(live, deletion.index)
-		stampObjectVerbs(live, ts)
-	}
-	// Recycle tombstones LAST, so a create-then-recycle of the same object (build task)
-	// publishes a recycled slot. The object's edges on OTHER objects were applied above
-	// as relationship deltas.
-	for id := range tx.recycleWrites {
-		live := tx.store.liveObjectLocked(id)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if !remembered[id] {
-			live = tx.store.republishForMutation(live)
-			remembered[id] = true
-		}
-		live.contents = []types.ObjID{}
-		live.location = types.ObjNothing
-		live.properties = newPropTable(0)
-		live.recycled = true
-		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)
-		stampObjectAll(live, ts)
-		tx.store.appendRecycledID(id)
-	}
-	for _, image := range tx.waifs {
-		if image.staged != nil {
-			tx.store.publishWaifLocked(image, ts)
-		}
-	}
-	tx.clearStagedWrites()
 	return types.E_NONE
 }
 

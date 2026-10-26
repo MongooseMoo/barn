@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/MongooseMoo/barn/types"
@@ -44,30 +45,33 @@ type propertyDefine struct {
 
 // propertyDefinesByObject groups staged defines by object in each object's
 // property order, so several defines on one object apply in insertion order.
-// Only objects that carry a define are walked.
+// Only objects that carry a define are walked. A define missing from the view's
+// order (renumber replaced the view with the live image) follows the others.
 func (tx *StoreTxn) propertyDefinesByObject() map[types.ObjID][]propertyDefine {
 	if len(tx.propertyDefines) == 0 {
 		return nil
 	}
 	grouped := make(map[types.ObjID][]propertyDefine)
+	ordered := 0
 	for key := range tx.propertyDefines {
 		if _, seen := grouped[key.objID]; seen {
 			continue
 		}
 		grouped[key.objID] = nil
-		obj := tx.objects[key.objID]
-		if obj == nil {
-			continue
-		}
-		for _, name := range obj.propOrder {
-			if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: propertyNameKey(name)}]; ok {
-				grouped[key.objID] = append(grouped[key.objID], def)
+		if obj := tx.objects[key.objID]; obj != nil {
+			for _, name := range obj.propOrder {
+				if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: propertyNameKey(name)}]; ok {
+					grouped[key.objID] = append(grouped[key.objID], def)
+					ordered++
+				}
 			}
 		}
 	}
-	for objID, defs := range grouped {
-		if len(defs) == 0 {
-			delete(grouped, objID)
+	if ordered < len(tx.propertyDefines) {
+		for key, def := range tx.propertyDefines {
+			if !slices.ContainsFunc(grouped[key.objID], func(d propertyDefine) bool { return propertyNameKey(d.name) == key.name }) {
+				grouped[key.objID] = append(grouped[key.objID], def)
+			}
 		}
 	}
 	return grouped

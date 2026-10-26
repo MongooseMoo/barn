@@ -482,10 +482,10 @@ func (s *Store) defineProperty(objID types.ObjID, name string, prop Property) ty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.definePropertyLocked(objID, name, prop, 0)
+	return s.definePropertyLocked(objID, name, prop)
 }
 
-func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Property, ts uint64) types.ErrorCode {
+func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
 		return types.E_INVIND
@@ -494,10 +494,8 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 		return types.E_INVARG
 	}
 	obj = s.republishForMutation(obj)
-	if ts == 0 {
-		ts = s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-	}
+	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
@@ -517,7 +515,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	obj.propDefsCount++
 	stampObjectProperties(obj, ts)
 
-	s.propagatePropertyToDescendantsLocked(objID, name, prop, ts)
+	s.propagatePropertyToDescendantsLocked(liveImages{s}, objID, name, prop, ts)
 	return types.E_NONE
 }
 
@@ -527,10 +525,10 @@ func (s *Store) deleteDefinedProperty(objID types.ObjID, name string) types.Erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.deleteDefinedPropertyLocked(objID, name, 0)
+	return s.deleteDefinedPropertyLocked(objID, name)
 }
 
-func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts uint64) types.ErrorCode {
+func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string) types.ErrorCode {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
 		return types.E_INVIND
@@ -540,10 +538,8 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 		return types.E_PROPNF
 	}
 	obj = s.republishForMutation(obj)
-	if ts == 0 {
-		ts = s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-	}
+	ts := s.bumpClockLocked()
+	s.noteWaifRootsChanged()
 
 	obj.properties.remove(actualName)
 	// propOrder keeps display case while actualName is the canonical map key,
@@ -553,7 +549,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 		obj.propDefsCount--
 	}
 	stampObjectProperties(obj, ts)
-	s.removeInheritedPropertyLocked(objID, actualName, ts)
+	s.removeInheritedPropertyLocked(liveImages{s}, objID, actualName, ts)
 	return types.E_NONE
 }
 
@@ -609,7 +605,21 @@ func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 	return false
 }
 
-func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name string, prop Property, ts uint64) {
+// objectImages is what a store-side propagation walk reads objects through and
+// takes a changeable image of an object from.
+type objectImages interface {
+	view(id types.ObjID) *Object
+	own(obj *Object) *Object
+}
+
+// liveImages serves a direct store write: each object the walk changes is
+// republished on its own.
+type liveImages struct{ s *Store }
+
+func (l liveImages) view(id types.ObjID) *Object { return l.s.liveObjectLocked(id) }
+func (l liveImages) own(obj *Object) *Object     { return l.s.republishForMutation(obj) }
+
+func (s *Store) propagatePropertyToDescendantsLocked(images objectImages, objID types.ObjID, name string, prop Property, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -619,12 +629,12 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 			continue
 		}
 		visited[currentID] = true
-		current := s.liveObjectLocked(currentID)
+		current := images.view(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.liveObjectLocked(childID)
+			child := images.view(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -633,10 +643,10 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 					queue = append(queue, childID)
 					continue
 				}
-				child = s.republishForMutation(child)
+				child = images.own(child)
 				child.properties.remove(actualName)
 			} else {
-				child = s.republishForMutation(child)
+				child = images.own(child)
 			}
 			slot := inheritedSlot(prop, child.owner)
 			slot.version = ts
@@ -647,7 +657,7 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 	}
 }
 
-func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts uint64) {
+func (s *Store) removeInheritedPropertyLocked(images objectImages, objID types.ObjID, name string, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -657,17 +667,17 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 			continue
 		}
 		visited[currentID] = true
-		current := s.liveObjectLocked(currentID)
+		current := images.view(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.liveObjectLocked(childID)
+			child := images.view(childID)
 			if !validLiveObject(child) {
 				continue
 			}
 			if actualName, prop, ok := child.properties.find(name); ok && !prop.defined {
-				child = s.republishForMutation(child)
+				child = images.own(child)
 				child.properties.remove(actualName)
 				stampObjectProperties(child, ts)
 			}
@@ -676,12 +686,12 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 		// Anonymous children lose the slot too (Toast remove_prop_recursively,
 		// db_properties.cc:325-328, :340-341).
 		for _, anonID := range current.anonymousChildren {
-			anon := s.liveObjectLocked(anonID)
+			anon := images.view(anonID)
 			if !validLiveObject(anon) {
 				continue
 			}
 			if actualName, prop, ok := anon.properties.find(name); ok && !prop.defined {
-				anon = s.republishForMutation(anon)
+				anon = images.own(anon)
 				anon.properties.remove(actualName)
 				stampObjectProperties(anon, ts)
 			}
