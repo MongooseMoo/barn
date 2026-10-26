@@ -61,6 +61,10 @@ rebuilt on the live one. In the eighth wave the map is captured before its index
 expression writes the same entry. Each task observes the captured list, then
 appends to that list; only the final list is published. The read must keep its
 snapshot dependency even though index evaluation has now written the entry.
+After all waves drain, one ordinary task appends fresh tokens to both map
+entries. This extends both observed prefixes, making a lost suffix conflict
+with append order instead of relying on the timing of a final read-only
+observation. The concurrent waves retain their independent keyed accesses.
 In the write-skew pair, each task reads the
 row the other appends to, and both are held after validation, before
 publication, until both have validated or two seconds pass. A healthy commit
