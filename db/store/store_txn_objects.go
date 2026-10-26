@@ -197,17 +197,14 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 	}
 	tx.createdObjects[newID] = cloneObjectForReadTxn(obj)
 	tx.objects[newID] = obj
-	if tx.owned == nil {
-		tx.owned = make(map[types.ObjID]bool)
-	}
-	tx.owned[newID] = true
+	lazySet(&tx.owned, newID, facetsAll)
 
 	// Add the new object to each parent's children (commutative setadd — two creates
 	// under one parent commute; no read dep on the parent beyond copyInheritedProperties'
 	// property-scan). Also update the cached parent for read-your-writes.
 	for _, parentID := range parents {
 		if p := tx.object(parentID); validLiveObject(p) {
-			m := tx.mutableObject(parentID)
+			m := tx.mutableFacets(parentID, facetChildren)
 			if !slices.Contains(m.children, newID) {
 				m.children = append(m.children, newID)
 			}

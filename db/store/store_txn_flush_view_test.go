@@ -22,7 +22,7 @@ func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 
 	cached := tx.objects[0]
 	wantScalarRead := tx.scalarReads[0]
-	if cached == nil || !tx.owned[0] || tx.resolveCacheActive() {
+	if cached == nil || tx.owned[0] == 0 || tx.resolveCacheActive() {
 		t.Fatal("test setup did not establish an owned private view with the resolution memo disabled")
 	}
 
@@ -35,7 +35,7 @@ func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 	if got := tx.scalarReads[0]; got != wantScalarRead {
 		t.Errorf("failed flush scalar read = %d, want preserved %d", got, wantScalarRead)
 	}
-	if !tx.owned[0] || tx.resolveCacheActive() {
+	if tx.owned[0] == 0 || tx.resolveCacheActive() {
 		t.Error("failed flush discarded ownership or re-enabled the resolution memo")
 	}
 	if got, errCode := tx.ObjectName(0); errCode != types.E_NONE || got != "private" {

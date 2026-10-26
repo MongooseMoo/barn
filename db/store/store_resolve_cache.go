@@ -256,7 +256,7 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 // walk visited is still the identical immutable, unowned *Object pointer.
 func (tx *StoreTxn) verbStepsCurrent(steps []verbWalkStep) bool {
 	for i := range steps {
-		if tx.owned[steps[i].id] || tx.objects[steps[i].id] != steps[i].obj {
+		if tx.owned[steps[i].id] != 0 || tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
 	}
@@ -387,7 +387,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 	// An unowned definer is an immutable image, so the same *Verb yields the
 	// same read mark; a private copy can be edited in place and is re-marked.
 	marked := verb
-	if precise && tx.owned[entry.definer] {
+	if precise && tx.owned[entry.definer] != 0 {
 		marked = nil
 	}
 	if marked == nil || local.verb != marked {
@@ -545,7 +545,7 @@ func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, v
 		return
 	}
 	for _, step := range steps {
-		if tx.owned[step.id] {
+		if tx.owned[step.id] != 0 {
 			return
 		}
 	}

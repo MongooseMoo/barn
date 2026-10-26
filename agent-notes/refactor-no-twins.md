@@ -62,6 +62,23 @@ later PR.
 - Whether a loaded database can carry FlagInvalid without FlagRecycled (D4 reachability).
 - Full conformance suite not run (CI runs it).
 
+## Cost fixes (Q "make it so" for scratchpad design-3c-direct-cost.md revision 2)
+Order R1, C1, W-A, W-A2, W-D', one commit each; after each, BenchmarkDirect* and the commit
+benchmarks on branch, master c537d6c9 (worktree barn-no-twins-base) and pre-3b 491d7462
+(worktree barn-pre3b), -count=3. Rebased onto origin/master 53f8227c first (no db/store
+change since c537d6c9). Baselines (every run so far): pre-3b Direct 5/5/1/24/25/85, commits
+34/142/546/33/17/0; master Direct the same, commits 36/148/567/35/17/0.
+- R1 8f110081: Direct FindCallableVerb/FindProperty 12 -> 0; others unchanged.
+- C1 ded6fe04: writeSet (value slice, index map past 24). Commits 35/140/533/34; Direct writes
+  58/58/174. Gathering for a one-object commit 4 -> 2 (profile: make entries + props append).
+
+- W-A d03866ad: cloneObjectSharingVerbs / ownVerbAt; Direct writes 26/26/74 (master 25/24/85),
+  commits unchanged 35/140/533/34.
+- W-A2: privatizeCached is a shallow copy; owned is map[ObjID]objectFacets; mutableFacets
+  names the facets a site changes in place (properties, propOrder, contents, children,
+  verbs); ApplyStagedObjectWrites owns all. Tests TestStagedWritesLeavePublishedImagesUnchanged
+  and TestPrivateCopiesDoNotShareListCapacity; each shown to fail with its facet removed
+  (properties in SetPropertyValue, contents in MoveObject, children in CreateObject).
+
 ## Next step
-Lead: review, decide on the direct-read cost, push and open PRs (drafts in the session
-scratchpad: pr-3c-barn.md; pr-3c-mct.md says there is no mct PR).
+Commit W-A2, bench, then W-D'.

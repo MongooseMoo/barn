@@ -179,13 +179,15 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID, oldParents []ty
 			return types.E_INVIND
 		}
 		obj, cached := tx.objects[id]
-		if cached && obj != nil && (tx.owned[id] || live.anonymous || !sameOutsideProperties(obj, live)) {
+		if cached && obj != nil && (tx.owned[id] != 0 || live.anonymous || !sameOutsideProperties(obj, live)) {
 			// The txn's view of an object it has read keeps its other facets
-			// and takes the live slots; its staged writes are replayed below.
-			if !tx.owned[id] {
+			// and takes the live slots; its staged writes are replayed below,
+			// and they change only the properties.
+			if tx.owned[id] == 0 {
 				obj = tx.privatizeCached(id, obj)
 			}
 			obj.properties = live.properties.clone()
+			tx.owned[id] |= facetProperties
 			obj.propertyVersion = live.propertyVersion
 			obj.propertyShapeVersion = live.propertyShapeVersion
 		} else if live.anonymous {
@@ -302,9 +304,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child is mutated in place below (reseed inherited slot), so it must be
-			// a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			// child's properties are changed in place below (reseed inherited slot),
+			// so they must be a txn-private copy's own, not a shared alias.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -342,12 +344,12 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 				if existing.defined {
 					continue
 				}
-				tx.mutableObject(anonID).properties.remove(actualName)
+				tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
 			} else {
 				tx.markPropertyScan(anonID, anon)
 			}
 			override := inheritedSlot(prop, anon.owner)
-			tx.mutableObject(anonID).properties.put(propertyNameKey(name), override)
+			tx.mutableFacets(anonID, facetProperties).properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: anonID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
@@ -397,7 +399,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	if tx.direct {
 		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DeleteDefinedProperty(objID, name) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -446,9 +448,9 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child.properties is mutated in place below when it holds an inherited
-			// (non-defined) slot, so it must be a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			// child.properties is changed in place below when it holds an inherited
+			// (non-defined) slot, so it must be a txn-private copy's own.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -485,7 +487,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 			if prop.defined {
 				continue
 			}
-			tx.mutableObject(anonID).properties.remove(actualName)
+			tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
 			key := propertyWriteKey{objID: anonID, name: propertyNameKey(actualName)}
 			delete(tx.propertyWrites, key)
 			lazySet(&tx.propertyDeletes, key, actualName)

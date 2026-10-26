@@ -1,6 +1,8 @@
 package store
 
 import (
+	"slices"
+
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -32,29 +34,51 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 	return obj
 }
 
-// mutableObject returns a txn-PRIVATE, in-place-mutable copy of the cached object,
-// materializing one (copy-on-write) if the cache currently holds a shared alias.
-// Every staging method that mutates the cached *Object in place (name/owner/flags/
-// location, the properties map/propOrder, the verb list, chparentChildren, and
-// the adopt-refresh paths) must obtain the object through this — never through
-// object() — so the aliased published image is never written. Idempotent: once an
-// object is owned, repeat writes reuse the same private copy.
-//
-// While object() still deep-clones on read (pre-flip), this is a harmless second
-// copy; once object() aliases the immutable image, this becomes the sole copy point.
+// objectFacets names the parts of a txn-private copy that the copy holds by
+// itself. A private copy starts as a shallow copy of the image it was taken from
+// (facetObject: its own struct, every slice, map and node shared) and takes its
+// own copy of a facet the first time a write changes that facet in place.
+type objectFacets uint8
+
+const (
+	facetObject objectFacets = 1 << iota
+	facetProperties
+	facetPropOrder
+	facetContents
+	facetChildren
+	facetVerbs
+	// facetsAll is every facet a write can change in place. Parents,
+	// anonymousChildren and chparentChildren are only ever replaced whole.
+	facetsAll = facetObject | facetProperties | facetPropOrder | facetContents | facetChildren | facetVerbs
+)
+
+// mutableObject returns a txn-PRIVATE copy of the cached object whose own fields
+// (name, owner, flags, location, versions, counts) may be set, materializing it
+// (copy-on-write) if the cache holds a shared alias. A staging method that changes
+// a facet in place (the properties table, propOrder, contents, children, the verb
+// list or a verb node) obtains the object through mutableFacets naming that
+// facet instead, so the aliased published image is never written.
 func (tx *StoreTxn) mutableObject(objID types.ObjID) *Object {
+	return tx.mutableFacets(objID, 0)
+}
+
+// mutableFacets is mutableObject for a caller that will change facets in place:
+// each one is the copy's own once this returns. Idempotent: repeat writes reuse
+// the same private copy and its facets.
+func (tx *StoreTxn) mutableFacets(objID types.ObjID, facets objectFacets) *Object {
 	obj := tx.object(objID)
 	if obj == nil {
 		return nil
 	}
-	if tx.owned[objID] {
-		return obj
+	if tx.owned[objID] == 0 {
+		obj = tx.privatizeCached(objID, obj)
 	}
-	return tx.privatizeCached(objID, obj)
+	tx.ownFacets(objID, obj, facets)
+	return obj
 }
 
-// privatizeCached installs a txn-private clone of base as the cache entry for
-// objID and marks it owned. It takes NO store lock, so callers already holding
+// privatizeCached installs a shallow txn-private copy of base as the cache entry
+// for objID and marks it owned. It takes NO store lock, so callers already holding
 // store.mu (e.g. AdoptLiveRelationships) can use it directly without nesting the
 // RLock. base is the object whose non-refreshed facets are preserved into the
 // private copy (the current cached alias, or the live image when nothing is
@@ -65,13 +89,36 @@ func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 	// disables property and store-global memos, since `owned` never shrinks.
 	// Transaction-local verb entries may still describe entirely unowned paths.)
 	tx.invalidateResolveCaches()
-	clone := cloneObjectSharingVerbs(base)
+	clone := new(Object)
+	*clone = *base
 	tx.objects[objID] = clone
-	if tx.owned == nil {
-		tx.owned = make(map[types.ObjID]bool)
-	}
-	tx.owned[objID] = true
+	lazySet(&tx.owned, objID, facetObject)
 	return clone
+}
+
+// ownFacets gives obj, the txn's private copy of objID, its own copy of each of
+// facets it still shares.
+func (tx *StoreTxn) ownFacets(objID types.ObjID, obj *Object, facets objectFacets) {
+	missing := facets &^ tx.owned[objID]
+	if missing == 0 {
+		return
+	}
+	if missing&facetProperties != 0 {
+		obj.properties = obj.properties.clone()
+	}
+	if missing&facetPropOrder != 0 {
+		obj.propOrder = slices.Clone(obj.propOrder)
+	}
+	if missing&facetContents != 0 {
+		obj.contents = slices.Clone(obj.contents)
+	}
+	if missing&facetChildren != 0 {
+		obj.children = slices.Clone(obj.children)
+	}
+	if missing&facetVerbs != 0 {
+		obj.verbList = sharedVerbList(obj.verbList)
+	}
+	tx.owned[objID] |= missing
 }
 
 func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
@@ -263,14 +310,21 @@ func cloneObjectSharingVerbs(obj *Object) *Object {
 	if clone == nil {
 		return nil
 	}
-	clone.verbList = make([]*Verb, len(obj.verbList))
-	for i, verb := range obj.verbList {
+	clone.verbList = sharedVerbList(obj.verbList)
+	return clone
+}
+
+// sharedVerbList returns a new verb list holding list's nodes, except that a
+// node over borrowed input is copied.
+func sharedVerbList(list []*Verb) []*Verb {
+	shared := make([]*Verb, len(list))
+	for i, verb := range list {
 		if verb != nil && !verb.backingOwned {
 			verb = cloneVerbForReadTxn(verb)
 		}
-		clone.verbList[i] = verb
+		shared[i] = verb
 	}
-	return clone
+	return shared
 }
 
 // ownVerbAt replaces obj.verbList[index] with a copy obj alone holds and returns

@@ -365,7 +365,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		}
 		return types.E_NONE
 	}
-	obj = tx.mutableObject(objID)
+	obj = tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -403,7 +403,7 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 	if tx.direct {
 		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetPropertyInfo(objID, name, owner, perms) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -439,7 +439,7 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 	if tx.direct {
 		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DefineProperty(objID, name, prop) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -477,7 +477,7 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 	if tx.direct {
 		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.ClearPropertyOverride(objID, name) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}

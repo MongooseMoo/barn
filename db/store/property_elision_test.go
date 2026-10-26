@@ -52,7 +52,7 @@ func TestSetPropertyValueSameValueIsElided(t *testing.T) {
 	if len(tx.propertyWrites) != 0 {
 		t.Fatalf("same-value write was staged: %v", tx.propertyWrites)
 	}
-	if tx.owned[parent] {
+	if tx.owned[parent] != 0 {
 		t.Fatalf("same-value write privatized the object")
 	}
 	if _, read := tx.propertyReads[propertyReadKey{objID: parent, name: "aliases"}]; !read {

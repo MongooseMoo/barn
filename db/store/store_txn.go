@@ -65,12 +65,14 @@ type StoreTxn struct {
 	// reached through keyed access (store_txn_mapkeys.go). A slot with a
 	// whole read in propertyReads is validated by that read instead.
 	mapKeys map[propertyReadKey]*mapKeyState
-	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
-	// than aliases of a shared immutable published image. Reads (tx.object) may cache
-	// an alias; the first staged write to an object must materialize a private copy
-	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
-	// through to a shared image. Left nil until the first write, like the write maps.
-	owned map[types.ObjID]bool
+	// owned marks which entries in `objects` are txn-PRIVATE copies rather than
+	// aliases of a shared immutable published image, and which of each copy's
+	// facets are its own. Reads (tx.object) may cache an alias; the first staged
+	// write to an object must materialize a private copy (mutableFacets,
+	// copy-on-write) naming the facets it writes, so no staging code ever writes
+	// through to a shared image. Any non-zero value means the object is private.
+	// Left nil until the first write, like the write maps.
+	owned map[types.ObjID]objectFacets
 	// createdObjects holds the PRISTINE creation-time base image of each object created
 	// in this txn (decentralized create). It is separate from the `objects` cache (which
 	// also holds the object for read-your-writes and may accumulate the txn's own

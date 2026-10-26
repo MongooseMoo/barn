@@ -203,7 +203,7 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 		}
 		return types.E_NONE
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}

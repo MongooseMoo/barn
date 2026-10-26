@@ -159,7 +159,7 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	// Insert `what` into the new location's contents at the MOO position (commutative
 	// delta; no room read).
 	if whereID != types.ObjNothing {
-		mw := tx.mutableObject(whereID)
+		mw := tx.mutableFacets(whereID, facetContents)
 		mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
 		tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
 	}

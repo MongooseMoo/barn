@@ -41,7 +41,7 @@ func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	}
 	tx.invalidateResolveCaches()
 	tx.privateVerbShape = true
-	obj := tx.mutableObject(resolved.objID)
+	obj := tx.mutableFacets(resolved.objID, facetVerbs)
 	if !validLiveObject(obj) || obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
 		return types.E_VERBNF
 	}
@@ -107,7 +107,7 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	// stageVerbCode changes the verb in the txn-private copy. Privatize the object
 	// and re-resolve: findVerbOnObject reads through tx.object, so the re-resolve
 	// returns the copy and the verb's index in it.
-	tx.mutableObject(objID)
+	tx.mutableFacets(objID, facetVerbs)
 	obj, index, err := tx.findVerbOnObject(objID, name)
 	if err != nil {
 		return types.E_VERBNF
@@ -122,7 +122,7 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 	}
 	// stageVerbCode changes the verb in a txn-private copy of the object, never in
 	// a shared image.
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetVerbs)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
