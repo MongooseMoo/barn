@@ -682,16 +682,6 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 	}
 }
 
-func removeString(items []string, value string) []string {
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if item != value {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
 // removeStringFold removes entries matching value case-insensitively. Used for
 // propOrder maintenance, where entries keep display case but callers hold the
 // canonical (lowercase) property key.

@@ -327,7 +327,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	}
 
 	obj.properties.remove(actualName)
-	obj.propOrder = removeString(obj.propOrder, actualName)
+	obj.propOrder = removeStringFold(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
 	}
