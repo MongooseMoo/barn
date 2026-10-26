@@ -10,100 +10,21 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// writeFootprintHasAnon reports whether any staged write targets an anonymous
-// object (one that lives out-of-band in s.anonObjects). Commit uses it to keep an
-// anon write off the decentralized fast path and onto the coarse exclusive path
-// (anon has no COW slot). It takes store.mu.RLock for the membership scan and
-// releases it (deferred) before the caller takes the coarse store.mu.Lock — the
-// RWMutex is not upgradable, so the scan must complete and unlock first.
-func (tx *StoreTxn) writeFootprintHasAnon() bool {
-	if tx == nil || tx.store == nil {
-		return false
-	}
+// writesTouchAnon reports whether any staged write targets an anonymous object
+// (one that lives out-of-band in s.anonObjects). Commit uses it to keep an anon
+// write off the decentralized fast path and onto the coarse exclusive path (anon
+// has no COW slot). It takes store.mu.RLock for the membership scan and releases
+// it (deferred) before the caller takes the coarse store.mu.Lock — the RWMutex is
+// not upgradable, so the scan must complete and unlock first.
+func (tx *StoreTxn) writesTouchAnon(writes map[types.ObjID]*objectWrites) bool {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
-
-	isAnon := func(objID types.ObjID) bool {
-		return tx.store.anonObjects[objID] != nil
-	}
-	for objID := range tx.scalarWrites {
-		if isAnon(objID) {
-			return true
-		}
-	}
-	for objID := range tx.relationshipWrites {
-		if isAnon(objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDefines {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyWrites {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.propertyDeletes {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for key := range tx.verbWrites {
-		if isAnon(key.objID) {
-			return true
-		}
-	}
-	for _, deletion := range tx.verbDeletes {
-		if isAnon(deletion.objID) {
+	for id := range writes {
+		if tx.store.anonObjects[id] != nil {
 			return true
 		}
 	}
 	return false
-}
-
-// writeFootprintObjects lists every numbered object this transaction's staged
-// writes would publish a new image for.
-func (tx *StoreTxn) writeFootprintObjects() map[types.ObjID]bool {
-	footprint := make(map[types.ObjID]bool)
-	for id := range tx.scalarWrites {
-		footprint[id] = true
-	}
-	for id := range tx.relationshipWrites {
-		footprint[id] = true
-	}
-	for key := range tx.propertyDefines {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyWrites {
-		footprint[key.objID] = true
-	}
-	for key := range tx.propertyDeletes {
-		footprint[key.objID] = true
-	}
-	for key := range tx.verbWrites {
-		footprint[key.objID] = true
-	}
-	for _, deletion := range tx.verbDeletes {
-		footprint[deletion.objID] = true
-	}
-	for id := range tx.createdObjects {
-		footprint[id] = true
-	}
-	for id := range tx.recycleWrites {
-		footprint[id] = true
-	}
-	return footprint
 }
 
 // CommitAndRenewCarryingReads is the boundary operation for a task slice that
@@ -137,7 +58,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	// renewal drops the memo and before any coarse mutation changes its clock.
 	tx.materializeVerbMemoMarks()
 
-	footprint := tx.writeFootprintObjects()
+	footprint := tx.writesByObject()
 	scalarReads := make(map[types.ObjID]uint64, len(tx.scalarReads))
 	for id, version := range tx.scalarReads {
 		scalarReads[id] = version
@@ -382,8 +303,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
 	// A WAIF read or write takes either path: both validate WAIF reads and publish
 	// staged WAIF images at the commit timestamp.
-	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
-		commitErr = tx.commitDecentralized()
+	writes := tx.writesByObject()
+	if !tx.liveMutated && !tx.writesTouchAnon(writes) {
+		commitErr = tx.commitDecentralized(writes)
 		if commitErr == types.E_NONE {
 			isolationprobe.Note("parallel")
 			if tx.gateExempt {
@@ -403,7 +325,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		tx.lostValidation()
 		return errCode
 	}
-	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
 	}
 	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
@@ -428,7 +350,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 // shared by coarse Commit, the legacy unvalidated FlushStagedToLive boundary, and
 // the decentralized committer. The caller holds store.mu for reading or writing;
 // decentralized callers additionally hold commitMu.
-func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
+func (tx *StoreTxn) preflightStagedToLiveLocked(writes map[types.ObjID]*objectWrites) types.ErrorCode {
 	s := tx.store
 
 	// A concurrently occupied allocated id is a retryable allocation conflict: a
@@ -442,58 +364,9 @@ func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
 		}
 	}
 
-	validateTarget := func(id types.ObjID) types.ErrorCode {
-		if tx.createdObjects[id] != nil {
-			return types.E_NONE
-		}
-		if !validLiveObject(s.liveObjectLocked(id)) {
+	for id, w := range writes {
+		if w.created == nil && !validLiveObject(s.liveObjectLocked(id)) {
 			return types.E_INVIND
-		}
-		return types.E_NONE
-	}
-	for id := range tx.scalarWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for id := range tx.relationshipWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDefines {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDefinitionDeletes {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyWrites {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.propertyDeletes {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for key := range tx.verbWrites {
-		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for _, deletion := range tx.verbDeletes {
-		if errCode := validateTarget(deletion.objID); errCode != types.E_NONE {
-			return errCode
-		}
-	}
-	for id := range tx.recycleWrites {
-		if errCode := validateTarget(id); errCode != types.E_NONE {
-			return errCode
 		}
 	}
 

@@ -396,6 +396,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	// A flush publishes the staged values as they are; a keyed write publishes
 	// its whole view, as any staged write does here.
 	tx.degradeMapKeys()
+	writes := tx.writesByObject()
 	tx.store.mu.Lock()
 	if len(tx.waifs) != 0 {
 		if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
@@ -404,7 +405,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 			return errCode
 		}
 	}
-	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
 		tx.store.mu.Unlock()
 		return tx.markTerminal(errCode)
 	}

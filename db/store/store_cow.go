@@ -28,6 +28,80 @@ import (
 //     stores a NEW image and never touches the old one the reader is reading — no
 //     race.
 
+// objectWrites is one object's staged writes, gathered from the transaction's
+// write maps so a commit applies all of them to one image of the object.
+type objectWrites struct {
+	created         *Object // creation-time base, when this txn created the object
+	scalar          objectScalarWrite
+	hasScalar       bool
+	relationship    objectRelationshipWrite
+	hasRelationship bool
+	defDeletes      []string
+	defines         []propertyDefine // in the object's property order
+	props           []propertyWrite
+	propDeletes     []string
+	verbCode        []verbCodeWrite
+	verbDeletes     []int // verb-list indexes, in staged order
+	recycle         bool
+}
+
+type verbCodeWrite struct {
+	id   uint64
+	code []string
+}
+
+// writesByObject gathers the staged writes by the object they change. Its keys
+// are every object the commit publishes an image for.
+func (tx *StoreTxn) writesByObject() map[types.ObjID]*objectWrites {
+	writes := make(map[types.ObjID]*objectWrites)
+	at := func(id types.ObjID) *objectWrites {
+		w := writes[id]
+		if w == nil {
+			w = &objectWrites{}
+			writes[id] = w
+		}
+		return w
+	}
+	for id, base := range tx.createdObjects {
+		at(id).created = base
+	}
+	for id, write := range tx.scalarWrites {
+		w := at(id)
+		w.scalar, w.hasScalar = write, true
+	}
+	for id, write := range tx.relationshipWrites {
+		w := at(id)
+		w.relationship, w.hasRelationship = write, true
+	}
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		w := at(key.objID)
+		w.defDeletes = append(w.defDeletes, actualName)
+	}
+	for id, defs := range tx.propertyDefinesByObject() {
+		at(id).defines = defs
+	}
+	for key, write := range tx.propertyWrites {
+		w := at(key.objID)
+		w.props = append(w.props, write)
+	}
+	for key, actualName := range tx.propertyDeletes {
+		w := at(key.objID)
+		w.propDeletes = append(w.propDeletes, actualName)
+	}
+	for key, write := range tx.verbWrites {
+		w := at(key.objID)
+		w.verbCode = append(w.verbCode, verbCodeWrite{id: key.id, code: write.code})
+	}
+	for _, deletion := range tx.verbDeletes {
+		w := at(deletion.objID)
+		w.verbDeletes = append(w.verbDeletes, deletion.index)
+	}
+	for id, recycle := range tx.recycleWrites {
+		at(id).recycle = recycle
+	}
+	return writes
+}
+
 // applyPropertyValueOwned applies one property-value write to img in place and
 // stamps its propertyVersion. The caller must exclusively own img and its
 // properties map: an unpublished image the committer built from a private
@@ -345,7 +419,7 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 //
 // Caller guarantees (see Commit's routing): at least one write is staged and
 // !tx.liveMutated.
-func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
+func (tx *StoreTxn) commitDecentralized(writes map[types.ObjID]*objectWrites) types.ErrorCode {
 	s := tx.store
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -406,7 +480,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		tx.lostValidation()
 		return errCode
 	}
-	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
 		return errCode
 	}
 	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
