@@ -60,10 +60,329 @@ source was accurate for its checkout but no longer describes current master.
 The remaining duplication is partly the distinction between a private task view
 and publication on current state, rather than two public operation implementations.
 
+## Deep exploration requested by Q
+
+Q: "Yes, let's actually deeply explore and find the truths". This expands the
+research beyond the first-pass propagation pair above. No implementation is
+authorized. Source base remains cae320f3; 206482cd is the first note-only commit.
+The earlier tens-of-lines estimate describes only one pair, not the store's
+architectural possibilities. Current reading covers transaction representations,
+validation, publication, renewal, live adoption, map-key access, property lookup
+and mutation, relationship mutation, verb edits, object history, WAIF history,
+property-table sharing, checkpoint capture, and representative production callers.
+It is not a completed correctness audit of every store operation.
+
+### The useful algebra
+
+For an ordinary optimistic transaction, distinguish:
+
+- B: the snapshot state on which it ran.
+- R: observations that constrain a successful commit.
+- D: its pending changes, including ordered edits where necessary.
+- V: its private, materialized view, conceptually apply(B, D).
+- L: current committed state when publication is attempted.
+
+Publication conceptually validates R against L, checks operation preconditions,
+then applies D to L and publishes atomically. It does NOT generally replace L
+with V. This is a model of the ordinary path, not a claim that the existing
+live-mutated and renewal paths already have one immutable B throughout.
+
+The change identity is "do nothing". Ordered changes compose as state
+transformations, but composition is not generally commutative. Normalizing a
+change sequence must preserve successful intermediate observations, errors,
+definition order, and dependency provenance, not only its final values.
+An identity change does not imply an empty observation set.
+
+Concrete source boundaries:
+
+| Constraint | Source and evidence |
+|---|---|
+| Apply edits to current state | store_cow.go:190 clones the live image; :275 applies pending property writes; store_txn_mapkeys.go:293 rebases keyed writes on the live map |
+| Retain dependency after no-op | store_txn_properties.go:351 marks the original read before same-value elision; property_elision_test.go:128 expects a conflict if that value changes |
+| Preserve distinct map entries | store_txn_mapkeys_test.go:82 commits both different-entry writers and asserts a=2, b=11; :102 expects same-entry writers to conflict |
+| Capture matters | store_txn_mapkeys.go:130 compares the captured map entry to baseline; the current write set alone cannot classify the earlier observation |
+| Shape differs from value | store_txn_snapshot.go:245 records shape versions; property_shape_scan_test.go:65 expects an unrelated value write not to invalidate a fall-through lookup, :79 expects a definition to invalidate it |
+| Relationship edits are ordered | store_txn_relationships.go:62 applies positional contents deltas in order; :123 stages movement and :147 captures last_move.time once |
+| Local reads need private changes | vm/op_property.go:332,350 calls SetPropertyValue; its body updates the private image and records the pending write |
+| Rename is not two arbitrary assignments | store_properties.go:547 removes all old names before installing destinations; property_rename_test.go:187,216 cover swaps and written slots |
+| Identity and order differ | store_txn_verbs.go:23 records deletions by successive private-list index, while code writes use stable verb IDs |
+| Errors retain a usable private view | store_txn.go:298 markTerminal preserves physical maps for error handling while prohibiting later publication |
+
+The tests cited here were READ, not run. They document existing expected results,
+not a fresh passing verdict. Formulae are reasoning aids, not an equivalence proof.
+In particular, the source calls room edits "commutative", but position-sensitive
+list inserts need not produce the same order when reversed. Preserve serial
+application order; do not derive a CRDT or arbitrary reordering from that comment.
+
+### A. Strongest bounded candidate: make pending writes object-owned
+
+Current organization is field-kind first: StoreTxn has separate maps for scalar,
+relationship, property, verb, creation, and recycling changes. Commit reconstructs
+an object-first representation. Renumber and forgetting then repeat object filters.
+
+Evidence:
+- store_cow.go:136-184, writesByObject, translates the maps into objectWrites.
+- store_txn_properties.go:56-91 reconstructs definition order by object;
+  :544 filters all renames to get one object's renames.
+- store_txn_live.go:169-228 filters maps for ForgetObject;
+  :235-295 moves selected pending writes to a new object ID.
+- store_txn_property_inheritance.go:148-179 builds another per-object grouping
+  of staged slots for a changed subtree.
+- A production-only search found 187 lines referring to the eleven write
+  collections across 13 files. This is a migration surface count, not a saving.
+- Real caller: builtins/objects_misc.go:73-91 renumbers, transfers pending writes,
+  forgets the old identity, adopts the new image, and reapplies those writes.
+
+Smallest design worth implementing if separately authorized:
+1. Make the existing writeSet/objectWrites concept the authoritative pending
+   write collection, rather than a temporary commit-time conversion. Keep object
+   IDs as its outer key and typed slot/verb keys inside each object's record.
+2. Preserve the existing change forms and phase ordering: scalar replacements,
+   ordered relationship deltas, definition deletion/rename/definition ordering,
+   property writes/deletes, stable-ID code writes, ordered verb deletions, and
+   recycle-last. Preserve the pristine creation base and original property values.
+3. Keep the current private object cache and ownership facets. Do not remove
+   materialized views, change conflict granularity, or adopt a new storage engine
+   in this slice. Keep read sets unchanged initially.
+4. Have commit, replay, preflight, and subtree reseeding consume the same records.
+   Recreate publication-only scratch as needed; do not preserve a failed attempt's
+   old/img publication pointers as authoritative transaction state.
+5. Replace object-filtering write-map walks with direct record access. Renumber
+   still transfers only the kinds the current method transfers; it is NOT a blind
+   record move. It must retain the owner self-reference rewrite and topology rules.
+6. Preserve definition order from the private object's propOrder; keep ordered
+   verb-deletion entries per object. No iteration-order change may alter the first
+   preflight error or the classification of terminal versus retryable failure.
+7. Keep joined publication-only descendants small. Do not turn a wide direct
+   define into thousands of full transaction records. Reuse the current compact
+   entry/index approach only with its pointer rule: a get/at pointer expires when
+   at grows the slice; reacquire after any nested operation that may add an entry.
+
+Size estimate: roughly 500-900 changed production lines across the write users,
+with perhaps 40-150 net lines removed, plus necessary existing-test adaptations.
+This is a planning estimate, NOT a measured diff or a quota. The important deletion
+is the representation conversion and repeated ownership bookkeeping. It can still
+fail to pay for itself if per-object nested maps and access methods grow too much.
+No speed or allocation improvement is established. Keep read-only transactions
+free of write records; do not make every object read pay for a large write record.
+
+Historical performance evidence makes that last point concrete:
+experiments/2026-10-26-no-twins.md records an intermediate DirectDefinePropertyWide
+allocation regression (25,282 versus 14,085) and its later repair by omitting
+descendant staging on the locked writer. Its final table reports 12,110. These are
+recorded past measurements, not rerun results or current-head performance proof.
+The source's tx.locked short-circuit in propagateDefinedProperty and the
+writeSet.joined path implement that distinction now.
+
+### B. Real but smaller: remove duplicated property payload
+
+propertyWrite holds both value and prop.value (store_txn_properties.go:20).
+All five production constructors populate them from the same value; staging sets
+prop.value before constructing the record (:98). Map rebasing explicitly updates
+both together (store_txn_mapkeys.go:328). Renaming moves the record unchanged
+apart from its name. Consumers split between the two copies in applyTailWrites,
+hot renewal, and map rebasing.
+
+Smallest design: retain prop.value as the authority and remove the redundant value
+field, changing those constructors and consumers. Approximately 15-30 production
+lines touched, a handful deleted; tests constructing internal records need matching
+adaptation. This is a concrete redundancy, not the architectural answer by itself.
+Do not conflate it with eliminating orig: orig preserves net-no-op bookkeeping.
+
+### C. Observations can share bookkeeping, not one coarse version
+
+The seven ordinary version-read maps implement a common constraint shape:
+selected resource still has the observed version. store_txn_validation.go:66-96
+already shares validation of the five object-level kinds. A typed resource key
+could unify recording, copying, dropping, and renewal without removing selectors.
+However, map-key reads validate entry values/presence plus slot metadata, WAIFs
+validate image timestamps, and memo hits use a shape epoch. They are not simply
+another object-wide timestamp.
+
+Potential removal: repeated map copying/rekeying in CommitAndRenewCarryingReads,
+renewAtCurrentClock, and ForgetObject. Replacement cost: resource-key layout,
+lookup switches, deterministic validation-stage order, fault hooks, conflict
+diagnostics, and the provenance needed to exclude new hot-read observations.
+Since the validator itself is only 183 physical lines and is already partly
+shared, do not sell a universal dependency map as a large deletion on its own.
+No implementation proposal is selected here; A is independent of this change.
+
+### D. Larger algebra: one change description, two materializations
+
+The same D could drive both apply(B,D) for reads and apply(L,D) for publication.
+That can remove handwritten private mutation plus handwritten commit mutation,
+especially in scalar/property paths. Existing applyHeadWrites/applyTailWrites
+already serve commit and ApplyStagedObjectWrites; this is an extension of a real
+shared applier, not a new command framework.
+
+The minimal representation must distinguish replacements from ordered edits.
+It must also keep observation R independent of normalized writes D. Storing only
+the final private image discards which changes should be rebased; storing only an
+operation log adds replay and normalization costs. A private view may remain a
+cache of D rather than a second authority. That is a useful design direction, but
+no measured net deletion estimate is defensible yet for all property/topology cases.
+
+Counterexamples to attractive shortcuts:
+- Publish V whole: loses another commit's different map entry or same-room move.
+- Compute D only by diffing B and V: cannot in general recover operation intent,
+  captured reads, or the required positional edit order from final values alone.
+- Drop R when D cancels: loses a dependency the no-op test explicitly requires.
+- Replay MOO operations at commit: repeats callbacks/time acquisition/permission
+  decisions. Only already-resolved internal edits belong in the commit applier.
+- Put every mutation through a uniform descendant-staging path: reintroduces the
+  wide-direct-write cost documented above.
+
+### E. The architectural alternative: persistent world roots
+
+Concept: a snapshot retains an immutable root from IDs to immutable images.
+Commit validates against the current root, applies the transaction's edits to
+that current root, and publishes one replacement root. Old roots retain their
+reachable images; Go GC reclaims roots and structure no reader retains.
+
+This could replace numbered-object history lookup, reader-floor registration,
+and pruning, and make the numbered-object publication boundary one root swap.
+The directly relevant current files are object_dir.go (135 physical lines) and
+store_history_gc.go (368), plus history/publication parts of store_core.go,
+store_txn_snapshot.go and store_cow.go. Those 503 lines are an affected surface,
+NOT 503 guaranteed deletions: the new persistent directory has implementation cost.
+
+Why it is not already a drop-in design:
+- objectDir.slot uses dense-ID segment indexing; a persistent tree adds a different
+  lookup/update cost and path-copy allocation. No Barn workload measurement exists.
+- Anonymous objects currently lack numbered COW slots and histories and are copied
+  on read/in-place on write (store_txn_snapshot.go:122; store_core.go:497). They must
+  be covered coherently without confusing runtime identity and serialization IDs.
+- WAIF state has a separate domain-bound version chain in types/waif_image.go:28-95.
+  Merely swapping the object root does not snapshot mutable WAIF referents.
+- Semantic GC follows retained WAIF images (types/waif_image.go:115 and
+  store_reachability.go:12). Go reachability is not a substitute for those MOO
+  lifecycle rules. Old roots may retain an entire world's old bindings, not just
+  objects a task actually consulted.
+- SnapshotWithRoots also rewrites anonymous IDs and external task values; its
+  451-line file is not all snapshot isolation machinery that a root pointer deletes.
+- Coarse mutation, checkpoint capture, and irreversible effects still need the
+  correct boundary. Serializing publication already exists; root publication
+  does not justify serializing whole task execution or broadening conflicts.
+
+Verdict: a real alternative with potential mechanism deletion, not a demonstrated
+improvement and not an implementation-ready replacement. It needs an isolated
+design/measurement study including the points above before production work.
+
+### F. Remove the mixed live/private mode?
+
+This is another substantial potential deletion: store_txn_live.go is 454 lines,
+with additional adoption/reseed/memo logic elsewhere. But real callers still need
+it: renumber above, chparent adoption in builtins/objects_hierarchy.go, verb-info
+adoption in builtins/verbs.go, and coarse movement in objects_movement.go:160-165.
+The engine acquires the exclusive gate and renews at the irreversible boundary
+(engine/task_runtime.go:296-337); this alone does not prove that replacing the
+remaining task view with DirectTxn is safe. Programming input also calls direct
+SetVerbCode (server/input_processor.go:839), and writeNow itself takes store.mu,
+not the task commit gate. Outer exclusion of every direct writer was not audited.
+
+Removing the mixed mode would require bringing the remaining coarse operations
+under the same transaction authority or proving a complete live-execution mode.
+It must preserve callback-visible changes and exception-prefix effects. This is
+not a helper extraction or a safe deletion established by this exploration.
+
+### Prior art checked against primary sources
+
+- Clojure's documented Refs separate ordinary updates, commute and ensure:
+  https://www.clojure.org/reference/refs . Its implementation retains both vals
+  and deferred commutes; doCommute calculates a private value (lines 441-464),
+  and commit reapplies commutes to the current value (262-284):
+  https://raw.githubusercontent.com/clojure/clojure/master/src/jvm/clojure/lang/LockingTransaction.java .
+  This supports the change/view distinction; it does not establish Barn equivalence.
+  Clojure documents snapshot isolation, so it is not an automatic replacement for
+  Barn's serializable validation contract.
+- FoundationDB documents conflict ranges separately from atomic mutations:
+  https://apple.github.io/foundationdb/developer-guide.html#conflict-ranges and
+  https://apple.github.io/foundationdb/developer-guide.html#atomic-operations .
+  The relevant lesson is separating observed state from deferred changes, not
+  weakening reads or importing a distributed database into Barn.
+- HashiCorp's immutable radix implementation holds a root per tree and a modified
+  root per transaction, with writable-node reuse:
+  https://raw.githubusercontent.com/hashicorp/go-immutable-radix/master/iradix.go
+  (Tree at 26, Txn at 48). This is concrete prior art for E, not a selected dependency
+  or evidence it beats Barn's dense-ID directory. External source URLs are moving
+  branches as read during this investigation, not pinned implementation inputs.
+
+### What remains unknown, and verification for any approved implementation
+
+No code, tests, prototype, benchmark, or live workload was run or changed in this
+exploration. No new CI, tests, gates, or instrumentation were introduced. Existing
+test bodies and historical measurement records are evidence for requirements and
+past tradeoffs, not fresh verification. No Toast behavioral assertion is proposed
+or changed, and no oracle result is claimed.
+
+For A/B, use the existing property-elision, map-key, rename, move/create,
+renumber/reseed, commit-atomicity, immutable/shared-facet, direct-reader, and renewal
+tests in the PR's existing CI. Use the pinned Elle workflow described in
+docs/elle-isolation.md, keeping raw histories, witnesses and nonzero coverage.
+Compare the existing direct/commit benchmarks and real-workload evidence against
+the actual implementation base before claiming performance parity. Do not run CI
+locally to gate a push or add new safeguards as part of this research.
+
+The investigation supports simplification opportunities, especially eliminating
+representation conversion. It neither proves a tenfold reduction possible nor
+proves it impossible. File splitting, deleting documentation/tests/diagnostics,
+or moving storage complexity into a dependency is not a tenfold simplification.
+
+## Completed comparison of the two research directions
+
+Both forked Astra research reports are complete:
+
+- [Object-owned changes](store-write-records-research.md): eleven write forms,
+  lifecycle callers, algebra, deletion ledger, bounded migration and prior art.
+- [Immutable roots](store-immutable-roots-research.md): numbered-only and full-world
+  alternatives, publication, retention, WAIF lifetime, checkpoint ownership and
+  replacement-cost ledger.
+
+The parent read both reports and checked the central claims against current
+source. These are research conclusions, not implementation or runtime results.
+
+| Direction | What it removes | What remains | Estimated net production size |
+|---|---|---|---|
+| Object-owned pending changes | Regrouping eleven write collections and repeated object filtering | Typed edits, observations, private views, publication phases, detached renewal footprint | 40-150 lines removed |
+| Numbered-object immutable roots | Ordinary numbered history lookup/insertion/pruning and mutable directory slots | Fine validation, rebasing, WAIF floors, anonymous behavior, checkpoint coordination, diagnostic journal | 150 added to 250 removed |
+| Full immutable world roots | Potentially both numbered and WAIF version chains/floors | New identity resolution, detached WAIF baseline, semantic retirement, retained-root accounting, external task capture | 950 added to 100 removed |
+
+All figures are unmeasured planning ranges, not promised diffs. Full-world figures
+include the numbered slice and depend on an unresolved lifecycle design. No
+performance parity has been measured. Neither report establishes a tenfold
+reduction, and neither proves that some other design could never achieve it.
+
+Source checks that materially affected the conclusion:
+
+- store_txn_commit.go:61 captures a footprint before commit; store_cow.go:499
+  clears writes; renewal later uses the footprint. Authoritative records need
+  detached IDs across clearing. This reduced A's initial optimistic estimate.
+- store_txn_live.go:169-295 selectively forgets/transfers kinds. Replacing these
+  loops with unconditional record deletion/transfer changes existing behavior.
+- store_core.go:497 publishes a fresh clone before its caller edits it under the
+  exclusive store lock. BeginSnapshot at store_txn.go:135 already takes RLock.
+  Keeping that acquisition lock avoids requiring a new coarse-operation builder;
+  shared-lock ordinary commits still need one final coherent root publication.
+- store_history_gc.go:228 already prunes versions between reader timestamps.
+  Immutable roots must be compared with that reader-aware baseline, not a claim
+  that today's store retains every intermediate version since the oldest reader.
+- store_conflict_census.go:328 walks intervening images to classify stale reads.
+  A root design must preserve this enabled diagnostic capability, for example
+  through a diagnostic journal; deleting it is not equivalent simplification.
+- types/waif_image.go:28 binds detached WAIF baseline images; :115 visits retained
+  images for semantic liveness. A strong persistent map of all WAIFs does not
+  explain retirement or semantic GC. Full roots remain a larger design question.
+
+The two directions are compatible: one owns pending changes; the other owns
+committed snapshots. Choosing one first is a choice of investment, not an
+exclusive architecture fork. For immediate simplification, A is the bounded
+candidate. For investigating a different snapshot representation, numbered roots
+are the bounded experiment. Full-world roots are not a finished production plan.
+
 ## Next step
-Report that the original bet has already landed and that no tenfold reduction is
-supported by this trace. If Q requests further design, work through the one
-propagation pair before proposing implementation. Any implementation requires Q's
-"make it so" instruction. Isolation/conformance/performance evidence remains
-necessary before claiming preserved behavior or speed; use the project's existing
-CI and Elle workflow, not additional local gates.
+
+Present both reports and the checked comparison to Q for selection. Do not code
+until Q says "make it so". No implementation, tests or benchmarks were changed or
+run in this research. Research notes are the only intended commit content; no
+push or PR publication is part of this task. Performance and isolation acceptance
+remain future empirical work through the existing workflows described above.
