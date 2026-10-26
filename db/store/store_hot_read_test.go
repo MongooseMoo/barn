@@ -274,7 +274,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		fresh    = "belongs to the snapshot; the renewed transaction has its own"
 	)
 	disposition := map[string]string{
-		"readTS": fresh, "store": fresh, "released": fresh,
+		"readTS": fresh, "store": fresh, "released": fresh, "locked": fresh,
 		"objects": restaged, "owned": restaged, "propertyWrites": restaged,
 		"scalarReads": carried, "relationshipReads": carried, "propertyReads": carried,
 		"propertyScans": carried, "propertyShapeScans": carried, "verbReads": carried,

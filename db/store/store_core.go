@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/types"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,10 +51,15 @@ type Store struct {
 	// writers hold store.mu.Lock instead, which excludes every RLock holder.
 	commitMu sync.Mutex
 	dir      objectDir // segmented lock-free directory: id -> *objectSlot
-	// directTxn is the allocation-free pass-through transaction used when code
-	// executes outside an optimistic task snapshot. Its methods read and write
-	// the live store immediately and never accumulate transaction state.
+	// directTxn is the shared transaction used when code executes outside an
+	// optimistic task snapshot. It runs the same method bodies as a snapshot
+	// transaction, but it reads what is published now and records nothing, and
+	// each write is staged on a private transaction and published at once
+	// (writeNow). It never accumulates transaction state.
 	directTxn StoreTxn
+	// writer is that private transaction: writeNow resets and uses it under
+	// mu.Lock, so one writer serves every direct write (lockedWriter).
+	writer StoreTxn
 	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
 	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
@@ -182,6 +188,7 @@ func NewStore() *Store {
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true
+	s.directTxn.readTS = math.MaxUint64
 	s.maxObjID.Store(-1)
 	s.highWaterID.Store(-1)
 	return s
@@ -609,157 +616,6 @@ func (s *Store) insertObjectLocked(obj *Object) {
 	if !obj.anonymous {
 		casMaxID(&s.maxObjID, obj.id)
 	}
-}
-
-func (s *Store) setObjectName(objID types.ObjID, name string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	obj.setName(name)
-	stampObjectScalar(obj, ts)
-	return types.E_NONE
-}
-
-func (s *Store) setObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	obj.owner = owner
-	stampObjectScalar(obj, ts)
-	return types.E_NONE
-}
-
-func (s *Store) setObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	obj.location = location
-	stampObjectRelationship(obj, ts)
-	return types.E_NONE
-}
-
-func (s *Store) setObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	if enabled {
-		obj.flags = obj.flags.Set(flag)
-	} else {
-		obj.flags = obj.flags.Clear(flag)
-	}
-	stampObjectScalar(obj, ts)
-	return types.E_NONE
-}
-
-func (s *Store) objectName(objID types.ObjID) (string, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return "", types.E_INVIND
-	}
-	return obj.name, types.E_NONE
-}
-
-// objectNameValue is objectName as a shared TYPE_STR Value (no per-read box).
-func (s *Store) objectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.None, types.E_INVIND
-	}
-	return obj.nameValue(), types.E_NONE
-}
-
-func (s *Store) objectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.ObjNothing, types.E_INVIND
-	}
-	return obj.owner, types.E_NONE
-}
-
-func (s *Store) objectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return 0, types.E_INVIND
-	}
-	return obj.flags, types.E_NONE
-}
-
-func (s *Store) hasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return false, types.E_INVIND
-	}
-	return obj.flags.Has(flag), types.E_NONE
-}
-
-func (s *Store) objectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return false, types.E_INVIND
-	}
-	return obj.anonymous, types.E_NONE
-}
-
-func (s *Store) objectExists(objID types.ObjID) types.ErrorCode {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.liveObjectLocked(objID) != nil {
-		return types.E_NONE
-	}
-	if obj := s.load(objID); obj != nil && obj.recycled {
-		return types.E_INVARG
-	}
-	if obj := s.anonObjects[objID]; obj != nil && obj.recycled {
-		return types.E_INVARG
-	}
-	return types.E_INVIND
 }
 
 func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []types.ObjID {

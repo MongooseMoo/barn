@@ -1,6 +1,8 @@
 package store
 
 import (
+	"slices"
+
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -15,7 +17,9 @@ import (
 // (publishStagedLocked). Each object gets one image per commit timestamp, and
 // history keeps the image it replaced. Anonymous objects have no slot and no
 // history; a commit that writes one holds store.mu.Lock and changes it in place.
-// Direct store writers republish a fresh clone and mutate that under
+// The direct transaction's writes go through the same applier (writeNow). The
+// coarse store operations that have no transaction form (recycle, chparent,
+// renumber, verb edits) republish a fresh clone and mutate that under
 // store.mu.Lock — see republishForMutation.
 //
 // Coherence:
@@ -36,6 +40,7 @@ import (
 // objectWrites is one object's staged writes, gathered from the transaction's
 // write maps so a commit applies all of them to one image of the object.
 type objectWrites struct {
+	id              types.ObjID
 	created         *Object // creation-time base, when this txn created the object
 	scalar          objectScalarWrite
 	hasScalar       bool
@@ -59,18 +64,79 @@ type verbCodeWrite struct {
 	code []string
 }
 
-// writesByObject gathers the staged writes by the object they change. Its keys
-// are every object the commit publishes an image for.
-func (tx *StoreTxn) writesByObject() map[types.ObjID]*objectWrites {
-	writes := make(map[types.ObjID]*objectWrites)
-	at := func(id types.ObjID) *objectWrites {
-		w := writes[id]
-		if w == nil {
-			w = &objectWrites{}
-			writes[id] = w
+// writeSet holds one objectWrites per object a commit publishes an image for.
+// The entries are values in one slice, found by a linear scan until there are
+// more than objIDSetLinearMax of them and by an index map after that. A pointer
+// from get or at is valid until the next at adds an entry.
+type writeSet struct {
+	entries []objectWrites
+	index   map[types.ObjID]int
+	// joined holds the image of each object a store-side walk changed that has
+	// no staged write of its own (commitImages.own). Its ids are disjoint from
+	// the entries'.
+	joined map[types.ObjID]*Object
+}
+
+func (ws *writeSet) find(id types.ObjID) int {
+	if ws.index != nil {
+		if i, ok := ws.index[id]; ok {
+			return i
 		}
-		return w
+		return -1
 	}
+	for i := range ws.entries {
+		if ws.entries[i].id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// get returns id's entry, or nil.
+func (ws *writeSet) get(id types.ObjID) *objectWrites {
+	if i := ws.find(id); i >= 0 {
+		return &ws.entries[i]
+	}
+	return nil
+}
+
+// at returns id's entry, adding an empty one if there is none.
+func (ws *writeSet) at(id types.ObjID) *objectWrites {
+	if i := ws.find(id); i >= 0 {
+		return &ws.entries[i]
+	}
+	ws.entries = append(ws.entries, objectWrites{id: id})
+	n := len(ws.entries)
+	switch {
+	case ws.index != nil:
+		ws.index[id] = n - 1
+	case n > objIDSetLinearMax:
+		ws.index = make(map[types.ObjID]int, 2*n)
+		for i := range ws.entries {
+			ws.index[ws.entries[i].id] = i
+		}
+	}
+	return &ws.entries[n-1]
+}
+
+func (ws *writeSet) len() int { return len(ws.entries) }
+
+// stagedEntries counts the entries in the staged write maps, an upper bound on
+// the objects a commit publishes.
+func (tx *StoreTxn) stagedEntries() int {
+	return len(tx.createdObjects) + len(tx.scalarWrites) + len(tx.relationshipWrites) +
+		len(tx.propertyDefinitionDeletes) + len(tx.propertyDefines) + len(tx.propertyWrites) +
+		len(tx.propertyDeletes) + len(tx.verbWrites) + len(tx.verbDeletes) + len(tx.recycleWrites)
+}
+
+// writesByObject gathers the staged writes by the object they change: one entry
+// for every object the commit publishes an image for. The entries are reserved
+// once: no more than the staged entries, and past objIDSetLinearMax no more than
+// the objects the txn viewed, so many writes to one object reserve few entries.
+func (tx *StoreTxn) writesByObject() writeSet {
+	reserve := min(tx.stagedEntries(), max(objIDSetLinearMax, len(tx.objects)))
+	writes := writeSet{entries: make([]objectWrites, 0, reserve)}
+	at := writes.at
 	for id, base := range tx.createdObjects {
 		at(id).created = base
 	}
@@ -114,7 +180,8 @@ func (tx *StoreTxn) writesByObject() map[types.ObjID]*objectWrites {
 // ownImage gives w an image of id that this commit may change: a clone of the
 // created base with every version at ts, the anonymous object itself (anonymous
 // objects have no slot and are changed in place, under store.mu.Lock), or a
-// clone of the published image, which w.old keeps for history.
+// clone of the published image, which w.old keeps for history. The clone shares
+// the published image's verb nodes; applyTailWrites copies one before changing it.
 func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 	if w.created != nil {
 		w.img = cloneObjectForReadTxn(w.created)
@@ -127,7 +194,7 @@ func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 		return
 	}
 	w.old = live
-	w.img = cloneObjectForReadTxn(live)
+	w.img = cloneObjectSharingVerbs(live)
 }
 
 // applyHeadWrites applies w's scalar, relationship and property-definition
@@ -231,10 +298,14 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 		// A commit's preflight found the verb; a renumber replay
 		// (ApplyStagedObjectWrites) can meet a live image without it. A code edit
 		// leaves aliases and positions, and so the verb index, unchanged.
-		if verb := img.verbByID(write.id); verb != nil {
-			verb.setCodeCopy(write.code)
-			verb.version = ts
-			img.verbVersion = ts
+		for index, verb := range img.verbList {
+			if verb.id == write.id {
+				verb = ownVerbAt(img, index)
+				verb.setCodeCopy(write.code)
+				verb.version = ts
+				img.verbVersion = ts
+				break
+			}
 		}
 	}
 	for _, index := range w.verbDeletes {
@@ -254,29 +325,39 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 	return waifRootsDirty
 }
 
-// commitImages serves the store-side walk an exclusive commit runs: the walk
-// reads the images the commit is building, and an object the commit does not
-// write yet joins it, so it too is published once.
+// commitImages serves the store-side walk a commit holding store.mu.Lock runs:
+// the walk reads the images the commit is building, and an object the commit
+// does not write yet joins it in writes.joined, so it too is published once.
 type commitImages struct {
-	s      *Store
-	writes map[types.ObjID]*objectWrites
-	ts     uint64
+	s        *Store
+	writes   *writeSet
+	ts       uint64
+	joinHint int // sizes writes.joined when the walk first joins an object
 }
 
 func (c commitImages) view(id types.ObjID) *Object {
-	if w := c.writes[id]; w != nil {
+	if w := c.writes.get(id); w != nil {
 		return w.img
+	}
+	if img, ok := c.writes.joined[id]; ok {
+		return img
 	}
 	return c.s.liveObjectLocked(id)
 }
 
 func (c commitImages) own(obj *Object) *Object {
-	w := c.writes[obj.id]
-	if w == nil {
-		w = &objectWrites{}
-		c.s.ownImage(obj.id, w, c.ts)
-		c.writes[obj.id] = w
+	if w := c.writes.get(obj.id); w != nil {
+		return w.img
 	}
+	if img, ok := c.writes.joined[obj.id]; ok {
+		return img
+	}
+	var w objectWrites
+	c.s.ownImage(obj.id, &w, c.ts)
+	if c.writes.joined == nil {
+		c.writes.joined = make(map[types.ObjID]*Object, c.joinHint)
+	}
+	c.writes.joined[obj.id] = w.img
 	return w.img
 }
 
@@ -286,23 +367,37 @@ func (c commitImages) own(obj *Object) *Object {
 // store.mu.Lock, or store.mu.RLock and commitMu, and has validated and
 // preflighted writes.
 //
-// A define or definition delete changes the definer's image; each inheriting
-// descendant's slot was staged as its own write when the txn walked the
-// definer's children. With walkLive, which only a caller holding store.mu.Lock
-// may pass, the store also walks the children as they are now and gives each
-// descendant its slot, or takes it away: an unvalidated flush can meet a child
-// that joined after staging. That walk runs before the property writes, so a
-// staged write to a descendant's slot still lands last.
-func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts uint64, walkLive bool) {
+// A define or definition delete changes the definer's image. A snapshot txn
+// staged each inheriting descendant's slot as its own write when it walked the
+// definer's children; the writeNow writer stages the definer's write only. With
+// walkLive, which only a caller holding store.mu.Lock may pass, the store walks
+// the children as they are now and gives each descendant its slot, or takes it
+// away: an unvalidated flush can meet a child that joined after staging, and the
+// writer staged no descendant. A descendant with no staged write joins
+// writes.joined. That walk runs before the property writes, so a staged write to
+// a descendant's slot still lands last.
+func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bool) {
 	s := tx.store
 	waifRootsDirty := false
 	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
-	for id, w := range writes {
-		s.ownImage(id, w, ts)
+	for i := range writes.entries {
+		w := &writes.entries[i]
+		s.ownImage(w.id, w, ts)
 		applyHeadWrites(w.img, w, ts)
 	}
 	if walkLive {
 		images := commitImages{s: s, writes: writes, ts: ts}
+		// Each definer's own children are the least the walk can join.
+		for key := range tx.propertyDefinitionDeletes {
+			if definer := images.view(key.objID); definer != nil {
+				images.joinHint += len(definer.children)
+			}
+		}
+		for key := range tx.propertyDefines {
+			if definer := images.view(key.objID); definer != nil {
+				images.joinHint += len(definer.children)
+			}
+		}
 		for key, actualName := range tx.propertyDefinitionDeletes {
 			s.removeInheritedPropertyLocked(images, key.objID, actualName, ts)
 		}
@@ -310,7 +405,9 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 			s.propagatePropertyToDescendantsLocked(images, key.objID, def.name, def.prop, ts)
 		}
 	}
-	for id, w := range writes {
+	for i := range writes.entries {
+		w := &writes.entries[i]
+		id := w.id
 		if w.recycle || len(w.defines)+len(w.defDeletes)+len(w.propDeletes) > 0 {
 			waifRootsDirty = true
 		}
@@ -329,8 +426,14 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 			casMaxID(&s.maxObjID, id)
 			s.publishLocked(id, w.img)
 		case w.old != nil:
-			s.rememberOldImageLocked(w.old)
-			s.publishLocked(id, w.img)
+			s.replaceImageLocked(id, w.old, w.img)
+		}
+	}
+	for id, img := range writes.joined {
+		// An anonymous object's image is the object itself, changed in place. No
+		// entry publishes a joined id, so its slot still holds the image replaced.
+		if old := s.liveObjectLocked(id); old != img {
+			s.replaceImageLocked(id, old, img)
 		}
 	}
 	// Each WAIF guards its own images with its own mutex. The store's WAIF history
@@ -357,7 +460,10 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 	// registered before the clock moved, so the floor sampled here is at or below
 	// it and the prune keeps those images.
 	floor := s.historyFloor()
-	for id := range writes {
+	for i := range writes.entries {
+		s.pruneObjectHistory(writes.entries[i].id, floor)
+	}
+	for id := range writes.joined {
 		s.pruneObjectHistory(id, floor)
 	}
 	if waifRootsDirty {
@@ -374,29 +480,19 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 // buildImageForVerbArgs detaches every non-verb facet as a full clone would, but
 // shares unchanged verb nodes whose backing arrays have already been copied.
 // The returned target is always fresh; the caller stamps/edits only that node
-// under store.mu.Lock.
+// under store.mu.Lock. Args do not alter alias spellings/order or the index's
+// list positions, so the image keeps old's verb index.
 func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
-	img := cloneObjectNonVerbState(old)
-	var updated *Verb
-	if target.backingOwned {
-		copy := *target
-		updated = &copy
-	} else {
-		updated = cloneVerbForReadTxn(target)
-	}
-	img.verbList = make([]*Verb, 0, len(old.verbList))
-	for _, node := range old.verbList {
-		switch {
-		case node == target:
-			node = updated
-		case node != nil && !node.backingOwned:
-			node = cloneVerbForReadTxn(node)
-		}
-		img.verbList = append(img.verbList, node)
-	}
-	// Args do not alter alias spellings/order or the index's list positions.
-	img.verbIdx = old.verbIdx
-	return img, updated
+	img := cloneObjectSharingVerbs(old)
+	index := slices.Index(old.verbList, target)
+	return img, ownVerbAt(img, index)
+}
+
+// replaceImageLocked publishes img in id's slot and keeps old, the image it
+// replaces, in history.
+func (s *Store) replaceImageLocked(id types.ObjID, old, img *Object) {
+	s.rememberOldImageLocked(old)
+	s.publishLocked(id, img)
 }
 
 // rememberOldImageLocked stashes an already-immutable old published image as the

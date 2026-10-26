@@ -6,7 +6,8 @@ import (
 	"slices"
 )
 
-func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
+// createAnonymous creates an anonymous object as a child of parents, owned by owner.
+func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -19,13 +20,11 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 
 	obj := NewObject(newID, owner)
 	obj.parents = append([]types.ObjID(nil), parents...)
-	obj.anonymous = anonymous
-	if anonymous {
-		obj.flags = obj.flags.Set(FlagAnonymous)
-		// Record that an anonymous object was created so the orphan-anon GC
-		// fast-path can detect creations since a task's floor without s.mu.
-		s.anonCreations.Add(1)
-	}
+	obj.anonymous = true
+	obj.flags = obj.flags.Set(FlagAnonymous)
+	// Record that an anonymous object was created so the orphan-anon GC
+	// fast-path can detect creations since a task's floor without s.mu.
+	s.anonCreations.Add(1)
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
 	s.shareCreatedProperties(obj.properties)
 	stampObjectAll(obj, ts)
@@ -36,25 +35,21 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 	for _, parentID := range obj.parents {
 		s.republishForMutation(s.load(parentID))
 	}
-	if anonymous {
-		// Anonymous objects live out-of-band in s.anonObjects, never in the
-		// numbered directory (see the field comment in store_core.go and
-		// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
-		// has id == NOTHING and is removed from the numbered objects[] array
-		// (db_make_anonymous, db_objects.cc:449); it is only assigned an
-		// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
-		// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
-		// scan, and serializer over a single set of anonymous objects, so a
-		// runtime-created anon survives a checkpoint just like a loaded one.
-		//
-		// allocateID already bumped highWaterID so the identity id (newID) is never
-		// handed out again; we do NOT touch maxObjID (anonymous objects must not affect
-		// max_object()).
-		s.anonObjects[newID] = obj
-	} else {
-		s.insertObjectLocked(obj)
-	}
-	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
+	// Anonymous objects live out-of-band in s.anonObjects, never in the
+	// numbered directory (see the field comment in store_core.go and
+	// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
+	// has id == NOTHING and is removed from the numbered objects[] array
+	// (db_make_anonymous, db_objects.cc:449); it is only assigned an
+	// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
+	// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
+	// scan, and serializer over a single set of anonymous objects, so a
+	// runtime-created anon survives a checkpoint just like a loaded one.
+	//
+	// allocateID already bumped highWaterID so the identity id (newID) is never
+	// handed out again; we do NOT touch maxObjID (anonymous objects must not affect
+	// max_object()).
+	s.anonObjects[newID] = obj
+	s.attachChildToParentsLocked(newID, obj.parents, true, false)
 	for _, parentID := range obj.parents {
 		stampObjectRelationship(s.load(parentID), ts)
 	}
@@ -65,52 +60,6 @@ func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous
 // id ever allocated, anonymous objects included. Recycled ids are not reused.
 func (s *Store) NextID() types.ObjID {
 	return s.highWater() + 1
-}
-
-// maxObject returns max_object(): the highest numbered (non-anonymous) id
-// allocated, recycled ids included.
-func (s *Store) maxObject() types.ObjID {
-	return s.maxObjectID()
-}
-
-// valid reports whether id names a live object, numbered or anonymous.
-func (s *Store) valid(id types.ObjID) bool {
-	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Check if ID exceeds high water mark (includes anonymous objects)
-	if id > s.highWater() {
-		return false
-	}
-
-	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
-	// runtime-created via create(...,1), which lives only in s.anonObjects)
-	// is reported valid, not just numbered objects. liveObjectLocked already
-	// excludes recycled/invalidated objects.
-	return s.liveObjectLocked(id) != nil
-}
-
-// isRecycled reports whether id names a recycled numbered object, as opposed to
-// a live one or an id that never existed.
-func (s *Store) isRecycled(id types.ObjID) bool {
-	if id < 0 {
-		return false
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.load(id)
-	if obj == nil {
-		return false
-	}
-
-	return obj.recycled
 }
 
 // Recycle marks an object as recycled.

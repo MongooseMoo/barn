@@ -5,9 +5,6 @@ import (
 )
 
 func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDuplicateDefinedPropertyAmong(ids)
-	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
 		obj := tx.object(id)
@@ -30,9 +27,6 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 }
 
 func (tx *StoreTxn) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.definedPropertyNamesInAncestry(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -71,9 +65,6 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 }
 
 func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyConflictWithAncestry(objID, parentIDs)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -95,9 +86,6 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 }
 
 func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasChparentDescendantPropertyConflict(objID, names)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -191,13 +179,15 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID, oldParents []ty
 			return types.E_INVIND
 		}
 		obj, cached := tx.objects[id]
-		if cached && obj != nil && (tx.owned[id] || live.anonymous || !sameOutsideProperties(obj, live)) {
+		if cached && obj != nil && (tx.owned[id] != 0 || live.anonymous || !sameOutsideProperties(obj, live)) {
 			// The txn's view of an object it has read keeps its other facets
-			// and takes the live slots; its staged writes are replayed below.
-			if !tx.owned[id] {
+			// and takes the live slots; its staged writes are replayed below,
+			// and they change only the properties.
+			if tx.owned[id] == 0 {
 				obj = tx.privatizeCached(id, obj)
 			}
 			obj.properties = live.properties.clone()
+			tx.owned[id] |= facetProperties
 			obj.propertyVersion = live.propertyVersion
 			obj.propertyShapeVersion = live.propertyShapeVersion
 		} else if live.anonymous {
@@ -298,7 +288,14 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.O
 	return result
 }
 
+// propagateDefinedProperty stages the inherited slot a define gives each
+// descendant, and changes the txn's private view of it. The writeNow writer has
+// no view to keep and publishes under the lock it read under, so the store's own
+// walk gives the descendants their slots (publishStagedLocked).
 func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, prop Property) {
+	if tx.locked {
+		return
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -314,9 +311,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child is mutated in place below (reseed inherited slot), so it must be
-			// a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			// child's properties are changed in place below (reseed inherited slot),
+			// so they must be a txn-private copy's own, not a shared alias.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -354,12 +351,12 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 				if existing.defined {
 					continue
 				}
-				tx.mutableObject(anonID).properties.remove(actualName)
+				tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
 			} else {
 				tx.markPropertyScan(anonID, anon)
 			}
 			override := inheritedSlot(prop, anon.owner)
-			tx.mutableObject(anonID).properties.put(propertyNameKey(name), override)
+			tx.mutableFacets(anonID, facetProperties).properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: anonID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
@@ -372,9 +369,6 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 }
 
 func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyInDescendants(objID, name)
-	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -410,9 +404,9 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 
 func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.deleteDefinedProperty(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DeleteDefinedProperty(objID, name) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -445,7 +439,13 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	return types.E_NONE
 }
 
+// removeInheritedProperty stages the delete of each descendant's inherited slot
+// for a definition delete. As in propagateDefinedProperty, the writeNow writer
+// leaves the descendants to the store's walk.
 func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
+	if tx.locked {
+		return
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -461,9 +461,9 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child.properties is mutated in place below when it holds an inherited
-			// (non-defined) slot, so it must be a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			// child.properties is changed in place below when it holds an inherited
+			// (non-defined) slot, so it must be a txn-private copy's own.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -500,7 +500,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 			if prop.defined {
 				continue
 			}
-			tx.mutableObject(anonID).properties.remove(actualName)
+			tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
 			key := propertyWriteKey{objID: anonID, name: propertyNameKey(actualName)}
 			delete(tx.propertyWrites, key)
 			lazySet(&tx.propertyDeletes, key, actualName)

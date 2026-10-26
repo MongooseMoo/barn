@@ -368,11 +368,11 @@ func TestShareLoadedPropertySlotsKeepsEveryObjectsProperties(t *testing.T) {
 		got := make(map[string]reading)
 		for _, id := range []types.ObjID{parent, first, second} {
 			for _, name := range []string{"color", "size"} {
-				view, ec := s.findProperty(id, name)
+				view, ec := s.DirectTxn().FindProperty(id, name)
 				if ec != types.E_NONE {
 					t.Fatalf("#%d.%s: %v", id, name, ec)
 				}
-				clear, ec := s.propertyClearState(id, name)
+				clear, ec := s.DirectTxn().PropertyClearState(id, name)
 				if ec != types.E_NONE {
 					t.Fatalf("#%d.%s clear state: %v", id, name, ec)
 				}

@@ -51,7 +51,7 @@ func TestChownFlagSlotsOwnedByEachObjectOwner(t *testing.T) {
 
 			for obj, owner := range map[types.ObjID]types.ObjID{p: 10, existing: 20, created: 30, moved: 40} {
 				for name, want := range map[string]types.ObjID{"cx": owner, "nx": 5} {
-					view, code := s.findProperty(obj, name)
+					view, code := s.DirectTxn().FindProperty(obj, name)
 					if code != types.E_NONE {
 						t.Fatalf("#%d.%s: %v", obj, name, code)
 					}

@@ -169,147 +169,13 @@ func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool)
 	return VerbCandidate{}, false
 }
 
-// findVerb resolves a verb, searching objID and then its ancestors
-// breadth-first, and returns a flat, read-only VerbView value plus the object
-// it was found on. The store never hands out a live *Verb to external callers.
-func (s *Store) findVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	verb, definer, err := s.findVerbLocked(objID, verbName)
-	if err != nil {
-		return VerbView{}, definer, err
-	}
-	return verb.View(), definer, nil
-}
-
-// findCallableVerb resolves a verb for call dispatch (obj:verb(...) syntax).
-// Unlike findVerb, a same-named verb without execute permission does not
-// shadow an executable verb of the same name defined further up the
-// ancestry chain; the search continues past it. See findCallableVerbLocked.
-func (s *Store) findCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	verb, definer, err := s.findCallableVerbLocked(objID, verbName)
-	if err != nil {
-		return VerbView{}, definer, err
-	}
-	return verb.View(), definer, nil
-}
-
-func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
-	return s.findVerbWalkLocked(objID, verbName, false)
-}
-
-// findCallableVerbLocked walks the ancestry chain exactly like findVerbLocked,
-// but a same-named verb that lacks the execute ("x") permission does not
-// shadow same-named verbs on more distant ancestors: the walk treats it as a
-// non-match and keeps searching further up the chain. ToastStunt's verb-call
-// dispatch behaves this way — a subclass can define a private, non-executable
-// verb of a given name without breaking calls that resolve through it to a
-// public, executable verb defined higher up (e.g. a player class "room area"
-// verb with perms "d" does not block dispatch to $root_class's executable
-// "area room" verb of the same name).
-func (s *Store) findCallableVerbLocked(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
-	return s.findVerbWalkLocked(objID, verbName, true)
-}
-
-func (s *Store) findVerbWalkLocked(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
-	return s.findVerbWalkFromQueueLocked([]types.ObjID{objID}, verbName, requireExecute)
-}
-
-// findVerbWalkFromQueueLocked is the shared breadth-first ancestry walk used by
-// findVerbWalkLocked (queue seeded with the object itself) and
-// findParentCallableVerbLocked (queue seeded with verbLoc's parents, to skip
-// verbLoc's own verbs for pass()).
-func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
-	// Track visited objects to prevent infinite loops
-	visited := make(map[types.ObjID]bool)
-	searchLower := strings.ToLower(verbName)
-
-	for len(queue) > 0 {
-		// Pop from front (FIFO for breadth-first)
-		current := queue[0]
-		queue = queue[1:]
-
-		// Skip if already visited (cycle detection)
-		if visited[current] {
-			continue
-		}
-		visited[current] = true
-
-		// Get object (skip if invalid). liveObjectLocked resolves both numbered and
-		// anonymous objects, so a verb call dispatched on a runtime anon value
-		// (a:verb()) finds the anon entry node, then walks its numbered parents.
-		obj := s.liveObjectLocked(current)
-		if obj == nil {
-			continue
-		}
-
-		// Scan this object's verbs in definition order and return the first whose
-		// name or alias matches. Toast resolves alias collisions by definition
-		// order (the first-declared verb wins).
-		for _, verb := range obj.verbList {
-			for _, alias := range verb.lowerNames {
-				if matchVerbNameLowered(alias, searchLower) {
-					if !requireExecute || verb.perms.Has(VerbExecute) {
-						return verb, current, nil
-					}
-				}
-			}
-		}
-
-		// Not found on this object, add parents to queue
-		queue = append(queue, obj.parents...)
-	}
-
-	// Verb not found in entire inheritance chain
-	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
-}
-
-// findVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
-// the inheritance chain. The verb-metadata builtins (verb_info, verb_args,
-// verb_code) inspect only an object's own verbs: ToastStunt returns E_VERBNF
-// when the name resolves only to an inherited verb. Matching honors aliases and
-// the `*` wildcard, exactly like findVerb but limited to this one object.
-func (s *Store) findVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	verb, err := s.findVerbOnObjectLocked(objID, verbName)
-	if err != nil {
-		return VerbView{}, err
-	}
-	return verb.View(), nil
-}
-
-// resolveVerbOnObject resolves verbName on objID itself and returns an opaque
-// reference suitable for deleteResolvedVerb.
-func (s *Store) resolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	verb, err := s.findVerbOnObjectLocked(objID, verbName)
-	if err != nil {
-		return ResolvedVerb{}, err
-	}
-	for index, candidate := range obj.verbList {
-		if candidate == verb {
-			return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, nil
-		}
-	}
-	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
-}
-
 func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 
-	// Definition-order scan (see findVerbWalkFromQueueLocked) so colliding
+	// Definition-order scan (as StoreTxn.findVerbOnObject) so colliding
 	// aliases resolve to the first-declared verb.
 	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
@@ -320,52 +186,6 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 		}
 	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
-}
-
-func (s *Store) verbNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return nil, types.E_INVIND
-	}
-
-	names := make([]string, 0, len(obj.verbList))
-	for _, verb := range obj.verbList {
-		names = append(names, strings.Join(verb.names, " "))
-	}
-	return names, types.E_NONE
-}
-
-func (s *Store) verbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return VerbView{}, types.E_INVIND
-	}
-	if index < 0 || index >= len(obj.verbList) {
-		return VerbView{}, types.E_RANGE
-	}
-	return obj.verbList[index].View(), types.E_NONE
-}
-
-// resolveVerbByIndex resolves an index on objID to an opaque reference suitable
-// for deleteResolvedVerb.
-func (s *Store) resolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return ResolvedVerb{}, types.E_INVIND
-	}
-	if index < 0 || index >= len(obj.verbList) {
-		return ResolvedVerb{}, types.E_RANGE
-	}
-	return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
 }
 
 func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
@@ -419,43 +239,6 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		}
 	}
 	return types.E_VERBNF
-}
-
-// deleteResolvedVerb deletes exactly the definition previously selected by
-// resolveVerbOnObject or resolveVerbByIndex. If the object's verb list changed after resolution, it
-// fails without mutation instead of applying a stale index to another verb.
-func (s *Store) deleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.deleteResolvedVerbLocked(resolved)
-}
-
-// deleteResolvedVerbAuthorized validates the resolved verb identity and the
-// programmer's current live authority, then deletes the verb while holding one
-// store lock. It is the no-transaction fallback for delete_verb; transaction
-// callers stage deletion on StoreTxn so commit validation precedes mutation.
-// Identity validation precedes authority validation so a stale or missing
-// descriptor retains delete_verb's E_VERBNF-before-E_PERM precedence.
-func (s *Store) deleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if errCode := s.validateResolvedVerbDeleteAuthorityLocked(resolved, programmer, isWizard); errCode != types.E_NONE {
-		return errCode
-	}
-	return s.deleteResolvedVerbLocked(resolved)
-}
-
-func (s *Store) validateResolvedVerbDeleteAuthorityLocked(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
-	if errCode := s.validateResolvedVerbLocked(resolved); errCode != types.E_NONE {
-		return errCode
-	}
-	obj := s.liveObjectLocked(resolved.objID)
-	if !ObjectAllows(obj.owner, obj.flags, programmer, isWizard, FlagWrite) {
-		return types.E_PERM
-	}
-	return types.E_NONE
 }
 
 func (s *Store) validateResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode {
@@ -604,88 +387,6 @@ func (s *Store) setVerbArgs(objID types.ObjID, find func() *Verb, argSpec VerbAr
 	stampObjectVerbs(s.load(objID), ts)
 	s.noteVerbShapeChanged()
 	return types.E_NONE
-}
-
-// setVerbCode replaces the source of a verb defined on objID itself. Compiled
-// programs are not stored on the verb, so this writes the source and its
-// content key only.
-func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.liveObjectLocked(objID) == nil {
-		return types.E_INVIND
-	}
-	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
-	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
-	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
-	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
-	verb, err := s.findVerbOnObjectLocked(objID, name)
-	if err != nil {
-		return types.E_VERBNF
-	}
-	s.republishForMutation(s.load(objID))
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
-		return types.E_VERBNF
-	}
-	ts := s.bumpClockLocked()
-	// set_verb_code installs a program (even an empty one) on the verb, and
-	// setCodeCopy refreshes the content key with it.
-	verb.setCodeCopy(lines)
-	stampVerb(verb, ts)
-	stampObjectVerbs(s.load(objID), ts)
-	s.noteVerbShapeChanged()
-	return types.E_NONE
-}
-
-func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	if index < 0 || index >= len(obj.verbList) {
-		return types.E_RANGE
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	verb := obj.verbList[index]
-	// set_verb_code installs a program (even an empty one) on the verb, and
-	// setCodeCopy refreshes the content key with it.
-	verb.setCodeCopy(lines)
-	stampVerb(verb, ts)
-	stampObjectVerbs(obj, ts)
-	s.noteVerbShapeChanged()
-	return types.E_NONE
-}
-
-// findParentVerb resolves the verb pass() delegates to: the same-named verb
-// on an ancestor of verbLoc, found by the same skip-non-executable-and-continue
-// walk as call dispatch (findCallableVerb) — ToastStunt's pass() calls the
-// same db_find_callable_verb lookup obj:verb() dispatch uses, so a
-// non-executable same-named verb on an intermediate ancestor must not shadow
-// an executable one defined further up the chain.
-func (s *Store) findParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	verb, definer, err := s.findParentCallableVerbLocked(verbLoc, verbName)
-	if err != nil {
-		return VerbView{}, definer, err
-	}
-	return verb.View(), definer, nil
-}
-
-func (s *Store) findParentCallableVerbLocked(verbLoc types.ObjID, verbName string) (*Verb, types.ObjID, error) {
-	verbLocObj := s.liveObjectLocked(verbLoc)
-	if verbLocObj == nil {
-		return nil, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
-	}
-
-	queue := append([]types.ObjID(nil), verbLocObj.parents...)
-	return s.findVerbWalkFromQueueLocked(queue, verbName, true)
 }
 
 // FindLocalVerbForProgramming reports whether a verb with the given name exists

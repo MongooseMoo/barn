@@ -170,6 +170,15 @@ type plainScratch struct {
 	inUse   bool
 }
 
+// The direct transaction is shared between goroutines, so its walks cannot use
+// its own scratch: each takes one from these pools and puts it back. A direct
+// walk's steps are never read (its memos are off), so it returns none.
+var (
+	directVerbScratch  = sync.Pool{New: func() any { return new(verbScratch) }}
+	directPropScratch  = sync.Pool{New: func() any { return new(propScratch) }}
+	directPlainScratch = sync.Pool{New: func() any { return new(plainScratch) }}
+)
+
 // verbResolveKey keys the verb memo by the QUERIED name, verbatim. Storing the
 // resolved target under the exact string the caller asked for is what preserves
 // alias and `*` wildcard semantics (matchVerbNameLowered): the memo never has
@@ -214,9 +223,10 @@ type propResolveEntry struct {
 }
 
 // resolveCacheActive gates property memoization. Local verb entries instead
-// validate that every object on their path is unowned.
+// validate that every object on their path is unowned. A live transaction
+// reads the store as it is now, which no memo describes.
 func (tx *StoreTxn) resolveCacheActive() bool {
-	return len(tx.owned) == 0
+	return !tx.live() && len(tx.owned) == 0
 }
 
 // verbMemoActive gates the store-global verb dispatch memo. A memo entry names
@@ -228,7 +238,7 @@ func (tx *StoreTxn) resolveCacheActive() bool {
 // materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
 // predates a verb-shape change (validateVerbReadsLocked).
 func (tx *StoreTxn) verbMemoActive() bool {
-	return !tx.privateVerbShape
+	return !tx.live() && !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -246,7 +256,7 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 // walk visited is still the identical immutable, unowned *Object pointer.
 func (tx *StoreTxn) verbStepsCurrent(steps []verbWalkStep) bool {
 	for i := range steps {
-		if tx.owned[steps[i].id] || tx.objects[steps[i].id] != steps[i].obj {
+		if tx.owned[steps[i].id] != 0 || tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
 	}
@@ -377,7 +387,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 	// An unowned definer is an immutable image, so the same *Verb yields the
 	// same read mark; a private copy can be edited in place and is re-marked.
 	marked := verb
-	if precise && tx.owned[entry.definer] {
+	if precise && tx.owned[entry.definer] != 0 {
 		marked = nil
 	}
 	if marked == nil || local.verb != marked {
@@ -444,7 +454,7 @@ func (tx *StoreTxn) setVerbMemoSeen(entry *verbDispatchMemoEntry, state uint8) {
 // this txn's view, so the caller can fall back to a real walk.
 func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
 	for _, id := range path {
-		if obj := tx.object(id); obj == nil || obj.recycled {
+		if !validLiveObject(tx.object(id)) {
 			return false
 		}
 	}
@@ -531,8 +541,11 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
+	if tx.live() {
+		return
+	}
 	for _, step := range steps {
-		if tx.owned[step.id] {
+		if tx.owned[step.id] != 0 {
 			return
 		}
 	}

@@ -100,6 +100,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	}
 	obj.verbIdx = live.verbIdx // same aliases in the same order as live
 	obj.verbVersion = live.verbVersion
+	tx.owned[objID] |= facetVerbs // a fresh list of fresh nodes
 	tx.verbScans[objID] = live.verbVersion
 	for key := range tx.verbReads {
 		if key.objID != objID {
@@ -146,7 +147,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		obj := tx.objects[objID]
 		if obj == nil {
 			obj = tx.privatizeCached(objID, live)
-		} else if !tx.owned[objID] {
+		} else if tx.owned[objID] == 0 {
 			obj = tx.privatizeCached(objID, obj)
 		}
 		obj.location = live.location
@@ -158,6 +159,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		for id, tracked := range live.chparentChildren {
 			obj.chparentChildren[id] = tracked
 		}
+		tx.owned[objID] |= facetContents | facetChildren // fresh slices
 		obj.relationshipVersion = live.relationshipVersion
 		tx.relationshipReads[objID] = live.relationshipVersion
 	}
@@ -294,15 +296,17 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	if !validLiveObject(obj) {
 		return
 	}
-	w := tx.writesByObject()[objID]
+	writes := tx.writesByObject()
+	w := writes.get(objID)
 	if w == nil {
 		return
 	}
-	// The replay writes the view in place; privatize first so an aliased shared
-	// image is never written. Lock-free: no store.mu held here.
-	if !tx.owned[objID] {
+	// The replay writes every facet of the view in place; privatize first so an
+	// aliased shared image is never written. Lock-free: no store.mu held here.
+	if tx.owned[objID] == 0 {
 		obj = tx.privatizeCached(objID, obj)
 	}
+	tx.ownFacets(objID, obj, facetsAll)
 	adopted := *obj
 	applyHeadWrites(obj, w, tx.readTS)
 	tx.applyTailWrites(obj, w, tx.readTS, true)
@@ -354,7 +358,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 			return errCode
 		}
 	}
-	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(&writes); errCode != types.E_NONE {
 		tx.store.mu.Unlock()
 		return tx.markTerminal(errCode)
 	}
@@ -366,7 +370,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		recycledByFlush[id] = true
 	}
-	tx.publishStagedLocked(writes, tx.store.clock.Load()+1, true)
+	tx.publishStagedLocked(&writes, tx.store.clock.Load()+1, true)
 	tx.store.mu.Unlock()
 
 	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
@@ -432,6 +436,6 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 		}
 	}
 	tx.store.mu.RUnlock()
-	tx.owned = make(map[types.ObjID]bool)
+	tx.owned = make(map[types.ObjID]objectFacets)
 	return types.E_NONE
 }

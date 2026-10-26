@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -11,9 +12,12 @@ import (
 )
 
 type StoreTxn struct {
-	readTS                    uint64
-	store                     *Store
-	direct                    bool
+	readTS uint64
+	store  *Store
+	direct bool
+	// locked is set on the private writer of writeNow, whose caller holds
+	// store.mu.Lock for the writer's whole life.
+	locked                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
 	gateWait                  func(time.Duration)
@@ -61,12 +65,14 @@ type StoreTxn struct {
 	// reached through keyed access (store_txn_mapkeys.go). A slot with a
 	// whole read in propertyReads is validated by that read instead.
 	mapKeys map[propertyReadKey]*mapKeyState
-	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
-	// than aliases of a shared immutable published image. Reads (tx.object) may cache
-	// an alias; the first staged write to an object must materialize a private copy
-	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
-	// through to a shared image. Left nil until the first write, like the write maps.
-	owned map[types.ObjID]bool
+	// owned marks which entries in `objects` are txn-PRIVATE copies rather than
+	// aliases of a shared immutable published image, and which of each copy's
+	// facets are its own. Reads (tx.object) may cache an alias; the first staged
+	// write to an object must materialize a private copy (mutableFacets,
+	// copy-on-write) naming the facets it writes, so no staging code ever writes
+	// through to a shared image. Any non-zero value means the object is private.
+	// Left nil until the first write, like the write maps.
+	owned map[types.ObjID]objectFacets
 	// createdObjects holds the PRISTINE creation-time base image of each object created
 	// in this txn (decentralized create). It is separate from the `objects` cache (which
 	// also holds the object for read-your-writes and may accumulate the txn's own
@@ -160,6 +166,83 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
+}
+
+// writerKeepLimit bounds what the store's writeNow writer keeps between writes.
+// Maps never shrink, so a writer that staged more entries or cached more objects
+// than this is dropped after its write instead of reused: one wide write does
+// not pin its maps for the life of the store. An ordinary direct write touches one to three objects.
+const writerKeepLimit = 256
+
+// lockedWriter resets the store's one writeNow writer and returns it. The caller
+// holds store.mu.Lock until the writer is done, so the writer is never in use
+// twice. It reads the store as it is now and registers no read timestamp,
+// because it is never validated or released. The reset names everything it
+// keeps (emptied maps and walk scratch); every other field starts at its zero
+// value, so nothing staged by an earlier write survives.
+func (s *Store) lockedWriter() *StoreTxn {
+	w := &s.writer
+	objects, owned := w.objects, w.owned
+	clear(objects)
+	clear(owned)
+	if objects == nil {
+		objects = make(map[types.ObjID]*Object)
+	}
+	*w = StoreTxn{
+		readTS:                    math.MaxUint64,
+		store:                     s,
+		locked:                    true,
+		objects:                   objects,
+		owned:                     owned,
+		scalarWrites:              w.scalarWrites,
+		relationshipWrites:        w.relationshipWrites,
+		propertyDefines:           w.propertyDefines,
+		propertyDefinitionDeletes: w.propertyDefinitionDeletes,
+		propertyWrites:            w.propertyWrites,
+		propertyDeletes:           w.propertyDeletes,
+		verbWrites:                w.verbWrites,
+		verbDeletes:               w.verbDeletes,
+		createdObjects:            w.createdObjects,
+		recycleWrites:             w.recycleWrites,
+		verbWalk:                  w.verbWalk,
+		propWalk:                  w.propWalk,
+		parentWalk:                w.parentWalk,
+		maxObjID:                  s.maxObjectID(),
+		highWaterID:               s.highWater(),
+		conflictLabel:             ConflictLabel{Obj: types.ObjNothing},
+	}
+	w.clearStagedWrites()
+	return w
+}
+
+// writeNow is how the direct transaction writes: op runs on the store's writer,
+// which reads the live store under store.mu.Lock, and what it staged is
+// published before the lock is released. Nothing else can run between the reads
+// and the publication, so there is nothing to validate. A failed op publishes
+// nothing.
+func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.lockedWriter()
+	errCode := op(w)
+	wide := w.stagedEntries() > writerKeepLimit || len(w.objects) > writerKeepLimit
+	if errCode == types.E_NONE && w.hasStagedWrites() {
+		// The writer staged each definition on its definer only; the store walks
+		// the definer's children as they are now, under this lock.
+		writes := w.writesByObject()
+		w.publishStagedLocked(&writes, s.clock.Load()+1, true)
+	}
+	if wide {
+		s.writer = StoreTxn{}
+	}
+	return errCode
+}
+
+// live reports whether tx reads the store as it is now: the shared direct
+// transaction, or a writeNow writer. Neither is validated, so neither records
+// reads or memoizes resolutions.
+func (tx *StoreTxn) live() bool {
+	return tx.direct || tx.locked
 }
 
 func (tx *StoreTxn) ReadTimestamp() uint64 {

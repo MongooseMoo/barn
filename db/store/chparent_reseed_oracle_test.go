@@ -63,7 +63,7 @@ func TestChangeParentsReseedMatchesToastRule(t *testing.T) {
 				return s.liveObjectLocked(id)
 			}
 			ancestry := func(id types.ObjID) map[types.ObjID]bool {
-				list, code := s.ancestors(id, false)
+				list, code := s.DirectTxn().Ancestors(id, false)
 				if code != types.E_NONE {
 					t.Fatalf("ancestors #%d: %v", id, code)
 				}

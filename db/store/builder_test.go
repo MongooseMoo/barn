@@ -57,7 +57,7 @@ func TestBuildKeepsOnlyDefinedNamesInPropOrder(t *testing.T) {
 	if err := s.Add(obj); err != nil {
 		t.Fatal(err)
 	}
-	names, code := s.definedPropertyNames(2)
+	names, code := s.DirectTxn().DefinedPropertyNames(2)
 	if code != types.E_NONE || !slices.Equal(names, want) {
 		t.Fatalf("definedPropertyNames = %v (%v), want %v", names, code, want)
 	}
