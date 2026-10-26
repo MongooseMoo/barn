@@ -40,6 +40,8 @@ object.
   `go test ./builtins ./db/store` ok. Conformance on the fix build, K="verb_setter_error_precedence
   or set_verb_info or set_verb_args or numeric_preposition or verb_info_empty_names":
   `156 passed`; same selection on Toast `156 passed`.
+- Rebased onto origin/master 8715c6bf (fix commit b3e045c5). After the rebase:
+  `go test ./builtins ./db/store` ok/ok; the new conformance file `28 passed`.
 - PR drafts: session scratchpad pr-b13-barn.md, pr-b13-mct.md. Merge barn first.
 
 ## Decisions
