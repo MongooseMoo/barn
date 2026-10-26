@@ -293,8 +293,8 @@ func collectWaifsInto(value types.Value, set *types.WaifSet, retained bool) {
 	}
 }
 
-// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch
-// and, for one (waifRootsEpoch, types.WaifGraphEpoch) pair, the expanded
+// persistentWaifRootsEntry memoizes the top-level scan for one waifRoots.epoch
+// and, for one (waifRoots.epoch, types.WaifGraphEpoch) pair, the expanded
 // closure as an immutable set shared by every caller.
 type persistentWaifRootsEntry struct {
 	epoch      uint64
@@ -352,10 +352,10 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 // Two memos, because the two inputs change at different rates. The walk over
 // every property of every object (the finalizer asks after every task that let
 // a WAIF leave scope, and on a large database that scan dominated the task) is
-// memoized per waifRootsEpoch, which every store write that can add or remove
+// memoized per waifRoots.epoch, which every store write that can add or remove
 // a waif from a property value bumps (noteWaifRootsChanged). The expansion of
 // those roots through current and retained WAIF images is memoized per
-// (waifRootsEpoch, types.WaifGraphEpoch), including history retirement.
+// (waifRoots.epoch, types.WaifGraphEpoch), including history retirement.
 func (s *Store) PersistentWaifRootSet() *types.WaifSet {
 	return s.persistentWaifRootSet(true)
 }
@@ -367,9 +367,9 @@ func (s *Store) CommittedWaifRootSet() *types.WaifSet {
 
 func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	s.mu.RLock()
-	epoch := s.waifRootsEpoch.Load()
+	epoch := s.waifRoots.epoch.Load()
 	graphEpoch := types.WaifGraphEpoch()
-	entry := s.waifRootsCache.Load()
+	entry := s.waifRoots.cache.Load()
 	if retained && entry != nil && entry.epoch == epoch && entry.graphEpoch == graphEpoch {
 		s.mu.RUnlock()
 		return entry.closure
@@ -403,7 +403,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 		collectWaifsInto(waif, closure, retained)
 	}
 	if retained {
-		s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
+		s.waifRoots.cache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
 	}
 	return closure
 }

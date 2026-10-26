@@ -41,6 +41,15 @@ type readTSShard struct {
 	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56; rounded clear of a line
 }
 
+// waifRootsMemo memoizes the PersistentWaifRoots top-level scan. epoch
+// advances whenever the set of WAIFs held directly by live objects' property
+// values may have changed; cache is valid for one epoch. See
+// noteWaifRootsChanged.
+type waifRootsMemo struct {
+	epoch atomic.Uint64
+	cache atomic.Pointer[persistentWaifRootsEntry]
+}
+
 type Store struct {
 	mu sync.RWMutex
 	// commitMu serializes decentralized commits. It is taken inside
@@ -128,11 +137,8 @@ type Store struct {
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
-	// waifRootsEpoch advances whenever the set of WAIFs held directly by live
-	// objects' property values may have changed; waifRootsCache memoizes the
-	// PersistentWaifRoots top-level scan for one epoch. See noteWaifRootsChanged.
-	waifRootsEpoch atomic.Uint64
-	waifRootsCache atomic.Pointer[persistentWaifRootsEntry]
+	// waifRoots memoizes the PersistentWaifRoots scan (waifRootsMemo).
+	waifRoots waifRootsMemo
 	// verbDispatchMemo caches verb resolution (object, name, execute-required)
 	// -> (definer, map key) across transactions; verbShapeChangeTS is the clock
 	// value taken after the most recent change that can alter any resolution
@@ -347,7 +353,7 @@ func (s *Store) bumpClockLocked() uint64 {
 // publishes. A value write whose old and
 // new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
 // epoch alone, which is what keeps the memo hot on ordinary workloads.
-func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
+func (s *Store) noteWaifRootsChanged() { s.waifRoots.epoch.Add(1) }
 
 // noteVerbShapeChanged records that verb resolution may now differ from any
 // memoized result. It must run AFTER the change is visible (after publish under

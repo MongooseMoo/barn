@@ -31,8 +31,8 @@ func requireRoots(t *testing.T, s *Store, want ...types.Value) {
 
 func requireCacheHit(t *testing.T, s *Store, hit bool) {
 	t.Helper()
-	entry := s.waifRootsCache.Load()
-	if (entry != nil && entry.epoch == s.waifRootsEpoch.Load() && entry.graphEpoch == types.WaifGraphEpoch()) != hit {
+	entry := s.waifRoots.cache.Load()
+	if (entry != nil && entry.epoch == s.waifRoots.epoch.Load() && entry.graphEpoch == types.WaifGraphEpoch()) != hit {
 		t.Fatalf("cache hit = %v, want %v", !hit, hit)
 	}
 }

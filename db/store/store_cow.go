@@ -462,7 +462,7 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	// index has one mutator at a time: under commitMu or store.mu.Lock. A
 	// publication that changes a WAIF's references advances types.WaifGraphEpoch
 	// itself; it leaves the WAIFs that object properties hold, which
-	// waifRootsEpoch tracks, alone.
+	// waifRoots.epoch tracks, alone.
 	for _, image := range tx.waifs {
 		if image.staged != nil {
 			s.publishWaifLocked(image, ts)
