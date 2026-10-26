@@ -80,5 +80,20 @@ change since c537d6c9). Baselines (every run so far): pre-3b Direct 5/5/1/24/25/
   and TestPrivateCopiesDoNotShareListCapacity; each shown to fail with its facet removed
   (properties in SetPropertyValue, contents in MoveObject, children in CreateObject).
 
+- W-A2 0026da53: Direct writes 20/23/51, commits 33/124/469/32.
+- W-D' 60e87eaf: store-owned writer reset whole each write; clearStagedWrites clear()s;
+  writerKeepLimit 256. Direct writes 13/16/44. Added BenchmarkDirectDefinePropertyWide:
+  25,282 vs master 14,085 (3c before fixes 31,296). OPEN DEFECT; cause in the experiments
+  file (staging copy of each descendant's property table); only known route is W-B,
+  which revision 2 rejected.
+- Rebased onto 720df158 (#535 merged). #535's txn reseed replays staged writes on a private
+  copy: 845a8015 sets its properties facet and fixes #535's oracle test (s.ancestors ->
+  DirectTxn().Ancestors). The W-A2 and W-D' commits do not compile on their own after this
+  rebase: #535's reseed reads `owned` as a bool. 845a8015 makes the branch build again.
+  Interactive rebase is not available here, so the fix-up could not be squashed back.
+- Gates on 845a8015: build/vet/gofmt clean; go test ./db/... ./builtins ./engine ./server ok;
+  -race ./db/store ./engine ok; Elle generation healthy and under all ten faults ok;
+  narrowed managed conformance (52 builtins files) 6648 passed.
+
 ## Next step
-Commit W-A2, bench, then W-D'.
+Frozen for the lead. Open: the wide direct write defect needs a design decision.
