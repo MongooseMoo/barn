@@ -97,7 +97,7 @@ func metadataPermissionCases() []metadataPermissionCase {
 					types.NewObj(f.target),
 					types.NewStr("added"),
 					types.NewInt(2),
-					types.NewStr("rw"),
+					types.NewList([]types.Value{types.NewObj(f.ctx.Programmer), types.NewStr("rw")}),
 				})
 			},
 		},
