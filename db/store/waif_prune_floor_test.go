@@ -20,7 +20,7 @@ func TestReleaseBehindOlderReaderDoesNotScanTheFloor(t *testing.T) {
 	if ec := s.DirectTxn().SetWaifProperty(w, "n", types.NewInt(1)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
-	if got := len(s.waifHistory); got != 1 {
+	if got := len(s.waifs.history); got != 1 {
 		t.Fatalf("tracked histories = %d, want 1 pinned by the old reader", got)
 	}
 	young := s.BeginSnapshot(0)
@@ -40,12 +40,12 @@ func TestReleaseBehindOlderReaderDoesNotScanTheFloor(t *testing.T) {
 		t.Fatal("release behind an older reader waited for the floor scan's lock")
 	}
 	s.readers.floorMu.RUnlock()
-	if got := len(s.waifHistory); got != 1 {
+	if got := len(s.waifs.history); got != 1 {
 		t.Fatalf("tracked histories = %d after the young reader left, want 1", got)
 	}
 
 	old.Release()
-	if got := len(s.waifHistory); got != 0 {
+	if got := len(s.waifs.history); got != 0 {
 		t.Fatalf("tracked histories = %d after the last reader left, want 0", got)
 	}
 	runtime.KeepAlive(w)

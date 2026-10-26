@@ -54,6 +54,22 @@ type idAllocator struct {
 	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
 }
 
+// waifVersions holds the domain WAIF images are published in, and the
+// histories of superseded WAIF images kept for older readers. See
+// store_txn_waif.go.
+type waifVersions struct {
+	domain  *types.WaifDomain
+	history map[types.WaifIdentity]*waifHistoryEntry
+	queue   waifHistoryQueue // the same entries, ordered by due
+	pending atomic.Bool
+	// due is the smallest due timestamp in queue, or zero when it is empty. A
+	// reader floor below it can prune nothing; every publication lowers it to
+	// cover new history before sampling that floor.
+	due atomic.Uint64
+	// pruneVisits counts the entries pruneWaifHistoryLocked has examined.
+	pruneVisits uint64
+}
+
 // readerRegistry registers the read timestamps of live transactions, so
 // historyFloor knows which old images a reader may still need. See
 // store_history_gc.go.
@@ -135,17 +151,9 @@ type Store struct {
 	ids   idAllocator
 	clock atomic.Uint64
 	// history holds superseded object images (historyIndex).
-	history            historyIndex
-	waifDomain         *types.WaifDomain
-	waifHistory        map[types.WaifIdentity]*waifHistoryEntry
-	waifHistoryQueue   waifHistoryQueue // the same entries, ordered by due
-	waifHistoryPending atomic.Bool
-	// waifHistoryDue is the smallest due timestamp in waifHistoryQueue, or zero
-	// when it is empty. A reader floor below it can prune nothing; every
-	// publication lowers it to cover new history before sampling that floor.
-	waifHistoryDue atomic.Uint64
-	// waifPruneVisits counts the entries pruneWaifHistoryLocked has examined.
-	waifPruneVisits uint64
+	history historyIndex
+	// waifs versions WAIF images (waifVersions).
+	waifs waifVersions
 
 	// readers registers live transactions' read timestamps (readerRegistry).
 	readers readerRegistry
@@ -218,7 +226,7 @@ func NewStore() *Store {
 		anonObjects: make(map[types.ObjID]*Object),
 		ids:         idAllocator{recycled: []types.ObjID{}},
 		history:     historyIndex{byID: make(map[types.ObjID][]objectHistory)},
-		waifDomain:  new(types.WaifDomain),
+		waifs:       waifVersions{domain: new(types.WaifDomain)},
 		propPool:    lockedPropPool{pool: newPropSharePool()},
 	}
 	s.directTxn.store = s

@@ -174,15 +174,15 @@ func TestWaifHistoryReleasedAfterLastOldReader(t *testing.T) {
 	if ec := s.DirectTxn().SetWaifProperty(w, "n", types.NewInt(1)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
-	if len(s.waifHistory) != 1 {
-		t.Fatalf("history tracked = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 1 {
+		t.Fatalf("history tracked = %d", len(s.waifs.history))
 	}
 	waifNumber(t, tx, w, 0)
 	tx.Release()
-	if len(s.waifHistory) != 0 {
-		t.Fatalf("history remains after release = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 0 {
+		t.Fatalf("history remains after release = %d", len(s.waifs.history))
 	}
-	if _, ok := w.WaifImageAt(s.waifDomain, 0); ok {
+	if _, ok := w.WaifImageAt(s.waifs.domain, 0); ok {
 		t.Fatal("obsolete version retained")
 	}
 }
@@ -359,11 +359,11 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("reader release did not finish")
 	}
-	if _, found := w.WaifImageAt(s.waifDomain, readerTS); found {
+	if _, found := w.WaifImageAt(s.waifs.domain, readerTS); found {
 		t.Error("last reader released, but its obsolete WAIF image remains")
 	}
-	if len(s.waifHistory) != 0 || s.waifHistoryPending.Load() {
-		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifHistory), s.waifHistoryPending.Load())
+	if len(s.waifs.history) != 0 || s.waifs.pending.Load() {
+		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifs.history), s.waifs.pending.Load())
 	}
 }
 

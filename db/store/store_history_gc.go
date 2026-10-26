@@ -348,7 +348,7 @@ func (tx *StoreTxn) release() {
 	}
 	if tx.store != nil {
 		tx.store.deregisterReadTS(tx.readTS)
-		if tx.store.waifHistoryPending.Load() {
+		if tx.store.waifs.pending.Load() {
 			tx.store.pruneWaifHistory()
 		}
 	}

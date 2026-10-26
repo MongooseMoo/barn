@@ -36,7 +36,7 @@ func TestWaifPruneKeepsExactlyTheImagesLiveSnapshotsRead(t *testing.T) {
 	held := make([][]waifVersion, len(waifs))      // the versions that must remain
 	for i := range waifs {
 		waifs[i] = types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
-		if _, ok := waifs[i].WaifImageAt(s.waifDomain, 0); !ok {
+		if _, ok := waifs[i].WaifImageAt(s.waifs.domain, 0); !ok {
 			t.Fatal("attachment failed")
 		}
 		published[i] = []waifVersion{{}}
@@ -68,7 +68,7 @@ func TestWaifPruneKeepsExactlyTheImagesLiveSnapshotsRead(t *testing.T) {
 				if want {
 					remaining = remaining[1:]
 				}
-				image, ok := w.WaifImageAt(s.waifDomain, version.ts)
+				image, ok := w.WaifImageAt(s.waifs.domain, version.ts)
 				if got := ok && image.Timestamp() == version.ts; got != want {
 					t.Fatalf("step %d: WAIF %d image at %d held = %v, want %v", step, i, version.ts, got, want)
 				}
@@ -80,15 +80,15 @@ func TestWaifPruneKeepsExactlyTheImagesLiveSnapshotsRead(t *testing.T) {
 						want = version
 					}
 				}
-				image, ok := w.WaifImageAt(s.waifDomain, reader.readTS)
+				image, ok := w.WaifImageAt(s.waifs.domain, reader.readTS)
 				if !ok || image.Timestamp() != want.ts {
 					t.Fatalf("step %d: reader at %d sees WAIF %d image %v (found %v), want timestamp %d", step, reader.readTS, i, image, ok, want.ts)
 				}
 				waifNumber(t, reader, w, want.n)
 			}
 		}
-		if len(s.waifHistory) != tracked || len(s.waifHistoryQueue) != tracked || s.waifHistoryPending.Load() != (tracked != 0) {
-			t.Fatalf("step %d: tracked histories = %d (queue %d, pending %v), want %d", step, len(s.waifHistory), len(s.waifHistoryQueue), s.waifHistoryPending.Load(), tracked)
+		if len(s.waifs.history) != tracked || len(s.waifs.queue) != tracked || s.waifs.pending.Load() != (tracked != 0) {
+			t.Fatalf("step %d: tracked histories = %d (queue %d, pending %v), want %d", step, len(s.waifs.history), len(s.waifs.queue), s.waifs.pending.Load(), tracked)
 		}
 	}
 	for step := 1; step <= 3000; step++ {
@@ -130,8 +130,8 @@ func TestWaifPruneKeepsExactlyTheImagesLiveSnapshotsRead(t *testing.T) {
 	readers = nil
 	pruneAll()
 	check(3001)
-	if len(s.waifHistory) != 0 {
-		t.Fatalf("history after the last reader = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 0 {
+		t.Fatalf("history after the last reader = %d", len(s.waifs.history))
 	}
 }
 
@@ -158,20 +158,20 @@ func TestWaifPruneVisitsOnlyDueHistories(t *testing.T) {
 	for i := 0; i < retained; i++ {
 		publish()
 	}
-	if got := len(s.waifHistory); got != retained+prunable {
+	if got := len(s.waifs.history); got != retained+prunable {
 		t.Fatalf("history before release = %d, want %d", got, retained+prunable)
 	}
-	before := s.waifPruneVisits
+	before := s.waifs.pruneVisits
 	old.Release()
-	if got := len(s.waifHistory); got != retained {
+	if got := len(s.waifs.history); got != retained {
 		t.Fatalf("history after release = %d, want %d", got, retained)
 	}
-	if visits := s.waifPruneVisits - before; visits != prunable {
+	if visits := s.waifs.pruneVisits - before; visits != prunable {
 		t.Fatalf("release that could prune %d of %d histories examined %d", prunable, retained+prunable, visits)
 	}
-	before = s.waifPruneVisits
+	before = s.waifs.pruneVisits
 	s.BeginSnapshot(0).Release()
-	if visits := s.waifPruneVisits - before; visits != 0 {
+	if visits := s.waifs.pruneVisits - before; visits != 0 {
 		t.Fatalf("release that could prune nothing examined %d histories", visits)
 	}
 	runtime.KeepAlive(waifs)
@@ -196,7 +196,7 @@ func TestWaifHistoryReturnsToBaselineAfterReadersFinish(t *testing.T) {
 			}
 		}
 	}
-	if len(s.waifHistory) == 0 {
+	if len(s.waifs.history) == 0 {
 		t.Fatal("no history was pinned")
 	}
 	kept := waifs[:len(waifs)/2]
@@ -206,16 +206,16 @@ func TestWaifHistoryReturnsToBaselineAfterReadersFinish(t *testing.T) {
 	for _, reader := range readers {
 		reader.Release()
 	}
-	if len(s.waifHistory) != 0 || len(s.waifHistoryQueue) != 0 || s.waifHistoryPending.Load() || s.waifHistoryDue.Load() != 0 {
-		t.Fatalf("after the last reader: history %d, queue %d, pending %v, due %d", len(s.waifHistory), len(s.waifHistoryQueue), s.waifHistoryPending.Load(), s.waifHistoryDue.Load())
+	if len(s.waifs.history) != 0 || len(s.waifs.queue) != 0 || s.waifs.pending.Load() || s.waifs.due.Load() != 0 {
+		t.Fatalf("after the last reader: history %d, queue %d, pending %v, due %d", len(s.waifs.history), len(s.waifs.queue), s.waifs.pending.Load(), s.waifs.due.Load())
 	}
 	for i, w := range kept {
-		image, ok := w.WaifImageAt(s.waifDomain, s.clock.Load())
+		image, ok := w.WaifImageAt(s.waifs.domain, s.clock.Load())
 		if !ok {
 			t.Fatalf("WAIF %d has no current image", i)
 		}
 		if image.Timestamp() != 0 {
-			if _, ok := w.WaifImageAt(s.waifDomain, image.Timestamp()-1); ok {
+			if _, ok := w.WaifImageAt(s.waifs.domain, image.Timestamp()-1); ok {
 				t.Fatalf("WAIF %d retains an image older than its current one", i)
 			}
 		}
@@ -248,7 +248,7 @@ func TestWaifHistoryReturnsToBaselineAfterConcurrentReaders(t *testing.T) {
 				}
 				runtime.Gosched()
 				// Not through the transaction, which would answer from its cache.
-				if image, ok := w.WaifImageAt(s.waifDomain, reader.readTS); !ok {
+				if image, ok := w.WaifImageAt(s.waifs.domain, reader.readTS); !ok {
 					t.Errorf("image at %d was pruned under a live reader", reader.readTS)
 				} else if after, _ := image.Property("n"); !after.Equal(before) {
 					t.Errorf("snapshot read changed from %v to %v", before, after)
@@ -258,7 +258,7 @@ func TestWaifHistoryReturnsToBaselineAfterConcurrentReaders(t *testing.T) {
 		}(g)
 	}
 	wg.Wait()
-	if len(s.waifHistory) != 0 || len(s.waifHistoryQueue) != 0 || s.waifHistoryPending.Load() {
-		t.Fatalf("after the last reader: history %d, queue %d, pending %v", len(s.waifHistory), len(s.waifHistoryQueue), s.waifHistoryPending.Load())
+	if len(s.waifs.history) != 0 || len(s.waifs.queue) != 0 || s.waifs.pending.Load() {
+		t.Fatalf("after the last reader: history %d, queue %d, pending %v", len(s.waifs.history), len(s.waifs.queue), s.waifs.pending.Load())
 	}
 }
