@@ -106,7 +106,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 		Player: 7,
 	}}
 
-	snapshot := task.PersistenceSnapshot()
+	snapshot := task.PersistenceSnapshotLocked()
 
 	task.ForkInfo.Variables["x"] = types.NewInt(99)
 	task.ForkInfo.SourceLines[0] = "x = 99;"
@@ -135,7 +135,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	snapshot.Fork.Variables["x"] = types.NewInt(3)
 	snapshot.Fork.SourceLines[0] = "x = 3;"
 	snapshot.CallStack[0].Verb = "snapshot-mutated"
-	nextSnapshot := task.PersistenceSnapshot()
+	nextSnapshot := task.PersistenceSnapshotLocked()
 	if got, want := nextSnapshot.Fork.Variables["x"].String(), types.NewInt(99).String(); got != want {
 		t.Errorf("mutating snapshot changed task variable: got %s, want %s", got, want)
 	}

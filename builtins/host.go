@@ -36,8 +36,8 @@ type TaskLister interface {
 
 // TaskFinder locates tasks by ID or by the player whose input they await.
 type TaskFinder interface {
-	GetTask(id int64) *task.State
-	FindReadingTask(player types.ObjID) *task.State
+	FindTaskState(id int64) *task.State
+	FindReadingTaskState(player types.ObjID) *task.State
 }
 
 // TaskController applies task lifecycle operations requested by builtins.
@@ -47,7 +47,6 @@ type TaskController interface {
 	CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode
 	ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.State) types.ErrorCode
-	SuspendTask(task *task.State, seconds float64)
 }
 
 // TaskManager is the builtin-facing task capability composed from its small

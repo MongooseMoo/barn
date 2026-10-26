@@ -6,7 +6,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -50,7 +49,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
 			program := compileTestProgram(t, s.registry,
 				`o = create(#0); try recycle(o); except (ANY) probe(); endtry probe(); return valid(o);`)
-			tk := task.NewStateFull(5701, 0, program, ticks, seconds)
+			tk := NewTaskFull(5701, 0, program, ticks, seconds)
 			tk.Context.IsWizard = true
 			s.taskManager.RegisterTask(tk)
 			if err := s.runTask(tk); err != nil {

@@ -148,7 +148,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		if holder == nil {
 			return types.Err(types.E_INVARG)
 		}
-		rt.taskManager.SuspendTask(holder, -1)
+		holder.SuspendSeconds(-1)
 		close(entered)
 		<-release
 		return types.Suspend(-1)
@@ -163,7 +163,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	if state := holder.GetState(); state != task.TaskSuspended {
 		t.Fatalf("task %d initial state = %v, want suspended", taskID, state)
 	}
-	savedBeforeResume := holder.BytecodeVMValue()
+	savedBeforeResume := holder.VM()
 	if savedBeforeResume == nil {
 		t.Fatalf("task %d has no saved VM before resume", taskID)
 	}
@@ -181,7 +181,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	if state := holder.GetState(); state != task.TaskSuspended {
 		t.Fatalf("task %d state = %v, want logical suspension at barrier", taskID, state)
 	}
-	if activeVM := holder.BytecodeVMValue(); activeVM == nil || activeVM != savedBeforeResume {
+	if activeVM := holder.VM(); activeVM == nil || activeVM != savedBeforeResume {
 		t.Fatalf("task %d active saved VM = %p, want prior resumable VM %p", taskID, activeVM, savedBeforeResume)
 	}
 	if _, _, ok := rt.collectSiblingGCRefs(nil); ok {
@@ -217,7 +217,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	if state := holder.GetState(); state != task.TaskSuspended {
 		t.Fatalf("task %d state after handoff = %v, want suspended", taskID, state)
 	}
-	if savedAfter := holder.BytecodeVMValue(); savedAfter == nil || savedAfter != savedBeforeResume {
+	if savedAfter := holder.VM(); savedAfter == nil || savedAfter != savedBeforeResume {
 		t.Fatalf("task %d saved VM after handoff = %p, want resumed VM %p", taskID, savedAfter, savedBeforeResume)
 	}
 
@@ -235,7 +235,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 func TestExplicitGlobalGCExcludesOnlyOneCallerExecutionLease(t *testing.T) {
 	rt := NewRuntime(dbstore.NewStore())
 	defer rt.Stop()
-	caller := task.NewState(91001, 0, 1000, 10)
+	caller := NewTask(91001, 0, 1000, 10)
 
 	rt.acquireTaskExecution(caller)
 	rt.acquireTaskExecution(caller)
@@ -243,7 +243,7 @@ func TestExplicitGlobalGCExcludesOnlyOneCallerExecutionLease(t *testing.T) {
 		rt.releaseTaskExecution(caller.ID)
 		rt.releaseTaskExecution(caller.ID)
 	})
-	if _, ok := rt.collectExplicitGlobalGCSiblingRefs(caller); ok {
+	if _, ok := rt.collectExplicitGlobalGCSiblingRefs(&caller.State); ok {
 		t.Fatal("global GC admitted duplicate active executions with the caller's task ID")
 	}
 	if _, _, ok := rt.collectAllGCRefs(); ok {
@@ -251,7 +251,7 @@ func TestExplicitGlobalGCExcludesOnlyOneCallerExecutionLease(t *testing.T) {
 	}
 
 	rt.releaseTaskExecution(caller.ID)
-	if _, ok := rt.collectExplicitGlobalGCSiblingRefs(caller); !ok {
+	if _, ok := rt.collectExplicitGlobalGCSiblingRefs(&caller.State); !ok {
 		t.Fatal("global GC rejected its sole caller execution lease")
 	}
 	if _, _, ok := rt.collectAllGCRefs(); ok {
@@ -332,7 +332,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		<-releaseNested
 		return types.Ok(types.NewInt(0))
 	}
-	caller := task.NewState(93001, 0, 1000, 10)
+	caller := NewTask(93001, 0, 1000, 10)
 	ctx := task.NewContext()
 	ctx.Player = 0
 	ctx.Programmer = 0
@@ -348,7 +348,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	rt.acquireExecutionContext(ctx, 93002)
 	nestedDone := make(chan types.Result, 1)
 	go func() {
-		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, rt.session.NewExecution(ctx, caller))
+		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, rt.session.NewExecution(ctx, &caller.State))
 	}()
 	select {
 	case <-nestedEntered:
@@ -385,7 +385,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	if !ok {
 		t.Fatal("run_gc builtin not registered")
 	}
-	if result := runGC(rt.session.NewExecution(ctx, caller), nil); result.Flow != types.FlowNormal {
+	if result := runGC(rt.session.NewExecution(ctx, &caller.State), nil); result.Flow != types.FlowNormal {
 		t.Fatalf("unique-owner run_gc result = %+v, want success", result)
 	}
 	if store.DirectTxn().Valid(orphan) {

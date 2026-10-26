@@ -1,4 +1,4 @@
-package task
+package engine
 
 import (
 	"testing"
@@ -8,8 +8,8 @@ import (
 )
 
 func TestScheduleChangesCoalesceAndCoverExternalResumes(t *testing.T) {
-	m := NewManager()
-	tk := NewState(1, 0, 100, 1)
+	m := NewTaskManager()
+	tk := NewTask(1, 0, 100, 1)
 	m.RegisterTask(tk)
 	<-m.ScheduleChanged()
 	for _, resume := range []func() bool{
@@ -40,7 +40,7 @@ func TestScheduleChangesCoalesceAndCoverExternalResumes(t *testing.T) {
 }
 
 func TestReadyDeadlineTracksTimedAndIndefiniteSuspension(t *testing.T) {
-	tk := NewState(1, 0, 100, 1)
+	tk := NewTask(1, 0, 100, 1)
 	now := time.Now()
 	tk.Suspend(time.Hour)
 	_, wake, _ := tk.SchedulingSnapshot()

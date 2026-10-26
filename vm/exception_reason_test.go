@@ -229,7 +229,7 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 			registry := BuildVMRegistry()
 			calls := 0
 			session := builtins.NewSession(registry, builtins.Host{
-				TaskManager: task.NewManager(),
+				TaskManager: emptyTaskHost{},
 				VerbCaller: func(object types.ObjID, verb string, args []types.Value, _ *builtins.Execution) types.Result {
 					if object != 10 || verb != "exitfunc" || len(args) != 1 || args[0].ID() != 12 {
 						t.Fatalf("unexpected lifecycle call #%d:%s", object, verb)

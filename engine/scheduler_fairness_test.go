@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"testing"
+	"time"
+
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"testing"
-	"time"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func TestReadyWakeWaitsForPhysicalExecutionHandoff(t *testing.T) {
@@ -52,15 +54,15 @@ func TestConcurrentReadierHandoffPreservesForkOrder(t *testing.T) {
 	s := newRuntimeWithWorkerCount(dbstore.NewStore(), config.Options{}, 1)
 	defer s.Stop()
 	for attempt := range 10000 {
-		parent := task.NewState(int64(2*attempt+1), 0, 1000, 1)
-		child := task.NewState(int64(2*attempt+2), 0, 1000, 1)
+		parent := NewTask(int64(2*attempt+1), 0, 1000, 1)
+		child := NewTask(int64(2*attempt+2), 0, 1000, 1)
 		if !s.acquireTaskExecution(parent) {
 			t.Fatal("parent did not acquire execution")
 		}
 		child.SetState(task.TaskQueued)
-		child.SetReadier(parent)
-		child.SetBytecodeVM(struct{}{}) // Readiness markers only; no VM executes.
-		parent.SetBytecodeVM(struct{}{})
+		child.SetReadier(&parent.State)
+		child.SetVM(&vm.VM{}) // Readiness markers only; no VM executes.
+		parent.SetVM(&vm.VM{})
 		parent.SetState(task.TaskQueued) // suspend(0), before physical handoff.
 		s.scheduler.Enqueue(child)
 		s.scheduler.RequeueYield(parent, time.Now())

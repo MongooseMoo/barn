@@ -93,7 +93,6 @@ type State struct {
 
 	// Execution fields
 	Program        *bytecode.Program  // Compiled program ready for execution
-	BytecodeVM     interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
 	Context        *Context           // Task execution context
 	Result         types.Result       // Last execution result
 	ForkCreator    ForkCreator        // For creating forked tasks
@@ -140,12 +139,23 @@ type State struct {
 	// background queues), so resume() only replaces its WakeValue.
 	wokenUnrun bool
 
-	// catalog is the manager the task is registered with. It is told when the
-	// task finishes, and when a finished task is made runnable again.
-	catalog *Manager
+	settlement SettlementObserver
 
 	// Mu protects state and, when embedded in an executable task, its saved VM.
 	Mu sync.RWMutex
+}
+
+// SettlementObserver receives transitions while Mu is held. It may update a
+// leaf index but must not acquire runtime or catalog locks.
+type SettlementObserver interface {
+	TaskSettled(bool)
+}
+
+// BindSchedulingLocked binds the containing task and its scheduling signal.
+// The caller holds Mu or owns fresh, unpublished state.
+func (t *State) BindSchedulingLocked(observer SettlementObserver, changed chan<- struct{}) {
+	t.settlement = observer
+	t.scheduleChanged = changed
 }
 
 // ReadingPlayerValue returns the player whose input this task is waiting for.
@@ -296,18 +306,19 @@ func (s TaskState) finished() bool {
 	return s == TaskCompleted || s == TaskKilled
 }
 
-// settledLocked reports whether scheduling is done with t: it has finished and
+// SettledLocked reports whether scheduling is done with t: it has finished and
 // its slice is no longer executing. A task that dies with an error is killed
 // before its uncaught-error hook runs, and the task that forked it stays held
 // until that slice ends, so the state alone does not settle it.
-func (t *State) settledLocked() bool {
+// The caller holds Mu.
+func (t *State) SettledLocked() bool {
 	return t.Status.finished() && !t.executionActive
 }
 
 // setStateLocked is the only place a registered task's state changes, so the
-// manager's index of unfinished tasks stays exact. The caller holds t.mu.
+// manager's index of unfinished tasks stays exact. The caller holds t.Mu.
 func (t *State) setStateLocked(state TaskState) {
-	was := t.settledLocked()
+	was := t.SettledLocked()
 	t.Status = state
 	if state != TaskQueued {
 		t.wokenUnrun = false
@@ -316,16 +327,16 @@ func (t *State) setStateLocked(state TaskState) {
 }
 
 // setExecutionActiveLocked is the only place the execution lease changes, for
-// the same reason. The caller holds t.mu.
+// the same reason. The caller holds t.Mu.
 func (t *State) setExecutionActiveLocked(active bool) {
-	was := t.settledLocked()
+	was := t.SettledLocked()
 	t.executionActive = active
 	t.noteSettledLocked(was)
 }
 
 func (t *State) noteSettledLocked(was bool) {
-	if now := t.settledLocked(); now != was && t.catalog != nil {
-		t.catalog.noteFinished(t, now)
+	if now := t.SettledLocked(); now != was && t.settlement != nil {
+		t.settlement.TaskSettled(now)
 	}
 }
 
@@ -783,28 +794,6 @@ func (t *State) SetTaskLocal(val types.Value) {
 	t.TaskLocal = val
 }
 
-// BytecodeVMValue returns the saved bytecode VM handle (thread-safe).
-//
-// BytecodeVM is read by the engine from goroutines other than the one
-// running the task (e.g. liveTaskVMs scanning sibling tasks for orphan-anonymous
-// GC, and ProcessReadyTasks' readiness check), so every access must hold t.mu.
-// This accessor is a leaf with respect to the runtime's mutex: it never
-// acquires any other lock, so the runtime may safely hold that mutex while calling
-// it (lock order: s.mu -> task.mu, never the reverse).
-func (t *State) BytecodeVMValue() interface{} {
-	t.Mu.RLock()
-	defer t.Mu.RUnlock()
-	return t.BytecodeVM
-}
-
-// SetBytecodeVM stores (or clears, with nil) the bytecode VM handle (thread-safe).
-// See BytecodeVMValue for the locking rationale and ordering.
-func (t *State) SetBytecodeVM(machine interface{}) {
-	t.Mu.Lock()
-	defer t.Mu.Unlock()
-	t.BytecodeVM = machine
-}
-
 // IndefiniteSuspendStartTime is the sentinel StartTime stamped on an
 // indefinitely-suspended task (suspend() with no/negative seconds). It mirrors
 // ToastStunt's enqueue_suspended_task, which sets start_tv.tv_sec = INTNUM_MAX
@@ -813,6 +802,26 @@ func (t *State) SetBytecodeVM(machine interface{}) {
 // queued_tasks comparator orders such tasks last. WakeTime is deliberately left
 // zero so the runtime never auto-wakes it — only an explicit resume() does.
 var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
+
+// SuspendSeconds suspends this task using MOO duration semantics.
+func (t *State) SuspendSeconds(seconds float64) {
+	switch {
+	case seconds < 0:
+		// Indefinite suspension (requires explicit resume()). Stamp a
+		// far-future StartTime sentinel so the task sorts LAST in
+		// queued_tasks(), mirroring ToastStunt's INTNUM_MAX start_tv for an
+		// indefinite suspend (tasks.cc:1306-1307). WakeTime stays zero so it
+		// never auto-wakes — only an explicit resume() wakes it.
+		t.SuspendIndefinite()
+	case seconds == 0:
+		// suspend(0) is a scheduler yield point; queue immediately.
+		t.Suspend(0)
+		_ = t.Resume(types.NewInt(0))
+	default:
+		duration := time.Duration(seconds * float64(time.Second))
+		t.Suspend(duration)
+	}
+}
 
 // Suspend suspends the task for a duration. A zero duration is a scheduler
 // yield with no wake deadline, so any WakeTime left over from an earlier timed

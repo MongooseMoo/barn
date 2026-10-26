@@ -8,17 +8,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-type recordingTaskManager struct {
-	taskManagerStub
-	suspended bool
-}
-
-func (m *recordingTaskManager) SuspendTask(t *task.State, _ float64) {
-	m.suspended = true
-	t.SetState(task.TaskSuspended)
-}
-
-func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizard bool, taskID, lastInputTaskID int64) (*Execution, *recordingTaskManager) {
+func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizard bool, taskID, lastInputTaskID int64) *Execution {
 	t.Helper()
 	store := dbstore.NewStore()
 	addTxnObject(t, store, 0, 0)
@@ -29,7 +19,7 @@ func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizar
 	connection := types.ObjID(7)
 	addTxnObject(t, store, connection, owner)
 
-	manager := &recordingTaskManager{}
+	manager := taskManagerStub{}
 	session := NewSession(NewRegistry(), NoHost())
 	configureTestHost(session, func(host *Host) {
 		host.ConnManager = &stubConnManager{conn: &stubConn{lastInputTaskID: lastInputTaskID}}
@@ -42,57 +32,57 @@ func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizar
 		IsWizard:   wizard,
 		Store:      store,
 	}, taskValue)
-	return ctx, manager
+	return ctx
 }
 
 func TestReadHTTPExplicitConnectionAllowsOwner(t *testing.T) {
-	ctx, manager := newReadHTTPTestExecution(t, 2, 2, false, 41, 0)
+	ctx := newReadHTTPTestExecution(t, 2, 2, false, 41, 0)
 
 	result := builtinReadHTTP(ctx, []types.Value{types.NewStr("request"), types.NewObj(7)})
 
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("read_http result = %#v, want suspend", result)
 	}
-	if !manager.suspended || !ctx.Session.HasPendingHTTPRead(7) {
+	if ctx.Task.GetState() != task.TaskSuspended || !ctx.Session.HasPendingHTTPRead(7) {
 		t.Fatal("authorized read_http did not install and suspend its reader")
 	}
 }
 
 func TestReadHTTPExplicitConnectionDeniesUnrelatedProgrammerWithoutSideEffects(t *testing.T) {
-	ctx, manager := newReadHTTPTestExecution(t, 2, 3, false, 42, 0)
+	ctx := newReadHTTPTestExecution(t, 2, 3, false, 42, 0)
 
 	result := builtinReadHTTP(ctx, []types.Value{types.NewStr("request"), types.NewObj(7)})
 
 	if !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("read_http result = %#v, want E_PERM", result)
 	}
-	if manager.suspended || ctx.Session.HasPendingHTTPRead(7) || ctx.Task.IsHTTPReadSuspended {
+	if ctx.Task.GetState() == task.TaskSuspended || ctx.Session.HasPendingHTTPRead(7) || ctx.Task.IsHTTPReadSuspended {
 		t.Fatal("denied read_http installed or suspended a reader")
 	}
 }
 
 func TestReadHTTPImplicitConnectionAllowsWizardLastInputTask(t *testing.T) {
-	ctx, manager := newReadHTTPTestExecution(t, 2, 2, true, 43, 43)
+	ctx := newReadHTTPTestExecution(t, 2, 2, true, 43, 43)
 
 	result := builtinReadHTTP(ctx, []types.Value{types.NewStr("request")})
 
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("read_http result = %#v, want suspend", result)
 	}
-	if !manager.suspended || !ctx.Session.HasPendingHTTPRead(7) {
+	if ctx.Task.GetState() != task.TaskSuspended || !ctx.Session.HasPendingHTTPRead(7) {
 		t.Fatal("authorized read_http did not install and suspend its reader")
 	}
 }
 
 func TestReadHTTPImplicitConnectionDeniesUnrelatedWizardTaskWithoutSideEffects(t *testing.T) {
-	ctx, manager := newReadHTTPTestExecution(t, 2, 2, true, 44, 99)
+	ctx := newReadHTTPTestExecution(t, 2, 2, true, 44, 99)
 
 	result := builtinReadHTTP(ctx, []types.Value{types.NewStr("request")})
 
 	if !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("read_http result = %#v, want E_PERM", result)
 	}
-	if manager.suspended || ctx.Session.HasPendingHTTPRead(7) || ctx.Task.IsHTTPReadSuspended {
+	if ctx.Task.GetState() == task.TaskSuspended || ctx.Session.HasPendingHTTPRead(7) || ctx.Task.IsHTTPReadSuspended {
 		t.Fatal("denied read_http installed or suspended a reader")
 	}
 }
@@ -286,7 +276,7 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	if value, complete := r.prepareHTTPRead(player, "request", pending); complete {
 		t.Fatalf("expected incomplete request to suspend, got %v", value)
 	}
-	task.NewManager().SuspendTask(pending, -1)
+	pending.SuspendIndefinite()
 
 	r.CloseHeldHTTPInput(player)
 
@@ -308,7 +298,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	if value, complete := r.prepareHTTPRead(player, "request", stalled); complete {
 		t.Fatalf("expected partial request to suspend, got %v", value)
 	}
-	task.NewManager().SuspendTask(stalled, -1)
+	stalled.SuspendIndefinite()
 	r.CancelHTTPReadTask(stalled.ID)
 
 	if handled, _ := r.HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {

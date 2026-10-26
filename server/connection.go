@@ -2,11 +2,12 @@ package server
 
 import (
 	"context"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type programmingMode struct {

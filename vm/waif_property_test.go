@@ -1,9 +1,10 @@
 package vm
 
 import (
+	"testing"
+
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
-	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )

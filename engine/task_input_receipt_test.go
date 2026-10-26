@@ -1,24 +1,25 @@
-package task
+package engine
 
 import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestInputReceiptFencesOnlyYieldingSource(t *testing.T) {
-	m := NewManager()
-	source := NewState(1, 0, 100, 1)
+	m := NewTaskManager()
+	source := NewTask(1, 0, 100, 1)
 	m.RegisterTask(source)
 	complete := source.NewInputReceipt()
-	source.SetState(TaskQueued)
+	source.SetState(task.TaskQueued)
 	source.PrepareYieldRequeue(1, time.Now())
 	if !source.ReadyDeadline(time.Now()).IsZero() || source.ReserveAdmission() {
 		t.Fatal("yield continuation overtook its injected input")
 	}
-	other := NewState(2, 0, 100, 1)
-	other.SetState(TaskQueued)
+	other := NewTask(2, 0, 100, 1)
+	other.SetState(task.TaskQueued)
 	if !other.ReserveAdmission() {
 		t.Fatal("input receipt blocked unrelated work")
 	}
@@ -36,7 +37,7 @@ func TestInputReceiptFencesOnlyYieldingSource(t *testing.T) {
 }
 
 func TestInputReceiptDoesNotBlockItsOwnReadDelivery(t *testing.T) {
-	source := NewState(1, 0, 100, 1)
+	source := NewTask(1, 0, 100, 1)
 	complete := source.NewInputReceipt()
 	defer complete()
 	source.SuspendIndefinite()

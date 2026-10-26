@@ -75,7 +75,7 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	gen := t.SuspendGeneration()
 	id := runtimeIdentity(ctx) // Capture before the task can resume on another goroutine.
 	start := func() {

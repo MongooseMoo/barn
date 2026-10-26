@@ -2,14 +2,15 @@ package engine
 
 import (
 	"fmt"
-	dbformat "github.com/MongooseMoo/barn/db/format"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
@@ -47,7 +48,7 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	}
 	rootProgram := saved.VM.Frames[0].Program
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewStateFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
+	t := NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
 	s.populateContextDependencies(t.Context)
 	t.StartTime = saved.StartTime
 	t.QueueTime = saved.StartTime
@@ -76,8 +77,8 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	machine.Task = t
-	t.SetBytecodeVM(machine)
+	machine.Task = &t.State
+	t.SetVM(machine)
 
 	if saved.State == task.TaskQueued {
 		s.QueueTask(t)
@@ -105,7 +106,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	}
 
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewStateFull(saved.ID, saved.Player, prog, ticks, seconds)
+	t := NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
 	s.populateContextDependencies(t.Context)
 
 	start := time.Unix(saved.StartTime, 0)
@@ -139,7 +140,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 
 	machine := vm.NewVM(s.store, s.session)
 	machine.Context = t.Context
-	machine.Task = t
+	machine.Task = &t.State
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
@@ -164,7 +165,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		frame.Locals[slot] = value
 		t.ForkInfo.Variables[name] = frame.Locals[slot]
 	}
-	t.SetBytecodeVM(machine)
+	t.SetVM(machine)
 
 	t.PushFrame(types.ActivationFrame{
 		This:       saved.This,

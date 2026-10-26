@@ -1,15 +1,16 @@
 package engine
 
 import (
+	"sort"
+	"sync"
+	"time"
+
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
-	"sort"
-	"sync"
-	"time"
 )
 
 func sameWaif(a, b types.Value) bool {

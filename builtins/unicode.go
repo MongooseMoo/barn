@@ -2,11 +2,12 @@ package builtins
 
 import (
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/MongooseMoo/barn/config"
 
 	"github.com/MongooseMoo/barn/types"
 	"github.com/rivo/uniseg"

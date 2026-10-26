@@ -43,7 +43,7 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 				defer rt.releaseSweepContext(ctx)
 				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, nil))
 			case "owned_hook":
-				owner := &task.State{ID: 91001, Owner: 0}
+				owner := &Task{State: task.State{ID: 91001, Owner: 0}}
 				if !rt.acquireTaskExecution(owner) {
 					t.Fatal("could not acquire hook owner")
 				}
@@ -53,7 +53,7 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 				ctx.StoreTxn = store.DirectTxn()
 				rt.acquireExecutionContext(ctx, owner.ID)
 				defer rt.releaseExecutionContext(ctx, owner.ID)
-				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, owner))
+				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, &owner.State))
 			}
 			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 2001000 {
 				t.Fatalf("finite hook result = %+v, want return 2001000", result)
@@ -92,7 +92,7 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			rt := newTestRuntimeWithBuiltins(t, store)
 			defer rt.Stop()
 			admissionVerb(t, store, "nested_probe", "total = 0; for i in [1..2000] total = total + i; endfor return total;")
-			parent := &task.State{Owner: 0}
+			parent := &Task{State: task.State{Owner: 0}}
 			anchor := time.Now()
 			parent.ResetExecutionBudget(40000, 2, anchor)
 			deadline := anchor.Add(2 * time.Second)
@@ -106,7 +106,7 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			defer ctx.StoreTxn.Release()
 			ctx.Player = 0
 			ctx.TicksRemaining = 40000
-			result := rt.CallVerbInContext(0, "nested_probe", nil, rt.session.NewExecution(ctx, parent))
+			result := rt.CallVerbInContext(0, "nested_probe", nil, rt.session.NewExecution(ctx, &parent.State))
 			if expired {
 				if result.Flow != types.FlowException || result.Error != types.E_MAXREC || result.Val.Str() != "E_MAXREC: seconds limit exceeded" {
 					t.Fatalf("expired nested hook = %+v, want inherited seconds limit exceeded", result)

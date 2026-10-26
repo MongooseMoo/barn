@@ -2,12 +2,12 @@ package engine
 
 import (
 	"context"
+	"time"
+
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/metrics"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
-	"time"
 )
 
 func inputAdmissionKey(player types.ObjID) admission.Key {
@@ -16,7 +16,7 @@ func inputAdmissionKey(player types.ObjID) admission.Key {
 	}
 	return admission.Key{Principal: int64(player), Class: admission.Input}
 }
-func backgroundAdmissionKey(t *task.State) admission.Key {
+func backgroundAdmissionKey(t *Task) admission.Key {
 	programmer, frames := t.CallStackProgrammer(0)
 	if frames == 0 {
 		programmer = t.Programmer
@@ -57,7 +57,7 @@ func (s *Runtime) WithCheckpointBarrier(write func() error) error {
 
 // enterBackground is called on an unclaimed task. Kill publishes cancellation
 // before the wait and a final state check prevents resurrection at the lease.
-func (s *Runtime) enterBackground(t *task.State) (*admission.Scope, context.Context, context.CancelFunc, error) {
+func (s *Runtime) enterBackground(t *Task) (*admission.Scope, context.Context, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.SetCancelFunc(cancel)
 	started := time.Now()

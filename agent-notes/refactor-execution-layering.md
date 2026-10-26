@@ -29,14 +29,32 @@ and baseline loops were extracted into VM methods, retaining the cached
 Execution binding. Existing vm/profile_test.go covers nested stack attribution
 and tick accounting. Build & unit tests passed (1m26s) in run 40288400397;
 Elle job passed (2m50s) in 40288400399; conformance is still pending. No new tests.
-The following preparation is implemented locally, separately from profiling:
+The preparation was pushed as 1dec5d4b, separately from profiling:
 gopls semantic previews renamed task.Task to State, the enum field to Status,
 the shared mutex to Mu, readingOrder to ReadingOrder, and constructors to
 NewState/NewStateFull. Applied all previews through apply_patch. Updated the
 existing source-text setter test to recognize Status; retained its exact
 two-setter requirement. State.Init initializes fresh inline storage, and both
 constructors now share those defaults instead of duplicating them.
-Typed saved-machine ownership remains to implement. All three jobs on
+Master was incorporated in ef3dcc6c, migrating a concurrently added Elle caller.
+That head passed conformance (7m27s) and Elle (2m35s); build CI stopped at formatting
+in run 40289346185. The local ownership patch includes the formatting repair.
+
+The ownership slice is implemented locally, awaiting commit and CI:
+- engine.Task embeds task.State and owns machine *vm.VM under the shared Mu.
+- Catalog and scheduler moved into engine; builtin consumers receive State.
+- Combined persistence capture holds Mu across metadata and concrete VM capture.
+- Settlement notification preserves catalog -> State.Mu -> unfinishedMu order.
+- SuspendSeconds now belongs to State; the host no longer forwards that operation.
+- Existing catalog, scheduling and builtin integration tests moved to engine.
+  Standalone VM tests use an empty host (no task index); pure builtin tests keep
+  their existing empty host stub. HTTP assertions inspect actual suspension.
+- Retry, GC, fork, load and direct-hook callers now use the concrete owner, while
+  nested VM/finalization paths use lower State. Saved-machine assertions removed.
+
+No local test/typecheck CI steps were run. The local patch is not yet verified.
+Remaining: PR CI, full current-head inspection, ownership performance comparison,
+real-workload evidence, and current architecture documentation. All three jobs on
 documentation head 95a0a1af completed SUCCESS
 (runs 40286736548 and 40286736504); those precede this profiling implementation.
 
@@ -126,6 +144,16 @@ Moving that manager above builtins cannot be patched by importing engine from
 same-package builtin tests. Preserve those behavioral tests using the final
 public boundary, not a duplicate production manager in test scaffolding.
 
+During caller migration, VM-only suspension tests also use an empty catalog.
+The current manager's SuspendTask reads no manager fields: it only delegates
+to State.Suspend, SuspendIndefinite and Resume. Move those existing 20 lines
+to State.SuspendSeconds and remove that operation from the host controller.
+Keep existing missing-host error branches unchanged. Pure interpreter tests
+need only an empty finder/lister/controller, not a copied catalog implementation.
+HTTP tests will inspect the actual suspended state instead of recording a
+call to the removed manager method. This is relocation of the existing
+operation and assertions, not new scheduling behavior or a new test guard.
+
 ## Tooling and verification
 
 Use go list for current dependencies and gopls semantic rename previews for
@@ -137,6 +165,11 @@ selectors directly. CI run 40284826132 reported network.go:631,684,717,757;
 the same replacement also affected two engine test files.
 Apply all source/note changes through apply_patch. gopls, gorename, and
 benchstat are installed. Q said to choose tooling; no WOPR dependency remains.
+The first rename formatting output was not applied across the complete changed
+set after its command yielded; formatting only task/task.go left the pushed
+preparation unformatted (CI 40289346185). Apply the formatter's returned edits
+to the whole changed-file set, not just the declaration file. This corrects the
+editing operation; it adds no separate local validation gate.
 Follow PR CI rather than rerunning its checks locally. Preserve existing tests.
 Read docs/elle-isolation.md before changing retry/suspension ownership; its
 pinned checker, manifests, witnesses and nonzero paths are required evidence.
@@ -204,10 +237,10 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit/push the semantic state preparation, then implement engine.Task with
-inline State, typed VM, and the catalog/scheduler ownership changes described
-in the research report. Migrate production-manager builtin tests to the public
-engine boundary; preserve pure builtin State tests. Q already
+Commit/push the ownership slice and follow its CI. Diagnose failures in scope,
+then compare performance and finish current-head layering/documentation review.
+The source-based research report describes the design, but is not verification.
+Q already
 authorized the cleanup; routine implementation choices do not require reapproval.
 Do not mistake the green first slice or these two microbenchmarks for completion
 of the broader layering goal.

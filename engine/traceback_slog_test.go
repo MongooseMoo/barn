@@ -55,7 +55,7 @@ func sampleStack() []types.ActivationFrame {
 // and the stack cannot be reassembled from the log afterwards.
 func TestLogTracebackEmitsSingleRecord(t *testing.T) {
 	s := &Runtime{}
-	tk := &task.State{ID: 42, This: 10, VerbName: "look_self", CallStack: sampleStack()}
+	tk := &Task{State: task.State{ID: 42, This: 10, VerbName: "look_self", CallStack: sampleStack()}}
 
 	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
 
@@ -79,7 +79,7 @@ func TestLogTracebackEmitsSingleRecord(t *testing.T) {
 func TestLoggedTracebackMatchesPlayerFormatting(t *testing.T) {
 	s := &Runtime{}
 	stack := sampleStack()
-	tk := &task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: stack}
+	tk := &Task{State: task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: stack}}
 
 	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
 
@@ -93,7 +93,7 @@ func TestLoggedTracebackMatchesPlayerFormatting(t *testing.T) {
 // chain from it without parsing rendered text.
 func TestTracebackFramesCarryStructuredStack(t *testing.T) {
 	s := &Runtime{}
-	tk := &task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: sampleStack()}
+	tk := &Task{State: task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: sampleStack()}}
 
 	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
 
@@ -128,7 +128,7 @@ func TestTracebackFramesUseStoredVerbNames(t *testing.T) {
 		{This: 2, VerbLoc: 2, Verb: "eval", StoredVerb: "eval*-d", LineNumber: 1},
 		{This: 2, VerbLoc: 2, Verb: "", LineNumber: 1, IsEvalFrame: true},
 	}
-	tk := &task.State{ID: 1, CallStack: stack}
+	tk := &Task{State: task.State{ID: 1, CallStack: stack}}
 
 	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
 

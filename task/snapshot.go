@@ -172,16 +172,10 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	}
 }
 
-type vmSnapshotter interface {
-	PersistenceVMSnapshot() *VMSnapshot
-}
-
-// PersistenceSnapshot copies the task fields needed for checkpoint output while
-// holding the task lock.
-func (t *State) PersistenceSnapshot() Snapshot {
-	t.Mu.RLock()
-	defer t.Mu.RUnlock()
-
+// PersistenceSnapshotLocked copies task metadata for checkpoint output. The
+// caller holds Mu or owns unpublished state; the engine captures its saved
+// interpreter under the same lock.
+func (t *State) PersistenceSnapshotLocked() Snapshot {
 	snapshot := Snapshot{
 		ID:                  t.ID,
 		Owner:               t.Owner,
@@ -218,9 +212,6 @@ func (t *State) PersistenceSnapshot() Snapshot {
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
 		}
-	}
-	if machine, ok := t.BytecodeVM.(vmSnapshotter); ok && machine != nil {
-		snapshot.VM = machine.PersistenceVMSnapshot()
 	}
 	return snapshot
 }

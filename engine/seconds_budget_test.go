@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -27,7 +26,7 @@ endwhile
 #0.progress = 2;
 return 0;
 `)
-	running := task.NewStateFull(99, 0, program, 1000000000, 0.01)
+	running := NewTaskFull(99, 0, program, 1000000000, 0.01)
 	running.Context.IsWizard = true
 	if err := s.runTask(running); err != nil {
 		t.Fatal(err)

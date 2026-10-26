@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -43,7 +42,7 @@ func assertTerminalCommitFailure(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	running := task.NewStateFull(94002, 0, compileTestProgram(t, s.registry, `
+	running := NewTaskFull(94002, 0, compileTestProgram(t, s.registry, `
 force_terminal_commit();
 return 1;
 `), ticks, seconds)

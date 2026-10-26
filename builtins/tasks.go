@@ -165,7 +165,7 @@ func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, seconds)
+	t.SuspendSeconds(seconds)
 
 	// Return FlowSuspend so the engine knows to pause execution.
 	// The task will be resumed later via resume() builtin
@@ -452,7 +452,7 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	t := mgr.GetTask(taskID)
+	t := mgr.FindTaskState(taskID)
 	if t == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -562,7 +562,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, seconds)
+	t.SuspendSeconds(seconds)
 	return types.Suspend(seconds)
 }
 

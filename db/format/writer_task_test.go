@@ -470,7 +470,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	for i := 0; i < 64; i++ {
 		var buf bytes.Buffer
 		writer := NewWriter(&buf, store.NewStore().Snapshot())
-		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 		if err := writer.writeQueuedTasks(); err != nil {
 			t.Fatalf("writeQueuedTasks iteration %d: %v", i, err)
 		}
@@ -509,7 +509,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}
@@ -548,7 +548,7 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshotLocked()}, nil)
 	if err := writer.writeQueuedTasks(); err != nil {
 		t.Fatalf("writeQueuedTasks: %v", err)
 	}

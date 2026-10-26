@@ -1,11 +1,12 @@
 package vm
 
 import (
+	"reflect"
+	"testing"
+
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"reflect"
-	"testing"
 )
 
 // dirtyVM sets every field of a VM to a detectably non-zero value. The

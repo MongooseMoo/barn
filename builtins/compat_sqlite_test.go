@@ -95,7 +95,7 @@ func sqliteAsyncCtx() (*Execution, *task.State) {
 	taskValue.SetState(task.TaskRunning)
 	ctx.Task = taskValue
 	ctx.CanSuspend = true
-	wireTestTaskManager(ctx)
+	wireTestTaskHost(ctx)
 	return ctx, taskValue
 }
 

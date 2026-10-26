@@ -78,7 +78,7 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode,
 // logTraceback logs a task's uncaught exception to the server log. The stack is
 // supplied by the caller so that the log records the same activation stack the
 // player is shown — the task's live stack has already unwound by this point.
-func (s *Runtime) logTraceback(t *task.State, err types.ErrorCode, stack []types.ActivationFrame) {
+func (s *Runtime) logTraceback(t *Task, err types.ErrorCode, stack []types.ActivationFrame) {
 	attrs := append([]any{
 		slog.Int64("task_id", t.ID),
 		slog.Int64("this", int64(t.This)),

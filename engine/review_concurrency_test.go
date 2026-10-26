@@ -6,14 +6,15 @@ package engine
 // Race: go test -race ./engine/ -run TestReview_ -v
 
 import (
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // -----------------------------------------------------------------------------
@@ -129,7 +130,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 		t.Fatalf("compile taskA: %v", diagnostics)
 	}
 	taskAID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskA := task.NewStateFull(taskAID, types.ObjNothing, programA, ticks, seconds)
+	taskA := NewTaskFull(taskAID, types.ObjNothing, programA, ticks, seconds)
 	s.populateContextDependencies(taskA.Context)
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
@@ -146,7 +147,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 		t.Fatalf("compile taskB: %v", diagnostics)
 	}
 	taskBID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskB := task.NewStateFull(taskBID, types.ObjNothing, programB, ticks, seconds)
+	taskB := NewTaskFull(taskBID, types.ObjNothing, programB, ticks, seconds)
 	s.populateContextDependencies(taskB.Context)
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s

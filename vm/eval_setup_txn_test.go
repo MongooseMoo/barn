@@ -1,13 +1,14 @@
 package vm
 
 import (
+	"path/filepath"
+	"strings"
+	"testing"
+
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 const auditProxySetupSource = `

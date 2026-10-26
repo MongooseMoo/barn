@@ -202,7 +202,7 @@ func defaultRealShapes() []realShape {
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
 	runtime *Runtime
-	task    *taskpkg.State
+	task    *Task
 	result  chan types.Result
 }
 
@@ -234,12 +234,12 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
 	seen := map[int64]bool{c.task.ID: true}
-	held := []*taskpkg.State{c.task}
+	held := []*Task{c.task}
 	for len(held) != 0 {
 		target := held[0]
 		held = held[1:]
 		for _, other := range catalog {
-			if other == nil || other.PendingReadier(now) != target {
+			if other == nil || other.PendingReadier(now) != &target.State {
 				continue
 			}
 			c.runtime.mu.Lock()
@@ -250,7 +250,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 			if len(stack) != 0 {
 				top = fmt.Sprintf("%s:%d", stack[len(stack)-1].Verb, stack[len(stack)-1].LineNumber)
 			}
-			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.BytecodeVMValue() != nil, other.VerbName, top))
+			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.VM() != nil, other.VerbName, top))
 			if !seen[other.ID] {
 				seen[other.ID] = true
 				held = append(held, other)
@@ -285,7 +285,7 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			status, _ := json.Marshal(c.runtime.AdmissionStats())
 			admissionStatus = string(status)
 		}
-		saved := c.task.BytecodeVMValue() != nil
+		saved := c.task.VM() != nil
 		c.task.Kill()
 		select {
 		case <-c.task.Done:

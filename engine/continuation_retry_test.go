@@ -54,7 +54,7 @@ func TestThreadedContinuationRetriesOnlyUnpublishedSlice(t *testing.T) {
 			}
 			ticks, seconds := foregroundTaskLimits(s.session)
 			if tc.setup != "" {
-				setup := task.NewStateFull(8100, 0, compileTestProgram(t, s.registry, tc.setup+" return 1;"), ticks, seconds)
+				setup := NewTaskFull(8100, 0, compileTestProgram(t, s.registry, tc.setup+" return 1;"), ticks, seconds)
 				setup.Context.IsWizard = true
 				runSQLiteTaskToCompletion(t, s, setup)
 				if setup.Result.Flow != types.FlowReturn {
@@ -62,7 +62,7 @@ func TestThreadedContinuationRetriesOnlyUnpublishedSlice(t *testing.T) {
 				}
 				defer s.EvalCommandOutput(0, "return sqlite_close(#0.h);")
 			}
-			queued := task.NewStateFull(8101, 0, compileTestProgram(t, s.registry, fmt.Sprintf(`
+			queued := NewTaskFull(8101, 0, compileTestProgram(t, s.registry, fmt.Sprintf(`
 entry();
 #0.v = 1;
 sorted = %s;
@@ -117,7 +117,7 @@ func TestContinuationRetriesDiscardEffectsAndTaskLocalChanges(t *testing.T) {
 	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("conflict", 0, 0, nil, &conflict))
 	defer rt.Stop()
 	ticks, seconds := foregroundTaskLimits(rt.session)
-	queued := task.NewStateFull(8110, 0, compileTestProgram(t, rt.registry, `set_task_local(7); suspend(0); old = task_local(); set_task_local(old + 1); before = #0.v; conflict(); #0.v = before + 1; return task_local();`), ticks, seconds)
+	queued := NewTaskFull(8110, 0, compileTestProgram(t, rt.registry, `set_task_local(7); suspend(0); old = task_local(); set_task_local(old + 1); before = #0.v; conflict(); #0.v = before + 1; return task_local();`), ticks, seconds)
 	queued.Context.IsWizard = true
 	queued.SetOnComplete(func(types.Result) { completions++ })
 	runSQLiteTaskToCompletion(t, rt, queued)
@@ -150,7 +150,7 @@ func TestContinuationRetryPreservesErrorWakeMode(t *testing.T) {
 				code = `try suspend(0); except (E_TYPE) before = #0.v; conflict(); #0.v = before + 1; return E_TYPE; endtry`
 			}
 			ticks, seconds := foregroundTaskLimits(s.session)
-			queued := task.NewStateFull(8102, 0, compileTestProgram(t, s.registry, code), ticks, seconds)
+			queued := NewTaskFull(8102, 0, compileTestProgram(t, s.registry, code), ticks, seconds)
 			queued.Context.IsWizard = true
 			if err := s.runTask(queued); err != nil {
 				t.Fatal(err)
@@ -182,7 +182,7 @@ func TestResumedContinuationsJoinConcurrentBatch(t *testing.T) {
 	defer releaseOnce()
 	ticks, seconds := foregroundTaskLimits(s.session)
 	for _, owner := range []types.ObjID{11, 12} {
-		queued := task.NewStateFull(int64(owner), owner, compileTestProgram(t, s.registry, `suspend(0); barrier(); return 1;`), ticks, seconds)
+		queued := NewTaskFull(int64(owner), owner, compileTestProgram(t, s.registry, `suspend(0); barrier(); return 1;`), ticks, seconds)
 		queued.Context.IsWizard = true
 		s.taskManager.RegisterTask(queued)
 		if err := s.runTask(queued); err != nil {

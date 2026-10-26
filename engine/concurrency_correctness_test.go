@@ -8,13 +8,12 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // runTasksThroughPool queues every task and drains them through the worker pool,
 // mirroring how ProcessReadyTasks dispatches a ready batch in production.
-func runTasksThroughPool(t *testing.T, s *Runtime, tasks []*task.State) {
+func runTasksThroughPool(t *testing.T, s *Runtime, tasks []*Task) {
 	t.Helper()
 	for _, tk := range tasks {
 		s.QueueTask(tk)
@@ -65,9 +64,9 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	defer removeTasksForOwner(s, 0)
 
 	const n = 64
-	tasks := make([]*task.State, n)
+	tasks := make([]*Task, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewStateFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
+		tk := NewTaskFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -121,9 +120,9 @@ func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
 	defer removeTasksForOwner(s, 0)
 
 	const n = 48
-	tasks := make([]*task.State, n)
+	tasks := make([]*Task, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewStateFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
+		tk := NewTaskFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -178,10 +177,10 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 
-	tasks := make([]*task.State, n)
+	tasks := make([]*Task, n)
 	for k := 0; k < n; k++ {
 		code := fmt.Sprintf("add_verb(#%d, {#3, \"rxd\", \"poked\"}, {\"this\", \"none\", \"none\"}); return verbs(#%d);", ids[k], ids[k])
-		tk := task.NewStateFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
+		tk := NewTaskFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
 		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.Programmer = 3

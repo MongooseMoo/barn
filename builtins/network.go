@@ -3,11 +3,12 @@ package builtins
 import (
 	"bytes"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/MongooseMoo/barn/config"
 
 	"github.com/MongooseMoo/barn/internal/listener"
 	taskpkg "github.com/MongooseMoo/barn/task"
@@ -1420,7 +1421,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if mgr.FindReadingTask(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
+	if mgr.FindReadingTaskState(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1435,7 +1436,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	t.IsHTTPReadSuspended = true
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	return types.Suspend(-1)
 }
 

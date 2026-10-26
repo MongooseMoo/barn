@@ -15,7 +15,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
-	"github.com/MongooseMoo/barn/engine/internal/scheduler"
+
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -25,13 +25,13 @@ import (
 
 // Runtime manages task and VM execution.
 type Runtime struct {
-	taskManager             *task.Manager
+	taskManager             *TaskManager
 	lifecycle               finalization.Coordinator
-	scheduler               *scheduler.Scheduler
+	scheduler               *scheduler
 	admission               *admission.Controller
 	inputAdmissionContext   context.Context
 	closeInputAdmission     context.CancelFunc
-	leasedTasks             map[int64]*task.State // includes direct tasks absent from the catalog
+	leasedTasks             map[int64]*Task // includes direct tasks absent from the catalog
 	admissionRoots          map[*admissionRoot][]types.Value
 	nextTaskID              int64
 	registry                *builtins.Registry
@@ -82,7 +82,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	inputContext, closeInput := context.WithCancel(ctx)
-	manager := task.NewManager()
+	manager := NewTaskManager()
 
 	s := &Runtime{
 		inputAdmissionContext: inputContext,
@@ -186,9 +186,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		}
 	}
 	s.session = builtins.NewSession(registry, host)
-	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
+	s.scheduler = newScheduler(workerCount, taskIsConflictRetryable, s.runTask)
 	s.scheduler.SetLane(forkFirstRunLane)
-	manager.SetResumeScheduler(func(t *task.State, value types.Value, readier *task.State) bool {
+	manager.SetResumeScheduler(func(t *Task, value types.Value, readier *task.State) bool {
 		return s.scheduler.Resume(t, value, readier, time.Now())
 	})
 	limit := options.AdmissionLimit
@@ -198,13 +198,13 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	s.admission = admission.New(admission.Options{Limit: limit, PrincipalLimit: options.AdmissionPrincipalLimit,
 		InputWeight: options.AdmissionInputWeight, BackgroundWeight: options.AdmissionBackgroundWeight,
 		AnonymousWeight: options.AdmissionAnonymousWeight, SystemWeight: options.AdmissionSystemWeight})
-	s.scheduler.SetOrdering(func(tasks []*task.State) {
+	s.scheduler.SetOrdering(func(tasks []*Task) {
 		keys := make([]admission.Key, len(tasks))
 		for i, t := range tasks {
 			keys[i] = backgroundAdmissionKey(t)
 		}
 		order := s.admission.Order(keys)
-		before := append([]*task.State(nil), tasks...)
+		before := append([]*Task(nil), tasks...)
 		for i, j := range order {
 			tasks[i] = before[j]
 		}
@@ -235,7 +235,7 @@ func (s *Runtime) LiveTaskCount() int64 {
 	return int64(s.taskManager.Len())
 }
 
-func (s *Runtime) acquireTaskExecution(t *task.State) bool {
+func (s *Runtime) acquireTaskExecution(t *Task) bool {
 	if s.lifecycle.ExecutionStartObserver != nil {
 		s.lifecycle.ExecutionStartObserver()
 	}
@@ -248,7 +248,7 @@ func (s *Runtime) acquireTaskExecution(t *task.State) bool {
 	}
 	s.lifecycle.ExecutingTasks[t.ID]++
 	if s.leasedTasks == nil {
-		s.leasedTasks = make(map[int64]*task.State)
+		s.leasedTasks = make(map[int64]*Task)
 	}
 	s.leasedTasks[t.ID] = t
 	return true
@@ -538,7 +538,7 @@ func (s *Runtime) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 
 // flushTaskOutput consumes the input command suffix at its first return or
 // suspension. Resumed tasks still flush output, but never repeat the suffix.
-func (s *Runtime) flushTaskOutput(t *task.State) {
+func (s *Runtime) flushTaskOutput(t *Task) {
 	if s.taskOutputFlusher != nil {
 		suffix := t.CommandOutputSuffix
 		t.CommandOutputSuffix = ""
@@ -574,7 +574,7 @@ func (s *Runtime) ProcessReadyBatch() int {
 // flight and returns how many it started. It does not wait for them: each
 // task's completion requests a fresh scan through ScheduleChanged.
 func (s *Runtime) DispatchReady() int {
-	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*task.State).ReserveAdmission, func(result scheduler.Result) {
+	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*Task).ReserveAdmission, func(result schedulerResult) {
 		s.settleTaskResult(result)
 		s.flushDeferredGC()
 		s.taskManager.NotifyScheduleChange()
@@ -589,7 +589,7 @@ func (s *Runtime) NextTaskWake() time.Time {
 	return s.scheduler.NextWake(time.Now(), s.taskManager.Unfinished())
 }
 
-func (s *Runtime) runReadyTasks(readyTasks []*task.State) int {
+func (s *Runtime) runReadyTasks(readyTasks []*Task) int {
 	if len(readyTasks) == 0 {
 		return 0
 	}
@@ -609,13 +609,13 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.State) int {
 	return count
 }
 
-func (s *Runtime) runTaskBatch(readyTasks []*task.State) {
+func (s *Runtime) runTaskBatch(readyTasks []*Task) {
 	for _, result := range s.scheduler.Run(readyTasks) {
 		s.settleTaskResult(result)
 	}
 }
 
-func (s *Runtime) settleTaskResult(result scheduler.Result) {
+func (s *Runtime) settleTaskResult(result schedulerResult) {
 	t := result.Task
 	if result.Err != nil {
 		slog.Error("task error",
@@ -669,7 +669,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		case task.TaskRunning:
 			return nil, nil, false
 		}
-		if exec, isVM := t.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+		if exec := t.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
@@ -702,7 +702,7 @@ func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.State) (anonR
 		case task.TaskRunning:
 			return nil, false
 		}
-		if exec, isVM := sibling.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+		if exec := sibling.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 		}
 	}
@@ -744,7 +744,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.State) (anonRefs map[types.
 		if state == task.TaskRunning {
 			return nil, nil, false
 		}
-		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
+		if exec := queued.VM(); exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}

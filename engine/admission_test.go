@@ -359,7 +359,7 @@ func TestAdmissionCapOneEscalatedSliceDoesNotYieldIntoDeadlock(t *testing.T) {
 		}
 	}()
 	deadline := time.Now().Add(3 * time.Second)
-	for rt.GetTask(id).GetState() != task.TaskRunning || rt.GetTask(id).BytecodeVMValue() == nil {
+	for rt.GetTask(id).GetState() != task.TaskRunning || rt.GetTask(id).VM() == nil {
 		if time.Now().After(deadline) {
 			t.Fatal("resumed slice never started")
 		}

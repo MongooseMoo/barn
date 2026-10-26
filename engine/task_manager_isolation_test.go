@@ -18,8 +18,8 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		t.Fatal("two runtimes share one task manager")
 	}
 
-	firstTask := task.NewState(101, 7, 1000, 10)
-	secondTask := task.NewState(202, 8, 1000, 10)
+	firstTask := NewTask(101, 7, 1000, 10)
+	secondTask := NewTask(202, 8, 1000, 10)
 	first.QueueTask(firstTask)
 	second.QueueTask(secondTask)
 
@@ -57,7 +57,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 	assertQueuedTask(t, first, firstTask.ID)
 	assertQueuedTask(t, second, secondTask.ID)
 
-	first.taskManager.SuspendTask(firstTask, -1)
+	firstTask.SuspendSeconds(-1)
 	if got := firstTask.GetState(); got != task.TaskSuspended {
 		t.Fatalf("first task state after suspend = %v, want suspended", got)
 	}
