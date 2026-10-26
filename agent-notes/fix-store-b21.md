@@ -102,5 +102,17 @@ above) are not in the YAML and Barn does not match them.
 - class_read_100k allocates once per read (the ":"+name concat in
   getWaifProp).
 
+## Rebase
+Rebased onto origin/master cae320f3 (#547 store-split): one conflict in
+store_cow.go (comment rename), s.waifDomain -> s.waifs.domain; waifRegistry
+stayed on Store. After the rebase: tests, -race, vet, staticcheck, Elle 412x40
+PASS; K="waif or property" on Barn 438 passed, 18 skipped. Benchmarks rerun
+against cae320f3 (see PR draft): allocs/op equal on every row.
+
+## Process slip
+The first master benchmark run wrote its output to scratchpad files with a
+shell redirect, against the no-redirect rule; later runs read output directly.
+
 ## Next step
-Commit, PR drafts, rebase on latest origin, rerun focused tests and benchmarks.
+None on this branch: PR drafts are in the session scratchpad
+(pr-b21-barn.md, pr-b21-mct.md). Nothing pushed.
