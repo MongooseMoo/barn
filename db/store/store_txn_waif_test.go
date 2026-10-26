@@ -426,7 +426,7 @@ func TestWaifDependentValueWriteKeepsVerbShape(t *testing.T) {
 			if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 				t.Fatal(ec)
 			}
-			verbShape := s.verbShapeChangeTS.Load()
+			verbShape := s.dispatch.shapeChangeTS.Load()
 			w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
 			tx := s.BeginSnapshot(0)
 			defer tx.Release()
@@ -438,8 +438,8 @@ func TestWaifDependentValueWriteKeepsVerbShape(t *testing.T) {
 			if ec := tx.Commit(); ec != types.E_NONE {
 				t.Fatal(ec)
 			}
-			if got := s.verbShapeChangeTS.Load(); got != verbShape {
-				t.Fatalf("verbShapeChangeTS moved %d -> %d on a value write", verbShape, got)
+			if got := s.dispatch.shapeChangeTS.Load(); got != verbShape {
+				t.Fatalf("dispatch.shapeChangeTS moved %d -> %d on a value write", verbShape, got)
 			}
 		})
 	}

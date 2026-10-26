@@ -10,7 +10,7 @@ import (
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
-		// The live op has already moved verbShapeChangeTS, so the memo's clock
+		// The live op has already moved dispatch.shapeChangeTS, so the memo's clock
 		// check can no longer tell this txn's own change from a concurrent one.
 		// Callers reach PrepareLiveMutation first; this is the safety net.
 		tx.materializeVerbMemoMarks()

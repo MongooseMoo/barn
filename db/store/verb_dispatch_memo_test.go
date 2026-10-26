@@ -11,8 +11,8 @@ import (
 // resetVerbDispatchMemoForTest empties the store-level dispatch memo so a test
 // can observe a first-call walk.
 func (s *Store) resetVerbDispatchMemoForTest() {
-	s.verbDispatchMemo.Store(&sync.Map{})
-	s.verbDispatchMemoSize.Store(0)
+	s.dispatch.memo.Store(&sync.Map{})
+	s.dispatch.size.Store(0)
 }
 
 func memoHas(s *Store, objID types.ObjID, name string) bool {

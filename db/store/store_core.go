@@ -50,6 +50,18 @@ type waifRootsMemo struct {
 	cache atomic.Pointer[persistentWaifRootsEntry]
 }
 
+// verbDispatch is the store-level verb dispatch memo. memo caches verb
+// resolution (object, name, execute-required) -> (definer, map key) across
+// transactions, and size counts its entries so it can be swapped whole when
+// full. shapeChangeTS is the clock value taken after the most recent change
+// that can alter any resolution (verb add/delete/rename/code image, parents,
+// recycle, renumber). See StoreTxn.lookupVerbDispatchMemo.
+type verbDispatch struct {
+	memo          atomic.Pointer[sync.Map]
+	size          atomic.Int64
+	shapeChangeTS atomic.Uint64
+}
+
 type Store struct {
 	mu sync.RWMutex
 	// commitMu serializes decentralized commits. It is taken inside
@@ -139,14 +151,9 @@ type Store struct {
 	propertyWriteElisions atomic.Uint64
 	// waifRoots memoizes the PersistentWaifRoots scan (waifRootsMemo).
 	waifRoots waifRootsMemo
-	// verbDispatchMemo caches verb resolution (object, name, execute-required)
-	// -> (definer, map key) across transactions; verbShapeChangeTS is the clock
-	// value taken after the most recent change that can alter any resolution
-	// (verb add/delete/rename/code image, parents, recycle, renumber). See
-	// StoreTxn.lookupVerbDispatchMemo.
-	verbDispatchMemo     atomic.Pointer[sync.Map]
-	verbDispatchMemoSize atomic.Int64
-	verbShapeChangeTS    atomic.Uint64
+	// dispatch is the verb dispatch memo and its invalidation stamp
+	// (verbDispatch).
+	dispatch verbDispatch
 	// hotProps tracks the properties whose reads keep losing validation, and
 	// counts what renewing a transaction at such a read did. See
 	// store_hot_read.go.
@@ -361,21 +368,21 @@ func (s *Store) noteWaifRootsChanged() { s.waifRoots.epoch.Add(1) }
 // transactions whose snapshot predates this clock
 // value stop using the memo, and a transaction that already dispatched
 // through it fails validation and retries.
-func (s *Store) noteVerbShapeChanged() { s.verbShapeChangeTS.Store(s.bumpClock()) }
+func (s *Store) noteVerbShapeChanged() { s.dispatch.shapeChangeTS.Store(s.bumpClock()) }
 
 // verbDispatchMemoCap bounds the memo; when exceeded the whole map is swapped
 // for a fresh one rather than evicting entry by entry.
 const verbDispatchMemoCap = 1 << 17
 
 func (s *Store) verbMemo() *sync.Map {
-	if m := s.verbDispatchMemo.Load(); m != nil {
+	if m := s.dispatch.memo.Load(); m != nil {
 		return m
 	}
 	fresh := &sync.Map{}
-	if s.verbDispatchMemo.CompareAndSwap(nil, fresh) {
+	if s.dispatch.memo.CompareAndSwap(nil, fresh) {
 		return fresh
 	}
-	return s.verbDispatchMemo.Load()
+	return s.dispatch.memo.Load()
 }
 
 type objectHistory struct {

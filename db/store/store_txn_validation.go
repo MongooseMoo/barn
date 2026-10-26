@@ -123,7 +123,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 
 func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
 	if tx.usedVerbMemo && !tx.liveMutated {
-		if changed := tx.store.verbShapeChangeTS.Load(); changed > tx.readTS {
+		if changed := tx.store.dispatch.shapeChangeTS.Load(); changed > tx.readTS {
 			tx.noteConflict(first, types.E_INVARG, ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
 		}
 	}
