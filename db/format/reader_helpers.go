@@ -13,6 +13,28 @@ import (
 	"github.com/MongooseMoo/barn/verb"
 )
 
+// readPlayers reads the player list shared by all supported database versions.
+func (database *Database) readPlayers(r *bufio.Reader) error {
+	// Format: nplayers, player[0], player[1], ...
+	count, err := readInt(r)
+	if err != nil {
+		return err
+	}
+
+	if count < 0 {
+		return fmt.Errorf("invalid player count %d", count)
+	}
+	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
+	for i := 0; i < count; i++ {
+		objID, err := readObjID(r)
+		if err != nil {
+			return err
+		}
+		database.Players = append(database.Players, objID)
+	}
+	return nil
+}
+
 // readInt reads an integer from the next line
 func readInt(r *bufio.Reader) (int, error) {
 	line, err := readLineBytes(r)

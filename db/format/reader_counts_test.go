@@ -53,8 +53,7 @@ func TestReadRecordCountsRejectNegativeAndTruncatedHugeCounts(t *testing.T) {
 		name, suffix string
 		read         func(*bufio.Reader) error
 	}{
-		{"players-v4", "\n", db.readPlayersV4},
-		{"players-v17", "\n", db.readPlayersV17},
+		{"players", "\n", db.readPlayers},
 		{"finalizations", " values pending finalization\n", db.readFinalizations},
 		{"queued", " queued tasks\n", db.readQueuedTasks},
 		{"suspended", " suspended tasks\n", db.readSuspendedTasks},
@@ -159,11 +158,9 @@ func TestReadRecordsGrowBeyondInitialCapacity(t *testing.T) {
 	if err := w.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	for _, read := range []func(*Database, *bufio.Reader) error{(*Database).readPlayersV4, (*Database).readPlayersV17} {
-		db := &Database{}
-		if err := read(db, bufio.NewReader(bytes.NewReader(raw.Bytes()))); err != nil || len(db.Players) != count || db.Players[count-1] != count-1 {
-			t.Fatalf("large players: len=%d err=%v", len(db.Players), err)
-		}
+	db := &Database{}
+	if err := db.readPlayers(bufio.NewReader(bytes.NewReader(raw.Bytes()))); err != nil || len(db.Players) != count || db.Players[count-1] != count-1 {
+		t.Fatalf("large players: len=%d err=%v", len(db.Players), err)
 	}
 	raw.Reset()
 	names := make([]string, count)
