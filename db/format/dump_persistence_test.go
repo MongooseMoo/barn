@@ -158,6 +158,20 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 	if ec := objectStore.DirectTxn().SetPropertyValue(classID, "saved_anon", types.NewAnon(anonID)); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue saved_anon: %v", ec)
 	}
+	// Leave index 0 unprogrammed so restored source must retain its index.
+	for _, name := range []string{"never_programmed", "with_code", "empty_program"} {
+		verb := store.NewVerb([]string{name}, 3, 0,
+			store.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+		if _, ec := objectStore.AddVerb(anonID, verb); ec != types.E_NONE {
+			t.Fatalf("AddVerb(%s): %v", name, ec)
+		}
+	}
+	if ec := objectStore.DirectTxn().SetVerbCodeByIndex(anonID, 1, []string{"return 1;"}); ec != types.E_NONE {
+		t.Fatalf("SetVerbCode(with_code): %v", ec)
+	}
+	if ec := objectStore.DirectTxn().SetVerbCodeByIndex(anonID, 2, []string{}); ec != types.E_NONE {
+		t.Fatalf("SetVerbCode(empty_program): %v", ec)
+	}
 
 	tmpFile, err := os.CreateTemp(t.TempDir(), "anonymous-override-*.db")
 	if err != nil {
@@ -191,6 +205,23 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 	}
 	if override.Clear || override.Value.Type() != types.TYPE_STR || override.Value.Str() != "anonymous-marker" {
 		t.Fatalf("anonymous override = %#v, want anonymous-marker", override)
+	}
+	if reloaded.Objects[anonRef.Value.ID()] != nil {
+		t.Fatal("anonymous object entered the numbered object map")
+	}
+	anonObjects := reloadedStore.Snapshot().AnonymousObjects
+	if len(anonObjects) != 1 || len(anonObjects[0].VerbList) != 3 {
+		t.Fatalf("anonymous snapshot = %#v, want one object with three verbs", anonObjects)
+	}
+	verbs := anonObjects[0].VerbList
+	if verbs[0].HasProgram {
+		t.Fatal("never-programmed anonymous verb gained a program")
+	}
+	if !verbs[1].HasProgram || len(verbs[1].Code) != 1 || verbs[1].Code[0] != "return 1;" {
+		t.Fatalf("anonymous verb index 1: HasProgram=%v Code=%q", verbs[1].HasProgram, verbs[1].Code)
+	}
+	if !verbs[2].HasProgram || len(verbs[2].Code) != 0 {
+		t.Fatalf("anonymous verb index 2: HasProgram=%v Code=%q, want empty program", verbs[2].HasProgram, verbs[2].Code)
 	}
 }
 

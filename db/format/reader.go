@@ -45,6 +45,10 @@ type Database struct {
 	// object's builder copies what it keeps, so one serves the whole parse.
 	loadedSlots store.LoadedSlots
 
+	// loadedAnonymous indexes anonymous builders by their saved IDs while
+	// attaching verb programs, without putting them in the numbered object map.
+	loadedAnonymous map[types.ObjID]*store.ObjectBuilder
+
 	// propPool interns the shared property bases of the loaded objects. The
 	// store keeps it so objects created later share the same bases.
 	propPool *store.PropSharePool
@@ -228,6 +232,7 @@ func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIde
 	}
 	database.loadedStrings = nil
 	database.loadedSlots = store.LoadedSlots{}
+	database.loadedAnonymous = nil
 	database.repairStartupIssues()
 	return database, nil
 }
