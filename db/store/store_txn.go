@@ -164,7 +164,7 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		highWaterID: s.highWater(),
 		// readClocks is left nil and allocated by the first sampled read.
 		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
-		sampleReadClocks: s.conflictTracking.Load(),
+		sampleReadClocks: s.conflicts.tracking.Load(),
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx

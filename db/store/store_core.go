@@ -142,17 +142,12 @@ type Store struct {
 	verbDispatchMemoSize atomic.Int64
 	verbShapeChangeTS    atomic.Uint64
 	// hotProps tracks the properties whose reads keep losing validation, and
-	// the hotRead counters what renewing a transaction at such a read did. See
+	// counts what renewing a transaction at such a read did. See
 	// store_hot_read.go.
-	hotProps        hotProperties
-	hotReadRenewals atomic.Uint64
-	hotReadRefusals atomic.Uint64
-	hotReadDeclines atomic.Uint64
-	// conflicts counts, per key, what commits lost validation on;
-	// conflictTracking has transactions sample the clock at their property
-	// reads for it. See store_conflict_census.go.
-	conflicts        conflictCensus
-	conflictTracking atomic.Bool
+	hotProps hotProperties
+	// conflicts counts, per key, what commits lost validation on. See
+	// store_conflict_census.go.
+	conflicts conflictCensus
 
 	// commitGate serializes an escalated commit attempt against all ordinary
 	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any

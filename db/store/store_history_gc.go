@@ -275,7 +275,7 @@ func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
 		remaining = len(pruned)
 	}
 	s.historyMu.Unlock()
-	if !readerPruneDue(remaining) || s.conflictTracking.Load() {
+	if !readerPruneDue(remaining) || s.conflicts.tracking.Load() {
 		return
 	}
 	// The registry is scanned outside historyMu. Entries appended in between
