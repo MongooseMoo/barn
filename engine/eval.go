@@ -95,7 +95,7 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 	}
 	ticks, seconds := foregroundTaskLimits(s.session)
 	running = task.NewTaskFull(s.newTaskID(), player, prog, ticks, seconds)
-	s.populateTaskContextDependencies(running.Context)
+	s.populateContextDependencies(running.Context)
 	running.Context.IsWizard = s.isWizard(player)
 	running.IntrinsicEval = true
 	running.This = types.ObjNothing

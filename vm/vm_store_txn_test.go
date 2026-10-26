@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 )
 
 func TestEnsureContextDependenciesUsesDirectTransaction(t *testing.T) {
 	store := dbstore.NewStore()
 	machine := NewVM(store, nil)
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 
 	machine.ensureContextDependencies()
 

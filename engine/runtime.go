@@ -17,7 +17,6 @@ import (
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/engine/internal/scheduler"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -99,9 +98,9 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	}
 	host := builtins.Host{TaskManager: manager}
 	host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
-		var tc *kernel.TaskContext
+		var tc *task.Context
 		if execution != nil {
-			tc = execution.TaskContext
+			tc = execution.Context
 		}
 		player := types.ObjNothing
 		if tc != nil {
@@ -129,7 +128,7 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		return s.CallVerb(objID, verbName, args, player)
 	}
 	host.RunGC = func(execution *builtins.Execution, beforeSweep func() bool) error {
-		ctx := execution.TaskContext
+		ctx := execution.Context
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
 		if !s.lifecycle.SweepMu.TryLock() {
@@ -280,7 +279,7 @@ func (s *Runtime) acquireInheritedTaskExecution(taskID int64) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+func (s *Runtime) acquireExecutionContext(ctx *task.Context, taskID int64) {
 	if ctx == nil {
 		return
 	}
@@ -294,7 +293,7 @@ func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64)
 	s.mu.Unlock()
 }
 
-func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+func (s *Runtime) releaseExecutionContext(ctx *task.Context, taskID int64) {
 	if ctx == nil {
 		return
 	}
@@ -311,7 +310,7 @@ func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64)
 	s.mu.Unlock()
 }
 
-func (s *Runtime) executionContextOwner(ctx *kernel.TaskContext) (int64, bool) {
+func (s *Runtime) executionContextOwner(ctx *task.Context) (int64, bool) {
 	ownerID, claimed, attributable := s.executionContextClaim(ctx)
 	return ownerID, claimed && attributable
 }
@@ -320,7 +319,7 @@ func (s *Runtime) executionContextOwner(ctx *kernel.TaskContext) (int64, bool) {
 // physical execution owner is ambiguous. Ambiguity makes global GC a
 // successful no-op; treating it as absent could fall back to ctx.Task and
 // exclude the wrong sole lease.
-func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64, claimed, attributable bool) {
+func (s *Runtime) executionContextClaim(ctx *task.Context) (ownerID int64, claimed, attributable bool) {
 	if ctx == nil {
 		return 0, false, false
 	}
@@ -339,7 +338,7 @@ func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64,
 	return 0, false, false
 }
 
-func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
+func (s *Runtime) acquireSweepContext(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}
@@ -348,7 +347,7 @@ func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
+func (s *Runtime) releaseSweepContext(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}
@@ -361,7 +360,7 @@ func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
 	s.mu.Unlock()
 }
 
-func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
+func (s *Runtime) isSweepOwnedContext(ctx *task.Context) bool {
 	if ctx == nil {
 		return false
 	}
@@ -371,7 +370,7 @@ func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
 	return owned
 }
 
-func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
+func (s *Runtime) populateContextDependencies(ctx *task.Context) {
 	if ctx == nil {
 		return
 	}

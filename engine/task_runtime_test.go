@@ -90,7 +90,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	}
 	id := atomic.AddInt64(&s.nextTaskID, 1)
 	tk := task.NewTaskFull(id, types.ObjNothing, program, ticks, seconds)
-	s.populateTaskContextDependencies(tk.Context)
+	s.populateContextDependencies(tk.Context)
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s
 	s.mu.Lock()

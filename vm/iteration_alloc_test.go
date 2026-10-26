@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -36,7 +35,7 @@ func TestIndexedIterationAllocationGrowth(t *testing.T) {
 				}
 				args := []types.Value{input}
 				return testing.AllocsPerRun(5, func() {
-					ctx := kernel.NewTaskContext()
+					ctx := task.NewContext()
 					ctx.Store = store
 					ctx.TicksRemaining = 1 << 60
 					machine := NewVM(store, session)

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -26,7 +25,7 @@ func TestRegistryDispatchCanBeSharedWithoutSharingSessionState(t *testing.T) {
 		t.Fatal("connection options leaked between sessions")
 	}
 
-	first.applyServerOptionsSnapshot(&kernel.PendingServerOptions{MaxStringConcat: 17})
+	first.applyServerOptionsSnapshot(&task.PendingServerOptions{MaxStringConcat: 17})
 	if got := first.GetMaxStringConcat(); got != 17 {
 		t.Fatalf("first session max string concat = %d, want 17", got)
 	}
@@ -65,7 +64,7 @@ func (taskManagerStub) SuspendTask(*task.Task, float64) {}
 func TestExecutionCarriesRegistryAndSession(t *testing.T) {
 	registry := NewRegistry()
 	session := NewSession(registry, NoHost())
-	execution := session.NewExecution(kernel.NewTaskContext(), nil)
+	execution := session.NewExecution(task.NewContext(), nil)
 
 	if execution.Registry != registry {
 		t.Fatal("execution does not carry its dispatch registry")

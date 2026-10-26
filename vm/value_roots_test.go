@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -64,7 +63,7 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 			anon := types.NewAnon(types.ObjID(1000 + i))
 			waif := types.NewWaif(types.ObjID(2000+i), 1)
 			value := types.NewList([]types.Value{anon, waif})
-			machine := &VM{Frames: []*StackFrame{{Program: &bytecode.Program{}}}, Context: &kernel.TaskContext{}}
+			machine := &VM{Frames: []*StackFrame{{Program: &bytecode.Program{}}}, Context: &task.Context{}}
 			tc.set(machine, value)
 
 			var waifs []types.Value

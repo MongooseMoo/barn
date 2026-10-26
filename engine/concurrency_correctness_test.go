@@ -68,7 +68,7 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
 		tk := task.NewTaskFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
-		s.populateTaskContextDependencies(tk.Context)
+		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
 		tk.Done = make(chan struct{})
@@ -124,7 +124,7 @@ func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
 		tk := task.NewTaskFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
-		s.populateTaskContextDependencies(tk.Context)
+		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
 		// Deliberately no Done channel: this probe targets the suspend-path data race,
@@ -182,7 +182,7 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 	for k := 0; k < n; k++ {
 		code := fmt.Sprintf("add_verb(#%d, {#3, \"rxd\", \"poked\"}, {\"this\", \"none\", \"none\"}); return verbs(#%d);", ids[k], ids[k])
 		tk := task.NewTaskFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
-		s.populateTaskContextDependencies(tk.Context)
+		s.populateContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.Programmer = 3
 		tk.Context.Programmer = 3

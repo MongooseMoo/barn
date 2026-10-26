@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,7 +36,7 @@ func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizar
 		host.TaskManager = manager
 	})
 	taskValue := task.NewTask(taskID, connection, 1000, 5)
-	ctx := session.NewExecution(&kernel.TaskContext{
+	ctx := session.NewExecution(&task.Context{
 		Player:     connection,
 		Programmer: programmer,
 		IsWizard:   wizard,

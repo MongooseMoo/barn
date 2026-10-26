@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -136,7 +135,7 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 	length := conn.BufferedOutputLength()
 	if ctx != nil {
 		for _, effect := range ctx.PendingEffects {
-			if effect.Kind != kernel.PendingEffectNotification {
+			if effect.Kind != task.PendingEffectNotification {
 				continue
 			}
 			note := effect.Notification

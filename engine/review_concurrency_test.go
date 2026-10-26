@@ -130,7 +130,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	}
 	taskAID := atomic.AddInt64(&s.nextTaskID, 1)
 	taskA := task.NewTaskFull(taskAID, types.ObjNothing, programA, ticks, seconds)
-	s.populateTaskContextDependencies(taskA.Context)
+	s.populateContextDependencies(taskA.Context)
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
 	s.mu.Lock()
@@ -147,7 +147,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	}
 	taskBID := atomic.AddInt64(&s.nextTaskID, 1)
 	taskB := task.NewTaskFull(taskBID, types.ObjNothing, programB, ticks, seconds)
-	s.populateTaskContextDependencies(taskB.Context)
+	s.populateContextDependencies(taskB.Context)
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s
 	s.mu.Lock()

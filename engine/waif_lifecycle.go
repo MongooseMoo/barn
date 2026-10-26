@@ -3,7 +3,6 @@ package engine
 import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -62,7 +61,7 @@ const (
 //
 // ownVM is the deferring task's own VM, walked here on the goroutine that owns it
 // so its references survive as roots after the VM is released.
-func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Value, ownVM *vm.VM) {
+func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ownVM *vm.VM) {
 	if len(pending) == 0 || ctx == nil {
 		return
 	}
@@ -109,7 +108,7 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 // ownVM is the deferring task's own VM (nil when the task is suspending, since its
 // VM stays registered and the flush reads it directly). When non-nil it is walked
 // here, on the goroutine that owns it, so its references survive the VM's release.
-func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM *vm.VM) {
+func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM) {
 	if ctx == nil {
 		return
 	}
@@ -143,7 +142,7 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
 // task's roots. An explicit shutdown transfers them to the checkpoint domain;
 // generic cancellation and normal completion retain the ordinary GC path.
-func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec *vm.VM, minID types.ObjID, hasAnonymousCreations bool) bool {
+func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations bool) bool {
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
@@ -180,8 +179,8 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec
 //
 // The task's own context is never mutated: the suspend path also defers, and that
 // task's transaction is still live.
-func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskContext {
-	gcCtx := kernel.NewTaskContext()
+func (s *Runtime) gcRecycleContext(parent *task.Context) *task.Context {
+	gcCtx := task.NewContext()
 	gcCtx.Player = parent.Player
 	gcCtx.Programmer = parent.Programmer
 	gcCtx.IsWizard = parent.IsWizard
@@ -332,7 +331,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 	}
 
 	if !s.ShutdownRequested() {
-		markedContexts := make(map[*kernel.TaskContext]struct{})
+		markedContexts := make(map[*task.Context]struct{})
 		for _, req := range anonBatch {
 			if req.Ctx == nil {
 				continue
@@ -419,7 +418,7 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	}
 	s.lifecycle.Mu.Lock()
 	for _, waif := range waifs.Values {
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
 		ctx.Store = s.store
@@ -428,7 +427,7 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{Waif: waif, Ctx: ctx})
 	}
 	for id := range anons {
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Store = s.store
 		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
@@ -459,7 +458,7 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, ano
 	}
 }
 
-func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *task.Task, waif types.Value) {
+func (s *Runtime) callWaifRecycle(parentCtx *task.Context, parentTask *task.Task, waif types.Value) {
 	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return
@@ -477,7 +476,7 @@ func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *tas
 	if player == types.ObjNothing {
 		player = parentCtx.Programmer
 	}
-	recycleCtx := kernel.NewTaskContext()
+	recycleCtx := task.NewContext()
 	recycleCtx.Player = player
 	recycleCtx.Programmer = verb.Owner
 	recycleCtx.IsWizard = s.isWizard(verb.Owner)

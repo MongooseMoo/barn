@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -93,14 +92,14 @@ type Task struct {
 	CreatedForks []int64         // Forked task IDs created during the current execution slice
 
 	// Execution fields
-	Program        *bytecode.Program   // Compiled program ready for execution
-	BytecodeVM     interface{}         // *vm.VM - bytecode VM for execution (saved across suspend/resume)
-	Context        *kernel.TaskContext // Task execution context
-	Result         types.Result        // Last execution result
-	ForkCreator    ForkCreator         // For creating forked tasks
-	CancelFunc     context.CancelFunc  // For cancellation (exported for the engine)
-	ExecCancelFunc context.CancelFunc  // For cancelling an exec() subprocess
-	StmtIndex      int                 // Current statement index (for suspend/resume)
+	Program        *bytecode.Program  // Compiled program ready for execution
+	BytecodeVM     interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
+	Context        *Context           // Task execution context
+	Result         types.Result       // Last execution result
+	ForkCreator    ForkCreator        // For creating forked tasks
+	CancelFunc     context.CancelFunc // For cancellation (exported for the engine)
+	ExecCancelFunc context.CancelFunc // For cancelling an exec() subprocess
+	StmtIndex      int                // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
 	VerbName            string
@@ -251,7 +250,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 
 // NewTaskFull creates a task with full execution context.
 func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLimit int64, secondsLimit float64) *Task {
-	ctx := kernel.NewTaskContext()
+	ctx := NewContext()
 	ctx.Player = owner
 	ctx.Programmer = owner
 	ctx.TicksRemaining = tickLimit
@@ -504,7 +503,7 @@ func (t *Task) ClearCallStack() {
 // optimistic execution attempt. Slice storage is copied before releasing the
 // lock so a concurrent observer never aliases a changing CallStack.
 type RetrySnapshot struct {
-	Context                              *kernel.TaskContext
+	Context                              *Context
 	CallStack                            []types.ActivationFrame
 	TaskLocal, WakeValue                 types.Value
 	WakeErrorAsValue                     bool
@@ -549,7 +548,7 @@ func (t *Task) RestoreRetryState(saved RetrySnapshot) {
 }
 
 // ContextValue returns the current execution context pointer safely.
-func (t *Task) ContextValue() *kernel.TaskContext {
+func (t *Task) ContextValue() *Context {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.Context

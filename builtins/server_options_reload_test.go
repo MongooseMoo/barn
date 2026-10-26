@@ -44,7 +44,7 @@ func TestLoadServerOptionsAfterElidedWrites(t *testing.T) {
 	set("max_list_value_bytes", 1000000)
 	set("protect_create", 1)
 	reload()
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, list); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, list); err != types.E_NONE {
 		t.Fatalf("first reload did not raise the task limit: %s", err)
 	}
 	if ctx.Session.GetMaxListValueBytes() != 3000 || ctx.Session.IsProtectedBuiltin("create") {
@@ -59,7 +59,7 @@ func TestLoadServerOptionsAfterElidedWrites(t *testing.T) {
 		t.Fatal("round-trip writes were not elided")
 	}
 	reload()
-	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, list); err != types.E_QUOTA {
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, list); err != types.E_QUOTA {
 		t.Errorf("restored task limit: got %s, want E_QUOTA", err)
 	}
 	if err := ctx.StoreTxn.Commit(); err != types.E_NONE {

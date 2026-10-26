@@ -12,7 +12,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -112,7 +111,7 @@ func TestContinuationRetriesDiscardEffectsAndTaskLocalChanges(t *testing.T) {
 				return types.Err(code)
 			}
 		}
-		ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { effects++ }})
+		ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { effects++ }})
 		return types.Ok(types.NewInt(0))
 	})
 	rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("conflict", 0, 0, nil, &conflict))

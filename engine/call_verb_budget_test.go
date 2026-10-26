@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,7 +36,7 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 			case "argstr":
 				result = rt.CallVerbWithArgstr(0, "budget_probe", nil, 0, "probe")
 			case "sweep_hook":
-				ctx := kernel.NewTaskContext()
+				ctx := task.NewContext()
 				ctx.Player = 0
 				ctx.StoreTxn = store.DirectTxn()
 				rt.acquireSweepContext(ctx)
@@ -49,7 +48,7 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 					t.Fatal("could not acquire hook owner")
 				}
 				defer rt.releaseTaskExecution(owner.ID)
-				ctx := kernel.NewTaskContext()
+				ctx := task.NewContext()
 				ctx.Player = 0
 				ctx.StoreTxn = store.DirectTxn()
 				rt.acquireExecutionContext(ctx, owner.ID)
@@ -101,7 +100,7 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 				deadline = anchor.Add(-time.Second)
 			}
 			parent.SetExecutionDeadline(deadline)
-			ctx := kernel.NewTaskContext()
+			ctx := task.NewContext()
 			ctx.Store = store
 			ctx.StoreTxn = store.BeginSnapshot(0)
 			defer ctx.StoreTxn.Release()

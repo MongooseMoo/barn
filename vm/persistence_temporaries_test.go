@@ -6,7 +6,6 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -43,7 +42,7 @@ func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 	}
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	taskValue := task.NewTask(1, 2, ctx.TicksRemaining, 1)
 
@@ -94,7 +93,7 @@ func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 		t.Fatalf("suspended tasks = %d, want 1", got)
 	}
 
-	restored, err := RestoreVMSnapshot(reloaded.SuspendedTasks[0].Snapshot.VM, store, session, kernel.NewTaskContext())
+	restored, err := RestoreVMSnapshot(reloaded.SuspendedTasks[0].Snapshot.VM, store, session, task.NewContext())
 	if err != nil {
 		t.Fatalf("RestoreVMSnapshot after checkpoint reload: %v", err)
 	}

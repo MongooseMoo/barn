@@ -18,7 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -153,7 +152,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	if ownsScope {
 		scope.Start()
 	}
-	var executionCtx *kernel.TaskContext
+	var executionCtx *task.Context
 	defer func() {
 		// This is the singular runTask lifecycle boundary for every caller:
 		// publish all task/VM state first, release the physical execution lease,
@@ -578,7 +577,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *task.Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
@@ -625,7 +624,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 			return bcVM, result, errors.New("task has no compiled program")
 		}
 
-		// Update TaskContext for permissions and builtins
+		// Update Context for permissions and builtins
 		if t.VerbName != "" {
 			ctx.Player = t.Owner
 			ctx.Programmer = t.Programmer
@@ -711,7 +710,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 // slice's garbage for the next flush, commits what the slice wrote since its
 // main commit, and saves the VM for the scheduler to resume. A failed commit
 // kills the task instead.
-func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
+func (s *Runtime) handOffSuspended(t *task.Task, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
 	// A suspend is a waif liveness boundary as well as an anonymous-object
 	// boundary. Values overwritten before the yield are no longer live in the
 	// saved VM, so queue them now; the flush-time scan of the registered VM
@@ -1021,7 +1020,7 @@ func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 		return taskRetryState{}
 	}
 	saved := t.RetryStateSnapshot()
-	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.Context = cloneContextForRetry(saved.Context)
 	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
 	state := taskRetryState{
 		canRetry: taskIsConflictRetryable(t),
@@ -1048,7 +1047,7 @@ func (state taskRetryState) restore(t *task.Task) {
 		t.SetBytecodeVM(nil)
 	}
 	saved := state.saved
-	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.Context = cloneContextForRetry(saved.Context)
 	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
 	if saved.Context != nil {
 		saved.Context.TaskID = t.ID
@@ -1056,7 +1055,7 @@ func (state taskRetryState) restore(t *task.Task) {
 	t.RestoreRetryState(saved)
 }
 
-func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
+func cloneContextForRetry(ctx *task.Context) *task.Context {
 	if ctx == nil {
 		return nil
 	}
@@ -1169,7 +1168,7 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
 	t.Context.Programmer = match.Verb.Owner

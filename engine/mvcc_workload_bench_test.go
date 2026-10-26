@@ -264,7 +264,7 @@ func compileShapes(t *testing.T, reg *builtins.Registry, fx *mongooseFixture, pl
 // buildBenchTask minus the *testing.T.
 func buildLiveTask(s *Runtime, id int64, wizardID types.ObjID, prog *bytecode.Program) *task.Task {
 	tk := task.NewTaskFull(id, wizardID, prog, 1<<50, 1e9)
-	s.populateTaskContextDependencies(tk.Context)
+	s.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.Programmer = wizardID
 	tk.Context.Programmer = wizardID

@@ -18,7 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -169,7 +168,7 @@ func elleAddVerb(t *testing.T, store *dbstore.Store, id types.ObjID, name string
 func elleTask(t *testing.T, rt *Runtime, id int64, code string) *task.Task {
 	t.Helper()
 	tk := task.NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
-	rt.populateTaskContextDependencies(tk.Context)
+	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
 	tk.ForkCreator = rt
@@ -366,7 +365,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				return types.Err(types.E_QUOTA)
 			}
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
 			return types.Ok(types.NewInt(0))
 		}
 		// elle_torn(step) sequences the torn-snapshot pair. 0: the reader waits
@@ -382,7 +381,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				tornReadOnce.Do(func() { close(tornRead) })
 				wait = tornPublished
 			case 2:
-				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
 				return types.Ok(types.NewInt(0))
 			}
 			select {
@@ -405,7 +404,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				validReadOnce.Do(func() { close(validRead) })
 				wait = validPublished
 			case 2:
-				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
 				return types.Ok(types.NewInt(0))
 			}
 			select {
@@ -417,7 +416,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		}
 		var invariantMark builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			ops := args[0].Elements()
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() {
 				for _, op := range ops {
 					isolationprobe.Note("operation/" + op.Str())
 				}

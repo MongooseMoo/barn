@@ -8,7 +8,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,7 +20,7 @@ func TestRunGCRejectedBoundaryDoesNotRenewOrSweep(t *testing.T) {
 	}
 	rt := NewRuntime(store)
 	defer rt.Stop()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginSnapshot(0)
 	defer ctx.StoreTxn.Release()
@@ -267,7 +266,7 @@ func TestExplicitGlobalGCExcludesOnlyOneCallerExecutionLease(t *testing.T) {
 func TestExecutionContextOwnershipSurvivesDuplicateAcquisitionUntilLastRelease(t *testing.T) {
 	rt := NewRuntime(dbstore.NewStore())
 	defer rt.Stop()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 
 	rt.acquireExecutionContext(ctx, 92001)
 	rt.acquireExecutionContext(ctx, 92001)
@@ -334,7 +333,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	}
 	caller := task.NewTask(93001, 0, 1000, 10)
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = 0
 	ctx.Programmer = 0
 	ctx.IsWizard = true

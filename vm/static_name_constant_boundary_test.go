@@ -7,7 +7,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -223,7 +222,7 @@ func TestLegacyDynamicNameSentinelsRemainExecutableAfterPersistence(t *testing.T
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := staticNameBoundaryStore(t)
-			ctx := kernel.NewTaskContext()
+			ctx := task.NewContext()
 			ctx.Player = 0
 			ctx.Programmer = 0
 			ctx.Store = store

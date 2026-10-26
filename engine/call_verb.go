@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
@@ -25,10 +24,10 @@ func (s *Runtime) CallVerb(objID types.ObjID, verbName string, args []types.Valu
 }
 
 func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parent *builtins.Execution) types.Result {
-	if parent == nil || parent.TaskContext == nil {
+	if parent == nil || parent.Context == nil {
 		return types.Err(types.E_INVARG)
 	}
-	parentCtx := parent.TaskContext
+	parentCtx := parent.Context
 	// This is a separate synchronous VM even though it shares the parent's
 	// transaction/context. Count it under the same opaque lease so run_gc cannot
 	// exclude the sole owner while both outer and inner VMs hold roots. A
@@ -216,7 +215,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	defer s.finishFinalizationProducer()
 	var leasedTask *task.Task
 	var inheritedLease bool
-	var ownedCtx *kernel.TaskContext
+	var ownedCtx *task.Context
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -314,7 +313,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		frameThisValue = anon
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = verb.Owner           // Programmer is verb owner, not player
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner

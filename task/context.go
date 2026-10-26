@@ -1,4 +1,4 @@
-package kernel
+package task
 
 import (
 	"log/slog"
@@ -9,12 +9,12 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// TaskContext holds the execution context for a MOO task
+// Context holds the execution context for a MOO task
 // This is passed through all evaluator methods to track:
 // - Tick limits (infinite loop protection)
 // - Current player/programmer (permissions)
 // - Current object and verb (for 'this', 'caller', etc.)
-type TaskContext struct {
+type Context struct {
 	// Admission is borrowed only by synchronous nested VMs, never by forked work.
 	Admission            *admission.Scope
 	TicksRemaining       int64       // Infinite loop protection
@@ -68,7 +68,7 @@ type TaskContext struct {
 	Store *dbstore.Store
 
 	// StoreTxn is the stable read view for the current task slice.
-	// Mutations still go to Store until write sets are introduced.
+	// Reads and writes use this view; the runtime publishes its writes on commit.
 	StoreTxn *dbstore.StoreTxn
 
 	// LiveStoreMutated is set after a task mutates Store directly outside
@@ -122,7 +122,7 @@ type TaskContext struct {
 
 // Logger returns the task-scoped logger, falling back to the default logger for
 // contexts built without one (tests construct bare contexts freely).
-func (ctx *TaskContext) Logger() *slog.Logger {
+func (ctx *Context) Logger() *slog.Logger {
 	if ctx == nil || ctx.Log == nil {
 		return slog.Default()
 	}
@@ -160,7 +160,7 @@ type PendingEffect struct {
 	Notification     PendingNotification
 	ConnectionSwitch PendingConnectionSwitch
 	BootPlayer       types.ObjID
-	ServerOptions    *PendingServerOptions // shared with TaskContext.ServerOptions until flushed
+	ServerOptions    *PendingServerOptions // shared with Context.ServerOptions until flushed
 	Start            func()                // PendingEffectAsyncStart: launches the operation
 }
 
@@ -180,12 +180,12 @@ type PendingServerOptions struct {
 	ProtectedBuiltins  map[string]bool
 }
 
-// NewTaskContext creates a new task context with default values.
+// NewContext creates a new task context with default values.
 // Store is intentionally left nil; callers with access to it must populate it
 // before invoking store-backed builtins. Runtime services are supplied outside
-// TaskContext by the engine and VM.
-func NewTaskContext() *TaskContext {
-	return &TaskContext{
+// Context by the engine and VM.
+func NewContext() *Context {
+	return &Context{
 		TicksRemaining:  300000, // Default tick limit (increased to handle long loops without suspend)
 		Player:          types.ObjNothing,
 		Programmer:      types.ObjNothing,
@@ -199,13 +199,13 @@ func NewTaskContext() *TaskContext {
 }
 
 // ConsumeTick decrements the tick count and returns true if ticks remain
-func (ctx *TaskContext) ConsumeTick() bool {
+func (ctx *Context) ConsumeTick() bool {
 	ctx.TicksRemaining--
 	return ctx.TicksRemaining > 0
 }
 
 // ChargeBuiltinTicks accounts for work performed within one builtin opcode.
-func (ctx *TaskContext) ChargeBuiltinTicks(ticks int64) bool {
+func (ctx *Context) ChargeBuiltinTicks(ticks int64) bool {
 	if ticks < 0 || ticks >= ctx.TicksRemaining {
 		return false
 	}
@@ -217,7 +217,7 @@ func (ctx *TaskContext) ChargeBuiltinTicks(ticks int64) bool {
 // CheckStringLimit returns E_QUOTA if the string length exceeds MaxStringConcat
 // Returns E_NONE if the string is within limits
 // Uses the global cached limit from load_server_options() if available
-func (ctx *TaskContext) CheckStringLimit(length int) types.ErrorCode {
+func (ctx *Context) CheckStringLimit(length int) types.ErrorCode {
 	limit := ctx.MaxStringConcat
 
 	// Try to read from global cache (set by load_server_options())

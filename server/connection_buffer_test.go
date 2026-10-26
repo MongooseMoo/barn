@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 )
 
 type notificationWrite struct {
@@ -27,10 +27,10 @@ func (transport *notificationRetryTransport) WriteOutput(message string, newline
 	return nil
 }
 
-func assertDeliveredNotificationsCleared(t *testing.T, backing []kernel.PendingNotification) {
+func assertDeliveredNotificationsCleared(t *testing.T, backing []task.PendingNotification) {
 	t.Helper()
 	for i, note := range backing {
-		if note != (kernel.PendingNotification{}) {
+		if note != (task.PendingNotification{}) {
 			t.Errorf("delivered backing slot %d still holds %+v", i, note)
 		}
 	}
@@ -50,7 +50,7 @@ func TestFlushClearsDeliveredNotificationsAndPreservesRetry(t *testing.T) {
 			transport := &notificationRetryTransport{failAt: test.failAt}
 			conn := NewConnection(1, transport)
 			defer conn.Close()
-			notes := []kernel.PendingNotification{
+			notes := []task.PendingNotification{
 				{Player: 7, Message: "first payload", NoFlush: true, NoNewline: true},
 				{Player: 8, Message: "second payload", NoFlush: true},
 				{Player: 9, Message: "third payload", NoFlush: true, NoNewline: true},

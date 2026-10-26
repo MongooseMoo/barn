@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,7 +20,7 @@ func TestValueOnlyMapIterationRetainsKeyRoots(t *testing.T) {
 		t.Fatal(diagnostics)
 	}
 	store := dbstore.NewStore()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	m := NewVM(store, newTestSessionWithTaskManager(registry))
 	m.Context = ctx

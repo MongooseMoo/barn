@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -82,7 +81,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 // activationThreadMode reports frame i's own thread mode. The context holds the
 // running activation's mode; each lower activation's mode is what the nearest
 // context-saving frame above it saved when it was pushed.
-func activationThreadMode(frames []*StackFrame, i int, ctx *kernel.TaskContext) bool {
+func activationThreadMode(frames []*StackFrame, i int, ctx *task.Context) bool {
 	for above := i + 1; above < len(frames); above++ {
 		if savesContext(frames[above]) {
 			return frames[above].SavedThreadMode
@@ -108,7 +107,7 @@ func RestoreVMSnapshot(
 	snapshot *task.VMSnapshot,
 	store *dbstore.Store,
 	session *builtins.Session,
-	ctx *kernel.TaskContext,
+	ctx *task.Context,
 ) (*VM, error) {
 	if err := validateVMSnapshot(snapshot); err != nil {
 		return nil, err

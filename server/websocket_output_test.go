@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/coder/websocket"
 )
 
@@ -32,13 +32,13 @@ func TestWebSocketOutputRejectsInvalidNotification(t *testing.T) {
 	fake := &recordingOutputWSConn{}
 	conn := NewConnection(1, NewWebSocketTransport(fake, "test"))
 	defer conn.Close()
-	if err := conn.SendNotification(kernel.PendingNotification{Message: "\xff", NoNewline: true}); !errors.Is(err, errWebSocketInvalidOutput) {
+	if err := conn.SendNotification(task.PendingNotification{Message: "\xff", NoNewline: true}); !errors.Is(err, errWebSocketInvalidOutput) {
 		t.Errorf("invalid UTF-8 notification error = %v, want invalid output", err)
 	}
 	if len(fake.payloads) != 0 {
 		t.Fatalf("invalid UTF-8 reached WebSocket writer: %q", fake.payloads)
 	}
-	if err := conn.SendNotification(kernel.PendingNotification{Message: "valid \u00e9"}); err != nil {
+	if err := conn.SendNotification(task.PendingNotification{Message: "valid \u00e9"}); err != nil {
 		t.Fatalf("valid notification after rejection: %v", err)
 	}
 	if len(fake.payloads) != 1 || fake.payloads[0] != "valid \u00e9" || fake.types[0] != websocket.MessageText {
@@ -50,7 +50,7 @@ func TestWebSocketOutputRejectsInvalidBufferedNotification(t *testing.T) {
 	fake := &recordingOutputWSConn{}
 	conn := NewConnection(1, NewWebSocketTransport(fake, "test"))
 	defer conn.Close()
-	if err := conn.SendNotification(kernel.PendingNotification{Message: "\xff", NoFlush: true}); !errors.Is(err, errWebSocketInvalidOutput) {
+	if err := conn.SendNotification(task.PendingNotification{Message: "\xff", NoFlush: true}); !errors.Is(err, errWebSocketInvalidOutput) {
 		t.Errorf("invalid UTF-8 buffered notification error = %v, want invalid output", err)
 	}
 	if got := conn.BufferedOutputLength(); got != 0 {
@@ -65,7 +65,7 @@ func TestWebSocketOutputRejectsInvalidBufferedNotification(t *testing.T) {
 	if len(fake.payloads) != 0 {
 		t.Fatalf("invalid buffered UTF-8 reached WebSocket writer: %q", fake.payloads)
 	}
-	if err := conn.SendNotification(kernel.PendingNotification{Message: "valid", NoFlush: true}); err != nil {
+	if err := conn.SendNotification(task.PendingNotification{Message: "valid", NoFlush: true}); err != nil {
 		t.Fatalf("valid buffered output after rejection: %v", err)
 	}
 	if err := conn.Flush(); err != nil {
@@ -91,7 +91,7 @@ func TestWebSocketOutputPreservesValidTextFraming(t *testing.T) {
 	fake := &recordingOutputWSConn{}
 	conn := NewConnection(1, NewWebSocketTransport(fake, "test"))
 	defer conn.Close()
-	for _, note := range []kernel.PendingNotification{
+	for _, note := range []task.PendingNotification{
 		{Message: "first", NoFlush: true},
 		{Message: "\u00e9\nsecond", NoNewline: true},
 		{Message: ""},

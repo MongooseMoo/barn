@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -39,7 +38,7 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 
 	assertQueuedTask := func(t *testing.T, rt *Runtime, wantID int64) {
 		t.Helper()
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Programmer = types.ObjID(0)
 		ctx.IsWizard = true
 

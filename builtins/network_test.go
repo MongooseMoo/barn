@@ -6,7 +6,7 @@ import (
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -63,7 +63,7 @@ func (c *stubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
 	return nil
 }
-func (c *stubConn) SendNotification(note kernel.PendingNotification) error {
+func (c *stubConn) SendNotification(note task.PendingNotification) error {
 	if note.NoFlush {
 		c.Buffer(note.Message)
 		return nil
@@ -171,7 +171,7 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	if len(conn.sent) != 0 {
 		t.Fatalf("sent before flush = %#v, want none", conn.sent)
 	}
-	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectNotification {
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != task.PendingEffectNotification {
 		t.Fatalf("pending effects = %#v, want one notification", ctx.PendingEffects)
 	}
 
@@ -311,7 +311,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	if len(manager.switches) != 0 {
 		t.Fatalf("switches before flush = %#v, want none", manager.switches)
 	}
-	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectConnectionSwitch {
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != task.PendingEffectConnectionSwitch {
 		t.Fatalf("pending effects = %#v, want one switch", ctx.PendingEffects)
 	}
 

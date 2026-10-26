@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -72,7 +71,7 @@ func newParityVM(t *testing.T) (*VM, func(string) *bytecode.Program) {
 		}
 		return prog
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.TicksRemaining = 1 << 40
 	m := NewVM(store, newTestSession(registry))

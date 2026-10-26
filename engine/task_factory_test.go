@@ -172,7 +172,7 @@ func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 		ticks,
 		seconds,
 	)
-	s.populateTaskContextDependencies(killed.Context)
+	s.populateContextDependencies(killed.Context)
 	killed.IsForked = true
 	killed.ForkCreator = s
 	s.QueueTask(killed)

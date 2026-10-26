@@ -6,7 +6,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -391,7 +390,7 @@ func pendingFinalizationValueInList(needle types.Value, values []types.Value) bo
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
-func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Session, ctx *kernel.TaskContext) {
+func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Session, ctx *task.Context) {
 	AutoRecycleOrphanAnonymousSince(store, session, session.NewExecution(ctx, nil), 0, nil)
 }
 
@@ -403,7 +402,7 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Sess
 // walked then; capturing the ids up front keeps them as roots without retaining
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
-	Ctx       *kernel.TaskContext
+	Ctx       *task.Context
 	Task      *task.Task
 	MinID     types.ObjID
 	OwnRefs   map[types.ObjID]struct{}
@@ -502,10 +501,10 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 // engine lock, so they were snapshotted without racing those tasks). localVMs are
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
 func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, session *builtins.Session, execution *builtins.Execution, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
-	if execution == nil || execution.TaskContext == nil || store == nil || session == nil {
+	if execution == nil || execution.Context == nil || store == nil || session == nil {
 		return
 	}
-	ctx := execution.TaskContext
+	ctx := execution.Context
 
 	// Fast path: recycle candidates are restricted to anonymous objects with
 	// ids >= minID, so when the finished task created none the reachability

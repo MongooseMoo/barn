@@ -19,7 +19,6 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -203,10 +202,10 @@ func (s *Server) LoadDatabase() error {
 	host.Checkpoint = func() error { return s.requestCheckpoint() }
 	host.DatabaseDiskSize = s.databaseDiskSize
 	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
-		var ctx *kernel.TaskContext
+		var ctx *task.Context
 		var callerRoots []types.Value
 		if execution != nil {
-			ctx = execution.TaskContext
+			ctx = execution.Context
 			if !ctx.DeferredGC && execution.PendingFinalizations != nil {
 				callerRoots = execution.PendingFinalizations()
 			}

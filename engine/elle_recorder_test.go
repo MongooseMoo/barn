@@ -11,7 +11,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -25,7 +24,7 @@ func TestElleRecorderCommitsSuspendedAndExceptionSlices(t *testing.T) {
 	defer rt.Stop()
 	tk := task.NewTaskFull(412, 0, compileTestProgram(t, rt.registry,
 		`#0.write_value = 7; elle_observe("w", "x", 7); suspend(0); #0.write_value = 9; elle_observe("w", "x", 9); raise(E_DIV);`), 1000000, 30)
-	rt.populateTaskContextDependencies(tk.Context)
+	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
 	tk.StartTime = time.Now().Add(-time.Second)
@@ -124,13 +123,13 @@ func TestElleRecorderRetainsUnconfirmedAttemptAfterEarlierPublication(t *testing
 	// A publication for this task is insufficient to classify a later attempt.
 	recorder := newElleRecorder()
 	tk := task.NewTaskFull(415, 0, nil, 1000, 30)
-	ctx := &builtins.Execution{TaskContext: tk.Context, Task: tk}
+	ctx := &builtins.Execution{Context: tk.Context, Task: tk}
 	args := []types.Value{types.NewStr("w"), types.NewStr("x"), types.NewInt(7)}
 	if result := recorder.observe(ctx, args); result.Flow == types.FlowException {
 		t.Fatal(result)
 	}
 	for _, effect := range ctx.PendingEffects {
-		if effect.Kind == kernel.PendingEffectAsyncStart {
+		if effect.Kind == task.PendingEffectAsyncStart {
 			effect.Start()
 		}
 	}

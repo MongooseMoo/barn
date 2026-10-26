@@ -140,7 +140,7 @@ func (s *Runtime) buildBenchTask(t *testing.T, id int64, code string) *task.Task
 	stmts := compileTestProgram(t, s.registry, code)
 	// Generous tick/second budget so CPU loops never hit foreground limits.
 	tk := task.NewTaskFull(id, types.ObjID(3), stmts, 1<<50, 1e9)
-	s.populateTaskContextDependencies(tk.Context)
+	s.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.Programmer = 3
 	tk.Context.Programmer = 3

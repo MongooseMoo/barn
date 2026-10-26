@@ -6,7 +6,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -532,7 +532,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets mutable server-maintained object properties.
-func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *task.Context) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
 		if value.Type() != types.TYPE_STR {
@@ -580,7 +580,7 @@ func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID 
 	}
 }
 
-func checkBuiltinPropertyOwner(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
+func checkBuiltinPropertyOwner(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *task.Context, rejectUser bool) types.ErrorCode {
 	if ctx == nil || ctx.IsWizard {
 		return types.E_NONE
 	}

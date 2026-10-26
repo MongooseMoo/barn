@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -59,8 +59,8 @@ func TestCryptUsesPendingServerOptions(t *testing.T) {
 	ctx := newTestExecution()
 	ctx.Session.cacheServerOptionsDefaults()
 	ctx.IsWizard = true
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind:          kernel.PendingEffectServerOptions,
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind:          task.PendingEffectServerOptions,
 		ServerOptions: &snapshot,
 	}}
 	result := admitTestBuiltin("crypt", ctx, []types.Value{

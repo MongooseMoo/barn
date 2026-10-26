@@ -74,9 +74,9 @@ func (r *Session) isProtectedEntry(e *builtinEntry) bool {
 
 // isProtectedEntryFor is isProtectedEntry as seen by the task running ctx: a
 // task that reloaded the flags before committing its $server_options writes
-// sees its own set (TaskContext.ProtectedBuiltins) until commit publishes it.
+// sees its own set (Context.ProtectedBuiltins) until commit publishes it.
 func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
-	if ctx != nil && ctx.TaskContext != nil {
+	if ctx != nil && ctx.Context != nil {
 		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
 			return view.ProtectedBuiltins[e.name]
 		}
@@ -86,7 +86,7 @@ func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
 
 // isProtectedNameFor is IsProtectedBuiltin as seen by the task running ctx.
 func (r *Session) isProtectedNameFor(ctx *Execution, name string) bool {
-	if ctx != nil && ctx.TaskContext != nil {
+	if ctx != nil && ctx.Context != nil {
 		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
 			return view.ProtectedBuiltins[name]
 		}
@@ -145,12 +145,12 @@ func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			return flags, true
 		},
 	)
-	pending := pendingServerOptions(ctx.TaskContext)
+	pending := pendingServerOptions(ctx.Context)
 	if ctx.StoreTxn.HasWrites() || pending != nil {
 		// Toast's reload takes effect at once. The session-wide swap waits for
 		// this task's commit (the flags came from uncommitted writes), so the
 		// loading task keeps its own view until then: the pending snapshot is
-		// also TaskContext.ServerOptions, which dispatch consults first. A
+		// also Context.ServerOptions, which dispatch consults first. A
 		// later reload in the same task stays deferred even after the task has
 		// undone its writes, so the flush order decides (see LoadServerOptionsForTask).
 		if pending == nil {

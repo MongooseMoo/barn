@@ -11,7 +11,6 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -35,7 +34,7 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	defer s.mu.Unlock()
 
 	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
-		s.populateTaskContextDependencies(ctx)
+		s.populateContextDependencies(ctx)
 	}
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
@@ -52,7 +51,7 @@ func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Pro
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give the task access to the runtime for forks.
 	// Set wizard flag based on player
@@ -114,7 +113,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
 	t.Context.Programmer = verb.Owner
@@ -181,7 +180,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Login task runs with verb-owner permissions, matching the throwaway
 	// CallVerbWithArgstr path it replaces (programmer = verb owner).
@@ -224,7 +223,7 @@ func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Pro
 	taskID := s.newTaskID()
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give the task access to the runtime for forks.
 	// Set wizard flag based on player
@@ -233,7 +232,7 @@ func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Pro
 }
 
 // Fork creates a forked task with a delay
-func (s *Runtime) Fork(ctx *kernel.TaskContext, program *bytecode.Program, delay time.Duration) int64 {
+func (s *Runtime) Fork(ctx *task.Context, program *bytecode.Program, delay time.Duration) int64 {
 	return s.CreateBackgroundTask(ctx.Player, program, delay)
 }
 
@@ -301,7 +300,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.SetBytecodeVM(s.newForkVM(taskID, forkInfo, forkProg, ticks))
 
 	t.StartTime = time.Now().Add(forkInfo.Delay)

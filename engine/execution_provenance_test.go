@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,22 +36,22 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	}
 
-	var firstCtx, replacementCtx *kernel.TaskContext
+	var firstCtx, replacementCtx *task.Context
 	firstAttributed := false
 	replacementAttributed := false
 	firstRemovedDuringRetry := false
 	observeCalls := 0
 	observeRetryProvenanceBuiltin = func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		observeCalls++
-		ownerID, ok := rt.executionContextOwner(ctx.TaskContext)
+		ownerID, ok := rt.executionContextOwner(ctx.Context)
 		holder := ctx.Task
 		attributed := ok && holder != nil && ownerID == holder.ID
 		switch observeCalls {
 		case 1:
-			firstCtx = ctx.TaskContext
+			firstCtx = ctx.Context
 			firstAttributed = attributed
 		case 2:
-			replacementCtx = ctx.TaskContext
+			replacementCtx = ctx.Context
 			replacementAttributed = attributed
 			_, claimed, _ := rt.executionContextClaim(firstCtx)
 			firstRemovedDuringRetry = !claimed
@@ -83,10 +82,10 @@ return #0.retry_value;
 		t.Fatalf("provenance transfer = first %v replacement %v old-removed %v, want all true", firstAttributed, replacementAttributed, firstRemovedDuringRetry)
 	}
 	if _, claimed, _ := rt.executionContextClaim(firstCtx); claimed {
-		t.Fatal("initial TaskContext retained an execution claim after runTask returned")
+		t.Fatal("initial Context retained an execution claim after runTask returned")
 	}
 	if _, claimed, _ := rt.executionContextClaim(replacementCtx); claimed {
-		t.Fatal("replacement TaskContext retained an execution claim after runTask returned")
+		t.Fatal("replacement Context retained an execution claim after runTask returned")
 	}
 	if running.Result.Flow != types.FlowReturn || running.Result.Val.Type() != types.TYPE_INT || running.Result.Val.Int() != 11 {
 		t.Fatalf("retry result = %+v, want committed return 11", running.Result)

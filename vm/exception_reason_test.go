@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -23,7 +22,7 @@ func reasonFrameProgram(t *testing.T, code string) (*VM, types.Result) {
 		t.Fatal(diagnostics)
 	}
 	machine := NewVM(store, newTestSessionWithTaskManager(registry))
-	machine.Context = kernel.NewTaskContext()
+	machine.Context = task.NewContext()
 	machine.Task = task.NewTask(1, 0, 30_000, 10)
 	machine.MaxStackDepth = 1
 	machine.Resumable = true
@@ -104,7 +103,7 @@ func TestExceptionReasonNestedBuiltinResultBridge(t *testing.T) {
 				t.Fatal(diagnostics)
 			}
 			machine := NewVM(newBytecodeVerbStore(), newTestSessionWithTaskManager(registry))
-			machine.Context = kernel.NewTaskContext()
+			machine.Context = task.NewContext()
 			requireExceptionReason(t, machine.Run(program), want)
 			if calls != 1 {
 				t.Fatalf("nested guard calls = %d, want 1", calls)
@@ -154,7 +153,7 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 	if saved.Frames[0].PendingError.Reason != types.ExceptionReasonFrameDepth {
 		t.Fatal("checkpoint lost pending native reason")
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = machine.Store
 	restored, err := RestoreVMSnapshot(saved, machine.Store, machine.Builtins, ctx)
 	if err != nil {
@@ -195,7 +194,7 @@ func TestExceptionReasonRestoreRejectsIncompatiblePendingMetadata(t *testing.T) 
 	} {
 		snapshot := validRestoredSnapshot()
 		snapshot.Frames[0].PendingError = pending
-		if _, err := RestoreVMSnapshot(snapshot, nil, nil, kernel.NewTaskContext()); err == nil {
+		if _, err := RestoreVMSnapshot(snapshot, nil, nil, task.NewContext()); err == nil {
 			t.Fatalf("restored incompatible pending reason %#v", pending)
 		}
 	}
@@ -248,7 +247,7 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 				t.Fatal(diagnostics)
 			}
 			machine := NewVM(store, session)
-			machine.Context = kernel.NewTaskContext()
+			machine.Context = task.NewContext()
 			machine.Context.Store = store
 			machine.Context.Programmer = 0
 			machine.Context.IsWizard = true

@@ -7,7 +7,6 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -105,8 +104,8 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 	requireInt(t, childResult, 70)
 }
 
-func bytecodeTestContext(store *dbstore.Store) (*kernel.TaskContext, *task.Task) {
-	ctx := kernel.NewTaskContext()
+func bytecodeTestContext(store *dbstore.Store) (*task.Context, *task.Task) {
+	ctx := task.NewContext()
 	ctx.Store = store
 	return ctx, task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 }

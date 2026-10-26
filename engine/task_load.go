@@ -48,7 +48,7 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	rootProgram := saved.VM.Frames[0].Program
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := task.NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = saved.StartTime
 	t.QueueTime = saved.StartTime
 	t.WakeValue = saved.WakeValue
@@ -106,7 +106,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 
 	ticks, seconds := backgroundTaskLimits(s.session)
 	t := task.NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	s.populateContextDependencies(t.Context)
 
 	start := time.Unix(saved.StartTime, 0)
 	if saved.StartTime <= 0 {

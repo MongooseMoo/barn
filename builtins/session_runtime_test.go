@@ -3,12 +3,12 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func wizardExecution(s *Session) *Execution {
-	return s.NewExecution(&kernel.TaskContext{IsWizard: true}, nil)
+	return s.NewExecution(&task.Context{IsWizard: true}, nil)
 }
 
 func TestSessionFileHandlesAreIsolatedAndCloseIsScoped(t *testing.T) {

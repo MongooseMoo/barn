@@ -6,7 +6,6 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -30,8 +29,8 @@ func TestSuspendedActivationThreadModesSurviveCheckpointRoundTrip(t *testing.T) 
 	}
 	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
-	newContext := func() *kernel.TaskContext {
-		ctx := kernel.NewTaskContext()
+	newContext := func() *task.Context {
+		ctx := task.NewContext()
 		ctx.Store = store
 		ctx.Player = 2
 		ctx.Programmer = 2

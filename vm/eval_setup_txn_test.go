@@ -3,7 +3,6 @@ package vm
 import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"path/filepath"
@@ -95,7 +94,7 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
@@ -155,7 +154,7 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true

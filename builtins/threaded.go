@@ -3,8 +3,8 @@ package builtins
 import (
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -39,7 +39,7 @@ func backgroundValue(ctx *Execution, work func() types.Value) types.Result {
 		return runInBackground(ctx, func() types.Result { return types.Ok(work()) })
 	}
 	value := work()
-	if ctx.TaskContext != nil && !ctx.ThreadMode {
+	if ctx.Context != nil && !ctx.ThreadMode {
 		return types.Ok(value)
 	}
 	// Toast would suspend here but this call cannot, so it gets what the
@@ -103,7 +103,7 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 		// start now, exactly as notify() sends immediately on this path.
 		start()
 	} else {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: start})
+		enqueuePendingEffect(ctx, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: start})
 	}
 	return types.Suspend(-1)
 }

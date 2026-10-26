@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -30,7 +29,7 @@ func runOn(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, code strin
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO: %v", diagnostics[0])
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Programmer = 0
 	ctx.Store = store
 	ctx.StoreTxn = txn

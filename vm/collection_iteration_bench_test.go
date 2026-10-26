@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -56,7 +55,7 @@ func BenchmarkCollectionIteration(b *testing.B) {
 					b.ReportAllocs()
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						ctx := kernel.NewTaskContext()
+						ctx := task.NewContext()
 						ctx.Store = store
 						ctx.TicksRemaining = 1 << 60
 						m := NewVM(store, session)

@@ -111,7 +111,7 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if errCode := mgr.CheckKill(taskID, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if ctx.TaskContext != nil {
+	if ctx.Context != nil {
 		if !beginIrreversible(ctx) {
 			return abortedAttempt()
 		}
@@ -542,7 +542,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) >= 1 {
 		// Toast validates against the live fg_ticks/fg_seconds, so a reload
 		// earlier in this task counts even before the task commits.
-		fgTicks, fgSeconds := ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
+		fgTicks, fgSeconds := ctx.Session.TaskLimitsFor(ctx.Context, false)
 		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
 			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
 			return types.Err(types.E_INVARG)

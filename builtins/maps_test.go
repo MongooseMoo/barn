@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -133,9 +133,9 @@ func TestMapdeleteUsesPendingMapValueByteLimit(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := newTestExecution()
-			ctx.PendingEffects = []kernel.PendingEffect{{
-				Kind: kernel.PendingEffectServerOptions,
-				ServerOptions: &kernel.PendingServerOptions{
+			ctx.PendingEffects = []task.PendingEffect{{
+				Kind: task.PendingEffectServerOptions,
+				ServerOptions: &task.PendingServerOptions{
 					MaxListValueBytes: ValueBytes(resultMap),
 					MaxMapValueBytes:  test.mapLimit,
 				},

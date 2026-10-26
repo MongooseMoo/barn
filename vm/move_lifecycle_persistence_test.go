@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -31,7 +30,7 @@ func TestMoveLifecycleContinuationSurvivesVMSnapshot(t *testing.T) {
 
 	snapshot := machine.PersistenceVMSnapshot()
 	machine.CurrentFrame().MoveContinuation.Stage = moveAwaitEnter
-	restored, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext())
+	restored, err := RestoreVMSnapshot(snapshot, store, session, task.NewContext())
 	if err != nil {
 		t.Fatalf("RestoreVMSnapshot: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
 	snapshot := machine.PersistenceVMSnapshot()
 	machine.CurrentFrame().PendingReturn = types.NewInt(99)
 	machine.CurrentFrame().RecycleContinuation.request.OldParents[0] = 99
-	restored, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext())
+	restored, err := RestoreVMSnapshot(snapshot, store, session, task.NewContext())
 	if err != nil {
 		t.Fatalf("RestoreVMSnapshot: %v", err)
 	}
@@ -80,7 +79,7 @@ func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
 		request.OldLocation != 6 {
 		t.Fatalf("restored recycle request = %#v", request)
 	}
-	if _, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext()); err == nil {
+	if _, err := RestoreVMSnapshot(snapshot, store, session, task.NewContext()); err == nil {
 		t.Fatal("second restore of in-flight recycle succeeded, want recycle guard conflict")
 	}
 }
