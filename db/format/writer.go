@@ -7,6 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"io"
+	"strconv"
 )
 
 // Type codes for MOO database format v17
@@ -124,13 +125,14 @@ func (w *Writer) WriteDatabase() error {
 
 // writeInt writes an integer followed by newline
 func (w *Writer) writeInt(i int) error {
-	_, err := fmt.Fprintf(w.w, "%d\n", i)
-	return err
+	return w.writeInt64(int64(i))
 }
 
 // writeInt64 writes an int64 followed by newline
 func (w *Writer) writeInt64(i int64) error {
-	_, err := fmt.Fprintf(w.w, "%d\n", i)
+	buf := strconv.AppendInt(w.w.AvailableBuffer(), i, 10)
+	buf = append(buf, '\n')
+	_, err := w.w.Write(buf)
 	return err
 }
 
@@ -144,8 +146,10 @@ func (w *Writer) writeFloat(f float64) error {
 
 // writeString writes a string followed by newline
 func (w *Writer) writeString(s string) error {
-	_, err := fmt.Fprintf(w.w, "%s\n", s)
-	return err
+	if _, err := w.w.WriteString(s); err != nil {
+		return err
+	}
+	return w.w.WriteByte('\n')
 }
 
 // writeObjID writes an object ID followed by newline
