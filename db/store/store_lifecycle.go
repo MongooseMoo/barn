@@ -516,18 +516,18 @@ func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	identity := waif.WaifIdentity()
 	s.mu.Lock()
 	if s.waifRegistry == nil {
-		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]struct{})
+		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]types.WeakWaif)
 	}
 
 	if s.waifRegistry[classID] == nil {
-		s.waifRegistry[classID] = make(map[types.WaifIdentity]struct{})
+		s.waifRegistry[classID] = make(map[types.WaifIdentity]types.WeakWaif)
 	}
 
 	if _, registered := s.waifRegistry[classID][identity]; registered {
 		s.mu.Unlock()
 		return
 	}
-	s.waifRegistry[classID][identity] = struct{}{}
+	s.waifRegistry[classID][identity] = waif.WeakWaif()
 	s.mu.Unlock()
 
 	waif.AddWaifCleanup(func() { s.unregisterWaif(classID, identity) })

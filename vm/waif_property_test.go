@@ -27,6 +27,13 @@ func TestWaifWizardAndProgrammerIntrinsicsAreFalse(t *testing.T) {
 
 func TestWaifContainmentSeesPrivateWrites(t *testing.T) {
 	s := dbstore.NewStore()
+	direct := s.DirectTxn()
+	if obj, ec := direct.CreateObject(nil, 0); ec != types.E_NONE || obj != 0 {
+		t.Fatalf("CreateObject = #%d, %v", obj, ec)
+	}
+	if ec := direct.DefineProperty(0, ":child", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	machine := NewVM(s, nil)

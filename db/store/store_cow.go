@@ -463,6 +463,7 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	// publication that changes a WAIF's references advances types.WaifGraphEpoch
 	// itself; it leaves the WAIFs that object properties hold, which
 	// waifRoots.epoch tracks, alone.
+	tx.moveUnstagedWaifValuesLocked(ts)
 	for _, image := range tx.waifs {
 		if image.staged != nil {
 			s.publishWaifLocked(image, ts)

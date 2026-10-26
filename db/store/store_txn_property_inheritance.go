@@ -443,6 +443,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	}
 
 	tx.removeInheritedProperty(objID, actualName)
+	tx.moveWaifValues(objID, actualName, "")
 	return types.E_NONE
 }
 
