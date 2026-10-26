@@ -9,6 +9,15 @@ with "Make it so!" on 2026-10-26. Q delegated tooling choices.
 
 ## State
 
+Implementation and performance assessment are complete through bdf62735; the
+final note commit only records this handoff. Two review passes cover the full
+PR against master 11a17d8c, including production callers, moved tests and evidence.
+The review gate printed `review gate: complete` at bdf62735. Build/unit and Elle
+passed there; conformance was still pending when this note was committed.
+Final delivery requires checking all three jobs on the final note commit and
+updating the external review ledger to that exact head. PR #542 remains open.
+The dated slices below are historical progress, not current pending work.
+
 Worktree: `C:/Users/Q/code/barn-execution-layering`, branch
 `refactor/execution-layering`, base `5b0cd9ca7379a5c8cb22df2a1c5b96b78cd2349e`.
 The context slice is implemented: kernel/context.go and its tests moved to task;
@@ -250,8 +259,8 @@ terminal-result checks. These synthetic cohorts do not establish real-workload
 performance or isolation coverage. Machine isolation/frequency limitations
 above still apply.
 
-The researcher skill is active for the unresolved ownership design. Native
-agent /root/execution_ownership is assigned only the report
+The researcher skill was used for the ownership design. Native
+agent /root/execution_ownership was assigned only the report
 docs/reports/execution-ownership.md under
 prompts/research-execution-ownership.md. It may not implement or publish.
 Parent must verify each proposed source claim before using or relaying it.
@@ -264,20 +273,21 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-The implementation/evidence head is 59c21c54. Its build/unit, conformance and
-Elle jobs passed (1m5s, 7m25s, 2m35s). Full review is underway against master
-11a17d8c; production and test diffs have first-pass ledger coverage, with
-documentation/evidence and the second pass remaining. The six moved builtin
-integration test bodies compare equal after explicit constructor, dispatch and
-suspension relocation; their assertions and signature-wrapper entry are retained.
-Smallest remaining prose cleanup: update pool ownership terminology and shorten
-old race-test commentary that describes removed unlocked fields as current.
-About twenty comment lines removed; test behavior stays unchanged.
-Finish that cleanup, then complete current-head review and CI. Review target is PR #542;
-review_gate.py requires every PR hunk and two converged passes. No completed
-review or merge verdict has been claimed.
-The source-based research report describes the design, but is not verification.
-Q already
-authorized the cleanup; routine implementation choices do not require reapproval.
-Do not mistake the green first slice or these two microbenchmarks for completion
-of the broader layering goal.
+Check final-head CI and the exact-head review gate, then update PR #542's
+description with the results. No merge or deployment is part of this handoff.
+The completion audit covers the requested context move/naming, concrete engine
+ownership, lower shared State, catalog/scheduler relocation, typed profiling,
+preserved checkpoint/retry/GC boundaries, migrated existing tests and performance.
+The six moved builtin integration test bodies compare equal after explicit
+constructor, dispatch and suspension relocation; assertions and signature-wrapper
+entry are retained. Final comment cleanup changes no test behavior.
+Second-pass source review traced suspension publication before execution-lease
+release, catalog settlement lock ordering, checkpoint-barrier callers and nested
+profiling lifetime/reset. No functional defect was identified; the external
+ledger is C:/Users/Q/.claude/reviews/MongooseMoo-barn-542.md.
+Performance assessment is complete with limits: interpreter allocations match
+the repeated baseline after flag packing; alternating continuation batches do
+not establish a consistent timing regression or speedup. Both real-workload
+revisions retain native E_NACC failures, and the baseline also timed out.
+Those cohorts are preserved in experiments/execution-layering-performance.md;
+repairing their workload permissions is outside this ownership refactor.
