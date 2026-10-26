@@ -1,0 +1,25 @@
+INCOMPLETE CAPTURE: tool output limit truncated samples; not used for comparison.
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1756	    199030 ns/op	      5024 commands/s	         0 escalations/command	         0 retries/command	   50797 B/op	     424 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1753	    199033 ns/op	      5024 commands/s	         0 escalations/command	         0 retries/command	   50768 B/op	     425 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1861	    195994 ns/op	      5102 commands/s	         0 escalations/command	         0 retries/command	   50761 B/op	     424 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1923	    202435 ns/op	      4940 commands/s	         0 escalations/command	         0 retries/command	   50766 B/op	     425 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1760	    195496 ns/op	      5115 commands/s	         0 escalations/command	         0 retries/command	   50752 B/op	     423 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1826	    195025 ns/op	      5128 commands/s	         0 escalations/command	         0 retries/command	   50757 B/op	     424 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1815	    200834 ns/op	      4979 commands/s	         0 escalations/command	         0 retries/command	   50759 B/op	     424 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1911	    195371 ns/op	      5118 commands/s	         0 escalations/command	         0 retries/command	   50749 B/op	     423 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1902	    193127 ns/op	      5178 commands/s	         0 escalations/command	         0 retries/command	   50751 B/op	     423 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	Warning: truncated output (original token count: 1588)
+Total output lines: 33
+
+    1848	    218903 ns/op	      4568 commands/s	         0 escalations/command	         0 retries/command	   50790 B/op	     428 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1432	    257775 ns/op	      3879 commands/s	         0 escalations/command	         0 retries/command	   72558 B/op	     554 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1484	    258305 ns/op	      3871 commands/s	         0 escalations/command	         0 retries/command	   72557 B/op	     555 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-…1288 tokens truncated…2756245 ns/op	      5805 commands/s	         0 escalations/command	         2.454 retries/command	 1582152 B/op	   11708 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     132	   2723489 ns/op	      5875 commands/s	         0 escalations/command	         2.483 retries/command	 1585134 B/op	   11735 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     133	   2694657 ns/op	      5938 commands/s	         0 escalations/command	         2.509 retries/command	 1589176 B/op	   11771 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	17.190s

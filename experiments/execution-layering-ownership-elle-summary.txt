@@ -1,0 +1,23 @@
+PR #542 head 93a6ec61; CI run 40292019890, artifact 12636880421.
+Archive retained locally: .tmp/elle-93a6ec61/elle-evidence.tar.gz
+Artifact name uses CI merge revision 1c0f68b0a93063d8970cd79df46df2d7b77df949.
+errors=[]
+seed-412 list-append true 0
+seed-412 rw-register true 0
+seed-395 list-append true 0
+seed-395 rw-register true 0
+seed-396 list-append true 0
+seed-396 rw-register true 0
+fault-property-reads list-append false 1
+fault-scalar-reads list-append false 1
+fault-verb-reads list-append false 1
+fault-relationship-reads list-append false 1
+fault-waif-reads list-append false 1
+fault-map-key-reads list-append false 1
+fault-map-key-rebase list-append false 1
+fault-map-key-capture list-append false 1
+fault-commit-exclusion list-append false 1
+fault-valid-reads list-append false 1
+seed 412 {'exclusive': 674, 'exclusive_gate': 844, 'fork': 14, 'hot_renewal': 3, 'native_exception': 48, 'operation/chparent': 320, 'operation/clear_property': 320, 'operation/create': 320, 'operation/delete_property': 320, 'operation/delete_verb': 320, 'operation/flags': 320, 'operation/invariant': 400, 'operation/move': 320, 'operation/owner': 320, 'operation/permissions': 320, 'operation/recycle': 320, 'parallel': 675, 'read_only': 5, 'suspend': 321, 'verb_memo': 493}
+seed 395 {'exclusive': 668, 'exclusive_gate': 829, 'fork': 14, 'hot_renewal': 2, 'native_exception': 48, 'operation/chparent': 320, 'operation/clear_property': 320, 'operation/create': 320, 'operation/delete_property': 320, 'operation/delete_verb': 320, 'operation/flags': 320, 'operation/invariant': 400, 'operation/move': 320, 'operation/owner': 320, 'operation/permissions': 320, 'operation/recycle': 320, 'parallel': 675, 'read_only': 5, 'suspend': 321, 'verb_memo': 502}
+seed 396 {'exclusive': 678, 'exclusive_gate': 843, 'fork': 14, 'hot_renewal': 2, 'native_exception': 48, 'operation/chparent': 320, 'operation/clear_property': 320, 'operation/create': 320, 'operation/delete_property': 320, 'operation/delete_verb': 320, 'operation/flags': 320, 'operation/invariant': 400, 'operation/move': 320, 'operation/owner': 320, 'operation/permissions': 320, 'operation/recycle': 320, 'parallel': 670, 'read_only': 5, 'suspend': 321, 'verb_memo': 491}

@@ -40,7 +40,11 @@ Master was incorporated in ef3dcc6c, migrating a concurrently added Elle caller.
 That head passed conformance (7m27s) and Elle (2m35s); build CI stopped at formatting
 in run 40289346185. The local ownership patch includes the formatting repair.
 
-The ownership slice is implemented locally, awaiting commit and CI:
+The ownership slice is pushed in d3855f83, with caller/style repairs in
+2cb6ed0f and 93a6ec61. At 93a6ec61 PR checks report build/unit pass (1m12s),
+conformance pass (7m29s), and Elle job pass (2m54s). The Elle archive has now
+been inspected: three seeds true in both models, ten fault controls false,
+nonzero required paths. See experiments/execution-layering-ownership-elle-summary.txt.
 - engine.Task embeds task.State and owns machine *vm.VM under the shared Mu.
 - Catalog and scheduler moved into engine; builtin consumers receive State.
 - Combined persistence capture holds Mu across metadata and concrete VM capture.
@@ -52,13 +56,29 @@ The ownership slice is implemented locally, awaiting commit and CI:
 - Retry, GC, fork, load and direct-hook callers now use the concrete owner, while
   nested VM/finalization paths use lower State. Saved-machine assertions removed.
 
-No local test/typecheck CI steps were run. The local patch is not yet verified.
-Remaining: PR CI, full current-head inspection, ownership performance comparison,
-real-workload evidence, and current architecture documentation. All three jobs on
+No local test/typecheck CI steps were run.
+Remaining: full current-head inspection, resolving continuation timing evidence,
+and CI on the layout correction. Current architecture is documented in
+docs/execution-ownership.md. Performance evidence, fixture hashes and limitations
+are in experiments/execution-layering-performance.md. The real workload has run
+on both sources: baseline failed with a deadline; head exited successfully but
+still had two native E_NACC failures. Neither supports clean workload acceptance.
+All three jobs on
 documentation head 95a0a1af completed SUCCESS
 (runs 40286736548 and 40286736504); those precede this profiling implementation.
 
 ## Decisions and why
+
+Ownership measurements now compare merge base 11a17d8c with head 93a6ec61.
+Both interpreter benchmarks add 64 B/op with unchanged allocation counts.
+Reflection reports VM size 632 -> 640 and profile state 64 -> 72 bytes;
+these sizes do not by themselves prove the allocator's size-class cause.
+Smallest correction: move the existing cmdStrSet and yielded flags next to
+Resumable (about six lines changed), preserving the typed profiling boundary.
+vm/vm.go has separate flag groups before aligned fields. Repository Go-source
+search found no VM unsafe offsets or indexed reflection consumers. Measure
+the resulting size and allocation change; timing remains unresolved because
+the first continuation samples differ in both directions on a shared host.
 
 The target is explicit ownership: task execution state below the interpreter;
 bytecode execution and its frames in vm; scheduling, execution lifetime,
@@ -241,8 +261,8 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit/push the ownership slice and follow its CI. Diagnose failures in scope,
-then compare performance and finish current-head layering/documentation review.
+Commit/push the VM layout correction and evidence, then resolve continuation
+timing uncertainty and finish the full current-head layering review.
 The source-based research report describes the design, but is not verification.
 Q already
 authorized the cleanup; routine implementation choices do not require reapproval.

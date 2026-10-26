@@ -21,7 +21,6 @@ type VM struct {
 	// Boxed command-environment strings reused across verb calls (commandStr).
 	cmdStrSrc [4]string
 	cmdStrVal [4]types.Value
-	cmdStrSet [4]bool
 
 	Stack         []types.Value     // Operand stack
 	SP            int               // Stack pointer
@@ -41,7 +40,10 @@ type VM struct {
 	// Resumable is set only on the root VM the runtime saves and resumes when
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
-	Resumable    bool
+	Resumable bool
+	cmdStrSet [4]bool
+	yielded   bool // VM has yielded control (suspend/fork)
+
 	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
@@ -64,7 +66,6 @@ type VM struct {
 	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
 	localStack      []types.Value
 	framePool       []*StackFrame
-	yielded         bool         // VM has yielded control (suspend/fork)
 	yieldResult     types.Result // Why we yielded
 	resumeError     types.ErrorCode
 	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
