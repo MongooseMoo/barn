@@ -294,7 +294,8 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	if !validLiveObject(obj) {
 		return
 	}
-	w := tx.writesByObject()[objID]
+	writes := tx.writesByObject()
+	w := writes.get(objID)
 	if w == nil {
 		return
 	}
@@ -354,7 +355,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 			return errCode
 		}
 	}
-	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(&writes); errCode != types.E_NONE {
 		tx.store.mu.Unlock()
 		return tx.markTerminal(errCode)
 	}
@@ -366,7 +367,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		recycledByFlush[id] = true
 	}
-	tx.publishStagedLocked(writes, tx.store.clock.Load()+1, true)
+	tx.publishStagedLocked(&writes, tx.store.clock.Load()+1, true)
 	tx.store.mu.Unlock()
 
 	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that

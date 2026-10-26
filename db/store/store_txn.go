@@ -194,7 +194,8 @@ func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
 	}
 	// The writer walked every definer's children under this lock, so no child
 	// can have joined since: the store need not walk them again.
-	w.publishStagedLocked(w.writesByObject(), s.clock.Load()+1, false)
+	writes := w.writesByObject()
+	w.publishStagedLocked(&writes, s.clock.Load()+1, false)
 	return types.E_NONE
 }
 

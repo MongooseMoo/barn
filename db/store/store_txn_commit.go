@@ -16,11 +16,11 @@ import (
 // has no COW slot). It takes store.mu.RLock for the membership scan and releases
 // it (deferred) before the caller takes the coarse store.mu.Lock — the RWMutex is
 // not upgradable, so the scan must complete and unlock first.
-func (tx *StoreTxn) writesTouchAnon(writes map[types.ObjID]*objectWrites) bool {
+func (tx *StoreTxn) writesTouchAnon(writes *writeSet) bool {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
-	for id := range writes {
-		if tx.store.anonObjects[id] != nil {
+	for i := range writes.entries {
+		if tx.store.anonObjects[writes.entries[i].id] != nil {
 			return true
 		}
 	}
@@ -98,10 +98,11 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	// than conflicting with it, while a later live mutation still shows up. A
 	// property or verb this commit removed, or an object it recycled, no longer
 	// has a version to check and drops out of the read set.
-	if len(footprint) > 0 {
+	if footprint.len() > 0 {
 		store := next.store
 		store.mu.RLock()
-		for id := range footprint {
+		for i := range footprint.entries {
+			id := footprint.entries[i].id
 			live := store.liveObjectLocked(id)
 			if !validLiveObject(live) {
 				delete(scalarReads, id)
@@ -289,7 +290,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// exclusive lock keeps away from readers. writesTouchAnon takes store.mu.RLock
 	// and releases it before that Lock (RWMutex is not upgradable).
 	writes := tx.writesByObject()
-	exclusive := tx.liveMutated || tx.writesTouchAnon(writes)
+	exclusive := tx.liveMutated || tx.writesTouchAnon(&writes)
 	s := tx.store
 	if exclusive {
 		s.mu.Lock()
@@ -309,7 +310,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		tx.lostValidation()
 		return errCode
 	}
-	if errCode := tx.preflightStagedToLiveLocked(writes); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(&writes); errCode != types.E_NONE {
 		return tx.markTerminal(errCode)
 	}
 	if errCode := tx.rebaseMapKeyWritesLocked(); errCode != types.E_NONE {
@@ -333,7 +334,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// Only the exclusive route walks a definer's live children (see
 	// publishStagedLocked). On the shared route, staging recorded a relationship
 	// read on every object it walked, so validation fails if a child joined since.
-	tx.publishStagedLocked(writes, ts, exclusive)
+	tx.publishStagedLocked(&writes, ts, exclusive)
 	if exclusive {
 		isolationprobe.Note("exclusive")
 	} else {
@@ -350,7 +351,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 // shared by coarse Commit, the legacy unvalidated FlushStagedToLive boundary, and
 // the decentralized committer. The caller holds store.mu for reading or writing;
 // decentralized callers additionally hold commitMu.
-func (tx *StoreTxn) preflightStagedToLiveLocked(writes map[types.ObjID]*objectWrites) types.ErrorCode {
+func (tx *StoreTxn) preflightStagedToLiveLocked(writes *writeSet) types.ErrorCode {
 	s := tx.store
 
 	// A concurrently occupied allocated id is a retryable allocation conflict: a
@@ -364,8 +365,8 @@ func (tx *StoreTxn) preflightStagedToLiveLocked(writes map[types.ObjID]*objectWr
 		}
 	}
 
-	for id, w := range writes {
-		if w.created == nil && !validLiveObject(s.liveObjectLocked(id)) {
+	for i := range writes.entries {
+		if w := &writes.entries[i]; w.created == nil && !validLiveObject(s.liveObjectLocked(w.id)) {
 			return types.E_INVIND
 		}
 	}

@@ -38,6 +38,7 @@ import (
 // objectWrites is one object's staged writes, gathered from the transaction's
 // write maps so a commit applies all of them to one image of the object.
 type objectWrites struct {
+	id              types.ObjID
 	created         *Object // creation-time base, when this txn created the object
 	scalar          objectScalarWrite
 	hasScalar       bool
@@ -61,18 +62,67 @@ type verbCodeWrite struct {
 	code []string
 }
 
-// writesByObject gathers the staged writes by the object they change. Its keys
-// are every object the commit publishes an image for.
-func (tx *StoreTxn) writesByObject() map[types.ObjID]*objectWrites {
-	writes := make(map[types.ObjID]*objectWrites)
-	at := func(id types.ObjID) *objectWrites {
-		w := writes[id]
-		if w == nil {
-			w = &objectWrites{}
-			writes[id] = w
+// writeSet holds one objectWrites per object a commit publishes an image for.
+// The entries are values in one slice, found by a linear scan until there are
+// more than objIDSetLinearMax of them and by an index map after that. A pointer
+// from get or at is valid until the next at adds an entry.
+type writeSet struct {
+	entries []objectWrites
+	index   map[types.ObjID]int
+}
+
+func (ws *writeSet) find(id types.ObjID) int {
+	if ws.index != nil {
+		if i, ok := ws.index[id]; ok {
+			return i
 		}
-		return w
+		return -1
 	}
+	for i := range ws.entries {
+		if ws.entries[i].id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// get returns id's entry, or nil.
+func (ws *writeSet) get(id types.ObjID) *objectWrites {
+	if i := ws.find(id); i >= 0 {
+		return &ws.entries[i]
+	}
+	return nil
+}
+
+// at returns id's entry, adding an empty one if there is none.
+func (ws *writeSet) at(id types.ObjID) *objectWrites {
+	if i := ws.find(id); i >= 0 {
+		return &ws.entries[i]
+	}
+	ws.entries = append(ws.entries, objectWrites{id: id})
+	n := len(ws.entries)
+	switch {
+	case ws.index != nil:
+		ws.index[id] = n - 1
+	case n > objIDSetLinearMax:
+		ws.index = make(map[types.ObjID]int, 2*n)
+		for i := range ws.entries {
+			ws.index[ws.entries[i].id] = i
+		}
+	}
+	return &ws.entries[n-1]
+}
+
+func (ws *writeSet) len() int { return len(ws.entries) }
+
+// writesByObject gathers the staged writes by the object they change: one entry
+// for every object the commit publishes an image for.
+func (tx *StoreTxn) writesByObject() writeSet {
+	staged := len(tx.createdObjects) + len(tx.scalarWrites) + len(tx.relationshipWrites) +
+		len(tx.propertyDefinitionDeletes) + len(tx.propertyDefines) + len(tx.propertyWrites) +
+		len(tx.propertyDeletes) + len(tx.verbWrites) + len(tx.verbDeletes) + len(tx.recycleWrites)
+	writes := writeSet{entries: make([]objectWrites, 0, min(staged, objIDSetLinearMax))}
+	at := writes.at
 	for id, base := range tx.createdObjects {
 		at(id).created = base
 	}
@@ -261,24 +311,23 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 // write yet joins it, so it too is published once.
 type commitImages struct {
 	s      *Store
-	writes map[types.ObjID]*objectWrites
+	writes *writeSet
 	ts     uint64
 }
 
 func (c commitImages) view(id types.ObjID) *Object {
-	if w := c.writes[id]; w != nil {
+	if w := c.writes.get(id); w != nil {
 		return w.img
 	}
 	return c.s.liveObjectLocked(id)
 }
 
 func (c commitImages) own(obj *Object) *Object {
-	w := c.writes[obj.id]
-	if w == nil {
-		w = &objectWrites{}
-		c.s.ownImage(obj.id, w, c.ts)
-		c.writes[obj.id] = w
+	if w := c.writes.get(obj.id); w != nil {
+		return w.img
 	}
+	w := c.writes.at(obj.id)
+	c.s.ownImage(obj.id, w, c.ts)
 	return w.img
 }
 
@@ -295,12 +344,13 @@ func (c commitImages) own(obj *Object) *Object {
 // descendant its slot, or takes it away: an unvalidated flush can meet a child
 // that joined after staging. That walk runs before the property writes, so a
 // staged write to a descendant's slot still lands last.
-func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts uint64, walkLive bool) {
+func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bool) {
 	s := tx.store
 	waifRootsDirty := false
 	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
-	for id, w := range writes {
-		s.ownImage(id, w, ts)
+	for i := range writes.entries {
+		w := &writes.entries[i]
+		s.ownImage(w.id, w, ts)
 		applyHeadWrites(w.img, w, ts)
 	}
 	if walkLive {
@@ -312,7 +362,10 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 			s.propagatePropertyToDescendantsLocked(images, key.objID, def.name, def.prop, ts)
 		}
 	}
-	for id, w := range writes {
+	// The walk above may have added entries, so the set is re-read here.
+	for i := range writes.entries {
+		w := &writes.entries[i]
+		id := w.id
 		if w.recycle || len(w.defines)+len(w.defDeletes)+len(w.propDeletes) > 0 {
 			waifRootsDirty = true
 		}
@@ -359,8 +412,8 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 	// registered before the clock moved, so the floor sampled here is at or below
 	// it and the prune keeps those images.
 	floor := s.historyFloor()
-	for id := range writes {
-		s.pruneObjectHistory(id, floor)
+	for i := range writes.entries {
+		s.pruneObjectHistory(writes.entries[i].id, floor)
 	}
 	if waifRootsDirty {
 		// After the publishes, so a scan that read the old epoch before they
