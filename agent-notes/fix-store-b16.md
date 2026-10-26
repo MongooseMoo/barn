@@ -46,6 +46,18 @@ plus one moo-conformance-tests PR (merge barn first). Q approved the batch.
 - Check order (object validity vs descriptor) left as Barn had it; only the
   descriptor result codes changed. Not covered by a Toast row.
 - delete_verb unchanged: Barn already checks only object write (rows pass).
+- Follow-up (lead review): set_verb_code now also requires is_programmer
+  (Toast verbs.cc:532, one condition with the w-flag rule). Barn 9c9ecb65,
+  mct 803cd68 (row write_flag_set_verb_code_requires_programmer: wizard
+  set_task_perms to a flagless object, proved with task_perms()). Toast
+  `42 passed`; the row passes on master 4449b485 (owner-only rule hid it) and
+  fails on f375d377 (code rewritten). Fix build: verb files + owner_change
+  `3268 passed`; go test builtins, db/store, engine, vm, internal/dbtool,
+  db/format, parser all ok. Fixtures b2aTestContext,
+  TestSetVerbCodeStoresToastCanonicalProgramText and newConflictTestStore
+  gained the programmer flag (their progr was a flagless "wizard").
+- Toast set_verb_info / set_verb_args / delete_verb / add_verb do not call
+  is_programmer (verbs.cc uses it only at 532 and 609 eval): no change.
 
 ## Surprises
 - verbs() needs object read permission; the first delete_verb rows failed on
@@ -59,7 +71,6 @@ plus one moo-conformance-tests PR (merge barn first). Q approved the batch.
   uses db_find_defined_verb.
 - add_verb non-list / wrong-length info or args: Barn E_INVARG, Toast E_TYPE
   (verbs.cc:80-86, 159-164).
-- set_verb_code lacks Toast's is_programmer(progr) check (verbs.cc:532).
 - delete_verb: Barn E_VERBNF before E_PERM; Toast checks object write first
   (verbs.cc:253).
 
