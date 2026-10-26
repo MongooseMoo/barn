@@ -301,18 +301,14 @@ func buildImageWithVerbDelete(old *Object, index int, ts uint64) *Object {
 // rememberOldImageLocked stashes an already-immutable old published image as the
 // history node for its id (no clone — under COW the replaced image IS a complete
 // immutable snapshot). historyMu guards the shared history map against concurrent
-// decentralized committers. Dedup mirrors rememberObjectLocked: skip if the newest
-// entry already carries this object's version.
+// decentralized committers. A same-ts newest entry is replaced, as in
+// withHistoryEntry.
 func (s *Store) rememberOldImageLocked(old *Object) {
 	if old == nil {
 		return
 	}
-	ts := objectVersion(old)
 	s.historyMu.Lock()
-	entries := s.history[old.id]
-	if len(entries) == 0 || entries[len(entries)-1].ts != ts {
-		s.history[old.id] = append(entries, objectHistory{ts: ts, obj: old})
-	}
+	s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
 	s.historyMu.Unlock()
 }
 

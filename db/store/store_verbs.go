@@ -549,10 +549,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 		// Match republishForMutation's numbered-object publication/history/prune
 		// ordering. The exclusive lock excludes decentralized publishers.
 		s.publishLocked(old.id, fresh)
-		entries := s.history[old.id]
-		if ts := objectVersion(old); len(entries) == 0 || entries[len(entries)-1].ts != ts {
-			s.history[old.id] = append(entries, objectHistory{ts: ts, obj: old})
-		}
+		s.history[old.id] = withHistoryEntry(s.history[old.id], objectHistory{ts: objectVersion(old), obj: old})
 		s.pruneObjectHistory(old.id, s.historyFloor())
 		verb = selected // never mutate the resolved node from the old image
 	} else {
