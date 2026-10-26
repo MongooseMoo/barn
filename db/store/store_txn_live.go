@@ -406,12 +406,9 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.store.mu.RLock()
 	for id, cached := range tx.objects {
 		// Anonymous objects live out-of-band in s.anonObjects with NO numbered slot, so
-		// s.load can't resolve them (it walks the numbered directory only). They are also
-		// never part of a decentralized flush — the whole decentralized path routes any
-		// anon-touching commit onto the coarse exclusive path (writeFootprintHasAnon), so
-		// the flush never republished them and their cached snapshot is not stale on its
-		// account. Leave anon entries untouched; refreshing via s.load would wrongly drop
-		// them and make a live anonymous object read as invalid mid-task.
+		// s.load can't resolve them (it walks the numbered directory only). Leave anon
+		// entries untouched; refreshing via s.load would wrongly drop them and make a
+		// live anonymous object read as invalid mid-task.
 		if cached != nil && cached.anonymous {
 			continue
 		}

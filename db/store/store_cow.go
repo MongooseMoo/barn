@@ -5,20 +5,25 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// store_cow.go — copy-on-write publication for the decentralized commit path.
+// store_cow.go — the commit applier: copy-on-write publication of a
+// transaction's staged writes.
 //
-// A published *Object is IMMUTABLE. The decentralized property-value commit path
-// never mutates a live object in place; it detaches the old image's collections,
-// builds a NEW *Object image, and atomically publishes it into the slot while
-// holding Store.commitMu. Every other mutator (the coarse store.mu.Lock writers
-// and the coarse commit apply) republishes a fresh clone and mutates that under
+// A published numbered *Object is IMMUTABLE. Every commit and flush gathers its
+// staged writes by object (writesByObject), clones each object's published image
+// once (ownImage), applies all of that object's writes to the clone in one fixed
+// order (applyHeadWrites, then applyTailWrites) and publishes the clone
+// (publishStagedLocked). Each object gets one image per commit timestamp, and
+// history keeps the image it replaced. Anonymous objects have no slot and no
+// history; a commit that writes one holds store.mu.Lock and changes it in place.
+// Direct store writers republish a fresh clone and mutate that under
 // store.mu.Lock — see republishForMutation.
 //
 // Coherence:
-//   - The decentralized committer holds store.mu.RLock (shared) + commitMu.
-//     Coarse writers hold store.mu.Lock (exclusive). RLock excludes Lock, so a
-//     decentralized publisher and ANY coarse writer are mutually exclusive.
-//   - Decentralized committers serialize on commitMu from validation through
+//   - A commit holds store.mu.RLock (shared) + commitMu, or store.mu.Lock
+//     (exclusive) when its task mutated the live store or it writes an
+//     anonymous object (Commit). RLock excludes Lock, so a shared-lock
+//     publisher and ANY exclusive writer are mutually exclusive.
+//   - Shared-lock commits serialize on commitMu from validation through
 //     publication. Per-slot locks would buy nothing: on the Mongoose workload
 //     nearly every commit reads the same few ancestors.
 //   - A commit's timestamp becomes the clock only after all its images are
@@ -397,7 +402,7 @@ func buildImageForVerbArgs(old *Object, target *Verb) (*Object, *Verb) {
 // rememberOldImageLocked stashes an already-immutable old published image as the
 // history node for its id (no clone — under COW the replaced image IS a complete
 // immutable snapshot). historyMu guards the shared history map against concurrent
-// decentralized committers. A same-ts newest entry is replaced, as in
+// shared-lock committers. A same-ts newest entry is replaced, as in
 // withHistoryEntry.
 func (s *Store) rememberOldImageLocked(old *Object) {
 	if old == nil {

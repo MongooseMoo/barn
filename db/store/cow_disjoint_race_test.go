@@ -240,8 +240,8 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 					t.Errorf("SetVerbCode failed: %v", errCode)
 					return
 				}
-				// Mixed footprint of ONLY decentralized kinds, !liveMutated =>
-				// commitDecentralized publishes new immutable images.
+				// No anonymous target and !liveMutated => the shared-lock
+				// route publishes new immutable images.
 				if errCode := tx.Commit(); errCode != types.E_NONE {
 					t.Errorf("Commit failed: %v", errCode)
 					return

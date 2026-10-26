@@ -255,8 +255,8 @@ func (s *Store) slotFor(id types.ObjID) *objectSlot {
 }
 
 // publishLocked publishes obj into id's slot, creating the slot if needed.
-// Callers hold store.mu.Lock, or store.mu.RLock plus commitMu
-// (commitDecentralized).
+// Callers hold store.mu.Lock, or store.mu.RLock plus commitMu (a shared-lock
+// commit).
 func (s *Store) publishLocked(id types.ObjID, obj *Object) {
 	s.slotFor(id).ptr.Store(obj)
 }
@@ -328,29 +328,29 @@ func (s *Store) readTimestamp() uint64 {
 }
 
 // bumpClockLocked advances the global commit clock and returns the new value.
-// The caller holds store.mu.Lock. That is a requirement, not a habit: the
-// decentralized committer reserves clock+1 under store.mu.RLock and moves the
-// clock to it only after publishing (commitDecentralized), which is sound only
-// if nothing else moves the clock while an RLock is held. The one bump made
-// under RLock is that committer's own noteVerbShapeChanged, after its clock
-// store and still under commitMu.
+// The caller holds store.mu.Lock. That is a requirement, not a habit: a
+// shared-lock commit reserves clock+1 under store.mu.RLock and moves the clock
+// to it only after publishing (publishStagedLocked), which is sound only if
+// nothing else moves the clock while an RLock is held. The one bump made under
+// RLock is that commit's own noteVerbShapeChanged, after its clock store and
+// still under commitMu.
 func (s *Store) bumpClockLocked() uint64 {
 	return s.bumpClock()
 }
 
 // noteWaifRootsChanged invalidates the PersistentWaifRoots memo. Every path
 // that can change which WAIFs live directly in a persistent property value
-// must call it AFTER the change is visible: the coarse and direct writers
-// (under store.mu.Lock, where the scan cannot interleave) and the
-// decentralized committer after its publishes. A value write whose old and
+// must call it AFTER the change is visible: the direct writers (under
+// store.mu.Lock, where the scan cannot interleave) and a commit after its
+// publishes. A value write whose old and
 // new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
 // epoch alone, which is what keeps the memo hot on ordinary workloads.
 func (s *Store) noteWaifRootsChanged() { s.waifRootsEpoch.Add(1) }
 
 // noteVerbShapeChanged records that verb resolution may now differ from any
-// memoized result. It must run AFTER the change is visible (after publish on
-// the decentralized path; anywhere inside the exclusive section on the coarse
-// path). Memo entries and transactions whose snapshot predates this clock
+// memoized result. It must run AFTER the change is visible (after publish under
+// a shared lock; anywhere inside an exclusive section). Memo entries and
+// transactions whose snapshot predates this clock
 // value stop using the memo, and a transaction that already dispatched
 // through it fails validation and retries.
 func (s *Store) noteVerbShapeChanged() { s.verbShapeChangeTS.Store(s.bumpClock()) }
