@@ -195,15 +195,17 @@ func TestObjectMetadataBuiltinsAllowOwnerObjectFlagAndWizard(t *testing.T) {
 	}
 }
 
-func TestDeleteVerbPreservesNotFoundPrecedenceForUnauthorizedProgrammer(t *testing.T) {
+// Toast bf_delete_verb (src/verbs.cc:253-256) checks object write permission
+// before it looks the verb up, so a missing verb is E_PERM for this programmer.
+func TestDeleteVerbChecksPermissionBeforeLookupForUnauthorizedProgrammer(t *testing.T) {
 	for _, descriptor := range []types.Value{types.NewStr("missing"), types.NewInt(99)} {
 		f := newMetadataPermissionFixture(t, 0)
 		result := admitTestBuiltin("delete_verb", f.ctx, []types.Value{
 			types.NewObj(f.target),
 			descriptor,
 		})
-		if !result.IsError() || result.Error != types.E_VERBNF {
-			t.Fatalf("missing descriptor %v = %+v, want E_VERBNF", descriptor, result)
+		if !result.IsError() || result.Error != types.E_PERM {
+			t.Fatalf("missing descriptor %v = %+v, want E_PERM", descriptor, result)
 		}
 	}
 }
