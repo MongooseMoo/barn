@@ -91,9 +91,12 @@ change since c537d6c9). Baselines (every run so far): pre-3b Direct 5/5/1/24/25/
   DirectTxn().Ancestors). The W-A2 and W-D' commits do not compile on their own after this
   rebase: #535's reseed reads `owned` as a bool. 845a8015 makes the branch build again.
   Interactive rebase is not available here, so the fix-up could not be squashed back.
-- Gates on 845a8015: build/vet/gofmt clean; go test ./db/... ./builtins ./engine ./server ok;
-  -race ./db/store ./engine ok; Elle generation healthy and under all ten faults ok;
-  narrowed managed conformance (52 builtins files) 6648 passed.
+- Gates. On 845a8015 and on ab065440 (base 6c413b45): build/vet/gofmt clean; go test
+  ./db/... ./builtins ./engine ./server ok; -race ./db/store ./engine ok; Elle generation
+  healthy and under all ten faults ok; narrowed managed conformance (52 builtins files) 6648
+  passed. Final rebase onto e83980da (#541, db/format only): build/vet/gofmt, go test
+  ./db/... ./builtins ./engine ./server ok, conformance 6648 passed; race and Elle not re-run
+  on this base (db/store and engine unchanged by #541). The fix-up for #535 is 517e79a8.
 
 ## Next step
 Frozen for the lead. Open: the wide direct write defect needs a design decision.
