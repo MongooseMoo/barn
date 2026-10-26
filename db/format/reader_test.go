@@ -67,6 +67,55 @@ func TestLoadDatabase(t *testing.T) {
 	t.Logf("Players: %d", len(database.Players))
 }
 
+func TestLoadDatabaseHeader(t *testing.T) {
+	toast, err := os.ReadFile(filepath.Join("testdata", "toastcore.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v5, err := os.ReadFile(filepath.Join("testdata", "Broken5.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const header17 = "** LambdaMOO Database, Format Version 17 **"
+	for _, tc := range []struct {
+		name    string
+		data    string
+		version int
+	}{
+		{"v4", "** LambdaMOO Database, Format Version 4 **\n0\n0\n0\n0\n0 clocks\n0 queued tasks\n0 suspended tasks\n", 4},
+		{"v5", string(v5), 5},
+		{"v17", string(toast), 17},
+		{"outer-whitespace", strings.Replace(string(toast), header17, " \t"+header17+"\r", 1), 17},
+		{"numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 170", 1), 0},
+		{"v4-numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 40", 1), 0},
+		{"v5-numeric-suffix", strings.Replace(string(toast), "Version 17", "Version 50", 1), 0},
+		{"text-suffix", strings.Replace(string(toast), "Version 17", "Version 17x", 1), 0},
+		{"numeric-prefix", strings.Replace(string(toast), "Version 17", "Version 117", 1), 0},
+		{"missing-frame", strings.Replace(string(toast), header17, "Format Version 17", 1), 0},
+		{"trailing-text", strings.Replace(string(toast), header17, header17+" garbage", 1), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "header.db")
+			if err := os.WriteFile(path, []byte(tc.data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			database, err := LoadDatabase(path)
+			if tc.version == 0 {
+				if err == nil || !strings.Contains(err.Error(), "unsupported database format:") {
+					t.Fatalf("header error = %v, want unsupported database format", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if database.Version != tc.version {
+				t.Fatalf("version = %d, want %d", database.Version, tc.version)
+			}
+		})
+	}
+}
+
 func TestParentParsing(t *testing.T) {
 	// Use the toastcore.db from cow_py
 	dbPath := filepath.Join("testdata", "toastcore.db")
