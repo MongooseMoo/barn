@@ -221,8 +221,8 @@ func (c *realCommandCompletion) capture(s *Runtime, id int64) {
 	c.runtime = s
 	c.task = s.GetTask(id)
 	c.result = make(chan types.Result, 1)
-	c.taskpkg.Done = make(chan struct{})
-	c.taskpkg.SetOnComplete(func(result types.Result) { c.result <- result })
+	c.task.Done = make(chan struct{})
+	c.task.SetOnComplete(func(result types.Result) { c.result <- result })
 }
 
 // blockers names every task whose pending slice holds this task back as its
@@ -233,7 +233,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	}
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
-	seen := map[int64]bool{c.taskpkg.ID: true}
+	seen := map[int64]bool{c.task.ID: true}
 	held := []*taskpkg.Task{c.task}
 	for len(held) != 0 {
 		target := held[0]
@@ -266,38 +266,38 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	}
 	// Both synchronous execution and the scheduler close Done after flushing.
 	select {
-	case <-c.taskpkg.Done:
+	case <-c.task.Done:
 	case <-ctx.Done():
-		state := c.taskpkg.GetState()
-		ready := c.taskpkg.ReadyDeadline(time.Now())
+		state := c.task.GetState()
+		ready := c.task.ReadyDeadline(time.Now())
 		lease := 0
 		if c.runtime != nil {
 			c.runtime.mu.Lock()
-			lease = c.runtime.lifecycle.ExecutingTasks[c.taskpkg.ID]
+			lease = c.runtime.lifecycle.ExecutingTasks[c.task.ID]
 			c.runtime.mu.Unlock()
 		}
-		reading, stack := c.taskpkg.ReadingPlayerValue(), c.taskpkg.GetCallStack()
+		reading, stack := c.task.ReadingPlayerValue(), c.task.GetCallStack()
 		frames := realCommandFrames(stack)
 		blockers := c.blockers(time.Now())
-		readiness, _ := json.Marshal(c.taskpkg.ReadinessSnapshot())
+		readiness, _ := json.Marshal(c.task.ReadinessSnapshot())
 		var admissionStatus string
 		if c.runtime != nil {
 			status, _ := json.Marshal(c.runtime.AdmissionStats())
 			admissionStatus = string(status)
 		}
-		saved := c.taskpkg.BytecodeVMValue() != nil
-		c.taskpkg.Kill()
+		saved := c.task.BytecodeVMValue() != nil
+		c.task.Kill()
 		select {
-		case <-c.taskpkg.Done:
+		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.taskpkg.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
 		}
 	}
 	select {
 	case result := <-c.result:
 		if result.Flow == types.FlowException {
-			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s", result.Error.String(), c.taskpkg.ID, realCommandFrames(result.CallStack))
+			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack))
 		}
 		return true, ""
 	default:

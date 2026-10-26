@@ -628,7 +628,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 	}
 
 	for _, wake := range wakes {
-		wake.taskpkg.Resume(wake.value)
+		wake.task.Resume(wake.value)
 	}
 
 	// Hold the line as a pending command only when hold-input is on and there was
@@ -681,7 +681,7 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 	}
 	kept := state.waiters[:0]
 	for _, waiter := range state.waiters {
-		if waiter.task != nil && waiter.taskpkg.GetState() == taskpkg.TaskSuspended {
+		if waiter.task != nil && waiter.task.GetState() == taskpkg.TaskSuspended {
 			kept = append(kept, waiter)
 		}
 	}
@@ -714,7 +714,7 @@ func (r *Session) CancelHTTPReadTask(taskID int64) {
 		removed := false
 		kept := state.waiters[:0]
 		for _, waiter := range state.waiters {
-			if waiter.task != nil && waiter.taskpkg.ID == taskID {
+			if waiter.task != nil && waiter.task.ID == taskID {
 				removed = true
 				continue
 			}
@@ -754,7 +754,7 @@ func (r *Session) CloseHeldHTTPInput(player types.ObjID) {
 
 	for _, waiter := range waiters {
 		if waiter.task != nil {
-			waiter.taskpkg.Kill()
+			waiter.task.Kill()
 		}
 	}
 }

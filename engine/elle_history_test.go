@@ -83,10 +83,10 @@ func (r *elleRecorder) observe(ctx *builtins.Execution, args []types.Value) type
 				defer r.Unlock()
 				r.clock++
 				tx.end, tx.committed = r.clock, true
-				if tx.task != nil && tx.taskpkg.IsForked {
+				if tx.task != nil && tx.task.IsForked {
 					isolationprobe.Note("fork")
 				}
-				if tx.task != nil && tx.taskpkg.Result.Flow == types.FlowException {
+				if tx.task != nil && tx.task.Result.Flow == types.FlowException {
 					isolationprobe.Note("native_exception")
 				}
 				readOnly := true
@@ -143,7 +143,7 @@ func (r *elleRecorder) write(path string) (map[string]int, error) {
 	for _, tx := range r.txns {
 		outcome := "ok"
 		if !tx.committed {
-			if tx.task != nil && tx.taskpkg.ContextValue() != tx.context {
+			if tx.task != nil && tx.task.ContextValue() != tx.context {
 				counts["discarded_attempts"]++
 				continue
 			}

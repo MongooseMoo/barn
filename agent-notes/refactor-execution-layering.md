@@ -14,7 +14,10 @@ Worktree: `C:/Users/Q/code/barn-execution-layering`, branch
 The context slice is implemented: kernel/context.go and its tests moved to task;
 callers now use task.Context and task.NewContext. No tests or performance
 comparisons run yet.
-No PR, merge, or release for this task yet. The original checkout has unrelated
+PR #542 contains the first commit, 0d5c074f. CI runs 40284826132 and 40284826145
+failed compilation on the alias-replacement defect described below. The field
+selector repair is implemented and awaiting the next CI run. No merge or release
+for this task yet. The original checkout has unrelated
 untracked work; it is not this task's edit target.
 
 ## Decisions and why
@@ -52,8 +55,14 @@ will be written here after reading the remaining consumers.
 
 ## Tooling and verification
 
-Use go list for current dependencies and gopls previews where semantic renames
-help. Apply all source/note changes through apply_patch. gopls, gorename, and
+Use go list for current dependencies and gopls semantic rename previews for
+identifier edits, including import aliases. The first patch incorrectly used
+plain text replacement for task-package qualifiers; that also changed field
+selectors such as wake.task.Resume to wake.taskpkg.Resume. Replace that
+substitution approach with symbol-aware previews; restore the affected field
+selectors directly. CI run 40284826132 reported network.go:631,684,717,757;
+the same replacement also affected two engine test files.
+Apply all source/note changes through apply_patch. gopls, gorename, and
 benchstat are installed. Q said to choose tooling; no WOPR dependency remains.
 Follow PR CI rather than rerunning its checks locally. Preserve existing tests.
 Read docs/elle-isolation.md before changing retry/suspension ownership; its
@@ -76,5 +85,5 @@ builtins/registry.go:86). Do not repeat that old proposed split.
 
 ## Next step
 
-Commit the context ownership move and start PR CI. Continue tracing task/VM lifetime and snapshot ownership for the
+Commit/push the selector repair and read the new PR CI result. Continue tracing task/VM lifetime and snapshot ownership for the
 second slice while CI runs. Overall completion remains unproven.
