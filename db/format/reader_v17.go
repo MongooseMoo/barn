@@ -48,6 +48,9 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
+	if objCount < 0 {
+		return nil, fmt.Errorf("invalid object count %d", objCount)
+	}
 	// Objects
 	for i := 0; i < objCount; i++ {
 		obj, err := database.readObject(r)
@@ -68,6 +71,9 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	verbCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid verb count %d", verbCount)
 	}
 	database.DeclaredPrograms = verbCount
 
@@ -94,13 +100,16 @@ func (database *Database) readPlayersV17(r *bufio.Reader) error {
 		return err
 	}
 
-	database.Players = make([]types.ObjID, count)
+	if count < 0 {
+		return fmt.Errorf("invalid player count %d", count)
+	}
+	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
 		objID, err := readObjID(r)
 		if err != nil {
 			return err
 		}
-		database.Players[i] = objID
+		database.Players = append(database.Players, objID)
 	}
 	return nil
 }

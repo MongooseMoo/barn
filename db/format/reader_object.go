@@ -179,6 +179,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid object verb count %d", verbCount)
+	}
 
 	// Read verb metadata
 	for i := 0; i < verbCount; i++ {
@@ -228,20 +231,27 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, err
 	}
 
-	propDefs := make([]string, propDefCount)
+	if propDefCount < 0 {
+		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
+	}
+	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		propDefs[i], err = r.ReadString('\n')
+		name, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
+		name = strings.TrimSuffix(name, "\n")
+		name = strings.TrimSuffix(name, "\r") // Handle Windows line endings
+		propDefs = append(propDefs, name)
 	}
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)
 	if err != nil {
 		return nil, err
+	}
+	if totalPropCount < 0 {
+		return nil, fmt.Errorf("invalid property value count %d", totalPropCount)
 	}
 
 	// Store PropDefsCount for later name resolution
@@ -322,6 +332,9 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 		if count == 0 {
 			// End of anonymous objects
 			break
+		}
+		if count < 0 {
+			return fmt.Errorf("invalid anonymous object count %d", count)
 		}
 		for i := 0; i < count; i++ {
 			obj, err := database.readObject(r)

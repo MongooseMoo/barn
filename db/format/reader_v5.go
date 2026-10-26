@@ -16,11 +16,17 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
+	if objCount < 0 {
+		return nil, fmt.Errorf("invalid object count %d", objCount)
+	}
 
 	// Line 2: total verbs
 	verbCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid verb count %d", verbCount)
 	}
 	database.DeclaredPrograms = verbCount
 

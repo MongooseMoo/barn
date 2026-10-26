@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -52,15 +53,15 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 		return nil, fmt.Errorf("parse VM header %q", vmHeader)
 	}
 	_ = rootVector
-	if top < 0 {
+	if top < 0 || top == math.MaxInt {
 		return nil, fmt.Errorf("invalid top activation %d", top)
 	}
 
 	vmSnapshot := &task.VMSnapshot{
 		MaxStackDepth: maxStack,
-		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
+		Frames:        make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
 	}
-	callStack := make([]types.ActivationFrame, 0, top+1)
+	callStack := make([]types.ActivationFrame, 0, min(top+1, maxTrustedCount))
 	for i := 0; i <= top; i++ {
 		frame, activation, err := database.readVMFrame(r)
 		if err != nil {
@@ -126,12 +127,16 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	if _, err := fmt.Sscanf(stackHeader, "%d rt_stack slots in use", &stackCount); err != nil {
 		return frame, activation, fmt.Errorf("parse runtime stack header %q: %w", stackHeader, err)
 	}
-	frame.Stack = make([]types.Value, stackCount)
-	for i := range frame.Stack {
-		frame.Stack[i], err = database.readValue(r)
+	if stackCount < 0 {
+		return frame, activation, fmt.Errorf("invalid runtime stack count %d", stackCount)
+	}
+	frame.Stack = make([]types.Value, 0, min(stackCount, maxTrustedCount))
+	for i := 0; i < stackCount; i++ {
+		value, err := database.readValue(r)
 		if err != nil {
 			return frame, activation, fmt.Errorf("read runtime stack value %d: %w", i, err)
 		}
+		frame.Stack = append(frame.Stack, value)
 	}
 
 	if _, err := database.readValue(r); err != nil {
@@ -281,17 +286,22 @@ func (database *Database) readOrderedRtEnv(r *bufio.Reader) ([]string, []types.V
 	if _, err := fmt.Sscanf(header, "%d variables", &count); err != nil {
 		return nil, nil, fmt.Errorf("parse runtime environment header %q: %w", header, err)
 	}
-	names := make([]string, count)
-	values := make([]types.Value, count)
+	if count < 0 {
+		return nil, nil, fmt.Errorf("invalid runtime variable count %d", count)
+	}
+	names := make([]string, 0, min(count, maxTrustedCount))
+	values := make([]types.Value, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
-		names[i], err = readLine(r)
+		name, err := readLine(r)
 		if err != nil {
 			return nil, nil, err
 		}
-		values[i], err = database.readValue(r)
+		value, err := database.readValue(r)
 		if err != nil {
 			return nil, nil, err
 		}
+		names = append(names, name)
+		values = append(values, value)
 	}
 	return names, values, nil
 }
