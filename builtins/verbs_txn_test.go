@@ -103,6 +103,81 @@ func TestSetVerbInfoRejectsBlankNames(t *testing.T) {
 	}
 }
 
+// Toast checks the object and the whole info/args list before E_VERBNF and
+// E_PERM (src/verbs.cc:330-352, 421-457).
+func TestVerbSettersValidateBeforeLookupAndPermission(t *testing.T) {
+	list := func(vals ...types.Value) types.Value { return types.NewList(vals) }
+	str := types.NewStr
+	cases := []struct {
+		name       string
+		fn         func(*Execution, []types.Value) types.Result
+		obj        types.ObjID
+		verb       string
+		arg        types.Value
+		nonWizard  bool
+		want       types.ErrorCode
+		verbIntact bool
+	}{
+		{"info missing verb bad flags", builtinSetVerbInfo, 0, "nosuch", list(types.NewObj(0), str("q"), str("x")), false, types.E_INVARG, false},
+		{"info missing verb owner type", builtinSetVerbInfo, 0, "nosuch", list(types.NewInt(1), str("rx"), str("x")), false, types.E_TYPE, false},
+		{"info non-owner bad flags", builtinSetVerbInfo, 0, "look", list(types.NewObj(1), str("q"), str("x")), true, types.E_INVARG, true},
+		{"info short list", builtinSetVerbInfo, 0, "look", list(types.NewObj(0), str("rx")), false, types.E_TYPE, true},
+		{"info invalid owner", builtinSetVerbInfo, 0, "look", list(types.NewObj(99), str("rx"), str("x")), false, types.E_INVARG, true},
+		{"info invalid object", builtinSetVerbInfo, 99, "look", list(types.NewObj(0), str("rx"), str("x")), false, types.E_INVARG, true},
+		{"args missing verb bad prep", builtinSetVerbArgs, 0, "nosuch", list(str("this"), str("bogus"), str("this")), false, types.E_INVARG, false},
+		{"args non-owner bad prep", builtinSetVerbArgs, 0, "look", list(str("this"), str("bogus"), str("this")), true, types.E_INVARG, true},
+		{"args bad dobj", builtinSetVerbArgs, 0, "look", list(str("bogus"), str("none"), str("this")), false, types.E_INVARG, true},
+		{"args object iobj", builtinSetVerbArgs, 0, "look", list(str("this"), str("none"), types.NewObj(1)), false, types.E_TYPE, true},
+		{"args short list", builtinSetVerbArgs, 0, "look", list(str("this"), str("none")), false, types.E_TYPE, true},
+		{"args invalid object", builtinSetVerbArgs, 99, "look", list(str("this"), str("none"), str("this")), false, types.E_INVARG, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, store := verbMetadataTxnTestContext(t)
+			addTxnObject(t, store, 1, 1, dbstore.FlagProgrammer)
+			if tc.nonWizard {
+				ctx.IsWizard = false
+				ctx.Player = 1
+				ctx.Programmer = 1
+			}
+			result := tc.fn(ctx, []types.Value{types.NewObj(tc.obj), str(tc.verb), tc.arg})
+			if !result.IsError() || result.Error != tc.want {
+				t.Fatalf("got %v, want %v", result, tc.want)
+			}
+			if tc.verbIntact {
+				verb, _, err := ctx.StoreTxn.FindVerb(0, "look")
+				if err != nil {
+					t.Fatalf("verb look no longer found: %v", err)
+				}
+				if verb.Owner != 0 || verb.ArgSpec.This != "none" {
+					t.Fatalf("verb look changed: owner %v, args %+v", verb.Owner, verb.ArgSpec)
+				}
+			}
+		})
+	}
+}
+
+// Toast validate_verb_info skips only spaces (src/verbs.cc:115-119) and stores
+// the names as given, so a tab is a name.
+func TestSetVerbInfoTabOnlyNamesIsOneName(t *testing.T) {
+	ctx, _ := verbMetadataTxnTestContext(t)
+	result := builtinSetVerbInfo(ctx, []types.Value{
+		types.NewObj(0),
+		types.NewStr("look"),
+		types.NewList([]types.Value{types.NewObj(0), types.NewStr("rx"), types.NewStr("\t")}),
+	})
+	if result.IsError() {
+		t.Fatalf("set_verb_info tab names = %v", result)
+	}
+	verb, _, err := ctx.StoreTxn.FindVerb(0, "\t")
+	if err != nil {
+		t.Fatalf("verb named tab not found: %v", err)
+	}
+	if len(verb.Names) != 1 || verb.Names[0] != "\t" {
+		t.Fatalf("names = %q, want [\"\\t\"]", verb.Names)
+	}
+}
+
 func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 

@@ -162,6 +162,8 @@ func TestSetVerbArgsNumericPrepositionLexicalCases(t *testing.T) {
 	}
 }
 
+// Toast bf_set_verb_args checks the object (E_INVARG when invalid) and then the
+// args list before E_VERBNF and E_PERM (src/verbs.cc:431-449).
 func TestSetVerbArgsNumericPrepositionAdmissionOrder(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -170,9 +172,9 @@ func TestSetVerbArgsNumericPrepositionAdmissionOrder(t *testing.T) {
 		programmer types.ObjID
 		want       types.ErrorCode
 	}{
-		{"nonowner", 0, "look", 123, types.E_PERM},
-		{"missing_verb", 0, "absent", 0, types.E_VERBNF},
-		{"missing_object", 999, "look", 0, types.E_INVIND},
+		{"nonowner", 0, "look", 123, types.E_INVARG},
+		{"missing_verb", 0, "absent", 0, types.E_INVARG},
+		{"missing_object", 999, "look", 0, types.E_INVARG},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, _ := verbMetadataTxnTestContext(t)
@@ -182,7 +184,7 @@ func TestSetVerbArgsNumericPrepositionAdmissionOrder(t *testing.T) {
 			args[0], args[1] = types.NewObj(tc.object), types.NewStr(tc.verb)
 			result := admitTestBuiltin("set_verb_args", ctx, args)
 			if !result.IsError() || result.Error != tc.want {
-				t.Fatalf("admission returned %v, want %v before invalid prep", result, tc.want)
+				t.Fatalf("admission returned %v, want %v for invalid prep", result, tc.want)
 			}
 			if ctx.LiveStoreMutated {
 				t.Fatal("failed admission marked live store mutated")
