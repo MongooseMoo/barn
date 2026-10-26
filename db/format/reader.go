@@ -28,7 +28,8 @@ type Database struct {
 	ActiveConnections    []ActiveConnection
 	startupRepairLogs    []string
 
-	// savedWaifs tracks WAIFs during loading for reference resolution.
+	// savedWaifs tracks definitions for reference resolution and registration
+	// in each Store constructed from this Database.
 	// Index corresponds to the WAIF save index in the database file.
 	savedWaifs []waifLoadData
 	// waifIdentities is loaded from Barn's optional checkpoint sidecar. Its
