@@ -417,11 +417,8 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		recycledByFlush[id] = true
 	}
-	ec := tx.applyStagedToLiveLocked()
+	tx.publishStagedLocked(writes, tx.store.clock.Load()+1, true)
 	tx.store.mu.Unlock()
-	if ec != types.E_NONE {
-		return tx.markTerminal(ec)
-	}
 
 	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
 	// triggered the flush still records reads afterward (markVerbScan, etc.), so niling

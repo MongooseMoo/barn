@@ -247,17 +247,61 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 	return waifRootsDirty
 }
 
-// publishStagedLocked builds one image per written object at ts and publishes
-// it, then publishes the staged WAIF images at ts. It leaves the clock alone.
-// It reports whether the WAIF-roots memo and verb dispatch must be told. The
-// caller holds store.mu.Lock, or store.mu.RLock and commitMu, and has validated
-// and preflighted writes.
-func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts uint64) (waifRootsDirty, verbShapeDirty bool) {
+// commitImages serves the store-side walk an exclusive commit runs: the walk
+// reads the images the commit is building, and an object the commit does not
+// write yet joins it, so it too is published once.
+type commitImages struct {
+	s      *Store
+	writes map[types.ObjID]*objectWrites
+	ts     uint64
+}
+
+func (c commitImages) view(id types.ObjID) *Object {
+	if w := c.writes[id]; w != nil {
+		return w.img
+	}
+	return c.s.liveObjectLocked(id)
+}
+
+func (c commitImages) own(obj *Object) *Object {
+	w := c.writes[obj.id]
+	if w == nil {
+		w = &objectWrites{}
+		c.s.ownImage(obj.id, w, c.ts)
+		c.writes[obj.id] = w
+	}
+	return w.img
+}
+
+// publishStagedLocked publishes one image per written object, and the staged
+// WAIF images, at ts, the clock's next value; then it moves the clock to ts,
+// prunes history and invalidates the memos the commit changed. The caller holds
+// store.mu.Lock, or store.mu.RLock and commitMu, and has validated and
+// preflighted writes.
+//
+// A define or definition delete changes the definer's image; each inheriting
+// descendant's slot was staged as its own write when the txn walked the
+// definer's children. With walkLive, which only a caller holding store.mu.Lock
+// may pass, the store also walks the children as they are now and gives each
+// descendant its slot, or takes it away: an unvalidated flush can meet a child
+// that joined after staging. That walk runs before the property writes, so a
+// staged write to a descendant's slot still lands last.
+func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts uint64, walkLive bool) {
 	s := tx.store
-	verbShapeDirty = len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
+	waifRootsDirty := false
+	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
 	for id, w := range writes {
 		s.ownImage(id, w, ts)
 		applyHeadWrites(w.img, w, ts)
+	}
+	if walkLive {
+		images := commitImages{s: s, writes: writes, ts: ts}
+		for key, actualName := range tx.propertyDefinitionDeletes {
+			s.removeInheritedPropertyLocked(images, key.objID, actualName, ts)
+		}
+		for key, def := range tx.propertyDefines {
+			s.propagatePropertyToDescendantsLocked(images, key.objID, def.name, def.prop, ts)
+		}
 	}
 	for id, w := range writes {
 		if w.recycle || len(w.defines)+len(w.defDeletes)+len(w.propDeletes) > 0 {
@@ -292,7 +336,32 @@ func (tx *StoreTxn) publishStagedLocked(writes map[types.ObjID]*objectWrites, ts
 			s.publishWaifLocked(image, ts)
 		}
 	}
-	return waifRootsDirty, verbShapeDirty
+	// Every image of this commit is published: let snapshots reach it. The swap
+	// fails only if something moved the clock during the publication, which would
+	// mean two publications could carry one timestamp.
+	if !s.clock.CompareAndSwap(ts-1, ts) && !isolationprobe.Fault("commit-exclusion") {
+		panic("store clock moved during a publication")
+	}
+
+	// History GC: prune each touched object's versions below the live-read floor.
+	// pruneObjectHistory takes historyMu (serializing with objectLocked's header
+	// capture). A snapshot that began while the images above were being published
+	// reads just below ts and is served the images this commit replaced. It
+	// registered before the clock moved, so the floor sampled here is at or below
+	// it and the prune keeps those images.
+	floor := s.historyFloor()
+	for id := range writes {
+		s.pruneObjectHistory(id, floor)
+	}
+	if waifRootsDirty {
+		// After the publishes, so a scan that read the old epoch before they
+		// landed can never memoize a root set missing these values.
+		s.noteWaifRootsChanged()
+	}
+	if verbShapeDirty {
+		s.noteVerbShapeChanged()
+	}
+	tx.clearStagedWrites()
 }
 
 // buildImageForVerbArgs detaches every non-verb facet as a full clone would, but
@@ -387,34 +456,6 @@ func (tx *StoreTxn) commitDecentralized(writes map[types.ObjID]*objectWrites) ty
 	ts := s.clock.Load() + 1
 	isolationprobe.Pause("commit/timestamped")
 
-	waifRootsDirty, verbShapeDirty := tx.publishStagedLocked(writes, ts)
-	// Every image of this commit is published: let snapshots reach it. The swap
-	// fails only if something moved the clock during the publication, which would
-	// mean two publications could carry one timestamp.
-	if !s.clock.CompareAndSwap(ts-1, ts) && !isolationprobe.Fault("commit-exclusion") {
-		panic("store clock moved during a decentralized publication")
-	}
-
-	// History GC: now that this commit appended a fresh newest version to
-	// each touched object, prune the now-dead old versions below the live-read floor.
-	// We still hold commitMu and store.mu.RLock; pruneObjectHistory takes historyMu
-	// (serializing with objectLocked's header capture). A snapshot that began while
-	// the images above were being published reads just below ts and is served the
-	// images this commit replaced. It registered before the clock moved, so the
-	// floor sampled here is at or below it and the prune keeps those images.
-	floor := s.historyFloor()
-	for id := range writes {
-		s.pruneObjectHistory(id, floor)
-	}
-	if waifRootsDirty {
-		// After the publishes, so a scan that read the old epoch before they
-		// landed can never memoize a root set missing these values.
-		s.noteWaifRootsChanged()
-	}
-	if verbShapeDirty {
-		s.noteVerbShapeChanged()
-	}
-
-	tx.clearStagedWrites()
+	tx.publishStagedLocked(writes, ts, false)
 	return types.E_NONE
 }
