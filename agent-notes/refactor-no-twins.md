@@ -9,7 +9,11 @@ D2 (fix/store-b18, #512) and B17 (fix/store-b17, #511) were owned elsewhere and 
 first; this branch is rebased over them and over #499 (#518). 3d (Store field split) is a
 later PR.
 
-## State (done; nothing pushed, no PR opened)
+## State (done and frozen; nothing pushed, no PR opened)
+- Current: branch refactor/no-twins on origin/master 11a17d8c, history rebuilt so every
+  commit compiles (see "Wide-define fix and history rebuild" below). Pre-rebuild history is
+  branch refactor/no-twins-orig (e2c531d5). Every benchmarked row is at or below master on
+  allocs/op and B/op. The bullets below this one record the first pass, on c537d6c9.
 - Branch refactor/no-twins, worktree C:/Users/Q/code/barn-no-twins, on origin/master
   c537d6c9. Commits: red tests; reads; writes; experiment record; #499 test adaptation.
 - No moo-conformance-tests commit (see Decisions). Worktree C:/Users/Q/code/mct-no-twins,
@@ -121,5 +125,24 @@ B/op regression.
   len(tx.objects) keeps many writes on one object at 24. tx.objects is a hint, not a bound
   (a move's room delta is staged without a read), so an undercount only regrows.
 
+- Rebased onto 11a17d8c: B+J+N is c8e6c1b5, sizing 8f073afc. All 15 commits on 11a17d8c pass
+  go build ./..., go vet ./..., db/store test compile. Final three-tree tables are in
+  experiments/2026-10-26-no-twins.md.
+- Gates on df2ff8d8 (code identical to the head): gofmt clean; build, vet, staticcheck ./...
+  ok; golangci-lint ./db/... 0 issues; go test ./db/... ./builtins ./engine ./server ./vm ok;
+  -race ./db/store ./engine ok; Elle Go generation seed 412 x40 PASS healthy and under all
+  ten faults (commit-exclusion runs 0.04 s; master c537d6c9 does the same); managed
+  conformance from WSL Debian, mct-no-twins 3d51b08 (= origin/main), 54 builtins files
+  (the regex verb|propert|move|create|recycle|recreate|renumber|chparent|object|max_object
+  over *.yaml; the suite grew from 52), Test.db sha256 1a3f23eb...d408e: 6653 passed.
+
+## Surprises (this pass)
+- objects32 ns/op was 215-226 µs vs master 154-165 µs in the final three-tree run; run
+  alternately it was 160-178 vs 173-196. Load noise, not a regression.
+
+## Not verified (this pass)
+- Elle checker verdicts (Java); real-workload perf gate; full conformance (CI runs it).
+- DirectSetPropertyValue and DirectContents ns/op above master on a loaded machine.
+
 ## Next step
-Rebase onto 11a17d8c, final three-tree bench, gates, PR draft scratchpad/pr-3c-barn.md.
+Frozen for the lead.
