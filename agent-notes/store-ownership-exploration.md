@@ -9,11 +9,15 @@ requested implementation. Q explicitly requested pulling latest master first.
 - Pulled origin master with `git pull --ff-only origin master`:
   `5b0cd9ca..cae320f3`, fast-forward. HEAD and origin/master both resolved to
   `cae320f354038ee7b7d6fe8a27f4e150b42d0718` immediately afterward.
-- Existing untracked files were left alone; tracked working tree was clean before
-  pulling. This note is the only authored change for this exploration.
+- Master advanced during research. Fetched again and rebased the two local
+  note-only commits onto `b91e36f5fe98aa665da9e4ae3ee2bb1f4e847c18` successfully.
+  Existing untracked files were preserved. The intended committed changes are
+  this note and the two linked research reports; no production changes.
 - Production Go physical lines (including comments/blanks, excluding *_test.go)
-  are 11,981, versus 12,624 measured before pulling. That net 643-line reduction
-  spans all fetched store changes; it is not a measurement of one refactor.
+  were 11,981 at cae320f3, versus 12,624 before the initial pull. They are 12,144
+  at b91e36f5. These totals span all fetched store changes, not one refactor.
+- Unless explicitly marked as the b91e36f5 refresh below, source line references
+  and deletion ledgers describe cae320f3, the initial research base.
 - No tests or benchmarks run; no performance or isolation verdict claimed.
 
 ## Decisions and why
@@ -378,6 +382,31 @@ committed snapshots. Choosing one first is a choice of investment, not an
 exclusive architecture fork. For immediate simplification, A is the bounded
 candidate. For investigating a different snapshot representation, numbered roots
 are the bounded experiment. Full-world roots are not a finished production plan.
+
+## Latest-master refresh: b91e36f5
+
+Read the production delta from cae320f3, including vm/op_property.go. PR #548
+adds WAIF value propagation for class-property renames/deletes; #549 changes
+readTS padding documentation and adds a benchmark. No fresh performance result
+is inferred from those comments.
+
+In store_txn_waif.go, moveUnstagedWaifValuesLocked reads propertyRenames and
+propertyDefinitionDeletes, traverses live descendants, resolves the weak class
+registry and publishes affected WAIF images. store_cow.go:466 calls it before
+staged WAIF publication and the commit clock CAS. Object-owned records must
+migrate this additional consumer without dropping its commit-time work. Numbered
+roots must keep this publication timestamp coherent with the numbered root;
+full-world roots must include these affected WAIF images in the same publication.
+The new code reinforces the distinction between private edits and applying
+changes against current live state. It does not establish additional deletions.
+
+vm/op_property.go now calls ReplaceWaifProperty for already-held values and
+findPropertyForRead for absent names before SetWaifProperty. A general map update
+cannot replace this path without retaining those observations. This is a Barn
+source observation only; no new Toast behavior claim or conformance run is made.
+
+The report estimates remain approximate ranges from the initial ledger, with
+additional migration surface from #548. They are not recalculated measured diffs.
 
 ## Next step
 

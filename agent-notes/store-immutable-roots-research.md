@@ -9,6 +9,11 @@ Q requested forked Astra research before choosing. This agent owns only this not
 
 ## State
 
+Base convention: all line citations and measured file lengths in the original
+research below refer to implementation base `cae320f3`. They are historical, not
+current-line claims. The dated delta section immediately below refreshes the
+conclusions against `b91e36f5`; its citations refer to that newer base.
+
 Source inspected on 2026-10-26. `git rev-parse HEAD` returned
 `206482cd2ee5a3715037893151333a5d6fb6fa23`; parent identifies implementation base
 `cae320f3` and HEAD's extra commit as the earlier note. Before this note was added,
@@ -22,6 +27,76 @@ snapshot acquisition and renewal, publication/validation, anonymous lifecycle,
 renumbering, WAIF representation and pruning, reachability, checkpoint capture,
 VM roots, irreversible boundaries, and their production call sites. This is an
 architecture study, not a complete correctness audit or Toast conformance claim.
+
+## Base refresh: 2026-10-26, cae320f3 to b91e36f5
+
+Parent fetched and rebased the note-only work. This agent read
+`git diff cae320f3 b91e36f5 -- db/store vm/op_property.go` and the affected current
+publication functions. Raw revision probes during refresh:
+
+    HEAD:          40cb17900379c30d26b3014e41395bc2a5a87f81
+    origin/master: b91e36f5fe98aa665da9e4ae3ee2bb1f4e847c18
+
+This refresh changes only this report. No code, tests, benchmarks or commits were
+performed by this agent. The original gross/net estimates remain historical
+planning ranges; the new WAIF work is additional migration surface, not additional
+guaranteed deletions. The readTS change adds a benchmark and corrects padding
+commentary; it does not replace the registry or establish root performance.
+
+The meaningful architectural delta is class-property rename/delete propagation
+to WAIF values, including live values absent from the transaction's earlier walk:
+
+- `store_core.go:213-216` now stores weak WAIF handles by class and identity;
+  `store_lifecycle.go:530` assigns `waif.WeakWaif()`. The class registry now permits
+  traversal of live values rather than only tracking their identities/counts.
+  Keep it weak: a root map of all registered strong WAIF values would alter liveness.
+- `store_txn_properties.go:540` and
+  `store_txn_property_inheritance.go:446` call `moveWaifValues` for rename/delete.
+  At `store_txn_waif.go:165-196`, it walks descendant classes, resolves registry
+  weak handles, and stages held values. The substitution at :146-157 first removes
+  source keys, then installs destinations, preserving swaps rather than applying
+  arbitrary map-key overwrites in sequence.
+- `store_txn_waif.go:203-257`, `moveUnstagedWaifValuesLocked`, walks the newly
+  published class graph and current class registry during commit. It skips
+  identities already in tx.waifs and publishes moved images for other live WAIFs.
+  Raw excerpts: `if _, read := tx.waifs[identity]; read { continue }` and
+  `s.publishWaifLocked(&waifTxnImage{value: value, base: live, staged: properties}, ts)`.
+  These are not limited to WAIFs reachable from persistent object-property values.
+- `store_cow.go:466-475` calls that live propagation, publishes staged WAIF images,
+  and only then advances the clock. The new test
+  `waif_property_move_test.go:107-125` creates/registers a descendant-class WAIF
+  after the renaming transaction's walk, then expects its a=40 to become c=40
+  when that transaction commits. Test body read, not executed here.
+- `vm/op_property.go:374-403` first tries `ReplaceWaifProperty` for a held value
+  when containment permits. For an absent name it reads class existence and the
+  class's colon-prefixed definition before reporting containment failure or writing.
+  A root migration must preserve these dependencies and ordering, not infer that
+  every WAIF write requires the same class lookup or that a WAIF image alone is
+  its entire permission/definition context.
+
+**Root scope and atomicity consequence.** The complete-world commit footprint is
+larger than the original transaction's staged object and WAIF records. Rename/delete
+has a commit-time extension over current live WAIFs of the resulting class subtree.
+A full-root builder must include those images in the same final root as the class
+definition changes, resolving the post-change graph through its private candidate
+view. Calling the current helper unchanged while object changes live only in a
+private root would make its `s.liveObjectLocked` walk use the wrong graph. This is
+an adaptation of the existing operation, not permission for a new framework.
+
+For the bounded numbered-only slice, keep WAIF timestamp histories and their
+reader floor. Its shared-lock commit also needs the helper's class walk to use
+the private candidate numbered graph before that root is exposed. Publish both
+unstaged and staged WAIF images before exposing the
+final numbered root at ts; snapshot acquisition must register that root's timestamp
+under the existing floor gate. A numbered root swap alone is not whole-world
+atomicity. The retained acquisition RLock still makes the coarse numbered path
+coherent, but does not remove this shared-lock publication obligation.
+
+Verdict is unchanged and sharpened: numbered roots remain a possible bounded
+experiment; full roots still require WAIF identity/domain/lifecycle integration.
+The new weak registry is an existing discovery mechanism to reuse, not a reason
+to build a strong permanent WAIF directory. Pending-change ownership and roots
+remain compatible, and both must preserve this commit-time propagation phase.
 
 ## Findings and recommendation
 

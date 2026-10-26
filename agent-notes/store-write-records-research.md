@@ -13,7 +13,7 @@ roughly 40–150 lines, unmeasured. No production implementation is authorized.
 
 ## State
 
-Source read in this investigation is the working tree at:
+Initial source read in this investigation was the working tree at:
 
 ```text
 git rev-parse HEAD
@@ -25,6 +25,59 @@ note-only successor. This report does not independently establish latest remote
 master. Parent's living exploration note was read in full. This agent edits only
 this report; no code, tests, benchmark, CI, server or oracle run was performed.
 Existing tests below were read as obligations, not reported as passing.
+
+### 2026-10-26 base refresh: b91e36f5
+
+Parent fetched and rebased the note-only work onto b91e36f5 during research. I
+read `git diff cae320f3 b91e36f5 -- db/store` and the corresponding
+`vm/op_property.go` diff. Unless explicitly labeled b91e36f5 here, source line
+citations and estimates in the rest of this report refer to cae320f3, the
+implementation base of the initial investigation, and are historical anchors.
+No implementation, test or benchmark was run for this refresh.
+
+The material migration addition is a WAIF consumer of object write records.
+At b91e36f5, `store_txn_waif.go:203-254` reads the rename and definition-delete
+collections to move values on WAIFs the transaction did not read. Raw source:
+
+```go
+for key, rename := range tx.propertyRenames {
+    add(key.objID, rename.from, rename.to)
+}
+for key, name := range tx.propertyDefinitionDeletes {
+    add(key.objID, name, "")
+}
+```
+
+`store_cow.go:466` calls `tx.moveUnstagedWaifValuesLocked(ts)` after object image
+publication and before staged WAIF publication; the clock still advances later.
+The method walks live class descendants, excludes identities already present
+in tx.waifs (:236), and publishes remaining applicable WAIF edits at the same
+timestamp. The migration must read renames and definition deletes from the new
+object records without clearing them early, retain this ordering and exclusion,
+and preserve substitution semantics for swaps (`moveWaifProperties`, :146-158).
+
+RenameProperty and DeleteDefinedProperty now call moveWaifValues while staging.
+That method (:165-197) visits registered live WAIFs of descendant classes through
+the weak registry and materializes their staged value maps. Thus the earlier
+instruction to leave WAIFs alone means **retain their separate identity/image
+representation**, not ignore these new object-write consumers. A now also
+migrates store_txn_waif.go's two collection loops; it does not need a unified
+object/WAIF write domain or a new operation log.
+
+The real VM producer also changed: `vm/op_property.go:380` tries
+ReplaceWaifProperty for a held value; when absent, :395 reads the class definition
+before the containment-error return at :399. Preserve these observation and error
+ordering paths; record regrouping does not authorize simplifying them away.
+The new `waif_property_move_test.go` bodies cover swaps, deletion/redefinition,
+a WAIF published after the staging walk, and a stale class-property writer.
+Include those existing tests in A's relevant PR validation evidence.
+
+The diff also adds a read-timestamp registry benchmark and corrects its padding
+comment; it does not remove A's record-conversion opportunity. The 500–900 touched
+and 40–150 net-line estimates below remain rough **cae320f3 planning estimates**,
+not refreshed diff measurements. Add the WAIF consumer migration to the touched
+surface; no additional net-deletion credit is claimed. The verdict remains a
+bounded consolidation with unknown performance, orthogonal to immutable roots.
 
 ## Decision and why
 
