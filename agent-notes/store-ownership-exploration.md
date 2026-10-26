@@ -433,3 +433,29 @@ Do not code until Q says "make it so". No implementation, tests or benchmarks we
 changed or run in this research. Research notes are the only intended commit
 content; no push or PR publication is part of this task. Parent will check the
 agent's substantive claims against primary source before relaying its answer.
+
+## Central-question result
+
+The Astra extension is complete in store-immutable-roots-research.md under
+"Central ownership hypothesis". Parent independently checked the two decisive
+counterexamples against current production code and the existing test bodies:
+
+- vm/vm.go:558 releases a previous local into pending bookkeeping;
+  vm/waif_gc.go:36 strongly retains the WAIF Value. vm/value_roots.go:132 labels
+  it pending, and vm/waif_gc.go:119 excludes that kind from live VM roots.
+  engine/waif_lifecycle.go:313 tests semantic liveness before :recycle, whose
+  context and local this still receive the WAIF at :485/:498. Allocation
+  reachability and eligibility for finalization cannot be one unqualified rule.
+- store_txn_waif_test.go:218 requires historical WAIF edges to protect children
+  until reader release, while :262 requires those edges not to erase checkpoint
+  pending ownership. store_pending.go:91/99 passes false for retained traversal;
+  store_reachability.go:263 distinguishes retained-image traversal. Tests were
+  read, not executed. Snapshot retention and export ownership select different
+  edges even when sharing an image representation.
+
+Conclusion: a shared image/publication implementation remains possible, but a
+single unqualified liveness rule cannot replace these existing contracts. This
+does not prove typed representation unification impossible; substantial net
+deletion is unproven. No full-world rewrite is recommended from this evidence.
+No code, tests or benchmarks were changed/run. The research answer is complete;
+further implementation or architectural investment awaits Q's direction.

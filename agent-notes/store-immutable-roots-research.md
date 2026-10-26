@@ -523,3 +523,286 @@ changes; production callers found here use current snapshots.
 Next step: parent checks the concrete source claims, compares with the pending-write
 report, and presents the tradeoff. No code until Q says "make it so". No tests,
 commits, publication, or external messages were made by this research agent.
+
+## Central ownership hypothesis, investigated 2026-10-26
+
+Question from Q: can one ownership model cover numbered objects, anonymous
+objects, WAIFs and retained snapshots, preserve behavior, and eliminate enough
+machinery to make the whole store simpler?
+
+This extension uses implementation base `b91e36f5`; all citations in this extension
+refer to that base. Before reading, `git rev-parse HEAD` returned
+`9f66116e1e92c4ab4deb1093baf4901aa8332aac`. The report was clean. This extension
+changes only this file. No executable experiment or implementation was performed.
+
+**Answer: one shared publication/image discipline is coherent, but one uniform
+ownership or reachability relation does not preserve these contracts.** The
+strongest counterexamples are actual lifecycle producers, not rare hypothetical
+interleavings: a WAIF awaiting :recycle must remain allocated without counting as
+a live MOO reference; an old WAIF edge can protect a value from semantic GC while
+the checkpoint must exclude that edge. A root object can contain all those rules,
+but containing them is not deleting them.
+
+I also tested a different unification, versioned entity handles instead of world
+roots. It avoids a strong global WAIF image map but retains history registration,
+pruning, weak discovery, root classification and export freezing. It might share
+small image-selection helpers; source does not establish that it simplifies the
+whole store. This revises neither candidate into an implementation recommendation.
+The earlier estimate that complete roots may grow code remains an estimate, not
+a theorem: the concrete conclusion is that its large proposed deletions have
+replacement obligations which have not been eliminated.
+
+### Five distinct questions, with real producers
+
+| Relation | Authority/producer in current source | Why it cannot be inferred from the others |
+|---|---|---|
+| Go allocation reachability | `types/waif.go:34-43,166-176`; Value holds waifRep, cleanup unregisters it | Pending finalization deliberately retains a strong Value. |
+| Snapshot image visibility | `store_txn_snapshot.go:122-164`, `types/waif_image.go:28-45` | Same identity yields different payloads at different read timestamps. |
+| Identity and publication domain | `types/waif.go:80-88,139-163`, `waif_image.go:32-38` | Equality of identity does not mean two detached/export payloads are the same mutable allocation or share a store domain. |
+| MOO semantic liveness | `vm/value_roots.go:5-10,131-136`; `engine/waif_lifecycle.go:309-321` | Pending versus live roots have different eligibility despite both retaining memory. |
+| Checkpoint ownership/capture | `db/format/checkpoint_stage.go:65-88`; `store_pending.go:79-117` | Export selects current graph and task ownership, not every historically readable edge. |
+
+There is already useful unification: `vm/value_roots.go:14-17,113-168` gives
+consumers one inventory of typed VM values, with root kinds; persistent current
+versus retained traversal shares walkers in `store_reachability.go`. The next
+useful abstraction must delete something beyond renaming these existing owners.
+
+### Disproof attempt 1: let Go reachability decide everything
+
+Real producer: assigning a local releases its previous value through
+`vm/vm.go:558-562`. `collectDirectWaifsForGC`, `vm/waif_gc.go:19-36`, appends the
+WAIF Value itself to PendingWaifs. The VM enumerates it as pending, not live:
+
+    visit(value, valueRootPendingFinalization)  // value_roots.go:132
+    if kind == valueRootLive { ... }           // waif_gc.go:119
+
+At `engine/waif_lifecycle.go:309-321`, the sweep calls :recycle only when its
+separately built live set lacks the queued value. At :485-500 the callback receives
+that very WAIF as ThisValue and local `this`. Thus the queued allocation must be
+strongly retained so its callback can run. Treating all strong references as MOO
+roots makes the pending queue keep its own candidates live forever; weakening the
+queue lets Go reclaim data the callback needs. This rejects the proposed collapse,
+not current behavior. Go cleanup still usefully removes weak registry bookkeeping.
+
+The analogous anonymous path is also not Go-object ownership. `types/value.go:90`
+constructs TYPE_ANON with only a numeric ID. Keeping that Value does not keep a
+particular *Object alive through a Go pointer. `RecycleOrphanAnonymousBatch`,
+`vm/anonymous_gc.go:422-465`, explicitly resolves ID roots, freezes candidates,
+and invokes recycle under the request context. A shared host-pointer rule would
+require changing the Value representation and all identity/serialization users.
+
+### Disproof attempt 2: make all retained edges semantic and export roots
+
+The current retained graph is purposeful. `types/waif_image.go:115-134` visits
+all still-readable images. `store_txn_waif_test.go:218-234` holds a snapshot that
+has never read a WAIF, changes parent.child to an integer, and requires the old
+child to remain a semantic root until release. The production producer is normal
+WAIF assignment (`vm/op_property.go:359-403`) on a persistent WAIF value; this
+test supplies a controlled instance, not a new lifecycle rule.
+
+But `store_txn_waif_test.go:262-280` requires an old parent->child edge NOT to
+remove child from checkpoint pending finalizations. Production
+`store_pending.go:85-99` explicitly walks current edges for ownership, and
+`store_snapshot.go:308-331` freezes current WAIF properties. Snapshot retirement
+and export ownership therefore need different graph projections even if both
+operate on one immutable image representation. Counting all retained images as
+one global root set changes one of these requirements.
+
+Do not infer that current semantic GC automatically walks all old numbered
+images. `store_reachability.go:369-406` seeds persistent WAIF roots from current
+numbered slots, then expands retained WAIF images. The source does not justify
+silently broadening that policy to every edge in every old numbered root. Whether
+such a change is desirable is a semantic decision, not a proven simplification.
+
+### Disproof attempt 3: put every identity's image in one strong root map
+
+Actual creation has no object-property prerequisite:
+`builtins/objects_misc.go:128-130` constructs NewWaif, registers it weakly, and
+returns it to the caller. It can live only in VM locals or task data. The loader
+also constructs detached values and registers them (`reader_value.go:205-220`,
+`reader.go:109-113`). First transaction access binds the physical payload to one
+domain and installs its detached baseline at timestamp zero
+(`types/waif_image.go:28-45`); older snapshots can first read that baseline after
+another task changes the value. A missing root entry is therefore not uniformly
+an invalid identity.
+
+The strong-map candidate would retain every image's property values even after
+its owner has no live handle. Keeping only a weak handle alongside the strong
+image does not fix that. The loader is a real producer of graphs with back
+references: it places a WAIF in savedWaifs BEFORE recursively reading properties
+(`reader_value.go:205-237`). A root-held image that reaches its owner handle can
+keep that handle reachable through the map itself. This is a representation
+counterexample, not a claim of a new bug in the existing weak registry.
+
+Go's [GC guide](https://go.dev/doc/gc-guide#common-weak-pointer-issues) explicitly
+states that weak map keys do not weaken map values; a value-to-key path still
+keeps the key reachable. Racket's
+[ephemerons](https://docs.racket-lang.org/reference/ephemerons.html) provide the
+conditional reachability that ordinary weak maps lack. Their graph rule is useful
+prior art, but it does not appear in Go's weak.Pointer contract. An equivalent
+Barn-level traced heap would need a complete external-root inventory and a
+retirement protocol; that is a new memory-management subsystem, not a small root
+map. It also would not by itself decide MOO :recycle eligibility.
+
+Putting WAIF images behind their existing handles avoids this global rooting
+problem. But then a captured numbered root does not determine a WAIF's image:
+the handle needs timestamped state or another per-snapshot binding. That is the
+separate lifetime mechanism the proposed single root was supposed to remove.
+
+### Disproof attempt 4: one identity means one payload in every context
+
+Checkpoint capture supplies a direct counterexample. At
+`store_snapshot.go:312-331`, NewWaifWithIdentity builds a detached payload with
+the same identity as the live WAIF, and memoization makes exported aliases share
+that frozen payload. `store_txn_waif_test.go:190-215` requires identity equality,
+frozen n=1 despite a later live n=2, shared export aliases, and a detached export
+write that does not change live n=2. A process-global identity-to-image authority
+would join things the current API keeps separate. A unified resolver must be
+scoped to a store/view/export domain and preserve physical detached construction.
+
+Anonymous identity has a different representation again: `Renumber` changes
+numbered directory placement/owners and updates anonymous structural references
+(`store_lifecycle.go:305-511`), while checkpoint anonymous IDs are remapped
+(`store_snapshot.go:177-268`). Those key spaces can share storage algorithms;
+they cannot share an unconditional identity-rekey operation.
+
+### A visibility difference that a uniform model must not hide
+
+The anonymous branch in `store_txn_snapshot.go:140-142` clones only a current
+anonymous image whose version is <= readTS; otherwise it has no anonymous history
+fallback. `anon_concurrent_race_test.go:35-41,85-90` explicitly accepts stale-read
+E_PROPNF/E_INVIND. Its producer uses DirectTxn.CreateObject(anonymous=true), then
+concurrent normal property writes. Full immutable anonymous snapshots would
+remove that limitation, changing observable behavior rather than merely moving
+ownership. This study does not judge its MOO conformance or propose preserving a
+defect: no Toast oracle run was performed. It means exact current-behavior parity
+cannot be claimed for a uniform historical lookup. Retaining the current rule as
+a typed policy is possible, but preserves a distinction in the model.
+
+### Smallest coherent shared model, with explicit ownership/release rules
+
+The strongest compatible proposal is a **common discipline with typed owners**,
+not one universal strong root. It can be expressed without new production code:
+
+1. One store domain owns publication order and validates resolved observations.
+   Numbered/anonymous identities belong to that store; a detached WAIF payload
+   binds to a domain once. Checkpoint copies remain detached in their export view.
+2. An image is immutable once readers can reach it. A transaction exclusively
+   owns its staged state/private views until successful publication or discard.
+   Identity handles do not grant mutation of published images. Keep coarse
+   exclusion and root-capture RLock; do not require lock-free capture.
+3. A read view owns permission to resolve its required versions. Release ends
+   that permission once, allowing pruning/dropping roots. Failure does not release
+   the view while error handling can still inspect it: `store_txn.go:294-303`
+   preserves physical maps after terminal failure; runtime release occurs at
+   actual attempt/slice boundaries (`engine/task_runtime.go:191-198,227-231`).
+4. Retry owns execution values separately from a store view. `vm/retry.go:20-53`
+   detaches Context from its saved VM and retains execution roots; the runtime
+   releases the failed StoreTxn before restoring and opening a new one. Keeping
+   the old world root as the retry's read authority would retry against old state.
+5. Renewal first establishes the replacement view and validates carried
+   observations; only successful handoff releases the old view. Hot renewal
+   copies WAIF base/staged state and releases only after success
+   (`store_hot_read.go:242-297`). Boundary renewal also carries rebased WAIF
+   dependencies (`store_txn_commit.go:173-176`). A common Release function cannot
+   infer that values, observations, and execution roots all die together.
+6. Semantic roots have kinds: live execution/persistent values protect eligibility;
+   pending-finalization values retain callback data without self-protection;
+   retained image edges protect still-readable descendants according to the
+   existing policy. Export selects its own current graph. Keep the existing
+   inventory and context-sensitive consumers; do not create parallel inventories.
+7. Weak class discovery does not own WAIF lifetime. Class rename/delete resolves
+   live weak entries at commit, including late arrivals, and publishes those
+   changes with class definitions. A resolver must consult the candidate graph
+   during that phase (`store_txn_waif.go:203-257`); tx.waifs alone is not the domain.
+8. Quiescent runtime capture remains authority for mutable external values.
+   `engine/runtime.go:653-676` refuses capture while a physical execution lease is
+   active and includes admission roots. `engine/admission.go:89-108` owns their
+   explicit release. Snapshot roots cannot replace these execution rules.
+
+These rules are coherent with the current owners. They organize reasoning, but
+they are not a new API proposal or a demonstrated deletion. The most tempting
+large deletion—replacing semantic root capture with Go GC—fails rule 6.
+
+### Alternative challenged: one versioned entity handle instead of one world root
+
+Numbered directory slots and WAIF payloads could both contain a typed immutable
+image plus history under the same store epoch; use the existing reader registry
+to select/prune both. This avoids copying world-directory paths. Ordinary Value
+references keep WAIF handles alive, while the numbered directory owns numbered
+handles and anonymous identity lookup owns anonymous ones. Keep weak class and
+prune indexes for WAIFs; preserve their cleanup behavior and export copies.
+
+This is the smallest plausible *representation* unification found. It would move
+numbered history from a store map to per-entity owners, or factor common history
+algorithms without moving it. It still needs ordered multi-image publication,
+reader registration, a pruning work index, fine selectors, semantic walkers,
+WAIF domain binding, and special anonymous visibility. Different policies remain:
+numbered history is reader-aware and diagnostic-sensitive; WAIF history's retained
+edges affect semantic roots and graph-epoch invalidation. One generic history
+container with these callbacks is not obviously less code than the current two.
+
+Primary prior art supports this narrower distinction. Clojure
+[Ref.java](https://github.com/clojure/clojure/blob/master/src/jvm/clojure/lang/Ref.java)
+stores identity, a TVal history and transactional dereference (:44-112), while its
+[transaction contract](https://clojure.org/reference/refs) distinguishes commute,
+ensure and external effects. That demonstrates a shared versioned-cell model,
+not elimination of history, serializable read rules, or language finalization.
+Barn's positional edits and irreversible effect boundary cannot be replaced by
+assuming every operation is commutative or freely retryable.
+
+Racket's [will executors](https://docs.racket-lang.org/reference/willexecutor.html)
+also separate becoming eligible, retaining the value for its callback, and
+executing that callback. Go [AddCleanup](https://pkg.go.dev/runtime#AddCleanup)
+cannot substitute for Barn's queue: its argument must not retain the monitored
+object, execution timing is not the runtime's quiescent sweep, and it does not
+carry Barn's MOO programmer/task context. These are exact limits of the prior-art
+match, not reasons to import or recreate either runtime.
+
+### Deletion/replacement ledger after testing the hypothesis
+
+| Candidate | Actual deletion opportunity | Necessary replacement or retained mechanisms |
+|---|---|---|
+| Whole-world strong root | Numbered history, WAIF image chains and reader floor could disappear as ordinary lookup machinery | Conditional WAIF image ownership/retirement; labeled semantic roots; detached fallback; export-domain copies; late class propagation; diagnostic journal; anonymous policy |
+| Numbered-only roots | Ordinary numbered history selection and slot publication | Persistent directory update/capture; WAIF floor/history; semantic GC and export barriers; diagnostic history |
+| Versioned handles/common history helper | Duplicated selection/pruning code and possibly numbered history-map ownership | Reader registry, weak work indexes, ordering, differing pruning/edge policies, all domain/lifecycle/export rules |
+| Existing typed owners with one operation implementation | No speculative mechanism deletion | Already supplies shared publication lock, epoch, validation path and VM root inventory; object-owned pending changes can simplify a different axis |
+
+No new numeric net estimate is justified by this extension. The earlier ranges
+are not reinforced by the mere existence of more obligations. Root migration
+must count conditional ownership and graph handling on the addition side; handle
+unification must count adapters/policy branches, not advertise the history map's
+old location as deleted complexity. Neither removes the semantic algorithms.
+
+Memory/CPU tradeoffs remain empirical: roots trade per-object history scans and
+registry work for persistent path copies and retained root nodes; versioned handles
+avoid directory path copying but retain per-identity version selection and prune
+scheduling. Strong all-identity maps risk extra retained graphs; exact conditional
+root ownership would introduce tracing. Reusing today's quiescent root capture
+avoids a second inventory but does not make graph traversal free. No measured
+lookup, allocation, GC pause, finalizer-delay or workload-throughput result exists.
+
+### What is settled, and the bounded next step
+
+Source settles that the five relations differ, that existing producers need each,
+and that simple strong-root/weak-key/host-GC collapses fail the stated contracts.
+It does NOT settle that no future representation can be smaller, that current
+anonymous visibility is desirable, or that the root directory would be slower.
+Those are respectively open design, semantic and empirical questions.
+
+There is no justified full-world implementation plan from this investigation.
+The finished bounded action is to present these counterexamples and the three
+actual choices: keep typed owners and simplify changes; measure the separately
+specified numbered-root slice; or explicitly choose broader lifetime/visibility
+semantics before designing a whole-world replacement. The already-written
+numbered-root experiment plan remains sufficient for that narrower choice. Do not
+build a generic entity framework merely to discover whether its policy callbacks
+reproduce the old complexity.
+
+**Direct verdict:** a shared immutable-image/publication contract is useful and
+largely present. Collapsing snapshot retention, MOO finalization and checkpoint
+ownership into one liveness rule is disproved by the pending-WAIF and historical-edge
+producers above. One implementation owning multiple typed policies is possible;
+this research has not demonstrated that it removes enough machinery to shrink the
+whole store. That is a negative result for the proposed collapse, not a proof
+against every common representation or a claim that the store cannot be beautified.
