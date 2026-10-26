@@ -170,9 +170,8 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 
 // writerKeepLimit bounds what the store's writeNow writer keeps between writes.
 // Maps never shrink, so a writer that staged more entries or cached more objects
-// than this is dropped after its write instead of reused: one wide write, such
-// as a definition reaching every descendant of a class, does not pin its maps for
-// the life of the store. An ordinary direct write touches one to three objects.
+// than this is dropped after its write instead of reused: one wide write does
+// not pin its maps for the life of the store. An ordinary direct write touches one to three objects.
 const writerKeepLimit = 256
 
 // lockedWriter resets the store's one writeNow writer and returns it. The caller
@@ -228,10 +227,10 @@ func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
 	errCode := op(w)
 	wide := w.stagedEntries() > writerKeepLimit || len(w.objects) > writerKeepLimit
 	if errCode == types.E_NONE && w.hasStagedWrites() {
-		// The writer walked every definer's children under this lock, so no child
-		// can have joined since: the store need not walk them again.
+		// The writer staged each definition on its definer only; the store walks
+		// the definer's children as they are now, under this lock.
 		writes := w.writesByObject()
-		w.publishStagedLocked(&writes, s.clock.Load()+1, false)
+		w.publishStagedLocked(&writes, s.clock.Load()+1, true)
 	}
 	if wide {
 		s.writer = StoreTxn{}

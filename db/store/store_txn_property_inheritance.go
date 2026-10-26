@@ -288,7 +288,14 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.O
 	return result
 }
 
+// propagateDefinedProperty stages the inherited slot a define gives each
+// descendant, and changes the txn's private view of it. The writeNow writer has
+// no view to keep and publishes under the lock it read under, so the store's own
+// walk gives the descendants their slots (publishStagedLocked).
 func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, prop Property) {
+	if tx.locked {
+		return
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -432,7 +439,13 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	return types.E_NONE
 }
 
+// removeInheritedProperty stages the delete of each descendant's inherited slot
+// for a definition delete. As in propagateDefinedProperty, the writeNow writer
+// leaves the descendants to the store's walk.
 func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
+	if tx.locked {
+		return
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {

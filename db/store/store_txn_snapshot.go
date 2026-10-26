@@ -1,6 +1,7 @@
 package store
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/MongooseMoo/barn/types"
@@ -280,9 +281,10 @@ func cloneObjectNonVerbState(obj *Object) *Object {
 	clone.anonymousChildren = append([]types.ObjID(nil), obj.anonymousChildren...)
 
 	clone.properties = obj.properties.clone()
-	clone.chparentChildren = make(map[types.ObjID]bool, len(obj.chparentChildren))
-	for id, tracked := range obj.chparentChildren {
-		clone.chparentChildren[id] = tracked
+	// Every writer of chparentChildren makes the map when it is nil.
+	clone.chparentChildren = nil
+	if len(obj.chparentChildren) > 0 {
+		clone.chparentChildren = maps.Clone(obj.chparentChildren)
 	}
 	return &clone
 }
