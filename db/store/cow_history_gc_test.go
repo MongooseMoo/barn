@@ -131,7 +131,7 @@ func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
 	store.registerReadTS(newerTS)
 	t.Cleanup(func() { store.deregisterReadTS(newerTS) })
 
-	blockedShard := &store.readTSShards[1]
+	blockedShard := &store.readers.shards[1]
 	blockedShard.mu.Lock()
 	shardLocked := true
 	t.Cleanup(func() {
@@ -192,8 +192,8 @@ func (s *Store) historyLen(id types.ObjID) int {
 // (test-only). Used to assert the floor registry is not leaking.
 func (s *Store) activeFloorCount() int {
 	n := 0
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		n += len(sh.counts)
 		sh.mu.Unlock()

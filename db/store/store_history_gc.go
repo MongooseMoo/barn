@@ -35,9 +35,9 @@ import (
 // in the same registration-vs-floor-scan gate as currentReadTSAndRegister so a
 // completed registration cannot be missed by an in-progress cross-shard scan.
 func (s *Store) registerReadTS(readTS uint64) {
-	s.readTSFloorMu.RLock()
+	s.readers.floorMu.RLock()
 	s.registerReadTSInShard(readTS)
-	s.readTSFloorMu.RUnlock()
+	s.readers.floorMu.RUnlock()
 }
 
 // currentReadTSAndRegister samples the current clock and registers that timestamp
@@ -45,15 +45,15 @@ func (s *Store) registerReadTS(readTS uint64) {
 // floor scan could pass the target shard after the clock sample but before the
 // registration, then prune above the reader before BeginSnapshot returned.
 func (s *Store) currentReadTSAndRegister() uint64 {
-	s.readTSFloorMu.RLock()
+	s.readers.floorMu.RLock()
 	readTS := s.clock.Load()
 	s.registerReadTSInShard(readTS)
-	s.readTSFloorMu.RUnlock()
+	s.readers.floorMu.RUnlock()
 	return readTS
 }
 
 func (s *Store) registerReadTSInShard(readTS uint64) {
-	sh := &s.readTSShards[readTS%readTSShardCount]
+	sh := &s.readers.shards[readTS%readTSShardCount]
 	sh.mu.Lock()
 	if sh.counts == nil {
 		sh.counts = make(map[uint64]int)
@@ -70,7 +70,7 @@ func (s *Store) registerReadTSInShard(readTS uint64) {
 // readTS that is not registered is a no-op (defensive — never drives a count
 // negative).
 func (s *Store) deregisterReadTS(readTS uint64) {
-	sh := &s.readTSShards[readTS%readTSShardCount]
+	sh := &s.readers.shards[readTS%readTSShardCount]
 	sh.mu.Lock()
 	if n := sh.counts[readTS]; n > 1 {
 		sh.counts[readTS] = n - 1
@@ -97,8 +97,8 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 // decide that the floor has not reached some timestamp.
 func (s *Store) oldestLiveReadTS() (uint64, bool) {
 	oldest := uint64(0)
-	for i := range s.readTSShards {
-		if seen := s.readTSShards[i].oldest.Load(); seen != 0 && (oldest == 0 || seen < oldest) {
+	for i := range s.readers.shards {
+		if seen := s.readers.shards[i].oldest.Load(); seen != 0 && (oldest == 0 || seen < oldest) {
 			oldest = seen
 		}
 	}
@@ -116,16 +116,16 @@ func (s *Store) oldestLiveReadTS() (uint64, bool) {
 // newest image is dead.
 //
 // Using the clock as the no-live-txn floor is safe against a txn that begins
-// concurrently because readTSFloorMu makes the floor scan exclusive with the
+// concurrently because readers.floorMu makes the floor scan exclusive with the
 // clock-sample-through-registration interval in currentReadTSAndRegister. A scan
 // therefore linearizes either before the sample or after the registration. In all
 // cases the returned floor is <= the readTS of every transaction that can read.
 func (s *Store) historyFloor() uint64 {
-	s.readTSFloorMu.Lock()
+	s.readers.floorMu.Lock()
 	min := uint64(0)
 	have := false
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		if oldest := sh.oldest.Load(); oldest != 0 && (!have || oldest-1 < min) {
 			min = oldest - 1
@@ -136,7 +136,7 @@ func (s *Store) historyFloor() uint64 {
 	if !have {
 		min = s.clock.Load()
 	}
-	s.readTSFloorMu.Unlock()
+	s.readers.floorMu.Unlock()
 	return min
 }
 
@@ -190,9 +190,9 @@ func readerPruneDue(n int) bool {
 // excludes registration for the length of the scan, so a transaction it did
 // not see begins at or above the clock it returns.
 func (s *Store) liveReadTimestamps() (readers []uint64, clock uint64) {
-	s.readTSFloorMu.Lock()
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	s.readers.floorMu.Lock()
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		for ts := range sh.counts {
 			readers = append(readers, ts)
@@ -200,7 +200,7 @@ func (s *Store) liveReadTimestamps() (readers []uint64, clock uint64) {
 		sh.mu.Unlock()
 	}
 	clock = s.clock.Load()
-	s.readTSFloorMu.Unlock()
+	s.readers.floorMu.Unlock()
 	readers = append(readers, clock)
 	slices.Sort(readers)
 	return readers, clock
@@ -314,8 +314,8 @@ func (s *Store) HistoryStats() HistoryStats {
 	}
 	s.history.mu.Unlock()
 	s.mu.RUnlock()
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		for _, n := range sh.counts {
 			stats.Readers += n

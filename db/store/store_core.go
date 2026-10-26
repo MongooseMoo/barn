@@ -54,6 +54,28 @@ type idAllocator struct {
 	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
 }
 
+// readerRegistry registers the read timestamps of live transactions, so
+// historyFloor knows which old images a reader may still need. See
+// store_history_gc.go.
+type readerRegistry struct {
+	// floorMu makes choosing/registering a read timestamp linearizable with
+	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
+	// sample through the shard insertion; historyFloor holds it exclusively while
+	// scanning. Registrations remain concurrent with each other, and deregistration
+	// stays shard-local because missing a reader that has already released is safe.
+	floorMu sync.RWMutex
+
+	// shards holds the multiset of readTS values of currently-live read-only
+	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
+	// the commit-dominated path: every Begin/Release/commit touches this registry, so
+	// a single global mutex serialized all 32 workers here (measured 88% of mutex
+	// contention). Sharding by readTS keeps each shard's multiset self-consistent
+	// (a given readTS always maps to the same shard), and historyFloor() = min key
+	// across shards (or clock if empty). floorMu prevents a scan from missing a
+	// completed registration in a shard it already visited.
+	shards [readTSShardCount]readTSShard
+}
+
 // historyIndex holds each object's superseded images, for readers whose
 // snapshot predates the live image. See store_history_gc.go.
 type historyIndex struct {
@@ -125,22 +147,8 @@ type Store struct {
 	// waifPruneVisits counts the entries pruneWaifHistoryLocked has examined.
 	waifPruneVisits uint64
 
-	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
-	// historyFloor's cross-shard scan. BeginSnapshot holds it shared from the clock
-	// sample through the shard insertion; historyFloor holds it exclusively while
-	// scanning. Registrations remain concurrent with each other, and deregistration
-	// stays shard-local because missing a reader that has already released is safe.
-	readTSFloorMu sync.RWMutex
-
-	// readTSShards holds the multiset of readTS values of currently-live read-only
-	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
-	// the commit-dominated path: every Begin/Release/commit touches this registry, so
-	// a single global mutex serialized all 32 workers here (measured 88% of mutex
-	// contention). Sharding by readTS keeps each shard's multiset self-consistent
-	// (a given readTS always maps to the same shard), and historyFloor() = min key
-	// across shards (or clock if empty). readTSFloorMu prevents a scan from missing a
-	// completed registration in a shard it already visited. See store_history_gc.go.
-	readTSShards [readTSShardCount]readTSShard
+	// readers registers live transactions' read timestamps (readerRegistry).
+	readers readerRegistry
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object
 	// is created via CreateObject(..., anonymous=true). It lets the orphan-anon GC
@@ -330,8 +338,8 @@ func (s *Store) CommitRetries() uint64         { return s.commitRetries.Load() }
 // registered with history GC, including multiple transactions at the same timestamp.
 func (s *Store) ActiveReadTransactions() int {
 	total := 0
-	for i := range s.readTSShards {
-		sh := &s.readTSShards[i]
+	for i := range s.readers.shards {
+		sh := &s.readers.shards[i]
 		sh.mu.Lock()
 		for _, count := range sh.counts {
 			total += count

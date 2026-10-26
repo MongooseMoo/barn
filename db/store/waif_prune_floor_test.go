@@ -27,7 +27,7 @@ func TestReleaseBehindOlderReaderDoesNotScanTheFloor(t *testing.T) {
 
 	// A floor scan needs this lock exclusively, so it cannot run while it is
 	// held shared.
-	s.readTSFloorMu.RLock()
+	s.readers.floorMu.RLock()
 	released := make(chan struct{})
 	go func() {
 		young.Release()
@@ -36,10 +36,10 @@ func TestReleaseBehindOlderReaderDoesNotScanTheFloor(t *testing.T) {
 	select {
 	case <-released:
 	case <-time.After(5 * time.Second):
-		s.readTSFloorMu.RUnlock()
+		s.readers.floorMu.RUnlock()
 		t.Fatal("release behind an older reader waited for the floor scan's lock")
 	}
-	s.readTSFloorMu.RUnlock()
+	s.readers.floorMu.RUnlock()
 	if got := len(s.waifHistory); got != 1 {
 		t.Fatalf("tracked histories = %d after the young reader left, want 1", got)
 	}

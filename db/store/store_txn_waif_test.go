@@ -292,7 +292,7 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 
 	// Stop the publisher after it samples the reader's shard, but before its
 	// floor scan finishes. No production hook or timing delay is needed.
-	lastShard := &s.readTSShards[readTSShardCount-1]
+	lastShard := &s.readers.shards[readTSShardCount-1]
 	lastShard.mu.Lock()
 	shardLocked := true
 	t.Cleanup(func() {
@@ -337,9 +337,9 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 		}
 		return blockedIn("(*StoreTxn).release(")
 	})
-	s.readTSShards[0].mu.Lock()
-	remainingReaders := s.readTSShards[0].counts[readerTS]
-	s.readTSShards[0].mu.Unlock()
+	s.readers.shards[0].mu.Lock()
+	remainingReaders := s.readers.shards[0].counts[readerTS]
+	s.readers.shards[0].mu.Unlock()
 	if remainingReaders != 0 || !reader.released.Load() {
 		t.Fatal("reader did not deregister while the publisher's floor was stale")
 	}
