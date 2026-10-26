@@ -62,6 +62,14 @@ type verbDispatch struct {
 	shapeChangeTS atomic.Uint64
 }
 
+// lockedPropPool interns the shared property bases of every object, loaded or
+// created, for the life of the store. mu guards pool: transactional creates
+// share their tables without holding the store's mu.
+type lockedPropPool struct {
+	mu   sync.Mutex
+	pool *propSharePool
+}
+
 type Store struct {
 	mu sync.RWMutex
 	// commitMu serializes decentralized commits. It is taken inside
@@ -179,11 +187,8 @@ type Store struct {
 
 	pendingFinalizations []types.Value
 
-	// propPool interns the shared property bases of every object, loaded or
-	// created, for the life of the store. propPoolMu guards it: transactional
-	// creates share their tables without holding mu.
-	propPoolMu sync.Mutex
-	propPool   *propSharePool
+	// propPool interns shared property bases (lockedPropPool).
+	propPool lockedPropPool
 }
 
 func NewStore() *Store {
@@ -192,7 +197,7 @@ func NewStore() *Store {
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
 		waifDomain:  new(types.WaifDomain),
-		propPool:    newPropSharePool(),
+		propPool:    lockedPropPool{pool: newPropSharePool()},
 	}
 	s.directTxn.store = s
 	s.directTxn.direct = true
