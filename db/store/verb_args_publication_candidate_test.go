@@ -15,7 +15,7 @@ func TestVerbArgsCandidateSharesOnlyDetachedNodes(t *testing.T) {
 		t.Fatal(ec)
 	}
 	borrowedNames, borrowedCode := []string{"late", "late_alias"}, []string{"return 91;"}
-	if _, ec := s.AddVerb(0, NewVerb("late", borrowedNames, 0, VerbRead|VerbExecute,
+	if _, ec := s.AddVerb(0, NewVerb(borrowedNames, 0, VerbRead|VerbExecute,
 		publicationArgsA, borrowedCode)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
@@ -34,11 +34,6 @@ func TestVerbArgsCandidateSharesOnlyDetachedNodes(t *testing.T) {
 	if fresh.verbList[2] == old.verbList[2] {
 		t.Fatal("newly borrowed nonselected node was shared")
 	}
-	for _, node := range fresh.verbList {
-		if fresh.verbs[node.mapKey()] != node {
-			t.Fatal("map and ordered list disagree about replacement identity")
-		}
-	}
 	if fresh.verbIdx != old.verbIdx {
 		t.Fatal("argument-only update rebuilt the unchanged alias index")
 	}
@@ -51,7 +46,7 @@ func TestVerbArgsCandidateSharesOnlyDetachedNodes(t *testing.T) {
 func TestVerbArgsCandidateSelectsNonMapWinnerByAlias(t *testing.T) {
 	s := newVerbArgsPublicationStore(t, 0, 0)
 	for _, alias := range []string{"first_alias", "second_alias"} {
-		if _, ec := s.AddVerb(0, NewVerb("look", []string{"look", alias}, 0,
+		if _, ec := s.AddVerb(0, NewVerb([]string{"look", alias}, 0,
 			VerbRead|VerbExecute, publicationArgsA, []string{"return 17;"})); ec != types.E_NONE {
 			t.Fatal(ec)
 		}
@@ -64,8 +59,8 @@ func TestVerbArgsCandidateSelectsNonMapWinnerByAlias(t *testing.T) {
 		t.Fatal(ec)
 	}
 	fresh := s.load(0)
-	if fresh.verbs["look"] != old.verbList[0] || fresh.verbList[0] != old.verbList[0] {
-		t.Fatal("updating a shadowed primary name changed its first map winner")
+	if fresh.verbList[0] != old.verbList[0] {
+		t.Fatal("updating a shadowed primary name changed the first verb with that name")
 	}
 	if fresh.verbList[1] == old.verbList[1] || fresh.verbList[1].argSpec != publicationArgsB || old.verbList[1].argSpec != publicationArgsA {
 		t.Fatal("alias did not update exactly the selected private node")
@@ -160,7 +155,7 @@ func TestVerbArgsCandidateCodeInstallClearsOwnershipProof(t *testing.T) {
 		{"copy", func(v *Verb, code []string) { v.setCodeCopy(code) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			borrowed := NewVerb("look", []string{"look"}, 0, VerbRead, publicationArgsA, []string{"return 1;"})
+			borrowed := NewVerb([]string{"look"}, 0, VerbRead, publicationArgsA, []string{"return 1;"})
 			if borrowed.backingOwned {
 				t.Fatal("constructor input was treated as defensively copied")
 			}

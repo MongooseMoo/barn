@@ -57,7 +57,7 @@ sorted = sort({3, 1, 2});
 // there runs inline and the task finishes in one slice.
 func TestThreadedSortInsideNestedVerbRunsInline(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	initialize := dbstore.NewVerb("initialize", []string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+	initialize := dbstore.NewVerb([]string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"#0.write_value = sort({3, 1, 2});"})
 	if _, errCode := store.AddVerb(0, initialize); errCode != types.E_NONE {
 		t.Fatalf("AddVerb initialize: %v", errCode)

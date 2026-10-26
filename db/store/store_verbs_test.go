@@ -11,7 +11,7 @@ func TestVerbMutationsStampVerbVersion(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -54,12 +54,12 @@ func TestAddVerbAllowsDuplicateAliasesAndFindsFirstDefinition(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	first := NewVerb("look", []string{"look", "examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+	first := NewVerb([]string{"look", "examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, errCode := store.AddVerb(0, first); errCode != types.E_NONE {
 		t.Fatalf("AddVerb initial failed: %v", errCode)
 	}
 
-	index, errCode := store.AddVerb(0, NewVerb("examine", []string{"examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 2;"}))
+	index, errCode := store.AddVerb(0, NewVerb([]string{"examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 2;"}))
 	if errCode != types.E_NONE {
 		t.Fatalf("AddVerb duplicate alias failed: %v", errCode)
 	}
@@ -81,11 +81,11 @@ func TestAddVerbAllowsDuplicatePrimaryNameAndFindsFirst(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look", "examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look", "examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb initial failed: %v", errCode)
 	}
 
-	if _, errCode := store.AddVerb(0, NewVerb("LOOK", []string{"LOOK"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"LOOK"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb duplicate primary = %v, want E_NONE", errCode)
 	}
 	verb, _, err := store.DirectTxn().FindVerb(0, "look")
@@ -100,10 +100,10 @@ func newOverlappingVerbStore(t *testing.T) *Store {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look", "glance"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look", "glance"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb first failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("glance", []string{"glance", "peek"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"glance", "peek"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb second failed: %v", errCode)
 	}
 	return store
@@ -327,7 +327,7 @@ func TestDeleteVerbHandlesLoadedMultiAliasRawName(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look l*ook glance", []string{"look", "l*ook", "glance"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look", "l*ook", "glance"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb loaded-style verb failed: %v", errCode)
 	}
 
@@ -362,7 +362,7 @@ func TestDeleteVerbOfInheritedVerbIsVerbNotFound(t *testing.T) {
 	if err := s.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add #0: %v", err)
 	}
-	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb look on #0: %v", ec)
 	}
 
@@ -404,7 +404,7 @@ func TestSetVerbCodeOfInheritedVerbLeavesAncestor(t *testing.T) {
 		t.Fatalf("Add #0: %v", err)
 	}
 	originalCode := []string{"return 1;"}
-	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, originalCode)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, originalCode)); ec != types.E_NONE {
 		t.Fatalf("AddVerb look on #0: %v", ec)
 	}
 
@@ -442,7 +442,7 @@ func TestSetVerbInfoOfInheritedVerbLeavesAncestor(t *testing.T) {
 		t.Fatalf("Add #0: %v", err)
 	}
 	originalPerms := VerbRead | VerbExecute
-	if _, ec := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, originalPerms, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(0, NewVerb([]string{"look"}, 0, originalPerms, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb look on #0: %v", ec)
 	}
 

@@ -17,9 +17,8 @@ func matchVerbNameLowered(pattern, search string) bool {
 
 	// Strip leading colon from the pattern when present.
 	// Waif verb names are stored with a ":" prefix (e.g. ":abbrev*iation").
-	// Waif call dispatch in executeCallVerb also prepends ":" to the lookup name
-	// so the exact-map fallback can find non-wildcard waif verbs by key. This
-	// means both the stored pattern and the lookup name carry ":" and both must
+	// Waif call dispatch in executeCallVerb also prepends ":" to the lookup name.
+	// This means both the stored pattern and the lookup name carry ":" and both must
 	// be stripped before comparison — otherwise HasPrefix(":abbrev", "abbrev")
 	// is false and ":abbrev*iation" never matches the lookup ":abbrev".
 	//
@@ -99,7 +98,12 @@ func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
 	if obj == nil {
 		return false
 	}
-	return obj.verbs[name] != nil
+	for _, verb := range obj.verbList {
+		if len(verb.names) > 0 && verb.names[0] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
@@ -121,7 +125,6 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 		if !validLiveObject(obj) {
 			continue
 		}
-		// verbList, not the verbs map: the map holds one verb per first name.
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.lowerNames {
 				if matchVerbNameLowered(alias, searchLower) {
@@ -246,8 +249,7 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 
 		// Scan this object's verbs in definition order and return the first whose
 		// name or alias matches. Toast resolves alias collisions by definition
-		// order (the first-declared verb wins), so iterate the ordered VerbList
-		// rather than the unordered Verbs map.
+		// order (the first-declared verb wins).
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.lowerNames {
 				if matchVerbNameLowered(alias, searchLower) {
@@ -255,19 +257,6 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 						return verb, current, nil
 					}
 				}
-			}
-		}
-		// Fallback for verbs present in the map but not matched above (e.g. verbs
-		// with an unpopulated Names slice): exact and colon-prefixed map lookups.
-		// The map is keyed by the full stored name, so a lookup string containing
-		// "*" would otherwise match a wildcard verb by its literal spec (e.g.
-		// "foo*bar") — but "*" is special only in the stored name, not in the
-		// lookup word, so Toast's verbcasecmp rejects it. Skip the literal
-		// fallback for such lookups; the wildcard scan above already handled any
-		// legitimate match.
-		if !strings.Contains(verbName, "*") {
-			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				return verb, current, nil
 			}
 		}
 
@@ -330,17 +319,6 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 			}
 		}
 	}
-	// See findVerbWalkFromQueueLocked: a lookup string containing "*" must not match a stored
-	// wildcard name literally (Toast's verbcasecmp rejects "*" in the lookup
-	// word). The wildcard scan above already handled any legitimate match.
-	if !strings.Contains(verbName, "*") {
-		if verb, ok := obj.verbs[verbName]; ok {
-			return verb, nil
-		}
-		if verb, ok := obj.verbs[":"+verbName]; ok {
-			return verb, nil
-		}
-	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
 }
 
@@ -355,7 +333,7 @@ func (s *Store) verbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		names = append(names, verb.name)
+		names = append(names, strings.Join(verb.names, " "))
 	}
 	return names, types.E_NONE
 }
@@ -401,11 +379,9 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	verbCopy := verb
+	verbCopy.id = nextVerbID.Add(1)
 	verbPtr := &verbCopy
 	stampVerb(verbPtr, ts)
-	if _, exists := obj.verbs[verbPtr.mapKey()]; !exists {
-		obj.verbs[verbPtr.mapKey()] = verbPtr
-	}
 	obj.verbList = append(obj.verbList, verbPtr)
 	obj.rebuildVerbIndex()
 	stampObjectVerbs(obj, ts)
@@ -511,30 +487,10 @@ func (s *Store) deleteResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode 
 }
 
 // deleteVerbAtIndex removes exactly the verb at index from a private object
-// image and repairs its primary-name map. The caller owns obj exclusively and
-// has already validated index.
+// image. The caller owns obj exclusively and has already validated index.
 func deleteVerbAtIndex(obj *Object, index int) {
-	verb := obj.verbList[index]
-	keysToRefresh := make([]string, 0, 1)
-	for key, entry := range obj.verbs {
-		if entry == verb {
-			keysToRefresh = append(keysToRefresh, key)
-			delete(obj.verbs, key)
-		}
-	}
-
 	obj.verbList = append(obj.verbList[:index], obj.verbList[index+1:]...)
 	obj.rebuildVerbIndex()
-
-	for _, key := range keysToRefresh {
-		for i := len(obj.verbList) - 1; i >= 0; i-- {
-			candidate := obj.verbList[i]
-			if candidate.mapKey() == key {
-				obj.verbs[key] = candidate
-				break
-			}
-		}
-	}
 }
 
 func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {
@@ -557,28 +513,17 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 
 	obj = s.republishForMutation(obj)
 	// Re-resolve verb from the fresh image so we edit the republished node, not the
-	// old (now-immutable) one, and so obj.verbs below is the fresh map.
+	// old (now-immutable) one.
 	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
 		return types.E_VERBNF
 	}
 	ts := s.bumpClockLocked()
-	oldKey := verb.mapKey()
 	verb.owner = owner
 	verb.perms = perms
 	verb.names = append([]string(nil), names...)
 	verb.lowerNames = loweredNames(verb.names)
-	if len(verb.names) > 0 {
-		verb.name = strings.Join(verb.names, " ")
-	}
 	obj.rebuildVerbIndex()
 	stampVerb(verb, ts)
-
-	if newKey := verb.mapKey(); oldKey != newKey {
-		if current, ok := obj.verbs[oldKey]; ok && current == verb {
-			delete(obj.verbs, oldKey)
-		}
-		obj.verbs[newKey] = verb
-	}
 	stampObjectVerbs(obj, ts)
 	s.noteVerbShapeChanged()
 	return types.E_NONE
@@ -717,12 +662,6 @@ func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) 
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
 		return false
-	}
-	if _, ok := obj.verbs[verbName]; ok {
-		return true
-	}
-	if _, ok := obj.verbs[":"+verbName]; ok {
-		return true
 	}
 	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {

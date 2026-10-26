@@ -7,14 +7,12 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-type verbReadKey struct {
+// verbKey names one verb in transaction read and write sets: the object and
+// the verb's runtime id (Verb.id), which survives renames and code edits and
+// is distinct for verbs that share names.
+type verbKey struct {
 	objID types.ObjID
-	name  string
-}
-
-type verbWriteKey struct {
-	objID types.ObjID
-	name  string
+	id    uint64
 }
 
 type verbWrite struct {
@@ -55,7 +53,7 @@ func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 		return types.E_VERBNF
 	}
 	target := obj.verbList[resolved.index]
-	delete(tx.verbWrites, verbWriteKey{objID: resolved.objID, name: target.mapKey()})
+	delete(tx.verbWrites, verbKey{objID: resolved.objID, id: target.id})
 	deleteVerbAtIndex(obj, resolved.index)
 	tx.verbDeletes = append(tx.verbDeletes, verbDelete{objID: resolved.objID, index: resolved.index})
 	obj.verbVersion++ // private generation: invalidates resolved handles minted before this staged delete
@@ -117,7 +115,7 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 
 func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
 	verb.setCodeCopy(lines)
-	lazySet(&tx.verbWrites, verbWriteKey{objID: objID, name: verb.mapKey()}, verbWrite{
+	lazySet(&tx.verbWrites, verbKey{objID: objID, id: verb.id}, verbWrite{
 		code: append([]string(nil), lines...),
 	})
 }
@@ -196,7 +194,6 @@ func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute 
 	queue := append(sc.queue[:0], objID)
 
 	searchLower := strings.ToLower(verbName)
-	hasWildcard := strings.Contains(verbName, "*")
 
 	var found *Verb
 	definer := types.ObjNothing
@@ -218,18 +215,6 @@ walk:
 		if verb := obj.findVerbByAlias(searchLower, requireExecute); verb != nil {
 			found, definer = verb, current
 			break walk
-		}
-		if !hasWildcard {
-			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				found, definer = verb, current
-				break walk
-			}
-			if !requireExecute {
-				if verb, ok := obj.verbs[":"+verbName]; ok {
-					found, definer = verb, current
-					break walk
-				}
-			}
 		}
 		queue = append(queue, obj.parents...)
 	}
@@ -287,16 +272,6 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 			}
 		}
 	}
-	if !strings.Contains(verbName, "*") {
-		if verb, ok := obj.verbs[verbName]; ok {
-			tx.markVerbRead(objID, verb)
-			return verb, nil
-		}
-		if verb, ok := obj.verbs[":"+verbName]; ok {
-			tx.markVerbRead(objID, verb)
-			return verb, nil
-		}
-	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
 }
 
@@ -312,7 +287,7 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		names = append(names, verb.name)
+		names = append(names, strings.Join(verb.names, " "))
 	}
 	return names, types.E_NONE
 }
@@ -372,7 +347,6 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	sc.visited.reset()
 	queue := append(sc.queue[:0], verbLocObj.parents...)
 	searchLower := strings.ToLower(verbName)
-	hasWildcard := strings.Contains(verbName, "*")
 
 	var found *Verb
 	definer := types.ObjNothing
@@ -394,12 +368,6 @@ walk:
 		if verb := obj.findVerbByAlias(searchLower, true); verb != nil {
 			found, definer = verb, current
 			break walk
-		}
-		if !hasWildcard {
-			if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
-				found, definer = verb, current
-				break walk
-			}
 		}
 		queue = append(queue, obj.parents...)
 	}

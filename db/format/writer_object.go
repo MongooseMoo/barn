@@ -2,6 +2,8 @@ package format
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -177,7 +179,7 @@ func (w *Writer) writeParents(parents []types.ObjID) error {
 // writeVerbMetadata writes verb metadata (not code)
 func (w *Writer) writeVerbMetadata(verb store.VerbView) error {
 	// Verb name (all names joined by space)
-	if err := w.writeString(verb.Name); err != nil {
+	if err := w.writeString(strings.Join(verb.Names, " ")); err != nil {
 		return err
 	}
 

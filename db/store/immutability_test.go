@@ -242,7 +242,7 @@ func TestAddVerbPublishesNewImage(t *testing.T) {
 	id := ids[0]
 	old := s.load(id)
 	verbsBefore := len(old.verbList)
-	v := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(id, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}
@@ -255,12 +255,12 @@ func TestAddVerbPublishesNewImage(t *testing.T) {
 func TestSetVerbCodePublishesNewImage(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
-	v := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(id, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}
 	old := s.load(id)
-	oldVerb := old.verbs["look"]
+	oldVerb := old.verbList[0]
 	codeBefore := append([]string(nil), oldVerb.code...)
 	if ec := s.DirectTxn().SetVerbCode(id, "look", []string{"return 42;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)
@@ -274,7 +274,7 @@ func TestSetVerbCodePublishesNewImage(t *testing.T) {
 func TestDeleteVerbPublishesNewImage(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
-	v := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(id, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}

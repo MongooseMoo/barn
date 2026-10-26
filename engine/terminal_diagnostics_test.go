@@ -61,8 +61,8 @@ func TestTerminalExceptionDiagnostics(t *testing.T) {
 			store := dbstore.NewStore()
 			addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 			addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-			store.AddVerb(0, dbstore.NewVerb("handle_uncaught_error", []string{"handle_uncaught_error"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"}))
-			store.AddVerb(0, dbstore.NewVerb("diagnostic_origin", []string{"diagnostic_origin"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{tc.body}))
+			store.AddVerb(0, dbstore.NewVerb([]string{"handle_uncaught_error"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"}))
+			store.AddVerb(0, dbstore.NewVerb([]string{"diagnostic_origin"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{tc.body}))
 			rt := NewRuntime(store)
 			var origin int64
 			result, err := rt.runServerVerbTask(0, "diagnostic_origin", nil, 2, "", func(id int64) {

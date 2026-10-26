@@ -50,7 +50,6 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	// Opaque increment: a verb call makes the task footprint "unknown" so it takes
 	// the optimistic co-scheduling path rather than the proven-commute path.
 	bump := dbstore.NewVerb(
-		"bump",
 		[]string{"bump"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

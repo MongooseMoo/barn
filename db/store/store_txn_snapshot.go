@@ -24,7 +24,7 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 // mutableObject returns a txn-PRIVATE, in-place-mutable copy of the cached object,
 // materializing one (copy-on-write) if the cache currently holds a shared alias.
 // Every staging method that mutates the cached *Object in place (name/owner/flags/
-// location, the properties map/propOrder, the verbs map/list, chparentChildren, and
+// location, the properties map/propOrder, the verb list, chparentChildren, and
 // the adopt-refresh paths) must obtain the object through this — never through
 // object() — so the aliased published image is never written. Idempotent: once an
 // object is owned, repeat writes reuse the same private copy.
@@ -187,10 +187,11 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if tx == nil || verb == nil {
 		return
 	}
-	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.mapKey()}]; staged {
+	key := verbKey{objID: objID, id: verb.id}
+	if _, staged := tx.verbWrites[key]; staged {
 		return
 	}
-	tx.verbReads[verbReadKey{objID: objID, name: verb.mapKey()}] = verb.version
+	tx.verbReads[key] = verb.version
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
@@ -231,20 +232,9 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 		return nil
 	}
 
-	verbClones := make(map[*Verb]*Verb, len(obj.verbList))
 	clone.verbList = make([]*Verb, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
-		verbClone := cloneVerbForReadTxn(verb)
-		verbClones[verb] = verbClone
-		clone.verbList = append(clone.verbList, verbClone)
-	}
-	clone.verbs = make(map[string]*Verb, len(obj.verbs))
-	for name, verb := range obj.verbs {
-		if verbClone, ok := verbClones[verb]; ok {
-			clone.verbs[name] = verbClone
-			continue
-		}
-		clone.verbs[name] = cloneVerbForReadTxn(verb)
+		clone.verbList = append(clone.verbList, cloneVerbForReadTxn(verb))
 	}
 
 	return clone

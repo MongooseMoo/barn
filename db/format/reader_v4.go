@@ -240,7 +240,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			That: argSpecFromCode(iobj),
 		}
 
-		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
+		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions

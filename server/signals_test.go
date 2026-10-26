@@ -33,7 +33,7 @@ func TestUserSignalHookOutcomeAndContext(t *testing.T) {
 					t.Fatalf("define context: %v", code)
 				}
 				if tc.code != "" {
-					store.AddVerb(system, dbstore.NewVerb("handle_signal", []string{"handle_signal"}, 2,
+					store.AddVerb(system, dbstore.NewVerb([]string{"handle_signal"}, 2,
 						dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 						dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 						[]string{`#0.signal_context = {args, player, this, verb, task_perms()};`, tc.code}))

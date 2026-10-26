@@ -219,7 +219,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			That: argSpecFromCode(iobj),
 		}
 
-		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
+		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions

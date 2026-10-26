@@ -119,7 +119,6 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 	verb := dbstore.NewVerb(
-		"suspender",
 		[]string{"suspender"},
 		3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

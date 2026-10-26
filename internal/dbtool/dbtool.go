@@ -439,7 +439,7 @@ func DumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			continue
 		}
 		fmt.Fprintf(out, "  [%d] %q (names=%d, owner=#%d, code=%d lines)\n",
-			i, view.Name, len(view.Names), view.Owner, len(view.Code))
+			i, strings.Join(view.Names, " "), len(view.Names), view.Owner, len(view.Code))
 	}
 
 	verbNames, _ := store.DirectTxn().VerbNames(objID)
@@ -558,7 +558,6 @@ func VerbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 	}
 
 	fmt.Fprintf(out, "\nVerb details:\n")
-	fmt.Fprintf(out, "  Name:    %s\n", verb.Name)
 	fmt.Fprintf(out, "  Names:   %s\n", strings.Join(verb.Names, " "))
 	fmt.Fprintf(out, "  Owner:   #%d\n", verb.Owner)
 	fmt.Fprintf(out, "  Perms:   %s\n", verb.Perms.String())

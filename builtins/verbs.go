@@ -102,7 +102,7 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 		// Return {defining_object, verb_name}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
-			types.NewStr(verb.Name),
+			types.NewStr(strings.Join(verb.Names, " ")),
 		}))
 	}
 
@@ -190,9 +190,6 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 
 	// Build names string (space-separated aliases)
 	namesStr := strings.Join(verb.Names, " ")
-	if namesStr == "" {
-		namesStr = verb.Name
-	}
 
 	return types.Ok(types.NewList([]types.Value{
 		types.NewObj(verb.Owner),
@@ -458,7 +455,7 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	perms := parseVerbPerms(permsStr.Str())
 
 	// Create the verb
-	verb := dbstore.NewVerb(strings.Join(names, " "), names, ownerID, perms, dbstore.VerbArgs{
+	verb := dbstore.NewVerb(names, ownerID, perms, dbstore.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,

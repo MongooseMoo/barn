@@ -8,7 +8,7 @@ import (
 
 func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 	s := newCoarseAtomicTestStore(t)
-	if _, errCode := s.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+	if _, errCode := s.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb: %v", errCode)
 	}
 	tx := s.BeginSnapshot(0)
@@ -18,7 +18,7 @@ func TestStoreTxnFailedFlushPreservesPrivateViewAndReadTracking(t *testing.T) {
 	if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName stage: %v", errCode)
 	}
-	lazySet(&tx.verbWrites, verbWriteKey{objID: 1, name: "missing"}, verbWrite{code: []string{"return 1;"}})
+	lazySet(&tx.verbWrites, verbKey{objID: 1, id: ^uint64(0)}, verbWrite{code: []string{"return 1;"}}) // no verb has this id
 
 	cached := tx.objects[0]
 	wantScalarRead := tx.scalarReads[0]

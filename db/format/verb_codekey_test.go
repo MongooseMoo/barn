@@ -20,7 +20,7 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 		t.Fatalf("CreateObject: %v", errCode)
 	}
 	mkVerb := func(name string) store.Verb {
-		return store.NewVerb(name, []string{name}, 0, store.VerbPerms(0),
+		return store.NewVerb([]string{name}, 0, store.VerbPerms(0),
 			store.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	}
 	if _, errCode = s.AddVerb(objID, mkVerb("first")); errCode != types.E_NONE {
@@ -65,10 +65,10 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	}
 	for _, view := range obj.VerbList {
 		if !view.CodeKey.IsSet() {
-			t.Fatalf("reloaded verb %q has an unset CodeKey", view.Name)
+			t.Fatalf("reloaded verb %q has an unset CodeKey", view.Names)
 		}
 		if want := sourcekey.Of(view.Code); view.CodeKey != want {
-			t.Fatalf("reloaded verb %q: CodeKey does not match its Code %q", view.Name, view.Code)
+			t.Fatalf("reloaded verb %q: CodeKey does not match its Code %q", view.Names, view.Code)
 		}
 	}
 	if obj.VerbList[0].CodeKey == obj.VerbList[1].CodeKey {
@@ -83,7 +83,7 @@ func TestDuplicateVerbNameRoundTripPreservesFirstDefinition(t *testing.T) {
 		t.Fatalf("CreateObject: %v", errCode)
 	}
 	for _, code := range []string{"return 1;", "return 2;"} {
-		verb := store.NewVerb("duplicate", []string{"duplicate"}, 0, store.VerbExecute,
+		verb := store.NewVerb([]string{"duplicate"}, 0, store.VerbExecute,
 			store.VerbArgs{This: "none", Prep: "none", That: "none"}, []string{code})
 		if _, errCode := s.AddVerb(objID, verb); errCode != types.E_NONE {
 			t.Fatalf("AddVerb(%q): %v", code, errCode)

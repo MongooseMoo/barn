@@ -63,7 +63,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		return types.E_NONE
 	}
 	tx.invalidateResolveCaches()
-	// obj.verbList/obj.verbs are rebuilt in place below, so obj must be a txn-private
+	// obj.verbList is rebuilt in place below, so obj must be a txn-private
 	// copy. mutableObject is called BEFORE the store.mu.RLock, so its own RLock does
 	// not nest.
 	obj := tx.mutableObject(objID)
@@ -86,26 +86,15 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		return types.E_INVIND
 	}
 
-	verbClones := make(map[*Verb]*Verb, len(live.verbList))
 	obj.verbList = make([]*Verb, 0, len(live.verbList))
 	for _, verb := range live.verbList {
-		verbClone := cloneVerbForReadTxn(verb)
-		verbClones[verb] = verbClone
-		obj.verbList = append(obj.verbList, verbClone)
-	}
-	obj.verbs = make(map[string]*Verb, len(live.verbs))
-	for name, verb := range live.verbs {
-		if verbClone, ok := verbClones[verb]; ok {
-			obj.verbs[name] = verbClone
-			continue
-		}
-		obj.verbs[name] = cloneVerbForReadTxn(verb)
+		obj.verbList = append(obj.verbList, cloneVerbForReadTxn(verb))
 	}
 	for key, write := range tx.verbWrites {
 		if key.objID != objID {
 			continue
 		}
-		verb := obj.verbs[key.name]
+		verb := obj.verbByID(key.id)
 		if verb == nil {
 			continue
 		}
@@ -118,7 +107,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		if key.objID != objID {
 			continue
 		}
-		if verb := live.verbs[key.name]; verb != nil {
+		if verb := live.verbByID(key.id); verb != nil {
 			tx.verbReads[key] = verb.version
 			continue
 		}
@@ -320,7 +309,7 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	}
 	for key, write := range tx.verbWrites {
 		if key.objID == objID {
-			if verb := obj.verbs[key.name]; verb != nil {
+			if verb := obj.verbByID(key.id); verb != nil {
 				verb.setCodeCopy(write.code)
 			}
 		}
@@ -441,7 +430,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.propertyReads = make(map[propertyReadKey]uint64)
 	tx.propertyScans = make(map[types.ObjID]uint64)
 	tx.propertyShapeScans = make(map[types.ObjID]uint64)
-	tx.verbReads = make(map[verbReadKey]uint64)
+	tx.verbReads = make(map[verbKey]uint64)
 	tx.verbScans = make(map[types.ObjID]uint64)
 	tx.verbMemoSeen = nil
 

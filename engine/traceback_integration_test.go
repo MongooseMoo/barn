@@ -16,7 +16,7 @@ func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	store.AddVerb(0, dbstore.NewVerb("boom", []string{"boom"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"boom"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{`x = 1 + "a";`}))
@@ -87,11 +87,11 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	)); errCode != types.E_NONE {
 		t.Fatalf("define handled_args: %v", errCode)
 	}
-	store.AddVerb(0, dbstore.NewVerb("handle_uncaught_error", []string{"handle_uncaught_error"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"handle_uncaught_error"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"this.handled_args = args;", "return 1;"}))
-	store.AddVerb(0, dbstore.NewVerb("forkboom", []string{"forkboom"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"forkboom"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message", {7, 8});`, "endfork", "return 1;"}))
@@ -151,12 +151,12 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	)); errCode != types.E_NONE {
 		t.Fatalf("define timeout_args: %v", errCode)
 	}
-	store.AddVerb(0, dbstore.NewVerb("handle_task_timeout", []string{"handle_task_timeout"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"handle_task_timeout"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{"this.timeout_args = args;", "return 1;"}))
 	spinCode := []string{"while (1)", "endwhile"}
-	store.AddVerb(0, dbstore.NewVerb("spin", []string{"spin"}, 2,
+	store.AddVerb(0, dbstore.NewVerb([]string{"spin"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, spinCode))
 

@@ -313,7 +313,6 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		t.Fatalf("create orphan: %v", errCode)
 	}
 	nestedVerb := dbstore.NewVerb(
-		"ambiguous_nested_gc",
 		[]string{"ambiguous_nested_gc"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -410,7 +409,6 @@ func newInitializeRunGCStore(t *testing.T) (*dbstore.Store, types.ObjID) {
 		t.Fatalf("create initialized prototype: %v", errCode)
 	}
 	verb := dbstore.NewVerb(
-		"initialize",
 		[]string{"initialize"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -467,7 +465,6 @@ func TestRunGCSweepRecycleHookRetainsTaskTransaction(t *testing.T) {
 		t.Fatalf("create anonymous class: %v", errCode)
 	}
 	recycleVerb := dbstore.NewVerb(
-		"recycle",
 		[]string{"recycle"},
 		0,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

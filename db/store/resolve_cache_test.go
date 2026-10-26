@@ -33,7 +33,7 @@ func testChainStore(t *testing.T) *Store {
 
 func addVerbT(t *testing.T, s *Store, objID types.ObjID, names []string, perms VerbPerms) {
 	t.Helper()
-	v := NewVerb(names[0], names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb(names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(objID, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb #%d %v: %v", objID, names, ec)
 	}
@@ -43,7 +43,7 @@ type readSetSnapshot struct {
 	propertyReads      map[propertyReadKey]uint64
 	propertyScans      map[types.ObjID]uint64
 	propertyShapeScans map[types.ObjID]uint64
-	verbReads          map[verbReadKey]uint64
+	verbReads          map[verbKey]uint64
 	verbScans          map[types.ObjID]uint64
 }
 

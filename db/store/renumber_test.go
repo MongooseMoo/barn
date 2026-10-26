@@ -76,7 +76,7 @@ func TestRenumberRewritesVerbAndPropertyOwners(t *testing.T) {
 	}
 
 	// A verb on #0 owned by #1.
-	if _, ec := s.AddVerb(0, NewVerb("greet", []string{"greet"}, 1, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(0, NewVerb([]string{"greet"}, 1, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb greet on #0: %v", ec)
 	}
 	// A property on #0 owned by #1.

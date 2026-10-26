@@ -160,7 +160,7 @@ return 1;`, "\n"))
 
 func elleAddVerb(t *testing.T, store *dbstore.Store, id types.ObjID, name string, code []string) {
 	t.Helper()
-	v := dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
+	v := dbstore.NewVerb([]string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
 	if _, err := store.AddVerb(id, v); err != types.E_NONE {
 		t.Fatal(err)
 	}

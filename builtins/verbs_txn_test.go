@@ -24,7 +24,6 @@ func verbMetadataTxnTestContext(t *testing.T) (*Execution, *dbstore.Store) {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	verb := dbstore.NewVerb(
-		"look",
 		[]string{"look"},
 		0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute|dbstore.VerbDebug,
@@ -169,7 +168,7 @@ func TestDeleteVerbUnrelatedReadConflictLeavesVerbIntact(t *testing.T) {
 func TestDeleteVerbStagesShiftedIndicesAndSurvivorCode(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 	for _, name := range []string{"second", "survivor"} {
-		verb := dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+		verb := dbstore.NewVerb([]string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 		if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
 			t.Fatalf("AddVerb(%s): %v", name, errCode)
 		}
@@ -212,7 +211,7 @@ func TestDeleteVerbStagesShiftedIndicesAndSurvivorCode(t *testing.T) {
 
 func TestDeleteVerbConcurrentListGenerationDoesNotRetarget(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
-	second := dbstore.NewVerb("second", []string{"second"}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+	second := dbstore.NewVerb([]string{"second"}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	if _, errCode := store.AddVerb(0, second); errCode != types.E_NONE {
 		t.Fatalf("AddVerb(second): %v", errCode)
 	}
@@ -313,7 +312,6 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	addTxnObject(t, store, 6, 0, dbstore.FlagRead, dbstore.FlagWrite)
 	addTxnObject(t, store, 10, 0, dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite)
 	verb := dbstore.NewVerb(
-		"do_login_command",
 		[]string{"do_login_command"},
 		0,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute|dbstore.VerbDebug,

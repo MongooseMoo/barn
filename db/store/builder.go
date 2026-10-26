@@ -31,7 +31,6 @@ func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 		id:         id,
 		lastMove:   types.NewEmptyMap(),
 		properties: newPropTable(0),
-		verbs:      make(map[string]*Verb),
 	}}
 }
 
@@ -71,16 +70,11 @@ func (b *ObjectBuilder) AppendContent(id types.ObjID) { b.obj.contents = append(
 
 // --- verbs ---
 
-// AppendVerb appends a verb (by value) to the ordered verb list and indexes it
-// under its primary name. Returns the index of the appended verb.
+// AppendVerb appends a verb (by value) to the ordered verb list and gives it a
+// fresh id. Returns the index of the appended verb.
 func (b *ObjectBuilder) AppendVerb(v Verb) int {
-	vp := &v
-	b.obj.verbList = append(b.obj.verbList, vp)
-	if len(v.names) > 0 {
-		if _, exists := b.obj.verbs[v.names[0]]; !exists {
-			b.obj.verbs[v.names[0]] = vp
-		}
-	}
+	v.id = nextVerbID.Add(1)
+	b.obj.verbList = append(b.obj.verbList, &v)
 	b.obj.verbIdx = nil // rebuilt by Build; stale until then
 	return len(b.obj.verbList) - 1
 }

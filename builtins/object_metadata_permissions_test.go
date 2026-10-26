@@ -49,7 +49,6 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 		t.Fatalf("DefineProperty(existing): %s", errCode)
 	}
 	verb := dbstore.NewVerb(
-		"existing",
 		[]string{"existing"},
 		owner,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
@@ -359,7 +358,6 @@ func TestObjectMetadataBuiltinsUseSameTaskStagedAuthority(t *testing.T) {
 func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string, names []string) int {
 	t.Helper()
 	verb := dbstore.NewVerb(
-		name,
 		names,
 		f.owner,
 		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,

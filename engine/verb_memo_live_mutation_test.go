@@ -25,7 +25,7 @@ func TestVerbCallThenCoarseBuiltinCommits(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	probe := dbstore.NewVerb("probe", []string{"probe"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+	probe := dbstore.NewVerb([]string{"probe"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"})
 	if _, ec := store.AddVerb(0, probe); ec != types.E_NONE {
 		t.Fatalf("AddVerb probe: %v", ec)

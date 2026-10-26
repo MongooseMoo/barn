@@ -22,7 +22,7 @@ func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbs
 }
 
 func addTestVerb(store *dbstore.Store, objID types.ObjID, name string, code ...string) {
-	store.AddVerb(objID, dbstore.NewVerb(name, []string{name}, 2,
+	store.AddVerb(objID, dbstore.NewVerb([]string{name}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		code))
@@ -179,7 +179,7 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define disconnected_frames: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(system, dbstore.NewVerb("user_client_disconnected", []string{"user_client_disconnected"}, 2,
+	if _, errCode := store.AddVerb(system, dbstore.NewVerb([]string{"user_client_disconnected"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{
@@ -243,7 +243,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 			t.Fatalf("define %s: %v", name, errCode)
 		}
 	}
-	if _, errCode := store.AddVerb(oldHandler, dbstore.NewVerb("user_client_disconnected", []string{"user_client_disconnected"}, 2,
+	if _, errCode := store.AddVerb(oldHandler, dbstore.NewVerb([]string{"user_client_disconnected"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{
@@ -258,7 +258,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 		})); errCode != types.E_NONE {
 		t.Fatalf("add old disconnect hook: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(newHandler, dbstore.NewVerb("user_connected", []string{"user_connected"}, 2,
+	if _, errCode := store.AddVerb(newHandler, dbstore.NewVerb([]string{"user_connected"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
 		[]string{

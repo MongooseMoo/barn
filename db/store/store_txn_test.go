@@ -19,7 +19,7 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "scratch", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	child, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
@@ -498,7 +498,7 @@ func TestTransactionRenumberLeavesOldObjectIDInvalid(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject renumber source failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(oldID, NewVerb("test", []string{"test"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return \"test\";"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(oldID, NewVerb([]string{"test"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return \"test\";"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1668,7 +1668,7 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1678,8 +1678,8 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {
@@ -1692,7 +1692,7 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1702,8 +1702,8 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 	}
 
 	live := store.load(0)
-	verb := live.verbs["look"]
-	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+	verb := live.verbList[0]
+	if got, ok := tx.verbReads[verbKey{objID: 0, id: verb.id}]; !ok || got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
 	}
 	if got := tx.verbScans[0]; got != live.verbVersion {
@@ -1719,7 +1719,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if errCode := store.DirectTxn().DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1754,7 +1754,7 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -1798,7 +1798,7 @@ func TestTransactionSetVerbCodeInheritedVerbIsVerbNotFound(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	childID, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
@@ -1836,7 +1836,7 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	if len(names) != 0 {
 		t.Fatalf("tx VerbNames before add = %#v, want none", names)
 	}
-	verb := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+	verb := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
@@ -1866,7 +1866,7 @@ func TestTransactionCallableLookupDoesNotExposeWaifOnlyVerbToObjectCall(t *testi
 
 	tx := store.BeginSnapshot(0)
 	defer tx.Release()
-	if _, errCode := store.AddVerb(0, NewVerb(":foo", []string{":foo"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 99;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{":foo"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 99;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1888,7 +1888,7 @@ func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	}
 
 	tx := store.BeginSnapshot(0)
-	if _, errCode := store.AddVerb(0, NewVerb("first", []string{"first"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"first"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb first failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1897,7 +1897,7 @@ func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	if errCode := tx.SetVerbCode(0, "first", []string{"return 1;"}); errCode != types.E_NONE {
 		t.Fatalf("tx SetVerbCode first failed: %v", errCode)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("second", []string{"second"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"second"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb second failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -1935,7 +1935,7 @@ func TestTransactionLiveMutationDoesNotRebaseUnrelatedReads(t *testing.T) {
 		t.Fatalf("PropertyValue read failed: %v", errCode)
 	}
 
-	if _, errCode := store.AddVerb(other, NewVerb("live", []string{"live"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(other, NewVerb([]string{"live"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	tx.MarkLiveMutated()
@@ -1977,7 +1977,7 @@ func TestTransactionForgetObjectDropsStagedVerbCode(t *testing.T) {
 	}
 
 	tx := store.BeginSnapshot(0)
-	if _, errCode := store.AddVerb(0, NewVerb("scratch", []string{"scratch"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"scratch"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
@@ -2000,7 +2000,7 @@ func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
@@ -2041,7 +2041,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+	if _, errCode := store.AddVerb(0, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 

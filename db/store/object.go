@@ -2,6 +2,7 @@ package store
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/sourcekey"
 	"github.com/MongooseMoo/barn/types"
@@ -38,8 +39,7 @@ type Object struct {
 	properties    propTable
 	propDefsCount int      // Number of properties defined on this object (not inherited)
 	propOrder     []string // Names of the properties defined on this object, in definition order, in display case
-	verbs         map[string]*Verb
-	verbList      []*Verb // Ordered list for verb code indexing
+	verbList      []*Verb  // Ordered list for verb code indexing
 	// verbIdx accelerates dispatch-time alias lookup over verbList. It is an
 	// immutable value shared by every image and clone whose verbList carries
 	// the same aliases in the same order; each site that changes verbList or a
@@ -176,8 +176,15 @@ func (p Property) View(name string) PropertyView {
 // obtained from an Object's VerbList) and construct verbs through NewVerb. A
 // direct field write to Verb from outside db/store is a compile error.
 type Verb struct {
-	name  string
-	names []string // All verb names (aliases) - first is primary
+	// id is the verb's runtime identity: assigned from nextVerbID when a new
+	// node joins a verb list (ObjectBuilder.AppendVerb, Store.AddVerb) and
+	// carried by every struct copy of the node (code edits, renames, COW images,
+	// txn clones). Transaction read and write sets key verbs by it. Never
+	// persisted; a load assigns fresh ids.
+	id uint64
+	// names is every alias in order; the first is primary. The persisted name
+	// string is strings.Join(names, " "), which the loader splits back.
+	names []string
 	// lowerNames mirrors names, pre-lowercased for dispatch. Verb-name matching
 	// is case-insensitive and runs per-alias per-candidate on every verb call;
 	// lowering here once (profile: strings.ToLower was 8.7% of total CPU on the
@@ -224,7 +231,6 @@ type Verb struct {
 // headers by value (the backing arrays are read-only at call sites); the store
 // never hands out a live *Verb to external callers.
 type VerbView struct {
-	Name    string
 	Names   []string
 	Owner   types.ObjID
 	Perms   VerbPerms
@@ -345,25 +351,25 @@ func (o *Object) findVerbByAlias(searchLower string, requireExecute bool) *Verb 
 	return scanVerbList(o.verbList, searchLower, requireExecute)
 }
 
-// mapKey returns the key this verb occupies in Object.verbs: the first alias
-// (builder.go keys the map by names[0]). Verb.name may hold the full
-// space-separated alias string (the loader stores it verbatim for dump
-// round-tripping), so name is NOT a valid map key for multi-alias verbs —
-// transaction read/write sets must key by mapKey or validation can never
-// find the verb again (every commit then fails E_INVARG and retries).
-func (v *Verb) mapKey() string {
-	if len(v.names) > 0 {
-		return v.names[0]
+// nextVerbID numbers verb nodes process-wide, so ids are unique per object
+// even with several Stores in one process.
+var nextVerbID atomic.Uint64
+
+// verbByID returns the verb with the given runtime id, or nil.
+func (o *Object) verbByID(id uint64) *Verb {
+	for _, verb := range o.verbList {
+		if verb.id == id {
+			return verb
+		}
 	}
-	return v.name
+	return nil
 }
 
 // NewVerb builds a Verb value from its fields. It is the only way for external
 // packages (the loader in db/format, builtins, the conformance fixture, and
 // tests) to construct a Verb without touching unexported fields.
-func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
+func NewVerb(names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
 	return Verb{
-		name:       name,
 		names:      names,
 		lowerNames: loweredNames(names),
 		owner:      owner,
@@ -413,7 +419,6 @@ func (v *Verb) setCodeCopy(lines []string) {
 // View returns a flat read-only snapshot of the verb.
 func (v *Verb) View() VerbView {
 	return VerbView{
-		Name:       v.name,
 		Names:      v.names,
 		Owner:      v.owner,
 		Perms:      v.perms,
@@ -562,7 +567,6 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		location:         types.ObjNothing,
 		lastMove:         types.NewEmptyMap(),
 		properties:       newPropTable(0),
-		verbs:            make(map[string]*Verb),
 		flags:            0, // Default: not readable or writable (MOO semantics)
 		chparentChildren: make(map[types.ObjID]bool),
 	}

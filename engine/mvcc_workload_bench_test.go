@@ -107,7 +107,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 	defInt(playerGenID, "last_activity", dbstore.PropRead|dbstore.PropWrite)
 
 	addVerb := func(id types.ObjID, name string, code []string) {
-		v := dbstore.NewVerb(name, []string{name}, wizardID,
+		v := dbstore.NewVerb([]string{name}, wizardID,
 			dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 			dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
 		if _, ec := store.AddVerb(id, v); ec != types.E_NONE {

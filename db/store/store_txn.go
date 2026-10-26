@@ -30,9 +30,9 @@ type StoreTxn struct {
 	propertyDefinitionDeletes map[propertyWriteKey]string
 	propertyWrites            map[propertyWriteKey]propertyWrite
 	propertyDeletes           map[propertyWriteKey]string
-	verbReads                 map[verbReadKey]uint64
+	verbReads                 map[verbKey]uint64
 	verbScans                 map[types.ObjID]uint64
-	verbWrites                map[verbWriteKey]verbWrite
+	verbWrites                map[verbKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
 	waifs                     map[types.WaifIdentity]*waifTxnImage
@@ -147,7 +147,7 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		propertyReads:      make(map[propertyReadKey]uint64),
 		propertyScans:      make(map[types.ObjID]uint64),
 		propertyShapeScans: make(map[types.ObjID]uint64),
-		verbReads:          make(map[verbReadKey]uint64),
+		verbReads:          make(map[verbKey]uint64),
 		verbScans:          make(map[types.ObjID]uint64),
 		// scalarWrites, relationshipWrites, propertyDefines,
 		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites

@@ -225,8 +225,8 @@ func TestExceptionReasonRecycleReplacementKeepsOutwardCode(t *testing.T) {
 			if resume {
 				hook = `suspend(); return 0;`
 			}
-			store.AddVerb(12, dbstore.NewVerb("recycle", []string{"recycle"}, 0, perms, dbstore.VerbArgs{}, []string{hook}))
-			store.AddVerb(10, dbstore.NewVerb("exitfunc", []string{"exitfunc"}, 0, perms, dbstore.VerbArgs{}, []string{`return 0;`}))
+			store.AddVerb(12, dbstore.NewVerb([]string{"recycle"}, 0, perms, dbstore.VerbArgs{}, []string{hook}))
+			store.AddVerb(10, dbstore.NewVerb([]string{"exitfunc"}, 0, perms, dbstore.VerbArgs{}, []string{`return 0;`}))
 			registry := BuildVMRegistry()
 			calls := 0
 			session := builtins.NewSession(registry, builtins.Host{
