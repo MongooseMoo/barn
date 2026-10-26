@@ -223,12 +223,14 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 		stampObjectProperties(img, ts)
 	}
 	for _, write := range w.verbCode {
-		// Preflight found the verb. A code edit leaves aliases and positions,
-		// and so the verb index, unchanged.
-		verb := img.verbByID(write.id)
-		verb.setCodeCopy(write.code)
-		verb.version = ts
-		img.verbVersion = ts
+		// A commit's preflight found the verb; a renumber replay
+		// (ApplyStagedObjectWrites) can meet a live image without it. A code edit
+		// leaves aliases and positions, and so the verb index, unchanged.
+		if verb := img.verbByID(write.id); verb != nil {
+			verb.setCodeCopy(write.code)
+			verb.version = ts
+			img.verbVersion = ts
+		}
 	}
 	for _, index := range w.verbDeletes {
 		deleteVerbAtIndex(img, index)
