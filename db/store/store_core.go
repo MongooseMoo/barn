@@ -41,6 +41,19 @@ type readTSShard struct {
 	_      [32]byte // pad: Mutex(8) + map ptr(8) + oldest(8) + pad(32) = 56; rounded clear of a line
 }
 
+// idAllocator is the store's object id allocator.
+type idAllocator struct {
+	// max (highest non-anon id, for max_object()) and highWater (highest
+	// allocated id incl. anon, for NextID()) are atomic so a decentralized
+	// committer (holding only store.mu.RLock) can allocate an id and CAS-max them
+	// without the exclusive lock. After NewStore, allocateID(), casMaxID() and
+	// ResetMaxObject() are the only mutators.
+	max        atomic.Int64
+	highWater  atomic.Int64
+	recycledMu sync.Mutex    // guards recycled against concurrent decentralized recyclers
+	recycled   []types.ObjID // recycled numbered ids, offered again by LowestFreeID
+}
+
 // waifRootsMemo memoizes the PersistentWaifRoots top-level scan. epoch
 // advances whenever the set of WAIFs held directly by live objects' property
 // values may have changed; cache is valid for one epoch. See
@@ -89,14 +102,8 @@ type Store struct {
 	// writer is that private transaction: writeNow resets and uses it under
 	// mu.Lock, so one writer serves every direct write (lockedWriter).
 	writer StoreTxn
-	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
-	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
-	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
-	// exclusive lock. allocateID()/casMaxID() are the only mutators.
-	maxObjID           atomic.Int64
-	highWaterID        atomic.Int64
-	recycledMu         sync.Mutex    // guards recycledID against concurrent decentralized recyclers
-	recycledID         []types.ObjID // recycled numbered ids, offered again by LowestFreeID
+	// ids allocates object ids and keeps recycled ones (idAllocator).
+	ids                idAllocator
 	clock              atomic.Uint64
 	historyMu          sync.Mutex // guards history-map appends from concurrent COW committers
 	history            map[types.ObjID][]objectHistory
@@ -194,7 +201,7 @@ type Store struct {
 func NewStore() *Store {
 	s := &Store{
 		anonObjects: make(map[types.ObjID]*Object),
-		recycledID:  []types.ObjID{},
+		ids:         idAllocator{recycled: []types.ObjID{}},
 		history:     make(map[types.ObjID][]objectHistory),
 		waifDomain:  new(types.WaifDomain),
 		propPool:    lockedPropPool{pool: newPropSharePool()},
@@ -202,8 +209,8 @@ func NewStore() *Store {
 	s.directTxn.store = s
 	s.directTxn.direct = true
 	s.directTxn.readTS = math.MaxUint64
-	s.maxObjID.Store(-1)
-	s.highWaterID.Store(-1)
+	s.ids.max.Store(-1)
+	s.ids.highWater.Store(-1)
 	return s
 }
 
@@ -218,25 +225,25 @@ func (s *Store) DirectTxn() *StoreTxn {
 }
 
 // maxObjectID returns the highest non-anonymous object id, or -1 if none. Lock-free.
-func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.maxObjID.Load()) }
+func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.ids.max.Load()) }
 
 // highWater returns the highest allocated id (including anonymous), or -1. Lock-free.
-func (s *Store) highWater() types.ObjID { return types.ObjID(s.highWaterID.Load()) }
+func (s *Store) highWater() types.ObjID { return types.ObjID(s.ids.highWater.Load()) }
 
-// allocateID atomically allocates the next unique object id (bumping highWaterID). It
+// allocateID atomically allocates the next unique object id (bumping ids.highWater). It
 // is the SINGLE id allocator for numbered, anonymous, and decentralized creates, so
 // no two allocations ever collide even without the store lock.
-func (s *Store) allocateID() types.ObjID { return types.ObjID(s.highWaterID.Add(1)) }
+func (s *Store) allocateID() types.ObjID { return types.ObjID(s.ids.highWater.Add(1)) }
 
-// appendRecycledID records id as recycled, guarded by recycledMu so a decentralized
+// appendRecycledID records id as recycled, guarded by ids.recycledMu so a decentralized
 // recycle committer (holding only store.mu.RLock) does not race LowestFreeID's read.
 // Coarse recyclers append under store.mu.Lock (which excludes RLock committers), so the
-// two never run concurrently; recycledMu serializes concurrent decentralized appends
+// two never run concurrently; ids.recycledMu serializes concurrent decentralized appends
 // and the RLock read.
 func (s *Store) appendRecycledID(id types.ObjID) {
-	s.recycledMu.Lock()
-	s.recycledID = append(s.recycledID, id)
-	s.recycledMu.Unlock()
+	s.ids.recycledMu.Lock()
+	s.ids.recycled = append(s.ids.recycled, id)
+	s.ids.recycledMu.Unlock()
 }
 
 // casMaxID raises *a to v when v is larger — a monotonic max safe under concurrent
@@ -597,8 +604,8 @@ func (s *Store) Add(obj *Object) error {
 // AddAnonymous ingests an anonymous object loaded from the database into the
 // store's out-of-band anonymous collection. The object is keyed by the
 // above-max serialization id it was loaded with; this id never enters the
-// directory or maxObjID (max_object() excludes anons). It MUST raise
-// highWaterID, though: a Barn anon's identity id is permanent (values are
+// directory or ids.max (max_object() excludes anons). It MUST raise
+// ids.highWater, though: a Barn anon's identity id is permanent (values are
 // NewAnon(id), unlike Toast's pointer identity), so if allocateID later handed
 // the same id to a regular object, every loaded _TYPE_ANON reference would
 // silently resolve to that object — recycle(loaded_anon) then recycles (and
@@ -616,7 +623,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 	s.noteWaifRootsChanged()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
-	casMaxID(&s.highWaterID, obj.id)
+	casMaxID(&s.ids.highWater, obj.id)
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {
@@ -625,9 +632,9 @@ func (s *Store) insertObjectLocked(obj *Object) {
 	// High water ID tracks all allocations (including anonymous); max object ID
 	// excludes anonymous. Both are monotonic maxes (CAS) so concurrent decentralized
 	// committers never lose the larger value.
-	casMaxID(&s.highWaterID, obj.id)
+	casMaxID(&s.ids.highWater, obj.id)
 	if !obj.anonymous {
-		casMaxID(&s.maxObjID, obj.id)
+		casMaxID(&s.ids.max, obj.id)
 	}
 }
 

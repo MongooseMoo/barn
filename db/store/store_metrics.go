@@ -206,6 +206,6 @@ func (s *Store) ResetMaxObject() {
 		return true
 	})
 
-	s.highWaterID.Store(int64(maxAny))
-	s.maxObjID.Store(int64(maxNonAnon))
+	s.ids.highWater.Store(int64(maxAny))
+	s.ids.max.Store(int64(maxNonAnon))
 }

@@ -46,7 +46,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	}
 	tx.objects[objID] = cloneObjectForReadTxn(live)
 	// Anonymous objects do not participate in max_object() (CreateObject /
-	// insertObjectLocked bump only highWaterID for anon); mirror that here.
+	// insertObjectLocked bump only ids.highWater for anon); mirror that here.
 	if !live.anonymous && objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}

@@ -444,8 +444,8 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		}
 		switch {
 		case w.created != nil:
-			// highWaterID was raised at allocation.
-			casMaxID(&s.maxObjID, id)
+			// ids.highWater was raised at allocation.
+			casMaxID(&s.ids.max, id)
 			s.publishLocked(id, w.img)
 		case w.old != nil:
 			s.replaceImageLocked(id, w.old, w.img)
