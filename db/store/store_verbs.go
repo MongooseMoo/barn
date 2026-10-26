@@ -493,7 +493,37 @@ func deleteVerbAtIndex(obj *Object, index int) {
 	obj.rebuildVerbIndex()
 }
 
+// definedVerbLocked returns the verb defined on objID itself that name matches,
+// or nil.
+func (s *Store) definedVerbLocked(objID types.ObjID, name string) *Verb {
+	verb, err := s.findVerbOnObjectLocked(objID, name)
+	if err != nil {
+		return nil
+	}
+	return verb
+}
+
+// indexedVerbLocked returns the verb at 0-based index in objID's own verb list,
+// or nil (Toast db_find_indexed_verb, src/db_verbs.cc:701-721).
+func (s *Store) indexedVerbLocked(objID types.ObjID, index int) *Verb {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil || index < 0 || index >= len(obj.verbList) {
+		return nil
+	}
+	return obj.verbList[index]
+}
+
 func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {
+	return s.setVerbInfo(objID, func() *Verb { return s.definedVerbLocked(objID, name) }, owner, perms, names)
+}
+
+// SetVerbInfoByIndex is SetVerbInfo for the verb at 0-based index in objID's
+// own verb list (an INT verb descriptor).
+func (s *Store) SetVerbInfoByIndex(objID types.ObjID, index int, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {
+	return s.setVerbInfo(objID, func() *Verb { return s.indexedVerbLocked(objID, index) }, owner, perms, names)
+}
+
+func (s *Store) setVerbInfo(objID types.ObjID, find func() *Verb, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -505,16 +535,15 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	// inherited one (Toast bf_set_verb_info -> find_described_verb ->
 	// db_find_defined_verb; src/verbs.cc:346, src/db_verbs.cc:670). An inherited
 	// verb -> E_VERBNF, leaving the ancestor's verb unchanged.
-	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
-	verb, err := s.findVerbOnObjectLocked(objID, name)
-	if err != nil {
+	if find() == nil {
 		return types.E_VERBNF
 	}
 
 	obj = s.republishForMutation(obj)
 	// Re-resolve verb from the fresh image so we edit the republished node, not the
 	// old (now-immutable) one.
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
+	verb := find()
+	if verb == nil {
 		return types.E_VERBNF
 	}
 	ts := s.bumpClockLocked()
@@ -530,6 +559,16 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 }
 
 func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) types.ErrorCode {
+	return s.setVerbArgs(objID, func() *Verb { return s.definedVerbLocked(objID, name) }, argSpec)
+}
+
+// SetVerbArgsByIndex is SetVerbArgs for the verb at 0-based index in objID's
+// own verb list (an INT verb descriptor).
+func (s *Store) SetVerbArgsByIndex(objID types.ObjID, index int, argSpec VerbArgs) types.ErrorCode {
+	return s.setVerbArgs(objID, func() *Verb { return s.indexedVerbLocked(objID, index) }, argSpec)
+}
+
+func (s *Store) setVerbArgs(objID types.ObjID, find func() *Verb, argSpec VerbArgs) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -539,8 +578,8 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	// set_verb_args operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_args -> find_described_verb -> db_find_defined_verb;
 	// src/verbs.cc:444). Inherited verb -> E_VERBNF, ancestor untouched.
-	verb, err := s.findVerbOnObjectLocked(objID, name)
-	if err != nil {
+	verb := find()
+	if verb == nil {
 		return types.E_VERBNF
 	}
 	old := s.load(objID)
@@ -555,7 +594,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	} else {
 		// Keep the existing anonymous/out-of-band behavior unchanged.
 		s.republishForMutation(old)
-		if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
+		if verb = find(); verb == nil {
 			return types.E_VERBNF
 		}
 	}
