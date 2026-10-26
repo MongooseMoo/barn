@@ -64,7 +64,7 @@ func TestDirectTxnReseedPreservesLiveInheritedProperties(t *testing.T) {
 	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {
 		t.Fatalf("LocalProperty before reseed: ok=%v err=%s", ok, errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{0}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties: %s", errCode)
 	}
 	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {

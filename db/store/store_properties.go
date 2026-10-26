@@ -57,21 +57,103 @@ func PropertyNameKey(name string) string {
 	return propertyNameKey(name)
 }
 
-// reseedInheritedPropertiesLocked rebuilds obj's inherited slots from its
-// current parents. Each is a rewrite at ts: a read of a clear slot depends on
-// the ancestry it resolved through, so its version must change with it.
-func (s *Store) reseedInheritedPropertiesLocked(obj *Object, ts uint64) {
-	newProps := s.copyInheritedPropertiesLocked(obj.parents, obj.owner)
-	for name, prop := range newProps.all() {
-		prop.version = ts
-		newProps.put(name, prop)
+// reseedInheritedPropertiesLocked rebuilds the inherited slots of obj, whose
+// parents were oldParents, and of every descendant of obj. Each is a rewrite at
+// ts: a read of a clear slot depends on the ancestry it resolved through, so its
+// version must change with it.
+func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.ObjID, ts uint64) {
+	object := func(id types.ObjID) *Object {
+		if o := s.liveObjectLocked(id); validLiveObject(o) {
+			return o
+		}
+		return nil
 	}
+	seen := map[types.ObjID]bool{obj.id: true}
+	queue := []*Object{obj}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current != obj {
+			current = s.republishForMutation(current)
+		}
+		newProps := s.copyInheritedPropertiesLocked(current.parents, current.owner)
+		keepCommonAncestorSlots(current, newProps, keptInheritedNames(current.id, obj.id, oldParents, object))
+		for name, prop := range newProps.all() {
+			if !prop.defined {
+				prop.version = ts
+				newProps.put(name, prop)
+			}
+		}
+		current.properties = newProps
+		if current != obj {
+			stampObjectProperties(current, ts)
+		}
+		for _, childID := range append(append([]types.ObjID(nil), current.children...), current.anonymousChildren...) {
+			if child := object(childID); child != nil && !seen[childID] {
+				seen[childID] = true
+				queue = append(queue, child)
+			}
+		}
+	}
+}
+
+// keptInheritedNames returns the names of the properties defined by an
+// ancestor of id in both its old and new ancestry, where the old ancestry has
+// moved's parents as movedOldParents. id keeps its slots for these across the
+// change of parents (Toast db_properties.cc:950-962). Another ancestor
+// defining the same name does not count.
+func keptInheritedNames(id, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object) map[string]bool {
+	ancestry := func(old bool) map[types.ObjID]bool {
+		seen := make(map[types.ObjID]bool)
+		queue := []types.ObjID{id}
+		for len(queue) > 0 {
+			currentID := queue[0]
+			queue = queue[1:]
+			parents := movedOldParents
+			if !old || currentID != moved {
+				current := object(currentID)
+				if current == nil {
+					continue
+				}
+				parents = current.parents
+			}
+			for _, parentID := range parents {
+				if !seen[parentID] {
+					seen[parentID] = true
+					queue = append(queue, parentID)
+				}
+			}
+		}
+		return seen
+	}
+	oldAncestry := ancestry(true)
+	kept := make(map[string]bool)
+	for ancestorID := range ancestry(false) {
+		ancestor := object(ancestorID)
+		if !oldAncestry[ancestorID] || ancestor == nil {
+			continue
+		}
+		for name, prop := range ancestor.properties.all() {
+			if prop.defined {
+				kept[name] = true
+			}
+		}
+	}
+	return kept
+}
+
+// keepCommonAncestorSlots puts into newProps, built from obj's new parents,
+// obj's existing slot for each name in kept, and every slot obj defines.
+func keepCommonAncestorSlots(obj *Object, newProps propTable, kept map[string]bool) {
 	for name, prop := range obj.properties.all() {
 		if prop.defined {
 			newProps.put(name, prop)
+			continue
+		}
+		if _, inherited := newProps.lookup(name); inherited && kept[name] {
+			newProps.put(name, prop)
 		}
 	}
-	obj.properties = newProps
 }
 
 // findProperty resolves a property (with inheritance) and returns a flat,
