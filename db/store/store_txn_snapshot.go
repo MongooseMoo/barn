@@ -202,6 +202,10 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 	if _, staged := tx.propertyDefines[wkey]; staged {
 		return
 	}
+	// A slot this txn renamed has no slot of that name in the published image.
+	if _, staged := tx.propertyRenames[wkey]; staged {
+		return
+	}
 	rkey := propertyReadKey{objID: objID, name: key}
 	if _, staged := tx.propertyWrites[wkey]; staged {
 		// A slot written only through keyed assignments holds the snapshot's

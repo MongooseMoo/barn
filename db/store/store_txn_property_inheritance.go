@@ -432,11 +432,82 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	delete(tx.propertyWrites, key)
 	delete(tx.propertyDeletes, key)
 	if !stagedDefine {
-		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
+		// A property this txn renamed is deleted under its published name.
+		published, publishedKey := actualName, key
+		if rename, renamed := tx.propertyRenames[key]; renamed {
+			delete(tx.propertyRenames, key)
+			published = rename.from
+			publishedKey = propertyWriteKey{objID: objID, name: propertyNameKey(published)}
+		}
+		lazySet(&tx.propertyDefinitionDeletes, publishedKey, published)
 	}
 
 	tx.removeInheritedProperty(objID, actualName)
 	return types.E_NONE
+}
+
+// renameInheritedProperty stages the move of each descendant's inherited slot
+// for a rename: the slot under from is deleted and one under to written with
+// its value, owner, perms and clear state. A descendant with no slot under from
+// (this txn cleared it) gets none under to either. As in
+// propagateDefinedProperty, the writeNow writer leaves the descendants to the
+// store's walk.
+func (tx *StoreTxn) renameInheritedProperty(objID types.ObjID, from, to string) {
+	if tx.locked {
+		return
+	}
+	move := func(id types.ObjID, obj *Object) {
+		oldKey := propertyWriteKey{objID: id, name: propertyNameKey(from)}
+		newKey := propertyWriteKey{objID: id, name: propertyNameKey(to)}
+		actualName, slot, ok := obj.properties.find(from)
+		if !ok {
+			tx.markPropertyScan(id, obj)
+			delete(tx.propertyWrites, newKey)
+			lazySet(&tx.propertyDeletes, newKey, to)
+			return
+		}
+		tx.markPropertyRead(id, actualName, slot)
+		if slot.defined {
+			return
+		}
+		obj = tx.mutableFacets(id, facetProperties)
+		obj.properties.remove(actualName)
+		obj.properties.put(newKey.name, slot)
+		delete(tx.propertyWrites, oldKey)
+		lazySet(&tx.propertyDeletes, oldKey, actualName)
+		delete(tx.propertyDeletes, newKey)
+		lazySet(&tx.propertyWrites, newKey, propertyWrite{name: to, value: slot.value, prop: slot})
+	}
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markObjectRelationshipRead(currentID, current)
+		for _, childID := range current.children {
+			if child := tx.object(childID); validLiveObject(child) {
+				move(childID, child)
+				queue = append(queue, childID)
+			}
+		}
+		// Anonymous children's slots move too (Toast keeps every slot by
+		// position, so it renames the definition only). The staged writes put
+		// the anon ids in the write footprint, which routes the commit to the
+		// exclusive path.
+		for _, anonID := range current.anonymousChildren {
+			if anon := tx.object(anonID); validLiveObject(anon) {
+				move(anonID, anon)
+			}
+		}
+	}
 }
 
 // removeInheritedProperty stages the delete of each descendant's inherited slot

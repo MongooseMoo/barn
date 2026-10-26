@@ -32,6 +32,7 @@ type StoreTxn struct {
 	propertyShapeScans        map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
+	propertyRenames           map[propertyWriteKey]propertyRename
 	propertyWrites            map[propertyWriteKey]propertyWrite
 	propertyDeletes           map[propertyWriteKey]string
 	verbReads                 map[verbKey]uint64
@@ -156,7 +157,8 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		verbReads:          make(map[verbKey]uint64),
 		verbScans:          make(map[types.ObjID]uint64),
 		// scalarWrites, relationshipWrites, propertyDefines,
-		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
+		// propertyDefinitionDeletes, propertyRenames, propertyWrites,
+		// propertyDeletes, and verbWrites
 		// are left nil and lazily allocated on first stage (see lazySet).
 		maxObjID:    s.maxObjectID(),
 		highWaterID: s.highWater(),
@@ -198,6 +200,7 @@ func (s *Store) lockedWriter() *StoreTxn {
 		relationshipWrites:        w.relationshipWrites,
 		propertyDefines:           w.propertyDefines,
 		propertyDefinitionDeletes: w.propertyDefinitionDeletes,
+		propertyRenames:           w.propertyRenames,
 		propertyWrites:            w.propertyWrites,
 		propertyDeletes:           w.propertyDeletes,
 		verbWrites:                w.verbWrites,
@@ -271,7 +274,7 @@ func (tx *StoreTxn) IsDirect() bool {
 // CommitAndRenew; the legacy unvalidated flush remains only for the other
 // coarse-immediate topology.
 func (tx *StoreTxn) HasStagedTopology() bool {
-	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0)
+	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0)
 }
 
 // HasStagedVerbDeletes reports whether a coarse builtin must cross a normal
@@ -285,7 +288,7 @@ func (tx *StoreTxn) HasWrites() bool {
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
-	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
 }
 
 // markTerminal records an operation/apply failure that cannot become valid by

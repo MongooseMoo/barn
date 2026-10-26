@@ -498,6 +498,85 @@ func (s *Store) removeInheritedPropertyLocked(images commitImages, objID types.O
 	}
 }
 
+// renameInheritedPropertiesLocked moves each descendant's inherited slot for
+// the renames of a property objID defines, as an exclusive commit is building
+// it.
+func (s *Store) renameInheritedPropertiesLocked(images commitImages, objID types.ObjID, renames []propertyRename, ts uint64) {
+	move := func(obj *Object) {
+		for _, rename := range renames {
+			if prop, ok := obj.properties.lookup(propertyNameKey(rename.from)); ok && !prop.defined {
+				obj = images.own(obj)
+				renameSlots(obj, renames, true, ts)
+				stampObjectProperties(obj, ts)
+				return
+			}
+		}
+	}
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := images.view(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		for _, childID := range current.children {
+			if child := images.view(childID); validLiveObject(child) {
+				move(child)
+				queue = append(queue, childID)
+			}
+		}
+		for _, anonID := range current.anonymousChildren {
+			if anon := images.view(anonID); validLiveObject(anon) {
+				move(anon)
+			}
+		}
+	}
+}
+
+// renameSlots moves obj's slot under each rename's from to its to: a definer's
+// defined slots, or with inherited a descendant's inherited ones. Every slot
+// leaves before any arrives, so renames that swap two names keep both. A
+// definer's definition-order entries take the new names. A nonzero ts stamps
+// the moved slots; zero keeps their versions.
+func renameSlots(obj *Object, renames []propertyRename, inherited bool, ts uint64) {
+	type move struct {
+		to   string
+		prop Property
+	}
+	moves := make([]move, 0, len(renames))
+	for _, rename := range renames {
+		key, prop, ok := obj.properties.find(rename.from)
+		if !ok || prop.defined == inherited {
+			continue
+		}
+		obj.properties.remove(key)
+		if ts != 0 {
+			prop.version = ts
+		}
+		moves = append(moves, move{to: rename.to, prop: prop})
+	}
+	for _, m := range moves {
+		obj.properties.put(propertyNameKey(m.to), m.prop)
+	}
+	if inherited {
+		return
+	}
+	for i, name := range obj.propOrder {
+		for _, rename := range renames {
+			if strings.EqualFold(name, rename.from) {
+				obj.propOrder[i] = rename.to
+				break
+			}
+		}
+	}
+}
+
 // removeStringFold removes entries matching value case-insensitively. Used for
 // propOrder maintenance, where entries keep display case but callers hold the
 // canonical (lowercase) property key.

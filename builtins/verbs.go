@@ -178,8 +178,10 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
+	// Toast bf_verb_args (src/verbs.cc:392) takes a numbered object only
+	// (is_obj), before it looks at the descriptor.
 	objVal := args[0]
-	if !isObjectRef(objVal) {
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -355,14 +357,16 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
+	// Toast bf_delete_verb (src/verbs.cc:247-250) checks the descriptor, then
+	// takes a numbered object only (is_obj).
 	descVal := args[1]
 	if errCode := verbDescriptorError(descVal); errCode != types.E_NONE {
 		return types.Err(errCode)
+	}
+
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
+		return types.Err(types.E_TYPE)
 	}
 
 	objID := objVal.ID()
@@ -417,19 +421,19 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
 	desc := args[1]
 	if errCode := verbDescriptorError(desc); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	// Toast bf_set_verb_info (src/verbs.cc:330-352) checks the object and the
-	// whole info list (validate_verb_info, verbs.cc:77-122) before it looks the
-	// verb up (E_VERBNF) or checks permission (E_PERM).
+	// Toast bf_set_verb_info (src/verbs.cc:332-352) checks the descriptor, then
+	// takes a numbered object only (is_obj), then checks the whole info list
+	// (validate_verb_info, verbs.cc:77-122) before it looks the verb up
+	// (E_VERBNF) or checks permission (E_PERM).
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
+		return types.Err(types.E_TYPE)
+	}
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
@@ -482,19 +486,19 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
 	desc := args[1]
 	if errCode := verbDescriptorError(desc); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	// Toast bf_set_verb_args (src/verbs.cc:421-457) checks the object and the
-	// whole args list (validate_verb_args, verbs.cc:156-171) before it looks the
-	// verb up (E_VERBNF) or checks permission (E_PERM).
+	// Toast bf_set_verb_args (src/verbs.cc:431-457) checks the descriptor, then
+	// takes a numbered object only (is_obj), then checks the whole args list
+	// (validate_verb_args, verbs.cc:156-171) before it looks the verb up
+	// (E_VERBNF) or checks permission (E_PERM).
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
+		return types.Err(types.E_TYPE)
+	}
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
@@ -571,8 +575,9 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// A numbered object only (Toast is_obj, src/verbs.cc:520).
 	objVal := args[0]
-	if !isObjectRef(objVal) {
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 	objID := objVal.ID()

@@ -195,6 +195,11 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 			delete(tx.propertyDefinitionDeletes, key)
 		}
 	}
+	for key := range tx.propertyRenames {
+		if key.objID == objID {
+			delete(tx.propertyRenames, key)
+		}
+	}
 	for key := range tx.propertyWrites {
 		if key.objID == objID {
 			delete(tx.propertyWrites, key)
@@ -263,6 +268,14 @@ func (tx *StoreTxn) MoveStagedObjectWrites(oldID, newID types.ObjID) {
 		key.objID = newID
 		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
 	}
+	for key, rename := range tx.propertyRenames {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyRenames, key)
+		key.objID = newID
+		lazySet(&tx.propertyRenames, key, rename)
+	}
 	for key, write := range tx.propertyWrites {
 		if key.objID != oldID {
 			continue
@@ -308,7 +321,7 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	}
 	tx.ownFacets(objID, obj, facetsAll)
 	adopted := *obj
-	applyHeadWrites(obj, w, tx.readTS)
+	applyHeadWrites(obj, w, tx.renamesOf(objID), tx.readTS)
 	tx.applyTailWrites(obj, w, tx.readTS, true)
 	obj.scalarVersion = adopted.scalarVersion
 	obj.relationshipVersion = adopted.relationshipVersion

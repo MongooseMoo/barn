@@ -388,7 +388,7 @@ func (tx *StoreTxn) preflightStagedToLiveLocked(writes *writeSet) types.ErrorCod
 	for key := range tx.propertyDefines {
 		live := baseObject(key.objID)
 		if _, _, exists := live.properties.find(key.name); exists {
-			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
+			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing && !tx.renamedAway(key) {
 				return types.E_INVARG
 			}
 		}
@@ -396,6 +396,12 @@ func (tx *StoreTxn) preflightStagedToLiveLocked(writes *writeSet) types.ErrorCod
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		live := baseObject(key.objID)
 		_, prop, ok := live.properties.find(actualName)
+		if !ok || !prop.defined {
+			return types.E_PROPNF
+		}
+	}
+	for key, rename := range tx.propertyRenames {
+		_, prop, ok := baseObject(key.objID).properties.find(rename.from)
 		if !ok || !prop.defined {
 			return types.E_PROPNF
 		}
@@ -413,6 +419,7 @@ func (tx *StoreTxn) clearStagedWrites() {
 	clear(tx.relationshipWrites)
 	clear(tx.propertyDefines)
 	clear(tx.propertyDefinitionDeletes)
+	clear(tx.propertyRenames)
 	clear(tx.propertyWrites)
 	clear(tx.propertyDeletes)
 	clear(tx.verbWrites)
