@@ -7,8 +7,8 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/parser"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	languageverb "github.com/MongooseMoo/barn/verb"
 )
 
 // matchArgSpec validates argument spec string (this/none/any)
@@ -19,11 +19,11 @@ func matchArgSpec(s string) bool {
 
 // matchPrepSpec validates and returns prep index or -1 if invalid
 func matchPrepSpec(s string) int {
-	prep, ok := languageverb.ParsePrepositionAlias(s)
+	prep, ok := preposition.ParseAlias(s)
 	if !ok {
 		return -1
 	}
-	if prep == languageverb.PrepositionNone || prep == languageverb.PrepositionAny {
+	if prep == preposition.None || prep == preposition.Any {
 		return -2 // Special value for none/any
 	}
 	return int(prep)
@@ -33,7 +33,7 @@ func matchPrepSpec(s string) int {
 // table indices. Signs, whitespace, trailing text and overflowing indices are
 // invalid; MOO code can use the first out-of-range error to end enumeration.
 func canonicalSetterPrepSpec(s string) (string, bool) {
-	if prep, ok := languageverb.ParsePreposition(s); ok {
+	if prep, ok := preposition.Parse(s); ok {
 		return prep.Canonical()
 	}
 	if s == "" {
@@ -48,7 +48,7 @@ func canonicalSetterPrepSpec(s string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	prep, ok := languageverb.PrepositionFromCode(code)
+	prep, ok := preposition.FromCode(code)
 	if !ok {
 		return "", false
 	}
@@ -57,7 +57,7 @@ func canonicalSetterPrepSpec(s string) (string, bool) {
 
 // unparsePrepSpec returns the full prep string for a prep value stored in verb
 func unparsePrepSpec(prepStr string) string {
-	if prep, ok := languageverb.ParsePreposition(prepStr); ok {
+	if prep, ok := preposition.Parse(prepStr); ok {
 		if canonical, ok := prep.Canonical(); ok {
 			return canonical
 		}

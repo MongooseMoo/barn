@@ -4,38 +4,9 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
-
-// PrepSpec represents a preposition specification
-type PrepSpec = verb.Preposition
-
-const (
-	PrepWith      = verb.PrepositionWith
-	PrepAt        = verb.PrepositionAt
-	PrepInFrontOf = verb.PrepositionInFrontOf
-	PrepIn        = verb.PrepositionIn
-	PrepOn        = verb.PrepositionOn
-	PrepFrom      = verb.PrepositionFrom
-	PrepOver      = verb.PrepositionOver
-	PrepThrough   = verb.PrepositionThrough
-	PrepUnder     = verb.PrepositionUnder
-	PrepBehind    = verb.PrepositionBehind
-	PrepBeside    = verb.PrepositionBeside
-	PrepFor       = verb.PrepositionFor
-	PrepIs        = verb.PrepositionIs
-	PrepAs        = verb.PrepositionAs
-	PrepOff       = verb.PrepositionOff
-
-	PrepNone = verb.PrepositionNone
-	PrepAny  = verb.PrepositionAny
-)
-
-func PrepSpecForAlias(alias string) (PrepSpec, bool) {
-	prep, ok := verb.ParsePrepositionAlias(alias)
-	return prep, ok && prep >= 0
-}
 
 // ParsedCommand is the structured representation of a parsed player command
 type ParsedCommand struct {
@@ -46,7 +17,7 @@ type ParsedCommand struct {
 	Dobjstr string
 	Dobj    types.ObjID
 	Prepstr string
-	Prep    PrepSpec
+	Prep    preposition.Spec
 	Iobjstr string
 	Iobj    types.ObjID
 }
@@ -55,16 +26,16 @@ type ParsedCommand struct {
 func NewParsedCommand() *ParsedCommand {
 	return &ParsedCommand{
 		Dobj: types.ObjNothing,
-		Prep: PrepNone,
+		Prep: preposition.None,
 		Iobj: types.ObjNothing,
 	}
 }
 
 // findPreposition finds a preposition in the word list
-// Returns (PrepSpec, startIndex, endIndex, prepstr) or (PrepNone, -1, -1, "")
-func findPreposition(words []string) (PrepSpec, int, int, string) {
+// Returns the preposition, start and end indexes, and matched alias; none uses indexes -1.
+func findPreposition(words []string) (preposition.Spec, int, int, string) {
 	for i := range words {
-		for _, prep := range verb.Prepositions() {
+		for _, prep := range preposition.All() {
 			aliases := prep.Aliases()
 			for _, alias := range aliases {
 				aliasWords := strings.Fields(alias)
@@ -85,7 +56,7 @@ func findPreposition(words []string) (PrepSpec, int, int, string) {
 		}
 	}
 
-	return PrepNone, -1, -1, ""
+	return preposition.None, -1, -1, ""
 }
 
 func tokenizeCommandWords(input string) []string {
@@ -200,7 +171,7 @@ func parseCommand(input string, originalWords []string) *ParsedCommand {
 	// Find preposition in the argument words
 	prep, prepStart, prepEnd, prepstr := findPreposition(restWords)
 
-	if prep == PrepNone {
+	if prep == preposition.None {
 		// No preposition - everything is the direct object. Build it from the
 		// tokenized words (quotes stripped, whitespace normalized) so quoted
 		// multiword names like `grab "red ball"` match an object named

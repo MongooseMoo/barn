@@ -1,22 +1,22 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
 func TestComparisonOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator verb.BinaryOperator
+		operator ir.BinaryOperator
 	}{
-		{"1 == 2", verb.BinaryEqual},
-		{"x != y", verb.BinaryNotEqual},
-		{"a < b", verb.BinaryLess},
-		{"c > d", verb.BinaryGreater},
-		{"e <= f", verb.BinaryLessEqual},
-		{"g >= h", verb.BinaryGreaterEqual},
-		{"x in {1, 2, 3}", verb.BinaryIn},
+		{"1 == 2", ir.BinaryEqual},
+		{"x != y", ir.BinaryNotEqual},
+		{"a < b", ir.BinaryLess},
+		{"c > d", ir.BinaryGreater},
+		{"e <= f", ir.BinaryLessEqual},
+		{"g >= h", ir.BinaryGreaterEqual},
+		{"x in {1, 2, 3}", ir.BinaryIn},
 	}
 
 	for _, tt := range tests {
@@ -27,7 +27,7 @@ func TestComparisonOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -55,15 +55,15 @@ func TestComparisonPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
 
 			// Root should be comparison operator
 			switch binary.Operator {
-			case verb.BinaryEqual, verb.BinaryNotEqual, verb.BinaryLess, verb.BinaryLessEqual,
-				verb.BinaryGreater, verb.BinaryGreaterEqual, verb.BinaryIn:
+			case ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess, ir.BinaryLessEqual,
+				ir.BinaryGreater, ir.BinaryGreaterEqual, ir.BinaryIn:
 				// Good
 			default:
 				t.Errorf("expected comparison operator at root, got %s", binary.Operator)

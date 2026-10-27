@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/MongooseMoo/barn/verb"
+import "github.com/MongooseMoo/barn/ir"
 
 // TokenType represents different types of lexical tokens
 type TokenType int
@@ -100,7 +100,7 @@ type Token struct {
 	Type     TokenType
 	Value    string
 	Literal  string // Decoded string value (for TOKEN_STRING)
-	Position verb.Position
+	Position ir.Position
 }
 
 // String returns a string representation of the token type

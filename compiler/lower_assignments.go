@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 type indexBoundaryContext byte
@@ -16,8 +16,8 @@ const (
 )
 
 // compileAssign compiles an assignment expression
-func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
-	if target, ok := n.Target.(*verb.PropertyTarget); ok {
+func (c *lowerer) compileAssign(n *ir.AssignExpr) error {
+	if target, ok := n.Target.(*ir.PropertyTarget); ok {
 		// Sequential property assignments have disjoint temporary lifetimes, so
 		// reuse their slots. Nested assignments increment the depth and therefore
 		// retain distinct live slots while their outer assignment is suspended.
@@ -60,10 +60,10 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 		}
 		return nil
 	}
-	if target, ok := n.Target.(*verb.IndexTarget); ok {
+	if target, ok := n.Target.(*ir.IndexTarget); ok {
 		return c.compileIndexAssign(target, n.Value)
 	}
-	if target, ok := n.Target.(*verb.RangeTarget); ok {
+	if target, ok := n.Target.(*ir.RangeTarget); ok {
 		return c.compileRangeAssign(target, n.Value)
 	}
 
@@ -77,12 +77,12 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 
 	// Handle different target types
 	switch target := n.Target.(type) {
-	case *verb.VariableTarget:
+	case *ir.VariableTarget:
 		// Simple variable assignment
 		idx := c.declareVariable(target.Name)
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(idx))
-	case *verb.DestructuringTarget:
+	case *ir.DestructuringTarget:
 		return c.compileDestructuringTarget(target)
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
@@ -94,7 +94,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 // compileRangeIndex compiles a range index expression against its collection.
 // bytecode.OP_INDEX_MARKER resolves ^ and $ while preserving those semantic operations
 // in the compiled program.
-func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
+func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
 	if !containsIndexBoundary(expr) {
 		return c.compileNode(expr)
 	}
@@ -129,11 +129,11 @@ type propertyWriteback struct {
 // write-back, so no target expression is evaluated twice. keyedBase fetches a
 // static property with OP_GET_PROP_KEYBASE, for an assignment that writes it
 // back with OP_SET_PROP_KEYED.
-func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
-	if variable, ok := target.(*verb.VariableTarget); ok {
+func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bool) (int, *propertyWriteback, error) {
+	if variable, ok := target.(*ir.VariableTarget); ok {
 		return c.declareVariable(variable.Name), nil, nil
 	}
-	property, ok := target.(*verb.PropertyTarget)
+	property, ok := target.(*ir.PropertyTarget)
 	if !ok {
 		return 0, nil, fmt.Errorf("collection assignment target must be a variable or property")
 	}
@@ -193,7 +193,7 @@ func (c *lowerer) emitCollectionWriteback(baseVar int, writeback *propertyWriteb
 	}
 }
 
-func (c *lowerer) compileIndexForCollection(expr verb.Expr, collectionVar int) error {
+func (c *lowerer) compileIndexForCollection(expr ir.Expr, collectionVar int) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 	defer func() {
@@ -207,11 +207,11 @@ func (c *lowerer) compileIndexForCollection(expr verb.Expr, collectionVar int) e
 	return c.compileNode(expr)
 }
 
-func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) error {
-	var indices []verb.Expr
-	var base verb.CollectionTarget = target
+func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) error {
+	var indices []ir.Expr
+	var base ir.CollectionTarget = target
 	for {
-		index, ok := base.(*verb.IndexTarget)
+		index, ok := base.(*ir.IndexTarget)
 		if !ok {
 			break
 		}
@@ -224,7 +224,7 @@ func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) 
 
 	// obj.prop[key] = v with a static name and no ^ or $ in key changes one
 	// entry of the property's value; the store can track it per key.
-	property, isProperty := base.(*verb.PropertyTarget)
+	property, isProperty := base.(*ir.PropertyTarget)
 	keyed := isProperty && property.Name != "" && len(indices) == 1 && !containsIndexBoundary(indices[0])
 	baseVar, writeback, err := c.prepareCollectionBase(base, keyed)
 	if err != nil {
@@ -299,8 +299,8 @@ func (c *lowerer) emitCollectionIndexSet(target, baseVar int, writeback *propert
 	c.emitByte(byte(target))
 }
 
-func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) error {
-	if nested, ok := target.Collection.(*verb.IndexTarget); ok {
+func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) error {
+	if nested, ok := target.Collection.(*ir.IndexTarget); ok {
 		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
 	}
 	baseVar, writeback, err := c.prepareCollectionBase(target.Collection, false)
@@ -337,11 +337,11 @@ func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) 
 
 // compileNestedRangeAssign lowers nested range assignments while retaining all
 // target components before evaluating value.
-func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end, value verb.Expr) error {
-	var indices []verb.Expr
-	var base verb.CollectionTarget = indexTarget
+func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, end, value ir.Expr) error {
+	var indices []ir.Expr
+	var base ir.CollectionTarget = indexTarget
 	for {
-		index, ok := base.(*verb.IndexTarget)
+		index, ok := base.(*ir.IndexTarget)
 		if !ok {
 			break
 		}
@@ -415,18 +415,18 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	return nil
 }
 
-func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
+func (c *lowerer) compileIndexBoundary(n *ir.IndexBoundaryExpr) error {
 	if c.indexContextVar >= 0 {
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(c.indexContextVar))
 		c.emit(bytecode.OP_INDEX_MARKER)
 		if c.indexBoundaryContext == indexBoundaryRange {
-			if n.Boundary == verb.IndexFirst {
+			if n.Boundary == ir.IndexFirst {
 				c.emitByte(bytecode.RangeMarkerFirst)
 			} else {
 				c.emitByte(bytecode.RangeMarkerLast)
 			}
-		} else if n.Boundary == verb.IndexFirst {
+		} else if n.Boundary == ir.IndexFirst {
 			c.emitByte(bytecode.IndexMarkerFirst)
 		} else {
 			c.emitByte(bytecode.IndexMarkerLast)
@@ -434,7 +434,7 @@ func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 		return nil
 	}
 
-	if n.Boundary == verb.IndexFirst {
+	if n.Boundary == ir.IndexFirst {
 		c.emitConstant(types.NewInt(1))
 		return nil
 	}
@@ -446,19 +446,19 @@ func (c *lowerer) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
+func (c *lowerer) compileExprStmt(n *ir.ExprStmt) error {
 	// Effect-context fast path: a simple variable assignment used as a statement
 	// does not need its value. Emit the store directly, skipping the assignment's
 	// value-preserving bytecode.OP_DUP and the trailing bytecode.OP_POP (dead value shuffling that
 	// otherwise dominates assignment-heavy loops). Complex targets (scatter /
 	// index / property) keep the general value-producing path below.
-	if assign, ok := n.Expr.(*verb.AssignExpr); ok {
-		if ident, ok := assign.Target.(*verb.VariableTarget); ok {
+	if assign, ok := n.Expr.(*ir.AssignExpr); ok {
+		if ident, ok := assign.Target.(*ir.VariableTarget); ok {
 			// Self-add idiom: x = x + expr. This statement does not need the
 			// assignment's result value, so emit the compact compatibility opcode.
 			// Its VM handler shares the normal `+` implementation for every type.
-			if bin, ok := assign.Value.(*verb.BinaryExpr); ok && bin.Operator == verb.BinaryAdd {
-				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
+			if bin, ok := assign.Value.(*ir.BinaryExpr); ok && bin.Operator == ir.BinaryAdd {
+				if leftIdent, ok := bin.Left.(*ir.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
 					idx := c.declareVariable(ident.Name)
 					c.emit(bytecode.OP_GET_VAR)
 					c.emitByte(byte(idx))
@@ -477,9 +477,9 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 			// trailing elements directly onto v. With the in-place Append path
 			// this turns an O(n^2) build loop into amortized O(n); the result is
 			// identical (v's elements followed by the trailing items).
-			if list, ok := assign.Value.(*verb.ListExpr); ok && len(list.Elements) > 0 {
-				if sp, ok := list.Elements[0].(*verb.SpliceExpr); ok {
-					if spIdent, ok := sp.Expr.(*verb.IdentifierExpr); ok && canonicalIdentifier(spIdent.Name) == canonicalIdentifier(ident.Name) {
+			if list, ok := assign.Value.(*ir.ListExpr); ok && len(list.Elements) > 0 {
+				if sp, ok := list.Elements[0].(*ir.SpliceExpr); ok {
+					if spIdent, ok := sp.Expr.(*ir.IdentifierExpr); ok && canonicalIdentifier(spIdent.Name) == canonicalIdentifier(ident.Name) {
 						idx := c.declareVariable(ident.Name)
 						c.emit(bytecode.OP_GET_VAR)
 						c.emitByte(byte(idx))
@@ -491,7 +491,7 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 							c.emit(bytecode.OP_SPLICE)
 						}
 						for i, elem := range list.Elements[1:] {
-							if splice, ok := elem.(*verb.SpliceExpr); ok {
+							if splice, ok := elem.(*ir.SpliceExpr); ok {
 								if err := c.compileNode(splice.Expr); err != nil {
 									return err
 								}
@@ -546,28 +546,28 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 // to an unbound boundary (compiles to a literal -1), not a compile error.
 // Over-detection is harmless: nested index/range expressions always push
 // and restore their own context around their own Index/Start/End fields.
-func containsIndexBoundary(expr verb.Expr) bool {
+func containsIndexBoundary(expr ir.Expr) bool {
 	switch n := expr.(type) {
 	case nil:
 		return false
-	case *verb.IndexBoundaryExpr:
-		return n.Boundary == verb.IndexLast || n.Boundary == verb.IndexFirst
-	case *verb.BinaryExpr:
+	case *ir.IndexBoundaryExpr:
+		return n.Boundary == ir.IndexLast || n.Boundary == ir.IndexFirst
+	case *ir.BinaryExpr:
 		return containsIndexBoundary(n.Left) || containsIndexBoundary(n.Right)
-	case *verb.UnaryExpr:
+	case *ir.UnaryExpr:
 		return containsIndexBoundary(n.Operand)
-	case *verb.TernaryExpr:
+	case *ir.TernaryExpr:
 		return containsIndexBoundary(n.Condition) || containsIndexBoundary(n.ThenExpr) || containsIndexBoundary(n.ElseExpr)
-	case *verb.IndexExpr:
+	case *ir.IndexExpr:
 		// n.Index is scoped to this IndexExpr's own brackets; only n.Expr
 		// (the collection being indexed) is in the enclosing context.
 		return containsIndexBoundary(n.Expr)
-	case *verb.RangeExpr:
+	case *ir.RangeExpr:
 		// n.Start/n.End are scoped to this RangeExpr's own brackets.
 		return containsIndexBoundary(n.Expr)
-	case *verb.PropertyExpr:
+	case *ir.PropertyExpr:
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.PropertyExpr)
-	case *verb.VerbCallExpr:
+	case *ir.VerbCallExpr:
 		if containsIndexBoundary(n.Expr) || containsIndexBoundary(n.VerbExpr) {
 			return true
 		}
@@ -577,29 +577,29 @@ func containsIndexBoundary(expr verb.Expr) bool {
 			}
 		}
 		return false
-	case *verb.BuiltinCallExpr:
+	case *ir.BuiltinCallExpr:
 		for _, arg := range n.Args {
 			if containsIndexBoundary(arg) {
 				return true
 			}
 		}
 		return false
-	case *verb.SpliceExpr:
+	case *ir.SpliceExpr:
 		return containsIndexBoundary(n.Expr)
-	case *verb.CatchExpr:
+	case *ir.CatchExpr:
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.Default)
-	case *verb.AssignExpr:
+	case *ir.AssignExpr:
 		return containsTargetIndexBoundary(n.Target) || containsIndexBoundary(n.Value)
-	case *verb.ListExpr:
+	case *ir.ListExpr:
 		for _, el := range n.Elements {
 			if containsIndexBoundary(el) {
 				return true
 			}
 		}
 		return false
-	case *verb.ListRangeExpr:
+	case *ir.ListRangeExpr:
 		return containsIndexBoundary(n.Start) || containsIndexBoundary(n.End)
-	case *verb.MapExpr:
+	case *ir.MapExpr:
 		for _, pair := range n.Pairs {
 			if containsIndexBoundary(pair.Key) || containsIndexBoundary(pair.Value) {
 				return true
@@ -611,19 +611,19 @@ func containsIndexBoundary(expr verb.Expr) bool {
 	}
 }
 
-func containsTargetIndexBoundary(target verb.Target) bool {
+func containsTargetIndexBoundary(target ir.Target) bool {
 	switch target := target.(type) {
-	case *verb.VariableTarget:
+	case *ir.VariableTarget:
 		return false
-	case *verb.PropertyTarget:
+	case *ir.PropertyTarget:
 		return containsIndexBoundary(target.Object) || containsIndexBoundary(target.NameExpr)
-	case *verb.IndexTarget:
+	case *ir.IndexTarget:
 		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Index)
-	case *verb.RangeTarget:
+	case *ir.RangeTarget:
 		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Start) || containsIndexBoundary(target.End)
-	case *verb.DestructuringTarget:
+	case *ir.DestructuringTarget:
 		for _, binding := range target.Bindings {
-			if optional, ok := binding.(*verb.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
+			if optional, ok := binding.(*ir.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
 				return true
 			}
 		}
@@ -633,7 +633,7 @@ func containsTargetIndexBoundary(target verb.Target) bool {
 	}
 }
 
-func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) error {
+func (c *lowerer) compileDestructuringTarget(target *ir.DestructuringTarget) error {
 	// Scatter assignment: {a, ?b, @rest} = list
 	//
 	// Runtime strategy:
@@ -649,16 +649,16 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 		name     string
 		optional bool
 		rest     bool
-		default_ verb.Expr
+		default_ ir.Expr
 	}
 	bindings := make([]compiledBinding, len(target.Bindings))
 	for i, binding := range target.Bindings {
 		switch binding := binding.(type) {
-		case *verb.RequiredBinding:
+		case *ir.RequiredBinding:
 			bindings[i].name = binding.Name
-		case *verb.OptionalBinding:
+		case *ir.OptionalBinding:
 			bindings[i] = compiledBinding{name: binding.Name, optional: true, default_: binding.Default}
-		case *verb.RestBinding:
+		case *ir.RestBinding:
 			bindings[i] = compiledBinding{name: binding.Name, rest: true}
 		}
 		if bindings[i].rest {

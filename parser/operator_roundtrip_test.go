@@ -5,19 +5,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
-	groups := [][]verb.BinaryOperator{
-		{verb.BinaryOr, verb.BinaryAnd},
-		{verb.BinaryBitOr, verb.BinaryBitAnd, verb.BinaryBitXor},
-		{verb.BinaryEqual, verb.BinaryNotEqual, verb.BinaryLess, verb.BinaryLessEqual, verb.BinaryGreater, verb.BinaryGreaterEqual, verb.BinaryIn},
-		{verb.BinaryShiftLeft, verb.BinaryShiftRight},
-		{verb.BinaryAdd, verb.BinarySubtract},
-		{verb.BinaryMultiply, verb.BinaryDivide, verb.BinaryModulo},
-		{verb.BinaryPower},
+	groups := [][]ir.BinaryOperator{
+		{ir.BinaryOr, ir.BinaryAnd},
+		{ir.BinaryBitOr, ir.BinaryBitAnd, ir.BinaryBitXor},
+		{ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess, ir.BinaryLessEqual, ir.BinaryGreater, ir.BinaryGreaterEqual, ir.BinaryIn},
+		{ir.BinaryShiftLeft, ir.BinaryShiftRight},
+		{ir.BinaryAdd, ir.BinarySubtract},
+		{ir.BinaryMultiply, ir.BinaryDivide, ir.BinaryModulo},
+		{ir.BinaryPower},
 	}
 
 	for _, group := range groups {
@@ -32,7 +32,7 @@ func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
 					}
 					t.Run(name, func(t *testing.T) {
 						childExpr := binary(child, identifier("a"), identifier("b"))
-						var root *verb.BinaryExpr
+						var root *ir.BinaryExpr
 						if childOnLeft {
 							root = binary(parent, childExpr, identifier("c"))
 						} else {
@@ -46,7 +46,7 @@ func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
 	}
 }
 
-func assertDirectProgramFormatRoundTrip(t *testing.T, program *verb.Program) {
+func assertDirectProgramFormatRoundTrip(t *testing.T, program *ir.Program) {
 	t.Helper()
 	want := withoutPositions(reflect.ValueOf(program)).Interface()
 	canonical := strings.Join(parser.FormatMOO(program), "\n")
@@ -71,12 +71,12 @@ func assertFormattedProgram(t *testing.T, source string, want any, wantCanonical
 	}
 }
 
-func expressionProgram(expr verb.Expr) *verb.Program {
-	return &verb.Program{Statements: []verb.Stmt{&verb.ExprStmt{Expr: expr}}}
+func expressionProgram(expr ir.Expr) *ir.Program {
+	return &ir.Program{Statements: []ir.Stmt{&ir.ExprStmt{Expr: expr}}}
 }
 
-func binary(operator verb.BinaryOperator, left, right verb.Expr) *verb.BinaryExpr {
-	return &verb.BinaryExpr{Left: left, Operator: operator, Right: right}
+func binary(operator ir.BinaryOperator, left, right ir.Expr) *ir.BinaryExpr {
+	return &ir.BinaryExpr{Left: left, Operator: operator, Right: right}
 }
 
-func identifier(name string) *verb.IdentifierExpr { return &verb.IdentifierExpr{Name: name} }
+func identifier(name string) *ir.IdentifierExpr { return &ir.IdentifierExpr{Name: name} }

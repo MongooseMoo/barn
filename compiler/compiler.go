@@ -10,15 +10,15 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/sourcekey"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // Diagnostic is a source-located syntax or bytecode compilation failure.
 type Diagnostic struct {
 	Stage    DiagnosticStage
-	Position verb.Position
+	Position ir.Position
 	Message  string
 	Detail   error
 }
@@ -129,7 +129,7 @@ func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*
 }
 
 func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []Diagnostic) {
-	program, parseErrors := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgramWithDiagnostics(func(name string, pos verb.Position) error {
+	program, parseErrors := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgramWithDiagnostics(func(name string, pos ir.Position) error {
 		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; !ok {
 			return &UnknownBuiltinError{Name: name, Position: pos}
 		}
@@ -160,7 +160,7 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 // parse, returns nil lines and the caller keeps the original.
 func (c *Compiler) LowerUnknownBuiltinCalls(sourceLines []string) ([]string, []Diagnostic) {
 	var warnings []Diagnostic
-	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseStoredProgram(func(name string, pos verb.Position) bool {
+	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseStoredProgram(func(name string, pos ir.Position) bool {
 		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; ok {
 			return false
 		}
@@ -191,11 +191,11 @@ func syntaxDiagnostic(err error) Diagnostic {
 			Detail:   parseError.Detail,
 		}
 	}
-	return Diagnostic{Stage: SyntaxStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: SyntaxStage, Position: ir.Position{Line: 1}, Message: err.Error(), Detail: err}
 }
 
 func compileDiagnostic(err error) Diagnostic {
-	var validation *verb.ValidationError
+	var validation *ir.ValidationError
 	if errors.As(err, &validation) {
 		return Diagnostic{Stage: BytecodeStage, Position: validation.Position, Message: validation.Error(), Detail: err}
 	}
@@ -208,5 +208,5 @@ func compileDiagnostic(err error) Diagnostic {
 			Detail:   err,
 		}
 	}
-	return Diagnostic{Stage: BytecodeStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: BytecodeStage, Position: ir.Position{Line: 1}, Message: err.Error(), Detail: err}
 }

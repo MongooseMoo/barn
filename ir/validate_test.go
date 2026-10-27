@@ -1,4 +1,4 @@
-package verb
+package ir
 
 import (
 	"errors"

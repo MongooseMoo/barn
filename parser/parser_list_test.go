@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -25,11 +25,11 @@ func TestParseListLiteral(t *testing.T) {
 			}
 
 			for i, expected := range tt.expected {
-				lit, ok := list.Elements[i].(*verb.LiteralExpr)
+				lit, ok := list.Elements[i].(*ir.LiteralExpr)
 				if !ok {
 					t.Fatalf("element %d = %T, want *LiteralExpr", i, list.Elements[i])
 				}
-				if lit.Kind != verb.LiteralInt {
+				if lit.Kind != ir.LiteralInt {
 					t.Fatalf("element %d kind = %v, want LiteralInt", i, lit.Kind)
 				}
 				if lit.IntValue != expected {
@@ -47,7 +47,7 @@ func TestParseNestedList(t *testing.T) {
 	}
 
 	assertIntLiteral(t, list.Elements[0], 1)
-	inner, ok := list.Elements[1].(*verb.ListExpr)
+	inner, ok := list.Elements[1].(*ir.ListExpr)
 	if !ok {
 		t.Fatalf("element 1 = %T, want *ListExpr", list.Elements[1])
 	}
@@ -59,23 +59,23 @@ func TestParseNestedList(t *testing.T) {
 	assertIntLiteral(t, list.Elements[2], 4)
 }
 
-func parseListForTest(t *testing.T, input string) *verb.ListExpr {
+func parseListForTest(t *testing.T, input string) *ir.ListExpr {
 	t.Helper()
 	expr := parseExprForTest(t, input)
-	list, ok := expr.(*verb.ListExpr)
+	list, ok := expr.(*ir.ListExpr)
 	if !ok {
 		t.Fatalf("ParseExpression(%q) returned %T, want *ListExpr", input, expr)
 	}
 	return list
 }
 
-func assertIntLiteral(t *testing.T, expr verb.Expr, expected int64) {
+func assertIntLiteral(t *testing.T, expr ir.Expr, expected int64) {
 	t.Helper()
-	lit, ok := expr.(*verb.LiteralExpr)
+	lit, ok := expr.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("expr = %T, want *LiteralExpr", expr)
 	}
-	if lit.Kind != verb.LiteralInt {
+	if lit.Kind != ir.LiteralInt {
 		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 	if lit.IntValue != expected {

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // readPlayers reads the player list shared by all supported database versions.
@@ -117,7 +117,7 @@ func argSpecToCode(spec string) int {
 }
 
 func prepFromCode(prep int) string {
-	if value, ok := verb.PrepositionFromCode(prep); ok {
+	if value, ok := preposition.FromCode(prep); ok {
 		if canonical, ok := value.Canonical(); ok {
 			return canonical
 		}
@@ -126,7 +126,7 @@ func prepFromCode(prep int) string {
 }
 
 func prepToCode(prep string) int {
-	if value, ok := verb.ParsePreposition(prep); ok {
+	if value, ok := preposition.Parse(prep); ok {
 		if code, ok := value.Code(); ok {
 			return code
 		}

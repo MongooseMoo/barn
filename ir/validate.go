@@ -1,4 +1,4 @@
-package verb
+package ir
 
 import (
 	"errors"
@@ -268,6 +268,84 @@ func validateSelector(pos Position, any bool, codes []string) error {
 	for _, code := range codes {
 		if code == "" {
 			return invalid(pos, "Codes", "code must not be empty")
+		}
+	}
+	return nil
+}
+
+// MaxNestingDepth is the maximum number of nested semantic constructs accepted
+// by every frontend and backend that recursively walks a verb program.
+const MaxNestingDepth = 256
+
+var ErrMaxNestingDepth = errors.New("maximum nesting depth exceeded (max 256)")
+
+// ValidateNesting checks semantic IR without recursively walking attacker
+// controlled data. Siblings retain the same depth, so wide programs are not
+// penalized. Leaf nodes are allowed beneath the deepest construct.
+func ValidateNesting(program *Program) error {
+	return validateGraph(reflect.ValueOf(program), -2, false)
+}
+
+// ValidateNode checks shape and depth for semantic inputs outside a Program.
+func ValidateNode(node Node) error {
+	if nilNode(node) {
+		return invalid(Position{}, "Node", "must not be nil")
+	}
+	return validateGraph(reflect.ValueOf(node), -1, true)
+}
+
+// validateGraph combines shape and depth checks before following node fields.
+// Unknown families can embed non-semantic cycles, so full validation must not
+// run a separate depth-only traversal first. Reverse pushes preserve order.
+func validateGraph(root reflect.Value, initialDepth int, full bool) error {
+	type item struct {
+		value reflect.Value
+		depth int
+	}
+	// The program container and its root statement are structural anchors, not
+	// nested source constructs.
+	stack := []item{{root, initialDepth}}
+	nodeType := reflect.TypeOf((*Node)(nil)).Elem()
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		v := current.value
+		if v.IsValid() && v.Type().Implements(nodeType) {
+			if full && v.CanInterface() {
+				if node, ok := v.Interface().(Node); ok {
+					if nilNode(node) {
+						return invalid(Position{}, "Node", "must not be nil")
+					}
+					if err := validateNodeShape(node); err != nil {
+						return err
+					}
+				}
+			}
+			current.depth++
+			if current.depth > MaxNestingDepth {
+				return ErrMaxNestingDepth
+			}
+		}
+		for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
+			if v.IsNil() {
+				v = reflect.Value{}
+				break
+			}
+			v = v.Elem()
+		}
+		if !v.IsValid() {
+			continue
+		}
+		switch v.Kind() {
+		case reflect.Struct:
+			for i := v.NumField() - 1; i >= 0; i-- {
+				f := v.Field(i)
+				stack = append(stack, item{f, current.depth})
+			}
+		case reflect.Slice:
+			for i := v.Len() - 1; i >= 0; i-- {
+				stack = append(stack, item{v.Index(i), current.depth})
+			}
 		}
 	}
 	return nil

@@ -3,11 +3,11 @@ package parser
 import (
 	"fmt"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 // parseStatement parses a single statement
-func (p *Parser) parseStatement() (verb.Stmt, error) {
+func (p *Parser) parseStatement() (ir.Stmt, error) {
 	// Only enclosing block constructs consume statement depth. Terminal
 	// statements and sibling statements do not accumulate the budget.
 	switch p.current.Type {
@@ -42,7 +42,7 @@ func (p *Parser) parseStatement() (verb.Stmt, error) {
 		// Empty statement
 		pos := p.current.Position
 		p.nextToken()
-		return &verb.EmptyStmt{Pos: pos}, nil
+		return &ir.EmptyStmt{Pos: pos}, nil
 	default:
 		// Expression statement
 		return p.parseExpressionStatement()
@@ -50,7 +50,7 @@ func (p *Parser) parseStatement() (verb.Stmt, error) {
 }
 
 // parseIfStatement parses if/elseif/else/endif
-func (p *Parser) parseIfStatement() (verb.Stmt, error) {
+func (p *Parser) parseIfStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'if'
 
@@ -76,9 +76,9 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 		return nil, err
 	}
 
-	conditions := []verb.Expr{condition}
-	bodies := [][]verb.Stmt{body}
-	positions := []verb.Position{pos}
+	conditions := []ir.Expr{condition}
+	bodies := [][]ir.Stmt{body}
+	positions := []ir.Position{pos}
 
 	// Parse concrete elseif clauses for direct lowering to nested conditionals.
 	for p.current.Type == TOKEN_ELSEIF {
@@ -111,7 +111,7 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 	}
 
 	// Parse else clause (optional)
-	var elseBody []verb.Stmt
+	var elseBody []ir.Stmt
 	if p.current.Type == TOKEN_ELSE {
 		p.nextToken() // consume 'else'
 		elseBody, err = p.parseBody(TOKEN_ENDIF)
@@ -127,7 +127,7 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 	p.nextToken() // consume 'endif'
 
 	for i := len(conditions) - 1; i > 0; i-- {
-		elseBody = []verb.Stmt{&verb.IfStmt{
+		elseBody = []ir.Stmt{&ir.IfStmt{
 			Pos:       positions[i],
 			Condition: conditions[i],
 			Body:      bodies[i],
@@ -135,11 +135,11 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 		}}
 	}
 
-	return &verb.IfStmt{Pos: pos, Condition: condition, Body: body, Else: elseBody}, nil
+	return &ir.IfStmt{Pos: pos, Condition: condition, Body: body, Else: elseBody}, nil
 }
 
 // parseWhileStatement parses while loops
-func (p *Parser) parseWhileStatement() (verb.Stmt, error) {
+func (p *Parser) parseWhileStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'while'
 
@@ -181,7 +181,7 @@ func (p *Parser) parseWhileStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume 'endwhile'
 
-	return &verb.WhileStmt{
+	return &ir.WhileStmt{
 		Pos:       pos,
 		Label:     label,
 		Condition: condition,
@@ -190,7 +190,7 @@ func (p *Parser) parseWhileStatement() (verb.Stmt, error) {
 }
 
 // parseForStatement parses for loops (list, range, or map iteration)
-func (p *Parser) parseForStatement() (verb.Stmt, error) {
+func (p *Parser) parseForStatement() (ir.Stmt, error) {
 	startPos := p.current.Position
 	p.nextToken() // consume 'for'
 
@@ -227,8 +227,8 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 	p.nextToken() // consume 'in'
 
 	// Check for range [start..end] or container (expr)
-	var container verb.Expr
-	var rangeStart, rangeEnd verb.Expr
+	var container ir.Expr
+	var rangeStart, rangeEnd ir.Expr
 	var err error
 
 	switch p.current.Type {
@@ -299,7 +299,7 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 	p.nextToken() // consume 'endfor'
 
 	if container != nil {
-		return &verb.CollectionLoopStmt{
+		return &ir.CollectionLoopStmt{
 			Pos:        startPos,
 			Label:      label,
 			Value:      value,
@@ -309,7 +309,7 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 		}, nil
 	}
 
-	return &verb.RangeLoopStmt{
+	return &ir.RangeLoopStmt{
 		Pos:   startPos,
 		Label: label,
 		Value: value,
@@ -321,7 +321,7 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 
 // parseForkStatement parses fork statements
 // Syntax: fork [varname] (delay) body endfork
-func (p *Parser) parseForkStatement() (verb.Stmt, error) {
+func (p *Parser) parseForkStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'fork'
 
@@ -363,7 +363,7 @@ func (p *Parser) parseForkStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume 'endfork'
 
-	return &verb.ForkStmt{
+	return &ir.ForkStmt{
 		Pos:     pos,
 		Delay:   delay,
 		VarName: varName,
@@ -372,11 +372,11 @@ func (p *Parser) parseForkStatement() (verb.Stmt, error) {
 }
 
 // parseReturnStatement parses return statements
-func (p *Parser) parseReturnStatement() (verb.Stmt, error) {
+func (p *Parser) parseReturnStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'return'
 
-	var value verb.Expr
+	var value ir.Expr
 	var err error
 
 	// Check if there's an expression to return
@@ -393,7 +393,7 @@ func (p *Parser) parseReturnStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &verb.ReturnStmt{
+	return &ir.ReturnStmt{
 		Pos:   pos,
 		Value: value,
 	}, nil
@@ -402,7 +402,7 @@ func (p *Parser) parseReturnStatement() (verb.Stmt, error) {
 // parseBreakStatement parses break statements.
 // Syntax: break; OR break ID; where ID names an enclosing loop.
 // Mirrors parseContinueStatement (ToastStunt parser.y:241-252).
-func (p *Parser) parseBreakStatement() (verb.Stmt, error) {
+func (p *Parser) parseBreakStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'break'
 
@@ -421,14 +421,14 @@ func (p *Parser) parseBreakStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &verb.BreakStmt{
+	return &ir.BreakStmt{
 		Pos:   pos,
 		Label: label,
 	}, nil
 }
 
 // parseContinueStatement parses continue statements
-func (p *Parser) parseContinueStatement() (verb.Stmt, error) {
+func (p *Parser) parseContinueStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'continue'
 
@@ -447,14 +447,14 @@ func (p *Parser) parseContinueStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &verb.ContinueStmt{
+	return &ir.ContinueStmt{
 		Pos:   pos,
 		Label: label,
 	}, nil
 }
 
 // parseExpressionStatement parses an expression statement
-func (p *Parser) parseExpressionStatement() (verb.Stmt, error) {
+func (p *Parser) parseExpressionStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 
 	expr, err := p.ParseExpression(PREC_LOWEST)
@@ -468,15 +468,15 @@ func (p *Parser) parseExpressionStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &verb.ExprStmt{
+	return &ir.ExprStmt{
 		Pos:  pos,
 		Expr: expr,
 	}, nil
 }
 
 // parseBody parses a sequence of statements until one of the terminators is reached
-func (p *Parser) parseBody(terminators ...TokenType) ([]verb.Stmt, error) {
-	var body []verb.Stmt
+func (p *Parser) parseBody(terminators ...TokenType) ([]ir.Stmt, error) {
+	var body []ir.Stmt
 
 	for {
 		// Check if we've reached a terminator
@@ -506,7 +506,7 @@ func (p *Parser) parseBody(terminators ...TokenType) ([]verb.Stmt, error) {
 // - try ... except ... endtry
 // - try ... finally ... endtry
 // - try ... except ... finally ... endtry
-func (p *Parser) parseTryStatement() (verb.Stmt, error) {
+func (p *Parser) parseTryStatement() (ir.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'try'
 
@@ -516,8 +516,8 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 		return nil, err
 	}
 
-	var handlers []verb.ExceptionHandler
-	var finalizer *verb.Finalizer
+	var handlers []ir.ExceptionHandler
+	var finalizer *ir.Finalizer
 
 	// Parse except clauses (zero or more)
 	for p.current.Type == TOKEN_EXCEPT {
@@ -580,7 +580,7 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 			return nil, err
 		}
 
-		handlers = append(handlers, verb.ExceptionHandler{
+		handlers = append(handlers, ir.ExceptionHandler{
 			Pos:      exceptPos,
 			Variable: variable,
 			Codes:    codes,
@@ -598,7 +598,7 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		finalizer = &verb.Finalizer{Pos: finalizerPos, Body: finalizerBody}
+		finalizer = &ir.Finalizer{Pos: finalizerPos, Body: finalizerBody}
 	}
 
 	// Consume 'endtry'
@@ -611,7 +611,7 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 		return nil, fmt.Errorf("try statement must have except or finally clause")
 	}
 
-	return &verb.TryStmt{Pos: pos, Body: body, Handlers: handlers, Finalizer: finalizer}, nil
+	return &ir.TryStmt{Pos: pos, Body: body, Handlers: handlers, Finalizer: finalizer}, nil
 }
 
 // scatterAhead reports whether the leading '{' begins a scatter-assignment
@@ -673,12 +673,12 @@ func (p *Parser) scatterAhead() (scatter, optional bool) {
 // parseScatterAssign parses '{' scatter '}' '=' expr, the scatter production
 // that admits optional and rest targets. It is an expression in Toast's
 // grammar, so statements and expression prefixes share it.
-func (p *Parser) parseScatterAssign(valuePrec int) (*verb.AssignExpr, error) {
+func (p *Parser) parseScatterAssign(valuePrec int) (*ir.AssignExpr, error) {
 	pos := p.current.Position
 	p.nextToken() // consume '{'
 
-	var bindings []verb.Binding
-	var prefix []verb.Expr
+	var bindings []ir.Binding
+	var prefix []ir.Expr
 	optionalSeen := false
 
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
@@ -731,15 +731,15 @@ func (p *Parser) parseScatterAssign(valuePrec int) (*verb.AssignExpr, error) {
 		return nil, err
 	}
 
-	return &verb.AssignExpr{
+	return &ir.AssignExpr{
 		Pos:    pos,
-		Target: &verb.DestructuringTarget{Pos: pos, Bindings: bindings},
+		Target: &ir.DestructuringTarget{Pos: pos, Bindings: bindings},
 		Value:  value,
 	}, nil
 }
 
 // parseScatterBinding parses a single binding: var, ?var, ?var = default, @var.
-func (p *Parser) parseScatterBinding() (verb.Binding, error) {
+func (p *Parser) parseScatterBinding() (ir.Binding, error) {
 	pos := p.current.Position
 
 	optional := false
@@ -761,7 +761,7 @@ func (p *Parser) parseScatterBinding() (verb.Binding, error) {
 	p.nextToken()
 
 	if optional {
-		var defaultExpr verb.Expr
+		var defaultExpr ir.Expr
 		if p.current.Type == TOKEN_ASSIGN {
 			p.nextToken() // consume '='
 			var err error
@@ -770,11 +770,11 @@ func (p *Parser) parseScatterBinding() (verb.Binding, error) {
 				return nil, err
 			}
 		}
-		return &verb.OptionalBinding{Pos: pos, Name: name, Default: defaultExpr}, nil
+		return &ir.OptionalBinding{Pos: pos, Name: name, Default: defaultExpr}, nil
 	}
 	if rest {
-		return &verb.RestBinding{Pos: pos, Name: name}, nil
+		return &ir.RestBinding{Pos: pos, Name: name}, nil
 	}
 
-	return &verb.RequiredBinding{Pos: pos, Name: name}, nil
+	return &ir.RequiredBinding{Pos: pos, Name: name}, nil
 }
