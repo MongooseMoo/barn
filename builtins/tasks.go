@@ -260,7 +260,7 @@ func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 	// top-level command verb has no caller permissions object (Toast returns
 	// #-1), whereas a top-level eval inherits the player's permissions.
 	if frames < 2 {
-		if t.FromCommand {
+		if t.FromCommand || ctx.ServerInitiated {
 			return types.Ok(types.NewObj(types.ObjNothing))
 		}
 		return types.Ok(types.NewObj(t.Programmer))

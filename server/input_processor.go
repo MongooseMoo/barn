@@ -442,7 +442,7 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	}
 	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
 	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		p.runtime.SendTracebackToPlayer(input.Player, result.Error, result.CallStack)
+		p.runtime.SendTracebackToPlayer(input.Player, result)
 	}
 }
 

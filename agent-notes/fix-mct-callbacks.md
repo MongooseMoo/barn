@@ -63,6 +63,15 @@ payloads use Toast's partial six-field frame; aborted/suspended payloads use
 the existing captured activation stack. Source: execute.cc:3108-3147,
 server.cc:530-541 and :1432-1440; options.h:133. No timing cache or new queue.
 
+Error/context repair plan (roughly 70 changed production lines plus signature
+updates): root server callbacks report caller_perms() as #-1; retain custom
+raise messages through the existing formatter/output owner; aborted error
+handlers print their own traceback then the original, and must not count as
+truthy success. Timeout dispatch uses the existing resumable server-task path
+and the captured exception stack. Toast execute.cc:535-565, :580-601,
+:3162-3186 and :3721-3731 establish these semantics. Existing callers are
+updated directly; no compatibility wrappers or alternate error pipeline.
+
 Open scope decision: MCT checkpoint_fault hardcodes Test.db.new.#1# and its
 YAML requires Toast diagnostics, whereas Barn checkpoint_stage.go:32 stages
 Test.db.tmp. Asked Q whether to make the fixture portable without removing

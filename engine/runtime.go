@@ -39,7 +39,7 @@ type Runtime struct {
 	store                   *dbstore.Store
 	pendingFinalizationSink func([]types.Value)
 	taskLineSender          func(types.ObjID, string)
-	tracebackSender         func(types.ObjID, types.ErrorCode, []types.ActivationFrame)
+	tracebackSender         func(types.ObjID, types.Result)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
 	mu                      sync.Mutex
@@ -528,7 +528,7 @@ func (s *Runtime) SetTaskLineSender(sender func(types.ObjID, string)) {
 	s.taskLineSender = sender
 }
 
-func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.ErrorCode, []types.ActivationFrame)) {
+func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.Result)) {
 	s.tracebackSender = sender
 }
 

@@ -780,10 +780,14 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, result types.Result) {
 	t.SetState(task.TaskKilled)
 	handled := false
-	if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-		handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
-	} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
-		handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
+	timedOut := false
+	isDatabaseHandler := t.Context.ServerInitiated && t.This == 0 && (t.VerbName == "handle_uncaught_error" || t.VerbName == "handle_task_timeout")
+	if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "ticks")
+	} else if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "seconds")
 	}
 	// Prefer the activation stack snapshotted at raise time (carried on the
 	// result): the live call stack has already unwound, so it would report the
@@ -799,8 +803,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 	// suppresses the fallback traceback. The handler itself runs with database
 	// traceback dispatch disabled, so an error there falls back to the original
 	// task's traceback instead of recursively invoking the same hook.
-	isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
-	if !handled && !isUncaughtHandler {
+	if !handled && !isDatabaseHandler && !timedOut {
 		// Count every uncaught task exception here, before #0:handle_uncaught_error
 		// gets its chance: a handled error is still an uncaught one, and on the real
 		// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
@@ -824,7 +827,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			}
 			full := ""
 			if result.Error == types.E_PROPNF {
-				full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
+				full = strings.Join(task.FormatTraceback(stack, result.ErrorMessage()), " || ")
 			}
 			slog.Warn("DEBUG-UNCAUGHT",
 				slog.String("msg", msg),
@@ -843,17 +846,14 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			}
 			stackValues = append(stackValues, frame)
 		}
-		formattedLines := task.FormatTraceback(stack, result.Error)
+		formattedLines := task.FormatTraceback(stack, result.ErrorMessage())
 		formattedValues := make([]types.Value, 0, len(formattedLines))
 		for _, line := range formattedLines {
 			formattedValues = append(formattedValues, types.NewStr(line))
 		}
-		handlerMessage := types.NewStr(result.Error.Message())
+		handlerMessage := types.NewStr(result.ErrorMessage())
 		handlerValue := types.NewInt(0)
 		if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-			if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
-				handlerMessage = message
-			}
 			handlerValue = result.Val.Get(3)
 		}
 		handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
@@ -864,11 +864,11 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			types.NewList(formattedValues),
 		}, t.Owner, "", nil, scope, true)
 		if handlerErr == nil {
-			handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+			handled = handlerResult.Flow == types.FlowSuspend || (handlerResult.Flow != types.FlowException && handlerResult.Val.Truthy())
 		}
 	}
 
-	if !handled && !isUncaughtHandler {
+	if !handled {
 		// Preserve the existing structured task log for foreground failures.
 		// Toast does not write forked-task tracebacks directly to stderr.
 		if !t.IsForked {
@@ -880,7 +880,8 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks")
 		} else {
-			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+			result.CallStack = stack
+			s.SendTracebackToPlayer(t.Owner, result)
 		}
 	}
 	// Clean up call stack after traceback has been sent
@@ -1078,29 +1079,30 @@ func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.Activ
 	return cloned
 }
 
-func (s *Runtime) callTaskTimeoutHook(t *Task, resource string, message types.Value) bool {
-	stack := t.GetCallStack()
-	stackValues := make([]types.Value, 0, len(stack))
-	for _, frame := range stack {
-		stackValues = append(stackValues, frame.ToList())
+func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource string) bool {
+	stack := t.Result.CallStack
+	if len(stack) == 0 {
+		stack = t.GetCallStack()
 	}
-	traceLines := task.FormatTraceback(stack, t.Result.Error)
-	traceValues := make([]types.Value, 0, len(traceLines))
-	for i, line := range traceLines {
-		if i == 0 {
-			line = "Task ran out of " + resource
+	stackValues := make([]types.Value, 0, len(stack))
+	for i := len(stack) - 1; i >= 0; i-- {
+		frame := stack[i].ToList()
+		if s.session.IncludeRTVars(t.Context) {
+			frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
 		}
+		stackValues = append(stackValues, frame)
+	}
+	traceLines := task.FormatTraceback(stack, "Task ran out of "+resource)
+	traceValues := make([]types.Value, 0, len(traceLines))
+	for _, line := range traceLines {
 		traceValues = append(traceValues, types.NewStr(line))
 	}
-	if len(traceValues) == 0 {
-		traceValues = append(traceValues, message)
-	}
-	result := s.callVerbWithArgstr(0, "handle_task_timeout", []types.Value{
+	result, err := s.runServerVerbTask(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
-	}, t.Owner, "", vmOwnershipExecution, t.ID, t.ContextValue().Admission)
-	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
+	}, t.Owner, "", nil, scope, true)
+	return err == nil && (result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy()))
 }
 
 func resultValueContains(value types.Value, text string) bool {

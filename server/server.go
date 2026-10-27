@@ -162,13 +162,13 @@ func (s *Server) LoadDatabase() error {
 			_ = conn.Send(line)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
-		lines := task.FormatTraceback(stack, err)
+	s.runtime.SetTracebackSender(func(player types.ObjID, result types.Result) {
+		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
 			slog.Error("traceback undeliverable (no connection)",
 				slog.Int64("player", int64(player)),
-				slog.String("error", types.NewErr(err).String()),
+				slog.String("error", types.NewErr(result.Error).String()),
 				slog.String("traceback", strings.Join(lines, "\n")))
 			return
 		}

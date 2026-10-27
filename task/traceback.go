@@ -12,11 +12,11 @@ import (
 //	#<verb_loc>:<verb> (this == #<this>), line <N>:  <error message>
 //	... called from #<verb_loc>:<verb> (this == #<this>), line <N>
 //	(End of traceback)
-func FormatTraceback(stack []types.ActivationFrame, err types.ErrorCode) []string {
+func FormatTraceback(stack []types.ActivationFrame, message string) []string {
 	if len(stack) == 0 {
 		// No stack - just show error
 		return []string{
-			fmt.Sprintf("(no stack):  %s", err.Message()),
+			fmt.Sprintf("(no stack):  %s", message),
 			"(End of traceback)",
 		}
 	}
@@ -47,7 +47,7 @@ func FormatTraceback(stack []types.ActivationFrame, err types.ErrorCode) []strin
 				verbName,
 				frame.This,
 				frame.LineNumber,
-				err.Message())
+				message)
 		} else {
 			// Lower frames - show as "called from"
 			line = fmt.Sprintf("... called from #%d:%s (this == #%d), line %d",
@@ -73,6 +73,6 @@ func FormatTraceback(stack []types.ActivationFrame, err types.ErrorCode) []strin
 
 // FormatTracebackString returns the traceback as a single string with newlines
 func FormatTracebackString(stack []types.ActivationFrame, err types.ErrorCode) string {
-	lines := FormatTraceback(stack, err)
+	lines := FormatTraceback(stack, err.Message())
 	return strings.Join(lines, "\n")
 }
