@@ -312,6 +312,19 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
 	}
 
+	for index := range frame.CommandEnvironment {
+		frame.CommandEnvironment[index] = types.NewStr("")
+		if index >= 4 {
+			frame.CommandEnvironment[index] = types.NewObj(types.ObjNothing)
+		}
+	}
+	if value.Len() >= 21 {
+		environment := value.Get(21)
+		if environment.Type() != types.TYPE_LIST || environment.Len() != len(frame.CommandEnvironment) {
+			return frame, fmt.Errorf("invalid command environment")
+		}
+		copy(frame.CommandEnvironment[:], environment.Elements())
+	}
 	code := value.Get(2)
 	if value.Len() >= 20 {
 		encoded := value.Get(20)

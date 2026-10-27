@@ -95,16 +95,6 @@ func (c *lowerer) compileProgram(program *ir.Program) (*bytecode.Program, error)
 		c.emit(bytecode.OP_RETURN_NONE)
 	}
 
-	// Command variables are inherited by callees even when this verb does not
-	// reference them. Keep them in the ordinary locals so forks, suspension and
-	// checkpoints preserve that environment through intermediate verbs.
-	for _, name := range []string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"} {
-		c.declareVariable(name)
-	}
-	if c.err != nil {
-		return nil, c.err
-	}
-
 	// VarNames is already populated by declareVariable via compileBlock,
 	// but ensure the mapping is complete by building from the variables map.
 	// The compiler's declareVariable already appends to program.VarNames in order,

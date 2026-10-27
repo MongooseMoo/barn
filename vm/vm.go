@@ -120,12 +120,13 @@ func (vm *VM) allocLocals(n int) []types.Value {
 // Locals must come from allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 	if init.Program != nil {
-		slots := init.Program.BuiltinSlots
-		for _, slot := range []int{slots.Argstr, slots.Dobjstr, slots.Iobjstr, slots.Prepstr} {
-			SetLocalBySlot(&init, slot, types.NewStr(""))
+		for index, name := range task.CommandVariableNames {
+			value := types.NewStr("")
+			if index >= 4 {
+				value = types.NewObj(types.ObjNothing)
+			}
+			SetLocalByName(&init, init.Program, name, value)
 		}
-		SetLocalBySlot(&init, slots.Dobj, types.NewObj(types.ObjNothing))
-		SetLocalBySlot(&init, slots.Iobj, types.NewObj(types.ObjNothing))
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
 			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
 		}
@@ -168,26 +169,27 @@ func (vm *VM) recycleFrame(f *StackFrame) {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program          *bytecode.Program    // Bytecode program
-	IP               int                  // Instruction pointer
-	BasePointer      int                  // Stack base for this frame
-	Locals           []types.Value        // Local variables
-	This             types.ObjID          // Current object
-	ThisValue        types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
-	Player           types.ObjID          // Player context
-	Verb             string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
-	StoredVerb       string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
-	StoredVerbNames  []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
-	Caller           types.ObjID          // Calling object
-	VerbLoc          types.ObjID          // Object where the current verb is defined (for pass())
-	Args             []types.Value        // Original args passed to this verb (for pass() inheritance)
-	LoopStack        []bytecode.LoopState // Nested loop state
-	ExceptStack      []bytecode.Handler   // Exception handlers
-	PendingError     error                // Error saved during finally execution
-	PendingReturn    types.Value          // Return value saved during finally execution
-	HasPendingReturn bool                 // Distinguishes pending integer zero from no return
-	VerbDebug        bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
-	DiscardReturn    bool                 // Caller consumes this verb only for side effects
+	Program            *bytecode.Program    // Bytecode program
+	IP                 int                  // Instruction pointer
+	BasePointer        int                  // Stack base for this frame
+	Locals             []types.Value        // Local variables
+	CommandEnvironment [6]types.Value       // Inherited values absent from source locals
+	This               types.ObjID          // Current object
+	ThisValue          types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
+	Player             types.ObjID          // Player context
+	Verb               string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb         string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
+	StoredVerbNames    []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
+	Caller             types.ObjID          // Calling object
+	VerbLoc            types.ObjID          // Object where the current verb is defined (for pass())
+	Args               []types.Value        // Original args passed to this verb (for pass() inheritance)
+	LoopStack          []bytecode.LoopState // Nested loop state
+	ExceptStack        []bytecode.Handler   // Exception handlers
+	PendingError       error                // Error saved during finally execution
+	PendingReturn      types.Value          // Return value saved during finally execution
+	HasPendingReturn   bool                 // Distinguishes pending integer zero from no return
+	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
+	DiscardReturn      bool                 // Caller consumes this verb only for side effects
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).

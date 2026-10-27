@@ -526,14 +526,24 @@ func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName 
 }
 
 func copyCommandLocals(dst, src *StackFrame) {
-	d, s := dst.Program.BuiltinSlots, src.Program.BuiltinSlots
-	for _, pair := range [][2]int{
-		{d.Argstr, s.Argstr}, {d.Dobjstr, s.Dobjstr},
-		{d.Iobjstr, s.Iobjstr}, {d.Prepstr, s.Prepstr},
-		{d.Dobj, s.Dobj}, {d.Iobj, s.Iobj},
-	} {
-		if pair[1] != 0 {
-			SetLocalBySlot(dst, pair[0], src.Locals[pair[1]-1])
+	s := dst.Program.BuiltinSlots
+	slots := [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj}
+	for index, value := range src.commandEnvironment() {
+		if slot := slots[index]; slot != 0 {
+			SetLocalBySlot(dst, slot, value)
+		} else {
+			dst.CommandEnvironment[index] = value
 		}
 	}
+}
+
+func (frame *StackFrame) commandEnvironment() [6]types.Value {
+	values := frame.CommandEnvironment
+	s := frame.Program.BuiltinSlots
+	for index, slot := range [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj} {
+		if slot != 0 {
+			values[index] = frame.Locals[slot-1]
+		}
+	}
+	return values
 }

@@ -165,6 +165,29 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		frame.Locals[slot] = value
 		t.ForkInfo.Variables[name] = frame.Locals[slot]
 	}
+	for _, name := range task.CommandVariableNames {
+		present := false
+		for _, sourceName := range prog.VarNames {
+			if strings.EqualFold(name, sourceName) {
+				present = true
+				break
+			}
+		}
+		if present {
+			continue
+		}
+		matched := false
+		for savedName, value := range saved.Variables {
+			if strings.EqualFold(savedName, name) {
+				if matched {
+					return fmt.Errorf("ambiguous saved local %q", name)
+				}
+				matched = true
+				vm.SetLocalByName(frame, prog, name, value)
+				t.ForkInfo.Variables[name] = value
+			}
+		}
+	}
 	t.SetVM(machine)
 
 	t.PushFrame(types.ActivationFrame{

@@ -1,11 +1,15 @@
 package task
 
 import (
+	"slices"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
+
+// CommandVariableNames are inherited even by verbs that do not reference them.
+var CommandVariableNames = [...]string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"}
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {
@@ -68,6 +72,7 @@ type VMFrameSnapshot struct {
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
+	CommandEnvironment  [6]types.Value
 	Stack               []types.Value
 	This                types.ObjID
 	ThisValue           types.Value
@@ -153,6 +158,9 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 			frame.Stack[index] = transform(value)
 		}
 		frame.ThisValue = transform(frame.ThisValue)
+		for index, value := range frame.CommandEnvironment {
+			frame.CommandEnvironment[index] = transform(value)
+		}
 		for index, value := range frame.Args {
 			frame.Args[index] = transform(value)
 		}
@@ -205,6 +213,11 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 		} else if body := t.ForkInfo.Body; body != nil {
 			variableNames = append(variableNames, body.VariableNames()...)
 			firstLine = body.FirstLine()
+		}
+		for _, name := range CommandVariableNames {
+			if _, ok := t.ForkInfo.Variables[name]; ok && !slices.Contains(variableNames, name) {
+				variableNames = append(variableNames, name)
+			}
 		}
 		snapshot.Fork = &ForkSnapshot{
 			Variables:     cloneValueMap(t.ForkInfo.Variables),
