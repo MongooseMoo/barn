@@ -270,6 +270,7 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		internalLocalsValue(frame),
 		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
 		types.NewList(frame.CommandEnvironment[:]),
+		types.NewInt(int64(frame.ReturnLocal)),
 	})
 }
 

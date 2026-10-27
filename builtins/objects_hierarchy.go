@@ -698,6 +698,9 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 		return result
 	}
 
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(result.Val, nil)
+	}
 	initResult := session.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult

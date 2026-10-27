@@ -51,7 +51,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 		defObjID types.ObjID
 		err      error
 	)
-	verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
+	verb, defObjID, err = parentCtx.StoreTxn.FindCallableVerb(objID, verbName)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -274,7 +274,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	trace.VerbCall(objID, verbName, len(args), player, player)
 
 	// Look up the verb to get its owner for programmer permissions
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		// Verb not found
 		result := types.Result{

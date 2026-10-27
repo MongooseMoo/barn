@@ -190,6 +190,7 @@ type StackFrame struct {
 	HasPendingReturn   bool                 // Distinguishes pending integer zero from no return
 	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
 	DiscardReturn      bool                 // Caller consumes this verb only for side effects
+	ReturnLocal        int                  // One-based caller local receiving a WAIF setter result
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).

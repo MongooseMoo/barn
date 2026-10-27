@@ -50,6 +50,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			HasPendingReturn:    frame.HasPendingReturn,
 			VerbDebug:           frame.VerbDebug,
 			DiscardReturn:       frame.DiscardReturn,
+			ReturnLocal:         frame.ReturnLocal,
 			IsVerbCall:          frame.IsVerbCall,
 			IsEvalFrame:         frame.IsEvalFrame,
 			ThreadMode:          activationThreadMode(vm.Frames, i, vm.Context),
@@ -150,6 +151,7 @@ func RestoreVMSnapshot(
 			HasPendingReturn:    saved.HasPendingReturn,
 			VerbDebug:           saved.VerbDebug,
 			DiscardReturn:       saved.DiscardReturn,
+			ReturnLocal:         saved.ReturnLocal,
 			IsVerbCall:          saved.IsVerbCall,
 			IsEvalFrame:         saved.IsEvalFrame,
 			SavedThisObj:        saved.SavedThisObj,
@@ -219,6 +221,9 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 		}
 		if len(saved.Locals) < saved.Program.NumLocals {
 			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
+		}
+		if saved.ReturnLocal < 0 || (saved.ReturnLocal != 0 && (frameIndex == 0 || saved.ReturnLocal > len(snapshot.Frames[frameIndex-1].Locals))) {
+			return fmt.Errorf("frame %d: invalid caller result local", frameIndex)
 		}
 		stackEnd := stackBase + len(saved.Stack)
 		for handlerIndex, handler := range saved.ExceptStack {

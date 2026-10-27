@@ -325,6 +325,13 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 		}
 		copy(frame.CommandEnvironment[:], environment.Elements())
 	}
+	if value.Len() >= 22 {
+		local := value.Get(22)
+		if local.Type() != types.TYPE_INT || local.Int() < 0 || local.Int() > bytecode.MaxLocals {
+			return frame, fmt.Errorf("invalid caller result local")
+		}
+		frame.ReturnLocal = int(local.Int())
+	}
 	code := value.Get(2)
 	if value.Len() >= 20 {
 		encoded := value.Get(20)

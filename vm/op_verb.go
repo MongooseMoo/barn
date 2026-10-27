@@ -289,6 +289,21 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	return nil
 }
 
+func (vm *VM) pushInitialize(created types.Value, args []types.Value) types.Result {
+	// The builtin returns the created object after the callback, regardless of
+	// the callback's normal result. The ordinary stack preserves it on suspend.
+	vm.Push(created)
+	if err := vm.startVerbCall(created, "initialize", args); err != nil {
+		vm.Pop()
+		if errorCode(err) == types.E_VERBNF {
+			return types.Ok(created)
+		}
+		return moveLifecycleErrorResult(err)
+	}
+	vm.CurrentFrame().DiscardReturn = true
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
 // suspension with the calling VM. args is owned by the builtin dispatcher, which
 // has just resolved #0:name to verb on definer.

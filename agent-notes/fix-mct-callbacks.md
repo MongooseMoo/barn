@@ -99,6 +99,20 @@ Test.db.tmp. Asked Q whether to make the fixture portable without removing
 failure/context/recovery assertions. Do not change checkpoint code or those
 MCT assertions while that question is pending; independent callbacks continue.
 
+Initializer slice (about 40 lines): use the existing FlowBuiltinPush path,
+retain the created object on the caller's operand stack and discard only the
+initializer's normal result. Native errors propagate; missing/non-executable
+initializers return the created object. This keeps initialization on the caller
+VM across suspension without introducing continuation state. Source: Toast
+objects.cc:430-457 and :520-540. Builtin caller-stack markers remain a separate
+missing part of the callback context contract.
+
+WAIF setter slice (about 55 lines): share class-owner/callable validation with
+reads, map absent setters to E_TYPE, and save the destination local on the
+callback frame so normal return replaces the indexed container. Keep the RHS
+expression result already on the operand stack. Persist the destination through
+the existing VM metadata for suspension/checkpoint. Source: execute.cc:1183-1213.
+
 ## Surprises
 
 #163 was not green when requested: trusted validation reported

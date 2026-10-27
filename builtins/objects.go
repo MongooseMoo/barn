@@ -267,6 +267,13 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Call :initialize verb if it exists
+	created := types.NewObj(newID)
+	if anonymous {
+		created = types.NewAnon(newID)
+	}
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(created, initArgs)
+	}
 	// The :initialize verb receives the init args and can set up the new object
 	// If verb not found (E_VERBNF), that's fine - just means no initialize
 	// Other errors should be propagated
