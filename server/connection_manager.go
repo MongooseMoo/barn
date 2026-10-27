@@ -537,17 +537,6 @@ func (cm *ConnectionManager) GetConnection(player types.ObjID) builtins.Connecti
 	return nil
 }
 
-func (cm *ConnectionManager) pushPlayerHistoryLocked(player types.ObjID, conn *Connection) {
-	if conn == nil {
-		return
-	}
-	history := cm.playerConnHistory[player]
-	if len(history) > 0 && history[len(history)-1] == conn {
-		return
-	}
-	cm.playerConnHistory[player] = append(history, conn)
-}
-
 func (cm *ConnectionManager) removePlayerHistoryConnLocked(player types.ObjID, target *Connection) {
 	history := cm.playerConnHistory[player]
 	if len(history) == 0 {

@@ -9,6 +9,12 @@ refresh as well: "do all the work".
 
 ## State
 
+Connection-switch, boot/prelogin-close and released-property finalization
+repairs are pushed. Their first CI found the now-unused history insertion
+helper; remove it because switching now closes the superseded connection.
+Combined paired acceptance is still incomplete; checkpoint portability remains
+a pending user decision. No MCT PR has been merged.
+
 Barn worktree: C:/Users/Q/code/barn-mct-callbacks, branch fix/mct-callbacks.
 MCT integration worktree: C:/Users/Q/code/mct-barn-callbacks, branch
 integration/barn-callbacks, containing current main and both test PRs unchanged.
