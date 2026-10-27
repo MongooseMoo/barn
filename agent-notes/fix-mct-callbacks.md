@@ -19,6 +19,10 @@ to Toast server.cc:1752-1757 closing it. Update that existing assertion to
 require it closed and absent after the replacement disconnects. The existing
 reconnect-order test must consume the queued switch event before inspecting
 the unchanged connected/reconnected sequence.
+CI then caught premature GC after a failed publication in the existing
+TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot. Expand the creation
+floor to include released old references only when the slice committed; failed
+attempt cleanup retains its original creation floor. Keep the regression intact.
 
 Barn worktree: C:/Users/Q/code/barn-mct-callbacks, branch fix/mct-callbacks.
 MCT integration worktree: C:/Users/Q/code/mct-barn-callbacks, branch

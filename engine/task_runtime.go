@@ -507,7 +507,7 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
+		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed)
 		t.SetState(task.TaskKilled)
 		t.SetVM(nil)
 		return taskCtx.Err()
@@ -550,7 +550,7 @@ retryAttempt:
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
 	// only after an explicit shutdown request. Generic cancellation still runs
 	// ordinary finalization rather than fabricating pending checkpoint roots.
-	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards

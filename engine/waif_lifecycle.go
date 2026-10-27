@@ -142,7 +142,7 @@ func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
 // task's roots. An explicit shutdown transfers them to the checkpoint domain;
 // generic cancellation and normal completion retain the ordinary GC path.
-func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations bool) bool {
+func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations, committed bool) bool {
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
@@ -163,7 +163,11 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.V
 		return true
 	}
 	s.deferPendingWaifs(ctx, exec.TakePendingWaifs(), exec)
-	minID, hasAnonymousCreations = exec.AnonymousGCFloor(minID, hasAnonymousCreations)
+	// A failed publication did not release the property references it staged.
+	// Keep its cleanup limited to the original creation floor.
+	if committed {
+		minID, hasAnonymousCreations = exec.AnonymousGCFloor(minID, hasAnonymousCreations)
+	}
 	if hasAnonymousCreations {
 		s.deferAnonGC(ctx, minID, exec)
 	}
