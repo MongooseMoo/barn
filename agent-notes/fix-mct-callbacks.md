@@ -14,6 +14,11 @@ repairs are pushed. Their first CI found the now-unused history insertion
 helper; remove it because switching now closes the superseded connection.
 Combined paired acceptance is still incomplete; checkpoint portability remains
 a pending user decision. No MCT PR has been merged.
+The old switch test expected revival of the superseded connection, contrary
+to Toast server.cc:1752-1757 closing it. Update that existing assertion to
+require it closed and absent after the replacement disconnects. The existing
+reconnect-order test must consume the queued switch event before inspecting
+the unchanged connected/reconnected sequence.
 
 Barn worktree: C:/Users/Q/code/barn-mct-callbacks, branch fix/mct-callbacks.
 MCT integration worktree: C:/Users/Q/code/mct-barn-callbacks, branch
