@@ -234,30 +234,6 @@ func propertyValueMayHoldFinalizable(obj *Object, name string) bool {
 	return ok && prop.value.MayHoldFinalizable()
 }
 
-// collectTopLevelWaifsInto records the waifs directly inside value (descending
-// through lists and maps) without expanding the waifs' own properties.
-func collectTopLevelWaifsInto(value types.Value, set *types.WaifSet) {
-	switch value.Type() {
-	case types.TYPE_WAIF:
-		set.Add(value)
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectTopLevelWaifsInto(elem, set)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectTopLevelWaifsInto(pair[0], set)
-			collectTopLevelWaifsInto(pair[1], set)
-		}
-	}
-}
-
 // PersistentWaifRoots returns every waif reachable from a live object's
 // property values, deduplicated by identity. The slice is shared and must be
 // treated as read-only; PersistentWaifRootSet is the O(1)-membership form.
@@ -310,7 +286,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 			}
 			for _, prop := range obj.properties.all() {
 				if prop.value.MayHoldFinalizable() {
-					collectTopLevelWaifsInto(prop.value, set)
+					prop.value.VisitDirectFinalizationRefs(func(ref types.Value) { set.Add(ref) })
 				}
 			}
 			return true

@@ -85,7 +85,6 @@ func (vm *VM) popFrame() {
 	vm.collectPendingFinalizationsFromFrame(frame)
 	stackEnd := min(vm.SP, len(vm.Stack))
 	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
-		vm.collectDirectWaifsForGC(vm.Stack[i])
 		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
 	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
@@ -558,7 +557,6 @@ func boolInt(b bool) int64 {
 func (vm *VM) releaseLocal(previous types.Value) {
 	if previous.MayHoldFinalizable() {
 		vm.collectPendingFinalizationsFromValue(previous)
-		vm.collectDirectWaifsForGC(previous)
 	}
 }
 
