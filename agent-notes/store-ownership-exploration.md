@@ -517,3 +517,48 @@ The verified duplicate WAIF walkers supply a bounded deletion opportunity. Wider
 value traversal consolidation needs its adapters counted; no large savings or
 performance parity established. Research is complete for this question. No
 implementation is authorized; present the positive model and its limits to Q.
+
+## Next reduction: simplify the typed model itself
+
+Q asks to simplify further. Smallest authorized deliverable: refine the existing
+research, not code. Reuse the Astra researcher to challenge whether edge labels,
+projection modes and frozen-member nodes can disappear into ordinary root sets,
+image resolution and materialized results. Parent independently traces the
+smallest traversal and scheduling boundaries. Approximately 100-200 Markdown
+lines of additional derivation if needed; zero implementation lines.
+
+Test candidate: reachability is one operation on a selected view; pending is an
+ordinary candidate collection kept outside its live roots; a frozen closure is
+an ordinary result set owned by a phase, not a special graph edge. Preserve
+existing first-seen order, identity/view distinctions, anonymous resolution and
+sampling times. Determine what is a necessary input versus an accidental policy
+dimension. Do not require a physical unified heap or universal callback engine.
+No implementation authorization or performance claim follows from this question.
+
+Result: the smaller construction is ordinary closure over chosen adjacency,
+set operations, and ordered effects. Pending remains a retained candidate list
+excluded from live roots; captured closures are ordinary results owned by callers.
+No edge-color propagation, graph registry, view nodes or combined-mode visited
+state is necessary. Keep existing logical identity keys and separate walks/views.
+The report's "Smaller construction" section supersedes the expanded typed-edge
+model as the preferred formulation.
+
+Parent read the new section and checked the central code opportunities:
+- Shared value recursion in vm/waif_gc.go:52 and store_reachability.go:263;
+  direct/anonymous collectors provide related potential sharing with adapters.
+- vm/anonymous_gc.go:175-257 has two cover reducers: candidate closures sorted
+  descending by size, then selected only while uncovered. Anonymous ties use ID;
+  WAIF ties preserve input order. Sharing is conditional on adapters shrinking it.
+- shutdown_roots_test.go:12-96 documents current-edge selection and parent covering
+  child; these bodies were read, not run.
+- persistentWaifRootSet:368-406 reuses top-level inputs separately from the expanded
+  closure. Deleting caches would introduce recomputation, not algebraic elimination.
+- engine/internal/finalization/coordinator.go:19 and engine/waif_lifecycle.go:97,
+  :309,:322 retain OwnRefs and DirectRoots for distinct later consumers. These
+  capture different populations and times; one is not a lossless replacement for
+  the other. Their backing slices/maps are shared across entries, not deep-copied.
+
+Research conclusion: simpler model, concrete bounded traversal consolidation and
+a possible second common reducer. No measured net reduction, behavior parity or
+performance result. No implementation/tests/benchmarks run. Present this result;
+implementation remains contingent on Q's "make it so".

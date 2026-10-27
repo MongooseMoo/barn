@@ -1055,3 +1055,175 @@ The strongest remaining obstacle is temporal and operational bookkeeping, not
 an algebraic contradiction: captured closures, batch order/context, publication,
 identity binding and export rewriting still do actual work after graph queries
 are unified. Whether more of that work can share implementation remains empirical.
+
+## Smaller construction: closure, sets, ordered effects (2026-10-26)
+
+**Yes: the model itself can shrink substantially.** The preceding eight edge
+roles and query-state tuple are an explanatory expansion, not necessary runtime
+machinery. Replace them with ordinary reachability over resolved values, ordinary
+sets, and the existing caller's execution order. This section is the preferred
+model; the preceding lifecycle evidence still applies. Source HEAD was
+`6efa7da2516525c4fb606f22d4424fa0f606c6d3`, implementation remains `b91e36f5`.
+
+### What remains after removing unnecessary dimensions
+
+Let `C(R,E)` return the closure of roots R through adjacency E, retaining the
+existing traversal's first-seen order. Mathematically membership is the usual
+least fixed point; operationally use existing depth-first encounter order rather
+than introducing breadth-first order. Filter that result to WAIF values or
+anonymous IDs as the consumer needs. The set supports membership and an ordered
+result; `types/WaifSet` already supplies exactly that pair (`waifset.go:11-18`).
+
+There are only three ingredients:
+
+1. **Roots and candidate collections.** The caller supplies the values relevant
+   now. A pending collection P is retained normally by Go; it is simply absent
+   from roots R used to decide semantic liveness. No special pending edge exists.
+2. **Resolved adjacency.** Containers yield their children. A WAIF yields no
+   properties, current properties, or retained properties, as selected by this
+   caller. The choice is an input to traversal, not a color propagated through
+   every edge. Object resolution stays with the store and its existing locks.
+3. **Set operations followed by ordered effects.** Union captured results,
+   subtract live identities from candidates, reduce covering roots where needed,
+   then execute callbacks or serialize in the existing order.
+
+Capture is when the caller computes a result. A frozen set is just a result kept
+in a local or pending record. View is the input that determines adjacency. Neither
+needs its own graph node, epoch field, graph edge kind, or traversal bitset.
+Physical retention stays with Go and existing containers. Image publication,
+domain binding and history retention remain their existing owners' operations;
+the closure implementation neither duplicates nor replaces them.
+
+The necessary boundary is **which adjacency is supplied**, not a projection-mode
+matrix. For the value graph, anonymous and numbered references are terminals;
+WAIF properties can be expanded. WAIF results are one filter of that closure;
+anonymous IDs are another. To expand anonymous objects, the store forms an
+induced adjacency: an anonymous object's neighbors are anonymous IDs found by
+the value traversal of its resolved properties. Apply ordinary C again to that
+graph. This is precisely the two-stage shape at
+`store_reachability.go:151-181,184-205`. It does not accidentally let WAIF queries
+follow anonymous-object pointers, and it does not require a generic entity API.
+
+Keep each walk within one existing domain/view. Existing WAIF identity and
+anonymous-ID visited sets then suffice; no `(mode,view,identity)` key is needed.
+Detached export is its own traversal/memo, never mixed with live payloads sharing
+the identity (`store_snapshot.go:308-331`). This removes the multi-mode visited
+state contemplated above. It preserves current identity deduplication rather than
+inventing a new physical-pointer equality rule. A combined walk across views
+would need more state; there is no demonstrated reason to combine them.
+
+### The same three sequences with this smaller algebra
+
+**Dropped WAIF.** Local release places w in P. Go retains w through P; the live
+root enumeration excludes P (`vm/value_roots.go:132-135`,
+`vm/waif_gc.go:119-124`). Deferral records `O = WAIF(C(Rlive,Eretained))` while
+the VM still exists (`engine/waif_lifecycle.go:69-72`). Sweep computes L from
+current persistent closure plus already-computed sibling/O sets (:307-311).
+The ordered candidate loop skips members of L and invokes the others (:312-316).
+Entering the callback puts w in normal context/local storage (:485,498); leaving
+releases those execution references. A persistent escape is an ordinary new live
+root for a subsequent computation. The local L is never recomputed during this
+loop. Nothing changes an edge color on callback entry or exit.
+
+**Old WAIF edge and checkpoint.** Runtime semantic traversal uses Eretained, so
+the old parent-to-child edge participates while the image exists
+(`types/waif_image.go:115-134`). Checkpoint traversal supplies Ecurrent, so that
+edge is absent. Task-owned checkpoint values are computed with current adjacency
+and subtracted from pending candidates (`store_pending.go:90-111`). Export then
+rewrites selected values with its private identity memo. Reader release changes
+the retained adjacency through existing pruning, not through a graph-layer
+release protocol. The historical-child source cases cited above distinguish the
+two computations; no contradictory liveness flag is stored on the child.
+
+**Anonymous batch.** Compute anonymous reachability using the store's induced
+adjacency, union the captured references, and freeze the eligible ordered IDs
+before any effects (`vm/anonymous_gc.go:438-460`). Execute that list with request
+floors/context and existing deduplication (:472-491). The source explicitly says
+a callback may create and persist a new object (:455-459); it cannot enter an
+already-created list. A callback's live continuation root is ordinary storage
+(`vm/value_roots.go:52`). Again, time belongs to caller sequencing, not an extra
+coordinate on every reference.
+
+### Can stored derived state disappear?
+
+Some results are mathematically derivable but no longer derivable from the inputs
+available **at the later phase**. This is the important limit on deletion.
+
+| State | Can it be derived later without changing behavior? | Source reason |
+|---|---|---|
+| Pending WAIF OwnRefs | No from the later VM/current graph | Owning VM is released; closure captured at defer time, `engine/waif_lifecycle.go:43-47,69-72` |
+| Pending DirectRoots | Not from OwnRefs alone | Includes pending roots and only direct WAIFs; OwnRefs excludes pending and includes transitive descendants, `vm/anonymous_gc.go:71-103,133-157` |
+| WAIF batch L | Could recompute only before effects with unchanged inputs | Loop intentionally uses one computed set, `engine/waif_lifecycle.go:311-316` |
+| Anonymous frozen candidates | Not from post-callback store | Callback can create new objects, `vm/anonymous_gc.go:455-460` |
+| Current/retained persistent WAIF caches | Yes by recomputation at query time | Cache returns recomputable top/closure, `store_reachability.go:368-406`; CPU/scan cost changes |
+| Canonicalization candidate closures | Yes only while preserving the sampled adjacency | Used for sorting and coverage; rewalking later may encounter changed payloads and costs another traversal, `vm/anonymous_gc.go:188-215,228-251` |
+
+DirectRoots cannot replace OwnRefs by being expanded later: it admits a different
+root population and later retained adjacency may differ. OwnRefs cannot replace
+DirectRoots: it has forgotten whether a descendant was directly owned, which
+matters to canonical pending roots. The existing implementation already delays
+expensive canonicalization until shutdown while capturing only its necessary
+direct inputs (`engine/waif_lifecycle.go:73-77`). This is an existing successful
+elimination of eagerly derived state, not a new opportunity to count again.
+
+Cache deletion is the honest larger candidate, but not a free simplification.
+The top-level list and expanded closure have different invalidation inputs:
+`persistentWaifRootsEntry` stores `epoch, top, graphEpoch, closure`
+(`store_reachability.go:299-304`). On a graph-only change, top is reused (:378-394).
+Removing both means scanning current object properties on subsequent queries;
+removing just top loses that reuse. Source comments report the motivating scan
+cost (:350-357), but are not a fresh benchmark. No evidence here supports paying
+that cost to save cache code while preserving Q's performance goal. Conversely,
+the algebra does not prove the cache must stay forever: matched workload evidence
+could justify removal. Do not replace it with a new cache under another name.
+
+Pending entries repeat OwnRefs/DirectRoots headers for each WAIF
+(`engine/waif_lifecycle.go:91-98`; `finalization/coordinator.go:20-24`), but share
+the same slice/map storage. Grouping by producer would save repeated metadata,
+not repeated closure payloads, and adds group iteration/shutdown-position handling.
+It is not a demonstrated code deletion or a reason for a new batch abstraction.
+
+### Two potential shared operations, with ownership and adapters counted
+
+The first is ordinary value closure. Put shared value recursion in `types`,
+which already owns WAIF payload access and ordered identity sets. Replace bodies
+of `vm.collectWaifsInto` and `store.collectWaifsInto`, then evaluate
+`vm.collectAnonymousRefsForGCVisited` and
+`store.collectAnonymousObjectRefsVisited` against the same traversal. Direct
+collection covers `vm.collectDirectFinalizationRoots` and
+`store.collectTopLevelWaifsInto`; retain their output choices at callers.
+Store anonymous resolution/locking, VM root enumeration, phase scheduling and
+checkpoint rewriting stay where they are. Adapters for output filtering and
+WAIF property choice count as replacement code, not free glue. Preserve existing
+`MayHoldFinalizable` fast paths rather than visiting unrelated values gratuitously.
+
+The second operation is ordered cover reduction. Given candidates with their
+closures and a preexisting covered set: order by descending closure size and the
+existing tie-break; keep an uncovered candidate; union its closure. Both
+`CanonicalizePendingFinalizationValues` and `canonicalWaifRoots` implement this
+(`vm/anonymous_gc.go:195-215,237-251`). Anonymous ties use numeric ID; WAIF ties
+use input order. The resulting algorithm is common; the set representations and
+closure producers differ. A shared reducer is worthwhile only if its typed-set
+adapters and ordering inputs are smaller than these short loops. Do not force
+both onto boxed entity keys or allocate a second representation just to share it.
+`AppendPendingFinalizations` is incremental and order-sensitive
+(`store_pending.go:25-73,138-161`); it is not automatically the same batch reducer.
+
+Unmeasured revised ledger: value recursion offers roughly 135–215 lines of gross
+duplicate bodies, replaced by perhaps 75–145 lines including adapters, yielding
+anything from little change to roughly a hundred lines removed. Shared cover
+reduction targets approximately 40 lines of ordering/selection loops, but about
+20–40 lines of common implementation plus 10–25 adapter lines may consume all
+the saving. These are planning ranges, not measured diffs. Cache removal has no
+accepted performance case; retained captures have no behavior-preserving deletion
+case. No owner registry, root/view object, reference color, generic graph heap or
+mode propagation machinery belongs in this bounded change.
+
+**Revised verdict:** the small algebra is `closure + set operations + ordered
+effects`. Pending is a candidate list kept out of live roots. This is simpler
+than the previous typed-edge proposal and explains the same source behavior.
+It makes a compact traversal refactor plausible and identifies a second possible
+shared reducer. It has not exposed a safe large deletion of stored state: most
+captures preserve information across time, while caches trade code for real
+recomputation. Finish at this bounded design unless measurements establish a
+cache-removal opportunity. No code, tests, benchmarks or publication were done.
