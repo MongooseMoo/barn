@@ -17,10 +17,12 @@ Baseline paired run 40444307193 completed: 114 failures, with raw XML and
 admission/inventory evidence under .tmp/mct-baseline-40444307193. Its three
 Toast profiles succeeded. Barn PR #552 contains system hook context, startup,
 lag, error and input callback changes. Paired run 40445777195 tests the earlier
-callback changes; its Toast admission succeeded and Barn execution is running.
-Latest PR unit CI rejected reserving compiler locals for command context.
-The replacement keeps that context in frame state without changing source
-variables, their limits, or existing assertions; that repair is the next commit.
+callback changes; it completed with 91 failures. The subsequent paired run
+40448717670 tests the context, initializer, setter and builtin-marker fixes.
+Login fixes are also pushed. Latest unit CI exposed plain-eval frames retaining
+player #-1 while their execution context has the task owner; initialize the
+frame player from that context so forks inherit it correctly. Compiler-local
+reservation was replaced by frame state without changing source variable limits.
 Its first unit CI failed because TestCheckpointedConnectionsDisconnectBeforeServerStarted
 expected player #0 instead of the source-confirmed #-1. Corrected that existing
 expectation without changing its ordering assertion.

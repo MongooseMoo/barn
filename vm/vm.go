@@ -260,7 +260,7 @@ func (vm *VM) beginProgram(prog *bytecode.Program) {
 		localsOnStack: true,
 		This:          types.ObjNothing,
 		ThisValue:     types.None,
-		Player:        types.ObjNothing,
+		Player:        vm.Context.Player,
 		Verb:          "",
 		Caller:        types.ObjNothing,
 		VerbDebug:     true, // Default: errors propagate as exceptions
