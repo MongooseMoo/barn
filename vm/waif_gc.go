@@ -4,34 +4,19 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func (vm *VM) collectDirectWaifsForGC(v types.Value) {
-	if !v.MayHoldFinalizable() {
+func (vm *VM) recordPendingWaif(v types.Value) {
+	if vm.pendingWaifIDs == nil {
+		vm.pendingWaifIDs = make(map[types.WaifIdentity]struct{}, len(vm.PendingWaifs))
+		for _, existing := range vm.PendingWaifs {
+			vm.pendingWaifIDs[existing.WaifIdentity()] = struct{}{}
+		}
+	}
+	id := v.WaifIdentity()
+	if _, exists := vm.pendingWaifIDs[id]; exists {
 		return
 	}
-	switch v.Type() {
-	case types.TYPE_WAIF:
-		if vm.pendingWaifIDs == nil {
-			vm.pendingWaifIDs = make(map[types.WaifIdentity]struct{}, len(vm.PendingWaifs))
-			for _, existing := range vm.PendingWaifs {
-				vm.pendingWaifIDs[existing.WaifIdentity()] = struct{}{}
-			}
-		}
-		id := v.WaifIdentity()
-		if _, exists := vm.pendingWaifIDs[id]; exists {
-			return
-		}
-		vm.pendingWaifIDs[id] = struct{}{}
-		vm.PendingWaifs = append(vm.PendingWaifs, v)
-	case types.TYPE_LIST:
-		for _, elem := range v.Elements() {
-			vm.collectDirectWaifsForGC(elem)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range v.Pairs() {
-			vm.collectDirectWaifsForGC(pair[0])
-			vm.collectDirectWaifsForGC(pair[1])
-		}
-	}
+	vm.pendingWaifIDs[id] = struct{}{}
+	vm.PendingWaifs = append(vm.PendingWaifs, v)
 }
 
 // TakePendingWaifs returns waifs whose frame references have gone out of scope.

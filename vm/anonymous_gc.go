@@ -30,31 +30,13 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 }
 
 func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			refs[value.ID()] = struct{}{}
+	value.VisitDirectFinalizationRefs(func(ref types.Value) {
+		if ref.IsAnonymous() {
+			refs[ref.ID()] = struct{}{}
+		} else if !pendingFinalizationValueInList(ref, *waifs) {
+			*waifs = append(*waifs, ref)
 		}
-	case types.TYPE_WAIF:
-		if !pendingFinalizationValueInList(value, *waifs) {
-			*waifs = append(*waifs, value)
-		}
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectDirectFinalizationRoots(elem, refs, waifs)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectDirectFinalizationRoots(pair[0], refs, waifs)
-			collectDirectFinalizationRoots(pair[1], refs, waifs)
-		}
-	}
+	})
 }
 
 func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
@@ -249,7 +231,6 @@ func releasePendingFinalizationScratch(scratch *pendingFinalizationScratch) {
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	var scratch *pendingFinalizationScratch
 	frame.visitFinalizableCandidates(func(value types.Value) {
-		vm.collectDirectWaifsForGC(value)
 		if scratch == nil {
 			scratch = pendingFinalizationScratchPool.Get().(*pendingFinalizationScratch)
 		}
@@ -261,6 +242,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	}
 }
 
+// collectPendingFinalizationsFromValue records both pending lists from one walk.
 func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 	if !value.MayHoldFinalizable() {
 		return
@@ -305,6 +287,7 @@ func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waif
 		}
 	}
 	for _, value := range waifs {
+		vm.recordPendingWaif(value)
 		id := value.WaifIdentity()
 		if _, exists := vm.pendingFinalizationWaifIDs[id]; !exists {
 			vm.pendingFinalizationWaifIDs[id] = struct{}{}
