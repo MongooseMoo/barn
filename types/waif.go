@@ -39,6 +39,13 @@ type waifRep struct {
 	properties map[string]Value // property values
 	domain     *WaifDomain
 	images     []*WaifImage // oldest to newest; each published image is immutable
+	recycled   atomic.Bool  // finalizer has started, including a suspended callback
+}
+
+// BeginWaifRecycle claims the one finalizer invocation for this identity.
+// Its suspended frame can release this same value back into the GC queue.
+func (v Value) BeginWaifRecycle() bool {
+	return v.waifRep().recycled.CompareAndSwap(false, true)
 }
 
 // NewWaif creates a waif value with the given class and owner. Each call allocates

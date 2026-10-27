@@ -117,13 +117,13 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		// contexts retain CallVerbInContext's shared transaction/caller semantics;
 		// that path handles sweep ownership itself.
 		if s.isSweepOwnedContext(tc) {
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipSweep, 0, nil)
+			return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, types.ObjNothing, "", vmOwnershipSweep, 0, nil)
 		}
 		if ownerID, claimed, attributable := s.executionContextClaim(tc); claimed {
 			if !attributable {
 				ownerID = ambiguousExecutionOwnerID
 			}
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID, tc.Admission)
+			return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, player, "", vmOwnershipExecution, ownerID, tc.Admission)
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	}

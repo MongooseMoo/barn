@@ -40,6 +40,19 @@ suite, preserve raw evidence, and avoid duplicating CI locally. Do not change or
 skip the new tests to hide Barn failures. Reuse existing server task dispatch,
 VM callbacks and checkpoint machinery for implementation.
 
+Deferred-finalizer slice (about 70 added lines, deleting the separate WAIF
+runner): extend the existing sweep-owned standalone verb runner to retain its
+VM on suspension in a registered task. Use the existing sweep barrier for its
+first execution and ordinary scheduler ownership thereafter. Accept a typed
+receiver so WAIF and anonymous hooks share this path, with player/caller #-1.
+Toast server.cc:617-686 runs these hooks as root server tasks. Retain the current
+anonymous cleanup and frozen-candidate ordering after the initial hook slice.
+Claim each WAIF finalizer once on its existing identity: the suspended callback
+retains this and later releases it back into the GC queue. This mirrors Toast's
+destroyed_waifs boolean and avoids retaining an ever-growing runtime identity map.
+The native WAIF checkpoint format does not save that boolean (waif.cc:858-920);
+keep its existing portable format.
+
 Smallest-change plan is being established from the test inventory and source;
 line estimates must follow the actual failures, not an invented feature design.
 Initial source search finds no start-line/start-script or handle_lagging_task
