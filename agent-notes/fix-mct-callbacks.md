@@ -113,6 +113,26 @@ callback frame so normal return replaces the indexed container. Keep the RHS
 expression result already on the operand stack. Persist the destination through
 the existing VM metadata for suspension/checkpoint. Source: execute.cc:1183-1213.
 
+Builtin stack slice (about 90 lines): record the invoking builtin name and
+continuation PC on callback activations. Expand those into observation-only
+frames for callers(), task_stack() and exception payloads; permission lookup
+continues to use actual verb activations. Preserve the metadata on checkpoint.
+Toast execute.cc:452-516 and objects.cc call-pack PCs establish the shape.
+
+Initializer CI exposed an obsolete fixture assumption: the inline-threaded-sort
+test used create() to enter a throwaway VM. Initialization now correctly shares
+the resumable caller. The fixture instead enters through Runtime.CallVerb,
+the actual synchronous host path; its return-flow, valid-object and sorted-value
+assertions are unchanged. Ordinary initializer suspension is covered by MCT.
+
+Paired run 40445777195 completed with 91 failures; evidence is retained under
+.tmp/mct-candidate-40445777195. Native range-error output regressed because
+ErrorMessage exposed VM diagnostics; remove diagnostic substitution when
+constructing native exception values, retaining explicit raise() payloads.
+Fork callback payloads also fail their originating frame assertion: fork
+capture used Context.ThisValue (integer zero at a normal root) rather than
+the active frame's None/typed receiver. Copy the activation fields directly.
+
 ## Surprises
 
 #163 was not green when requested: trusted validation reported

@@ -82,15 +82,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	playerObj := frame.Player
 	callerObj := frame.Caller
 	verbStr := frame.Verb
-	if vm.Context != nil {
-		if vm.Context.Player != types.ObjNothing {
-			playerObj = vm.Context.Player
-		}
-	}
-	thisValue := types.None
-	if vm.Context != nil {
-		thisValue = vm.Context.ThisValue
-	}
+	thisValue := frame.ThisValue
 
 	forkInfo := &types.ForkInfo{
 		Delay:       time.Duration(delaySeconds * float64(time.Second)),

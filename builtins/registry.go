@@ -26,7 +26,7 @@ type Execution struct {
 	PushProtectedVerb    func(types.Value, dbstore.VerbView, types.ObjID, []types.Value) types.Result
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
-	PushInitialize       func(types.Value, []types.Value) types.Result
+	PushInitialize       func(types.Value, []types.Value, string) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
 	// CanSuspend reports that a FlowSuspend returned now is honored: the call

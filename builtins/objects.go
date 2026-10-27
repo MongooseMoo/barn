@@ -272,7 +272,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		created = types.NewAnon(newID)
 	}
 	if ctx.PushInitialize != nil {
-		return ctx.PushInitialize(created, initArgs)
+		return ctx.PushInitialize(created, initArgs, "create")
 	}
 	// The :initialize verb receives the init args and can set up the new object
 	// If verb not found (E_VERBNF), that's fine - just means no initialize

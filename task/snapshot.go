@@ -89,6 +89,8 @@ type VMFrameSnapshot struct {
 	VerbDebug           bool
 	DiscardReturn       bool
 	ReturnLocal         int
+	BuiltinCaller       string
+	BuiltinPC           int
 	IsVerbCall          bool
 	IsEvalFrame         bool
 	ThreadMode          bool // this activation's own set_thread_mode() state; Toast persists it as the threaded flag

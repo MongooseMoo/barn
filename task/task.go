@@ -569,6 +569,15 @@ func (t *State) SetTopFrameProgrammer(who types.ObjID) bool {
 	return true
 }
 
+func (t *State) SetTopFrameBuiltinCaller(name string, pc int) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if len(t.CallStack) > 0 {
+		frame := &t.CallStack[len(t.CallStack)-1]
+		frame.BuiltinCaller, frame.BuiltinPC = name, pc
+	}
+}
+
 // UpdateLineNumber updates the line number of the top activation frame
 func (t *State) UpdateLineNumber(line int) {
 	t.Mu.Lock()

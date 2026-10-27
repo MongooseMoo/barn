@@ -26,6 +26,7 @@ func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) ty
 	frame := vm.CurrentFrame()
 	frame.DiscardReturn = true
 	frame.RecycleContinuation = state
+	vm.markBuiltinCaller("recycle", 2)
 	return types.Result{Flow: types.FlowBuiltinPush}
 }
 

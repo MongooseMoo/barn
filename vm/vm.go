@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -191,6 +190,8 @@ type StackFrame struct {
 	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
 	DiscardReturn      bool                 // Caller consumes this verb only for side effects
 	ReturnLocal        int                  // One-based caller local receiving a WAIF setter result
+	BuiltinCaller      string
+	BuiltinPC          int
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
@@ -1463,14 +1464,6 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
 			message := errCode.Message()
-			prefix := errCode.String() + ":"
-			if detail := err.Error(); strings.HasPrefix(detail, prefix) {
-				if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
-					if !strings.EqualFold(detail, message) {
-						message = detail
-					}
-				}
-			}
 			exceptionValue = types.NewList([]types.Value{
 				types.NewErr(errCode),
 				types.NewStr(message),

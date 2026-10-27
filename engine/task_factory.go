@@ -262,6 +262,7 @@ func (s *Runtime) newForkVM(taskID int64, forkInfo *types.ForkInfo, forkProg *by
 	frame := childVM.PrepareVerbFrame(forkProg,
 		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
 		forkInfo.Verb, forkInfo.VerbLoc, nil)
+	frame.ThisValue = forkInfo.ThisValue
 	// Mark as verb-call so syncTaskLineNumbers includes this frame
 	// when syncing line numbers to the task's CallStack.
 	frame.IsVerbCall = true

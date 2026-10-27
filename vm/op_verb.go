@@ -289,7 +289,15 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	return nil
 }
 
-func (vm *VM) pushInitialize(created types.Value, args []types.Value) types.Result {
+func (vm *VM) markBuiltinCaller(name string, pc int) {
+	frame := vm.CurrentFrame()
+	frame.BuiltinCaller, frame.BuiltinPC = name, pc
+	if vm.Task != nil {
+		vm.Task.SetTopFrameBuiltinCaller(name, pc)
+	}
+}
+
+func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin string) types.Result {
 	// The builtin returns the created object after the callback, regardless of
 	// the callback's normal result. The ordinary stack preserves it on suspend.
 	vm.Push(created)
@@ -301,6 +309,7 @@ func (vm *VM) pushInitialize(created types.Value, args []types.Value) types.Resu
 		return moveLifecycleErrorResult(err)
 	}
 	vm.CurrentFrame().DiscardReturn = true
+	vm.markBuiltinCaller(builtin, 2)
 	return types.Result{Flow: types.FlowBuiltinPush}
 }
 

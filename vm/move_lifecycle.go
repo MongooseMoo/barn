@@ -57,6 +57,7 @@ func (vm *VM) pushMoveLifecycleVerb(state *task.MoveContinuationSnapshot, target
 	}
 	frame.DiscardReturn = true
 	frame.MoveContinuation = cloneMoveContinuation(state)
+	vm.markBuiltinCaller("move", state.Stage+1)
 	return true, nil
 }
 

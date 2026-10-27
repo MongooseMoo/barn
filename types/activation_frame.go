@@ -5,12 +5,14 @@ import "strings"
 // ActivationFrame represents a single verb call on the call stack.
 // This is what callers() returns.
 type ActivationFrame struct {
-	This                    ObjID                    // Object this verb is called on (prototype for primitives)
-	ThisValue               Value                    // For primitive prototype calls: the actual primitive value
-	Player                  ObjID                    // Player who initiated this task
-	Programmer              ObjID                    // Programmer (for permissions)
-	Caller                  ObjID                    // Object that called this verb
-	Verb                    string                   // Verb name as invoked (callers()/task_stack())
+	This                    ObjID  // Object this verb is called on (prototype for primitives)
+	ThisValue               Value  // For primitive prototype calls: the actual primitive value
+	Player                  ObjID  // Player who initiated this task
+	Programmer              ObjID  // Programmer (for permissions)
+	Caller                  ObjID  // Object that called this verb
+	Verb                    string // Verb name as invoked (callers()/task_stack())
+	BuiltinCaller           string // Builtin whose continuation invoked this activation
+	BuiltinPC               int
 	StoredVerb              string                   // Verb's stored name spec incl. wildcards; used by printed tracebacks
 	StoredVerbNames         []string                 // Lazy form used by live frames; immutable verb storage owns the backing array
 	VerbLoc                 ObjID                    // Object where verb is defined
@@ -21,6 +23,27 @@ type ActivationFrame struct {
 	SourceLine              string                   // Source text at LineNumber (best-effort, for debugging/logging)
 	ServerInitiated         bool                     // True if this is a server-invoked call (do_login_command, etc.)
 	IsEvalFrame             bool                     // True if this is an eval() infrastructure frame (excluded from tracebacks)
+}
+
+// ExpandBuiltinFrames inserts native continuation entries below their callback
+// activations for language-visible stacks. The input remains the verb stack.
+func ExpandBuiltinFrames(stack []ActivationFrame) []ActivationFrame {
+	result := make([]ActivationFrame, 0, len(stack))
+	for index, frame := range stack {
+		if index > 0 && frame.BuiltinCaller != "" {
+			result = append(result, ActivationFrame{
+				This: ObjNothing, ThisValue: None, Programmer: ObjNothing,
+				VerbLoc: ObjNothing, Player: frame.Player,
+				Verb: frame.BuiltinCaller, StoredVerb: frame.BuiltinCaller,
+				LineNumber:              frame.BuiltinPC,
+				RuntimeVariables:        frame.RuntimeVariables,
+				RuntimeVariableSnapshot: frame.RuntimeVariableSnapshot,
+			})
+		}
+		frame.BuiltinCaller, frame.BuiltinPC = "", 0
+		result = append(result, frame)
+	}
+	return result
 }
 
 // TracebackVerb returns the stored verb name spec without requiring callers to
