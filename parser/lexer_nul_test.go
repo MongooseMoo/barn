@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestRawNULSourceRejected(t *testing.T) {
@@ -39,7 +39,7 @@ func TestRawNULSourceRejected(t *testing.T) {
 					t.Fatal("raw NUL silently became EOF")
 				}
 			}
-			want := verb.Position{Line: tc.line, Column: tc.column, Offset: strings.IndexByte(tc.source, 0)}
+			want := ir.Position{Line: tc.line, Column: tc.column, Offset: strings.IndexByte(tc.source, 0)}
 			if illegal.Position != want || !strings.Contains(illegal.Value, "NUL") {
 				t.Fatalf("token=%+v want illegal NUL at %+v", illegal, want)
 			}

@@ -201,8 +201,9 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
 
 - **Source to execution:** `parser` (lexer, AST, unparser) → `compiler` (owns
   complete source compilation, with a cache keyed by `sourcekey`) → `bytecode`
-  (opcodes, verifier, disassembler) → `vm`. `verb` holds the
-  language-neutral verb IR. `command` does player command parsing and
+  (opcodes, verifier, disassembler) → `vm`. `ir` holds the
+  semantic program IR. `preposition` owns the shared preposition vocabulary.
+  `command` does player command parsing and
   verb/object matching.
 - **State:** `db/store` is an MVCC store. Tasks read at a snapshot timestamp and
   stage writes, and commits validate their read sets. A stale read aborts, and

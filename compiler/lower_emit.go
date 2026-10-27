@@ -6,8 +6,8 @@ import (
 	"math"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // emit adds an opcode to the bytecode
@@ -175,7 +175,7 @@ func (c *lowerer) currentOffset() int {
 // trackLine records a line number entry if the semantic node's line differs
 // from the last recorded line. This populates Program.LineInfo so that runtime
 // errors can include source line numbers.
-func (c *lowerer) trackLine(node verb.Node) {
+func (c *lowerer) trackLine(node ir.Node) {
 	line := node.Position().Line
 	if line > 0 && line != c.lastLine {
 		c.program.LineInfo = append(c.program.LineInfo, bytecode.LineEntry{

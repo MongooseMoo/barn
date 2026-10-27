@@ -4,14 +4,14 @@ import (
 	"fmt"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // compileLiteral compiles a literal value
-func (c *lowerer) compileLiteral(n *verb.LiteralExpr) error {
+func (c *lowerer) compileLiteral(n *ir.LiteralExpr) error {
 	// Check if it's a small integer that can use immediate opcode
-	if n.Kind == verb.LiteralInt {
+	if n.Kind == ir.LiteralInt {
 		c.emitIntLiteral(n.IntValue)
 		return nil
 	}
@@ -43,7 +43,7 @@ var builtinConstants = map[string]types.Value{
 }
 
 // compileIdentifier compiles a variable reference
-func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
+func (c *lowerer) compileIdentifier(n *ir.IdentifierExpr) error {
 	idx := c.declareVariable(n.Name)
 
 	c.emit(bytecode.OP_GET_VAR)
@@ -52,18 +52,18 @@ func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
 }
 
 // compileUnary compiles a unary expression
-func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
+func (c *lowerer) compileUnary(n *ir.UnaryExpr) error {
 	// Toast folds a negated float literal before constant-pool insertion. This is
 	// observable for signed zero: a standalone -0.0 keeps its sign, while an
 	// earlier +0.0 constant wins the pool's equality-based zero deduplication.
 	// Integer literals fold the same way, so `-5` is one tick-free push rather
 	// than a push and an OP_UNARY_MINUS.
-	if n.Operator == verb.UnaryNegate {
-		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralFloat {
+	if n.Operator == ir.UnaryNegate {
+		if literal, ok := n.Operand.(*ir.LiteralExpr); ok && literal.Kind == ir.LiteralFloat {
 			c.emitConstant(types.NewFloat(-literal.FloatValue))
 			return nil
 		}
-		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralInt {
+		if literal, ok := n.Operand.(*ir.LiteralExpr); ok && literal.Kind == ir.LiteralInt {
 			c.emitIntLiteral(-literal.IntValue)
 			return nil
 		}
@@ -76,11 +76,11 @@ func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
 
 	// Emit operator
 	switch n.Operator {
-	case verb.UnaryNegate:
+	case ir.UnaryNegate:
 		c.emit(bytecode.OP_NEG)
-	case verb.UnaryNot:
+	case ir.UnaryNot:
 		c.emit(bytecode.OP_NOT)
-	case verb.UnaryBitwiseNot:
+	case ir.UnaryBitwiseNot:
 		c.emit(bytecode.OP_BITNOT)
 	default:
 		return fmt.Errorf("unknown unary operator: %v", n.Operator)
@@ -90,12 +90,12 @@ func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
 }
 
 // compileBinary compiles a binary expression
-func (c *lowerer) compileBinary(n *verb.BinaryExpr) error {
+func (c *lowerer) compileBinary(n *ir.BinaryExpr) error {
 	// Short-circuit for && and ||
-	if n.Operator == verb.BinaryAnd {
+	if n.Operator == ir.BinaryAnd {
 		return c.compileShortCircuitAnd(n)
 	}
-	if n.Operator == verb.BinaryOr {
+	if n.Operator == ir.BinaryOr {
 		return c.compileShortCircuitOr(n)
 	}
 
@@ -111,41 +111,41 @@ func (c *lowerer) compileBinary(n *verb.BinaryExpr) error {
 
 	// Emit operator
 	switch n.Operator {
-	case verb.BinaryAdd:
+	case ir.BinaryAdd:
 		c.emit(bytecode.OP_ADD)
-	case verb.BinarySubtract:
+	case ir.BinarySubtract:
 		c.emit(bytecode.OP_SUB)
-	case verb.BinaryMultiply:
+	case ir.BinaryMultiply:
 		c.emit(bytecode.OP_MUL)
-	case verb.BinaryDivide:
+	case ir.BinaryDivide:
 		c.emit(bytecode.OP_DIV)
-	case verb.BinaryModulo:
+	case ir.BinaryModulo:
 		c.emit(bytecode.OP_MOD)
-	case verb.BinaryPower:
+	case ir.BinaryPower:
 		c.emit(bytecode.OP_POW)
-	case verb.BinaryEqual:
+	case ir.BinaryEqual:
 		c.emit(bytecode.OP_EQ)
-	case verb.BinaryNotEqual:
+	case ir.BinaryNotEqual:
 		c.emit(bytecode.OP_NE)
-	case verb.BinaryLess:
+	case ir.BinaryLess:
 		c.emit(bytecode.OP_LT)
-	case verb.BinaryLessEqual:
+	case ir.BinaryLessEqual:
 		c.emit(bytecode.OP_LE)
-	case verb.BinaryGreater:
+	case ir.BinaryGreater:
 		c.emit(bytecode.OP_GT)
-	case verb.BinaryGreaterEqual:
+	case ir.BinaryGreaterEqual:
 		c.emit(bytecode.OP_GE)
-	case verb.BinaryIn:
+	case ir.BinaryIn:
 		c.emit(bytecode.OP_IN)
-	case verb.BinaryBitAnd:
+	case ir.BinaryBitAnd:
 		c.emit(bytecode.OP_BITAND)
-	case verb.BinaryBitOr:
+	case ir.BinaryBitOr:
 		c.emit(bytecode.OP_BITOR)
-	case verb.BinaryBitXor:
+	case ir.BinaryBitXor:
 		c.emit(bytecode.OP_BITXOR)
-	case verb.BinaryShiftLeft:
+	case ir.BinaryShiftLeft:
 		c.emit(bytecode.OP_SHL)
-	case verb.BinaryShiftRight:
+	case ir.BinaryShiftRight:
 		c.emit(bytecode.OP_SHR)
 	default:
 		return fmt.Errorf("unknown binary operator: %v", n.Operator)
@@ -155,7 +155,7 @@ func (c *lowerer) compileBinary(n *verb.BinaryExpr) error {
 }
 
 // compileShortCircuitAnd compiles && with short-circuit evaluation
-func (c *lowerer) compileShortCircuitAnd(n *verb.BinaryExpr) error {
+func (c *lowerer) compileShortCircuitAnd(n *ir.BinaryExpr) error {
 	// Compile left
 	if err := c.compileNode(n.Left); err != nil {
 		return err
@@ -175,7 +175,7 @@ func (c *lowerer) compileShortCircuitAnd(n *verb.BinaryExpr) error {
 }
 
 // compileShortCircuitOr compiles || with short-circuit evaluation
-func (c *lowerer) compileShortCircuitOr(n *verb.BinaryExpr) error {
+func (c *lowerer) compileShortCircuitOr(n *ir.BinaryExpr) error {
 	// Compile left
 	if err := c.compileNode(n.Left); err != nil {
 		return err
@@ -195,7 +195,7 @@ func (c *lowerer) compileShortCircuitOr(n *verb.BinaryExpr) error {
 }
 
 // compileTernary compiles a ternary expression
-func (c *lowerer) compileTernary(n *verb.TernaryExpr) error {
+func (c *lowerer) compileTernary(n *ir.TernaryExpr) error {
 	// Compile condition
 	if err := c.compileNode(n.Condition); err != nil {
 		return err
@@ -226,7 +226,7 @@ func (c *lowerer) compileTernary(n *verb.TernaryExpr) error {
 // Stub implementations for other compile methods
 // These will be completed based on the actual requirements
 
-func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
+func (c *lowerer) compileBuiltinCall(n *ir.BuiltinCallExpr) error {
 	if c.registry == nil {
 		return fmt.Errorf("builtin call compilation requires a builtins registry")
 	}
@@ -249,7 +249,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 			c.emit(bytecode.OP_MAKE_LIST)
 			c.emitByte(0)
 			for _, arg := range n.Args {
-				if splice, ok := arg.(*verb.SpliceExpr); ok {
+				if splice, ok := arg.(*ir.SpliceExpr); ok {
 					if err := c.compileNode(splice.Expr); err != nil {
 						return err
 					}
@@ -290,7 +290,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 		c.emit(bytecode.OP_MAKE_LIST)
 		c.emitByte(0)
 		for _, arg := range n.Args {
-			if splice, ok := arg.(*verb.SpliceExpr); ok {
+			if splice, ok := arg.(*ir.SpliceExpr); ok {
 				if err := c.compileNode(splice.Expr); err != nil {
 					return err
 				}
@@ -317,8 +317,8 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
-	if prop, ok := n.Expr.(*verb.PropertyExpr); ok && prop.Property != "" && !containsIndexBoundary(n.Index) {
+func (c *lowerer) compileIndex(n *ir.IndexExpr) error {
+	if prop, ok := n.Expr.(*ir.PropertyExpr); ok && prop.Property != "" && !containsIndexBoundary(n.Index) {
 		return c.compileKeyedPropertyIndex(prop, n.Index)
 	}
 
@@ -358,7 +358,7 @@ func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
 // ^ or $ in key, so the property's value reaches nothing but the index. The
 // store can then depend on the one entry when the value is a map. Evaluation
 // order, errors and ticks are those of GET_PROP then INDEX.
-func (c *lowerer) compileKeyedPropertyIndex(prop *verb.PropertyExpr, index verb.Expr) error {
+func (c *lowerer) compileKeyedPropertyIndex(prop *ir.PropertyExpr, index ir.Expr) error {
 	if err := c.compileNode(prop.Expr); err != nil {
 		return err
 	}
@@ -373,7 +373,7 @@ func (c *lowerer) compileKeyedPropertyIndex(prop *verb.PropertyExpr, index verb.
 	return nil
 }
 
-func (c *lowerer) compileRange(n *verb.RangeExpr) error {
+func (c *lowerer) compileRange(n *ir.RangeExpr) error {
 	// Compile collection
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -413,7 +413,7 @@ func (c *lowerer) compileRange(n *verb.RangeExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileProperty(n *verb.PropertyExpr) error {
+func (c *lowerer) compileProperty(n *ir.PropertyExpr) error {
 	// Compile the object expression (pushes object onto stack)
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -436,7 +436,7 @@ func (c *lowerer) compileProperty(n *verb.PropertyExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileVerbCall(n *verb.VerbCallExpr) error {
+func (c *lowerer) compileVerbCall(n *ir.VerbCallExpr) error {
 	// Compile the object expression (pushes object onto stack)
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -468,7 +468,7 @@ func (c *lowerer) compileVerbCall(n *verb.VerbCallExpr) error {
 		c.emit(bytecode.OP_MAKE_LIST)
 		c.emitByte(0)
 		for _, arg := range n.Args {
-			if splice, ok := arg.(*verb.SpliceExpr); ok {
+			if splice, ok := arg.(*ir.SpliceExpr); ok {
 				if err := c.compileNode(splice.Expr); err != nil {
 					return err
 				}
@@ -513,7 +513,7 @@ func (c *lowerer) compileVerbCall(n *verb.VerbCallExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileSplice(n *verb.SpliceExpr) error {
+func (c *lowerer) compileSplice(n *ir.SpliceExpr) error {
 	// Compile the expression to splice
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -524,7 +524,7 @@ func (c *lowerer) compileSplice(n *verb.SpliceExpr) error {
 	return nil
 }
 
-func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
+func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 	// Catch expressions (`expr ! codes => default`) are compiled as a
 	// single-clause try/except that leaves the result on the stack.
 	//
@@ -619,9 +619,9 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 }
 
 // hasSpliceArgs checks if any argument in a list is a splice expression.
-func hasSpliceArgs(args []verb.Expr) bool {
+func hasSpliceArgs(args []ir.Expr) bool {
 	for _, arg := range args {
-		if _, ok := arg.(*verb.SpliceExpr); ok {
+		if _, ok := arg.(*ir.SpliceExpr); ok {
 			return true
 		}
 	}
@@ -632,13 +632,13 @@ func hasSpliceArgs(args []verb.Expr) bool {
 // element becomes a singleton list (OP_MAKE_SINGLETON_LIST, one tick) or, when
 // spliced, is checked to be a list (OP_CHECK_LIST_FOR_SPLICE, one tick); later
 // elements are appended or spliced tick-free.
-func (c *lowerer) compileList(n *verb.ListExpr) error {
+func (c *lowerer) compileList(n *ir.ListExpr) error {
 	if len(n.Elements) == 0 {
 		c.emit(bytecode.OP_MAKE_LIST)
 		c.emitByte(0)
 		return nil
 	}
-	if splice, ok := n.Elements[0].(*verb.SpliceExpr); ok {
+	if splice, ok := n.Elements[0].(*ir.SpliceExpr); ok {
 		if err := c.compileNode(splice.Expr); err != nil {
 			return err
 		}
@@ -652,7 +652,7 @@ func (c *lowerer) compileList(n *verb.ListExpr) error {
 	}
 
 	for _, elem := range n.Elements[1:] {
-		if splice, ok := elem.(*verb.SpliceExpr); ok {
+		if splice, ok := elem.(*ir.SpliceExpr); ok {
 			// Splice: compile inner expression, then extend
 			if err := c.compileNode(splice.Expr); err != nil {
 				return err
@@ -673,7 +673,7 @@ func (c *lowerer) compileList(n *verb.ListExpr) error {
 // compileListRange compiles a range list: {start..end}
 // Emits: [start] [end] bytecode.OP_LIST_RANGE
 // VM handler builds the list at runtime.
-func (c *lowerer) compileListRange(n *verb.ListRangeExpr) error {
+func (c *lowerer) compileListRange(n *ir.ListRangeExpr) error {
 	// Compile start expression
 	if err := c.compileNode(n.Start); err != nil {
 		return err
@@ -690,7 +690,7 @@ func (c *lowerer) compileListRange(n *verb.ListRangeExpr) error {
 }
 
 // compileMap compiles a map literal: [key -> value, ...]
-func (c *lowerer) compileMap(n *verb.MapExpr) error {
+func (c *lowerer) compileMap(n *ir.MapExpr) error {
 	// Build map incrementally in a temp local via bytecode.OP_INDEX_SET.
 	// Toast's OP_MAP_CREATE / OP_MAP_INSERT are tick-free.
 	tmp := c.declareInternalVariable(c.tempVar("maplit"))

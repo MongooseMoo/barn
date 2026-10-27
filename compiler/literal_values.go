@@ -3,23 +3,23 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
-func valueFromLiteral(lit *verb.LiteralExpr) (types.Value, error) {
+func valueFromLiteral(lit *ir.LiteralExpr) (types.Value, error) {
 	switch lit.Kind {
-	case verb.LiteralInt:
+	case ir.LiteralInt:
 		return types.NewInt(lit.IntValue), nil
-	case verb.LiteralFloat:
+	case ir.LiteralFloat:
 		return types.NewFloat(lit.FloatValue), nil
-	case verb.LiteralString:
+	case ir.LiteralString:
 		return types.NewStr(lit.StringValue), nil
-	case verb.LiteralBool:
+	case ir.LiteralBool:
 		return types.NewBool(lit.BoolValue), nil
-	case verb.LiteralObj:
+	case ir.LiteralObj:
 		return types.NewObj(types.ObjID(lit.ObjID)), nil
-	case verb.LiteralErr:
+	case ir.LiteralErr:
 		code, ok := errorNameToCode(lit.ErrorName)
 		if !ok {
 			return types.None, fmt.Errorf("unknown error code: %s", lit.ErrorName)

@@ -6,13 +6,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 // ParseError retains the complete offending source position. Msg remains the
 // line-only MOO-facing diagnostic text; Detail preserves its specific cause.
 type ParseError struct {
-	Position verb.Position
+	Position ir.Position
 	Msg      string
 	Detail   error
 }
@@ -22,7 +22,7 @@ func (e *ParseError) Unwrap() error { return e.Detail }
 
 // ParseProgram returns no program if any diagnostic exists. errors.As/Is can
 // inspect individual causes; ParseProgramWithDiagnostics exposes the full list.
-func (p *Parser) ParseProgram() (*verb.Program, error) {
+func (p *Parser) ParseProgram() (*ir.Program, error) {
 	program, diagnostics := p.ParseProgramWithDiagnostics(nil)
 	if len(diagnostics) == 0 {
 		return program, nil
@@ -43,7 +43,7 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 // instead of failing (parser.y, tID '(' arglist ')'). unknown is asked once per
 // call, at its closing token, and owns the warning. Every other diagnostic
 // still fails the parse.
-func (p *Parser) ParseStoredProgram(unknown func(string, verb.Position) bool) (*verb.Program, error) {
+func (p *Parser) ParseStoredProgram(unknown func(string, ir.Position) bool) (*ir.Program, error) {
 	p.lowerBuiltin = unknown
 	defer func() { p.lowerBuiltin = nil }()
 	return p.ParseProgram()
@@ -54,11 +54,11 @@ func (p *Parser) ParseStoredProgram(unknown func(string, verb.Position) bool) (*
 // another statement after a syntax error. checkBuiltin is compiler-owned name
 // admission, called at the closing token of a complete builtin call; the
 // parser neither owns registry IDs nor implements builtin behavior.
-func (p *Parser) ParseProgramWithDiagnostics(checkBuiltin func(string, verb.Position) error) (*verb.Program, []*ParseError) {
+func (p *Parser) ParseProgramWithDiagnostics(checkBuiltin func(string, ir.Position) error) (*ir.Program, []*ParseError) {
 	p.collecting = true
 	p.checkBuiltin = checkBuiltin
 	defer func() { p.collecting = false; p.checkBuiltin = nil }()
-	var statements []verb.Stmt
+	var statements []ir.Stmt
 	for p.current.Type != TOKEN_EOF {
 		stmt, err := p.parseStatement()
 		if p.lexer.lexicalError != nil {
@@ -82,8 +82,8 @@ func (p *Parser) ParseProgramWithDiagnostics(checkBuiltin func(string, verb.Posi
 	if len(p.diagnostics) != 0 {
 		return nil, p.orderedDiagnostics()
 	}
-	program := &verb.Program{Statements: statements}
-	if err := verb.ValidateNesting(program); err != nil {
+	program := &ir.Program{Statements: statements}
+	if err := ir.ValidateNesting(program); err != nil {
 		return nil, []*ParseError{{Position: p.current.Position, Msg: "syntax error", Detail: err}}
 	}
 	return program, nil
@@ -94,7 +94,7 @@ func (p *Parser) orderedDiagnostics() []*ParseError {
 	return p.diagnostics
 }
 
-func (p *Parser) report(pos verb.Position, message string, cause error) error {
+func (p *Parser) report(pos ir.Position, message string, cause error) error {
 	diagnostic := &ParseError{Position: pos, Msg: message, Detail: cause}
 	if !p.collecting {
 		return diagnostic
@@ -107,31 +107,31 @@ type sourceLoop struct{ names []string }
 
 // Convert the entire expression prefix before checking counts. An invalid
 // variable discards the prefix, so it cannot produce secondary count errors.
-func (p *Parser) scatterBindings(elements []verb.Expr) ([]verb.Binding, error) {
-	bindings := make([]verb.Binding, 0, len(elements))
+func (p *Parser) scatterBindings(elements []ir.Expr) ([]ir.Binding, error) {
+	bindings := make([]ir.Binding, 0, len(elements))
 	for _, element := range elements {
 		value := element
-		splice, rest := element.(*verb.SpliceExpr)
+		splice, rest := element.(*ir.SpliceExpr)
 		if rest {
 			value = splice.Expr
 		}
-		identifier, ok := value.(*verb.IdentifierExpr)
+		identifier, ok := value.(*ir.IdentifierExpr)
 		if !ok {
 			return nil, p.report(p.previous.Position, "Scattering assignment targets must be simple variables.", fmt.Errorf("invalid assignment target: %T", element))
 		}
 		if rest {
-			bindings = append(bindings, &verb.RestBinding{Pos: element.Position(), Name: identifier.Name})
+			bindings = append(bindings, &ir.RestBinding{Pos: element.Position(), Name: identifier.Name})
 		} else {
-			bindings = append(bindings, &verb.RequiredBinding{Pos: identifier.Pos, Name: identifier.Name})
+			bindings = append(bindings, &ir.RequiredBinding{Pos: identifier.Pos, Name: identifier.Name})
 		}
 	}
 	return bindings, nil
 }
 
-func (p *Parser) validateScatterBindings(bindings []verb.Binding) error {
+func (p *Parser) validateScatterBindings(bindings []ir.Binding) error {
 	restSeen := false
 	for _, binding := range bindings {
-		if _, rest := binding.(*verb.RestBinding); rest {
+		if _, rest := binding.(*ir.RestBinding); rest {
 			if restSeen {
 				if err := p.report(p.previous.Position, "More than one `@' target in scattering assignment.", nil); err != nil {
 					return err
@@ -146,7 +146,7 @@ func (p *Parser) validateScatterBindings(bindings []verb.Binding) error {
 	return nil
 }
 
-func (p *Parser) checkLoopExit(pos verb.Position, name, kind string) error {
+func (p *Parser) checkLoopExit(pos ir.Position, name, kind string) error {
 	if name == "" && len(p.sourceLoops) != 0 {
 		return nil
 	}

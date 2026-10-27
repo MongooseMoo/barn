@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/MongooseMoo/barn/verb"
+import "github.com/MongooseMoo/barn/ir"
 
 // readString reads a string literal using MOO escape semantics:
 // backslash strips itself and leaves the next character literal.
@@ -8,7 +8,7 @@ import "github.com/MongooseMoo/barn/verb"
 func (l *Lexer) readString() Token {
 	tok := Token{
 		Type: TOKEN_STRING,
-		Position: verb.Position{
+		Position: ir.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,

@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	languageverb "github.com/MongooseMoo/barn/verb"
 )
 
 // VerbMatch is the result of verb lookup
@@ -72,7 +72,7 @@ func argspecMatches(spec string, objID types.ObjID, this types.ObjID) bool {
 }
 
 // prepMatches checks if a verb's prep spec matches the command's prep
-func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
+func prepMatches(verbPrep string, cmdPrep preposition.Preposition) bool {
 	verbPrepLower := strings.ToLower(verbPrep)
 
 	// "any" matches any preposition
@@ -82,11 +82,11 @@ func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 
 	// "none" means no preposition expected
 	if verbPrepLower == "none" {
-		return cmdPrep == PrepNone
+		return cmdPrep == preposition.PrepositionNone
 	}
 
 	// Otherwise, try to match the prep name against the shared aliases.
-	if prep, ok := languageverb.ParsePrepositionAlias(verbPrepLower); ok {
+	if prep, ok := preposition.ParsePrepositionAlias(verbPrepLower); ok {
 		return prep == cmdPrep
 	}
 

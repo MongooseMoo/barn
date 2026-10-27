@@ -12,9 +12,9 @@ import (
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 type censusIdentity struct {
@@ -270,7 +270,7 @@ func TestDatabaseCensusRetainsParseErrorLineAndNormalizesDetail(t *testing.T) {
 	identity := censusIdentity{7, 3, "diagnostic"}
 	var report databaseCensus
 	report.reject(identity, "source_parse", fmt.Errorf("wrapped: %w", &parser.ParseError{
-		Position: verb.Position{Line: 17}, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
+		Position: ir.Position{Line: 17}, Msg: "syntax error", Detail: errors.New("  expected\n ';'\t after return statement  "),
 	}))
 	want := censusFailure{censusIdentity: identity, Stage: "source_parse", Line: 17, Detail: "expected ';' after return statement"}
 	if !reflect.DeepEqual(report.Failures, []censusFailure{want}) {

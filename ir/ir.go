@@ -1,5 +1,5 @@
-// Package verb defines the language-neutral semantic representation of a verb.
-package verb
+// Package ir defines the semantic program IR.
+package ir
 
 import (
 	"errors"

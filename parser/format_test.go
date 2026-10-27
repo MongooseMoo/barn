@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
@@ -165,7 +165,7 @@ func assertCanonicalRoundTrip(t *testing.T, source string) {
 	}
 }
 
-var positionType = reflect.TypeOf(verb.Position{})
+var positionType = reflect.TypeOf(ir.Position{})
 
 func withoutPositions(value reflect.Value) reflect.Value {
 	if !value.IsValid() {
