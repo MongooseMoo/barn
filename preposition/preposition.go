@@ -2,29 +2,29 @@ package preposition
 
 import "strings"
 
-// Preposition is a MOO preposition specification. Its numeric value is the
+// Spec is a MOO preposition specification. Its numeric value is the
 // stable value used by the database wire format.
-type Preposition int
+type Spec int
 
 const (
-	PrepositionAny  Preposition = -2
-	PrepositionNone Preposition = -1
+	Any  Spec = -2
+	None Spec = -1
 
-	PrepositionWith      Preposition = 0
-	PrepositionAt        Preposition = 1
-	PrepositionInFrontOf Preposition = 2
-	PrepositionIn        Preposition = 3
-	PrepositionOn        Preposition = 4
-	PrepositionFrom      Preposition = 5
-	PrepositionOver      Preposition = 6
-	PrepositionThrough   Preposition = 7
-	PrepositionUnder     Preposition = 8
-	PrepositionBehind    Preposition = 9
-	PrepositionBeside    Preposition = 10
-	PrepositionFor       Preposition = 11
-	PrepositionIs        Preposition = 12
-	PrepositionAs        Preposition = 13
-	PrepositionOff       Preposition = 14
+	With      Spec = 0
+	At        Spec = 1
+	InFrontOf Spec = 2
+	In        Spec = 3
+	On        Spec = 4
+	From      Spec = 5
+	Over      Spec = 6
+	Through   Spec = 7
+	Under     Spec = 8
+	Behind    Spec = 9
+	Beside    Spec = 10
+	For       Spec = 11
+	Is        Spec = 12
+	As        Spec = 13
+	Off       Spec = 14
 )
 
 type prepositionDefinition struct {
@@ -53,33 +53,33 @@ var prepositionDefinitions = [...]prepositionDefinition{
 	{"off/off of", []string{"off", "off of"}},
 }
 
-// Prepositions returns the ordinary prepositions in stable wire-code order.
-func Prepositions() []Preposition {
-	result := make([]Preposition, len(prepositionDefinitions))
+// All returns the ordinary prepositions in stable wire-code order.
+func All() []Spec {
+	result := make([]Spec, len(prepositionDefinitions))
 	for code := range result {
-		result[code] = Preposition(code)
+		result[code] = Spec(code)
 	}
 	return result
 }
 
-// PrepositionFromCode converts a database wire code to a preposition.
-func PrepositionFromCode(code int) (Preposition, bool) {
-	prep := Preposition(code)
-	return prep, prep == PrepositionNone || prep == PrepositionAny || (code >= 0 && code < len(prepositionDefinitions))
+// FromCode converts a database wire code to a preposition.
+func FromCode(code int) (Spec, bool) {
+	prep := Spec(code)
+	return prep, prep == None || prep == Any || (code >= 0 && code < len(prepositionDefinitions))
 }
 
 // Code returns the stable database wire code.
-func (p Preposition) Code() (int, bool) {
-	_, ok := PrepositionFromCode(int(p))
+func (p Spec) Code() (int, bool) {
+	_, ok := FromCode(int(p))
 	return int(p), ok
 }
 
 // Canonical returns the slash-delimited database spelling (or none/any).
-func (p Preposition) Canonical() (string, bool) {
+func (p Spec) Canonical() (string, bool) {
 	switch p {
-	case PrepositionNone:
+	case None:
 		return "none", true
-	case PrepositionAny:
+	case Any:
 		return "any", true
 	default:
 		if p >= 0 && int(p) < len(prepositionDefinitions) {
@@ -90,43 +90,43 @@ func (p Preposition) Canonical() (string, bool) {
 }
 
 // Aliases returns a copy of the ordered aliases for an ordinary preposition.
-func (p Preposition) Aliases() []string {
+func (p Spec) Aliases() []string {
 	if p < 0 || int(p) >= len(prepositionDefinitions) {
 		return nil
 	}
 	return append([]string(nil), prepositionDefinitions[p].aliases...)
 }
 
-// ParsePrepositionAlias parses none, any, or one ordered preposition alias.
+// ParseAlias parses none, any, or one ordered preposition alias.
 // Matching is case-insensitive.
-func ParsePrepositionAlias(value string) (Preposition, bool) {
+func ParseAlias(value string) (Spec, bool) {
 	value = strings.ToLower(value)
 	switch value {
 	case "none":
-		return PrepositionNone, true
+		return None, true
 	case "any":
-		return PrepositionAny, true
+		return Any, true
 	}
 	for code, definition := range prepositionDefinitions {
 		for _, alias := range definition.aliases {
 			if value == alias {
-				return Preposition(code), true
+				return Spec(code), true
 			}
 		}
 	}
-	return PrepositionNone, false
+	return None, false
 }
 
-// ParsePreposition parses an alias or a canonical database spelling.
-func ParsePreposition(value string) (Preposition, bool) {
-	if prep, ok := ParsePrepositionAlias(value); ok {
+// Parse parses an alias or a canonical database spelling.
+func Parse(value string) (Spec, bool) {
+	if prep, ok := ParseAlias(value); ok {
 		return prep, true
 	}
 	value = strings.ToLower(value)
 	for code, definition := range prepositionDefinitions {
 		if value == definition.canonical {
-			return Preposition(code), true
+			return Spec(code), true
 		}
 	}
-	return PrepositionNone, false
+	return None, false
 }

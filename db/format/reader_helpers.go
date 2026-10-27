@@ -117,7 +117,7 @@ func argSpecToCode(spec string) int {
 }
 
 func prepFromCode(prep int) string {
-	if value, ok := preposition.PrepositionFromCode(prep); ok {
+	if value, ok := preposition.FromCode(prep); ok {
 		if canonical, ok := value.Canonical(); ok {
 			return canonical
 		}
@@ -126,7 +126,7 @@ func prepFromCode(prep int) string {
 }
 
 func prepToCode(prep string) int {
-	if value, ok := preposition.ParsePreposition(prep); ok {
+	if value, ok := preposition.Parse(prep); ok {
 		if code, ok := value.Code(); ok {
 			return code
 		}

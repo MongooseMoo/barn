@@ -72,7 +72,7 @@ func argspecMatches(spec string, objID types.ObjID, this types.ObjID) bool {
 }
 
 // prepMatches checks if a verb's prep spec matches the command's prep
-func prepMatches(verbPrep string, cmdPrep preposition.Preposition) bool {
+func prepMatches(verbPrep string, cmdPrep preposition.Spec) bool {
 	verbPrepLower := strings.ToLower(verbPrep)
 
 	// "any" matches any preposition
@@ -82,11 +82,11 @@ func prepMatches(verbPrep string, cmdPrep preposition.Preposition) bool {
 
 	// "none" means no preposition expected
 	if verbPrepLower == "none" {
-		return cmdPrep == preposition.PrepositionNone
+		return cmdPrep == preposition.None
 	}
 
 	// Otherwise, try to match the prep name against the shared aliases.
-	if prep, ok := preposition.ParsePrepositionAlias(verbPrepLower); ok {
+	if prep, ok := preposition.ParseAlias(verbPrepLower); ok {
 		return prep == cmdPrep
 	}
 

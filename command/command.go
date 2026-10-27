@@ -8,11 +8,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func PrepSpecForAlias(alias string) (preposition.Preposition, bool) {
-	prep, ok := preposition.ParsePrepositionAlias(alias)
-	return prep, ok && prep >= 0
-}
-
 // ParsedCommand is the structured representation of a parsed player command
 type ParsedCommand struct {
 	Verb    string
@@ -22,7 +17,7 @@ type ParsedCommand struct {
 	Dobjstr string
 	Dobj    types.ObjID
 	Prepstr string
-	Prep    preposition.Preposition
+	Prep    preposition.Spec
 	Iobjstr string
 	Iobj    types.ObjID
 }
@@ -31,16 +26,16 @@ type ParsedCommand struct {
 func NewParsedCommand() *ParsedCommand {
 	return &ParsedCommand{
 		Dobj: types.ObjNothing,
-		Prep: preposition.PrepositionNone,
+		Prep: preposition.None,
 		Iobj: types.ObjNothing,
 	}
 }
 
 // findPreposition finds a preposition in the word list
 // Returns the preposition, start and end indexes, and matched alias; none uses indexes -1.
-func findPreposition(words []string) (preposition.Preposition, int, int, string) {
+func findPreposition(words []string) (preposition.Spec, int, int, string) {
 	for i := range words {
-		for _, prep := range preposition.Prepositions() {
+		for _, prep := range preposition.All() {
 			aliases := prep.Aliases()
 			for _, alias := range aliases {
 				aliasWords := strings.Fields(alias)
@@ -61,7 +56,7 @@ func findPreposition(words []string) (preposition.Preposition, int, int, string)
 		}
 	}
 
-	return preposition.PrepositionNone, -1, -1, ""
+	return preposition.None, -1, -1, ""
 }
 
 func tokenizeCommandWords(input string) []string {
@@ -176,7 +171,7 @@ func parseCommand(input string, originalWords []string) *ParsedCommand {
 	// Find preposition in the argument words
 	prep, prepStart, prepEnd, prepstr := findPreposition(restWords)
 
-	if prep == preposition.PrepositionNone {
+	if prep == preposition.None {
 		// No preposition - everything is the direct object. Build it from the
 		// tokenized words (quotes stripped, whitespace normalized) so quoted
 		// multiword names like `grab "red ball"` match an object named
