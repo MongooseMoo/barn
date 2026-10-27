@@ -419,7 +419,13 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	waifs := types.NewWaifSet(nil)
 	anons := make(map[types.ObjID]struct{})
 	for _, value := range values {
-		collectLoadedFinalizationRoots(value, waifs, anons)
+		value.VisitDirectFinalizationRefs(func(ref types.Value) {
+			if ref.IsAnonymous() {
+				anons[ref.ID()] = struct{}{}
+			} else {
+				waifs.Add(ref)
+			}
+		})
 	}
 	s.lifecycle.Mu.Lock()
 	for _, waif := range waifs.Values {
@@ -441,24 +447,4 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	}
 	s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
-}
-
-func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, anons map[types.ObjID]struct{}) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			anons[value.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		waifs.Add(value)
-	case types.TYPE_LIST:
-		for _, element := range value.Elements() {
-			collectLoadedFinalizationRoots(element, waifs, anons)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range value.Pairs() {
-			collectLoadedFinalizationRoots(pair[0], waifs, anons)
-			collectLoadedFinalizationRoots(pair[1], waifs, anons)
-		}
-	}
 }
