@@ -33,13 +33,13 @@ func TestValueOnlyMapIterationRetainsKeyRoots(t *testing.T) {
 	if frame == nil {
 		t.Fatal("no active frame")
 	}
-	var roots []types.Value
+	roots := types.NewWaifSet(nil)
 	// Inspect the hidden iteration state itself, excluding the original args.
 	for _, value := range frame.Locals[len(program.VarNames):] {
-		collectWaifsForGC(value, &roots)
+		roots.AddReachable(value, true)
 	}
-	if len(roots) != 1 || !roots[0].Equal(key) {
-		t.Fatalf("hidden iteration roots = %v, want map key", roots)
+	if roots.Len() != 1 || !roots.Values[0].Equal(key) {
+		t.Fatalf("hidden iteration roots = %v, want map key", roots.Values)
 	}
 }
 
