@@ -27,6 +27,7 @@ import (
 
 // Server represents the MOO server
 type Server struct {
+	StartScripts        [][]string
 	store               *dbstore.Store
 	runtime             *engine.Runtime
 	registry            *builtins.Registry
@@ -321,6 +322,24 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
+	for _, lines := range s.StartScripts {
+		args := make([]types.Value, len(lines))
+		for i, line := range lines {
+			var clean strings.Builder
+			for j := 0; j < len(line); j++ {
+				if line[j] >= 0x20 && line[j] <= 0x7e {
+					clean.WriteByte(line[j])
+				}
+			}
+			args[i] = types.NewStr(clean.String())
+		}
+		result, err := s.runtime.RunServerVerbTask(0, "do_start_script", args, types.ObjNothing)
+		if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+			slog.Warn("startup script failed", slog.Any("err", err))
+		} else {
+			slog.Info("startup script finished", slog.Any("flow", result.Flow))
+		}
+	}
 	s.callCheckpointedConnectionHooks()
 
 	// Call #0:server_started()

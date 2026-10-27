@@ -44,6 +44,20 @@ func main() {
 	flag.StringVar(&cfg.ObjectInfo, "obj-info", "", "Show object info")
 	flag.StringVar(&cfg.Eval, "eval", "", "Evaluate MOO code (statements, or one expression) as the database's first wizard, then exit")
 	flag.StringVar(&cfg.EvalFile, "eval-file", "", "Evaluate one MOO input per line of a file (as -eval), then exit")
+	flag.Func("start-line", "Pass one line to #0:do_start_script before startup", func(value string) error {
+		if cfg.StartScript == nil {
+			cfg.StartScriptFirst = false
+		}
+		cfg.StartLine = &value
+		return nil
+	})
+	flag.Func("start-script", "Pass a file's lines to #0:do_start_script before startup", func(value string) error {
+		if cfg.StartLine == nil {
+			cfg.StartScriptFirst = true
+		}
+		cfg.StartScript = &value
+		return nil
+	})
 	flag.StringVar(&cfg.DumpObjectRaw, "dump-obj-raw", "", "Dump raw database fields for an object")
 	flag.StringVar(&cfg.VerbLookup, "verb-lookup", "", "Show where a verb would be found")
 	flag.StringVar(&cfg.Ancestry, "ancestry", "", "Show full parent chain")

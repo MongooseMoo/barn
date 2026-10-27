@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"os/exec"
 	"runtime/debug"
 	"strings"
@@ -176,6 +177,8 @@ type Config struct {
 	TraceFilter                                                                string
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
 	EvalFile                                                                   string
+	StartLine, StartScript                                                     *string
+	StartScriptFirst                                                           bool
 	DumpPath                                                                   string
 	MemoryReport                                                               bool
 	MemoryProfile                                                              string
@@ -357,6 +360,26 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if err := srv.LoadDatabase(); err != nil {
 		state.Failed()
 		return fmt.Errorf("load database: %w", err)
+	}
+	var scriptLines []string
+	if cfg.StartScript != nil {
+		data, err := os.ReadFile(*cfg.StartScript)
+		if err != nil {
+			return fmt.Errorf("read startup script: %w", err)
+		}
+		scriptLines = []string{}
+		if len(data) > 0 {
+			scriptLines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		}
+	}
+	if cfg.StartScriptFirst && cfg.StartScript != nil {
+		srv.StartScripts = append(srv.StartScripts, scriptLines)
+	}
+	if cfg.StartLine != nil {
+		srv.StartScripts = append(srv.StartScripts, []string{*cfg.StartLine})
+	}
+	if !cfg.StartScriptFirst && cfg.StartScript != nil {
+		srv.StartScripts = append(srv.StartScripts, scriptLines)
 	}
 	done := make(chan struct{})
 	go func() {

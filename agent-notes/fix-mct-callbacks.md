@@ -14,7 +14,11 @@ MCT integration worktree: C:/Users/Q/code/mct-barn-callbacks, branch
 integration/barn-callbacks, containing current main and both test PRs unchanged.
 The integration branch is published for the existing paired-candidate workflow.
 Paired run 40444307193 is gathering the initial full failure inventory and
-trusted Toast evidence. No Barn implementation changes yet.
+trusted Toast evidence. Barn PR #552 contains system hook player/callable
+lookup corrections; startup option support is the next implementation slice.
+Its first unit CI failed because TestCheckpointedConnectionsDisconnectBeforeServerStarted
+expected player #0 instead of the source-confirmed #-1. Corrected that existing
+expectation without changing its ordering assertion.
 
 MCT #161 merged. #163's previous controller validation rejected restart
 arguments; GitHub accepted an update-branch request to include current main.
@@ -43,6 +47,13 @@ server.cc:794 and tasks.cc:1861 establish the contract; Barn server.go:619,
 :628 and :637 currently supply #0, and task_factory.go:99 uses FindVerb.
 The new MCT callback tests are the regression coverage. Further changes follow
 the initial paired CI failure inventory; normal local CI gates are not run.
+
+Startup support plan (about 80 production lines): parse the two requested
+CLI options, keep the last value of each and their Toast ordering, read files
+as newline-delimited lines, preserve blank lines, clean nonprintable bytes,
+then dispatch do_start_script through existing server tasks before startup
+notifications. Toast server.cc:1273-1334, :2019-2032, :2318-2328 and
+utils.cc:637-648 are the source. No evaluation of the supplied text by Barn.
 
 Open scope decision: MCT checkpoint_fault hardcodes Test.db.new.#1# and its
 YAML requires Toast diagnostics, whereas Barn checkpoint_stage.go:32 stages
