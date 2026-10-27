@@ -167,7 +167,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		return 0, admissionErr
 	}
 	defer scope.Finish()
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}

@@ -132,16 +132,14 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 	}
 
 	connID := types.ObjID(-conn.ID)
-	result := s.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
+	result, err := s.runtime.RunServerVerbTaskWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line, nil)
+	if err != nil {
+		if errors.Is(err, engine.ErrServerVerbNotFound) {
 			return false, nil
 		}
-
-		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
-		for _, line := range lines {
-			_ = conn.Send(line)
-		}
+		return false, err
+	}
+	if result.Flow == types.FlowException || result.Flow == types.FlowSuspend {
 		return false, nil
 	}
 

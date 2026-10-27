@@ -13,9 +13,12 @@ Barn worktree: C:/Users/Q/code/barn-mct-callbacks, branch fix/mct-callbacks.
 MCT integration worktree: C:/Users/Q/code/mct-barn-callbacks, branch
 integration/barn-callbacks, containing current main and both test PRs unchanged.
 The integration branch is published for the existing paired-candidate workflow.
-Paired run 40444307193 is gathering the initial full failure inventory and
-trusted Toast evidence. Barn PR #552 contains system hook player/callable
-lookup corrections; startup option support is the next implementation slice.
+Paired run 40444307193 is gathering the initial full failure inventory; its
+three Toast profiles completed successfully. Barn PR #552 contains system hook
+context, startup option, lag and error callback changes. Its latest unit and
+Elle CI jobs succeeded; full conformance remains running. Paired run
+40445777195 tests those changes against the combined MCT candidate.
+Input hook and nested command-local propagation changes are the next commit.
 Its first unit CI failed because TestCheckpointedConnectionsDisconnectBeforeServerStarted
 expected player #0 instead of the source-confirmed #-1. Corrected that existing
 expectation without changing its ordering assertion.
@@ -71,6 +74,21 @@ truthy success. Timeout dispatch uses the existing resumable server-task path
 and the captured exception stack. Toast execute.cc:535-565, :580-601,
 :3162-3186 and :3721-3731 establish these semantics. Existing callers are
 updated directly; no compatibility wrappers or alternate error pipeline.
+
+Input callback slice (about 25 changed lines): route out-of-band and trusted
+blank hooks through existing resumable server-task dispatch and use callable
+lookup for login tasks. Toast tasks.cc:895-915 and :970-974 use the same server
+task entrypoint for these hooks. Preserve missing-hook fallthrough; let the
+runtime own exception output instead of printing it twice.
+
+Nested context slice (roughly 70 changed lines, removing duplicated task-context
+copying): retain the six inherited command variables in compiled locals even
+when unused directly, then copy the caller's current values at each verb call.
+This uses existing local snapshot, fork and GC handling instead of adding frame
+metadata or a persistence format. Preserve wizard-only object-valued player
+override and strip the WAIF prefix from the local verb name while retaining it
+in activation metadata. Source: Toast execute.cc:754-778. Initialize the command
+locals at root VM entry; eval still starts with blank command context.
 
 Open scope decision: MCT checkpoint_fault hardcodes Test.db.new.#1# and its
 YAML requires Toast diagnostics, whereas Barn checkpoint_stage.go:32 stages

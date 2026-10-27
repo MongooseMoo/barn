@@ -18,10 +18,6 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	// Boxed command-environment strings reused across verb calls (commandStr).
-	cmdStrSrc [4]string
-	cmdStrVal [4]types.Value
-
 	Stack         []types.Value     // Operand stack
 	SP            int               // Stack pointer
 	Frames        []*StackFrame     // Call stack
@@ -41,7 +37,6 @@ type VM struct {
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
 	Resumable bool
-	cmdStrSet [4]bool
 	yielded   bool // VM has yielded control (suspend/fork)
 
 	PendingWaifs []types.Value
@@ -125,6 +120,12 @@ func (vm *VM) allocLocals(n int) []types.Value {
 // Locals must come from allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 	if init.Program != nil {
+		slots := init.Program.BuiltinSlots
+		for _, slot := range []int{slots.Argstr, slots.Dobjstr, slots.Iobjstr, slots.Prepstr} {
+			SetLocalBySlot(&init, slot, types.NewStr(""))
+		}
+		SetLocalBySlot(&init, slots.Dobj, types.NewObj(types.ObjNothing))
+		SetLocalBySlot(&init, slots.Iobj, types.NewObj(types.ObjNothing))
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
 			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
 		}

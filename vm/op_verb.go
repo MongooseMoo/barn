@@ -183,8 +183,10 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		callerValue = currentFrame.ThisValue
 	}
 	player := currentFrame.Player
-	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
-		player = vm.Context.Player
+	if slot := currentFrame.Program.BuiltinSlots.Player; slot != 0 && vm.Context != nil && vm.Context.IsWizard {
+		if local := currentFrame.Locals[slot-1]; local.Type() == types.TYPE_OBJ {
+			player = local.Obj()
+		}
 	}
 
 	// Trace nested verb calls when tracing is enabled.
@@ -239,39 +241,14 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(objID))
 	}
 	if nameValue.IsNone() {
-		nameValue = types.NewStr(lookupVerbName)
+		nameValue = types.NewStr(strings.TrimPrefix(lookupVerbName, ":"))
 	}
 	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, nameValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
 
-	// Propagate command environment variables from the task's parsed command context.
-	// Only propagate real command context when NOT inside an eval() boundary.
-	// Eval'd code has no command context, so nested verb calls see empty strings.
-	insideEval := false
-	for _, f := range vm.Frames {
-		if f.IsEvalFrame {
-			insideEval = true
-			break
-		}
-	}
-	if !insideEval && vm.Task != nil {
-		t := vm.Task
-		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-	} else {
-		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
-	}
+	copyCommandLocals(frame, currentFrame)
 
 	// Update shared context for builtins
 	if vm.Context != nil {
@@ -484,32 +461,7 @@ func (vm *VM) executePass() error {
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, types.NewList(passArgs))
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Player, types.NewObj(frame.Player))
 
-	// pass() continues the same command, so propagate the command parsing
-	// variables to the inherited verb (matching the regular verb-dispatch path
-	// above and Toast). Eval'd code has no command context.
-	insideEval := false
-	for _, f := range vm.Frames {
-		if f.IsEvalFrame {
-			insideEval = true
-			break
-		}
-	}
-	if !insideEval && vm.Task != nil {
-		t := vm.Task
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-	} else {
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
-	}
+	copyCommandLocals(newFrame, frame)
 
 	// Update shared context for builtins
 	if vm.Context != nil {
@@ -573,17 +525,15 @@ func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName 
 	return txn.FindParentVerb(verbLoc, verbName)
 }
 
-// commandStr returns the string value for command-environment variable i
-// (argstr, dobjstr, iobjstr, prepstr), reusing the previous value when the
-// text is unchanged: every verb call in a command task sets all four.
-func (vm *VM) commandStr(i int, s string) types.Value {
-	if s == "" {
-		return types.NewStr("")
+func copyCommandLocals(dst, src *StackFrame) {
+	d, s := dst.Program.BuiltinSlots, src.Program.BuiltinSlots
+	for _, pair := range [][2]int{
+		{d.Argstr, s.Argstr}, {d.Dobjstr, s.Dobjstr},
+		{d.Iobjstr, s.Iobjstr}, {d.Prepstr, s.Prepstr},
+		{d.Dobj, s.Dobj}, {d.Iobj, s.Iobj},
+	} {
+		if pair[1] != 0 {
+			SetLocalBySlot(dst, pair[0], src.Locals[pair[1]-1])
+		}
 	}
-	if vm.cmdStrSet[i] && vm.cmdStrSrc[i] == s {
-		return vm.cmdStrVal[i]
-	}
-	v := types.NewStr(s)
-	vm.cmdStrSrc[i], vm.cmdStrVal[i], vm.cmdStrSet[i] = s, v, true
-	return v
 }

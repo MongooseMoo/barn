@@ -440,9 +440,9 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
-	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		p.runtime.SendTracebackToPlayer(input.Player, result)
+	_, err := p.runtime.RunServerVerbTaskWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line, nil)
+	if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+		slog.Warn("out-of-band task dispatch failed", slog.Any("err", err))
 	}
 }
 
