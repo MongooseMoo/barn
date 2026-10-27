@@ -5,46 +5,6 @@ import (
 	"sort"
 )
 
-func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousObjectRefsVisited(value, out, nil, false)
-}
-
-func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}, retained bool) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			out[value.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		identity := value.WaifIdentity()
-		if _, seen := visitedWaifs[identity]; seen {
-			return
-		}
-		if visitedWaifs == nil {
-			visitedWaifs = make(map[types.WaifIdentity]struct{})
-		}
-		visitedWaifs[identity] = struct{}{}
-		if retained {
-			value.VisitRetainedWaifValues(func(property types.Value) { collectAnonymousObjectRefsVisited(property, out, visitedWaifs, true) })
-			return
-		}
-		for _, name := range value.PropertyNames() {
-			if property, ok := value.GetProperty(name); ok {
-				collectAnonymousObjectRefsVisited(property, out, visitedWaifs, retained)
-			}
-		}
-	case types.TYPE_LIST:
-		for _, elem := range value.Elements() {
-			collectAnonymousObjectRefsVisited(elem, out, visitedWaifs, retained)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range value.Pairs() {
-			collectAnonymousObjectRefsVisited(pair[0], out, visitedWaifs, retained)
-			collectAnonymousObjectRefsVisited(pair[1], out, visitedWaifs, retained)
-		}
-	}
-}
-
 // lookupAnonymousLocked returns the live anonymous object with the given
 // identity id, regardless of which backing map holds it. Runtime-created and
 // database-loaded anonymous objects live in s.anonObjects; some test fixtures
@@ -104,7 +64,7 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 		}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefsVisited(prop.value, refs, nil, retained)
+			types.CollectAnonymousRefs(prop.value, refs, retained)
 			for id := range refs {
 				queue = append(queue, id)
 			}
@@ -173,7 +133,7 @@ func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties.all() {
-			collectAnonymousObjectRefsVisited(prop.value, nested, nil, true)
+			types.CollectAnonymousRefs(prop.value, nested, true)
 		}
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
@@ -198,7 +158,7 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties.all() {
-			collectAnonymousObjectRefsVisited(prop.value, nested, nil, retained)
+			types.CollectAnonymousRefs(prop.value, nested, retained)
 		}
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
@@ -255,42 +215,6 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	})
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	return candidates
-}
-
-// collectWaifsInto records every waif reachable from value (through lists,
-// maps, and waif properties) in set. A waif already present is not re-expanded,
-// which also terminates on cyclic waif graphs.
-func collectWaifsInto(value types.Value, set *types.WaifSet, retained bool) {
-	switch value.Type() {
-	case types.TYPE_WAIF:
-		if !set.Add(value) {
-			return
-		}
-		if retained {
-			value.VisitRetainedWaifValues(func(property types.Value) { collectWaifsInto(property, set, true) })
-		} else {
-			for _, name := range value.PropertyNames() {
-				if property, ok := value.GetProperty(name); ok {
-					collectWaifsInto(property, set, false)
-				}
-			}
-		}
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectWaifsInto(elem, set, retained)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectWaifsInto(pair[0], set, retained)
-			collectWaifsInto(pair[1], set, retained)
-		}
-	}
 }
 
 // persistentWaifRootsEntry memoizes the top-level scan for one waifRoots.epoch
@@ -400,7 +324,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	// the entry stored below is already stale and the next call recomputes.
 	closure := types.NewWaifSet(nil)
 	for _, waif := range top {
-		collectWaifsInto(waif, closure, retained)
+		closure.AddReachable(waif, retained)
 	}
 	if retained {
 		s.waifRoots.cache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})

@@ -4,18 +4,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// collectWaifsForGC adds every waif reachable from v to out, deduplicated by
-// identity, preserving first-seen order. Prefer collectWaifsInto with a shared
-// WaifSet when walking many values: seeding a set from out costs O(len(out)).
-func collectWaifsForGC(v types.Value, out *[]types.Value) {
-	if !v.MayHoldFinalizable() {
-		return
-	}
-	set := types.NewWaifSet(*out)
-	collectWaifsInto(v, set, true)
-	*out = set.Values
-}
-
 func (vm *VM) collectDirectWaifsForGC(v types.Value) {
 	if !v.MayHoldFinalizable() {
 		return
@@ -44,47 +32,6 @@ func (vm *VM) collectDirectWaifsForGC(v types.Value) {
 			vm.collectDirectWaifsForGC(pair[1])
 		}
 	}
-}
-
-// collectWaifsInto records every waif reachable from v (through lists, maps,
-// and waif properties) in set. A waif already present is not re-expanded, which
-// also terminates on cyclic waif graphs.
-func collectWaifsInto(v types.Value, set *types.WaifSet, retained bool) {
-	switch v.Type() {
-	case types.TYPE_WAIF:
-		if !set.Add(v) {
-			return
-		}
-		if retained {
-			v.VisitRetainedWaifValues(func(prop types.Value) { collectWaifsInto(prop, set, true) })
-		} else {
-			for _, name := range v.PropertyNames() {
-				if prop, ok := v.GetProperty(name); ok {
-					collectWaifsInto(prop, set, false)
-				}
-			}
-		}
-	case types.TYPE_LIST:
-		if !v.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range v.Elements() {
-			collectWaifsInto(elem, set, retained)
-		}
-	case types.TYPE_MAP:
-		if !v.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range v.Pairs() {
-			collectWaifsInto(pair[0], set, retained)
-			collectWaifsInto(pair[1], set, retained)
-		}
-	}
-}
-
-// CollectWaifsFromValue adds all waifs referenced by a value tree.
-func CollectWaifsFromValue(v types.Value, out *[]types.Value) {
-	collectWaifsForGC(v, out)
 }
 
 // TakePendingWaifs returns waifs whose frame references have gone out of scope.
@@ -117,7 +64,7 @@ func CollectWaifsFromVMInto(exec *VM, set *types.WaifSet) {
 	}
 	exec.visitValues(func(value types.Value, kind valueRootKind) {
 		if kind == valueRootLive {
-			collectWaifsInto(value, set, true)
+			set.AddReachable(value, true)
 		}
 	})
 }

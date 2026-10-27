@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
 )
 
 func inputAdmissionKey(player types.ObjID) admission.Key {
@@ -96,11 +95,11 @@ func (r *admissionRoot) release() {
 func (s *Runtime) collectAdmissionRoots(anon map[types.ObjID]struct{}, waifs *types.WaifSet) {
 	for _, values := range s.admissionRoots {
 		for _, value := range values {
-			vm.CollectAnonymousRefsFromValue(value, anon)
-			if waifs != nil {
-				var found []types.Value
-				vm.CollectWaifsFromValue(value, &found)
-				for _, w := range found {
+			types.CollectAnonymousRefs(value, anon, true)
+			if waifs != nil && value.MayHoldFinalizable() {
+				found := types.NewWaifSet(nil)
+				found.AddReachable(value, true)
+				for _, w := range found.Values {
 					waifs.Add(w)
 				}
 			}

@@ -13,9 +13,9 @@ types, VM and store, not only the db/store directory.
 - Branch: experiment/store-closure. Initial HEAD: 2b653308.
 - Freshly fetched origin/master is b91e36f5 and is an ancestor of HEAD.
   Additional inherited commits are research notes only.
-- Q asked to use a worktree and subagents. Exact "make it so" confirmation is
-  pending under Q's standing rule; no implementation changes are authorized yet.
-- Preparation is active. No code, tests or benchmarks have been changed/run.
+- Q explicitly said "Make it so!" after preparation; bounded implementation is
+  now authorized. closure_implementation owns the implementation/caller changes.
+- Implementation is active. Parent owns this note and publication/CI evidence.
 - Existing research: agent-notes/store-immutable-roots-research.md, preferred
   section "Smaller construction: closure, sets, ordered effects".
 
@@ -107,9 +107,28 @@ ownership/capture/identity behavior, existing CI evidence, and relevant measured
 costs where available. No arbitrary size quota or new gate. If wider sharing
 adds machinery or loses the behavior, retain only the narrower useful stage.
 
+## Implementation result
+
+Stages 1/2 implemented; parent inspected the complete production diff and new
+types/anonymous_refs.go directly. Stage 1 production +46/-99 = -53 physical
+lines; Stage 2 adds +55/-91 = -36; combined +101/-190 = -89, including the new
+44-line anonymous collector. Existing test caller adaptation +4/-4. No new tests,
+flags, graph engine, guards or workflow changes. Four duplicated traversal bodies
+become two types-owned implementations. Direct value-only VM facades disappear.
+
+Cover reducer left unchanged: anonymous maps versus ordered WaifSet closures,
+different tie-breaks and differing resolution producers would require adapters
+or representation changes. A complete smaller replacement was not established.
+
+Diagnostic baseline used the actual local DB and sound catalog through the
+existing opt-in workload. It exited 0/PASS but reported home E_NACC failures;
+therefore no clean throughput baseline or performance-parity claim. Raw profile
+and structured logs remain local under experiments/store-closure; README records
+fixture hashes, settings and limitations. No candidate benchmark run is justified
+against this invalid cohort. No ordinary local CI steps were run.
+
 ## Next step
 
-Preparation complete. Await the pending exact "make it so" coding confirmation,
-then delegate bounded implementation in this worktree with explicit file
-ownership. No merge or deployment is part of this task. No implementation,
-tests or benchmarks have been changed/run during preparation.
+Commit the inspected implementation and notes, publish draft experiment PR and
+collect its existing CI results. Implementation analyst is checking real callers
+and behavioral preservation without local tests. No merge/deployment authorized.

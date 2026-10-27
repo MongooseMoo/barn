@@ -10,45 +10,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// CollectAnonymousRefsFromValue includes references nested in waif properties.
-// The caller must exclude concurrent mutation, as for VM root collection.
-func CollectAnonymousRefsFromValue(v types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousRefsForGC(v, out)
-}
-
-// collectAnonymousRefsForGC finds anonymous object references inside value trees.
-func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousRefsForGCVisited(v, out, nil)
-}
-
-func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}) {
-	switch v.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if v.IsAnonymous() {
-			out[v.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		identity := v.WaifIdentity()
-		if _, seen := visitedWaifs[identity]; seen {
-			return
-		}
-		if visitedWaifs == nil {
-			visitedWaifs = make(map[types.WaifIdentity]struct{})
-		}
-		visitedWaifs[identity] = struct{}{}
-		v.VisitRetainedWaifValues(func(prop types.Value) { collectAnonymousRefsForGCVisited(prop, out, visitedWaifs) })
-	case types.TYPE_LIST:
-		for _, elem := range v.Elements() {
-			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range v.Pairs() {
-			collectAnonymousRefsForGCVisited(pair[0], out, visitedWaifs)
-			collectAnonymousRefsForGCVisited(pair[1], out, visitedWaifs)
-		}
-	}
-}
-
 // CollectAnonymousRefsFromVM gathers the anonymous-object IDs reachable from a VM's
 // frames and stack into out. It touches only VM state (no Store lock), so callers may
 // run it while holding the engine lock to snapshot a sibling task's references
@@ -63,7 +24,7 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	}
 	exec.visitValues(func(value types.Value, kind valueRootKind) {
 		if kind == valueRootLive {
-			collectAnonymousRefsForGC(value, out)
+			types.CollectAnonymousRefs(value, out, true)
 		}
 	})
 }
@@ -231,7 +192,7 @@ func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []t
 			continue
 		}
 		closure := types.NewWaifSet(nil)
-		collectWaifsInto(candidate, closure, false)
+		closure.AddReachable(candidate, false)
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure.Values, order: index})
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {

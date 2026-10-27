@@ -200,7 +200,7 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 		}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
+			types.CollectAnonymousRefs(prop.value, refs, false)
 			for id := range refs {
 				enqueue(id)
 			}
@@ -209,14 +209,14 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 	})
 	for _, value := range s.pendingFinalizations {
 		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
+		types.CollectAnonymousRefs(value, refs, false)
 		for id := range refs {
 			enqueue(id)
 		}
 	}
 	for _, value := range additionalRoots {
 		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
+		types.CollectAnonymousRefs(value, refs, false)
 		for id := range refs {
 			enqueue(id)
 		}
@@ -238,7 +238,7 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 		reachablePresent[id] = struct{}{}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
+			types.CollectAnonymousRefs(prop.value, refs, false)
 			for nid := range refs {
 				enqueue(nid)
 			}
