@@ -394,8 +394,9 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	var launchErr error
+	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName}
 	vmStarted := time.Now()
-	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt)
+	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo)
 	vmElapsed := time.Since(vmStarted)
 	var attemptTicks int64
 	if bcVM != nil {
@@ -513,6 +514,10 @@ retryAttempt:
 	default:
 	}
 
+	if committed {
+		s.reportLaggingTask(t, scope, result, vmElapsed, lagInfo)
+	}
+
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
 		isolationprobe.Note("suspend")
@@ -577,7 +582,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.VM(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
@@ -598,6 +603,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			// budget, while the seconds deadline remains anchored to this slice.
 			bcVM.Ticks = sliceEntryTicks
 		}
+		lagInfo.capture(bcVM.CurrentFrame())
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -692,6 +698,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 
 			// Start execution
+			lagInfo.capture(frame)
 			result = bcVM.ExecuteLoop()
 		} else {
 			// Simple eval task (no verb context)

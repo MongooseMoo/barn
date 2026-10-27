@@ -55,6 +55,14 @@ then dispatch do_start_script through existing server tasks before startup
 notifications. Toast server.cc:1273-1334, :2019-2032, :2318-2328 and
 utils.cc:637-648 are the source. No evaluation of the supplied text by Barn.
 
+Lag callback plan (about 90 lines): retain only entry verb metadata, reuse the
+existing measured VM-attempt duration, read the live float task_lag_threshold
+(default 5 seconds, disabled below 0.1), and dispatch the existing server task
+after successful publication and before error/suspend handling. Completed
+payloads use Toast's partial six-field frame; aborted/suspended payloads use
+the existing captured activation stack. Source: execute.cc:3108-3147,
+server.cc:530-541 and :1432-1440; options.h:133. No timing cache or new queue.
+
 Open scope decision: MCT checkpoint_fault hardcodes Test.db.new.#1# and its
 YAML requires Toast diagnostics, whereas Barn checkpoint_stage.go:32 stages
 Test.db.tmp. Asked Q whether to make the fixture portable without removing
