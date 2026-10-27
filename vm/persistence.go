@@ -35,6 +35,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			Program:             cloneProgram(frame.Program),
 			IP:                  frame.IP,
 			Locals:              append([]types.Value(nil), frame.Locals...),
+			CommandEnvironment:  frame.CommandEnvironment,
 			Stack:               append([]types.Value(nil), vm.Stack[frame.BasePointer:stackEnd]...),
 			This:                frame.This,
 			ThisValue:           frame.ThisValue,
@@ -49,6 +50,9 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			HasPendingReturn:    frame.HasPendingReturn,
 			VerbDebug:           frame.VerbDebug,
 			DiscardReturn:       frame.DiscardReturn,
+			ReturnLocal:         frame.ReturnLocal,
+			BuiltinCaller:       frame.BuiltinCaller,
+			BuiltinPC:           frame.BuiltinPC,
 			IsVerbCall:          frame.IsVerbCall,
 			IsEvalFrame:         frame.IsEvalFrame,
 			ThreadMode:          activationThreadMode(vm.Frames, i, vm.Context),
@@ -135,6 +139,7 @@ func RestoreVMSnapshot(
 			IP:                  saved.IP,
 			BasePointer:         base,
 			Locals:              append([]types.Value(nil), saved.Locals...),
+			CommandEnvironment:  saved.CommandEnvironment,
 			This:                saved.This,
 			ThisValue:           saved.ThisValue,
 			Player:              saved.Player,
@@ -148,6 +153,9 @@ func RestoreVMSnapshot(
 			HasPendingReturn:    saved.HasPendingReturn,
 			VerbDebug:           saved.VerbDebug,
 			DiscardReturn:       saved.DiscardReturn,
+			ReturnLocal:         saved.ReturnLocal,
+			BuiltinCaller:       saved.BuiltinCaller,
+			BuiltinPC:           saved.BuiltinPC,
 			IsVerbCall:          saved.IsVerbCall,
 			IsEvalFrame:         saved.IsEvalFrame,
 			SavedThisObj:        saved.SavedThisObj,
@@ -218,6 +226,9 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 		if len(saved.Locals) < saved.Program.NumLocals {
 			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
 		}
+		if saved.ReturnLocal < 0 || (saved.ReturnLocal != 0 && (frameIndex == 0 || saved.ReturnLocal > len(snapshot.Frames[frameIndex-1].Locals))) {
+			return fmt.Errorf("frame %d: invalid caller result local", frameIndex)
+		}
 		stackEnd := stackBase + len(saved.Stack)
 		for handlerIndex, handler := range saved.ExceptStack {
 			if handler.Type != bytecode.HandlerExcept && handler.Type != bytecode.HandlerFinally {
@@ -255,11 +266,12 @@ func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContin
 	}
 	request := state.request
 	return &task.RecycleContinuationSnapshot{
-		Object:      request.Object,
-		OldParents:  append([]types.ObjID(nil), request.OldParents...),
-		OldChildren: append([]types.ObjID(nil), request.OldChildren...),
-		OldContents: append([]types.ObjID(nil), request.OldContents...),
-		OldLocation: request.OldLocation,
+		ExitCallback: state.exitCallback,
+		Object:       request.Object,
+		OldParents:   append([]types.ObjID(nil), request.OldParents...),
+		OldChildren:  append([]types.ObjID(nil), request.OldChildren...),
+		OldContents:  append([]types.ObjID(nil), request.OldContents...),
+		OldLocation:  request.OldLocation,
 	}
 }
 
@@ -267,7 +279,7 @@ func restoreRecycleContinuation(state *task.RecycleContinuationSnapshot) *recycl
 	if state == nil {
 		return nil
 	}
-	return &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+	return &recycleContinuation{exitCallback: state.ExitCallback, request: builtins.RecycleLifecycleRequest{
 		Object:      state.Object,
 		OldParents:  append([]types.ObjID(nil), state.OldParents...),
 		OldChildren: append([]types.ObjID(nil), state.OldChildren...),

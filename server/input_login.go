@@ -66,7 +66,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	result := s.runtime.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
 
 	if result.Flow == types.FlowException {
-		lines := task.FormatTraceback(result.CallStack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		for _, line := range lines {
 			_ = conn.Send(line)
 		}
@@ -98,7 +98,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 // login path, where the result arrives asynchronously after the task finishes.
 func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Result) types.ObjID {
 	if result.Flow == types.FlowException {
-		lines := task.FormatTraceback(result.CallStack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		for _, line := range lines {
 			_ = conn.Send(line)
 		}
@@ -132,16 +132,14 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 	}
 
 	connID := types.ObjID(-conn.ID)
-	result := s.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
+	result, err := s.runtime.RunServerVerbTaskWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line, nil)
+	if err != nil {
+		if errors.Is(err, engine.ErrServerVerbNotFound) {
 			return false, nil
 		}
-
-		lines := task.FormatTraceback(result.CallStack, result.Error)
-		for _, line := range lines {
-			_ = conn.Send(line)
-		}
+		return false, err
+	}
+	if result.Flow == types.FlowException || result.Flow == types.FlowSuspend {
 		return false, nil
 	}
 
@@ -201,7 +199,7 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 			slog.String("verb", verbName),
 			slog.Int64("player", int64(player)),
 			slog.String("error", types.NewErr(result.Error).String()))
-		s.runtime.SendTracebackToPlayer(player, result.Error, result.CallStack)
+		s.runtime.SendTracebackToPlayer(player, result)
 	}
 }
 
@@ -282,8 +280,6 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
-		} else {
-			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
 		return
 	}

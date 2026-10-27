@@ -39,7 +39,7 @@ type Runtime struct {
 	store                   *dbstore.Store
 	pendingFinalizationSink func([]types.Value)
 	taskLineSender          func(types.ObjID, string)
-	tracebackSender         func(types.ObjID, types.ErrorCode, []types.ActivationFrame)
+	tracebackSender         func(types.ObjID, types.Result)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
 	mu                      sync.Mutex
@@ -117,13 +117,13 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 		// contexts retain CallVerbInContext's shared transaction/caller semantics;
 		// that path handles sweep ownership itself.
 		if s.isSweepOwnedContext(tc) {
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipSweep, 0, nil)
+			return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, types.ObjNothing, "", vmOwnershipSweep, 0, nil)
 		}
 		if ownerID, claimed, attributable := s.executionContextClaim(tc); claimed {
 			if !attributable {
 				ownerID = ambiguousExecutionOwnerID
 			}
-			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID, tc.Admission)
+			return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, player, "", vmOwnershipExecution, ownerID, tc.Admission)
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	}
@@ -528,7 +528,7 @@ func (s *Runtime) SetTaskLineSender(sender func(types.ObjID, string)) {
 	s.taskLineSender = sender
 }
 
-func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.ErrorCode, []types.ActivationFrame)) {
+func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.Result)) {
 	s.tracebackSender = sender
 }
 

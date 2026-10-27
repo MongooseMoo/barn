@@ -82,6 +82,9 @@ func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 	p.connManager = cm
 	if cm != nil {
 		cm.setConnectionHandler(p.HandleConnection)
+		cm.mu.Lock()
+		cm.connectionEventHandler = p.EnqueueInput
+		cm.mu.Unlock()
 	}
 }
 
@@ -353,6 +356,13 @@ func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 
 func (p *InputProcessor) processInput(input command.InputEvent) {
 	defer input.Complete()
+	if input.UserHook != "" {
+		isUser, ec := p.store.DirectTxn().HasObjectFlag(input.Player, dbstore.FlagUser)
+		if ec == types.E_NONE && isUser {
+			p.callUserHook(input.Handler, input.UserHook, input.Player)
+		}
+		return
+	}
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
@@ -421,6 +431,7 @@ func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
 		return
 	}
 	_ = conn.Send("*** Timed-out waiting for login. ***")
+	conn.setDisconnectHook("")
 	p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 }
 
@@ -440,9 +451,9 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
-	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		p.runtime.SendTracebackToPlayer(input.Player, result.Error, result.CallStack)
+	_, err := p.runtime.RunServerVerbTaskWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line, nil)
+	if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+		slog.Warn("out-of-band task dispatch failed", slog.Any("err", err))
 	}
 }
 
@@ -557,8 +568,11 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID))
 	}
 
-	if wasLoggedIn {
-		p.callUserHook(handler, "user_client_disconnected", player)
+	if hook := conn.getDisconnectHook(); hook != "" {
+		if !wasLoggedIn {
+			player = types.ObjID(-conn.ID)
+		}
+		p.callUserHook(handler, hook, player)
 	}
 
 	slog.Info("connection closed", slog.Int64("conn_id", conn.ID))
@@ -616,22 +630,15 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 // dispatchLoginCommand runs the listener's do_login_command as a registered,
 // resumable engine task. The login verb may call read() any number of times
 // (username, password, ...); each read() suspends and resumes the same task.
-// When the task finally returns, the completion callback interprets the result
-// and logs the player in. Falls back to the synchronous helper when there is no
-// do_login_command verb (or it cannot be dispatched).
+// Only a return before suspension can log in implicitly. A resumed task can
+// use switch_player(); its eventual return value is ignored.
 func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	handler := conn.ListenerObject()
 	if errCode := p.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return
 	}
 
-	// No login handler: preserve the existing synchronous fallback.
-	if !p.store.HasLocalVerb(handler, "do_login_command") {
-		maxBeforeLogin := p.store.DirectTxn().MaxObject()
-		player, _ := p.callDoLoginCommand(conn, line)
-		if player > 0 {
-			p.loginPlayer(conn, player, player > maxBeforeLogin)
-		}
+	if _, _, err := p.store.DirectTxn().FindCallableVerb(handler, "do_login_command"); err != nil {
 		return
 	}
 
@@ -643,11 +650,19 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	}
 
 	maxBeforeLogin := p.store.DirectTxn().MaxObject()
+	var loginTaskID int64
 	onStart := func(taskID int64) {
+		loginTaskID = taskID
 		conn.SetLoginTaskID(taskID)
 	}
 	onComplete := func(result types.Result) {
-		conn.SetLoginTaskID(0)
+		if conn.GetLoginTaskID() == loginTaskID {
+			conn.SetLoginTaskID(0)
+		}
+		completed := p.runtime.GetTask(loginTaskID)
+		if completed == nil || completed.SuspendGeneration() != 0 || result.Flow == types.FlowException {
+			return
+		}
 		// Don't log in a connection that has since disconnected (the live conn
 		// for this connID was removed/replaced): that would resurrect a dead
 		// connection or hijack a recycled connID.

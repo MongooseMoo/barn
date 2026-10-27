@@ -18,14 +18,15 @@ type programmingMode struct {
 
 // Connection represents a player connection
 type Connection struct {
-	ID           int64
-	transport    Transport
-	player       types.ObjID
-	loggedIn     bool
-	outputBuffer []task.PendingNotification
-	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
-	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
-	resolvedName string
+	ID             int64
+	transport      Transport
+	player         types.ObjID
+	loggedIn       bool
+	disconnectHook *string // nil: client close; empty: notification already handled
+	outputBuffer   []task.PendingNotification
+	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
+	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
+	resolvedName   string
 	// proxiedIP is the client IP announced by an accepted PROXY protocol
 	// prelude from a trusted proxy. When set, RemoteAddr() reports it as the
 	// connection's host (real remote port preserved), matching ToastStunt's
@@ -139,6 +140,21 @@ func (c *Connection) ReadLine() (string, error) {
 }
 
 // Close closes the connection
+func (c *Connection) setDisconnectHook(hook string) {
+	c.mu.Lock()
+	c.disconnectHook = &hook
+	c.mu.Unlock()
+}
+
+func (c *Connection) getDisconnectHook() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.disconnectHook != nil {
+		return *c.disconnectHook
+	}
+	return "user_client_disconnected"
+}
+
 func (c *Connection) Close() error {
 	c.cancel()
 	return c.transport.Close()

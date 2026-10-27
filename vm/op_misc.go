@@ -19,6 +19,7 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
 		execution.PushRecycleLifecycle = vm.startRecycleLifecycle
+		execution.PushInitialize = vm.pushInitialize
 		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
 			CollectAnonymousRefsFromVM(vm, out)
 		}

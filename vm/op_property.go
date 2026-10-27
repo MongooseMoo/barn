@@ -124,6 +124,9 @@ func (vm *VM) executeSetPropKeyed() error {
 			if errCode := txn.SetPropertyMapKey(objID, propName, key, value, limit); errCode != types.E_NONE {
 				return fmt.Errorf("%s: property not set: %s", errCode, propName)
 			}
+			if previous, exists := view.Value.MapGet(key); exists {
+				vm.releaseLocal(previous)
+			}
 			return nil
 		}
 	}
@@ -166,7 +169,7 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 			vm.Push(val)
 			return nil
 		}
-		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
+		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
@@ -191,7 +194,7 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 	}
 
 	// Property not found
-	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
+	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
 }
 
 // getWaifProp handles property read on a waif value.
@@ -333,6 +336,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: property not set: %s", errCode, propName)
 		}
+		vm.releaseLocal(prop.Value)
 		return nil
 	}
 
@@ -351,6 +355,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 	if errCode != types.E_NONE {
 		return fmt.Errorf("%s: property not set: %s", errCode, propName)
 	}
+	vm.releaseLocal(inheritedProp.Value)
 	return nil
 }
 
@@ -376,12 +381,17 @@ func (vm *VM) setWaifProp(waif types.Value, propName string, value types.Value) 
 	// error; the lookup is a read, so a rename or delete of the definition
 	// committed meanwhile conflicts with it.
 	key := dbstore.PropertyNameKey(propName)
+	previous, _, ec := txn.WaifProperty(waif, key)
+	if ec != types.E_NONE {
+		return fmt.Errorf("%s: WAIF property read", ec)
+	}
 	if !contains {
 		replaced, ec := txn.ReplaceWaifProperty(waif, key, value)
 		if ec != types.E_NONE {
 			return fmt.Errorf("%s: WAIF property write", ec)
 		}
 		if replaced {
+			vm.releaseLocal(previous)
 			return nil
 		}
 	}

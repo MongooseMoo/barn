@@ -29,6 +29,16 @@ type Result struct {
 	CallStack []ActivationFrame // Only set on exception from synchronous verb calls
 }
 
+// ErrorMessage preserves a raise() message carried by the exception value.
+func (r Result) ErrorMessage() string {
+	if r.Val.Type() == TYPE_LIST && r.Val.Len() >= 3 {
+		if message := r.Val.Get(2); message.Type() == TYPE_STR {
+			return message.Str()
+		}
+	}
+	return r.Error.Message()
+}
+
 // Ok creates a Result for normal execution with a value
 func Ok(v Value) Result {
 	return Result{Val: v, Flow: FlowNormal}

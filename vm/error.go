@@ -18,6 +18,7 @@ type MooError struct {
 
 	detailFormat string
 	detailArgs   []any
+	publicDetail bool
 }
 
 type annotatedError struct {
@@ -33,11 +34,21 @@ func (e annotatedError) Unwrap() error {
 	return e.err
 }
 
-func (e MooError) Error() string {
-	detail := e.Detail
+func (e MooError) detail() string {
 	if e.detailFormat != "" {
-		detail = fmt.Sprintf(e.detailFormat, e.detailArgs...)
+		return fmt.Sprintf(e.detailFormat, e.detailArgs...)
 	}
+	return e.Detail
+}
+
+// withMessage marks source-defined MOO error text, rather than a VM diagnostic.
+func (e MooError) withMessage() MooError {
+	e.publicDetail = true
+	return e
+}
+
+func (e MooError) Error() string {
+	detail := e.detail()
 	if detail == "" {
 		return e.Code.String()
 	}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -18,10 +17,6 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	// Boxed command-environment strings reused across verb calls (commandStr).
-	cmdStrSrc [4]string
-	cmdStrVal [4]types.Value
-
 	Stack         []types.Value     // Operand stack
 	SP            int               // Stack pointer
 	Frames        []*StackFrame     // Call stack
@@ -41,7 +36,6 @@ type VM struct {
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
 	Resumable bool
-	cmdStrSet [4]bool
 	yielded   bool // VM has yielded control (suspend/fork)
 
 	PendingWaifs []types.Value
@@ -124,6 +118,13 @@ func (vm *VM) allocLocals(n int) []types.Value {
 // Locals must come from allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 	if init.Program != nil {
+		for index, name := range task.CommandVariableNames {
+			value := types.NewStr("")
+			if index >= 4 {
+				value = types.NewObj(types.ObjNothing)
+			}
+			SetLocalByName(&init, init.Program, name, value)
+		}
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
 			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
 		}
@@ -166,26 +167,30 @@ func (vm *VM) recycleFrame(f *StackFrame) {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program          *bytecode.Program    // Bytecode program
-	IP               int                  // Instruction pointer
-	BasePointer      int                  // Stack base for this frame
-	Locals           []types.Value        // Local variables
-	This             types.ObjID          // Current object
-	ThisValue        types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
-	Player           types.ObjID          // Player context
-	Verb             string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
-	StoredVerb       string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
-	StoredVerbNames  []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
-	Caller           types.ObjID          // Calling object
-	VerbLoc          types.ObjID          // Object where the current verb is defined (for pass())
-	Args             []types.Value        // Original args passed to this verb (for pass() inheritance)
-	LoopStack        []bytecode.LoopState // Nested loop state
-	ExceptStack      []bytecode.Handler   // Exception handlers
-	PendingError     error                // Error saved during finally execution
-	PendingReturn    types.Value          // Return value saved during finally execution
-	HasPendingReturn bool                 // Distinguishes pending integer zero from no return
-	VerbDebug        bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
-	DiscardReturn    bool                 // Caller consumes this verb only for side effects
+	Program            *bytecode.Program    // Bytecode program
+	IP                 int                  // Instruction pointer
+	BasePointer        int                  // Stack base for this frame
+	Locals             []types.Value        // Local variables
+	CommandEnvironment [6]types.Value       // Inherited values absent from source locals
+	This               types.ObjID          // Current object
+	ThisValue          types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
+	Player             types.ObjID          // Player context
+	Verb               string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb         string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
+	StoredVerbNames    []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
+	Caller             types.ObjID          // Calling object
+	VerbLoc            types.ObjID          // Object where the current verb is defined (for pass())
+	Args               []types.Value        // Original args passed to this verb (for pass() inheritance)
+	LoopStack          []bytecode.LoopState // Nested loop state
+	ExceptStack        []bytecode.Handler   // Exception handlers
+	PendingError       error                // Error saved during finally execution
+	PendingReturn      types.Value          // Return value saved during finally execution
+	HasPendingReturn   bool                 // Distinguishes pending integer zero from no return
+	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
+	DiscardReturn      bool                 // Caller consumes this verb only for side effects
+	ReturnLocal        int                  // One-based caller local receiving a WAIF setter result
+	BuiltinCaller      string
+	BuiltinPC          int
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
@@ -254,7 +259,7 @@ func (vm *VM) beginProgram(prog *bytecode.Program) {
 		localsOnStack: true,
 		This:          types.ObjNothing,
 		ThisValue:     types.None,
-		Player:        types.ObjNothing,
+		Player:        vm.Context.Player,
 		Verb:          "",
 		Caller:        types.ObjNothing,
 		VerbDebug:     true, // Default: errors propagate as exceptions
@@ -1108,7 +1113,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		val := frame.Locals[idx]
 		if val.IsUnbound() {
 			if int(idx) < len(frame.Program.VarNames) {
-				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx])
+				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx]).withMessage()
 			}
 			return MooError{Code: types.E_VARNF}
 		}
@@ -1457,13 +1462,9 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
 			message := errCode.Message()
-			prefix := errCode.String() + ":"
-			if detail := err.Error(); strings.HasPrefix(detail, prefix) {
-				if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
-					if !strings.EqualFold(detail, message) {
-						message = detail
-					}
-				}
+			var native MooError
+			if errors.As(err, &native) && native.publicDetail {
+				message = native.detail()
 			}
 			exceptionValue = types.NewList([]types.Value{
 				types.NewErr(errCode),

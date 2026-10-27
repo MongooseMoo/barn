@@ -58,7 +58,7 @@ func TestFlushResumesAfterPartialWriteFailure(t *testing.T) {
 	}
 }
 
-func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
+func TestSwitchPlayerDisconnectDoesNotRestoreClosedConnection(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	player := types.ObjID(8)
 
@@ -82,11 +82,14 @@ func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
 	restored := cm.restorePreviousPlayerConnLocked(player, secondConn)
 	cm.mu.Unlock()
 
-	if restored != mainConn {
-		t.Fatalf("restored connection = %v, want main connection", restored)
+	if restored != nil {
+		t.Fatalf("restored connection = %v, want none", restored)
 	}
-	if got := cm.GetConnection(player); got != mainConn {
-		t.Fatalf("active connection after restore = %v, want main connection", got)
+	if got := cm.GetConnection(player); got != nil {
+		t.Fatalf("active connection after disconnect = %v, want none", got)
+	}
+	if mainConn.ctx.Err() == nil {
+		t.Fatal("superseded connection remains open")
 	}
 }
 

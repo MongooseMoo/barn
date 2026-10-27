@@ -118,6 +118,9 @@ func testSameListenerReconnectRunsUserReconnected(t *testing.T, switchBeforeLogi
 		}
 	}
 	processor.loginPlayer(second, player, false)
+	if switchBeforeLogin {
+		processor.processInput(<-processor.inputQueue)
+	}
 
 	got, errCode := store.DirectTxn().PropertyValue(system, "hook_order")
 	if errCode != types.E_NONE {

@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -143,7 +142,7 @@ func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
 // task's roots. An explicit shutdown transfers them to the checkpoint domain;
 // generic cancellation and normal completion retain the ordinary GC path.
-func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations bool) bool {
+func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations, committed bool) bool {
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
@@ -164,6 +163,11 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.V
 		return true
 	}
 	s.deferPendingWaifs(ctx, exec.TakePendingWaifs(), exec)
+	// A failed publication did not release the property references it staged.
+	// Keep its cleanup limited to the original creation floor.
+	if committed {
+		minID, hasAnonymousCreations = exec.AnonymousGCFloor(minID, hasAnonymousCreations)
+	}
 	if hasAnonymousCreations {
 		s.deferAnonGC(ctx, minID, exec)
 	}
@@ -175,8 +179,8 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.V
 // the :recycle writes joined the task's transaction and were committed with it,
 // but a deferred sweep runs after that transaction has committed and been
 // released — writing through it would silently discard the recycle's side effects
-// (a :recycle that bumps a counter would never be observed). Writing straight to
-// the live store instead is what callWaifRecycle already does for waifs.
+// (a :recycle that bumps a counter would never be observed). The sweep-owned
+// verb runner gives each finalizer its own transaction and resumable task.
 //
 // The task's own context is never mutated: the suspend path also defers, and that
 // task's transaction is still live.
@@ -310,10 +314,10 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 		}
 		live := s.liveWaifs(roots)
 		for index, entry := range waifBatch {
-			if live.Has(entry.Waif) {
+			if live.Has(entry.Waif) || !entry.Waif.BeginWaifRecycle() {
 				continue
 			}
-			s.callWaifRecycle(entry.Ctx, entry.Task, entry.Waif)
+			_ = s.callVerbWithArgstr(entry.Waif, ":recycle", nil, types.ObjNothing, "", vmOwnershipSweep, 0, nil)
 			s.lifecycle.Mu.Lock()
 			shutdown := s.lifecycle.ShutdownRequested
 			if shutdown {
@@ -457,56 +461,4 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, ano
 			collectLoadedFinalizationRoots(pair[1], waifs, anons)
 		}
 	}
-}
-
-func (s *Runtime) callWaifRecycle(parentCtx *task.Context, parentTask *task.State, waif types.Value) {
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
-	if err != nil {
-		return
-	}
-	if !verb.Perms.Has(dbstore.VerbExecute) {
-		return
-	}
-
-	prog, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
-	if len(diagnostics) > 0 {
-		return
-	}
-
-	player := parentCtx.Player
-	if player == types.ObjNothing {
-		player = parentCtx.Programmer
-	}
-	recycleCtx := task.NewContext()
-	recycleCtx.Player = player
-	recycleCtx.Programmer = verb.Owner
-	recycleCtx.IsWizard = s.isWizard(verb.Owner)
-	recycleCtx.ThisObj = waif.Class()
-	recycleCtx.ThisValue = waif
-	recycleCtx.Verb = ":recycle"
-	recycleCtx.TaskID = parentCtx.TaskID
-	recycleCtx.Store = s.store
-	recycleCtx.RuntimeOptions = s.options
-	recycleCtx.DeferredGC = true
-
-	recycleVM := vm.NewVM(s.store, s.session)
-	recycleVM.Context = recycleCtx
-	recycleVM.Task = parentTask
-	recycleVM.TickLimit = 300000
-	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
-	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
-	vm.SetLocalByName(frame, prog, "this", waif)
-	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
-	vm.SetLocalByName(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))
-	vm.SetLocalByName(frame, prog, "verb", types.NewStr(":recycle"))
-	vm.SetLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
-	vm.SetLocalByName(frame, prog, "argstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
-	s.acquireSweepContext(recycleCtx)
-	defer s.releaseSweepContext(recycleCtx)
-	_ = recycleVM.ExecuteLoop()
 }

@@ -1,11 +1,15 @@
 package task
 
 import (
+	"slices"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
+
+// CommandVariableNames are inherited even by verbs that do not reference them.
+var CommandVariableNames = [...]string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"}
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {
@@ -56,11 +60,12 @@ type MoveContinuationSnapshot struct {
 // RecycleContinuationSnapshot is the persistent native state retained while
 // an object's recycle verb is suspended on the owning VM.
 type RecycleContinuationSnapshot struct {
-	Object      types.Value
-	OldParents  []types.ObjID
-	OldChildren []types.ObjID
-	OldContents []types.ObjID
-	OldLocation types.ObjID
+	ExitCallback bool
+	Object       types.Value
+	OldParents   []types.ObjID
+	OldChildren  []types.ObjID
+	OldContents  []types.ObjID
+	OldLocation  types.ObjID
 }
 
 // VMFrameSnapshot is one activation and its operand-stack segment.
@@ -68,6 +73,7 @@ type VMFrameSnapshot struct {
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
+	CommandEnvironment  [6]types.Value
 	Stack               []types.Value
 	This                types.ObjID
 	ThisValue           types.Value
@@ -83,6 +89,9 @@ type VMFrameSnapshot struct {
 	HasPendingReturn    bool
 	VerbDebug           bool
 	DiscardReturn       bool
+	ReturnLocal         int
+	BuiltinCaller       string
+	BuiltinPC           int
 	IsVerbCall          bool
 	IsEvalFrame         bool
 	ThreadMode          bool // this activation's own set_thread_mode() state; Toast persists it as the threaded flag
@@ -153,6 +162,9 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 			frame.Stack[index] = transform(value)
 		}
 		frame.ThisValue = transform(frame.ThisValue)
+		for index, value := range frame.CommandEnvironment {
+			frame.CommandEnvironment[index] = transform(value)
+		}
 		for index, value := range frame.Args {
 			frame.Args[index] = transform(value)
 		}
@@ -205,6 +217,11 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 		} else if body := t.ForkInfo.Body; body != nil {
 			variableNames = append(variableNames, body.VariableNames()...)
 			firstLine = body.FirstLine()
+		}
+		for _, name := range CommandVariableNames {
+			if _, ok := t.ForkInfo.Variables[name]; ok && !slices.Contains(variableNames, name) {
+				variableNames = append(variableNames, name)
+			}
 		}
 		snapshot.Fork = &ForkSnapshot{
 			Variables:     cloneValueMap(t.ForkInfo.Variables),

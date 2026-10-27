@@ -260,7 +260,7 @@ func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 	// top-level command verb has no caller permissions object (Toast returns
 	// #-1), whereas a top-level eval inherits the player's permissions.
 	if frames < 2 {
-		if t.FromCommand {
+		if t.FromCommand || ctx.ServerInitiated {
 			return types.Ok(types.NewObj(types.ObjNothing))
 		}
 		return types.Ok(types.NewObj(t.Programmer))
@@ -297,7 +297,7 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Get the call stack
-	stack := t.GetCallStack()
+	stack := types.ExpandBuiltinFrames(t.GetCallStack())
 
 	// callers() returns the call stack EXCLUDING the current frame,
 	// ordered most-recent-first (immediate caller first).
@@ -477,7 +477,7 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Get call stack
-	callStack := t.GetCallStack()
+	callStack := types.ExpandBuiltinFrames(t.GetCallStack())
 
 	// Convert to list of lists: {this, verb_name, programmer, verb_loc, player [, line]}
 	// Order: innermost frame first (most recently called verb first), matching Toast.

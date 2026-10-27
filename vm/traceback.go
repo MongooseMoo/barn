@@ -23,7 +23,7 @@ func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 	if includeVariables {
 		vm.snapshotTaskRuntimeVariables()
 	}
-	stack := vm.Task.GetCallStack()
+	stack := types.ExpandBuiltinFrames(vm.Task.GetCallStack())
 	frames := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
@@ -189,8 +189,10 @@ func (vm *VM) snapshotActivationFrames(topLine int) []types.ActivationFrame {
 			ServerInitiated:         serverInitiated,
 			IsEvalFrame:             frame.IsEvalFrame,
 			RuntimeVariableSnapshot: runtimeVariables,
+			BuiltinCaller:           frame.BuiltinCaller,
+			BuiltinPC:               frame.BuiltinPC,
 		})
 	}
 
-	return stack
+	return types.ExpandBuiltinFrames(stack)
 }

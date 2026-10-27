@@ -25,7 +25,7 @@ func runtimeIdentity(ctx *Execution) metrics.Identity {
 // value included, is returned as is.
 //
 // Barn suspends only where the suspension is honored: a builtin called from a
-// nested VM (create()'s :initialize, for example) runs its work inline instead.
+// synchronous host VM runs its work inline instead.
 
 // threadedCall reports whether a threaded builtin called now suspends the task.
 func threadedCall(ctx *Execution) bool {

@@ -3,6 +3,7 @@ package vm
 import (
 	"fmt"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
 	"strings"
@@ -81,15 +82,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	playerObj := frame.Player
 	callerObj := frame.Caller
 	verbStr := frame.Verb
-	if vm.Context != nil {
-		if vm.Context.Player != types.ObjNothing {
-			playerObj = vm.Context.Player
-		}
-	}
-	thisValue := types.None
-	if vm.Context != nil {
-		thisValue = vm.Context.ThisValue
-	}
+	thisValue := frame.ThisValue
 
 	forkInfo := &types.ForkInfo{
 		Delay:       time.Duration(delaySeconds * float64(time.Second)),
@@ -112,6 +105,20 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 
 	// Yield to the execution engine.
+	for index, value := range frame.commandEnvironment() {
+		name := task.CommandVariableNames[index]
+		present := false
+		for _, sourceName := range frame.Program.VarNames {
+			if strings.EqualFold(name, sourceName) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			forkInfo.Variables[name] = value
+		}
+	}
+
 	vm.yielded = true
 	vm.yieldResult = types.Result{
 		Flow:     types.FlowFork,

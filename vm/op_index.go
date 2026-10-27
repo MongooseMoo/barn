@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"fmt"
-
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
@@ -54,25 +52,7 @@ func (vm *VM) executeIndex() error {
 		return nil
 
 	case types.TYPE_WAIF:
-		if vm.Store == nil {
-			return newMooError(types.E_INVIND, "no object store available")
-		}
-		owner, errCode := vm.Context.StoreTxn.ObjectOwner(collection.Class())
-		if errCode != types.E_NONE {
-			return fmt.Errorf("%s: invalid waif class", errCode.String())
-		}
-		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Context.StoreTxn, owner, dbstore.FlagWizard)
-		if errCode != types.E_NONE {
-			return fmt.Errorf("%s: invalid waif class owner", errCode.String())
-		}
-		if !ownerIsWizard {
-			return newMooError(types.E_TYPE, "waif class owner is not a wizard")
-		}
-		err := vm.startVerbCall(collection, "_index", []types.Value{index})
-		if err != nil && err.Error() == "E_VERBNF: verb not found: _index" {
-			return newMooError(types.E_TYPE, "waif has no _index handler")
-		}
-		return err
+		return vm.startWaifIndexCall(collection, "_index", []types.Value{index})
 
 	default:
 		return newMooErrorf(types.E_TYPE, "cannot index %s", collection.Type().String())
@@ -90,10 +70,11 @@ func (vm *VM) executeIndexSet() error {
 	// Read the collection from the variable slot
 	coll := vm.CurrentFrame().Locals[varIdx]
 	if coll.Type() == types.TYPE_WAIF {
-		if err := vm.startVerbCall(coll, "_set_index", []types.Value{index, value}); err != nil {
+		if err := vm.startWaifIndexCall(coll, "_set_index", []types.Value{index, value}); err != nil {
 			return err
 		}
 		vm.CurrentFrame().DiscardReturn = true
+		vm.CurrentFrame().ReturnLocal = int(varIdx) + 1
 		return nil
 	}
 
@@ -119,6 +100,25 @@ func (vm *VM) executeIndexSet() error {
 	vm.CurrentFrame().Locals[varIdx] = newColl
 
 	return nil
+}
+
+func (vm *VM) startWaifIndexCall(collection types.Value, name string, args []types.Value) error {
+	if vm.Store == nil || !validForRead(vm.Context.StoreTxn, collection.Class()) {
+		return newMooError(types.E_INVIND, "invalid waif class")
+	}
+	owner, errCode := vm.Context.StoreTxn.ObjectOwner(collection.Class())
+	if errCode != types.E_NONE {
+		return newMooError(errCode, "invalid waif class")
+	}
+	ownerIsWizard, _ := hasObjectFlagForRead(vm.Context.StoreTxn, owner, dbstore.FlagWizard)
+	if !ownerIsWizard {
+		return newMooError(types.E_TYPE, "waif class owner is not a wizard")
+	}
+	err := vm.startVerbCall(collection, name, args)
+	if err != nil && errorCode(err) == types.E_VERBNF {
+		return newMooError(types.E_TYPE, "waif has no index handler")
+	}
+	return err
 }
 
 func (vm *VM) executeRangeSet() error {

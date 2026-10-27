@@ -70,6 +70,7 @@ func TestReadBasedLoginResumesAndConnects(t *testing.T) {
 		`notify(player, "Enter your username:");`,
 		`name = read();`,
 		`if (name == "q")`,
+		`  switch_player(player, #2);`,
 		`  return #2;`,
 		`endif`,
 		`return #-1;`,
@@ -102,6 +103,7 @@ func TestReadBasedLoginTwoReadsUsernameThenPassword(t *testing.T) {
 		`notify(player, "Password");`,
 		`pass = read();`,
 		`if (name == "q" && pass == "canefan")`,
+		`  switch_player(player, #2);`,
 		`  return #2;`,
 		`endif`,
 		`return #-1;`,
@@ -140,6 +142,7 @@ func TestReadBasedLoginNoParallelSpawnRace(t *testing.T) {
 		`notify(player, "Password");`,
 		`pass = read();`,
 		`if (name == "q" && pass == "canefan")`,
+		`  switch_player(player, #2);`,
 		`  return #2;`,
 		`endif`,
 		`return #-1;`,
@@ -176,6 +179,7 @@ func TestReadBasedLoginDisconnectMidReadLeavesNoOrphan(t *testing.T) {
 	s, conn, _ := loginTestSetup(t, []string{
 		`notify(player, "Enter your username:");`,
 		`name = read();`,
+		`if (name == "q") switch_player(player, #2); endif`,
 		`return (name == "q") ? #2 | #-1;`,
 	})
 	cm := s.connManager

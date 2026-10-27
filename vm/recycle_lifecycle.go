@@ -6,7 +6,8 @@ import (
 )
 
 type recycleContinuation struct {
-	request builtins.RecycleLifecycleRequest
+	request      builtins.RecycleLifecycleRequest
+	exitCallback bool
 }
 
 func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) types.Result {
@@ -26,6 +27,7 @@ func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) ty
 	frame := vm.CurrentFrame()
 	frame.DiscardReturn = true
 	frame.RecycleContinuation = state
+	vm.markBuiltinCaller("recycle", 2)
 	return types.Result{Flow: types.FlowBuiltinPush}
 }
 
@@ -39,5 +41,40 @@ func (vm *VM) abortAttempt() {
 
 func (vm *VM) resumeRecycleLifecycle(state *recycleContinuation, hookResult types.Result) types.Result {
 	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
-	return builtins.FinishRecycleLifecycle(execution, state.request, hookResult)
+	if hookResult.IsError() && hookResult.Error != types.E_VERBNF {
+		if state.exitCallback {
+			vm.Builtins.EndRecycle(state.request.Object.ID())
+			return hookResult
+		}
+		return builtins.FinishRecycleLifecycle(execution, state.request, hookResult)
+	}
+	for {
+		target, content, result := builtins.NextRecycleExit(execution, state.request.Object)
+		if result.Flow == types.FlowAbortAttempt {
+			return result
+		}
+		if result.IsError() {
+			vm.Builtins.EndRecycle(state.request.Object.ID())
+			return result
+		}
+		if target.IsNone() {
+			request := state.request
+			request.OldContents = nil
+			request.OldLocation = types.ObjNothing
+			return builtins.FinishRecycleLifecycle(execution, request, hookResult)
+		}
+		if _, _, err := findCallableVerbForRead(vm.Context.StoreTxn, target.ID(), "exitfunc"); err != nil {
+			continue
+		}
+		if err := vm.startVerbCall(target, "exitfunc", []types.Value{content}); err != nil {
+			vm.Builtins.EndRecycle(state.request.Object.ID())
+			return moveLifecycleErrorResult(err)
+		}
+		state.exitCallback = true
+		frame := vm.CurrentFrame()
+		frame.DiscardReturn = true
+		frame.RecycleContinuation = state
+		vm.markBuiltinCaller("recycle", 2)
+		return types.Result{Flow: types.FlowBuiltinPush}
+	}
 }

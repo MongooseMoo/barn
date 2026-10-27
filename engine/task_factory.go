@@ -97,7 +97,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 		}
 		defer scope.Finish()
 	}
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
 	}
@@ -167,7 +167,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		return 0, admissionErr
 	}
 	defer scope.Finish()
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
@@ -262,6 +262,7 @@ func (s *Runtime) newForkVM(taskID int64, forkInfo *types.ForkInfo, forkProg *by
 	frame := childVM.PrepareVerbFrame(forkProg,
 		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
 		forkInfo.Verb, forkInfo.VerbLoc, nil)
+	frame.ThisValue = forkInfo.ThisValue
 	// Mark as verb-call so syncTaskLineNumbers includes this frame
 	// when syncing line numbers to the task's CallStack.
 	frame.IsVerbCall = true

@@ -160,8 +160,14 @@ func (vm *VM) Return(value types.Value) error {
 	recycleContinuation := frame.RecycleContinuation
 	base := frame.BasePointer
 	discardReturn := frame.DiscardReturn
+	returnLocal := frame.ReturnLocal
 	vm.popFrame() // frame is recycled here; nothing below may read it
 	vm.SP = base
+	if returnLocal != 0 {
+		caller := vm.CurrentFrame()
+		vm.releaseLocal(caller.Locals[returnLocal-1])
+		caller.Locals[returnLocal-1] = value
+	}
 	if continuation != nil {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {

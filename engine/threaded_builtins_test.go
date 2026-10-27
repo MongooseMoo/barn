@@ -52,29 +52,27 @@ sorted = sort({3, 1, 2});
 	t.Fatal("task never finished")
 }
 
-// create() runs :initialize on a nested VM that cannot suspend, so a sort()
-// there runs inline and the task finishes in one slice.
-func TestThreadedSortInsideNestedVerbRunsInline(t *testing.T) {
+// Synchronous host calls do not retain a suspended VM. A threaded builtin in
+// a nested verb on that VM must finish inline, including inside :initialize.
+func TestThreadedSortInsideSynchronousHostCallRunsInline(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	initialize := dbstore.NewVerb([]string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"#0.write_value = sort({3, 1, 2});"})
 	if _, errCode := store.AddVerb(0, initialize); errCode != types.E_NONE {
 		t.Fatalf("AddVerb initialize: %v", errCode)
 	}
+	driver := dbstore.NewVerb([]string{"drive"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{
+			"c = create(#0); return {valid(c), #0.write_value};",
+		})
+	if _, errCode := store.AddVerb(0, driver); errCode != types.E_NONE {
+		t.Fatalf("AddVerb drive: %v", errCode)
+	}
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
 	defer s.Stop()
 
-	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := NewTaskFull(3106, 0, compileTestProgram(t, s.registry, `
-c = create(#0);
-return {valid(c), #0.write_value};
-`), ticks, seconds)
-	queued.Context.IsWizard = true
-
-	if err := s.runTask(queued); err != nil {
-		t.Fatalf("runTask failed: %v", err)
-	}
-	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.String() != "{1, {1, 2, 3}}" {
-		t.Fatalf("result = flow %v val %v err %v, want return {1, {1, 2, 3}}", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
+	result := s.CallVerb(0, "drive", nil, 0)
+	if result.Flow != types.FlowReturn || result.Val.String() != "{1, {1, 2, 3}}" {
+		t.Fatalf("result = flow %v val %v err %v, want return {1, {1, 2, 3}}", result.Flow, result.Val, result.Error)
 	}
 }

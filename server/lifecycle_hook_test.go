@@ -95,7 +95,7 @@ func TestCheckpointedConnectionsDisconnectBeforeServerStarted(t *testing.T) {
 		}),
 		types.NewList([]types.Value{
 			types.NewStr("started"),
-			types.NewObj(0),
+			types.NewObj(types.ObjNothing),
 			types.NewObj(0),
 		}),
 	})

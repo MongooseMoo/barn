@@ -267,6 +267,13 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Call :initialize verb if it exists
+	created := types.NewObj(newID)
+	if anonymous {
+		created = types.NewAnon(newID)
+	}
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(created, initArgs, "create")
+	}
 	// The :initialize verb receives the init args and can set up the new object
 	// If verb not found (E_VERBNF), that's fine - just means no initialize
 	// Other errors should be propagated
@@ -325,10 +332,11 @@ func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
 }
 
 func endRecycle(ctx *Execution, id types.ObjID) {
-	ctx.Session.endRecycle(id)
+	ctx.Session.EndRecycle(id)
 }
 
-func (r *Session) endRecycle(id types.ObjID) {
+// EndRecycle releases the reservation after completion or an exitfunc error.
+func (r *Session) EndRecycle(id types.ObjID) {
 	state := &r.runtime.recycle
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -575,6 +583,42 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+// NextRecycleExit moves one current content, or the object itself, to nothing.
+// The VM invokes exitfunc before requesting the next move.
+func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Value, types.Result) {
+	if !beginIrreversible(ctx) {
+		return types.None, types.None, abortedAttempt()
+	}
+	ctx.IrreversibleSideEffect = true
+	if result, ok := beforeCoarse(ctx); !ok {
+		return types.None, types.None, result
+	}
+	tx := readTxn(ctx)
+	contents, ec := tx.Contents(object.ID())
+	if ec != types.E_NONE {
+		return types.None, types.None, types.Err(ec)
+	}
+	what := object
+	var where types.Value
+	if len(contents) > 0 {
+		what = moveObjectReferenceForRead(ctx, contents[0])
+		where = object
+	} else {
+		location, ec := tx.Location(object.ID())
+		if ec != types.E_NONE {
+			return types.None, types.None, types.Err(ec)
+		}
+		if location == types.ObjNothing {
+			return types.None, types.None, types.Ok(types.NewInt(0))
+		}
+		where = moveObjectReferenceForRead(ctx, location)
+	}
+	if ec := applyRecycleMove(ctx, what.ID(), where.ID()); ec != types.E_NONE {
+		return types.None, types.None, types.Err(ec)
+	}
+	return where, what, types.Ok(types.NewInt(0))
 }
 
 func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.ErrorCode {

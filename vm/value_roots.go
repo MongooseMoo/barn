@@ -29,6 +29,9 @@ func (frame *StackFrame) visitValues(visit valueVisitor) {
 	for _, value := range frame.Args {
 		visit(value, valueRootLive)
 	}
+	for _, value := range frame.CommandEnvironment {
+		visit(value, valueRootLive)
+	}
 	visit(frame.ThisValue, valueRootLive)
 	visit(frame.SavedThisValue, valueRootLive)
 	if frame.HasPendingReturn {
@@ -74,6 +77,11 @@ func (frame *StackFrame) visitFinalizableCandidates(visit func(types.Value)) {
 	}
 	if frame.ThisValue.MayHoldFinalizable() {
 		visit(frame.ThisValue)
+	}
+	for _, value := range frame.CommandEnvironment {
+		if value.MayHoldFinalizable() {
+			visit(value)
+		}
 	}
 	if frame.SavedThisValue.MayHoldFinalizable() {
 		visit(frame.SavedThisValue)

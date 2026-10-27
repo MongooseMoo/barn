@@ -269,6 +269,9 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		recycleContinuationValue(frame.RecycleContinuation),
 		internalLocalsValue(frame),
 		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
+		types.NewList(frame.CommandEnvironment[:]),
+		types.NewInt(int64(frame.ReturnLocal)),
+		types.NewList([]types.Value{types.NewStr(frame.BuiltinCaller), types.NewInt(int64(frame.BuiltinPC))}),
 	})
 }
 
@@ -319,6 +322,7 @@ func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Val
 		objectIDsValue(state.OldChildren),
 		objectIDsValue(state.OldContents),
 		types.NewObj(state.OldLocation),
+		types.NewBool(state.ExitCallback),
 	})
 }
 

@@ -27,6 +27,7 @@ import (
 
 // Server represents the MOO server
 type Server struct {
+	StartScripts        [][]string
 	store               *dbstore.Store
 	runtime             *engine.Runtime
 	registry            *builtins.Registry
@@ -161,13 +162,13 @@ func (s *Server) LoadDatabase() error {
 			_ = conn.Send(line)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
-		lines := task.FormatTraceback(stack, err)
+	s.runtime.SetTracebackSender(func(player types.ObjID, result types.Result) {
+		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
 			slog.Error("traceback undeliverable (no connection)",
 				slog.Int64("player", int64(player)),
-				slog.String("error", types.NewErr(err).String()),
+				slog.String("error", types.NewErr(result.Error).String()),
 				slog.String("traceback", strings.Join(lines, "\n")))
 			return
 		}
@@ -321,6 +322,24 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
+	for _, lines := range s.StartScripts {
+		args := make([]types.Value, len(lines))
+		for i, line := range lines {
+			var clean strings.Builder
+			for j := 0; j < len(line); j++ {
+				if line[j] >= 0x20 && line[j] <= 0x7e {
+					clean.WriteByte(line[j])
+				}
+			}
+			args[i] = types.NewStr(clean.String())
+		}
+		result, err := s.runtime.RunServerVerbTask(0, "do_start_script", args, types.ObjNothing)
+		if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+			slog.Warn("startup script failed", slog.Any("err", err))
+		} else {
+			slog.Info("startup script finished", slog.Any("flow", result.Flow))
+		}
+	}
 	s.callCheckpointedConnectionHooks()
 
 	// Call #0:server_started()
@@ -613,28 +632,28 @@ func (s *Server) callCheckpointedConnectionHooks() {
 
 // callServerStarted calls #0:server_started()
 func (s *Server) callServerStarted() error {
-	if !s.store.HasLocalVerb(0, "server_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
 // callCheckpointStarted calls #0:checkpoint_started()
 func (s *Server) callCheckpointStarted() error {
-	if !s.store.HasLocalVerb(0, "checkpoint_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
 // callCheckpointFinished calls #0:checkpoint_finished(success)
 func (s *Server) callCheckpointFinished(success bool) error {
-	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 

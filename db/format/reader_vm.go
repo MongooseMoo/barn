@@ -273,6 +273,8 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		LineNumber:       line,
 		RuntimeVariables: types.NewMap(variablePairs),
 		IsEvalFrame:      frame.IsEvalFrame,
+		BuiltinCaller:    frame.BuiltinCaller,
+		BuiltinPC:        frame.BuiltinPC,
 	}
 	return frame, activation, nil
 }
@@ -312,6 +314,33 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
 	}
 
+	for index := range frame.CommandEnvironment {
+		frame.CommandEnvironment[index] = types.NewStr("")
+		if index >= 4 {
+			frame.CommandEnvironment[index] = types.NewObj(types.ObjNothing)
+		}
+	}
+	if value.Len() >= 21 {
+		environment := value.Get(21)
+		if environment.Type() != types.TYPE_LIST || environment.Len() != len(frame.CommandEnvironment) {
+			return frame, fmt.Errorf("invalid command environment")
+		}
+		copy(frame.CommandEnvironment[:], environment.Elements())
+	}
+	if value.Len() >= 22 {
+		local := value.Get(22)
+		if local.Type() != types.TYPE_INT || local.Int() < 0 || local.Int() > bytecode.MaxLocals {
+			return frame, fmt.Errorf("invalid caller result local")
+		}
+		frame.ReturnLocal = int(local.Int())
+	}
+	if value.Len() >= 23 {
+		builtin := value.Get(23)
+		if builtin.Type() != types.TYPE_LIST || builtin.Len() != 2 || builtin.Get(1).Type() != types.TYPE_STR || builtin.Get(2).Type() != types.TYPE_INT {
+			return frame, fmt.Errorf("invalid builtin continuation")
+		}
+		frame.BuiltinCaller, frame.BuiltinPC = builtin.Get(1).Str(), int(builtin.Get(2).Int())
+	}
 	code := value.Get(2)
 	if value.Len() >= 20 {
 		encoded := value.Get(20)
@@ -456,6 +485,9 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 				OldChildren: objectIDsFromValue(recycleState.Get(3)),
 				OldContents: objectIDsFromValue(recycleState.Get(4)),
 				OldLocation: recycleState.Get(5).Obj(),
+			}
+			if recycleState.Len() >= 6 {
+				frame.RecycleContinuation.ExitCallback = recycleState.Get(6).Truthy()
 			}
 		}
 	}

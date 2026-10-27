@@ -27,7 +27,6 @@ func dirtyVM(machine *VM) {
 	machine.Ticks = 789
 	machine.Preempt = func() {}
 	machine.Resumable = true
-	machine.commandStr(0, "dirty argstr")
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
 	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
 	machine.pendingWaifIDs = map[types.WaifIdentity]struct{}{}

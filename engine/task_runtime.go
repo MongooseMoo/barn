@@ -394,8 +394,9 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	var launchErr error
+	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName}
 	vmStarted := time.Now()
-	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt)
+	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo)
 	vmElapsed := time.Since(vmStarted)
 	var attemptTicks int64
 	if bcVM != nil {
@@ -506,11 +507,15 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
+		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed)
 		t.SetState(task.TaskKilled)
 		t.SetVM(nil)
 		return taskCtx.Err()
 	default:
+	}
+
+	if committed {
+		s.reportLaggingTask(t, scope, result, vmElapsed, lagInfo)
 	}
 
 	// Handle suspend
@@ -545,7 +550,7 @@ retryAttempt:
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
 	// only after an explicit shutdown request. Generic cancellation still runs
 	// ordinary finalization rather than fabricating pending checkpoint roots.
-	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -577,7 +582,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.VM(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
@@ -598,6 +603,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			// budget, while the seconds deadline remains anchored to this slice.
 			bcVM.Ticks = sliceEntryTicks
 		}
+		lagInfo.capture(bcVM.CurrentFrame())
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -692,6 +698,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 
 			// Start execution
+			lagInfo.capture(frame)
 			result = bcVM.ExecuteLoop()
 		} else {
 			// Simple eval task (no verb context)
@@ -715,11 +722,9 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 	// deferred to the next quiescent flush; the suspended task's VM is registered
 	// below (SetVM), so the flush-time root scan still sees its locals.
-	// Fast path retained: if no anonymous object was created since this task's
-	// floor, the candidate set (anon ids >= floor) is provably empty and there is
-	// nothing to enqueue.
-	if s.store.AnonCreationCount() != anonFloor {
-		s.deferAnonGC(ctx, anonGCFloor, nil)
+	// Released references may belong to objects created before this slice.
+	if floor, needed := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor); needed {
+		s.deferAnonGC(ctx, floor, nil)
 	}
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.
@@ -773,10 +778,14 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, result types.Result) {
 	t.SetState(task.TaskKilled)
 	handled := false
-	if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-		handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
-	} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
-		handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
+	timedOut := false
+	isDatabaseHandler := t.Context.ServerInitiated && t.This == 0 && (t.VerbName == "handle_uncaught_error" || t.VerbName == "handle_task_timeout")
+	if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "ticks")
+	} else if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "seconds")
 	}
 	// Prefer the activation stack snapshotted at raise time (carried on the
 	// result): the live call stack has already unwound, so it would report the
@@ -784,7 +793,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 	// no source lines. The log and the player see the same stack.
 	stack := result.CallStack
 	if len(stack) == 0 {
-		stack = t.GetCallStack()
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
 
 	// Toast gives #0:handle_uncaught_error the first opportunity to handle
@@ -792,8 +801,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 	// suppresses the fallback traceback. The handler itself runs with database
 	// traceback dispatch disabled, so an error there falls back to the original
 	// task's traceback instead of recursively invoking the same hook.
-	isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
-	if !handled && !isUncaughtHandler {
+	if !handled && !isDatabaseHandler && !timedOut {
 		// Count every uncaught task exception here, before #0:handle_uncaught_error
 		// gets its chance: a handled error is still an uncaught one, and on the real
 		// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
@@ -817,7 +825,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			}
 			full := ""
 			if result.Error == types.E_PROPNF {
-				full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
+				full = strings.Join(task.FormatTraceback(stack, result.ErrorMessage()), " || ")
 			}
 			slog.Warn("DEBUG-UNCAUGHT",
 				slog.String("msg", msg),
@@ -836,17 +844,14 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			}
 			stackValues = append(stackValues, frame)
 		}
-		formattedLines := task.FormatTraceback(stack, result.Error)
+		formattedLines := task.FormatTraceback(stack, result.ErrorMessage())
 		formattedValues := make([]types.Value, 0, len(formattedLines))
 		for _, line := range formattedLines {
 			formattedValues = append(formattedValues, types.NewStr(line))
 		}
-		handlerMessage := types.NewStr(result.Error.Message())
+		handlerMessage := types.NewStr(result.ErrorMessage())
 		handlerValue := types.NewInt(0)
 		if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-			if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
-				handlerMessage = message
-			}
 			handlerValue = result.Val.Get(3)
 		}
 		handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
@@ -857,11 +862,11 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			types.NewList(formattedValues),
 		}, t.Owner, "", nil, scope, true)
 		if handlerErr == nil {
-			handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+			handled = handlerResult.Flow == types.FlowSuspend || (handlerResult.Flow != types.FlowException && handlerResult.Val.Truthy())
 		}
 	}
 
-	if !handled && !isUncaughtHandler {
+	if !handled {
 		// Preserve the existing structured task log for foreground failures.
 		// Toast does not write forked-task tracebacks directly to stderr.
 		if !t.IsForked {
@@ -873,7 +878,8 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks")
 		} else {
-			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+			result.CallStack = stack
+			s.SendTracebackToPlayer(t.Owner, result)
 		}
 	}
 	// Clean up call stack after traceback has been sent
@@ -1071,29 +1077,30 @@ func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.Activ
 	return cloned
 }
 
-func (s *Runtime) callTaskTimeoutHook(t *Task, resource string, message types.Value) bool {
-	stack := t.GetCallStack()
-	stackValues := make([]types.Value, 0, len(stack))
-	for _, frame := range stack {
-		stackValues = append(stackValues, frame.ToList())
+func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource string) bool {
+	stack := t.Result.CallStack
+	if len(stack) == 0 {
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
-	traceLines := task.FormatTraceback(stack, t.Result.Error)
-	traceValues := make([]types.Value, 0, len(traceLines))
-	for i, line := range traceLines {
-		if i == 0 {
-			line = "Task ran out of " + resource
+	stackValues := make([]types.Value, 0, len(stack))
+	for i := len(stack) - 1; i >= 0; i-- {
+		frame := stack[i].ToList()
+		if s.session.IncludeRTVars(t.Context) {
+			frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
 		}
+		stackValues = append(stackValues, frame)
+	}
+	traceLines := task.FormatTraceback(stack, "Task ran out of "+resource)
+	traceValues := make([]types.Value, 0, len(traceLines))
+	for _, line := range traceLines {
 		traceValues = append(traceValues, types.NewStr(line))
 	}
-	if len(traceValues) == 0 {
-		traceValues = append(traceValues, message)
-	}
-	result := s.callVerbWithArgstr(0, "handle_task_timeout", []types.Value{
+	result, err := s.runServerVerbTask(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
-	}, t.Owner, "", vmOwnershipExecution, t.ID, t.ContextValue().Admission)
-	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
+	}, t.Owner, "", nil, scope, true)
+	return err == nil && (result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy()))
 }
 
 func resultValueContains(value types.Value, text string) bool {

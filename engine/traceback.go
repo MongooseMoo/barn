@@ -65,13 +65,13 @@ func tracebackAttrs(err types.ErrorCode, stack []types.ActivationFrame) []any {
 }
 
 // SendTracebackToPlayer sends a formatted traceback through the server-owned output hook.
-func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
+func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result) {
 	if s.tracebackSender != nil {
-		s.tracebackSender(player, err, stack)
+		s.tracebackSender(player, result)
 		return
 	}
 
-	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(err, stack)...)
+	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.CallStack)...)
 	slog.Error("traceback (no output hook configured)", attrs...)
 }
 
