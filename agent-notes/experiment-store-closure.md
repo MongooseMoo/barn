@@ -15,7 +15,8 @@ types, VM and store, not only the db/store directory.
   Additional inherited commits are research notes only.
 - Q explicitly said "Make it so!" after preparation; bounded implementation is
   now authorized. closure_implementation owns the implementation/caller changes.
-- Implementation is active. Parent owns this note and publication/CI evidence.
+- Implementation complete in db1a5be10b59b74de762e58363164e4dcfb4e490.
+  Draft PR: https://github.com/MongooseMoo/barn/pull/550 . Parent owns delivery.
 - Existing research: agent-notes/store-immutable-roots-research.md, preferred
   section "Smaller construction: closure, sets, ordered effects".
 
@@ -127,8 +128,18 @@ and structured logs remain local under experiments/store-closure; README records
 fixture hashes, settings and limitations. No candidate benchmark run is justified
 against this invalid cohort. No ordinary local CI steps were run.
 
-## Next step
+## Delivery and remaining evidence
 
-Commit the inspected implementation and notes, publish draft experiment PR and
-collect its existing CI results. Implementation analyst is checking real callers
-and behavioral preservation without local tests. No merge/deployment authorized.
+Draft PR #550 contains the bounded experiment. Analyst and parent source checks
+found no concrete reachable regression; neither is runtime verification. Existing
+PR CI owns correctness evidence; inspect the current PR head's checks directly.
+Initial runs: CI 40429829982 and Elle 40429829910. A note-only follow-up may
+supersede those runs, so do not infer current check state from these IDs alone.
+
+The experiment establishes a net production deletion of 89 physical lines and
+two fewer independent traversal bodies. It does not establish a large store
+reduction, measured speedup or performance parity. The covering-root proposal did
+not earn extraction. Application performance remains unresolved because the
+unchanged baseline reported command failures; preserved diagnostic evidence is
+described above. No merge/deployment authorized. Keep the draft and both worktrees
+for inspection; baseline has the same initial source with generated workload data.
