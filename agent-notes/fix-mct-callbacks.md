@@ -133,6 +133,14 @@ Fork callback payloads also fail their originating frame assertion: fork
 capture used Context.ThisValue (integer zero at a normal root) rather than
 the active frame's None/typed receiver. Copy the activation fields directly.
 
+Login slice (about 25 production lines): resolve inherited callable login
+handlers and accept returned player objects only before any suspension, using
+the task's existing suspension generation. A resumed login must use
+switch_player explicitly (Toast tasks.cc:884-921); update read-login fixture
+verbs to do that without changing their connection, ordering or orphan-task
+assertions. Preserve the existing single-login-task safeguard; reading tasks
+still consume their input through the existing earlier path.
+
 ## Surprises
 
 #163 was not green when requested: trusted validation reported

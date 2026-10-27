@@ -616,22 +616,15 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 // dispatchLoginCommand runs the listener's do_login_command as a registered,
 // resumable engine task. The login verb may call read() any number of times
 // (username, password, ...); each read() suspends and resumes the same task.
-// When the task finally returns, the completion callback interprets the result
-// and logs the player in. Falls back to the synchronous helper when there is no
-// do_login_command verb (or it cannot be dispatched).
+// Only a return before suspension can log in implicitly. A resumed task can
+// use switch_player(); its eventual return value is ignored.
 func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	handler := conn.ListenerObject()
 	if errCode := p.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return
 	}
 
-	// No login handler: preserve the existing synchronous fallback.
-	if !p.store.HasLocalVerb(handler, "do_login_command") {
-		maxBeforeLogin := p.store.DirectTxn().MaxObject()
-		player, _ := p.callDoLoginCommand(conn, line)
-		if player > 0 {
-			p.loginPlayer(conn, player, player > maxBeforeLogin)
-		}
+	if _, _, err := p.store.DirectTxn().FindCallableVerb(handler, "do_login_command"); err != nil {
 		return
 	}
 
@@ -643,11 +636,19 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	}
 
 	maxBeforeLogin := p.store.DirectTxn().MaxObject()
+	var loginTaskID int64
 	onStart := func(taskID int64) {
+		loginTaskID = taskID
 		conn.SetLoginTaskID(taskID)
 	}
 	onComplete := func(result types.Result) {
-		conn.SetLoginTaskID(0)
+		if conn.GetLoginTaskID() == loginTaskID {
+			conn.SetLoginTaskID(0)
+		}
+		completed := p.runtime.GetTask(loginTaskID)
+		if completed == nil || completed.SuspendGeneration() != 0 || result.Flow == types.FlowException {
+			return
+		}
 		// Don't log in a connection that has since disconnected (the live conn
 		// for this connID was removed/replaced): that would resurrect a dead
 		// connection or hijack a recycled connID.
