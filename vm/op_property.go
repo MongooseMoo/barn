@@ -166,7 +166,7 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 			vm.Push(val)
 			return nil
 		}
-		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
+		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
@@ -191,7 +191,7 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 	}
 
 	// Property not found
-	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName)
+	return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
 }
 
 // getWaifProp handles property read on a waif value.

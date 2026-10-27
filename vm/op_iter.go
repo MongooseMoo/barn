@@ -183,7 +183,7 @@ func (vm *VM) executeScatter() error {
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
+		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type())).withMessage()
 	}
 
 	length := val.Len()

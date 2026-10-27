@@ -1115,7 +1115,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		val := frame.Locals[idx]
 		if val.IsUnbound() {
 			if int(idx) < len(frame.Program.VarNames) {
-				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx])
+				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx]).withMessage()
 			}
 			return MooError{Code: types.E_VARNF}
 		}
@@ -1464,6 +1464,10 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
 			message := errCode.Message()
+			var native MooError
+			if errors.As(err, &native) && native.publicDetail {
+				message = native.detail()
+			}
 			exceptionValue = types.NewList([]types.Value{
 				types.NewErr(errCode),
 				types.NewStr(message),

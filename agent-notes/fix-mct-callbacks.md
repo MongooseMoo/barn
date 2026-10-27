@@ -150,8 +150,12 @@ assertions are unchanged. Ordinary initializer suspension is covered by MCT.
 
 Paired run 40445777195 completed with 91 failures; evidence is retained under
 .tmp/mct-candidate-40445777195. Native range-error output regressed because
-ErrorMessage exposed VM diagnostics; remove diagnostic substitution when
-constructing native exception values, retaining explicit raise() payloads.
+ErrorMessage exposed VM diagnostics. Removing all detail then caused four
+main-suite failures for source-defined type, property and variable messages.
+Mark those producers explicitly (about 25 lines), preserving their lazy format
+while native diagnostics use the canonical error text. Toast execute.cc:919-960
+distinguishes PUSH_X_NOT_FOUND/type mismatch messages from PUSH_ERROR.
+Explicit raise() payloads remain intact.
 Fork callback payloads also fail their originating frame assertion: fork
 capture used Context.ThisValue (integer zero at a normal root) rather than
 the active frame's None/typed receiver. Copy the activation fields directly.
