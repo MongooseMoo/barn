@@ -10,6 +10,8 @@ type InputEvent struct {
 	IsOutOfBand  bool
 	IsDisconnect bool
 	IsTimeout    bool
+	UserHook     string
+	Handler      types.ObjID
 	Done         chan struct{}
 	OnProcessed  func() // first slice completed, or event discarded
 }

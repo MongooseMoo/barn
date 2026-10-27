@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/command"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
@@ -47,21 +48,22 @@ type listenerKey struct {
 
 // ConnectionManager manages all active connections
 type ConnectionManager struct {
-	connections       map[int64]*Connection
-	playerConns       map[types.ObjID]*Connection // Map player to active connection
-	playerConnHistory map[types.ObjID][]*Connection
-	nextConnID        int64
-	mu                sync.Mutex
-	connectionWG      sync.WaitGroup
-	connectionSetupWG sync.WaitGroup
-	shutdownOnce      sync.Once
-	connectionHandler func(*Connection)
-	listeners         map[listenerKey]*listenerRecord
-	setupConns        map[net.Conn]struct{}
-	outboundClients   map[int64]net.Conn
-	closing           bool
-	listenPort        int
-	connectTimeout    time.Duration
+	connections            map[int64]*Connection
+	playerConns            map[types.ObjID]*Connection // Map player to active connection
+	playerConnHistory      map[types.ObjID][]*Connection
+	nextConnID             int64
+	mu                     sync.Mutex
+	connectionWG           sync.WaitGroup
+	connectionSetupWG      sync.WaitGroup
+	shutdownOnce           sync.Once
+	connectionHandler      func(*Connection)
+	connectionEventHandler func(command.InputEvent)
+	listeners              map[listenerKey]*listenerRecord
+	setupConns             map[net.Conn]struct{}
+	outboundClients        map[int64]net.Conn
+	closing                bool
+	listenPort             int
+	connectTimeout         time.Duration
 }
 
 // NewConnectionManager creates a new connection manager
@@ -654,6 +656,7 @@ func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 	}
 
 	_ = conn.Send("*** Disconnected ***")
+	conn.setDisconnectHook("user_disconnected")
 	_ = conn.Close()
 	return nil
 }
@@ -668,6 +671,7 @@ func (cm *ConnectionManager) RecyclePlayer(player types.ObjID) error {
 	}
 
 	_ = conn.Send("*** Recycled ***")
+	conn.setDisconnectHook("")
 	_ = conn.Close()
 	return nil
 }
@@ -936,7 +940,6 @@ func isWebSocketUpgrade(r *http.Request) bool {
 // This is used during login to switch from negative connection ID to actual player
 func (cm *ConnectionManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
 
 	// Find connection for old player
 	conn := cm.playerConns[oldPlayer]
@@ -949,19 +952,40 @@ func (cm *ConnectionManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) erro
 	}
 
 	if conn == nil {
+		cm.mu.Unlock()
 		return fmt.Errorf("old player not connected")
 	}
 
 	// Remove old player mapping
 	delete(cm.playerConns, oldPlayer)
 
-	if existing := cm.playerConns[newPlayer]; existing != nil && existing != conn {
-		cm.pushPlayerHistoryLocked(newPlayer, existing)
+	existing := cm.playerConns[newPlayer]
+	reconnecting := existing != nil
+	if existing != nil && existing != conn {
+		existing.setDisconnectHook("")
 	}
 
 	// Set up new player
 	conn.SetPlayer(newPlayer)
 	cm.playerConns[newPlayer] = conn
+	enqueue := cm.connectionEventHandler
+	cm.mu.Unlock()
+	if existing != nil && existing != conn {
+		_ = existing.Close()
+	}
+	if enqueue != nil {
+		notify := func(player types.ObjID, hook string) {
+			enqueue(command.InputEvent{ConnID: conn.ID, Player: player, Handler: conn.ListenerObject(), UserHook: hook})
+		}
+		if reconnecting {
+			notify(newPlayer, "user_reconnected")
+		} else {
+			if oldPlayer != newPlayer {
+				notify(oldPlayer, "user_disconnected")
+			}
+			notify(newPlayer, "user_connected")
+		}
+	}
 
 	slog.Info("switched connection", slog.Int64("conn_id", conn.ID), slog.Int64("old_player", int64(oldPlayer)), slog.Int64("new_player", int64(newPlayer)))
 	return nil

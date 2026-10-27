@@ -313,6 +313,20 @@ func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waif
 	}
 }
 
+// AnonymousGCFloor includes released references from earlier tasks, which can
+// precede the current slice's creation floor. Reachability is checked at sweep.
+func (vm *VM) AnonymousGCFloor(floor types.ObjID, needed bool) (types.ObjID, bool) {
+	for _, value := range vm.PendingFinalizations {
+		if value.IsAnonymous() {
+			needed = true
+			if value.ID() < floor {
+				floor = value.ID()
+			}
+		}
+	}
+	return floor, needed
+}
+
 // TakePendingFinalizationValues returns the canonical roots retained across
 // frame-pop boundaries together with values still live in the VM.
 func (vm *VM) TakePendingFinalizationValues() []types.Value {

@@ -722,11 +722,9 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 	// deferred to the next quiescent flush; the suspended task's VM is registered
 	// below (SetVM), so the flush-time root scan still sees its locals.
-	// Fast path retained: if no anonymous object was created since this task's
-	// floor, the candidate set (anon ids >= floor) is provably empty and there is
-	// nothing to enqueue.
-	if s.store.AnonCreationCount() != anonFloor {
-		s.deferAnonGC(ctx, anonGCFloor, nil)
+	// Released references may belong to objects created before this slice.
+	if floor, needed := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor); needed {
+		s.deferAnonGC(ctx, floor, nil)
 	}
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.

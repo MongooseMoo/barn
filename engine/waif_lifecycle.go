@@ -163,6 +163,7 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.V
 		return true
 	}
 	s.deferPendingWaifs(ctx, exec.TakePendingWaifs(), exec)
+	minID, hasAnonymousCreations = exec.AnonymousGCFloor(minID, hasAnonymousCreations)
 	if hasAnonymousCreations {
 		s.deferAnonGC(ctx, minID, exec)
 	}

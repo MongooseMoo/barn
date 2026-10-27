@@ -82,6 +82,9 @@ func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 	p.connManager = cm
 	if cm != nil {
 		cm.setConnectionHandler(p.HandleConnection)
+		cm.mu.Lock()
+		cm.connectionEventHandler = p.EnqueueInput
+		cm.mu.Unlock()
 	}
 }
 
@@ -353,6 +356,13 @@ func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 
 func (p *InputProcessor) processInput(input command.InputEvent) {
 	defer input.Complete()
+	if input.UserHook != "" {
+		isUser, ec := p.store.DirectTxn().HasObjectFlag(input.Player, dbstore.FlagUser)
+		if ec == types.E_NONE && isUser {
+			p.callUserHook(input.Handler, input.UserHook, input.Player)
+		}
+		return
+	}
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
@@ -421,6 +431,7 @@ func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
 		return
 	}
 	_ = conn.Send("*** Timed-out waiting for login. ***")
+	conn.setDisconnectHook("")
 	p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 }
 
@@ -557,8 +568,11 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID))
 	}
 
-	if wasLoggedIn {
-		p.callUserHook(handler, "user_client_disconnected", player)
+	if hook := conn.getDisconnectHook(); hook != "" {
+		if !wasLoggedIn {
+			player = types.ObjID(-conn.ID)
+		}
+		p.callUserHook(handler, hook, player)
 	}
 
 	slog.Info("connection closed", slog.Int64("conn_id", conn.ID))

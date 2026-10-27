@@ -180,6 +180,18 @@ candidates before MCT merges.
 
 ## Next step
 
+Connection repair (about 80 lines): enqueue switch notifications on the existing
+connection input lane, filter switch recipients by the user flag, and distinguish
+boot/recycle/timeout closes from client closes using the connection's existing
+mutex. Close a superseded switch target without a second disconnect notification.
+Toast server.cc:917-922 and :1729-1768 define these notifications. Prelogin
+disconnects use the negative connection id. No new queue or worker is needed.
+
+Released-reference repair (about 45 lines): retain overwritten property values
+in the VM's existing pending finalization roots and include those anonymous ids
+in the existing deferred sweep floor. Reuse the pending-WAIF path and retain
+the existing store/VM reachability checks before running any finalizer.
+
 Read the callback source and full changed suites while paired CI establishes
 Toast acceptance and Barn failures. Then implement only the demonstrated gaps,
 publish the Barn PR, repair its CI findings, and merge the MCT PRs after proof.

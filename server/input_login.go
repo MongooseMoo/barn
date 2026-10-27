@@ -280,8 +280,6 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
-		} else {
-			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
 		return
 	}
