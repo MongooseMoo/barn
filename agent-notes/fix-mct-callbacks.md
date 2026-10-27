@@ -19,9 +19,11 @@ Toast profiles succeeded. Barn PR #552 contains system hook context, startup,
 lag, error and input callback changes. Paired run 40445777195 tests the earlier
 callback changes; it completed with 91 failures. The subsequent paired run
 40448717670 tests the context, initializer, setter and builtin-marker fixes.
-Login fixes are also pushed. Latest unit CI exposed plain-eval frames retaining
-player #-1 while their execution context has the task owner; initialize the
-frame player from that context so forks inherit it correctly. Compiler-local
+Login, eval-player and deferred-finalizer fixes are pushed; their unit and Elle
+jobs passed. Explicit recycle-exit changes are pushed; staticcheck caught an
+unused initial assignment, now removed. Plain-eval frames retained
+player #-1 while their execution context had the task owner; initializing the
+frame player from that context repaired fork ownership. Compiler-local
 reservation was replaced by frame state without changing source variable limits.
 Its first unit CI failed because TestCheckpointedConnectionsDisconnectBeforeServerStarted
 expected player #0 instead of the source-confirmed #-1. Corrected that existing

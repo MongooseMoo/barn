@@ -600,7 +600,8 @@ func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Val
 	if ec != types.E_NONE {
 		return types.None, types.None, types.Err(ec)
 	}
-	what, where := object, types.None
+	what := object
+	var where types.Value
 	if len(contents) > 0 {
 		what = moveObjectReferenceForRead(ctx, contents[0])
 		where = object
