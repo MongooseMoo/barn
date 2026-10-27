@@ -322,6 +322,7 @@ func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Val
 		objectIDsValue(state.OldChildren),
 		objectIDsValue(state.OldContents),
 		types.NewObj(state.OldLocation),
+		types.NewBool(state.ExitCallback),
 	})
 }
 

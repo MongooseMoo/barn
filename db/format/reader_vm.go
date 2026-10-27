@@ -486,6 +486,9 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 				OldContents: objectIDsFromValue(recycleState.Get(4)),
 				OldLocation: recycleState.Get(5).Obj(),
 			}
+			if recycleState.Len() >= 6 {
+				frame.RecycleContinuation.ExitCallback = recycleState.Get(6).Truthy()
+			}
 		}
 	}
 	return frame, nil

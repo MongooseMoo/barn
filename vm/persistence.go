@@ -266,11 +266,12 @@ func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContin
 	}
 	request := state.request
 	return &task.RecycleContinuationSnapshot{
-		Object:      request.Object,
-		OldParents:  append([]types.ObjID(nil), request.OldParents...),
-		OldChildren: append([]types.ObjID(nil), request.OldChildren...),
-		OldContents: append([]types.ObjID(nil), request.OldContents...),
-		OldLocation: request.OldLocation,
+		ExitCallback: state.exitCallback,
+		Object:       request.Object,
+		OldParents:   append([]types.ObjID(nil), request.OldParents...),
+		OldChildren:  append([]types.ObjID(nil), request.OldChildren...),
+		OldContents:  append([]types.ObjID(nil), request.OldContents...),
+		OldLocation:  request.OldLocation,
 	}
 }
 
@@ -278,7 +279,7 @@ func restoreRecycleContinuation(state *task.RecycleContinuationSnapshot) *recycl
 	if state == nil {
 		return nil
 	}
-	return &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+	return &recycleContinuation{exitCallback: state.ExitCallback, request: builtins.RecycleLifecycleRequest{
 		Object:      state.Object,
 		OldParents:  append([]types.ObjID(nil), state.OldParents...),
 		OldChildren: append([]types.ObjID(nil), state.OldChildren...),

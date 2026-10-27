@@ -53,6 +53,12 @@ destroyed_waifs boolean and avoids retaining an ever-growing runtime identity ma
 The native WAIF checkpoint format does not save that boolean (waif.cc:858-920);
 keep its existing portable format.
 
+Explicit recycle exit slice (about 100 lines): move one current content or the
+object itself to nothing, then push exitfunc on the existing recycle continuation.
+Re-read contents/location after each return, as Toast objects.cc:856-873 does,
+so a callback that moves objects is respected. Preserve the continuation through
+the existing snapshot metadata; retain the existing initial-hook error handling.
+
 Smallest-change plan is being established from the test inventory and source;
 line estimates must follow the actual failures, not an invented feature design.
 Initial source search finds no start-line/start-script or handle_lagging_task

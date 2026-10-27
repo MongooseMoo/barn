@@ -60,11 +60,12 @@ type MoveContinuationSnapshot struct {
 // RecycleContinuationSnapshot is the persistent native state retained while
 // an object's recycle verb is suspended on the owning VM.
 type RecycleContinuationSnapshot struct {
-	Object      types.Value
-	OldParents  []types.ObjID
-	OldChildren []types.ObjID
-	OldContents []types.ObjID
-	OldLocation types.ObjID
+	ExitCallback bool
+	Object       types.Value
+	OldParents   []types.ObjID
+	OldChildren  []types.ObjID
+	OldContents  []types.ObjID
+	OldLocation  types.ObjID
 }
 
 // VMFrameSnapshot is one activation and its operand-stack segment.
