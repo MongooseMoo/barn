@@ -54,7 +54,7 @@ func (s *Runtime) reportLaggingTask(t *Task, scope *admission.Scope, result type
 	if result.Flow == types.FlowException || result.Flow == types.FlowSuspend {
 		stack := result.CallStack
 		if len(stack) == 0 {
-			stack = t.GetCallStack()
+			stack = types.ExpandBuiltinFrames(t.GetCallStack())
 		}
 		frames := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {

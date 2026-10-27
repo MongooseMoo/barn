@@ -141,6 +141,9 @@ continuation PC on callback activations. Expand those into observation-only
 frames for callers(), task_stack() and exception payloads; permission lookup
 continues to use actual verb activations. Preserve the metadata on checkpoint.
 Toast execute.cc:452-516 and objects.cc call-pack PCs establish the shape.
+Expand the same markers when lag, timeout or uncaught handlers use the live
+task stack fallback (three call sites); VM exception snapshots already include
+them. This preserves builtin callback frames during suspension and exhaustion.
 
 Initializer CI exposed an obsolete fixture assumption: the inline-threaded-sort
 test used create() to enter a throwaway VM. Initialization now correctly shares

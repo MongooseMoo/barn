@@ -795,7 +795,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 	// no source lines. The log and the player see the same stack.
 	stack := result.CallStack
 	if len(stack) == 0 {
-		stack = t.GetCallStack()
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
 
 	// Toast gives #0:handle_uncaught_error the first opportunity to handle
@@ -1082,7 +1082,7 @@ func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.Activ
 func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource string) bool {
 	stack := t.Result.CallStack
 	if len(stack) == 0 {
-		stack = t.GetCallStack()
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
 	stackValues := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
