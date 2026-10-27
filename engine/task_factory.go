@@ -97,7 +97,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 		}
 		defer scope.Finish()
 	}
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
 	}

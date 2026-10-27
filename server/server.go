@@ -613,28 +613,28 @@ func (s *Server) callCheckpointedConnectionHooks() {
 
 // callServerStarted calls #0:server_started()
 func (s *Server) callServerStarted() error {
-	if !s.store.HasLocalVerb(0, "server_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
 // callCheckpointStarted calls #0:checkpoint_started()
 func (s *Server) callCheckpointStarted() error {
-	if !s.store.HasLocalVerb(0, "checkpoint_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
 // callCheckpointFinished calls #0:checkpoint_finished(success)
 func (s *Server) callCheckpointFinished(success bool) error {
-	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 
