@@ -141,5 +141,29 @@ two fewer independent traversal bodies. It does not establish a large store
 reduction, measured speedup or performance parity. The covering-root proposal did
 not earn extraction. Application performance remains unresolved because the
 unchanged baseline reported command failures; preserved diagnostic evidence is
-described above. No merge/deployment authorized. Keep the draft and both worktrees
-for inspection; baseline has the same initial source with generated workload data.
+described above.
+
+## Merge attempt and remaining work
+
+Q authorized merging. The completed review and PR checks passed; the required
+merge queue then failed integer dump persistence with E_PROPNF and panic-root
+natural exit with a five-second timeout. The passing PR run and failing queue
+run used identical Barn trees and the same conformance revision. Existing Toast
+oracle results confirm both expected behaviors. Neither failure's cause is known.
+
+The failed run's server log is absent and CI uploaded only result/admission
+artifacts. Do not rerun to evade the failure or change timeout protections.
+Q directed finishing the work. Focused managed diagnosis passed admission and
+both cases; ordinary checkpoint took 16 ms and panic checkpoint took 12 ms.
+That does not establish the cause of the queue failures. Existing issue 445
+records the same panic timeout on unrelated changes.
+
+Smallest evidence repair: add the existing Barn file-log option to the two CI
+server commands and add those directories to the existing artifact upload
+(about four workflow lines). No new checks, timeout changes, or test weakening.
+Reuse the completed production review; inspect only this workflow change.
+
+Baseline logs, CPU profile and generated database files were preserved under
+C:/Users/Q/code/barn/.probes/store-closure-550. Both experiment worktrees remain;
+remove them after a successful merge. Include this note with the diagnostic
+artifact correction, not a separate bookkeeping commit.
