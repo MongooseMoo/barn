@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/MongooseMoo/barn/internal/listener"
 )
 
 type lifecycleState uint32
@@ -79,7 +81,7 @@ func startHTTPEndpoint(name, addr string, handler http.Handler) (*httpEndpoint, 
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	e := &httpEndpoint{name: name, srv: &http.Server{Handler: handler}}
+	e := &httpEndpoint{name: name, srv: &http.Server{Handler: handler, ReadHeaderTimeout: listener.HTTPReadHeaderTimeout}}
 	slog.Info(name+" endpoint listening", slog.String("addr", ln.Addr().String()))
 	go func() {
 		if err := e.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
