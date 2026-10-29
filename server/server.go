@@ -518,7 +518,9 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 // Shutdown initiates graceful shutdown.
 func (s *Server) Shutdown(message string) {
 	s.mu.Lock()
-	if !s.running {
+	// A live context also belongs to a server that has not entered Start yet.
+	// Retain its shutdown request; only an already stopped server is a no-op.
+	if !s.running && s.ctx.Err() != nil {
 		s.mu.Unlock()
 		return
 	}
