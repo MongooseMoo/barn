@@ -224,19 +224,27 @@ func (t *TCPTransport) ReadChunk() (string, error) {
 }
 
 // WriteOutput sends bytes with optional CRLF framing.
-func (t *TCPTransport) WriteOutput(msg string, newline bool) error {
+func (t *TCPTransport) WriteOutput(msg string, newline bool) (err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if err := t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
+	defer func() {
+		if err == nil {
+			err = t.conn.SetWriteDeadline(time.Time{})
+		}
+		if err != nil {
+			// A buffered write failure is permanent; wake the reader for cleanup.
+			_ = t.conn.Close()
+		}
+	}()
+	if err = t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
 		return err
 	}
-	defer func() { _ = t.conn.SetWriteDeadline(time.Time{}) }()
 
 	if newline {
 		msg += "\r\n"
 	}
-	_, err := t.writer.WriteString(msg)
+	_, err = t.writer.WriteString(msg)
 	if err != nil {
 		return err
 	}

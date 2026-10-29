@@ -6,15 +6,15 @@ Implement issue #559 on branch `fix/output-deadlines-559`: a peer that stops rea
 
 ## State
 
-Implementation and focused regression run are committed locally. Work is isolated in `C:/Users/Q/code/barn-output-deadlines-559`. The change touches the two transports, boot/recycle hook ordering and the new output regression file. Existing PR CI supplies the broader checks; no CI steps were run locally as a publication gate. The post-commit checkpoint remains uncommitted as requested by the checkpoint hook.
+The initial implementation is published as PR #563. Root verified a review finding: an ordinary TCP output timeout leaves an open socket with a permanently failed buffered writer. That repair is complete locally in `C:/Users/Q/code/barn-output-deadlines-559`, and its authored regression selection passes. Root owns repair publication and review of the actual delta. Broader results belong to PR CI, not a local CI rerun.
 
 ## Decisions and why
 
-Smallest production change: one shared 30-second active-write allowance, applied as a TCP write deadline around WriteString/Flush and a WebSocket context deadline around Write. TCP clears its write deadline after each operation. This allowance is an operation policy, not a read or idle-session deadline; 30 seconds tolerates ordinary brief stalls while providing a finite upper bound. Initial size: roughly 12 added production lines and two moved hook-selection lines, with focused regressions separate.
+Smallest production change: one shared 30-second active-write allowance, applied as a TCP write deadline around WriteString/Flush and a WebSocket context deadline around Write. TCP clears its write deadline after success and closes its socket after terminal output failure. This allowance is an operation policy, not a read or idle-session deadline; 30 seconds tolerates ordinary brief stalls while providing a finite upper bound.
 
-Return the original write/deadline error through existing callers. Do not retry/reset the TCP bufio.Writer after partial output: its sticky error already prevents replaying partly delivered bytes. Do not add a queue, worker, flag, retry layer or new shared package.
+Return the original write/deadline error through existing callers and close the TCP socket on terminal output failure. My prior choice to keep transport closure only in the administrative caller was wrong: ordinary notification callers return/set E_INVARG without closing, while bufio.Writer retains its failure permanently. A failed output stream cannot remain a live authenticated connection. Do not retry/reset it or replay partial output. Successful writes clear their temporary deadline; failure cleanup must not replace the original I/O error with a close/deadline error. Do not add a queue, worker, flag, retry layer or new shared package.
 
-Set boot/recycle's already-selected disconnect hook before the banner. The pinned coder/websocket implementation closes its socket when a write context expires (`conn.go:171-177`), so selecting the hook after Send can allow reader cleanup to observe the wrong hook. Root explicitly approved this in-scope move. Keep transport closure in its existing owner.
+Set boot/recycle's already-selected disconnect hook before the banner. Both terminal TCP output failure and the pinned WebSocket dependency's context expiration can close a socket while Send is still returning. Selecting the hook afterward can let reader cleanup observe the wrong hook. Root explicitly approved this in-scope move. The existing transport owner retires its failed socket; ordinary connection/input cleanup observes that closure.
 
 ## Surprises
 
@@ -22,15 +22,15 @@ One read-only module search put --glob after the -- path separator and returned 
 
 ## Next step
 
-Return the committed branch and raw verification evidence to root for publication and PR CI. Root owns all external publication and merge actions; it can include this post-commit checkpoint when preparing publication.
+Return the scoped repair commit to root for publication and review of the actual delta. Keep prior unchanged WebSocket/hook coverage and existing required CI; do not claim the repair is published or merged from this local result.
 
 ## PR draft
 
-Bound active TCP and WebSocket writes to 30 seconds so a non-reading peer cannot indefinitely hold normal output or boot/recycle before closure. Preserve existing selected disconnect hooks when a WebSocket write deadline closes the socket. Closes #559.
+Bound active TCP and WebSocket writes to 30 seconds so a non-reading peer cannot indefinitely hold normal output or boot/recycle before closure. Retire TCP sockets on terminal output failure and preserve the original error. Preserve existing selected disconnect hooks when write failure closes the socket. Closes #559.
 
-Validation: `go test ./server -run '^(TestTCPOutputDeadline|TestWebSocketOutputDeadline)' -count=1 -timeout 30s -v` passes. Existing PR CI remains pending publication.
+Validation: `go test ./server -run '^(TestTCPOutputDeadline|TestWebSocketOutputDeadline)' -count=1 -timeout 30s -v` passes after the TCP retirement repair. The repair's existing PR CI remains pending root publication.
 
-## Verification evidence
+## Initial verification evidence
 
 The same authored test selection failed before the production change:
 
@@ -74,3 +74,34 @@ The TCP tests use actual blocked net.Pipe writes, shorten only the fake connecti
 - Production diff is 13 insertions and 3 deletions across the three existing owners.
 - This checkpoint is uncommitted as the hook requested; no external publication occurred.
 - Next: root inspects the branch, includes the checkpoint if desired, publishes the PR and monitors existing CI.
+
+## TCP retirement repair
+
+Root verified the PR #563 finding: the deadline stopped a failed output operation, but ordinary notification callers did not close the socket, and the sticky bufio.Writer failure made its future output unusable. The earlier policy kept closure only in the administrative path; that was insufficient. The Decisions section was corrected before repairing the source.
+
+TCP WriteOutput now closes its own socket on any terminal output/deadline failure, waking connection input cleanup. It clears the write deadline only after success. Deferred cleanup preserves the original I/O/deadline error when Close fails; no buffered writer reset, output replay or retry was introduced.
+
+The updated actual net.Pipe timeout regression also checks reader wakeup, peer closure and no subsequent writes. The fake reports a Close failure to prove the original timeout survives cleanup. Deadline arming and clearing failures also retire their connection and preserve their own error. WebSocket/hook source and existing coverage are unchanged.
+
+The first repair run failed because I expected SetReadDeadline to succeed after the peer was closed; net.Pipe returned `io: read/write on closed pipe`. The test now requires that closed-pipe result and then EOF instead of treating successful closure as a fixture failure.
+
+The authored selection then passed:
+
+```text
+--- PASS: TestTCPOutputDeadlineInterruptsPartialWriteWithoutReplay (0.10s)
+--- PASS: TestTCPOutputDeadlinePreservesFramingAndClearsAfterSuccess (0.00s)
+--- PASS: TestTCPOutputDeadlineSetupFailureClosesConnection (0.00s)
+--- PASS: TestWebSocketOutputDeadlineIsBoundedAndReleased (0.00s)
+--- PASS: TestTCPOutputDeadlineLetsBootAndRecycleClose (0.20s)
+--- PASS: TestWebSocketOutputDeadlinePreservesAdministrativeDisconnectHook (0.00s)
+PASS
+ok github.com/MongooseMoo/barn/server 3.003s
+```
+
+## Repair checkpoint
+
+- Cause corrected in the existing transport policy and owner: terminal TCP output failure retires the socket.
+- Focused regressions assert reader wakeup, peer closure, original errors and no replay; all six top-level tests pass.
+- The repair changes transport.go, its existing output regression file and this living note only.
+- Root owns publication, PR CI and review of the actual repair delta; no merge is claimed.
+- Next: hand root the scoped local repair commit.
