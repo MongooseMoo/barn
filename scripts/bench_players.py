@@ -846,14 +846,17 @@ ROSTER_PAGE = 50  # players per eval; the first wizard's eval output is cut near
 def compute_roster(ctl: Control) -> list[dict]:
     """Players with location > #0 (the Barn harness rule), ascending by objnum.
     Fetched compactly ({obj, wizard} pairs, paged); names and locations are
-    filled in later only for the players the run actually uses."""
+    filled in later only for the players the run actually uses. players() can
+    shrink between pages while the world runs, so each page clamps its range
+    to its own snapshot and entries are de-duplicated by object."""
     count, _ = ctl.eval("return length(players());")
-    entries: list[dict] = []
+    entries: dict[int, dict] = {}
     for start in range(1, int(count) + 1, ROSTER_PAGE):
-        stop = min(start + ROSTER_PAGE - 1, int(count))
+        stop = start + ROSTER_PAGE - 1
         code = f"""
         r = {{}};
-        for p in (players()[{start}..{stop}])
+        ps = players();
+        for p in ({start} <= length(ps) ? ps[{start}..min({stop}, length(ps))] | {{}})
           loc = `p.location ! ANY => #-1';
           if (toint(loc) > 0)
             r = {{@r, {{p, p.wizard}}}};
@@ -865,9 +868,8 @@ def compute_roster(ctl: Control) -> list[dict]:
         if not isinstance(value, list):
             raise RuntimeError(f"roster eval returned {value!r}")
         for p, wiz in value:
-            entries.append({"obj": int(p), "wizard": bool(wiz)})
-    entries.sort(key=lambda e: e["obj"])
-    return entries
+            entries[int(p)] = {"obj": int(p), "wizard": bool(wiz)}
+    return [entries[obj] for obj in sorted(entries)]
 
 
 def describe_players(ctl: Control, entries: list[dict]) -> None:
