@@ -814,36 +814,6 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		// gets its chance: a handled error is still an uncaught one, and on the real
 		// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
 		metrics.UncaughtExceptions.Add(1)
-		if os.Getenv("BARN_DEBUG_RETRY") != "" {
-			top := ""
-			if len(stack) > 0 {
-				f := stack[len(stack)-1]
-				top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
-			}
-			caller := ""
-			if len(stack) > 1 {
-				f := stack[len(stack)-2]
-				caller = fmt.Sprintf("#%d:%s line %d (this=%d)", f.VerbLoc, f.Verb, f.LineNumber, f.This)
-			}
-			msg := result.Error.Message()
-			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-				if m := result.Val.Get(2); m.Type() == types.TYPE_STR {
-					msg = m.Str()
-				}
-			}
-			full := ""
-			if result.Error == types.E_PROPNF {
-				full = strings.Join(task.FormatTraceback(stack, result.ErrorMessage()), " || ")
-			}
-			slog.Warn("DEBUG-UNCAUGHT",
-				slog.String("msg", msg),
-				slog.String("full", full),
-				slog.String("caller_frame", caller),
-				slog.String("error", types.NewErr(result.Error).String()),
-				slog.String("task_verb", t.VerbName),
-				slog.String("top_frame", top),
-				slog.Int("frames", len(stack)))
-		}
 		stackValues := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {
 			frame := stack[i].ToList()
@@ -874,12 +844,11 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		}
 	}
 
+	// Every uncaught task exception gets one log record, forked or not, and
+	// whether or not a database hook handled it (including a failure of the hook
+	// task itself). This record is Barn's own; what the player sees is below.
+	s.logTraceback(t, result, stack, handled)
 	if !handled {
-		// Preserve the existing structured task log for foreground failures.
-		// Toast does not write forked-task tracebacks directly to stderr.
-		if !t.IsForked {
-			s.logTraceback(t, result.Error, stack)
-		}
 		// When a database's eval verb catches the error itself — e.g. Test.db
 		// wraps results as {status, result} — the task completes normally and
 		// never reaches this branch. Tick exhaustion keeps its friendlier line.

@@ -37,6 +37,10 @@ func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
 		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
 			slog.Warn("failed to restore suspended task",
 				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.String("verb", saved.Snapshot.VerbName),
+				slog.Int64("verbloc", int64(saved.Snapshot.VerbLoc)),
+				slog.Int64("this", int64(saved.Snapshot.This)),
+				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
 				slog.Any("err", err))
 		}
 	}

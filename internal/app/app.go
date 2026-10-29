@@ -346,6 +346,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {
 			defer debugSrv.shutdown()
+			if cfg.LogDir != "" {
+				writeDebugAddr(cfg.LogDir, debugSrv.addr)
+			}
 		}
 	}
 	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
@@ -361,6 +364,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		state.Failed()
 		return fmt.Errorf("load database: %w", err)
 	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	startMemWatch(watchCtx, srv.Runtime(), cfg.LogDir)
 	var scriptLines []string
 	if cfg.StartScript != nil {
 		data, err := os.ReadFile(*cfg.StartScript)

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/MongooseMoo/barn/metrics"
@@ -55,10 +56,10 @@ func tbFrames(stack []types.ActivationFrame) []tbFrame {
 // tracebackAttrs describes an error and its call stack. A traceback is logged
 // as a single record — one event, one line — because separate lines per frame
 // interleave with other tasks' output and cannot be reassembled afterwards.
-func tracebackAttrs(err types.ErrorCode, stack []types.ActivationFrame) []any {
+func tracebackAttrs(err types.ErrorCode, message string, stack []types.ActivationFrame) []any {
 	return []any{
 		slog.String("error", types.NewErr(err).String()),
-		slog.String("error_msg", err.Message()),
+		slog.String("error_msg", message),
 		slog.String("traceback", task.FormatTracebackString(stack, err)),
 		slog.Any("frames", tbFrames(stack)),
 	}
@@ -71,20 +72,27 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result)
 		return
 	}
 
-	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.CallStack)...)
+	attrs := append([]any{slog.Int64("player", int64(player))}, tracebackAttrs(result.Error, result.Error.Message(), result.CallStack)...)
 	slog.Error("traceback (no output hook configured)", attrs...)
 }
 
 // logTraceback logs a task's uncaught exception to the server log. The stack is
 // supplied by the caller so that the log records the same activation stack the
 // player is shown — the task's live stack has already unwound by this point.
-func (s *Runtime) logTraceback(t *Task, err types.ErrorCode, stack []types.ActivationFrame) {
+// An error a database hook handled logs at WARN, an unhandled one at ERROR.
+func (s *Runtime) logTraceback(t *Task, result types.Result, stack []types.ActivationFrame, handled bool) {
+	level := slog.LevelError
+	if handled {
+		level = slog.LevelWarn
+	}
 	attrs := append([]any{
 		slog.Int64("task_id", t.ID),
 		slog.Int64("this", int64(t.This)),
 		slog.String("verb", t.VerbName),
-	}, tracebackAttrs(err, stack)...)
-	slog.Error("uncaught exception", attrs...)
+		slog.Bool("forked", t.IsForked),
+		slog.Bool("handled", handled),
+	}, tracebackAttrs(result.Error, result.ErrorMessage(), stack)...)
+	slog.Log(context.Background(), level, "uncaught exception", attrs...)
 }
 
 // logCallVerbTraceback logs an uncaught exception from a synchronous verb call.
@@ -98,6 +106,6 @@ func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, err t
 		slog.Int64("this", int64(objID)),
 		slog.String("verb", verbName),
 		slog.Int64("player", int64(player)),
-	}, tracebackAttrs(err, stack)...)
+	}, tracebackAttrs(err, err.Message(), stack)...)
 	slog.Error("verb call exception", attrs...)
 }

@@ -3,10 +3,12 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -226,6 +228,31 @@ func (s *Runtime) Session() *builtins.Session { return s.session }
 func (s *Runtime) newTaskID() int64 {
 	metrics.TasksStarted.Add(1)
 	return atomic.AddInt64(&s.nextTaskID, 1)
+}
+
+// TaskSummary identifies an unfinished task in diagnostic logs.
+type TaskSummary struct {
+	ID         int64       `json:"task_id"`
+	Verb       string      `json:"verb"`
+	This       types.ObjID `json:"this"`
+	Programmer types.ObjID `json:"programmer"`
+	State      string      `json:"state"`
+}
+
+// UnfinishedTaskSummaries describes the tasks TaskManager.Unfinished reports,
+// oldest (lowest ID) first. Each task's fields are read under its lock.
+func (s *Runtime) UnfinishedTaskSummaries() []TaskSummary {
+	tasks := s.taskManager.Unfinished()
+	summaries := make([]TaskSummary, 0, len(tasks))
+	for _, t := range tasks {
+		t.Mu.RLock()
+		summaries = append(summaries, TaskSummary{
+			ID: t.ID, Verb: t.VerbName, This: t.This, Programmer: t.Programmer, State: t.Status.String(),
+		})
+		t.Mu.RUnlock()
+	}
+	slices.SortFunc(summaries, func(a, b TaskSummary) int { return cmp.Compare(a.ID, b.ID) })
+	return summaries
 }
 
 // LiveTaskCount reports how many tasks the runtime is currently holding.
