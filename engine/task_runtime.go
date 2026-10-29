@@ -750,6 +750,14 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	}
+	// Outside shutdown, the WAIFs queued above and the store's committed
+	// anonymous objects cover the ledger, which otherwise grows on every
+	// slice. ShutdownRequested never reverts, so false here means
+	// deferPendingWaifs queued them; under shutdown the ledger is their only
+	// record. Pruning follows the commit so this slice's anonymous objects exist.
+	if !s.ShutdownRequested() {
+		bcVM.PruneSuspendedPendingFinalizations()
+	}
 	// Save VM state for later Resume() via the thread-safe setter, so a
 	// concurrently running sibling scanning saved VMs for orphan GC never races
 	// the write. The s.mu critical section additionally guards the suspend(0)-

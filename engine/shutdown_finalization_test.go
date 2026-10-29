@@ -64,26 +64,7 @@ func TestBeginShutdownTransfersUnclaimedDeferredRoots(t *testing.T) {
 // enters the main loop that recycles them. A shutdown() from server_started
 // therefore dumps every loaded value still pending, never recycled.
 func TestHeldStartupFinalizationSurvivesFlushUntilReleased(t *testing.T) {
-	store := dbstore.NewStore()
-	root := dbstore.NewObjectBuilder(9)
-	root.SetOwner(3)
-	root.SetFlags(dbstore.FlagWizard)
-	if err := store.Add(root.Build()); err != nil {
-		t.Fatalf("add WAIF class: %v", err)
-	}
-	wizard := dbstore.NewObjectBuilder(3)
-	wizard.SetOwner(3)
-	wizard.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
-	if err := store.Add(wizard.Build()); err != nil {
-		t.Fatalf("add recycle owner: %v", err)
-	}
-	verb := dbstore.NewVerb([]string{":recycle"}, 3,
-		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
-		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
-		[]string{"recycle_called();"})
-	if _, errCode := store.AddVerb(9, verb); errCode != types.E_NONE {
-		t.Fatalf("add recycle verb: %v", errCode)
-	}
+	store := newWaifRecycleStore(t, "recycle_called();")
 	var recycleCalledBuiltin builtins.BuiltinFunc
 	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_called", 0, 0, []int64{}, &recycleCalledBuiltin))
 	t.Cleanup(runtime.Stop)
@@ -130,7 +111,9 @@ func TestHeldStartupFinalizationIsHandedOffByShutdown(t *testing.T) {
 	}
 }
 
-func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
+// newWaifRecycleStore holds WAIF class #9, whose :recycle runs code as wizard #3.
+func newWaifRecycleStore(t *testing.T, code string) *dbstore.Store {
+	t.Helper()
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(9)
 	root.SetOwner(3)
@@ -147,10 +130,64 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	verb := dbstore.NewVerb([]string{":recycle"}, 3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
-		[]string{"shutdown(); recycle_returned();"})
+		[]string{code})
 	if _, errCode := store.AddVerb(9, verb); errCode != types.E_NONE {
 		t.Fatalf("add recycle verb: %v", errCode)
 	}
+	return store
+}
+
+// A queued WAIF with no owning task (loaded, or queued by a suspend that
+// pruned it from the task's ledger) has no other record, so a shutdown that
+// lands mid-sweep must hand it off rather than drop it.
+func TestDeferredWaifRecycleShutdownHandsOffUntaskedRemainder(t *testing.T) {
+	store := newWaifRecycleStore(t, "recycle_returned(this); shutdown();")
+	var recycleReturnedBuiltin builtins.BuiltinFunc
+	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_returned", 1, 1, []int64{-1}, &recycleReturnedBuiltin))
+	t.Cleanup(runtime.Stop)
+	var recycled []types.Value
+	recycleReturnedBuiltin = func(_ *builtins.Execution, args []types.Value) types.Result {
+		recycled = append(recycled, args[0])
+		return types.Ok(types.None)
+	}
+	readyResult := make(chan (<-chan struct{}), 1)
+	configureTestHost(runtime.session, func(host *builtins.Host) {
+		host.Shutdown = func(*builtins.Execution, string, bool) error {
+			readyResult <- runtime.BeginShutdownWithRoots(nil)
+			return nil
+		}
+	})
+	first, second := types.NewWaif(9, 3), types.NewWaif(9, 3)
+	runtime.AdoptPendingFinalizations([]types.Value{first, second})
+	var handedOff []types.Value
+	runtime.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
+
+	runtime.flushDeferredGC()
+	var ready <-chan struct{}
+	select {
+	case ready = <-readyResult:
+	default:
+		t.Fatal("shutdown hook did not receive a publication boundary")
+	}
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown boundary did not publish after recycle returned")
+	}
+	if len(recycled) != 1 {
+		t.Fatalf("recycled %v, want exactly one WAIF before shutdown", recycled)
+	}
+	want := first
+	if recycled[0].Equal(first) {
+		want = second
+	}
+	if len(handedOff) != 1 || !handedOff[0].Equal(want) {
+		t.Fatalf("shutdown handoff = %v, want only the unrecycled WAIF %v", handedOff, want)
+	}
+}
+
+func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
+	store := newWaifRecycleStore(t, "shutdown(); recycle_returned();")
 	var recycleReturnedBuiltin builtins.BuiltinFunc
 	runtime := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("recycle_returned", 0, 0, []int64{}, &recycleReturnedBuiltin))
 	t.Cleanup(runtime.Stop)
