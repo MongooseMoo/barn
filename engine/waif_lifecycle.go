@@ -321,11 +321,20 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 			s.lifecycle.Mu.Lock()
 			shutdown := s.lifecycle.ShutdownRequested
 			if shutdown {
-				for _, remaining := range waifBatch[index:] {
-					if remaining.Ctx != nil && remaining.Task != nil {
-						roots := vm.CanonicalizePendingFinalizationValues(s.store, remaining.DirectRoots)
-						s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
+				for offset, remaining := range waifBatch[index:] {
+					direct := remaining.DirectRoots
+					if remaining.Task == nil {
+						// A suspended task pruned this WAIF from its ledger, so the
+						// entry is its only record. The current entry has recycled.
+						if offset == 0 {
+							continue
+						}
+						direct = vm.DirectFinalizationRoots{Waifs: []types.Value{remaining.Waif}}
+					} else if remaining.Ctx == nil {
+						continue
 					}
+					roots := vm.CanonicalizePendingFinalizationValues(s.store, direct)
+					s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 				}
 			}
 			s.lifecycle.Mu.Unlock()
