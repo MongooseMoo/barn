@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="6.973" timestamp="2026-10-28T20:20:13.116882-06:00" hostname="Empiricist"><testcase classname="" name="test_conformance" time="0.000"><error message="collection failure">../moo-conformance-tests/src/moo_conformance/plugin.py:541: in discover_yaml_tests
+    suite = validate_test_suite(data)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+../moo-conformance-tests/src/moo_conformance/schema.py:646: in validate_test_suite
+    raise ValueError(
+E   ValueError: requires.config contains unsupported names: OUTBOUND_NETWORK
+
+The above exception was the direct cause of the following exception:
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/_pytest/python.py:249: in pytest_pycollect_makeitem
+    return list(collector._genfunctions(name, obj))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/_pytest/python.py:475: in _genfunctions
+    self.ihook.pytest_generate_tests.call_extra(methods, dict(metafunc=metafunc))
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/pluggy/_hooks.py:573: in call_extra
+    return self._hookexec(self.name, hookimpls, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.cache/barn-conformance-linux-560/lib/python3.13/site-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../moo-conformance-tests/src/moo_conformance/plugin.py:590: in pytest_generate_tests
+    test_cases = discover_yaml_tests(
+../moo-conformance-tests/src/moo_conformance/plugin.py:547: in discover_yaml_tests
+    raise pytest.UsageError(f"Failed to load conformance suite {yaml_file}: {exc}") from exc
+E   pytest.UsageError: Failed to load conformance suite /mnt/c/Users/Q/code/barn-input-research-560/investigations/input-bounds-560/oracle.yaml: requires.config contains unsupported names: OUTBOUND_NETWORK</error></testcase></testsuite></testsuites>

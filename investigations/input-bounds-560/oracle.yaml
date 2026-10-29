@@ -1,0 +1,142 @@
+name: input_bounds_oracle_560
+description: Managed stock-Toast research for partial TCP and Telnet input bounds.
+requires:
+  config: [log_file]
+  builtins: [create, recycle, add_property, add_verb, set_verb_code, listen, unlisten, open_network_connection, set_connection_option, notify, suspend, connected_players]
+
+tests:
+  - name: input_bounds_560_text_below_limit
+    skip_if: "not option.OUTBOUND_NETWORK"
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          h = create($nothing);
+          add_property(h, "port", {port}, {player, "rw"});
+          add_property(h, "seen", {}, {player, "rw"});
+          add_verb(h, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(h, "do_login_command", {"if (length(argstr)) this.seen = {@this.seen, length(argstr)}; endif", "return 0;"});
+          listen(h, {port}, ["print-messages" -> 0]);
+          return h;
+        as: wizard
+        capture: handler
+      - run: |
+          return open_network_connection("127.0.0.1", {port}, ["ipv6" -> 0, "listener" -> {handler}]);
+        as: wizard
+        capture: sender
+      - run: |
+          set_connection_option({sender}, "binary", 1);
+          chunk = "x";
+          for i in [1..16] chunk = chunk + chunk; endfor
+          for i in [1..79]
+            notify({sender}, chunk);
+            suspend(0.01);
+          endfor
+          notify({sender}, "~0A");
+          return 1;
+        as: wizard
+        expect:
+          value: 1
+      - wait: 300
+      - run: return {handler}.seen;
+        as: wizard
+        expect:
+          value: [5177344]
+    cleanup:
+      - run: |
+          try boot_player({sender}); except (ANY) endtry
+          try unlisten({port}); except (ANY) endtry
+          try recycle({handler}); except (ANY) endtry
+        as: wizard
+
+  - name: input_bounds_560_partial_overflow_{kind}
+    skip_if: "not option.OUTBOUND_NETWORK"
+    table:
+      columns: [kind, prefix, log_message]
+      rows:
+        - [text, "", "closed for exceeding MAX_LINE_BYTES!"]
+        - [telnet, "~FF~FA~01", "exceeded MAX_LINE_BYTES in telnet command!"]
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          h = create($nothing);
+          add_verb(h, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(h, "do_login_command", {"return 0;"});
+          listen(h, {port}, ["print-messages" -> 0]);
+          return h;
+        as: wizard
+        capture: handler
+      - run: |
+          return open_network_connection("127.0.0.1", {port}, ["ipv6" -> 0, "listener" -> {handler}]);
+        as: wizard
+        capture: sender
+      - run: |
+          set_connection_option({sender}, "binary", 1);
+          notify({sender}, "{prefix}");
+          chunk = "x";
+          for i in [1..16] chunk = chunk + chunk; endfor
+          for i in [1..80]
+            notify({sender}, chunk);
+            suspend(0.01);
+          endfor
+          notify({sender}, "x");
+          return 1;
+        as: wizard
+        expect:
+          value: 1
+      - wait: 300
+      - assert_log:
+          contains: "{log_message}"
+      - run: return ({sender} in connected_players(1)) == 0;
+        as: wizard
+        expect:
+          value: 1
+    cleanup:
+      - run: |
+          try boot_player({sender}); except (ANY) endtry
+          try unlisten({port}); except (ANY) endtry
+          try recycle({handler}); except (ANY) endtry
+        as: wizard
+
+  - name: input_bounds_560_binary_chunks_exceed_line_total
+    skip_if: "not option.OUTBOUND_NETWORK"
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          h = create($nothing);
+          add_property(h, "total", 0, {player, "rw"});
+          add_verb(h, {player, "rxd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(h, "do_login_command", {"set_connection_option(player, \"binary\", 1);", "this.total = this.total + length(argstr);", "return 0;"});
+          listen(h, {port}, ["print-messages" -> 0]);
+          return h;
+        as: wizard
+        capture: handler
+      - run: |
+          return open_network_connection("127.0.0.1", {port}, ["ipv6" -> 0, "listener" -> {handler}]);
+        as: wizard
+        capture: sender
+      - run: |
+          set_connection_option({sender}, "binary", 1);
+          chunk = "x";
+          for i in [1..16] chunk = chunk + chunk; endfor
+          for i in [1..81]
+            notify({sender}, chunk);
+            suspend(0.02);
+          endfor
+          return 1;
+        as: wizard
+        expect:
+          value: 1
+      - wait: 500
+      - run: return {{handler}.total, ({sender} in connected_players(1)) > 0};
+        as: wizard
+        expect:
+          value: [5308416, 1]
+    cleanup:
+      - run: |
+          try boot_player({sender}); except (ANY) endtry
+          try unlisten({port}); except (ANY) endtry
+          try recycle({handler}); except (ANY) endtry
+        as: wizard
