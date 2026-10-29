@@ -18,6 +18,7 @@ type shortWriteDeadlineConn struct {
 	net.Conn
 	deadlines []time.Time
 	writes    int
+	closes    int
 	armErr    error
 	clearErr  error
 	closeErr  error
@@ -42,6 +43,7 @@ func (c *shortWriteDeadlineConn) Write(payload []byte) (int, error) {
 }
 
 func (c *shortWriteDeadlineConn) Close() error {
+	c.closes++
 	err := c.Conn.Close()
 	if c.closeErr != nil {
 		return c.closeErr
@@ -123,6 +125,51 @@ func TestTCPOutputDeadlineInterruptsPartialWriteWithoutReplay(t *testing.T) {
 	}
 	if peer.writes != writes {
 		t.Fatal("a failed partial output was replayed to the peer")
+	}
+	if err := transport.Close(); !errors.Is(err, peer.closeErr) {
+		t.Fatalf("repeated close error = %v, want original physical close error %v", err, peer.closeErr)
+	}
+	if peer.closes != 1 {
+		t.Fatalf("physical closes after failure and repeated Close = %d, want one", peer.closes)
+	}
+}
+
+func TestTCPOutputDeadlineCloseInterruptsWriterOnce(t *testing.T) {
+	peer := newShutdownPeer()
+	peer.stalled = true
+	transport := NewTCPTransport(shutdownTCPConn{peer})
+	writeDone := make(chan error, 1)
+	writeFinished := make(chan struct{})
+	go func() {
+		defer close(writeFinished)
+		writeDone <- transport.WriteOutput("blocked", true)
+	}()
+	closeDone := make(chan error, 1)
+	var closeFinished chan struct{}
+	t.Cleanup(func() {
+		_ = peer.close()
+		<-writeFinished
+		if closeFinished != nil {
+			<-closeFinished
+		}
+	})
+	awaitShutdown(t, peer.written, "blocked write entry")
+	closeFinished = make(chan struct{})
+	go func() {
+		defer close(closeFinished)
+		closeDone <- transport.Close()
+	}()
+	if err := awaitOutputDeadline(t, closeDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitOutputDeadline(t, writeDone); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("interrupted write error = %v, want original closed error", err)
+	}
+	if err := transport.Close(); err != nil {
+		t.Fatalf("repeated close = %v, want original successful close", err)
+	}
+	if peer.closeCount.Load() != 1 || peer.activeWrites.Load() != 0 {
+		t.Fatalf("physical closes=%d active writers=%d, want one close and no blocked writer", peer.closeCount.Load(), peer.activeWrites.Load())
 	}
 }
 

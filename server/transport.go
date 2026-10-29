@@ -63,6 +63,8 @@ type TCPTransport struct {
 	reader    *bufio.Reader
 	writer    *bufio.Writer
 	mu        sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 	tState    telnetState
 	tCommand  []byte
 	lineBuf   strings.Builder
@@ -234,7 +236,7 @@ func (t *TCPTransport) WriteOutput(msg string, newline bool) (err error) {
 		}
 		if err != nil {
 			// A buffered write failure is permanent; wake the reader for cleanup.
-			_ = t.conn.Close()
+			_ = t.Close()
 		}
 	}()
 	if err = t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
@@ -251,9 +253,10 @@ func (t *TCPTransport) WriteOutput(msg string, newline bool) (err error) {
 	return t.writer.Flush()
 }
 
-// Close closes the underlying connection
+// Close interrupts I/O once, independently of the write mutex.
 func (t *TCPTransport) Close() error {
-	return t.conn.Close()
+	t.closeOnce.Do(func() { t.closeErr = t.conn.Close() })
+	return t.closeErr
 }
 
 // RemoteAddr returns the remote address as a string
