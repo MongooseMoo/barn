@@ -54,6 +54,9 @@ type InputTransport interface {
 	ReadInput() (string, bool, error)
 }
 
+// Bound active output without imposing an idle-session deadline.
+const outputWriteTimeout = 30 * time.Second
+
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
 	conn      net.Conn
@@ -224,6 +227,11 @@ func (t *TCPTransport) ReadChunk() (string, error) {
 func (t *TCPTransport) WriteOutput(msg string, newline bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if err := t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
+		return err
+	}
+	defer func() { _ = t.conn.SetWriteDeadline(time.Time{}) }()
 
 	if newline {
 		msg += "\r\n"
