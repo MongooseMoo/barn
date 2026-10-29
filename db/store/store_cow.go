@@ -490,8 +490,15 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		s.pruneObjectHistory(id, floor)
 	}
 	if waifRootsDirty {
-		// After the publishes, so a scan that read the old epoch before they
-		// landed can never memoize a root set missing these values.
+		// The index first, then the epoch, after the publishes, so a scan that
+		// read the old epoch before they landed can never memoize a root set
+		// missing these values.
+		for i := range writes.entries {
+			s.refreshDirectRefs(writes.entries[i].id)
+		}
+		for id := range writes.joined {
+			s.refreshDirectRefs(id)
+		}
 		s.noteWaifRootsChanged()
 	}
 	if verbShapeDirty {
