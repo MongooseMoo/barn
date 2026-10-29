@@ -54,12 +54,17 @@ type InputTransport interface {
 	ReadInput() (string, bool, error)
 }
 
+// Bound active output without imposing an idle-session deadline.
+const outputWriteTimeout = 30 * time.Second
+
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
 	conn      net.Conn
 	reader    *bufio.Reader
 	writer    *bufio.Writer
 	mu        sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 	tState    telnetState
 	tCommand  []byte
 	lineBuf   strings.Builder
@@ -221,23 +226,37 @@ func (t *TCPTransport) ReadChunk() (string, error) {
 }
 
 // WriteOutput sends bytes with optional CRLF framing.
-func (t *TCPTransport) WriteOutput(msg string, newline bool) error {
+func (t *TCPTransport) WriteOutput(msg string, newline bool) (err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	defer func() {
+		if err == nil {
+			err = t.conn.SetWriteDeadline(time.Time{})
+		}
+		if err != nil {
+			// A buffered write failure is permanent; wake the reader for cleanup.
+			_ = t.Close()
+		}
+	}()
+	if err = t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
+		return err
+	}
 
 	if newline {
 		msg += "\r\n"
 	}
-	_, err := t.writer.WriteString(msg)
+	_, err = t.writer.WriteString(msg)
 	if err != nil {
 		return err
 	}
 	return t.writer.Flush()
 }
 
-// Close closes the underlying connection
+// Close interrupts I/O once, independently of the write mutex.
 func (t *TCPTransport) Close() error {
-	return t.conn.Close()
+	t.closeOnce.Do(func() { t.closeErr = t.conn.Close() })
+	return t.closeErr
 }
 
 // RemoteAddr returns the remote address as a string
