@@ -274,14 +274,29 @@ go build -o bin/ ./cmd/barn_logs
 ./bin/barn_logs -run list        # available runs
 ```
 
-An uncaught MOO error is **one** log record carrying the rendered traceback, the
-structured frames (verb, object, line, **source line**), and the error code. A
-recovered panic carries a Go stack. `barn_logs` prints those indented under the
-failure. The files are line-delimited JSON, so `jq` works too:
+Every uncaught task exception is **one** `uncaught exception` record carrying the
+rendered traceback, the structured frames (verb, object, line, **source line**), the
+error code, `error_msg` (the `raise()` message when one was given), `forked`, and
+`handled`. Forked tasks and failures of `#0:handle_uncaught_error` itself are
+included. An error a database hook handled (`#0:handle_uncaught_error` returned
+true or suspended, or `handle_task_timeout` took it) logs at WARN; an unhandled one
+at ERROR, so `-level error` still means "nothing caught it". A recovered panic
+carries a Go stack. `barn_logs` prints those indented under the failure. The files
+are line-delimited JSON, so `jq` works too:
 
 ```bash
 jq -c 'select(.level=="ERROR")' logs/latest.jsonl
+jq -c 'select(.msg=="uncaught exception" and .handled)' logs/latest.jsonl
 ```
+
+**Heap growth.** A watchdog reads live heap (`/gc/heap/live:bytes`) every 5 s
+against the reading after database load. At 2x, then each further doubling, it logs
+one WARN `heap growth` record (`live_bytes`, `baseline_bytes`, `tasks_live`,
+`unfinished_tasks`, and up to 20 unfinished `tasks` with id, verb, this,
+programmer, state). With a log directory it then writes
+`heap-<unix>.pprof`, `goroutine-<unix>.pprof` and a 5 s `moo-<unix>.pprof` there
+and names them in a `heap growth profiles` record (the MOO profile is skipped,
+with a note, while another MOO profile session is running).
 
 **Caveat:** `Test.db` has genuinely broken object refs, so every boot logs ~30
 `src=startup_repair` warnings (Toast repairs them too — conformance *asserts* these
@@ -295,10 +310,12 @@ messages). Use `-level error` to see what actually broke.
 | `-log-dir` | `logs` | Empty disables the JSON file sink |
 | `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
 
-The debug endpoint binds an **ephemeral port**; find the real address in the log:
+The debug endpoint binds an **ephemeral port**; its bound address is written to
+`debug.addr` in the log directory (servers sharing a log directory overwrite it;
+the `debug endpoint listening` record has it too):
 
 ```bash
-ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
+ADDR=$(cat logs/debug.addr)
 curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
 curl -s "http://$ADDR/debug/pprof/heap" > heap.out
 curl -s "http://$ADDR/debug/pprof/moo?seconds=30" > moo.pprof  # MOO verb stacks, not Go functions

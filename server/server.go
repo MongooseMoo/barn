@@ -67,6 +67,9 @@ func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle 
 // BuiltinRegistry is the immutable registry used by this server's runtime.
 func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
 
+// Runtime is the engine LoadDatabase built; nil before then.
+func (s *Server) Runtime() *engine.Runtime { return s.runtime }
+
 var ErrPanicShutdown = errors.New("panic shutdown")
 
 // NewServer creates a new MOO server with default runtime options.

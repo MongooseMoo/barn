@@ -55,3 +55,11 @@ Set a shared five-second HTTP header-read allowance on WebSocket and debug/opera
 Closes #558.
 
 Validation: the two focused tests listed above passed, exercising incomplete-header closure alongside a long HTTP response and an idle upgraded WebSocket session. Remaining validation comes from the PR's existing CI.
+
+## Integration checkpoint
+
+- PR #562 is published for #558; its initial source review completed without actionable findings.
+- Newly merged debug-address work changed the same HTTP endpoint constructor, so GitHub reported a merge conflict and scheduled no CI runs.
+- Resolution preserves the master's bound-address field/logging and this issue's shared ReadHeaderTimeout in that constructor.
+- Existing header-deadline policy and tests are unchanged; the integration merge does not add new behavior or a review round.
+- Next: publish the conflict resolution and read PR CI through terminal results.

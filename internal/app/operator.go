@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -73,6 +75,7 @@ func operatorMux(state *lifecycle) *http.ServeMux {
 
 type httpEndpoint struct {
 	name string
+	addr string // the bound address, with the real port when asked for :0
 	srv  *http.Server
 }
 
@@ -81,14 +84,24 @@ func startHTTPEndpoint(name, addr string, handler http.Handler) (*httpEndpoint, 
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	e := &httpEndpoint{name: name, srv: &http.Server{Handler: handler, ReadHeaderTimeout: listener.HTTPReadHeaderTimeout}}
-	slog.Info(name+" endpoint listening", slog.String("addr", ln.Addr().String()))
+	e := &httpEndpoint{name: name, addr: ln.Addr().String(), srv: &http.Server{Handler: handler, ReadHeaderTimeout: listener.HTTPReadHeaderTimeout}}
+	slog.Info(name+" endpoint listening", slog.String("addr", e.addr))
 	go func() {
 		if err := e.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error(name+" endpoint serve failed", slog.Any("err", err))
 		}
 	}()
 	return e, nil
+}
+
+// writeDebugAddr records the debug endpoint's bound address in
+// <logDir>/debug.addr. A failure is logged, never fatal: the address is also in
+// the "debug endpoint listening" record.
+func writeDebugAddr(logDir, addr string) {
+	path := filepath.Join(logDir, "debug.addr")
+	if err := os.WriteFile(path, []byte(addr+"\n"), 0o644); err != nil {
+		slog.Warn("write debug address file", slog.String("path", path), slog.String("err", err.Error()))
+	}
 }
 
 func (e *httpEndpoint) shutdown() {

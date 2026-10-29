@@ -1,7 +1,12 @@
 """Check benchmark acceptance rules, especially fast-but-wrong results."""
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+from pathlib import Path
+import tempfile
+import threading
 import unittest
 
-from bench_mongoose_matrix import measure_case, parallel_case
+from bench_mongoose_matrix import debug_counters, measure_case, parallel_case
 from report_mongoose_matrix import report
 
 
@@ -70,6 +75,33 @@ class ReportTests(unittest.TestCase):
                                  "samples": [{"case": "x", "server_s": 10, "warmup": True}] +
                                             [{"case": "x", "server_s": value} for value in values]})
         self.assertIn("5.000 (1.000–9.000)", report(data))
+
+
+class DebugCounterTests(unittest.TestCase):
+    def test_counters_come_from_the_address_in_debug_addr(self):
+        class Vars(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({"barn.tasks_live": 3, "cmdline": [],
+                                   "memstats": {"HeapAlloc": 7}}).encode()
+                self.send_response(200 if self.path == "/debug/vars" else 404)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Vars)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.assertEqual(debug_counters(folder), {})
+            (folder / "logs").mkdir()
+            (folder / "logs" / "debug.addr").write_text(f"127.0.0.1:{server.server_port}\n")
+            counters = debug_counters(folder)
+        self.assertEqual(counters["barn.tasks_live"], 3)
+        self.assertEqual(counters["go_memory"]["HeapAlloc"], 7)
 
 
 if __name__ == "__main__":

@@ -323,6 +323,26 @@ func (vm *VM) TakePendingFinalizationValues() []types.Value {
 	return values
 }
 
+// PruneSuspendedPendingFinalizations drops the ledger entries a suspend no
+// longer needs: every WAIF, since each was also recorded in PendingWaifs and
+// handed to the deferred finalizer, and every anonymous object already
+// recycled. Only call it when that hand-off was not a shutdown one. The new
+// slice leaves the retry checkpoint's backing array untouched.
+func (vm *VM) PruneSuspendedPendingFinalizations() {
+	var kept []types.Value
+	for _, value := range vm.PendingFinalizations {
+		if value.Type() != types.TYPE_ANON {
+			continue
+		}
+		if view, ok := vm.Store.Get(value.ID()); ok && view.Anonymous {
+			kept = append(kept, value)
+		}
+	}
+	vm.PendingFinalizations = kept
+	vm.pendingFinalizationWaifIDs = nil
+	vm.pendingFinalizationAnonIDs = nil
+}
+
 func pendingFinalizationValueInList(needle types.Value, values []types.Value) bool {
 	for _, candidate := range values {
 		if needle.Type() != candidate.Type() {
