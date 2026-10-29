@@ -12,7 +12,6 @@ func (s *Store) createAnonymous(parents []types.ObjID, owner types.ObjID) (types
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
 	newID := s.allocateID()
 	if owner == types.ObjNothing {
 		owner = newID
@@ -170,6 +169,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	if !obj.anonymous {
 		s.ids.recycled = append(s.ids.recycled, id)
 	}
+	s.refreshDirectRefs(id)
 
 	return nil
 }
@@ -192,7 +192,6 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	// Reset object to fresh state
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
 	s.noteVerbShapeChanged()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
@@ -350,6 +349,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	// Move in store
 	s.publishLocked(oldID, tombstone)
 	s.publishLocked(newID, renumbered)
+	s.refreshDirectRefs(oldID)
+	s.refreshDirectRefs(newID)
 
 	// Update ids.recycled list - remove newID if present, add oldID
 	newRecycled := []types.ObjID{}

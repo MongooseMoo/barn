@@ -1,8 +1,12 @@
 package store
 
 import (
+	"cmp"
 	"github.com/MongooseMoo/barn/types"
+	"maps"
+	"slices"
 	"sort"
+	"sync"
 )
 
 // lookupAnonymousLocked returns the live anonymous object with the given
@@ -55,25 +59,98 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 	defer s.mu.RUnlock()
 
 	reachable := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0)
-
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
-			return true
+	seeds := make(map[types.ObjID]struct{})
+	for _, holder := range s.directRefs.snapshot() {
+		if holder.anonymous {
+			continue
 		}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			types.CollectAnonymousRefs(prop.value, refs, retained)
-			for id := range refs {
-				queue = append(queue, id)
-			}
+		for _, ref := range holder.refs {
+			types.CollectAnonymousRefs(ref, seeds, retained)
 		}
-		return true
-	})
+	}
+	queue := make([]types.ObjID, 0, len(seeds))
+	for id := range seeds {
+		queue = append(queue, id)
+	}
 
 	s.expandAnonymousReachabilityLocked(reachable, queue, retained)
 	return reachable
+}
+
+// directRefIndex holds, for each live directory object whose property values
+// reference an anonymous object or a WAIF, those references
+// (VisitDirectFinalizationRefs, deduplicated), so the persistent reachability
+// walks seed from the holders instead of scanning every property of every
+// object. mu is its own: a shared-lock commit refreshes entries under
+// store.mu.RLock.
+type directRefIndex struct {
+	mu      sync.Mutex
+	entries map[types.ObjID]directRefHolder
+}
+
+type directRefHolder struct {
+	id        types.ObjID
+	anonymous bool // seeds the WAIF top, never anonymous reachability
+	refs      []types.Value
+}
+
+// snapshot returns every holder in id order, the order the directory walks.
+func (x *directRefIndex) snapshot() []directRefHolder {
+	x.mu.Lock()
+	holders := slices.Collect(maps.Values(x.entries))
+	x.mu.Unlock()
+	slices.SortFunc(holders, func(a, b directRefHolder) int { return cmp.Compare(a.id, b.id) })
+	return holders
+}
+
+// refreshDirectRefs recomputes id's entry from its published directory image.
+// Every noteWaifRootsChanged site calls it, after the change and before the
+// epoch moves, for each object whose property values or existence it changed.
+func (s *Store) refreshDirectRefs(id types.ObjID) {
+	obj := s.load(id)
+	var refs []types.Value
+	if validLiveObject(obj) {
+		waifs := types.NewWaifSet(nil)
+		anons := make(map[types.ObjID]struct{})
+		for _, prop := range obj.properties.all() {
+			if !prop.value.MayHoldFinalizable() {
+				continue
+			}
+			prop.value.VisitDirectFinalizationRefs(func(ref types.Value) {
+				if ref.IsAnonymous() {
+					if _, seen := anons[ref.ID()]; seen {
+						return
+					}
+					anons[ref.ID()] = struct{}{}
+				} else if !waifs.Add(ref) {
+					return
+				}
+				refs = append(refs, ref)
+			})
+		}
+	}
+	s.directRefs.mu.Lock()
+	defer s.directRefs.mu.Unlock()
+	if len(refs) == 0 {
+		delete(s.directRefs.entries, id)
+		return
+	}
+	if s.directRefs.entries == nil {
+		s.directRefs.entries = make(map[types.ObjID]directRefHolder)
+	}
+	s.directRefs.entries[id] = directRefHolder{id: id, anonymous: obj.anonymous, refs: refs}
+}
+
+// indexedWaifTop returns the WAIFs live directory objects hold directly, in
+// first-seen order over holders by id.
+func (s *Store) indexedWaifTop() []types.Value {
+	set := types.NewWaifSet(nil)
+	for _, holder := range s.directRefs.snapshot() {
+		for _, ref := range holder.refs {
+			set.Add(ref)
+		}
+	}
+	return set.Values
 }
 
 // ExpandCommittedAnonymousReachability expands only edges a checkpoint writes.
@@ -249,11 +326,11 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 // a live object's property values. The set is immutable and shared: layer
 // additions on it with types.NewWaifSetOver.
 //
-// Two memos, because the two inputs change at different rates. The walk over
-// every property of every object (the finalizer asks after every task that let
-// a WAIF leave scope, and on a large database that scan dominated the task) is
-// memoized per waifRoots.epoch, which every store write that can add or remove
-// a waif from a property value bumps (noteWaifRootsChanged). The expansion of
+// Two memos, because the two inputs change at different rates. The top-level
+// roots, read from the direct-reference index (the finalizer asks after every
+// task that let a WAIF leave scope), are memoized per waifRoots.epoch, which
+// every store write that can add or remove a waif from a property value bumps
+// (noteWaifRootsChanged). The expansion of
 // those roots through current and retained WAIF images is memoized per
 // (waifRoots.epoch, types.WaifGraphEpoch), including history retirement.
 func (s *Store) PersistentWaifRootSet() *types.WaifSet {
@@ -278,20 +355,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	if entry != nil && entry.epoch == epoch {
 		top = entry.top
 	} else {
-		set := types.NewWaifSet(nil)
-		s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-			obj := slot.ptr.Load()
-			if obj == nil || !validLiveObject(obj) {
-				return true
-			}
-			for _, prop := range obj.properties.all() {
-				if prop.value.MayHoldFinalizable() {
-					prop.value.VisitDirectFinalizationRefs(func(ref types.Value) { set.Add(ref) })
-				}
-			}
-			return true
-		})
-		top = set.Values
+		top = s.indexedWaifTop()
 	}
 	s.mu.RUnlock()
 

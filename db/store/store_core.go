@@ -191,6 +191,9 @@ type Store struct {
 	propertyWriteElisions atomic.Uint64
 	// waifRoots memoizes the PersistentWaifRoots scan (waifRootsMemo).
 	waifRoots waifRootsMemo
+	// directRefs indexes the anonymous and WAIF references each object's
+	// property values hold directly (directRefIndex).
+	directRefs directRefIndex
 	// dispatch is the verb dispatch memo and its invalidation stamp
 	// (verbDispatch).
 	dispatch verbDispatch
@@ -393,8 +396,9 @@ func (s *Store) bumpClockLocked() uint64 {
 }
 
 // noteWaifRootsChanged invalidates the PersistentWaifRoots memo. Every path
-// that can change which WAIFs live directly in a persistent property value
-// must call it AFTER the change is visible: the direct writers (under
+// that can change which WAIFs or anonymous objects live directly in a
+// persistent property value must call it, and refreshDirectRefs for each object
+// it changed, AFTER the change is visible: the direct writers (under
 // store.mu.Lock, where the scan cannot interleave) and a commit after its
 // publishes. A value write whose old and
 // new values cannot hold a finalizable (MayHoldFinalizable false) leaves the
@@ -625,6 +629,7 @@ func (s *Store) Add(obj *Object) error {
 	s.noteVerbShapeChanged()
 	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
+	s.refreshDirectRefs(obj.id)
 	return nil
 }
 

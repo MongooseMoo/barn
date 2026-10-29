@@ -78,6 +78,7 @@ func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.
 	subtree, inSubtree := inheritanceSubtree(obj.id, object)
 	lost, gained := changedAncestors(oldParents, obj.parents, object)
 	s.rebuildInheritedSlotsLocked(obj, obj.id, oldParents, object, ts)
+	s.refreshDirectRefs(obj.id)
 	others := otherAncestors(obj.id, inSubtree, object)
 	for _, id := range subtree[1:] {
 		current, other := object(id), others(id)
@@ -87,6 +88,7 @@ func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.
 		current = s.republishForMutation(current)
 		applyAncestorChange(current, obj, lost, gained, other, ts)
 		stampObjectProperties(current, ts)
+		s.refreshDirectRefs(id)
 	}
 }
 
