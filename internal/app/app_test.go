@@ -80,6 +80,29 @@ func TestDebugMuxRetainsPrivilegedRoutes(t *testing.T) {
 	}
 }
 
+// The debug endpoint binds an ephemeral port; debug.addr in the log directory
+// names the bound address so tools need not scrape the log.
+func TestDebugAddrFileNamesBoundEndpoint(t *testing.T) {
+	e, err := startHTTPEndpoint("debug", "127.0.0.1:0", debugMux())
+	if err != nil {
+		t.Fatalf("start endpoint: %v", err)
+	}
+	defer e.shutdown()
+	if strings.HasSuffix(e.addr, ":0") || e.addr == "" {
+		t.Fatalf("endpoint addr = %q, want the bound address", e.addr)
+	}
+
+	dir := t.TempDir()
+	writeDebugAddr(dir, e.addr)
+	data, err := os.ReadFile(filepath.Join(dir, "debug.addr"))
+	if err != nil {
+		t.Fatalf("read debug.addr: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != e.addr {
+		t.Errorf("debug.addr = %q, want %q", data, e.addr)
+	}
+}
+
 func TestRunStartupReturnsWrappedLoadError(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DatabasePath = filepath.Join(t.TempDir(), "missing.db")

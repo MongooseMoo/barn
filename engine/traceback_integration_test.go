@@ -76,6 +76,91 @@ func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
 	if !strings.Contains(tb, "(End of traceback)") || !strings.Contains(tb, "Type mismatch") {
 		t.Errorf("traceback text is missing or truncated: %q", tb)
 	}
+	if found["level"] != "ERROR" || found["handled"] != false || found["forked"] != false {
+		t.Errorf("level/handled/forked = %v/%v/%v, want ERROR/false/false", found["level"], found["handled"], found["forked"])
+	}
+}
+
+// uncaughtRecords returns the "uncaught exception" records, keyed by task verb.
+func uncaughtRecords(t *testing.T, records []map[string]any) map[string][]map[string]any {
+	t.Helper()
+	byVerb := map[string][]map[string]any{}
+	for _, rec := range records {
+		if rec["msg"] == "uncaught exception" {
+			verb, _ := rec["verb"].(string)
+			byVerb[verb] = append(byVerb[verb], rec)
+		}
+	}
+	return byVerb
+}
+
+// A forked task's error that #0:handle_uncaught_error handles is still logged
+// once, at WARN, marked forked and handled, with the raise() message.
+func TestHandledForkedUncaughtExceptionLogsOneWarnRecord(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	store.AddVerb(0, dbstore.NewVerb([]string{"handle_uncaught_error"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"return 1;"}))
+	store.AddVerb(0, dbstore.NewVerb([]string{"forkboom"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message");`, "endfork", "return 1;"}))
+
+	s := NewRuntime(store)
+	s.SetTracebackSender(func(types.ObjID, types.Result) {})
+	records := captureRecords(t, func() {
+		if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
+			t.Fatalf("run forkboom: %v", err)
+		}
+		s.ProcessReadyTasks()
+	})
+
+	got := uncaughtRecords(t, records)["forkboom"]
+	if len(got) != 1 {
+		t.Fatalf("want 1 uncaught-exception record for the fork, got %d (%#v)", len(got), records)
+	}
+	rec := got[0]
+	if rec["level"] != "WARN" || rec["handled"] != true || rec["forked"] != true {
+		t.Errorf("level/handled/forked = %v/%v/%v, want WARN/true/true", rec["level"], rec["handled"], rec["forked"])
+	}
+	if rec["error"] != "E_INVARG" || rec["error_msg"] != "custom uncaught message" {
+		t.Errorf("error/error_msg = %v/%v, want E_INVARG/the raise() message", rec["error"], rec["error_msg"])
+	}
+}
+
+// When #0:handle_uncaught_error itself fails, both the handler's failure and the
+// original (now unhandled) error are logged, each once.
+func TestFailingUncaughtHandlerLogsBothErrors(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	store.AddVerb(0, dbstore.NewVerb([]string{"handle_uncaught_error"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{`x = 1 + "a";`}))
+	store.AddVerb(0, dbstore.NewVerb([]string{"boom"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{`raise(E_INVARG);`}))
+
+	s := NewRuntime(store)
+	s.SetTracebackSender(func(types.ObjID, types.Result) {})
+	records := captureRecords(t, func() {
+		if _, err := s.RunServerVerbTask(0, "boom", nil, 2); err != nil {
+			t.Fatalf("run boom: %v", err)
+		}
+	})
+
+	byVerb := uncaughtRecords(t, records)
+	if got := byVerb["boom"]; len(got) != 1 || got[0]["level"] != "ERROR" || got[0]["handled"] != false {
+		t.Errorf("original error records = %#v, want one unhandled ERROR", got)
+	}
+	if got := byVerb["handle_uncaught_error"]; len(got) != 1 || got[0]["error"] != "E_TYPE" {
+		t.Errorf("handler failure records = %#v, want one E_TYPE record", got)
+	}
 }
 
 func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
