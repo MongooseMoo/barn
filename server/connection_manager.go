@@ -289,6 +289,7 @@ func (cm *ConnectionManager) registerListener(socket net.Listener, spec listener
 	}
 	if desc.Protocol == listener.ProtocolWebSocket || desc.Protocol == listener.ProtocolSecureWebSocket {
 		record.httpServer = &http.Server{
+			ReadHeaderTimeout: listener.HTTPReadHeaderTimeout,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cm.handleWebSocketRequest(record, w, r)
 			}),
