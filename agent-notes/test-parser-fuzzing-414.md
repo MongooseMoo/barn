@@ -179,6 +179,10 @@ results. No merge is authorized by this task.
 
 ## Campaign evidence
 
+Importer provenance now hashes the same frozen byte buffer passed to the
+existing `load_bytes` reader. A repeat import of the real Test.db through that
+path extracted all 444 programs into 64 exact-byte unique local seeds.
+
 Windows Go 1.27.1, two workers per target, BARN_FUZZ_CORPUS pointing at the
 ignored imported corpus. Each baseline contains 11037 unique sources before
 retained findings. Commands use `-run '^$' -fuzz '^TARGET$' -fuzztime=10m

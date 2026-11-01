@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from lambdamoo_db.inspection import code_fingerprint
-from lambdamoo_db.reader import load
+from lambdamoo_db.reader import load_bytes
 
 
 def main():
@@ -18,8 +18,9 @@ def main():
     # Extract before writing, so an unreadable source never becomes a partial
     # successful import. Property data and object/verb names are not exported.
     for path in args.db:
-        database = load(str(path))
-        source_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        raw = path.read_bytes()
+        database = load_bytes(raw, str(path))
+        source_digest = hashlib.sha256(raw).hexdigest()
         count = 0
         for obj in sorted(database.objects.values(), key=lambda obj: obj.id):
             for index, verb in enumerate(obj.verbs):
