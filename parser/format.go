@@ -241,6 +241,10 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *ir.LiteralExpr:
+		// An integer followed by a property dot would lex as a float.
+		if e.Kind == ir.LiteralInt && parentPrecedence >= precedenceProperty {
+			return "(" + f.literal(e) + ")"
+		}
 		return f.literal(e)
 
 	case *ir.IdentifierExpr:
@@ -250,7 +254,7 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		op := f.unaryOp(e.Operator)
 		operand := f.expr(e.Operand, precedenceUnary, fullyParenthesized)
 		result := op + operand
-		if fullyParenthesized && parentPrecedence != precedenceLowest {
+		if parentPrecedence > precedenceUnary || (fullyParenthesized && parentPrecedence != precedenceLowest) {
 			return "(" + result + ")"
 		}
 		return result

@@ -18,8 +18,10 @@ the formatter repair and its fuzz regression now pass focused replay. The
 first parser mutation found a false positive from case-preserving comparison;
 the corrected comparison and retained reproduction also pass focused replay.
 Compiler and VM ten-minute campaigns completed successfully. The revised
-parser ten-minute campaign is running. No Barn PR yet. The unrelated
-main-checkout work is untouched.
+parser ten-minute campaign found the numeric-property-dot bug described below;
+that repair and the related unary postfix precedence repair pass focused
+round-trip replay, and the next parser campaign is running. Barn PR #567 is
+open. The unrelated main-checkout work is untouched.
 
 Database reader repair is published as lambdamoo-db-py PR #34 on branch
 `fix/recycled-anon-record`. Its full CI passed. The real Test.db now extracts
@@ -208,4 +210,16 @@ focused replay of both inputs completed with:
 
 ```
 ok github.com/MongooseMoo/barn/parser 1.278s
+```
+
+The next campaign stopped at 253351 executions, 58 seconds of coordinator
+time, on `0 .(0)` becoming `0.(0)`. The lexer treats the latter's `0.` as a
+float, so the formatted source fails to parse. Preserve parentheses around
+integer postfix bases. In the same path, unary bases require parentheses at
+postfix precedence; otherwise `(-1)[1]` becomes `-1[1]` with a different tree.
+The existing round-trip corpus now includes static/dynamic property reads,
+property assignment and unary bases. Retained mutation: dc03b69b4dd7883e.
+
+```
+ok github.com/MongooseMoo/barn/parser 1.191s
 ```
