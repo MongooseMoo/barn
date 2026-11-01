@@ -49,10 +49,18 @@ func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
 func assertDirectProgramFormatRoundTrip(t *testing.T, program *ir.Program) {
 	t.Helper()
 	want := withoutPositions(reflect.ValueOf(program)).Interface()
-	canonical := strings.Join(parser.FormatMOO(program), "\n")
+	lines, err := parser.FormatMOOChecked(program)
+	if err != nil {
+		t.Fatalf("FormatMOOChecked() error = %v", err)
+	}
+	canonical := strings.Join(lines, "\n")
 	assertFormattedProgram(t, canonical, want, canonical)
 
-	fullyParenthesized := strings.Join(parser.FormatMOOFullyParenthesized(program), "\n")
+	lines, err = parser.FormatMOOFullyParenthesizedChecked(program)
+	if err != nil {
+		t.Fatalf("FormatMOOFullyParenthesizedChecked() error = %v", err)
+	}
+	fullyParenthesized := strings.Join(lines, "\n")
 	assertFormattedProgram(t, fullyParenthesized, want, canonical)
 }
 

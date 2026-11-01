@@ -241,6 +241,10 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *ir.LiteralExpr:
+		// An integer followed by a property dot would lex as a float.
+		if e.Kind == ir.LiteralInt && parentPrecedence >= precedenceProperty {
+			return "(" + f.literal(e) + ")"
+		}
 		return f.literal(e)
 
 	case *ir.IdentifierExpr:
@@ -250,7 +254,7 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		op := f.unaryOp(e.Operator)
 		operand := f.expr(e.Operand, precedenceUnary, fullyParenthesized)
 		result := op + operand
-		if fullyParenthesized && parentPrecedence != precedenceLowest {
+		if parentPrecedence > precedenceUnary || (fullyParenthesized && parentPrecedence != precedenceLowest) {
 			return "(" + result + ")"
 		}
 		return result
@@ -306,7 +310,12 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.name(e.Pos, e.Name) + "(" + args + ")"
 
 	case *ir.SpliceExpr:
-		return "@" + f.expr(e.Expr, precedenceUnary, fullyParenthesized)
+		// The parser lets @ capture a whole conditional expression.
+		result := "@" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		if parentPrecedence > precedenceTernary {
+			return "(" + result + ")"
+		}
+		return result
 
 	case *ir.CatchExpr:
 		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
@@ -467,7 +476,9 @@ func canonicalIdentifierName(name string) string {
 func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 	switch v.Kind {
 	case ir.LiteralInt:
-		return strconv.FormatInt(v.IntValue, 10)
+		// A minus is a unary expression, not part of an integer token. Spell
+		// wrapped negative tokens as unsigned so reparsing preserves the IR.
+		return strconv.FormatUint(uint64(v.IntValue), 10)
 	case ir.LiteralFloat:
 		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
 			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))

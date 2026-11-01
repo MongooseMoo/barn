@@ -19,6 +19,14 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"return {1, @{2, 3}, {4..6}};",
 		"return [\"key\" -> value, 2 -> other];",
 		"object.name = object.(property);",
+		"return (0).(0);",
+		"return (1).name; (1).name = 2;",
+		"return (-1)[1];",
+		"return (-1).name; (-1).name = 2;",
+		"return (@0) % 0;",
+		"return (@{1})[1];",
+		"return @(1 + 2);",
+		"return (@0) ? 1 | 2;",
 		"items[^] = value; items[2..$] = replacement;",
 		"{required, ?missing, ?optional = 2, @rest} = values;",
 		"if (a) return 1; elseif (b) return 2; else return 3; endif",
@@ -151,18 +159,7 @@ func assertCanonicalRoundTrip(t *testing.T, source string) {
 	if err != nil {
 		t.Fatalf("initial parse error = %v\nsource:\n%s", err, source)
 	}
-	formatted := strings.Join(parser.FormatMOO(original), "\n")
-	reparsed, err := parser.NewParser(formatted).ParseProgram()
-	if err != nil {
-		t.Fatalf("formatted parse error = %v\nformatted:\n%s", err, formatted)
-	}
-	if !reflect.DeepEqual(withoutPositions(reflect.ValueOf(original)).Interface(), withoutPositions(reflect.ValueOf(reparsed)).Interface()) {
-		t.Fatalf("semantic IR changed\nsource:\n%s\nformatted:\n%s", source, formatted)
-	}
-	formattedAgain := strings.Join(parser.FormatMOO(reparsed), "\n")
-	if formattedAgain != formatted {
-		t.Fatalf("formatter is unstable\nfirst:\n%s\nsecond:\n%s", formatted, formattedAgain)
-	}
+	assertDirectProgramFormatRoundTrip(t, original)
 }
 
 var positionType = reflect.TypeOf(ir.Position{})
@@ -193,6 +190,13 @@ func withoutPositions(value reflect.Value) reflect.Value {
 		copy := reflect.New(value.Type()).Elem()
 		for i := 0; i < value.NumField(); i++ {
 			copy.Field(i).Set(withoutPositions(value.Field(i)))
+		}
+		// Canonical formatting may uppercase type-constant variable names.
+		// Their semantic identity is case-insensitive (compiler/lower_locals.go).
+		switch value.Interface().(type) {
+		case ir.IdentifierExpr, ir.VariableTarget:
+			name := copy.FieldByName("Name")
+			name.SetString(strings.ToUpper(name.String()))
 		}
 		return copy
 	case reflect.Slice:
