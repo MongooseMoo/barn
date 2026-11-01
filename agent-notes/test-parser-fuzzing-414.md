@@ -227,3 +227,15 @@ property assignment and unary bases. Retained mutation: dc03b69b4dd7883e.
 ```
 ok github.com/MongooseMoo/barn/parser 1.191s
 ```
+
+The following campaign stopped at 1517185 executions, 238 seconds, on
+`if(0) if(0)(@0)%0;endif endif`. The formatter omitted splice parentheses,
+changing Binary(Splice(0), modulo, 0) into Splice(Binary(0, modulo, 0)).
+The parser captures splice operands at PREC_TERNARY, so the formatter now uses
+that same precedence for both its operand and enclosing operators. The existing
+corpus covers binary, indexing and conditional contexts; retained mutation:
+cb918815d3177f1a. Focused replay completed:
+
+```
+ok github.com/MongooseMoo/barn/parser 1.086s
+```

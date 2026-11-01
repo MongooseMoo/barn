@@ -310,7 +310,12 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.name(e.Pos, e.Name) + "(" + args + ")"
 
 	case *ir.SpliceExpr:
-		return "@" + f.expr(e.Expr, precedenceUnary, fullyParenthesized)
+		// The parser lets @ capture a whole conditional expression.
+		result := "@" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		if parentPrecedence > precedenceTernary {
+			return "(" + result + ")"
+		}
+		return result
 
 	case *ir.CatchExpr:
 		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
