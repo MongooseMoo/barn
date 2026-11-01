@@ -467,7 +467,9 @@ func canonicalIdentifierName(name string) string {
 func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 	switch v.Kind {
 	case ir.LiteralInt:
-		return strconv.FormatInt(v.IntValue, 10)
+		// A minus is a unary expression, not part of an integer token. Spell
+		// wrapped negative tokens as unsigned so reparsing preserves the IR.
+		return strconv.FormatUint(uint64(v.IntValue), 10)
 	case ir.LiteralFloat:
 		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
 			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))

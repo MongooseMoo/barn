@@ -67,3 +67,6 @@ toaststunt_test.db
 # Python / tooling
 .python-version
 __pycache__/
+
+# Local verb fuzz corpus, provenance and campaign output
+/.fuzz/
