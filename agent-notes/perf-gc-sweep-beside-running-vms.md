@@ -42,21 +42,29 @@ Design from team-lead brief (approved by Q), steps 1-5.
   an outer VM is mid-builtin).
 - Releaser clears the parked map before closing the release channel, so a
   later handshake never sees a stale parked entry.
-- History seeding applies to every deferred sweep (opportunistic too), as the
-  design says "the deferred sweep".
+- "widen" (team-lead): the parked-root walk (StoreTxn.VisitPrivatePropertyValues)
+  also visits every anonymous object cached in the parked txn's tx.objects.
+  A txn deep-clones an anonymous object on read (store_txn_snapshot.go:33-34,
+  140-141), and anon objects are mutated in place with no history, so a value
+  the task can still read may live only in that clone. Guard (e).
+- "parked readTS only" (team-lead): history seeding
+  (StoreTxn.VisitSnapshotHistoryValues via addParkedHistoryRoots) visits, per
+  object, only the newest history entry with ts <= a PARKED txn's readTS, and
+  only when the live image is newer than that readTS. A waif judged live is
+  dropped from the batch for good (waif_lifecycle.go `continue` after the
+  batch is cleared), so seeding versions kept only for other readers would
+  lose its :recycle. A sweep with no parked VMs seeds no history. Guard (f).
 
-## Surprises / open questions (sent to team-lead, unanswered at commit time)
-1. A parked txn caches deep clones of anonymous objects it read
-   (db/store/store_txn_snapshot.go:140-141); anon objects are mutated in place
-   with no history, so values only in that clone are invisible to the
-   staged-write walk and history seeding. Proposed: also walk anonymous
-   objects in tx.objects.
-2. History seeding counts versions retained only for suspended tasks' idle
-   snapshot txns (task_runtime.go:497-498, 748-749). A waif judged live is
-   dropped from the batch (waif_lifecycle.go `continue`) and never requeued,
-   so its :recycle can be lost. Proposed: seed only versions a parked txn's
-   readTS can be served.
+## Surprises
+- My stated reason for "parked readTS only" was wrong: a suspended task does
+  NOT hold a registered snapshot. runTaskSliceAdmitted's deferred cleanup
+  releases the context txn when the slice returns (task_runtime.go:192-199);
+  HistoryStats showed Readers:1 (only the spinner) with a task suspended. The
+  rule still matters for any other non-parked reader that retains history
+  (e.g. a checkpoint or store-level snapshot), so guard (f) uses a plain idle
+  store snapshot instead of a suspended task.
+- Guard (f) as first written (idle suspended task) passed under the mutation
+  that seeds every retained version, which is how the wrong premise showed up.
 
 ## Next step
-- Apply team-lead's answers to the two questions (each needs a guard test).
-- Then push/PR when told to.
+- Push/PR when told to.

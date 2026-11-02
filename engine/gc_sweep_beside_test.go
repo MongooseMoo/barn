@@ -209,3 +209,57 @@ func TestDeferredGCSweepKeepsWaifInRetainedHistory(t *testing.T) {
 		t.Fatalf("spinner read #0.holder = %v, want the WAIF its snapshot holds", got)
 	}
 }
+
+// (e) A WAIF held only in a running task's read copy of an anonymous object,
+// whose live image has since been changed in place, survives.
+func TestDeferredGCSweepKeepsWaifInRunningAnonymousReadCopy(t *testing.T) {
+	f := newBesideFixture(t)
+	f.run(`k = create(#0);
+add_property(k, "p", 0, {#0, "rw"});
+add_property(k, "q", 1, {#0, "rw"});
+a = create(k, 1);
+a.p = #0.maker:new();
+add_property(#0, "anonholder", a, {#0, "rw"});
+return 0;`)
+	holder, _ := f.store.DirectTxn().PropertyValue(0, "anonholder")
+	w, code := f.store.DirectTxn().PropertyValue(holder.ID(), "p")
+	if code != types.E_NONE || w.Type() != types.TYPE_WAIF {
+		t.Fatalf("anonymous .p = %v (%v), want a WAIF", w, code)
+	}
+	f.spin(`a = #0.anonholder; spin_started(a.q); while (spin_go()) endwhile; return a.p;`)
+	if code := f.store.DirectTxn().SetPropertyValue(holder.ID(), "p", types.NewInt(0)); code != types.E_NONE {
+		t.Fatal(code)
+	}
+	f.sweepBeside(w)
+	if n := f.finalized.Load(); n != 0 {
+		t.Fatalf("WAIF a running task's anonymous read copy holds was finalized (%d :recycle calls)", n)
+	}
+	if got := f.finish(); !got.Equal(w) {
+		t.Fatalf("spinner read a.p = %v, want the WAIF its read copy holds", got)
+	}
+}
+
+// (f) History retained only for a reader that is not a parked VM is not a
+// root: no MOO task can read through it, and a WAIF judged live is dropped
+// from the batch for good, so its :recycle would never run.
+func TestDeferredGCSweepFinalizesWaifRetainedOnlyForIdleSnapshot(t *testing.T) {
+	f := newBesideFixture(t)
+	f.run(`#0.holder = #0.maker:new(); return 0;`)
+	w, _ := f.store.DirectTxn().PropertyValue(0, "holder")
+	idle := f.store.BeginSnapshot(0)
+	defer idle.Release()
+	if code := f.store.DirectTxn().SetPropertyValue(0, "holder", types.NewInt(0)); code != types.E_NONE {
+		t.Fatal(code)
+	}
+	if got, _ := idle.PropertyValue(0, "holder"); !got.Equal(w) {
+		t.Fatalf("idle snapshot sees %v, want the retained WAIF", got)
+	}
+	// A running task whose snapshot postdates the overwrite is served the live
+	// image, not the retained version.
+	f.spin(`spin_started(0); while (spin_go()) endwhile; return #0.holder;`)
+	f.sweepBeside(w)
+	if n := f.finalized.Load(); n != 1 {
+		t.Fatalf("WAIF retained only for an idle snapshot: %d :recycle calls, want 1", n)
+	}
+	f.finish()
+}

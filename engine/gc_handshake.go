@@ -3,6 +3,7 @@ package engine
 import (
 	"time"
 
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
@@ -75,26 +76,39 @@ func (s *Runtime) leasesParkedLocked() bool {
 }
 
 // collectParkedRoots adds a parked VM's roots: its own values and the property
-// values its transaction has staged but not yet published.
+// values only its transaction holds (staged writes, anonymous read copies).
 func collectParkedRoots(exec *vm.VM, anon map[types.ObjID]struct{}, waifs *types.WaifSet) {
 	vm.CollectAnonymousRefsFromVM(exec, anon)
 	vm.CollectWaifsFromVMInto(exec, waifs)
 	if exec.Context == nil {
 		return
 	}
-	exec.Context.StoreTxn.VisitStagedPropertyValues(func(value types.Value) {
+	exec.Context.StoreTxn.VisitPrivatePropertyValues(func(value types.Value) {
 		types.CollectAnonymousRefs(value, anon, true)
 		waifs.AddReachable(value, true)
 	})
 }
 
-// addRetainedHistoryRoots adds what every retained superseded object image
-// holds: an older snapshot, including a parked one, can still read it.
-func (s *Runtime) addRetainedHistoryRoots(anon map[types.ObjID]struct{}, waifs []types.Value) []types.Value {
+// addParkedHistoryRoots adds what each parked snapshot is served from history
+// instead of the live image. History retained for idle readers (a suspended
+// task's unused snapshot) is not a root: an entry judged live is dropped from
+// the batch for good, so that would lose its :recycle. Parked VMs stay parked
+// until the sweep releases them, so their transactions are read after s.mu.
+func (s *Runtime) addParkedHistoryRoots(anon map[types.ObjID]struct{}, waifs []types.Value) []types.Value {
+	s.mu.Lock()
+	txns := make([]*dbstore.StoreTxn, 0, len(s.gcParked))
+	for _, exec := range s.gcParked {
+		if exec.Context != nil {
+			txns = append(txns, exec.Context.StoreTxn)
+		}
+	}
+	s.mu.Unlock()
 	set := types.NewWaifSet(waifs)
-	s.store.VisitHistoryPropertyValues(func(value types.Value) {
-		types.CollectAnonymousRefs(value, anon, true)
-		set.AddReachable(value, true)
-	})
+	for _, txn := range txns {
+		txn.VisitSnapshotHistoryValues(func(value types.Value) {
+			types.CollectAnonymousRefs(value, anon, true)
+			set.AddReachable(value, true)
+		})
+	}
 	return set.Values
 }

@@ -292,7 +292,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool)
 	if !quiescent {
 		return
 	}
-	siblingWaifs = s.addRetainedHistoryRoots(siblingAnon, siblingWaifs)
+	siblingWaifs = s.addParkedHistoryRoots(siblingAnon, siblingWaifs)
 
 	s.lifecycle.Mu.Lock()
 	waifBatch := s.lifecycle.PendingWaifs

@@ -405,10 +405,12 @@ func (tx *StoreTxn) VisitWaifValues(visit func(types.Value)) {
 	}
 }
 
-// VisitStagedPropertyValues visits every property value this transaction has
-// staged and not yet published, on numbered and anonymous objects alike. The
-// owner goroutine must not be using the transaction meanwhile.
-func (tx *StoreTxn) VisitStagedPropertyValues(visit func(types.Value)) {
+// VisitPrivatePropertyValues visits every property value only this
+// transaction holds: the writes it has staged and not yet published, on
+// numbered and anonymous objects alike, and its read copies of anonymous
+// objects, which are mutated in place and keep no history. The owner
+// goroutine must not be using the transaction meanwhile.
+func (tx *StoreTxn) VisitPrivatePropertyValues(visit func(types.Value)) {
 	if tx == nil || tx.direct || tx.released.Load() {
 		return
 	}
@@ -418,29 +420,51 @@ func (tx *StoreTxn) VisitStagedPropertyValues(visit func(types.Value)) {
 	for _, define := range tx.propertyDefines {
 		visit(define.prop.value)
 	}
+	for _, obj := range tx.objects {
+		if obj != nil && obj.anonymous {
+			visitFinalizableProperties(obj, visit)
+		}
+	}
 }
 
-// VisitHistoryPropertyValues visits the property values of every retained
-// superseded object image. History is kept only while some reader may be
-// served it, so these are values a live snapshot can still read.
-func (s *Store) VisitHistoryPropertyValues(visit func(types.Value)) {
+// VisitSnapshotHistoryValues visits the property values of every superseded
+// image this snapshot is served instead of the live one: per object, the
+// newest history entry at or below its readTS when the live image is newer.
+// Versions retained only for other readers are not visited.
+func (tx *StoreTxn) VisitSnapshotHistoryValues(visit func(types.Value)) {
+	if tx == nil || tx.direct || tx.released.Load() || tx.store == nil {
+		return
+	}
+	s := tx.store
+	var served []*Object
+	// Lock order as objectLocked: store.mu, then history.mu.
+	s.mu.RLock()
 	s.history.mu.Lock()
-	histories := make([][]objectHistory, 0, len(s.history.byID))
-	for _, entries := range s.history.byID {
-		histories = append(histories, entries)
+	for id, entries := range s.history.byID {
+		if live := s.load(id); live != nil && objectVersion(live) <= tx.readTS {
+			continue
+		}
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].ts <= tx.readTS {
+				served = append(served, entries[i].obj)
+				break
+			}
+		}
 	}
 	s.history.mu.Unlock()
-	// Captured headers and the images they hold are immutable.
-	for _, entries := range histories {
-		for _, entry := range entries {
-			if entry.obj == nil {
-				continue
-			}
-			for _, prop := range entry.obj.properties.all() {
-				if prop.value.MayHoldFinalizable() {
-					visit(prop.value)
-				}
-			}
+	s.mu.RUnlock()
+	// History images are immutable.
+	for _, obj := range served {
+		if obj != nil {
+			visitFinalizableProperties(obj, visit)
+		}
+	}
+}
+
+func visitFinalizableProperties(obj *Object, visit func(types.Value)) {
+	for _, prop := range obj.properties.all() {
+		if prop.value.MayHoldFinalizable() {
+			visit(prop.value)
 		}
 	}
 }
