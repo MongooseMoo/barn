@@ -438,7 +438,9 @@ func verifyFork(program *Program, instruction decodedInstruction, boundaries map
 		return fmt.Errorf("local index %d outside %d locals", varIndex-1, program.NumLocals)
 	}
 	end := instruction.next + bodyLength
-	if bodyLength <= 0 || !boundaries[instruction.next] || (end != len(program.Code) && !boundaries[end]) {
+	// An empty body (`fork (0) endfork`) is length 0; ExtractForkBody runs it as
+	// a lone OP_RETURN_NONE, so only a negative length is malformed.
+	if bodyLength < 0 || !boundaries[instruction.next] || (end != len(program.Code) && !boundaries[end]) {
 		return fmt.Errorf("fork body [%d,%d) is not on instruction boundaries", instruction.next, end)
 	}
 	return nil
