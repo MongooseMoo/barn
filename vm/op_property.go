@@ -62,6 +62,10 @@ func (vm *VM) executeGetPropKeyed() error {
 	}
 	objVal := vm.Peek(0)
 	if err := vm.executeGetPropAccess(propName, propKeyRead); err != nil {
+		// executeGetPropAccess popped the object. Put it back so a non-debug
+		// frame, which pushes the error as the value, keeps [obj, value] for
+		// OP_INDEX_KEYED instead of popping into the caller's stack.
+		vm.Push(objVal)
 		return err
 	}
 	value := vm.Pop()
