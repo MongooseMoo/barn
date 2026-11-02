@@ -330,6 +330,8 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		Source:        append([]string(nil), program.Source...),
 		BuiltinSlots:  slots,
 		BuiltinLayout: program.BuiltinLayout,
+		// Immutable once the compiler fills it, like Constants' values.
+		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
 	}
 }
 

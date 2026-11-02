@@ -3,6 +3,7 @@ package builtins
 import (
 	"strings"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -146,7 +147,7 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 		if !strings.EqualFold(newName, propName) {
-			if IsBuiltinProperty(newName) {
+			if bytecode.IsBuiltinPropertyName(newName) {
 				return types.Err(types.E_INVARG)
 			}
 			_, exists, err := localPropertyForRead(ctx, objID, newName)
@@ -256,7 +257,7 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 	propName := nameVal.Str()
 
 	// Check if property name is built-in
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -360,7 +361,7 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return E_PERM
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -428,7 +429,7 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return 0
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -460,20 +461,6 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 }
 
 // Helper functions
-
-// IsBuiltinProperty checks if a property name is a built-in property
-// Built-in properties: name, owner, location, contents, last_move, programmer, wizard, r, w, f, a.
-// parent/parents/children/player are NOT properties -- they have dedicated accessor built-in
-// functions (parent(), parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
-func IsBuiltinProperty(name string) bool {
-	switch strings.ToLower(name) {
-	case "name", "owner", "location", "contents", "last_move",
-		"programmer", "wizard", "r", "w", "f", "a":
-		return true
-	default:
-		return false
-	}
-}
 
 // parsePerms converts a permission string like "rw" to PropertyPerms flags
 // Returns error code if invalid characters found

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -25,11 +26,11 @@ func (vm *VM) executeGetPropWide() error {
 }
 
 func (vm *VM) executeGetPropStatic(index int) error {
-	propName, err := vm.staticNameFromConstant(index, "property")
+	propName, builtin, err := vm.staticPropertyName(index)
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, builtin, propWhole)
 }
 
 func (vm *VM) executeGetPropDynamic() error {
@@ -37,7 +38,7 @@ func (vm *VM) executeGetPropDynamic() error {
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, bytecode.IsBuiltinPropertyName(propName), propWhole)
 }
 
 // propAccess says how a GET_PROP-family instruction reaches a defined property.
@@ -49,19 +50,15 @@ const (
 	propKeyBase                   // base of obj.prop[key] = v (OP_GET_PROP_KEYBASE)
 )
 
-func (vm *VM) executeGetPropNamed(propName string) error {
-	return vm.executeGetPropAccess(propName, propWhole)
-}
-
 // executeGetPropKeyed is obj.prop of obj.prop[key]. It leaves the object under
 // the value so OP_INDEX_KEYED can report the entry it reads.
 func (vm *VM) executeGetPropKeyed() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
 	objVal := vm.Peek(0)
-	if err := vm.executeGetPropAccess(propName, propKeyRead); err != nil {
+	if err := vm.executeGetPropAccess(propName, builtin, propKeyRead); err != nil {
 		// executeGetPropAccess popped the object. Put it back so a non-debug
 		// frame, which pushes the error as the value, keeps [obj, value] for
 		// OP_INDEX_KEYED instead of popping into the caller's stack.
@@ -76,11 +73,11 @@ func (vm *VM) executeGetPropKeyed() error {
 
 // executeGetPropKeyBase fetches the base of obj.prop[key] = v.
 func (vm *VM) executeGetPropKeyBase() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropAccess(propName, propKeyBase)
+	return vm.executeGetPropAccess(propName, builtin, propKeyBase)
 }
 
 // executeIndexKeyed is [key] of obj.prop[key]: OP_INDEX, after telling the
@@ -105,14 +102,14 @@ func (vm *VM) executeIndexKeyed() error {
 // fetched was keyed and is still the task's view of the slot, it stages only
 // the entry; otherwise it is OP_SET_PROP.
 func (vm *VM) executeSetPropKeyed() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
 	objVal := vm.Pop()
 	key := vm.Pop()
 	value := vm.Pop()
-	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtins.IsBuiltinProperty(propName) {
+	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtin {
 		txn := vm.Context.StoreTxn
 		objID := objVal.ID()
 		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
@@ -139,7 +136,10 @@ func (vm *VM) executeSetPropKeyed() error {
 	return vm.executeSetPropNamed(propName)
 }
 
-func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
+// executeGetPropAccess reads propName from the object on the stack. builtin is
+// bytecode.IsBuiltinPropertyName(propName), which the caller has: classified at
+// compile time for a static name, at run time for a dynamic one.
+func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAccess) error {
 	// Pop the object
 	objVal := vm.Pop()
 
@@ -168,7 +168,7 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 	// Built-in property names (.name/.owner/.location/...) can never be defined
 	// properties — add_property rejects them with E_INVARG — so serve them from
 	// the built-in path directly, skipping the (always-failing) inheritance walk.
-	if builtins.IsBuiltinProperty(propName) {
+	if builtin {
 		if val, ok := getBuiltinProperty(txn, objID, propName); ok {
 			vm.Push(val)
 			return nil

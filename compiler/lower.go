@@ -105,6 +105,7 @@ func (c *lowerer) compileProgram(program *ir.Program) (*bytecode.Program, error)
 			return nil, err
 		}
 	}
+	c.program.ClassifyPropertyConstants()
 
 	return c.program, nil
 }

@@ -23,12 +23,27 @@ MOO-visible behaviour must not change; no benchmark row may get slower.
   `C:/Users/Q/code/barn/.claude/worktrees/agent-a6483c9bd6e736dfd`, which is at
   the same origin/master revision (the harness refuses commands in the shared
   `C:/Users/Q/code/barn` checkout).
-- Started: reading code, writing tests.
+- A committed (vm/vm.go inner fast-path loop). B implemented: the name
+  predicate moved to `bytecode.IsBuiltinPropertyName` (builtins callers use
+  it), `Program.BuiltinPropertyConstants` filled by the compiler
+  (`compiler/lower.go` compileProgram), shared by ExtractForkBody and
+  cloneProgram; the VM reads it through `vm.staticPropertyName`.
+- Tests: `vm/interp_dispatch_prop_read_test.go`. Each was shown to fail with
+  its guarded code broken on purpose (see Surprises/PR draft).
+- Benchmarks not yet run: the machine has been at 95-100% CPU. Per-stage test
+  binaries (`go test -pgo=off -c`) and linux barn builds (pgo and -pgo=off) are
+  being built into the scratchpad `interp/` dir so each stage can be measured
+  later from a fixed binary.
 
 ## Decisions and why
 
 - CPU load is read with `typeperf` (PowerShell is refused by the agent
   isolation hook).
+- B: a program without the classification (restored from a database frame)
+  falls back to the run-time lookup, so the field is an optimisation only.
+- B: builtins.IsBuiltinProperty was removed rather than wrapped; the one
+  predicate lives in bytecode because builtins imports compiler, which cannot
+  import builtins.
 
 ## Surprises
 

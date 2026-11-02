@@ -111,6 +111,39 @@ func propertyReadTestStore(t *testing.T) *dbstore.Store {
 	return store
 }
 
+func TestCompilerClassifiesStaticPropertyNames(t *testing.T) {
+	registry := BuildVMRegistry()
+	prog, diagnostics := registry.Compiler().CompileMOO([]string{
+		`x = {#1.name, #1.Owner, #1.foo, "r", "w" + "x", 5};`,
+		`fork (0) y = #1.LAST_MOVE; endfork`,
+	})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO: %v", diagnostics[0])
+	}
+	if len(prog.BuiltinPropertyConstants) != len(prog.Constants) {
+		t.Fatalf("BuiltinPropertyConstants has %d entries for %d constants", len(prog.BuiltinPropertyConstants), len(prog.Constants))
+	}
+	want := map[string]bool{"name": true, "Owner": true, "foo": false, "r": true, "w": true, "x": false, "LAST_MOVE": true}
+	seen := 0
+	for i, constant := range prog.Constants {
+		if constant.Type() != types.TYPE_STR {
+			if prog.BuiltinPropertyConstants[i] {
+				t.Fatalf("constant %d (%v) is not a string but is marked built-in", i, constant)
+			}
+			continue
+		}
+		if expected, ok := want[constant.Str()]; ok {
+			seen++
+			if prog.BuiltinPropertyConstants[i] != expected {
+				t.Fatalf("constant %q marked built-in = %v, want %v", constant.Str(), prog.BuiltinPropertyConstants[i], expected)
+			}
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("found %d of the %d expected string constants in %v", seen, len(want), prog.Constants)
+	}
+}
+
 func TestPropertyReadNameClassification(t *testing.T) {
 	cases := []struct {
 		expr string
@@ -133,6 +166,28 @@ func TestPropertyReadNameClassification(t *testing.T) {
 			ctx := task.NewContext()
 			ctx.IsWizard = true
 			result := runBytecodeProgram(t, "return "+tc.expr+";", propertyReadTestStore(t), ctx)
+			if result.Flow != types.FlowReturn || result.Val.String() != tc.want {
+				t.Fatalf("%s = flow %v, error %s, val %v; want %s", tc.expr, result.Flow, result.Error, result.Val, tc.want)
+			}
+		})
+		// A program the compiler did not classify (restored from a database)
+		// classifies its static names at run time, with the same results.
+		t.Run(tc.expr+"/unclassified", func(t *testing.T) {
+			store := propertyReadTestStore(t)
+			registry := BuildVMRegistry()
+			compiled, diagnostics := registry.Compiler().CompileMOO([]string{"return " + tc.expr + ";"})
+			if len(diagnostics) > 0 {
+				t.Fatalf("CompileMOO: %v", diagnostics[0])
+			}
+			prog := *compiled
+			prog.BuiltinPropertyConstants = nil
+			ctx := task.NewContext()
+			ctx.IsWizard = true
+			ctx.Store = store
+			machine := NewVM(store, newTestSession(registry))
+			machine.Context = ctx
+			machine.Task = task.NewState(1, 0, 30000, 1)
+			result := machine.Run(&prog)
 			if result.Flow != types.FlowReturn || result.Val.String() != tc.want {
 				t.Fatalf("%s = flow %v, error %s, val %v; want %s", tc.expr, result.Flow, result.Error, result.Val, tc.want)
 			}
