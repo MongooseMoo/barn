@@ -407,9 +407,32 @@ func (v Value) Len() int {
 // ---- heap payload helpers ----------------------------------------------
 //
 // These cast the ref word back to its concrete payload pointer. They are the
-// only place unsafe.Pointer is dereferenced; every site is guarded by the tag.
+// only place unsafe.Pointer is dereferenced. Typed methods such as Str, Get
+// and MapGet call them without checking the tag themselves, so each cast
+// checks it: a caller that skipped its Type() check gets a panic instead of
+// reading one payload type as another. The check is a bounds check on a
+// one-element array: index 0 only for the expected tag, an index-out-of-range
+// panic otherwise. A panic call would put these and the typed methods built
+// on them over the inlining budget.
 
-func (v Value) strRep() *strRep       { return (*strRep)(v.ref) }
-func (v Value) sliceList() *sliceList { return (*sliceList)(v.ref) }
-func (v Value) goMap() *goMap         { return (*goMap)(v.ref) }
-func (v Value) waifRep() *waifRep     { return (*waifRep)(v.ref) }
+var payloadTag [1]struct{}
+
+func (v Value) strRep() *strRep {
+	_ = payloadTag[v.tag^TYPE_STR]
+	return (*strRep)(v.ref)
+}
+
+func (v Value) sliceList() *sliceList {
+	_ = payloadTag[v.tag^TYPE_LIST]
+	return (*sliceList)(v.ref)
+}
+
+func (v Value) goMap() *goMap {
+	_ = payloadTag[v.tag^TYPE_MAP]
+	return (*goMap)(v.ref)
+}
+
+func (v Value) waifRep() *waifRep {
+	_ = payloadTag[v.tag^TYPE_WAIF]
+	return (*waifRep)(v.ref)
+}
