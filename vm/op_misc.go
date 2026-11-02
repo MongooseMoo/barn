@@ -51,10 +51,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced builtin args")
 		}
-		args = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			args[i-1] = listVal.Get(i)
-		}
+		args = splicedArgs(listVal)
 	} else {
 		n := int(argc)
 		if vm.SP < n {

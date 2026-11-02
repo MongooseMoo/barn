@@ -178,9 +178,16 @@ workload shapes, then merge them and re-run the performance gate:
 ```bash
 go tool pprof -proto mongoose-1p.cpu mongoose-16p.cpu bench-differ.cpu > cmd/barn/default.pgo
 go test -pgo=off ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > before.txt
-go test ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > after.txt
+go test -pgo="$PWD/cmd/barn/default.pgo" ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > after.txt
 benchstat before.txt after.txt
 ```
+
+`go test` applies `default.pgo` only to a main package, so the second run names
+the profile; without `-pgo` it would also run without one.
+
+The Mongoose profiles come from `BARN_MONGOOSE_CPUPROFILE` on the real-workload
+harness at 1 and 16 players; a profile from any edited hot function goes stale
+when its lines move, which can slow an unchanged path by a few percent.
 
 Commit a refreshed profile only when the geomean improves with p < 0.05 and no
 benchmark regresses by more than 3%. `make build-linux-amd64` produces the
