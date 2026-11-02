@@ -134,7 +134,8 @@ func successors(instruction decodedInstruction, height, after int) []flowEdge {
 		return []flowEdge{next, {branchTarget(instruction), height}}
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
 		edges := []flowEdge{next}
-		forEachExceptClause(instruction, func(_, handler int) error {
+		// The visitor never fails, and forEachExceptClause fails only through it.
+		_ = forEachExceptClause(instruction, func(_, handler int) error {
 			edges = append(edges, flowEdge{handler, height})
 			return nil
 		})
