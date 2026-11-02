@@ -404,3 +404,43 @@ func (tx *StoreTxn) VisitWaifValues(visit func(types.Value)) {
 		}
 	}
 }
+
+// VisitStagedPropertyValues visits every property value this transaction has
+// staged and not yet published, on numbered and anonymous objects alike. The
+// owner goroutine must not be using the transaction meanwhile.
+func (tx *StoreTxn) VisitStagedPropertyValues(visit func(types.Value)) {
+	if tx == nil || tx.direct || tx.released.Load() {
+		return
+	}
+	for _, write := range tx.propertyWrites {
+		visit(write.value)
+	}
+	for _, define := range tx.propertyDefines {
+		visit(define.prop.value)
+	}
+}
+
+// VisitHistoryPropertyValues visits the property values of every retained
+// superseded object image. History is kept only while some reader may be
+// served it, so these are values a live snapshot can still read.
+func (s *Store) VisitHistoryPropertyValues(visit func(types.Value)) {
+	s.history.mu.Lock()
+	histories := make([][]objectHistory, 0, len(s.history.byID))
+	for _, entries := range s.history.byID {
+		histories = append(histories, entries)
+	}
+	s.history.mu.Unlock()
+	// Captured headers and the images they hold are immutable.
+	for _, entries := range histories {
+		for _, entry := range entries {
+			if entry.obj == nil {
+				continue
+			}
+			for _, prop := range entry.obj.properties.all() {
+				if prop.value.MayHoldFinalizable() {
+					visit(prop.value)
+				}
+			}
+		}
+	}
+}

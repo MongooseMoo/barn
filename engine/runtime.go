@@ -35,6 +35,9 @@ type Runtime struct {
 	closeInputAdmission     context.CancelFunc
 	leasedTasks             map[int64]*Task // includes direct tasks absent from the catalog
 	admissionRoots          map[*admissionRoot][]types.Value
+	gcHandshake             atomic.Bool      // a deferred sweep asks running VMs to park
+	gcRelease               chan struct{}    // closed when that sweep releases them; under mu
+	gcParked                map[int64]*vm.VM // task id -> VM parked at its tick checkpoint; under mu
 	nextTaskID              int64
 	registry                *builtins.Registry
 	session                 *builtins.Session
@@ -675,19 +678,23 @@ func (s *Runtime) YieldReadyTasks() int {
 // An actively executing task is therefore fatal rather than skippable. Its VM is being
 // mutated on another goroutine, so it can neither be walked here nor ignored (its locals
 // are roots). Logical TaskRunning is insufficient because suspend records a suspended
-// state before VM handoff completes. When any physical execution lease is active, the
-// caller leaves the batches queued for the next quiescent pass.
+// state before VM handoff completes. When any physical execution lease is active and not
+// parked at its tick checkpoint (parkForGC), the caller leaves the batches queued for the
+// next pass. A parked VM is walked together with its transaction's staged writes.
 func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.lifecycle.ExecutingTasks) != 0 {
+	if !s.leasesParkedLocked() {
 		return nil, nil, false
 	}
 	anonRefs = make(map[types.ObjID]struct{})
 	waifSet := types.NewWaifSet(nil)
 	s.collectAdmissionRoots(anonRefs, waifSet)
+	for _, exec := range s.gcParked {
+		collectParkedRoots(exec, anonRefs, waifSet)
+	}
 	for _, t := range s.taskManager.Snapshot() {
-		if t == nil {
+		if t == nil || s.gcParked[t.ID] != nil {
 			continue
 		}
 		switch t.GetState() {

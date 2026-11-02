@@ -203,7 +203,7 @@ func (s *Runtime) gcRecycleContext(parent *task.Context) *task.Context {
 // against persistent state plus all live task VMs, so deferral only changes
 // WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
 // gcSweepInterval once they become expensive.
-func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0) }
+func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0, false) }
 
 // maintenanceBarrierPatience is how long the maintenance worker keeps trying
 // for the sweep barrier. A finishing task's flush holds it for the length of
@@ -228,11 +228,12 @@ func tryLockFor(mu *sync.Mutex, patience time.Duration) bool {
 // flushDeferredGCBarrier is flushDeferredGC for a caller that says how long it
 // may keep trying for the sweep barrier. A task boundary may not wait at all:
 // it can still hold an admission reservation. The maintenance worker holds
-// none and has paused admission, so it tries for maintenanceBarrierPatience. A
-// single try there loses, every time under load, to the opportunistic flushes
-// of the tasks that finished as the pause drained: each holds the barrier for
-// a moment and finds its siblings still executing, so nobody sweeps.
-func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
+// none, so it tries for maintenanceBarrierPatience. A single try there loses,
+// every time under load, to the opportunistic flushes of tasks finishing
+// beside it: each holds the barrier for a moment and finds its siblings still
+// executing, so nobody sweeps. With handshake, the caller also asks executing
+// VMs to park at their tick checkpoint and sweeps beside them.
+func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool) {
 	// Avoid contending on the sweep barrier when there is plainly no work.
 	s.lifecycle.Mu.Lock()
 	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
@@ -251,10 +252,25 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 		return
 	}
 	defer s.lifecycle.SweepMu.Unlock()
+	if handshake {
+		// Park first, then hold VM starts only for the walk and sweep. A lease
+		// that does not park in time (one holding the commit gate, or inside a
+		// builtin) fails the round closed, exactly as an unparked one below.
+		release := s.requestGCHandshake()
+		defer release()
+		if !s.awaitGCParked(patience) {
+			return
+		}
+	}
 	if !tryLockFor(&s.lifecycle.VMStartMu, patience) {
 		return
 	}
 	defer s.lifecycle.VMStartMu.Unlock()
+	// A VM that started between the wait above and VMStartMu gets the same
+	// patience to park; no further VM can start now.
+	if handshake && !s.awaitGCParked(patience) {
+		return
+	}
 
 	// Another flush may have settled the batch while this goroutine waited.
 	s.lifecycle.Mu.Lock()
@@ -269,12 +285,14 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 	}
 	s.lifecycle.Mu.Unlock()
 
-	// A VM that acquired its lease before vmStartMu cannot be inspected. Leave
-	// the batches queued; that VM's lifecycle release will retry the flush.
+	// A VM that acquired its lease before vmStartMu and is not parked cannot be
+	// inspected. Leave the batches queued; that VM's lifecycle release or the
+	// maintenance worker will retry the flush.
 	siblingAnon, siblingWaifs, quiescent := s.collectAllGCRefs()
 	if !quiescent {
 		return
 	}
+	siblingWaifs = s.addRetainedHistoryRoots(siblingAnon, siblingWaifs)
 
 	s.lifecycle.Mu.Lock()
 	waifBatch := s.lifecycle.PendingWaifs

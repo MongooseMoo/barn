@@ -372,12 +372,17 @@ retryAttempt:
 	// The VM owns the seconds deadline so commit-gate waits can extend it.
 	// Cancellation separately handles shutdown and explicit task kills.
 
-	// A root slice lends its reservation at tick checkpoints while others wait.
-	// Never while escalated: a readmission-waiting task holding the exclusive
-	// commit gate would deadlock every admitted committer. A borrowed scope is
-	// its owner's to lend.
-	preempt := func() {
-		if !ownsScope || gate.held() {
+	// A root slice lends its reservation at tick checkpoints while others wait,
+	// and parks there while a deferred sweep walks it (parkForGC). Never while
+	// escalated: a readmission-waiting task holding the exclusive commit gate
+	// would deadlock every admitted committer, and a sweep's :recycle hooks
+	// commit. A borrowed scope is its owner's to lend.
+	preempt := func(machine *vm.VM) {
+		if gate.held() {
+			return
+		}
+		s.parkForGC(t.ID, machine)
+		if !ownsScope {
 			return
 		}
 		if wait := scope.Yield(); wait > 0 {
@@ -582,7 +587,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(*vm.VM), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.VM(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
