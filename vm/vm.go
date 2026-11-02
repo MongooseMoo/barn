@@ -126,7 +126,7 @@ func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 			SetLocalByName(&init, init.Program, name, value)
 		}
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
-			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
+			init.Locals[constant.Slot-1] = constant.Value
 		}
 	}
 	if n := len(vm.framePool); n > 0 {
@@ -1456,8 +1456,9 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 		// Toast includes the eval'd-code activation in the traceback when the error
 		// is caught at (or unwinds to) the eval frame, but not when a verb above the
 		// eval frame catches it first. Decide which case we're in before unwinding.
-		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
-		traceback = vm.limitExceptionTraceback(traceback, errCode)
+		code := raisedCode(errCode, exceptionValue)
+		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(code))
+		traceback = vm.limitExceptionTraceback(traceback, code)
 
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
@@ -1492,6 +1493,7 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 		if frame == nil {
 			return false, exceptionValue, reason
 		}
+		code := raisedCode(errCode, exceptionValue)
 
 		// Search this frame's ExceptStack (innermost handler first)
 		for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
@@ -1511,7 +1513,7 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 				return true, exceptionValue, reason
 			}
 
-			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
+			if vm.handlerMatches(frame, &handler, code) {
 				// Found matching except handler - jump to it
 				frame.ExceptStack = frame.ExceptStack[:i]
 				vm.SP = handler.StackDepth

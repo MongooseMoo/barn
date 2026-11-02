@@ -70,6 +70,9 @@ func (p *Program) CompactInternalLocals(firstInternal int) error {
 			}
 			pos := 1
 			for clause := 0; clause < int(args[0]); clause++ {
+				if clauseCodesInLocal(args[pos:]) {
+					args[pos+2] = byte(remap(int(args[pos+2])))
+				}
 				pos += 1 + int(args[pos])
 				optional(pos, width)
 				pos += width + addressBytes

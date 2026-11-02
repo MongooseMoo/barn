@@ -29,8 +29,8 @@ func TestRecursiveFormatterFailuresDiscardWholeOutput(t *testing.T) {
 		"target default":       &ir.ExprStmt{Expr: &ir.AssignExpr{Target: &ir.DestructuringTarget{Bindings: []ir.Binding{&ir.OptionalBinding{Name: "a", Default: bad}}}, Value: good}},
 		"nested body":          &ir.IfStmt{Condition: good, Body: []ir.Stmt{&ir.ReturnStmt{Value: bad}}},
 		"map value":            &ir.ReturnStmt{Value: &ir.MapExpr{Pairs: []ir.MapPair{{Key: good, Value: bad}}}},
-		"catch code":           &ir.ReturnStmt{Value: &ir.CatchExpr{Pos: pos, Expr: good, Codes: []string{"E_UNKNOWN"}}},
-		"handler code":         &ir.TryStmt{Handlers: []ir.ExceptionHandler{{Pos: pos, Codes: []string{"E_UNKNOWN"}}}},
+		"catch code":           &ir.ReturnStmt{Value: &ir.CatchExpr{Pos: pos, Expr: good, Codes: []ir.Expr{bad}}},
+		"handler code":         &ir.TryStmt{Handlers: []ir.ExceptionHandler{{Pos: pos, Codes: []ir.Expr{bad}}}},
 		"nonfinite float":      &ir.ReturnStmt{Value: &ir.LiteralExpr{Pos: pos, Kind: ir.LiteralFloat, FloatValue: math.Inf(1)}},
 		"NaN":                  &ir.ReturnStmt{Value: &ir.LiteralExpr{Pos: pos, Kind: ir.LiteralFloat, FloatValue: math.NaN()}},
 	}

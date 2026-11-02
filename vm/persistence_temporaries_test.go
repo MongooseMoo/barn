@@ -28,6 +28,44 @@ func TestSuspendedLoopSurvivesCheckpointRoundTrip(t *testing.T) {
 }
 
 func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
+	result := resumeThroughCheckpoint(t, []string{
+		"total = 0; keys = {};",
+		loop,
+		"  total = total + toint(x);",
+		"  suspend();",
+		"  keys = {@keys, " + keyExpr + "};",
+		"endfor",
+		"return {total, keys};",
+	})
+	if result.Flow != types.FlowReturn || result.Val.String() != want {
+		t.Fatalf("restored result = %#v, want %s", result, want)
+	}
+}
+
+// An except arm whose codes are expressions keeps its evaluated code list in a
+// compiler temporary. A task suspended inside that try must still match the
+// arm after a checkpoint reload.
+func TestSuspendedExpressionCodeHandlerSurvivesCheckpointRoundTrip(t *testing.T) {
+	result := resumeThroughCheckpoint(t, []string{
+		`c = "E_CUSTOM";`,
+		"try",
+		"  suspend();",
+		`  raise("e_custom");`,
+		`except e ("E_OTHER", c)`,
+		"  return e[1];",
+		"endtry",
+	})
+	if result.Flow != types.FlowReturn || result.Val.String() != `"e_custom"` {
+		t.Fatalf("restored result = %#v, want \"e_custom\"", result)
+	}
+}
+
+// resumeThroughCheckpoint runs a program to its first suspension, writes the
+// suspended task to a checkpoint, reloads it, and resumes it to completion. The
+// program must use compiler temporaries, or the round trip proves nothing about
+// them.
+func resumeThroughCheckpoint(t *testing.T, source []string) types.Result {
+	t.Helper()
 	store := dbstore.NewStore()
 	for _, builder := range []*dbstore.ObjectBuilder{
 		dbstore.NewObjectBuilder(0),
@@ -46,15 +84,7 @@ func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 	ctx.Store = store
 	taskValue := task.NewState(1, 2, ctx.TicksRemaining, 1)
 
-	program, diagnostics := registry.Compiler().CompileMOO([]string{
-		"total = 0; keys = {};",
-		loop,
-		"  total = total + toint(x);",
-		"  suspend();",
-		"  keys = {@keys, " + keyExpr + "};",
-		"endfor",
-		"return {total, keys};",
-	})
+	program, diagnostics := registry.Compiler().CompileMOO(source)
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -101,11 +131,9 @@ func testSuspendedLoopCheckpoint(t *testing.T, loop, keyExpr, want string) {
 	result := restored.Resume()
 	for suspends := 0; result.Flow == types.FlowSuspend; suspends++ {
 		if suspends > 3 {
-			t.Fatalf("restored task keeps suspending; loop cursor was not restored")
+			t.Fatalf("restored task keeps suspending; compiler temporaries were not restored")
 		}
 		result = restored.Resume()
 	}
-	if result.Flow != types.FlowReturn || result.Val.String() != want {
-		t.Fatalf("restored result = %#v, want %s", result, want)
-	}
+	return result
 }

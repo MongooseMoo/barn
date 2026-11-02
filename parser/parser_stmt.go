@@ -542,31 +542,9 @@ func (p *Parser) parseTryStatement() (ir.Stmt, error) {
 		}
 		p.nextToken() // consume '('
 
-		// Parse exception names
-		var codes []string
-		isAny := false
-
-		if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
-			isAny = true
-			p.nextToken()
-		} else {
-			// Parse list of error codes
-			for {
-				if p.current.Type != TOKEN_ERROR_LIT {
-					return nil, fmt.Errorf("expected error code, got %v", p.current.Type)
-				}
-				if !isErrorName(p.current.Value) {
-					return nil, fmt.Errorf("unknown error code: %s", p.current.Value)
-				}
-				codes = append(codes, p.current.Value)
-				p.nextToken()
-
-				if p.current.Type == TOKEN_COMMA {
-					p.nextToken() // consume ','
-				} else {
-					break
-				}
-			}
+		codes, isAny, err := p.parseCatchCodes()
+		if err != nil {
+			return nil, err
 		}
 
 		if p.current.Type != TOKEN_RPAREN {

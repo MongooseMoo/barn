@@ -3,7 +3,6 @@ package vm
 import (
 	"strings"
 
-	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -90,14 +89,13 @@ func (vm *VM) activationFramesForException(value types.Value) []types.Activation
 
 // limitExceptionTraceback excludes activations outside the nearest matching
 // except handler. Finally handlers run without ending error propagation.
-func (vm *VM) limitExceptionTraceback(traceback types.Value, code types.ErrorCode) types.Value {
+func (vm *VM) limitExceptionTraceback(traceback types.Value, code types.Value) types.Value {
 	depth := 0
 	for i := len(vm.Frames) - 1; i >= 0; i-- {
 		frame := vm.Frames[i]
 		depth++
 		for j := len(frame.ExceptStack) - 1; j >= 0; j-- {
-			handler := frame.ExceptStack[j]
-			if handler.Type == bytecode.HandlerExcept && handler.Matches(code) {
+			if vm.handlerMatches(frame, &frame.ExceptStack[j], code) {
 				if depth < traceback.Len() {
 					return types.NewList(traceback.Elements()[:depth])
 				}
@@ -112,18 +110,18 @@ func (vm *VM) limitExceptionTraceback(traceback types.Value, code types.ErrorCod
 }
 
 // matchingExceptAboveEvalFrame reports whether some frame strictly above the
-// nearest eval frame has an except handler that matches errCode. When true, that
+// nearest eval frame has an except handler that matches code. When true, that
 // verb catches the error before it reaches the eval boundary, so the eval'd-code
 // activation is not part of the traceback. Finally handlers are ignored: they run
 // and re-raise, so they do not stop propagation toward the eval frame.
-func (vm *VM) matchingExceptAboveEvalFrame(errCode types.ErrorCode) bool {
+func (vm *VM) matchingExceptAboveEvalFrame(code types.Value) bool {
 	for i := len(vm.Frames) - 1; i >= 0; i-- {
 		frame := vm.Frames[i]
 		if frame.IsEvalFrame {
 			return false
 		}
-		for _, h := range frame.ExceptStack {
-			if h.Type == bytecode.HandlerExcept && h.Matches(errCode) {
+		for j := range frame.ExceptStack {
+			if vm.handlerMatches(frame, &frame.ExceptStack[j], code) {
 				return true
 			}
 		}

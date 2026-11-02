@@ -195,16 +195,7 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 				sb.WriteString(f.name(handler.Pos, handler.Variable) + " ")
 			}
 			sb.WriteString("(")
-			if handler.IsAny {
-				sb.WriteString("ANY")
-			} else {
-				for i, code := range handler.Codes {
-					if i > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(f.errorName(handler.Pos, code))
-				}
-			}
+			sb.WriteString(f.codes(handler.IsAny, handler.Codes, fullyParenthesized))
 			sb.WriteString(")\n")
 			for _, bodyStmt := range handler.Body {
 				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
@@ -319,19 +310,9 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 
 	case *ir.CatchExpr:
 		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
-		result += " ! "
-		if e.IsAny {
-			result += "ANY"
-		} else {
-			for i, code := range e.Codes {
-				if i > 0 {
-					result += ", "
-				}
-				result += f.errorName(e.Pos, code)
-			}
-		}
+		result += " ! " + f.codes(e.IsAny, e.Codes, fullyParenthesized)
 		if e.Default != nil {
-			result += " => " + f.expr(e.Default, precedenceTernary, fullyParenthesized)
+			result += " => " + f.expr(e.Default, precedenceLowest, fullyParenthesized)
 		}
 		return result + "'"
 
@@ -550,6 +531,15 @@ func quoteMOOString(value string) string {
 }
 
 // args converts argument expressions to a comma-separated string
+// codes spells an except arm's or catch expression's codes: ANY or an
+// argument list.
+func (f *mooFormatter) codes(isAny bool, codes []ir.Expr, fullyParenthesized bool) string {
+	if isAny {
+		return "ANY"
+	}
+	return f.args(codes, fullyParenthesized)
+}
+
 func (f *mooFormatter) args(args []ir.Expr, fullyParenthesized bool) string {
 	if len(args) == 0 {
 		return ""

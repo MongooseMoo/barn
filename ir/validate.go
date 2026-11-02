@@ -156,7 +156,10 @@ func validateNodeShape(node Node) error {
 		if err := require("Expr", n.Expr); err != nil {
 			return err
 		}
-		return validateSelector(pos, n.IsAny, n.Codes)
+		if err := validateSelector(pos, n.IsAny, n.Codes); err != nil {
+			return err
+		}
+		return exprs("Codes", n.Codes)
 	case *AssignExpr:
 		return require("Target/Value", n.Target, n.Value)
 	case *ListExpr:
@@ -243,6 +246,9 @@ func validateNodeShape(node Node) error {
 			if err := validateSelector(handler.Pos, handler.IsAny, handler.Codes); err != nil {
 				return err
 			}
+			if err := exprs("Handlers.Codes", handler.Codes); err != nil {
+				return err
+			}
 			if err := stmts("Handlers.Body", handler.Body); err != nil {
 				return err
 			}
@@ -261,14 +267,9 @@ func validateNodeShape(node Node) error {
 	return nil
 }
 
-func validateSelector(pos Position, any bool, codes []string) error {
+func validateSelector(pos Position, any bool, codes []Expr) error {
 	if any == (len(codes) != 0) {
 		return invalid(pos, "Selector", "requires either all errors or nonempty codes")
-	}
-	for _, code := range codes {
-		if code == "" {
-			return invalid(pos, "Codes", "code must not be empty")
-		}
 	}
 	return nil
 }

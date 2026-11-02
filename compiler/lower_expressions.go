@@ -526,7 +526,8 @@ func (c *lowerer) compileSplice(n *ir.SpliceExpr) error {
 
 func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 	// Catch expressions (`expr ! codes => default`) are compiled as a
-	// single-clause try/except that leaves the result on the stack.
+	// single-clause try/except that leaves the result on the stack. Codes that
+	// are not all error literals are evaluated first (prepareExceptCodes).
 	//
 	// With default:
 	//   bytecode.OP_TRY_EXCEPT_LOCAL_WIDE 1 [codes...] [0 = no var:uint16] [handler_ip:uint32]
@@ -550,24 +551,15 @@ func (c *lowerer) compileCatch(n *ir.CatchExpr) error {
 		errVarIdx = c.declareInternalVariable(c.tempVar("catch_err"))
 	}
 
-	// Emit bytecode.OP_TRY_EXCEPT with 1 clause
-	c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
-	c.emitByte(1) // 1 clause
-
-	codes, err := lowerErrorNames(n.Codes)
+	codes, err := c.prepareExceptCodes(n.IsAny, n.Codes)
 	if err != nil {
 		return err
 	}
 
-	// Emit catch codes
-	if n.IsAny {
-		c.emitByte(0)
-	} else {
-		c.emitByte(byte(len(codes)))
-	}
-	for _, code := range codes {
-		c.emitByte(byte(code))
-	}
+	// Emit bytecode.OP_TRY_EXCEPT with 1 clause
+	c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
+	c.emitByte(1) // 1 clause
+	c.program.Code = append(c.program.Code, codes...)
 
 	// Variable index: 0 means no variable, idx+1 means store in local[idx]
 	if n.Default == nil {
