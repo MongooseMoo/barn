@@ -37,8 +37,12 @@ import (
 // slots the stale lookup read for the first time are not carried: the task has
 // used nothing from that lookup, which is repeated on S1.
 //
+// Keyed map state (store_txn_mapkeys.go) is carried per key: its entries are
+// validated like any carried read, and a slot written only by keyed assignments
+// is re-staged without a whole read, so commit still rebases it onto the live map.
+//
 // Renewal is declined unless the only writes staged are property values, and is
-// refused when a carried read is stale. Either way the task keeps the
+// refused when a carried read is stale or a keyed assignment is in flight. Either way the task keeps the
 // transaction it had and proceeds exactly as it would have without this file.
 
 const (
@@ -240,8 +244,12 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 // values. tx is released. It returns nil, leaving tx as it was, when a carried
 // read is no longer current or the staging does not come out the same.
 func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
-	if len(tx.mapKeys) > 0 {
-		return nil // keyed dependencies and writes are not carried yet
+	for _, st := range tx.mapKeys {
+		if st.hasPendingBase {
+			// The writeback of a keyed assignment in flight would find a slot that
+			// no longer holds its base and stage a whole write built on the old map.
+			return nil
+		}
 	}
 	s := tx.store
 	next := s.BeginSnapshot(0)
@@ -275,13 +283,28 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 			next.waifs[id] = &waifTxnImage{value: image.value, base: image.base, staged: maps.Clone(image.staged)}
 		}
 	}
+	// Keyed dependencies and writes are carried per key; validateReads checks the
+	// carried entries at the new clock.
+	for rkey, st := range tx.mapKeys {
+		c := *st
+		c.reads, c.written = slices.Clone(st.reads), slices.Clone(st.written)
+		// With nothing written, next sees the slot as it is at the new clock, so an
+		// entry read from here on is told from the snapshot's by that map. The
+		// version stays: a degrade then records a whole read at the original.
+		if obj := next.object(rkey.objID); len(c.written) == 0 && validLiveObject(obj) {
+			if _, prop, ok := obj.properties.find(rkey.name); ok {
+				c.baseline = prop.value
+			}
+		}
+		lazySet(&next.mapKeys, rkey, &c)
+	}
 	if next.validateReads() != types.E_NONE {
 		s.noteRefusedRenewal(next.conflicts)
 		next.Release()
 		return nil
 	}
 	for key, write := range tx.propertyWrites {
-		if next.SetPropertyValue(key.objID, write.name, write.value) != types.E_NONE {
+		if !next.restagePropertyValue(key, write) {
 			next.Release()
 			return nil
 		}
@@ -295,6 +318,31 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.conflictLabel = tx.conflictLabel
 	tx.Release()
 	return next
+}
+
+// restagePropertyValue stages write on tx as it was staged on the transaction
+// being renewed. A slot written only through keyed assignments is staged as
+// SetPropertyMapKey stages it, with no whole read, so commit still rebases its
+// entries onto the live map; every other write is SetPropertyValue.
+func (tx *StoreTxn) restagePropertyValue(key propertyWriteKey, write propertyWrite) bool {
+	rkey := propertyReadKey(key)
+	_, whole := tx.propertyReads[rkey]
+	if st := tx.mapKeys[rkey]; st == nil || len(st.written) == 0 || whole {
+		return tx.SetPropertyValue(key.objID, write.name, write.value) == types.E_NONE
+	}
+	obj := tx.mutableFacets(key.objID, facetProperties)
+	if !validLiveObject(obj) {
+		return false
+	}
+	actualName, prop, ok := obj.properties.find(write.name)
+	if !ok {
+		return false
+	}
+	before := prop
+	prop.value = write.value
+	obj.properties.put(actualName, prop)
+	tx.stagePropertyValue(key.objID, actualName, prop, write.value, before, true)
+	return true
 }
 
 // sameStagedPropertyValues reports whether re-staging produced the writes it
