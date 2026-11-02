@@ -35,6 +35,15 @@ func (vm *VM) Peek(offset int) types.Value {
 	return vm.Stack[vm.SP-1-offset]
 }
 
+// splicedArgs returns the arguments of a spliced call, f(@list), as the list's
+// own elements rather than a copy. Lists are immutable, so the callee may keep
+// them; it must not write into them. The capacity is clipped so an append
+// copies instead of reaching the list's spare backing.
+func splicedArgs(list types.Value) []types.Value {
+	elements := list.Elements()
+	return elements[:len(elements):len(elements)]
+}
+
 // PopN pops N values from the stack
 func (vm *VM) PopN(n int) []types.Value {
 	if vm.SP < n {

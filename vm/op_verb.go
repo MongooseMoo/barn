@@ -59,27 +59,25 @@ func (vm *VM) executeCallVerbDynamic() error {
 func (vm *VM) executeCallVerbNamed(name types.Value, argc int) error {
 	// Pop arguments
 	var args []types.Value
+	argsList := types.None
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced verb args")
 		}
-		args = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			args[i-1] = listVal.Get(i)
-		}
+		args, argsList = splicedArgs(listVal), listVal
 	} else {
 		args = vm.PopN(argc)
 	}
 
 	// Pop the object
 	objVal := vm.Pop()
-	return vm.startVerbCallResolved(objVal, name.Str(), name, args, nil)
+	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil)
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
-	return vm.startVerbCallResolved(objVal, verbName, types.None, args, nil)
+	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, nil)
 }
 
 // resolvedVerb is a call target the caller has already looked up, through the
@@ -92,8 +90,10 @@ type resolvedVerb struct {
 
 // startVerbCallResolved is startVerbCall with the verb lookup optionally done
 // by the caller: a nil resolved looks the verb up here. nameValue is verbName
-// as a string value when the caller has one, and None otherwise.
-func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, resolved *resolvedVerb) error {
+// as a string value when the caller has one, and None otherwise. argsList is
+// args as a list value when the caller has one (a spliced call), which becomes
+// the callee's `args` without a copy, and None otherwise.
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, resolved *resolvedVerb) error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
@@ -246,7 +246,10 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	}
 	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, nameValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
-	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
+	if argsList.IsNone() {
+		argsList = types.NewList(args)
+	}
+	SetLocalBySlot(frame, prog.BuiltinSlots.Args, argsList)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
 
 	copyCommandLocals(frame, currentFrame)
@@ -320,7 +323,7 @@ func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin st
 func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, &resolved); err != nil {
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved); err != nil {
 		result := types.Err(errorCode(err))
 		result.Reason = exceptionReason(err)
 		return result
@@ -350,16 +353,14 @@ func (vm *VM) executePass() error {
 	}
 	// Get pass-through args
 	var passArgs []types.Value
+	passList := types.None
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced pass() args")
 		}
-		passArgs = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			passArgs[i-1] = listVal.Get(i)
-		}
+		passArgs, passList = splicedArgs(listVal), listVal
 	} else if argc > 0 {
 		passArgs = vm.PopN(argc)
 	} else {
@@ -483,7 +484,10 @@ func (vm *VM) executePass() error {
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Verb, types.NewStr(verbName))
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Caller, types.NewObj(frame.Caller))
-	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, types.NewList(passArgs))
+	if passList.IsNone() {
+		passList = types.NewList(passArgs)
+	}
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, passList)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Player, types.NewObj(frame.Player))
 
 	copyCommandLocals(newFrame, frame)

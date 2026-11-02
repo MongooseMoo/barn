@@ -1304,9 +1304,12 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 			return types.Err(types.E_INVARG)
 		}
 	}
+	// args may be the elements of the caller's list (set_connection_option(@l)),
+	// so a replacement value goes in a local, never back into args.
+	value := args[2]
 	if name == "intrinsic-commands" {
-		if args[2].Truthy() {
-			if args[2].Type() == types.TYPE_LIST {
+		if value.Truthy() {
+			if value.Type() == types.TYPE_LIST {
 				allowed := map[string]bool{
 					".program":     true,
 					"PREFIX":       true,
@@ -1314,25 +1317,25 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 					"OUTPUTPREFIX": true,
 					"OUTPUTSUFFIX": true,
 				}
-				for i := 1; i <= args[2].Len(); i++ {
-					elem := args[2].Get(i)
+				for i := 1; i <= value.Len(); i++ {
+					elem := value.Get(i)
 					if elem.Type() != types.TYPE_STR || !allowed[elem.Str()] {
 						return types.Err(types.E_INVARG)
 					}
 				}
 			} else {
-				args[2] = defaultIntrinsicCommands()
+				value = defaultIntrinsicCommands()
 			}
 		}
 	}
 
-	ctx.Session.setConnectionOption(player, name, args[2])
-	if name == "binary" && args[2].Truthy() {
+	ctx.Session.setConnectionOption(player, name, value)
+	if name == "binary" && value.Truthy() {
 		if wakeConn, ok := conn.(inputWakeConnection); ok {
 			wakeConn.WakeInputReader()
 		}
 	}
-	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
+	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !value.Truthy() && forcer != nil {
 		for _, line := range ctx.Session.drainHeldCommands(player) {
 			forcer.ForceInput(player, line, false, inputReceipt(ctx))
 		}

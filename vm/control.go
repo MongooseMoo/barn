@@ -181,6 +181,16 @@ func oneLineForkBody(source string) string {
 	return body
 }
 
+// singleExceptCodes holds the codes list of a one-code clause, except (E_TYPE),
+// for each code byte, so entering such a try allocates nothing. Handlers only
+// read their codes; persistence copies them.
+var singleExceptCodes = func() (table [256][1]types.ErrorCode) {
+	for i := range table {
+		table[i][0] = types.ErrorCode(i)
+	}
+	return table
+}()
+
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
 func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 	frame := vm.CurrentFrame()
@@ -191,9 +201,14 @@ func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.FetchByte())
-		codes := make([]types.ErrorCode, numCodes)
-		for j := 0; j < numCodes; j++ {
-			codes[j] = types.ErrorCode(vm.FetchByte())
+		var codes []types.ErrorCode
+		if numCodes == 1 {
+			codes = singleExceptCodes[vm.FetchByte()][:]
+		} else {
+			codes = make([]types.ErrorCode, numCodes)
+			for j := 0; j < numCodes; j++ {
+				codes[j] = types.ErrorCode(vm.FetchByte())
+			}
 		}
 
 		var varOperand int
