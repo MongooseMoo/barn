@@ -68,6 +68,68 @@ func TestVerifyProgramAcceptsCompilerTemporarySlots(t *testing.T) {
 	}
 }
 
+func immediate(value int) byte {
+	op, _ := MakeImmediateOpcode(value)
+	return byte(op)
+}
+
+func TestVerifyProgramRejectsStackUnsafeBytecode(t *testing.T) {
+	tests := []struct {
+		name string
+		code []byte
+		want string
+	}{
+		{"return from empty stack", []byte{byte(OP_RETURN)}, "stack underflow"},
+		{"pop from empty stack", []byte{byte(OP_POP), byte(OP_RETURN_NONE)}, "stack underflow"},
+		{"binary operator short one operand", []byte{immediate(1), byte(OP_ADD), byte(OP_RETURN)}, "stack underflow"},
+		{"short-circuit on empty stack", []byte{byte(OP_AND), 0, 0, byte(OP_RETURN_NONE)}, "stack underflow"},
+		{"call arguments missing", []byte{byte(OP_CALL_BUILTIN), 0, 2, byte(OP_RETURN)}, "stack underflow"},
+		{"join at different heights", []byte{
+			immediate(1),
+			byte(OP_JUMP_IF_FALSE), 0, 1, // to the RETURN_NONE at height 0
+			immediate(5), // fallthrough reaches it at height 1
+			byte(OP_RETURN_NONE),
+		}, "stack height"},
+		{"loop grows the stack", []byte{
+			immediate(1),
+			byte(OP_LOOP), 0, 4, // back to the push at height 1
+			byte(OP_RETURN_NONE),
+		}, "stack height"},
+		{"fork parent falls off the end", []byte{immediate(0), byte(OP_FORK), 0, 0, 1, byte(OP_RETURN_NONE)}, "end of the program"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := VerifyProgram(&Program{Code: tt.code})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("VerifyProgram() error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestStackHeightsFollowsEveryEdge(t *testing.T) {
+	program := &Program{Code: []byte{
+		immediate(0),                // 0: h0
+		byte(OP_TRY_FINALLY), 0, 10, // 1: h1, finally entry at 10 with h1
+		immediate(2),      // 4: h1
+		byte(OP_OR), 0, 1, // 5: h2, jump keeps the value, fallthrough pops it
+		immediate(3),         // 8: h1
+		byte(OP_ADD),         // 9: h2 on both paths
+		byte(OP_RETURN),      // 10: h1
+		byte(OP_RETURN_NONE), // 11: unreachable
+	}}
+	heights, err := StackHeights(program)
+	if err != nil {
+		t.Fatalf("StackHeights() error = %v", err)
+	}
+	want := map[int]int{0: 0, 1: 1, 4: 1, 5: 2, 8: 1, 9: 2, 10: 1, 11: -1}
+	for ip, height := range want {
+		if heights[ip] != height {
+			t.Fatalf("height at %d = %d, want %d (all %v)", ip, heights[ip], height, heights)
+		}
+	}
+}
+
 func FuzzVerifyProgram(f *testing.F) {
 	f.Add([]byte{byte(OP_RETURN_NONE)}, 0, 0)
 	f.Add([]byte{byte(OP_PUSH)}, 0, 0)
