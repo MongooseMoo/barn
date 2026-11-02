@@ -82,7 +82,9 @@ attach an appropriate reproduction to a separate issue. Do not publish private
 verb bodies accidentally when retaining local-corpus failures.
 
 These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/414).
-There is no timed CI fuzzing, scheduled job or grammar generator. The useful
+PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` runs every fuzz
+target for ten minutes nightly (and on manual dispatch), two at a time, and
+uploads any failing input as an artifact. There is no grammar generator. The useful
 principles from [the AFL++ article](https://nullprogram.com/blog/2025/02/05/)
 are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
