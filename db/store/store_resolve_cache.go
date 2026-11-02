@@ -274,8 +274,18 @@ func (tx *StoreTxn) replayVerbSteps(steps []verbWalkStep) {
 	}
 }
 
-func (tx *StoreTxn) propStepsCurrent(steps []propWalkStep) bool {
-	for i := range steps {
+// propStepsCurrent reports whether the txn's view of every object the recorded
+// walk visited is still the identical *Object pointer. root, when not nil, is
+// the txn's view of the walk's first object, so its map lookup is skipped.
+func (tx *StoreTxn) propStepsCurrent(steps []propWalkStep, root *Object) bool {
+	i := 0
+	if root != nil && len(steps) > 0 {
+		if root != steps[0].obj {
+			return false
+		}
+		i = 1
+	}
+	for ; i < len(steps); i++ {
 		if tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}

@@ -28,7 +28,13 @@ MOO-visible behaviour must not change; no benchmark row may get slower.
   it), `Program.BuiltinPropertyConstants` filled by the compiler
   (`compiler/lower.go` compileProgram), shared by ExtractForkBody and
   cloneProgram; the VM reads it through `vm.staticPropertyName`.
-- Tests: `vm/interp_dispatch_prop_read_test.go`. Each was shown to fail with
+- C implemented: `StoreTxn.FindLiveProperty` / `FindLivePropertyRenewing`
+  (existence check + lookup, one fetch; `existingObject` shared with
+  ObjectExists; `findPropertyFrom`/`walkProperty`/`propStepsCurrent` take the
+  fetched root). `executeGetPropAccess` uses them for whole reads of defined
+  properties; built-in names and keyed reads keep ObjectExists first.
+- Tests: `vm/interp_dispatch_prop_read_test.go`,
+  `db/store/find_live_property_test.go`. Each was shown to fail with
   its guarded code broken on purpose (see Surprises/PR draft).
 - Benchmarks not yet run: the machine has been at 95-100% CPU. Per-stage test
   binaries (`go test -pgo=off -c`) and linux barn builds (pgo and -pgo=off) are
@@ -44,6 +50,12 @@ MOO-visible behaviour must not change; no benchmark row may get slower.
 - B: builtins.IsBuiltinProperty was removed rather than wrapped; the one
   predicate lives in bytecode because builtins imports compiler, which cannot
   import builtins.
+- C: keyed reads (`obj.prop[key]`) were left on ObjectExists +
+  MapPropertyForKey; threading the root through keyedSlot would add a third
+  store entry point for a less frequent read. The read set is unchanged
+  (store test compares scalarReads and every property mark, memo hit included).
+- C: on the direct transaction, the walk's first step now uses the image the
+  existence check loaded instead of loading again under a second RLock.
 
 ## Surprises
 

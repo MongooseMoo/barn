@@ -17,15 +17,23 @@ type objectScalarWrite struct {
 }
 
 func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
+	_, ec := tx.existingObject(objID)
+	return ec
+}
+
+// existingObject is ObjectExists returning the transaction's view of objID
+// when it exists, so a caller that goes on to read the object need not fetch
+// it again.
+func (tx *StoreTxn) existingObject(objID types.ObjID) (*Object, types.ErrorCode) {
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
 		tx.markExistenceRead(objID, obj)
-		return types.E_NONE
+		return obj, types.E_NONE
 	}
 	if obj != nil && obj.recycled {
-		return types.E_INVARG
+		return nil, types.E_INVARG
 	}
-	return types.E_INVIND
+	return nil, types.E_INVIND
 }
 
 func (tx *StoreTxn) Valid(objID types.ObjID) bool {

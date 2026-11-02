@@ -160,33 +160,42 @@ func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAcc
 		return newMooError(types.E_INVIND, "no object store available")
 	}
 
+	// The object is checked first: an invalid or recycled object is E_INVIND
+	// whatever the name. A whole read of a defined property checks it in the
+	// same store call that looks the property up, so the object is fetched
+	// once; built-in names and keyed reads check it here.
 	txn := vm.Context.StoreTxn
-	if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
-		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
-	}
-
-	// Built-in property names (.name/.owner/.location/...) can never be defined
-	// properties — add_property rejects them with E_INVARG — so serve them from
-	// the built-in path directly, skipping the (always-failing) inheritance walk.
-	if builtin {
-		if val, ok := getBuiltinProperty(txn, objID, propName); ok {
-			vm.Push(val)
-			return nil
-		}
-		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
-	}
-
-	// Look up defined property (with inheritance via breadth-first search).
 	var prop dbstore.PropertyView
 	var errCode types.ErrorCode
-	if access != propWhole {
+	if builtin || access != propWhole {
+		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
+		// Built-in property names (.name/.owner/.location/...) can never be
+		// defined properties — add_property rejects them with E_INVARG — so
+		// serve them from the built-in path directly, skipping the
+		// (always-failing) inheritance walk.
+		if builtin {
+			if val, ok := getBuiltinProperty(txn, objID, propName); ok {
+				vm.Push(val)
+				return nil
+			}
+			return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
+		}
 		prop, _, errCode = txn.MapPropertyForKey(objID, propName, access == propKeyBase)
-	} else if vm.Resumable {
-		// Only the root VM may be handed a renewed transaction: nothing above
-		// it on the Go stack holds the one it replaces.
-		prop, errCode, vm.Context.StoreTxn = txn.FindPropertyRenewing(objID, propName)
 	} else {
-		prop, errCode = findPropertyForRead(txn, objID, propName)
+		// Look up the defined property (with inheritance via breadth-first
+		// search).
+		if vm.Resumable {
+			// Only the root VM may be handed a renewed transaction: nothing
+			// above it on the Go stack holds the one it replaces.
+			prop, errCode, vm.Context.StoreTxn = txn.FindLivePropertyRenewing(objID, propName)
+		} else {
+			prop, errCode = txn.FindLiveProperty(objID, propName)
+		}
+		if errCode != types.E_NONE && errCode != types.E_PROPNF {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
 	}
 	if errCode == types.E_NONE {
 		// Check read permission
