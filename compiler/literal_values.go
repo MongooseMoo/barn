@@ -34,14 +34,20 @@ func errorNameToCode(name string) (types.ErrorCode, bool) {
 	return types.ErrorFromString(name)
 }
 
-func lowerErrorNames(names []string) ([]types.ErrorCode, error) {
-	codes := make([]types.ErrorCode, 0, len(names))
-	for _, name := range names {
-		code, ok := errorNameToCode(name)
-		if !ok {
-			return nil, fmt.Errorf("unknown error code: %s", name)
+// literalErrorCodes returns the error codes of a code list made only of error
+// literals; ok is false when any element is another expression or a splice.
+func literalErrorCodes(codes []ir.Expr) (errorCodes []types.ErrorCode, ok bool, err error) {
+	errorCodes = make([]types.ErrorCode, 0, len(codes))
+	for _, code := range codes {
+		literal, isLiteral := code.(*ir.LiteralExpr)
+		if !isLiteral || literal.Kind != ir.LiteralErr {
+			return nil, false, nil
 		}
-		codes = append(codes, code)
+		value, err := valueFromLiteral(literal)
+		if err != nil {
+			return nil, false, err
+		}
+		errorCodes = append(errorCodes, value.Code())
 	}
-	return codes, nil
+	return errorCodes, true, nil
 }

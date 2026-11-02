@@ -31,10 +31,12 @@ type BuiltinSlots struct {
 	TypeConstants                                 []TypeConstantSlot
 }
 
-// TypeConstantSlot records a mutable implicit type constant's initial value.
+// TypeConstantSlot records the initial value of a mutable built-in variable
+// that Toast binds in every frame (eval_env.cc fill_in_rt_consts): the type
+// constants, and true and false.
 type TypeConstantSlot struct {
-	Slot int
-	Type types.TypeCode
+	Slot  int
+	Value types.Value
 }
 
 // Set records the slot for a built-in variable. It returns false for ordinary
@@ -72,7 +74,10 @@ func (s *BuiltinSlots) Set(name string, slot int) bool {
 			"float": types.TYPE_FLOAT, "map": types.TYPE_MAP, "anon": types.TYPE_ANON,
 			"waif": types.TYPE_WAIF, "bool": types.TYPE_BOOL,
 		}
-		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Type: initial[name]})
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewInt(int64(initial[name]))})
+		return true
+	case "true", "false":
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewBool(name == "true")})
 		return true
 	default:
 		return false
@@ -129,9 +134,31 @@ type Handler struct {
 	Type       HandlerType       // Except or Finally
 	HandlerIP  int               // Handler code location
 	EndIP      int               // End of handler block
-	Codes      []types.ErrorCode // Errors to catch (except)
+	Codes      []types.ErrorCode // Errors to catch (except); empty is ANY; see CodesLocal
 	VarIndex   int               // Variable for error (except, -1 if none)
 	StackDepth int               // Operand stack depth to restore on unwind
+}
+
+// ExceptCodesInLocal marks an except clause whose codes are not all error
+// literals. Its code bytes in OP_TRY_EXCEPT (and so its Handler.Codes) are
+// exactly {ExceptCodesInLocal, slot}: the arm's code list was evaluated into
+// local slot before the try was entered, as Toast evaluates every arm's codes
+// then (code_gen.cc generate_codes). No error code has this value.
+const ExceptCodesInLocal = 0xFF
+
+// clauseCodesInLocal reports whether an OP_TRY_EXCEPT clause, starting at its
+// code count, is an ExceptCodesInLocal clause.
+func clauseCodesInLocal(clause []byte) bool {
+	return len(clause) >= 3 && clause[0] == 2 && clause[1] == ExceptCodesInLocal
+}
+
+// CodesLocal reports the local slot holding the evaluated code list of a
+// clause whose codes are expressions.
+func (h *Handler) CodesLocal() (slot int, ok bool) {
+	if len(h.Codes) == 2 && h.Codes[0] == ExceptCodesInLocal {
+		return int(h.Codes[1]), true
+	}
+	return 0, false
 }
 
 // ExtractForkBody creates a new sub-program from a bytecode range within an
@@ -315,25 +342,4 @@ func decodeAbsoluteWide(encoded []byte) uint32 {
 		uint32(encoded[1])<<16 |
 		uint32(encoded[2])<<8 |
 		uint32(encoded[3])
-}
-
-// Matches checks if a handler matches an error code
-func (h *Handler) Matches(errCode types.ErrorCode) bool {
-	if h.Type != HandlerExcept {
-		return false
-	}
-
-	// Empty codes means catch all
-	if len(h.Codes) == 0 {
-		return true
-	}
-
-	// Check if error code matches
-	for _, code := range h.Codes {
-		if code == errCode {
-			return true
-		}
-	}
-
-	return false
 }

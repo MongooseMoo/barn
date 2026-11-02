@@ -587,6 +587,11 @@ func containsIndexBoundary(expr ir.Expr) bool {
 	case *ir.SpliceExpr:
 		return containsIndexBoundary(n.Expr)
 	case *ir.CatchExpr:
+		for _, code := range n.Codes {
+			if containsIndexBoundary(code) {
+				return true
+			}
+		}
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.Default)
 	case *ir.AssignExpr:
 		return containsTargetIndexBoundary(n.Target) || containsIndexBoundary(n.Value)

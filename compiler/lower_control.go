@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/ir"
@@ -384,6 +385,35 @@ func (c *lowerer) compileReturn(n *ir.ReturnStmt) error {
 	return nil
 }
 
+// prepareExceptCodes returns an except clause's OP_TRY_EXCEPT code bytes,
+// count first. ANY has no codes, and a list of error literals is encoded
+// inline. Any other list is evaluated here, before the try is entered, as
+// Toast evaluates every arm's codes (code_gen.cc generate_codes), into a
+// compiler temporary that the clause names with ExceptCodesInLocal.
+func (c *lowerer) prepareExceptCodes(isAny bool, codes []ir.Expr) ([]byte, error) {
+	if isAny {
+		return []byte{0}, nil
+	}
+	errorCodes, literal, err := literalErrorCodes(codes)
+	if err != nil {
+		return nil, err
+	}
+	if literal && len(errorCodes) <= math.MaxUint8 {
+		encoded := make([]byte, 0, 1+len(errorCodes))
+		encoded = append(encoded, byte(len(errorCodes)))
+		for _, code := range errorCodes {
+			encoded = append(encoded, byte(code))
+		}
+		return encoded, nil
+	}
+	if err := c.compileList(&ir.ListExpr{Pos: codes[0].Position(), Elements: codes}); err != nil {
+		return nil, err
+	}
+	slot := c.declareInternalVariable(c.tempVar("except_codes"))
+	c.emitStoreLocal(slot)
+	return []byte{2, bytecode.ExceptCodesInLocal, byte(slot)}, nil
+}
+
 func (c *lowerer) compileTry(n *ir.TryStmt) error {
 	finallyIPPatch := -1
 	if n.Finalizer != nil {
@@ -398,23 +428,21 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		}
 	} else {
 		numHandlers := len(n.Handlers)
+		clauseCodes := make([][]byte, numHandlers)
+		for i, handler := range n.Handlers {
+			codes, err := c.prepareExceptCodes(handler.IsAny, handler.Codes)
+			if err != nil {
+				return err
+			}
+			clauseCodes[i] = codes
+		}
+
 		c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
 		c.emitByte(byte(numHandlers))
 
 		handlerOffsetPatches := make([]int, numHandlers)
 		for i, handler := range n.Handlers {
-			if handler.IsAny {
-				c.emitByte(0)
-			} else {
-				codes, err := lowerErrorNames(handler.Codes)
-				if err != nil {
-					return err
-				}
-				c.emitByte(byte(len(codes)))
-				for _, code := range codes {
-					c.emitByte(byte(code))
-				}
-			}
+			c.program.Code = append(c.program.Code, clauseCodes[i]...)
 
 			if handler.Variable != "" {
 				idx := c.declareVariable(handler.Variable)

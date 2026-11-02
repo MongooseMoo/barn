@@ -124,8 +124,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 	var err error
 
 	switch p.current.Type {
-	case TOKEN_INT, TOKEN_FLOAT, TOKEN_STRING, TOKEN_OBJECT, TOKEN_ERROR_LIT,
-		TOKEN_TRUE, TOKEN_FALSE:
+	case TOKEN_INT, TOKEN_FLOAT, TOKEN_STRING, TOKEN_OBJECT, TOKEN_ERROR_LIT:
 		left, err = p.parseLiteralExpr()
 		if err != nil {
 			return nil, err
@@ -274,11 +273,11 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		left = expr
 
 	case TOKEN_AT:
-		// Parse splice operator: @expr
-		// Use PREC_TERNARY so splice captures ternary expressions like @(cond) ? a | b
+		// Parse splice operator: @expr. The operand is any expression, assignment
+		// included (Toast parser.y `'@' expr`), so @x = y splices the assignment.
 		pos := p.current.Position
 		p.nextToken()
-		operand, err := p.ParseExpression(PREC_TERNARY)
+		operand, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
 			return nil, err
 		}
@@ -302,7 +301,6 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		}
 		p.nextToken()
 
-		// Parse error names
 		codes, isAny, err := p.parseCatchCodes()
 		if err != nil {
 			return nil, err
@@ -312,9 +310,9 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		var defaultExpr ir.Expr
 		if p.current.Type == TOKEN_FATARROW {
 			p.nextToken()
-			// The closing quote delimits the default; a conditional expression
-			// belongs inside it even though its precedence is below catch.
-			defaultExpr, err = p.ParseExpression(PREC_TERNARY)
+			// The closing quote delimits the default, so it is any expression,
+			// assignment included (Toast parser.y `default: tARROW expr`).
+			defaultExpr, err = p.ParseExpression(PREC_LOWEST)
 			if err != nil {
 				return nil, err
 			}
@@ -734,14 +732,6 @@ func (p *Parser) parseLiteralExpr() (*ir.LiteralExpr, error) {
 		p.nextToken()
 		return &ir.LiteralExpr{Pos: pos, Kind: ir.LiteralFloat, FloatValue: val}, nil
 
-	case TOKEN_TRUE:
-		p.nextToken()
-		return &ir.LiteralExpr{Pos: pos, Kind: ir.LiteralBool, BoolValue: true}, nil
-
-	case TOKEN_FALSE:
-		p.nextToken()
-		return &ir.LiteralExpr{Pos: pos, Kind: ir.LiteralBool, BoolValue: false}, nil
-
 	case TOKEN_STRING:
 		val := p.current.Literal
 		p.nextToken()
@@ -773,53 +763,27 @@ func (p *Parser) parseLiteralExpr() (*ir.LiteralExpr, error) {
 	}
 }
 
-// parseCatchCodes parses error codes in a catch expression
-// Supports: ANY, single error (E_TYPE), or comma-separated list (E_TYPE, E_RANGE)
-func (p *Parser) parseCatchCodes() ([]string, bool, error) {
-	// Check for ANY keyword
+// parseCatchCodes parses the codes of an except arm or catch expression:
+// ANY, or a nonempty argument list whose elements may be any expression or
+// splice (Toast parser.y `codes: tANY | ne_arglist`).
+func (p *Parser) parseCatchCodes() ([]ir.Expr, bool, error) {
 	if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
 		p.nextToken()
 		return nil, true, nil
 	}
 
-	// Parse comma-separated list of error codes
-	var codes []string
-
+	var codes []ir.Expr
 	for {
-		if p.current.Type != TOKEN_ERROR_LIT {
-			return nil, false, fmt.Errorf("expected error code, got %s", p.current.Type)
-		}
-
-		// Parse the error literal
-		code, err := p.parseErrorName()
+		code, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
 			return nil, false, err
 		}
 		codes = append(codes, code)
-
-		// Check for comma (more codes)
 		if p.current.Type != TOKEN_COMMA {
-			break
+			return codes, false, nil
 		}
 		p.nextToken() // skip comma
 	}
-
-	return codes, false, nil
-}
-
-// parseErrorName parses a single error-code name literal (E_TYPE, E_RANGE, etc.)
-func (p *Parser) parseErrorName() (string, error) {
-	if p.current.Type != TOKEN_ERROR_LIT {
-		return "", fmt.Errorf("expected error code, got %s", p.current.Type)
-	}
-
-	name := p.current.Value
-	if !isErrorName(name) {
-		return "", fmt.Errorf("unknown error code: %s", name)
-	}
-
-	p.nextToken()
-	return name, nil
 }
 
 // parseListExpr parses a list expression: {expr, expr, ...} or {start..end}.

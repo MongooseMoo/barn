@@ -17,7 +17,7 @@ func TestValidateEverySemanticFamily(t *testing.T) {
 		&RangeExpr{Expr: lit, Start: lit, End: lit}, &PropertyExpr{Expr: lit, Property: "p"},
 		&PropertyExpr{Expr: lit, PropertyExpr: lit}, &VerbCallExpr{Expr: lit, Verb: "v", Args: []Expr{lit}},
 		&VerbCallExpr{Expr: lit, VerbExpr: lit}, &BuiltinCallExpr{Name: "f", Args: []Expr{lit}},
-		&SpliceExpr{Expr: lit}, &CatchExpr{Expr: lit, IsAny: true}, &CatchExpr{Expr: lit, Codes: []string{"E_TYPE"}, Default: lit},
+		&SpliceExpr{Expr: lit}, &CatchExpr{Expr: lit, IsAny: true}, &CatchExpr{Expr: lit, Codes: []Expr{lit}, Default: lit},
 		&AssignExpr{Target: variable, Value: lit}, &ListExpr{}, &ListExpr{Elements: []Expr{lit}},
 		&ListRangeExpr{Start: lit, End: lit}, &MapExpr{}, &MapExpr{Pairs: []MapPair{{Key: lit, Value: lit}}},
 		variable, &PropertyTarget{Object: lit, Name: "p"}, &PropertyTarget{Object: lit, NameExpr: lit},
@@ -28,7 +28,7 @@ func TestValidateEverySemanticFamily(t *testing.T) {
 		&CollectionLoopStmt{Value: "a", Collection: lit}, &RangeLoopStmt{Value: "a", Start: lit, End: lit},
 		&BreakStmt{}, &ContinueStmt{}, &ReturnStmt{}, &ReturnStmt{Value: lit},
 		&TryStmt{Handlers: []ExceptionHandler{{IsAny: true}}}, &TryStmt{Finalizer: &Finalizer{}},
-		&TryStmt{Handlers: []ExceptionHandler{{Codes: []string{"E_TYPE"}}}, Finalizer: &Finalizer{}}, &ForkStmt{Delay: lit},
+		&TryStmt{Handlers: []ExceptionHandler{{Codes: []Expr{lit}}}, Finalizer: &Finalizer{}}, &ForkStmt{Delay: lit},
 	}
 	for _, node := range nodes {
 		if err := ValidateNode(node); err != nil {

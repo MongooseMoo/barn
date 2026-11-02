@@ -37,8 +37,6 @@ const (
 	TOKEN_FINALLY
 	TOKEN_ENDTRY
 	TOKEN_ANY
-	TOKEN_TRUE
-	TOKEN_FALSE
 	TOKEN_IN
 
 	// Identifiers
@@ -158,10 +156,6 @@ func (t TokenType) String() string {
 		return "ENDTRY"
 	case TOKEN_ANY:
 		return "ANY"
-	case TOKEN_TRUE:
-		return "TRUE"
-	case TOKEN_FALSE:
-		return "FALSE"
 	case TOKEN_IN:
 		return "IN"
 	case TOKEN_IDENTIFIER:
@@ -275,8 +269,6 @@ var keywords = map[string]TokenType{
 	"finally":  TOKEN_FINALLY,
 	"endtry":   TOKEN_ENDTRY,
 	"any":      TOKEN_ANY,
-	"true":     TOKEN_TRUE,
-	"false":    TOKEN_FALSE,
 	"in":       TOKEN_IN,
 }
 

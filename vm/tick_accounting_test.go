@@ -49,8 +49,11 @@ func TestTickChargesMatchToast(t *testing.T) {
 		{"for_map", "", "for v, k in ([1 -> 2, 3 -> 4]) endfor", 5},
 		{"break_continue", "", "for z in [1..3] continue; endfor for z in [1..3] break; endfor", 11},
 		{"try_except", "y = 0;", "try x = 1 / y; except e (E_DIV) endtry try x = 1; except (ANY) endtry", 8},
+		// An expression code list is the same Toast argument list a literal one is.
+		{"try_except_expression_codes", "y = 0;", "try x = 1 / y; except e (\"E_DIV\", E_DIV) endtry try x = 1; except (ANY) endtry", 8},
 		{"try_finally", "", "try x = 1; finally y = 2; endtry", 5},
 		{"catch_expression", "y = 0;", "x = `1 / y ! E_DIV'; x = `1 / y ! ANY => 5';", 10},
+		{"catch_expression_codes", "y = 0;", "x = `1 / y ! \"E_DIV\", E_DIV'; x = `1 / y ! ANY => 5';", 10},
 		{"scatter", "", "{p, q} = {1, 2}; {p, ?q = 7} = {1}; {p, @r} = {1, 2, 3}; {?p, @r, ?q} = {1};", 11},
 	}
 	for _, tc := range cases {

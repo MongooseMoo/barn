@@ -261,10 +261,12 @@ type SpliceExpr struct {
 func (e *SpliceExpr) Position() Position { return e.Pos }
 func (e *SpliceExpr) exprNode()          {}
 
+// CatchExpr is `expr ! codes => default'. Codes is an argument list (it may
+// contain SpliceExpr) evaluated when the catch is entered; IsAny marks ANY.
 type CatchExpr struct {
 	Pos     Position
 	Expr    Expr
-	Codes   []string
+	Codes   []Expr
 	IsAny   bool
 	Default Expr
 }
@@ -489,10 +491,12 @@ type TryStmt struct {
 	Finalizer *Finalizer
 }
 
+// ExceptionHandler is one except arm. Codes is an argument list (it may
+// contain SpliceExpr) evaluated when the try is entered; IsAny marks ANY.
 type ExceptionHandler struct {
 	Pos      Position
 	Variable string
-	Codes    []string
+	Codes    []Expr
 	IsAny    bool
 	Body     []Stmt
 }

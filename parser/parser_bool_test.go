@@ -1,28 +1,31 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/ir"
 	"testing"
+
+	"github.com/MongooseMoo/barn/ir"
 )
 
-func TestParseBoolLiteral(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected bool
-	}{
-		{"true", true},
-		{"false", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != ir.LiteralBool {
-				t.Fatalf("literal kind = %v, want LiteralBool", lit.Kind)
+// Toast has no Boolean literal: true and false are built-in variables
+// (sym_table.cc SLOT_TRUE/SLOT_FALSE) bound when a frame starts
+// (eval_env.cc), so they parse as identifiers and may be assigned.
+func TestParseTrueAndFalseAsIdentifiers(t *testing.T) {
+	for _, input := range []string{"true", "false", "TRUE", "False"} {
+		t.Run(input, func(t *testing.T) {
+			expr, err := NewParser(input).ParseExpression(PREC_LOWEST)
+			if err != nil {
+				t.Fatalf("ParseExpression(%q) error = %v", input, err)
 			}
-			if lit.BoolValue != tt.expected {
-				t.Errorf("BoolValue = %v, want %v", lit.BoolValue, tt.expected)
+			identifier, ok := expr.(*ir.IdentifierExpr)
+			if !ok || identifier.Name != input {
+				t.Fatalf("ParseExpression(%q) = %#v, want identifier %q", input, expr, input)
 			}
 		})
+	}
+}
+
+func TestParseAssignmentToTrue(t *testing.T) {
+	if _, err := NewParser("x = true = {};").ParseProgram(); err != nil {
+		t.Fatalf("ParseProgram() error = %v", err)
 	}
 }
