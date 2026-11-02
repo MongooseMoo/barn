@@ -30,8 +30,9 @@ type VM struct {
 	Ticks         int64             // Current tick count
 	// Preempt is set only on a root VM whose owner may lend its admission
 	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
-	// may run while their caller holds locks other invocations need.
-	Preempt func()
+	// may run while their caller holds locks other invocations need. It
+	// receives the VM so the owner can publish it while parked there.
+	Preempt func(*VM)
 	// Resumable is set only on the root VM the runtime saves and resumes when
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
@@ -431,7 +432,7 @@ func (vm *VM) fastTickUnchecked() bool {
 func (vm *VM) tickCheckpoint() bool {
 	profiling := vm.profileCheckpoint()
 	if vm.Preempt != nil {
-		vm.Preempt()
+		vm.Preempt(vm)
 		if profiling {
 			// Time spent waiting to be readmitted is not billed.
 			vm.prof.time = time.Now()

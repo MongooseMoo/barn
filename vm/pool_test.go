@@ -25,7 +25,7 @@ func dirtyVM(machine *VM) {
 	machine.TickLimit = 123
 	machine.MaxStackDepth = 456
 	machine.Ticks = 789
-	machine.Preempt = func() {}
+	machine.Preempt = func(*VM) {}
 	machine.Resumable = true
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
 	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
