@@ -43,7 +43,7 @@ func TestProgramCacheSharesActiveCompilationAndRechecksCompletedEntry(t *testing
 	}
 	// A caller whose original get missed may reach beginCompile after completion.
 	program, call, owns := cache.beginCompile(key)
-	if program != want || call != nil || owns || cache.flights != nil {
+	if program != want || call != nil || owns || cache.shardFor(key).flights != nil {
 		t.Fatal("late cold lookup started duplicate work or retained flight state")
 	}
 }
@@ -73,12 +73,12 @@ func TestProgramCacheAllowsIndependentCompilations(t *testing.T) {
 	}
 	first.program = &bytecode.Program{}
 	cache.endCompile(firstKey, first)
-	if cache.flights[secondKey] != second {
+	if cache.shardFor(secondKey).flights[secondKey] != second {
 		t.Fatal("finishing one key removed another key's active compilation")
 	}
 	second.program = &bytecode.Program{}
 	cache.endCompile(secondKey, second)
-	if cache.flights != nil {
+	if cache.shardFor(firstKey).flights != nil || cache.shardFor(secondKey).flights != nil {
 		t.Fatal("completed independent compilations retained flight state")
 	}
 }
@@ -112,7 +112,7 @@ func TestProgramCacheDiagnosticWaitersAreReleasedAndCanRetry(t *testing.T) {
 			t.Fatal("diagnostic completion stranded a waiter")
 		}
 	}
-	if _, ok := cache.get(key); ok || cache.flights != nil {
+	if _, ok := cache.get(key); ok || cache.shardFor(key).flights != nil {
 		t.Fatal("failed compilation retained a cache entry or active flight")
 	}
 	retried := ownCompilation(t, cache, key)
@@ -124,12 +124,9 @@ func TestProgramCacheDiagnosticWaitersAreReleasedAndCanRetry(t *testing.T) {
 }
 
 func TestProgramCacheRetainsBoundedLRUAndCompletedFlightResult(t *testing.T) {
-	cache := newProgramCache(2)
-	keys := []sourcekey.Key{
-		sourcekey.Of([]string{"return 1;"}),
-		sourcekey.Of([]string{"return 2;"}),
-		sourcekey.Of([]string{"return 3;"}),
-	}
+	// Two entries per shard; three keys that share one shard overflow it.
+	cache := newProgramCache(2 * cacheShards)
+	keys := sameShardKeys(3)
 	first := ownCompilation(t, cache, keys[0])
 	first.program = &bytecode.Program{}
 	cache.endCompile(keys[0], first)
@@ -138,7 +135,8 @@ func TestProgramCacheRetainsBoundedLRUAndCompletedFlightResult(t *testing.T) {
 		call.program = &bytecode.Program{}
 		cache.endCompile(key, call)
 	}
-	if _, ok := cache.get(keys[0]); ok || len(cache.entries) != 2 || cache.lru.Len() != 2 {
+	shard := cache.shardFor(keys[0])
+	if _, ok := cache.get(keys[0]); ok || len(shard.entries) != 2 || shard.lru.Len() != 2 {
 		t.Fatal("completed flights changed bounded LRU eviction")
 	}
 	if got, _ := first.wait(); got != first.program {
@@ -180,7 +178,7 @@ func TestProgramCachePanicReleasesWaitersAndFlight(t *testing.T) {
 			t.Fatal("panic completion stranded a caller")
 		}
 	}
-	if cache.flights != nil {
+	if cache.shardFor(key).flights != nil {
 		t.Fatal("panic retained flight state")
 	}
 	retried := ownCompilation(t, cache, key)

@@ -119,12 +119,16 @@ func (vm *VM) allocLocals(n int) []types.Value {
 // Locals must come from allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 	if init.Program != nil {
-		for index, name := range task.CommandVariableNames {
+		for index, slot := range commandSlots(init.Program) {
 			value := types.NewStr("")
 			if index >= 4 {
 				value = types.NewObj(types.ObjNothing)
 			}
-			SetLocalByName(&init, init.Program, name, value)
+			if slot != 0 {
+				init.Locals[slot-1] = value
+			} else {
+				init.CommandEnvironment[index] = value
+			}
 		}
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
 			init.Locals[constant.Slot-1] = constant.Value
