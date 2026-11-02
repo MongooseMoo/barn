@@ -7,6 +7,7 @@ Barn uses Go's coverage-guided fuzzer for three internal invariants:
 | `parser/FuzzParseFormatRoundTrip` | Accepted source formats and reparses to the same semantic IR in both formatter modes, ignoring positions and case-insensitive variable spelling; canonical formatting is stable. |
 | `compiler/FuzzCompileVerifiable` | Accepted compilation produces bytecode accepted by the bytecode verifier. |
 | `vm/FuzzSourceExecution` | Arbitrary source can be compiled and, when accepted, initially executed without a Go panic. |
+| `command/FuzzCommandLine` | Any input line passes word splitting (the pre-login path), command parsing with object matching, and verb lookup as Test.db player `#3` in `#2` without a Go panic. |
 
 Parsing/compilation errors are normal results. Execution uses a fresh empty
 store, task, core builtin registry, and session with a 100-tick budget. MOO
@@ -63,7 +64,11 @@ in separate terminals to exercise the targets concurrently:
 go test ./parser -run '^$' -fuzz '^FuzzParseFormatRoundTrip$' -fuzztime=10m -parallel=2 -timeout=20m
 go test ./compiler -run '^$' -fuzz '^FuzzCompileVerifiable$' -fuzztime=10m -parallel=2 -timeout=20m
 go test ./vm -run '^$' -fuzz '^FuzzSourceExecution$' -fuzztime=10m -parallel=2 -timeout=20m
+go test ./command -run '^$' -fuzz '^FuzzCommandLine$' -fuzztime=10m -parallel=2 -timeout=20m
 ```
+
+`FuzzCommandLine` seeds its own command lines; `BARN_FUZZ_CORPUS` does not
+apply to it.
 
 Without `BARN_FUZZ_CORPUS`, the commands use the tracked baseline and boundary
 seeds. Go retains interesting generated inputs in its fuzz cache and minimizes
