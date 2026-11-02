@@ -2,7 +2,9 @@ package server
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -10,6 +12,11 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 )
+
+// maxLineBytes is ToastStunt's MAX_LINE_BYTES (include/options.h).
+const maxLineBytes = 5242880
+
+var errMaxLineBytes = errors.New("input exceeds MAX_LINE_BYTES")
 
 // Telnet protocol constants (RFC 854, RFC 855)
 const (
@@ -102,6 +109,18 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				return line, false, nil
 			}
 			return "", false, err
+		}
+		// Toast closes a connection whose pending line or telnet command
+		// reaches MAX_LINE_BYTES when more input arrives (network.cc).
+		if t.lineBuf.Len() >= maxLineBytes {
+			slog.Warn("connection closed for exceeding MAX_LINE_BYTES!",
+				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", t.lineBuf.Len()))
+			return "", false, errMaxLineBytes
+		}
+		if len(t.tCommand) >= maxLineBytes {
+			slog.Warn("connection exceeded MAX_LINE_BYTES in telnet command!",
+				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", len(t.tCommand)))
+			return "", false, errMaxLineBytes
 		}
 
 		switch t.tState {
