@@ -217,11 +217,25 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 		if !saved.PendingError.ValidExceptionReason() {
 			return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
 		}
-		if err := bytecode.VerifyProgram(&saved.Program); err != nil {
+		heights, err := bytecode.StackHeights(&saved.Program)
+		if err != nil {
 			return fmt.Errorf("frame %d: %w", frameIndex, err)
 		}
 		if !saved.Program.IsInstructionBoundary(saved.IP) {
 			return fmt.Errorf("frame %d: saved IP %d is not an instruction boundary", frameIndex, saved.IP)
+		}
+		if heights[saved.IP] < 0 {
+			return fmt.Errorf("frame %d: saved IP %d is unreachable", frameIndex, saved.IP)
+		}
+		// A caller's saved IP follows its call, whose result the callee's
+		// return pushes, if it pushes one, onto the saved stack.
+		resumeHeight := len(saved.Stack)
+		if frameIndex+1 < len(snapshot.Frames) && returnPushesResult(&snapshot.Frames[frameIndex+1]) {
+			resumeHeight++
+		}
+		if heights[saved.IP] != resumeHeight {
+			return fmt.Errorf("frame %d: stack height %d at saved IP %d, where the program has %d",
+				frameIndex, resumeHeight, saved.IP, heights[saved.IP])
 		}
 		if len(saved.Locals) < saved.Program.NumLocals {
 			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
@@ -246,10 +260,23 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 			if handler.StackDepth < stackBase || handler.StackDepth > stackEnd {
 				return fmt.Errorf("frame %d handler %d: stack depth %d outside [%d,%d]", frameIndex, handlerIndex, handler.StackDepth, stackBase, stackEnd)
 			}
+			// Unwinding sets SP to StackDepth and jumps to HandlerIP.
+			if depth := handler.StackDepth - stackBase; depth != heights[handler.HandlerIP] {
+				return fmt.Errorf("frame %d handler %d: stack depth %d, where handler %d has %d", frameIndex, handlerIndex, depth, handler.HandlerIP, heights[handler.HandlerIP])
+			}
 		}
 		stackBase = stackEnd
 	}
 	return nil
+}
+
+// returnPushesResult reports whether callee's return pushes a value onto its
+// caller's stack (vm/stack.go Return): an eval frame always pushes its
+// wrapped result, a move or recycle continuation pushes the builtin's result
+// or starts the next hook (whose return does), and any other frame pushes
+// unless its caller discards the result.
+func returnPushesResult(callee *task.VMFrameSnapshot) bool {
+	return callee.IsEvalFrame || callee.MoveContinuation != nil || callee.RecycleContinuation != nil || !callee.DiscardReturn
 }
 
 func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveContinuationSnapshot {
