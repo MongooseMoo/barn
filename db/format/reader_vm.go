@@ -225,6 +225,12 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		}
 		frame.ThreadMode = threaded != 0
 	}
+	// Neither encoding stores built-in slots; derive them from the names the
+	// way the compiler does (compiler/lower_locals.go declareVariable, which
+	// lowercases the upper-cased canonical identifier).
+	for index, name := range frame.Program.VarNames {
+		frame.Program.BuiltinSlots.Set(strings.ToLower(strings.ToUpper(name)), index)
+	}
 	frame.Stack = runtimeStack
 	frame.Program.Source = source
 	frame.IP = pc

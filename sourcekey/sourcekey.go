@@ -26,6 +26,10 @@ type Key struct {
 // carries no information about any source and must never be used for a lookup.
 func (k Key) IsSet() bool { return k.set }
 
+// Uint64 returns the first eight bytes of the key's SHA-256 hash, uniformly
+// distributed over distinct sources, for spreading keys across buckets.
+func (k Key) Uint64() uint64 { return binary.LittleEndian.Uint64(k.hash[:8]) }
+
 // Of returns the key for the given source lines. Line lengths are hashed along
 // with the bytes so that no regrouping of the same bytes across lines (["ab"]
 // vs ["a","b"]) can collide.

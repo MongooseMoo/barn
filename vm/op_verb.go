@@ -3,6 +3,7 @@ package vm
 import (
 	"strings"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -549,9 +550,15 @@ func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName 
 	return txn.FindParentVerb(verbLoc, verbName)
 }
 
+// commandSlots returns the program's one-based local slots for the command
+// variables, in task.CommandVariableNames order; zero means not referenced.
+func commandSlots(program *bytecode.Program) [6]int {
+	s := &program.BuiltinSlots
+	return [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj}
+}
+
 func copyCommandLocals(dst, src *StackFrame) {
-	s := dst.Program.BuiltinSlots
-	slots := [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj}
+	slots := commandSlots(dst.Program)
 	for index, value := range src.commandEnvironment() {
 		if slot := slots[index]; slot != 0 {
 			SetLocalBySlot(dst, slot, value)
@@ -563,8 +570,7 @@ func copyCommandLocals(dst, src *StackFrame) {
 
 func (frame *StackFrame) commandEnvironment() [6]types.Value {
 	values := frame.CommandEnvironment
-	s := frame.Program.BuiltinSlots
-	for index, slot := range [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj} {
+	for index, slot := range commandSlots(frame.Program) {
 		if slot != 0 {
 			values[index] = frame.Locals[slot-1]
 		}
