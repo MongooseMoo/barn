@@ -229,7 +229,7 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 // degradeMapKeys turns every keyed dependency into a whole read of its slot at
 // the version the transaction first saw. A path that cannot validate per key or
 // apply entries to the live map (live mutation, flush, the irreversible-effect
-// boundary, renewal) then behaves exactly as it does for any property read.
+// boundary) then behaves exactly as it does for any property read.
 func (tx *StoreTxn) degradeMapKeys() {
 	for rkey, st := range tx.mapKeys {
 		if _, whole := tx.propertyReads[rkey]; !whole {
