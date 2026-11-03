@@ -90,6 +90,11 @@ func (k ConflictKind) String() string {
 	return "unknown"
 }
 
+// MarshalText gives a kind its name in JSON.
+func (k ConflictKind) MarshalText() ([]byte, error) {
+	return []byte(k.String()), nil
+}
+
 // ReadConflict is one read that was no longer current at validation. Name is
 // the property or verb key, or a WAIF's identity, and is empty for the kinds
 // that cover a whole object. ObjID is ObjNothing for a verb-shape or WAIF
@@ -104,6 +109,8 @@ type ReadConflict struct {
 	Missing bool
 	// staleAtRead: the slot had been rewritten before the transaction read it.
 	staleAtRead bool
+	// diag is what tracking found out about the read (store_conflict_diag.go).
+	diag conflictDiagNote
 }
 
 // ConflictLabel names the task a transaction runs for: the object and verb it
@@ -136,16 +143,20 @@ type ConflictCount struct {
 	StaleAtRead uint64
 	Labels      []ConflictLabelCount
 	OtherLabels uint64
+	Diag        ConflictDiag
 }
 
 // ConflictCensus is a copy of the store's census. Keys is ordered most lost
 // first, then by kind, object and name. Overflow sums the keys met after the
-// census was full; its Kind, ObjID and Name mean nothing.
+// census was full; its Kind, ObjID and Name mean nothing. SliceAttempts[i]
+// counts the slices that resolved after i+1 attempts; its last element every
+// slice that took more than maxSliceAttempts.
 type ConflictCensus struct {
 	LostTxns        uint64
 	RefusedRenewals uint64
 	Keys            []ConflictCount
 	Overflow        ConflictCount
+	SliceAttempts   []uint64
 }
 
 type conflictKey struct {
@@ -163,6 +174,11 @@ type conflictCensus struct {
 	// tracking has transactions sample the clock at their property reads for
 	// the census (SetConflictCensusTracking).
 	tracking atomic.Bool
+	// writers holds, per property slot, the latest versions published with
+	// tracking on and who published them; attempts is the attempts histogram.
+	// See store_conflict_diag.go.
+	writers  map[propertyReadKey]*writerRing
+	attempts [maxSliceAttempts + 1]uint64
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -204,6 +220,10 @@ func (tx *StoreTxn) lostValidation() {
 		return
 	}
 	tx.lossCounted = true
+	var lossTicks int64
+	if tx.diag != nil && tx.diag.siteFn != nil {
+		_, lossTicks = tx.diag.siteFn()
+	}
 	census := &tx.store.conflicts
 	census.mu.Lock()
 	defer census.mu.Unlock()
@@ -220,6 +240,9 @@ func (tx *StoreTxn) lostValidation() {
 			count.StaleAtRead++
 		}
 		count.addLabel(tx.conflictLabel)
+		if tx.diag != nil {
+			tx.addDiagLocked(census, count, c, lossTicks)
+		}
 	}
 }
 
@@ -244,6 +267,7 @@ func (s *Store) ConflictCensus() ConflictCensus {
 		RefusedRenewals: census.refused,
 		Keys:            make([]ConflictCount, 0, len(census.keys)),
 		Overflow:        census.overflow.snapshot(),
+		SliceAttempts:   slices.Clone(census.attempts[:]),
 	}
 	for _, count := range census.keys {
 		out.Keys = append(out.Keys, count.snapshot())
@@ -264,6 +288,7 @@ func (s *Store) ConflictCensus() ConflictCensus {
 // object and verb.
 func (count *ConflictCount) snapshot() ConflictCount {
 	out := *count
+	out.Diag = count.Diag.snapshot()
 	out.Labels = slices.Clone(count.Labels)
 	slices.SortFunc(out.Labels, func(a, b ConflictLabelCount) int {
 		return cmp.Or(
@@ -283,6 +308,7 @@ func (s *Store) ResetConflictCensus() {
 	census.lost, census.refused = 0, 0
 	census.keys = nil
 	census.overflow = ConflictCount{}
+	census.attempts = [maxSliceAttempts + 1]uint64{}
 }
 
 // SetConflictCensusTracking switches the sampling of the clock at each first

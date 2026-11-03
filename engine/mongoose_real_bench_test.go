@@ -1044,6 +1044,8 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		switch row.Kind {
 		case dbstore.ConflictProperty:
 			key = fmt.Sprintf("#%d.%s", row.ObjID, row.Name)
+		case dbstore.ConflictMapKey:
+			key = fmt.Sprintf("#%d.%s[]", row.ObjID, row.Name)
 		case dbstore.ConflictVerb:
 			key = fmt.Sprintf("#%d:%s", row.ObjID, row.Name)
 		case dbstore.ConflictVerbShape:
@@ -1071,5 +1073,57 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		t.Logf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s per_command=%.2f by=[%s]",
 			row.Kind, key, row.Lost, share(row.Lost, census.LostTxns), row.Sole, row.Refused,
 			stale, perCommand, strings.Join(by, " "))
+		if staleReads {
+			logConflictDiag(t, row)
+		}
+	}
+	if staleReads {
+		var hist []string
+		var slices, totalAttempts uint64
+		for i, n := range census.SliceAttempts {
+			if n == 0 {
+				continue
+			}
+			label := fmt.Sprintf("%d", i+1)
+			if i == len(census.SliceAttempts)-1 {
+				label = fmt.Sprintf(">%d", i)
+			}
+			hist = append(hist, fmt.Sprintf("%s:%d", label, n))
+			slices += n
+			totalAttempts += n * uint64(i+1)
+		}
+		mean := 0.0
+		if slices > 0 {
+			mean = float64(totalAttempts) / float64(slices)
+		}
+		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f hist=[%s]", slices, mean, strings.Join(hist, " "))
+	}
+}
+
+// logConflictDiag prints what tracking recorded about one census row: who
+// wrote the version the losers read stale, where the losers first read the key
+// and how far into the slice, how many losses were on an unchanged value, and
+// the slice ticks thrown away by losses on the key (each loss's ticks are
+// counted in full on every key it was stale on).
+func logConflictDiag(t *testing.T, row dbstore.ConflictCount) {
+	d := row.Diag
+	site := func(s dbstore.ConflictSite) string {
+		if s.Obj == types.ObjNothing && s.Verb == "" {
+			return "?"
+		}
+		return fmt.Sprintf("#%d:%s@%d", s.Obj, s.Verb, s.Line)
+	}
+	unchanged := "n/a"
+	if d.ValueCompared > 0 {
+		unchanged = fmt.Sprintf("%d/%d", d.ValueUnchanged, d.ValueCompared)
+	}
+	t.Logf("      diag unchanged_value=%s wasted_ticks=%d unknown_writer=%d other_writers=%d unknown_read_site=%d other_read_sites=%d",
+		unchanged, d.WastedTicks, d.UnknownWriters, d.OtherWriters, d.UnknownReadSites, d.OtherReadSites)
+	for _, w := range d.Writers {
+		t.Logf("      writer root=#%d:%s at=%s lost=%d", w.Label.Obj, w.Label.Verb, site(w.Site), w.Lost)
+	}
+	for _, r := range d.ReadSites {
+		t.Logf("      read   at=%s lost=%d mean_read_tick=%.0f mean_loss_tick=%.0f",
+			site(r.Site), r.Lost, float64(r.ReadTicks)/float64(r.Lost), float64(r.LossTicks)/float64(r.Lost))
 	}
 }

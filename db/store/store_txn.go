@@ -124,6 +124,9 @@ type StoreTxn struct {
 	conflictLabel    ConflictLabel
 	sampleReadClocks bool
 	readClocks       map[propertyReadKey]uint64
+	// diag records sites and values for the census; it is set only on a
+	// transaction begun with tracking on (store_conflict_diag.go).
+	diag *txnConflictDiag
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
@@ -171,6 +174,9 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		// readClocks is left nil and allocated by the first sampled read.
 		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
 		sampleReadClocks: s.conflicts.tracking.Load(),
+	}
+	if tx.sampleReadClocks {
+		tx.diag = &txnConflictDiag{}
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx

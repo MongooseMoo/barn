@@ -227,6 +227,9 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 	if tx.sampleReadClocks {
 		if _, seen := tx.propertyReads[rkey]; !seen {
 			lazySet(&tx.readClocks, rkey, tx.store.clock.Load())
+			if tx.diag != nil {
+				tx.diag.noteRead(rkey, &prop)
+			}
 		}
 	}
 	tx.propertyReads[rkey] = prop.version

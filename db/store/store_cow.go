@@ -504,6 +504,9 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	if verbShapeDirty {
 		s.noteVerbShapeChanged()
 	}
+	if tx.diag != nil {
+		tx.registerWritersLocked()
+	}
 	tx.clearStagedWrites()
 }
 

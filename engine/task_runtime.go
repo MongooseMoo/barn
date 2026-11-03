@@ -487,6 +487,7 @@ retryAttempt:
 			isolationprobe.MarkFailed(ctx)
 		}
 	}
+	s.store.NoteSliceAttempts(attempt + 1) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
 	if committed {
 		t.CreatedForks = nil
@@ -602,6 +603,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 		bcVM.Task = &t.State
 		bcVM.Preempt = preempt
 		bcVM.Resumable = true
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		if attempt > 0 {
 			bcVM.TickLimit = t.TicksLimit
 			// Failed attempts are unpublished. Replay the same logical instruction
@@ -661,6 +663,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 		if attempt > 0 {
 			bcVM.Ticks = sliceEntryTicks
 		}
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		configureVMStackLimit(bcVM, s.session)
 
 		if t.IntrinsicEval {

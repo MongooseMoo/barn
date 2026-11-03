@@ -295,6 +295,15 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
+	if tx.diag != nil && next.diag != nil {
+		// The slots in drop are read again at the new clock.
+		next.diag.siteFn = tx.diag.siteFn
+		next.diag.readSites, next.diag.readValues = maps.Clone(tx.diag.readSites), maps.Clone(tx.diag.readValues)
+		for _, key := range drop {
+			delete(next.diag.readSites, key)
+			delete(next.diag.readValues, key)
+		}
+	}
 	// A WAIF image is carried with what tx staged on it. Validation below
 	// checks that its base is still the live image, so the staged properties
 	// are the same change made to the same image at the new clock.
@@ -337,6 +346,13 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.gateWait = tx.gateWait
 	next.commitContext = tx.commitContext
 	next.conflictLabel = tx.conflictLabel
+	if tx.diag != nil && next.diag != nil {
+		// Re-staging recorded the current site; the sites the writes were
+		// staged at are tx's.
+		for key, site := range tx.diag.writeSites {
+			lazySet(&next.diag.writeSites, key, site)
+		}
+	}
 	tx.Release()
 	return next
 }
