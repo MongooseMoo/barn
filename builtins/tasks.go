@@ -562,8 +562,11 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 		// A yield is always Toast-legal here, so a root-VM task that has run
 		// YinCommitTicks in this slice yields for 0 seconds and commits. The
 		// root VM's TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
+		// Forked tasks keep one slice: the database's background jobs write the
+		// same few hot properties, and split at every yin they overlap and keep
+		// losing to each other (1p: 91% of ticks wasted).
 		k := int64(ctx.RuntimeOptions.YinCommitTicks)
-		if k > 0 && ctx.CanSuspend && t.TicksLimit-ctx.TicksRemaining >= k {
+		if k > 0 && ctx.CanSuspend && t.Kind != task.TaskForked && t.TicksLimit-ctx.TicksRemaining >= k {
 			t.SuspendSeconds(0)
 			return types.Suspend(0)
 		}

@@ -72,6 +72,11 @@ return #0.yield_order;
 
 func runYinOrder(t *testing.T, k int, taskID int64) (string, task.TaskState) {
 	t.Helper()
+	return runYinOrderAs(t, k, taskID, task.TaskInput)
+}
+
+func runYinOrderAs(t *testing.T, k int, taskID int64, kind task.TaskKind) (string, task.TaskState) {
+	t.Helper()
 	store := newYinCommitStore(t)
 	s := newYinCommitRuntime(t, store, k)
 	defer s.Stop()
@@ -79,6 +84,7 @@ func runYinOrder(t *testing.T, k int, taskID int64) (string, task.TaskState) {
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := NewTaskFull(taskID, owner, compileTestProgram(t, s.registry, yinOrderProgram), ticks, seconds)
 	queued.Context.IsWizard = true
+	queued.Kind = kind
 	defer removeTasksForOwner(s, owner)
 	firstSlice := runYinTaskToCompletion(t, s, queued)
 	return queued.Result.Val.String(), firstSlice
@@ -98,6 +104,19 @@ func TestYinCommitTicksDoesNotYieldBelowK(t *testing.T) {
 	got, firstSlice := runYinOrder(t, 50000, 3202)
 	if firstSlice != task.TaskCompleted {
 		t.Fatalf("first slice ended in %v; want the task to complete without yielding", firstSlice)
+	}
+	if want := `{"main-before", "main-after"}`; got != want {
+		t.Fatalf("order = %s, want %s (no yield)", got, want)
+	}
+}
+
+// A forked task never commits at yin: the database's background jobs (cron
+// workers, power follow-ups) write the same few hot properties and, split
+// into many slices, overlap and keep losing to each other.
+func TestYinCommitTicksForkedTaskDoesNotYield(t *testing.T) {
+	got, firstSlice := runYinOrderAs(t, 100, 3204, task.TaskForked)
+	if firstSlice != task.TaskCompleted {
+		t.Fatalf("first slice ended in %v; want the forked task to complete without yielding", firstSlice)
 	}
 	if want := `{"main-before", "main-after"}`; got != want {
 		t.Fatalf("order = %s, want %s (no yield)", got, want)
