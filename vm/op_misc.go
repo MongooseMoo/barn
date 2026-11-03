@@ -40,7 +40,11 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 }
 
 // executeCallBuiltin runs OP_CALL_BUILTIN and OP_CALL_BUILTIN_WIDE once the
-// caller has fetched the function ID operand.
+// caller has fetched the function ID operand. Deliberately not inlined: when a
+// PGO profile made it hot enough to inline into Execute, every builtin call
+// (typeof x1M in BenchmarkVM) ran 9% slower than with it out of line.
+//
+//go:noinline
 func (vm *VM) executeCallBuiltin(funcID int) error {
 	argc := vm.FetchByte()
 

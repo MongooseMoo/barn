@@ -10,10 +10,11 @@ store-side program slot (see Decisions):
 1. Cached negative dispatch-memo hits stop building an error per hit. DONE.
 2. Per-call-site verb cache for static OP_CALL_VERB on plain object receivers,
    carrying the callee's compiled program. DONE.
-3. Callee `args` list built only when the program has an args slot.
+3. Callee `args` list built only when the program has an args slot. DONE.
 4. Finalization scan on return skipped for frames that cannot hold a
-   finalizable value.
+   finalizable value: BUILT, MEASURED, DROPPED (see Decisions).
 5. Lazy verb-owner wizard flag: NOT BUILT (see Decisions).
+6. PGO profile refreshed and `executeCallBuiltin` kept out of line. DONE.
 
 The team lead measures, pushes and opens the PR; this branch does not publish.
 
@@ -35,7 +36,20 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
 - Item 3 committed: `setArgsLocal` (vm/op_verb.go) builds the `args` list only
   when the callee program has an args slot; used by verb calls and pass().
   Tests: engine/verb_args_slot_test.go.
-- Item 4 next.
+- Item 4 dropped after measurement (Decisions).
+- `cmd/barn/default.pgo` refreshed from this branch with the README recipe
+  (Mongoose 1p and 16p, BenchmarkVM, BenchmarkVerbDispatch).
+- `executeCallBuiltin` is `//go:noinline` (vm/op_misc.go).
+- Measured (Windows, mirrored, every run started at CPU <= 20%):
+  - no PGO, per commit vs master, VerbDispatch verb_call_5k: -2.9%, -8.9%,
+    -20.7%; BenchmarkVM geomean within +0.6%.
+  - PGO, branch with fix vs master: verb_call_5k -19.8% (allocs 5102 -> 102
+    per 5000 calls), BenchmarkVM geomean -1.18% with no row slower
+    (typeof -5.67%, builtin_abs -4.54%, prop_access -4.87%).
+  - bench_differ PGO linux (before the noinline fix): verb call x50k
+    33.8 -> 26.7 ms (2.13x -> 1.72x Toast), values match Toast.
+  - Real workload, PGO, 3 alternating rounds: 1p master 55/64/61 vs branch
+    62/66/57/s; 16p 195/171/169 vs 170/199/191/s.
 
 ## Decisions and why
 
@@ -82,6 +96,16 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
   and changes which commits conflict, and would read the flag later than call
   time. 142 non-test references read `Context.IsWizard` directly.
 
+- Item 4 dropped: tracking finalizable values on every local write (setLocal
+  on SET_VAR and the loop loads) made tight loops 5-11% slower without PGO
+  (int_arith +9.2%, list_iter +11.0%, nested +9.8%) for ~1 point on verb
+  dispatch. Not worth it.
+- `executeCallBuiltin` noinline: with this branch's refreshed profile, PGO
+  inlined it into Execute (go build -gcflags=-m), and typeof_1M ran 9.05%
+  slower than master; master's profile did not inline it. Out of line, the
+  same profile gives typeof -5.67% vs master. Same rule as fastIntBinary
+  (vm/vm.go): keep big helpers out of the giant switch.
+
 ## Surprises
 
 - The background said the negative-hit fmt.Errorf ran per hit. It ran once per
@@ -121,4 +145,6 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
 
 ## Next step
 
-Item 3 (args list only with an args slot), then item 4 (finalization scan).
+Done once the PR merges. Bigger levers measured but not in scope: 16-player
+abort rate ~45%, property inheritance walks ~9% of CPU, GC ~15%
+(agent-notes/mongoose-workload-gap.md).
