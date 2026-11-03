@@ -555,6 +555,14 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
+		// A yield is always Toast-legal here, so a root-VM task that has run
+		// YinCommitTicks in this slice yields for 0 seconds and commits. The
+		// root VM's TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
+		k := int64(ctx.RuntimeOptions.YinCommitTicks)
+		if k > 0 && ctx.CanSuspend && t.TicksLimit-ctx.TicksRemaining >= k {
+			t.SuspendSeconds(0)
+			return types.Suspend(0)
+		}
 		return types.Ok(types.NewInt(0))
 	}
 

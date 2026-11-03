@@ -71,6 +71,26 @@ func TestConflictCensusConfiguration(t *testing.T) {
 	}
 }
 
+func TestYinCommitTicksConfiguration(t *testing.T) {
+	if DefaultOptions().YinCommitTicks != 0 {
+		t.Fatal("default YIN_COMMIT_TICKS should be 0 (off)")
+	}
+	for value, want := range map[string]int{"0": 0, "5000": 5000} {
+		options, err := Parse(strings.NewReader("YIN_COMMIT_TICKS = "+value+"\n"), "yin.conf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if options.YinCommitTicks != want {
+			t.Fatalf("YIN_COMMIT_TICKS = %s parsed as %d", value, options.YinCommitTicks)
+		}
+	}
+	for _, value := range []string{"-1", "1.5", "yes"} {
+		if _, err := Parse(strings.NewReader("YIN_COMMIT_TICKS = "+value), "yin.conf"); err == nil {
+			t.Fatalf("accepted %q", value)
+		}
+	}
+}
+
 func TestFeatureMap(t *testing.T) {
 	on := Options{OutboundNetwork: true, PromoteNumbers: true}.FeatureMap()
 	if on[FeatureOutboundNetwork] != true {

@@ -80,6 +80,14 @@ func Parse(r io.Reader, source string) (Options, error) {
 			options.SQLiteCacheKiB = parsed
 			continue
 		}
+		if key == "YIN_COMMIT_TICKS" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return Options{}, parseError(source, lineNumber, "YIN_COMMIT_TICKS must be an integer")
+			}
+			options.YinCommitTicks = parsed
+			continue
+		}
 		parsed, err := parseBool01(value)
 		if err != nil {
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("%s must be 0 or 1", key))
