@@ -75,7 +75,10 @@ type ConflictReadSiteCount struct {
 // first; Other* count the losses beyond them and Unknown* the losses for which
 // none could be named. ValueCompared counts the losses whose value could be
 // compared and ValueUnchanged those among them on an unchanged value.
-// WastedTicks sums the slice ticks at each loss.
+// WastedTicks sums the slice ticks at each loss. DetectedLosses counts the
+// losses the count-only early-abort check had detected on this key, and
+// SavableTicks sums the slice ticks from each detection to its loss
+// (store_early_detect.go).
 type ConflictDiag struct {
 	Writers          []ConflictWriterCount
 	OtherWriters     uint64
@@ -86,6 +89,8 @@ type ConflictDiag struct {
 	ValueCompared    uint64
 	ValueUnchanged   uint64
 	WastedTicks      int64
+	DetectedLosses   uint64
+	SavableTicks     int64
 }
 
 const (
@@ -107,6 +112,15 @@ type txnConflictDiag struct {
 	readSites  map[propertyReadKey]conflictReadSite
 	readValues map[propertyReadKey]conflictReadValue
 	writeSites map[propertyReadKey]ConflictSite
+	// hotReads, detected, detectKey, detectTicks and lastCheckClock are the
+	// count-only early-abort check's state (store_early_detect.go): the hot
+	// slots read, whether a check found one superseded, which, the slice ticks
+	// then, and the store clock the last check saw.
+	hotReads       []propertyReadKey
+	detected       bool
+	detectKey      propertyReadKey
+	detectTicks    int64
+	lastCheckClock uint64
 }
 
 type conflictReadSite struct {
@@ -166,7 +180,8 @@ func (tx *StoreTxn) SetConflictSiteFunc(fn ConflictSiteFunc) {
 }
 
 // carryConflictDiag gives next, a transaction replacing tx, tx's site callback
-// and, with reads true, the sites and values of the reads it carries.
+// and, with reads true, the sites and values of the reads it carries and the
+// hot slots among them. A detection is not carried: next's reads are current.
 func (tx *StoreTxn) carryConflictDiag(next *StoreTxn, reads bool) {
 	if tx.diag == nil || next.diag == nil {
 		return
@@ -174,6 +189,7 @@ func (tx *StoreTxn) carryConflictDiag(next *StoreTxn, reads bool) {
 	next.diag.siteFn = tx.diag.siteFn
 	if reads {
 		next.diag.readSites, next.diag.readValues = tx.diag.readSites, tx.diag.readValues
+		next.diag.hotReads = tx.diag.hotReads
 	}
 }
 

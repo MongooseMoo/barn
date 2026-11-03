@@ -154,7 +154,9 @@ type ConflictCount struct {
 // slices executed over all their attempts, committed and lost; WastedTicks sums
 // the ticks of the attempts among them that were discarded and re-run, so it
 // never exceeds TotalTicks. Both come from the engine's count of each attempt
-// and stay 0 unless tracking is on.
+// and stay 0 unless tracking is on. EarlyDetection is what the count-only
+// early-abort check found (store_early_detect.go); it too stays 0 unless
+// tracking is on.
 type ConflictCensus struct {
 	LostTxns        uint64
 	RefusedRenewals uint64
@@ -163,6 +165,7 @@ type ConflictCensus struct {
 	SliceAttempts   []uint64
 	TotalTicks      int64
 	WastedTicks     int64
+	EarlyDetection  EarlyDetection
 }
 
 type conflictKey struct {
@@ -187,6 +190,8 @@ type conflictCensus struct {
 	attempts [maxSliceAttempts + 1]uint64
 	// totalTicks and wastedTicks are ConflictCensus.TotalTicks and WastedTicks.
 	totalTicks, wastedTicks int64
+	// early is ConflictCensus.EarlyDetection.
+	early earlyDetection
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -252,6 +257,9 @@ func (tx *StoreTxn) lostValidation() {
 			tx.addDiagLocked(census, count, c, lossTicks)
 		}
 	}
+	if tx.diag != nil {
+		tx.noteEarlyLossLocked(census, lossTicks)
+	}
 }
 
 // noteRefusedRenewal publishes the carried reads a renewal was refused for.
@@ -278,6 +286,7 @@ func (s *Store) ConflictCensus() ConflictCensus {
 		SliceAttempts:   slices.Clone(census.attempts[:]),
 		TotalTicks:      census.totalTicks,
 		WastedTicks:     census.wastedTicks,
+		EarlyDetection:  census.early.snapshot(),
 	}
 	for _, count := range census.keys {
 		out.Keys = append(out.Keys, count.snapshot())
@@ -320,6 +329,7 @@ func (s *Store) ResetConflictCensus() {
 	census.overflow = ConflictCount{}
 	census.attempts = [maxSliceAttempts + 1]uint64{}
 	census.totalTicks, census.wastedTicks = 0, 0
+	census.early.reset()
 }
 
 // SetConflictCensusTracking switches the sampling of the clock at each first

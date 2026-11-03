@@ -346,6 +346,7 @@ func (tx *StoreTxn) release() {
 	if tx.released.Swap(true) {
 		return
 	}
+	tx.noteEarlyRelease()
 	if tx.store != nil {
 		tx.store.deregisterReadTS(tx.readTS)
 		if tx.store.waifs.pending.Load() {

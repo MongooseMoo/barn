@@ -181,10 +181,15 @@ func (tx *StoreTxn) findPropertyRenewing(objID types.ObjID, root *Object, name s
 	tx.trackNewReads = true
 	prop, actualName, errCode := tx.findPropertyFrom(objID, root, name)
 	tx.trackNewReads = false
+	newReads := tx.newReads
 	if next := tx.renewAtStaleHotRead(); next != nil {
 		tx = next
 		// root is the old transaction's view; the renewed one fetches its own.
 		prop, actualName, errCode = tx.findProperty(objID, name)
+	}
+	if tx.diag != nil && len(newReads) > 0 {
+		// The renewed transaction read the same slots again at its clock.
+		tx.diag.noteHotReads(newReads, tx.store.hotPropertySet())
 	}
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode, tx
@@ -303,6 +308,8 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 			delete(next.diag.readSites, key)
 			delete(next.diag.readValues, key)
 		}
+		// Hot slots carry; a detection does not, since next's reads are current.
+		next.diag.hotReads = slices.Clone(tx.diag.hotReads)
 	}
 	// A WAIF image is carried with what tx staged on it. Validation below
 	// checks that its base is still the live image, so the staged properties
