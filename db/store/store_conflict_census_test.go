@@ -11,7 +11,7 @@ import (
 
 // conflictFixture returns a store with two objects, each holding the integer
 // properties p and q and the verb look.
-func conflictFixture(t *testing.T) (s *Store, a, b types.ObjID) {
+func conflictFixture(t testing.TB) (s *Store, a, b types.ObjID) {
 	t.Helper()
 	s, ids := immutFixture(t, 2)
 	a, b = ids[0], ids[1]

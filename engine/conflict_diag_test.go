@@ -93,3 +93,56 @@ func TestConflictCensusWastedTicksAreTheRerunAttempts(t *testing.T) {
 		})
 	}
 }
+
+// A task reads hot #0.v and writes it, a competitor commits #0.v, and the task
+// runs on across several tick checkpoints before its commit loses. The
+// count-only check at the first checkpoint after the competitor's commit
+// detects it, and the ticks from there to the loss are savable: positive, and
+// less than the discarded attempt's.
+func TestEarlyDetectionCountsSavableTicksInATask(t *testing.T) {
+	store := newConflictTestStore(t)
+	store.SetConflictCensusTracking(true)
+	store.MarkHotProperty(0, "v")
+	var conflictOnce builtins.BuiltinFunc
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("conflict_once", 0, 0, []int64{}, &conflictOnce))
+	defer s.Stop()
+	calls := 0
+	conflictOnce = func(ctx *builtins.Execution, args []types.Value) types.Result {
+		calls++
+		if calls == 1 {
+			if errCode := store.DirectTxn().SetPropertyValue(0, "v", types.NewInt(50)); errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+		}
+		return types.Ok(types.NewInt(0))
+	}
+	src := `x = #0.v; #0.v = x + 1; conflict_once(); for i in [1..3000] endfor; return 0;`
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	tk := NewTaskFull(7002, 0, compileTestProgram(t, s.registry, src), ticks, seconds)
+	tk.Context.IsWizard = true
+	if err := s.runTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	runUntilTerminal(t, s, tk)
+	if tk.Result.Flow == types.FlowException {
+		t.Fatalf("task raised %v %v", tk.Result.Error, tk.Result.Val)
+	}
+
+	c := store.ConflictCensus()
+	e := c.EarlyDetection
+	t.Logf("calls=%d lost=%d wasted=%d early=%+v", calls, c.LostTxns, c.WastedTicks, e)
+	if calls != 2 || c.LostTxns != 1 {
+		t.Fatalf("calls %d lost %d, want one loss and one re-run", calls, c.LostTxns)
+	}
+	if e.Detected != 1 || e.DetectedLost != 1 || e.UndetectedLost != 0 {
+		t.Errorf("early = %+v, want the loss detected", e)
+	}
+	// Detection is at the first checkpoint after conflict_once, at most 1024
+	// ticks in, so most of the 3000-iteration loop is savable.
+	if e.SavableTicks <= 0 || e.SavableTicks >= c.WastedTicks || e.SavableTicks < c.WastedTicks-1100 {
+		t.Errorf("savable %d of wasted %d, want all but the ticks before the first checkpoint", e.SavableTicks, c.WastedTicks)
+	}
+	if e.Checks == 0 {
+		t.Error("no check counted")
+	}
+}
