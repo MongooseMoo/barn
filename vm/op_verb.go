@@ -264,10 +264,7 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	}
 	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, nameValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
-	if argsList.IsNone() {
-		argsList = types.NewList(args)
-	}
-	SetLocalBySlot(frame, prog.BuiltinSlots.Args, argsList)
+	setArgsLocal(frame, args, argsList)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
 
 	copyCommandLocals(frame, currentFrame)
@@ -502,10 +499,7 @@ func (vm *VM) executePass() error {
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Verb, types.NewStr(verbName))
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Caller, types.NewObj(frame.Caller))
-	if passList.IsNone() {
-		passList = types.NewList(passArgs)
-	}
-	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, passList)
+	setArgsLocal(newFrame, passArgs, passList)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Player, types.NewObj(frame.Player))
 
 	copyCommandLocals(newFrame, frame)
@@ -570,6 +564,22 @@ func findCallableVerbForRead(txn *dbstore.StoreTxn, objID types.ObjID, verbName 
 
 func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
 	return txn.FindParentVerb(verbLoc, verbName)
+}
+
+// setArgsLocal fills a new verb frame's `args` variable with args, as list
+// when the caller already holds them as a list value (None otherwise). A
+// program that never names `args` has no slot for it, and nothing reads the
+// list then: the arguments stay on the frame (frame.Args) for pass(),
+// suspension and callers, so no list is built.
+func setArgsLocal(frame *StackFrame, args []types.Value, list types.Value) {
+	slot := frame.Program.BuiltinSlots.Args
+	if slot == 0 {
+		return
+	}
+	if list.IsNone() {
+		list = types.NewList(args)
+	}
+	SetLocalBySlot(frame, slot, list)
 }
 
 // commandSlots returns the program's one-based local slots for the command

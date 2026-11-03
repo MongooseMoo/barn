@@ -32,7 +32,10 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
   - vm/verb_call_site.go: `verbCallSite` (store identity + last program);
     vm/op_verb.go passes the site for static names on TYPE_OBJ, non-anonymous
     receivers only.
-- Items 3 and 4 next.
+- Item 3 committed: `setArgsLocal` (vm/op_verb.go) builds the `args` list only
+  when the callee program has an args slot; used by verb calls and pass().
+  Tests: engine/verb_args_slot_test.go.
+- Item 4 next.
 
 ## Decisions and why
 
@@ -65,6 +68,14 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
   compile-cache lookup. A txn's first call per key still goes through findVerb
   (sync.Map load, recordVerbMemoHit, storeVerbMemoUse); those already ran once
   per txn per key before this change.
+- Item 3: the list built at call time only ever reached SetLocalBySlot, which
+  ignores slot 0 (vm/op_iter.go:246). Every other reader of a frame's
+  arguments uses the []Value (frame.Args / ActivationFrame.Args): pass()
+  inheritance (vm/op_verb.go executePass), persistence (vm/persistence.go:47,
+  150), retry checkpoints (vm/retry.go), tracebacks (vm/traceback.go:184),
+  task snapshots (task/snapshot.go, engine/task_runtime.go:1057), GC roots
+  (vm/value_roots.go). No code reads the `args` local by name except the
+  places that set it (engine/call_verb.go, eval.go, task_runtime.go:695).
 - Item 5 (lazy wizard flag) not built: `hasObjectFlagForRead` marks a scalar
   read on the verb owner every call (store_txn_objects.go:86-101 via
   markObjectScalarRead); computing it lazily drops that read when nothing asks
@@ -101,6 +112,10 @@ The team lead measures, pushes and opens the PR; this branch does not publish.
     `TestVerbCallSiteFollowsRenewedSnapshot` result={1, 1, 1}.
   - reuse ignoring the compiler: `TestVerbCallSiteProgramBelongsToItsCompiler`
     "another compiler was handed the first compiler's program".
+- Item 3: before the change `TestVerbCallWithoutArgsVariableBuildsNoArgsList`
+  failed "200 calls without an args variable allocated 500, with one 501".
+  Never filling `args` (even with a slot): `TestVerbArgsReachPassWithoutArgsVariable`
+  got E_VARNF, `TestVerbArgsSurviveSuspendWithoutArgsVariable` result=0.
 - The engine tests' expectations were first run with the site path forced off
   (today's path) and passed there, then with it on.
 
