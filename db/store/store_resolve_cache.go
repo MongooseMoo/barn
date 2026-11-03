@@ -343,28 +343,28 @@ type verbDispatchMemoEntry struct {
 // still is.
 //
 // On a hit, record is what tx.verbResolve[key] holds when it returns.
-func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolveEntry) (verb *Verb, definer types.ObjID, err error, record verbResolveEntry, hit bool) {
+func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolveEntry) (verb *Verb, definer types.ObjID, record verbResolveEntry, err error, hit bool) {
 	s := tx.store
 	if s == nil || tx.verbMemoDisabled || tx.liveMutated {
 		// A live-mutated txn commits through the coarse path, which validates
 		// scan marks, not the clock; it must never hold mark-less resolutions.
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	last := s.dispatch.shapeChangeTS.Load()
 	if tx.readTS < last {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	entry := local.memo
 	if entry == nil {
 		raw, ok := s.verbMemo().Load(key)
 		if !ok {
-			return nil, types.ObjNothing, nil, local, false
+			return nil, types.ObjNothing, local, nil, false
 		}
 		entry = raw.(*verbDispatchMemoEntry)
 		local = verbResolveEntry{} // a stale walk record says nothing about entry
 	}
 	if entry.readTS < last {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	// A txn that has staged writes will be validated at commit; give it the
 	// walk's exact scan marks rather than a dependency on the global shape
@@ -377,26 +377,26 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 	if !entry.found {
 		if local.memoSeen < need {
 			if !tx.recordVerbMemoHit(key, entry, precise) {
-				return nil, types.ObjNothing, nil, local, false
+				return nil, types.ObjNothing, local, nil, false
 			}
 			local.memo, local.memoSeen, local.definer = entry, need, types.ObjNothing
 			tx.storeVerbMemoUse(key, local)
 		}
-		return nil, types.ObjNothing, entry.err, local, true
+		return nil, types.ObjNothing, local, entry.err, true
 	}
 	obj := tx.object(entry.definer)
 	if !validLiveObject(obj) {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	if entry.index < 0 || entry.index >= len(obj.verbList) {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	verb = obj.verbList[entry.index]
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	if local.memoSeen < need && !tx.recordVerbMemoHit(key, entry, precise) {
-		return nil, types.ObjNothing, nil, local, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	// An unowned definer is an immutable image, so the same *Verb yields the
 	// same read mark; a private copy can be edited in place and is re-marked.
@@ -412,7 +412,7 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 		local.memoSeen = max(local.memoSeen, need)
 		tx.storeVerbMemoUse(key, local)
 	}
-	return verb, entry.definer, nil, local, true
+	return verb, entry.definer, local, nil, true
 }
 
 // storeVerbMemoUse files the txn's record of a dispatch memo hit.

@@ -69,7 +69,7 @@ func (tx *StoreTxn) findCallableVerbAt(site *VerbCallSite, objID types.ObjID, ve
 	if record.site == site && record.gen == tx.verbResolveGen && record.key == key && tx.verbMemoActive() {
 		// findVerb would find record.local, a memo record, in tx.verbResolve,
 		// skip its walk-record branch and consult the memo with it.
-		verb, definer, err, local, hit := tx.lookupVerbDispatchMemo(key, record.local)
+		verb, definer, local, err, hit := tx.lookupVerbDispatchMemo(key, record.local)
 		if hit {
 			record.local, record.gen = local, tx.verbResolveGen
 			return verb, definer, err

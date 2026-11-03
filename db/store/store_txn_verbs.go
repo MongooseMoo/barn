@@ -184,7 +184,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 
 	if cacheable {
-		if verb, definer, err, _, hit := tx.lookupVerbDispatchMemo(key, entry); hit {
+		if verb, definer, _, err, hit := tx.lookupVerbDispatchMemo(key, entry); hit {
 			return verb, definer, err
 		}
 	}
