@@ -384,12 +384,17 @@ retryAttempt:
 			return
 		}
 		s.parkForGC(t.ID, machine)
-		if !ownsScope {
-			return
+		if ownsScope {
+			if wait := scope.Yield(); wait > 0 {
+				metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
+				t.ExcludeExecutionWait(wait)
+			}
 		}
-		if wait := scope.Yield(); wait > 0 {
-			metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
-			t.ExcludeExecutionWait(wait)
+		// Count-only early-abort check for the conflict census; it does nothing
+		// unless tracking is on. After the yield, so commits that landed during
+		// a readmission wait are seen.
+		if ctx.StoreTxn != nil {
+			ctx.StoreTxn.NoteSupersededHotRead()
 		}
 	}
 
