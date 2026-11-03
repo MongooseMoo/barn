@@ -330,8 +330,11 @@ commits per key, sole and refused counts, and the labels that lost. With
 map-key row also names the writer (label, verb and line) of the version the loser
 went stale on, the loser's first-read site and slice ticks, how many losses were on
 an unchanged value, and the ticks thrown away; `SliceAttempts` is a histogram of
-attempts per task slice. Tracking costs time and memory on every transaction, so it
-is off by default.
+attempts per task slice. `EarlyDetection` counts what an early abort would save:
+at each 1024-tick checkpoint a task with staged writes checks whether a hot property
+it read has since been rewritten (count only, execution is unchanged), and
+`SavableTicks` sums the ticks from that detection to the loss (per key too). Tracking
+costs time and memory on every transaction, so it is off by default.
 
 Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 `barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,

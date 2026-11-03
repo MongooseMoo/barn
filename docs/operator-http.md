@@ -10,7 +10,8 @@ boundaries:
 * `--debug-addr` exclusively serves `/debug/vars`, `/debug/pprof/*`, the
   read-only `/debug/conflict-census` (the MVCC conflict census as JSON; set
   `CONFLICT_CENSUS = 1` in the config file for writer, read-site and cost
-  detail), and the mutating `/debug/loglevel` endpoint. These diagnostics can be expensive or
+  detail, and for `EarlyDetection`: the ticks an abort at the first tick
+  checkpoint after a hot read was superseded would have saved), and the mutating `/debug/loglevel` endpoint. These diagnostics can be expensive or
   sensitive and must not be exposed as a passive monitoring surface.
 
 Both flags default to `127.0.0.1:0`, a loopback address with an ephemeral port.

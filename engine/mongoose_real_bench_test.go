@@ -1098,6 +1098,10 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		}
 		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f total_ticks=%d wasted_ticks=%d wasted_share=%.1f%% hist=[%s]",
 			slices, mean, census.TotalTicks, census.WastedTicks, census.WastedShare(), strings.Join(hist, " "))
+		e := census.EarlyDetection
+		t.Logf("  diag early_detection checks=%d check_ns=%d detected=%d detected_lost=%d detected_not_lost=%d savable_ticks=%d savable_share=%.1f%% undetected_lost=%d undetected_tracked=%d",
+			e.Checks, e.CheckNanos, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
+			e.UndetectedLost, e.UndetectedTracked)
 	}
 }
 
@@ -1118,8 +1122,8 @@ func logConflictDiag(t *testing.T, row dbstore.ConflictCount) {
 	if d.ValueCompared > 0 {
 		unchanged = fmt.Sprintf("%d/%d", d.ValueUnchanged, d.ValueCompared)
 	}
-	t.Logf("      diag unchanged_value=%s wasted_ticks=%d unknown_writer=%d other_writers=%d unknown_read_site=%d other_read_sites=%d",
-		unchanged, d.WastedTicks, d.UnknownWriters, d.OtherWriters, d.UnknownReadSites, d.OtherReadSites)
+	t.Logf("      diag unchanged_value=%s wasted_ticks=%d detected_losses=%d savable_ticks=%d unknown_writer=%d other_writers=%d unknown_read_site=%d other_read_sites=%d",
+		unchanged, d.WastedTicks, d.DetectedLosses, d.SavableTicks, d.UnknownWriters, d.OtherWriters, d.UnknownReadSites, d.OtherReadSites)
 	for _, w := range d.Writers {
 		t.Logf("      writer root=#%d:%s at=%s lost=%d", w.Label.Obj, w.Label.Verb, site(w.Site), w.Lost)
 	}
