@@ -226,6 +226,17 @@ func (c *Connection) IsLoggedIn() bool {
 	return c.loggedIn
 }
 
+// inputPlayer is the identity this connection's input runs as: its player once
+// logged in, and its negative connection ID before.
+func (c *Connection) inputPlayer() types.ObjID {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loggedIn {
+		return c.player
+	}
+	return types.ObjID(-c.ID)
+}
+
 // GetLoginTaskID returns the in-flight login-hook task ID (0 if none).
 func (c *Connection) GetLoginTaskID() int64 {
 	c.mu.Lock()

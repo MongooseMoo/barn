@@ -158,10 +158,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			}
 		}
 
-		player := conn.GetPlayer()
-		if !conn.IsLoggedIn() {
-			player = types.ObjID(-conn.ID)
-		}
+		player := conn.inputPlayer()
 
 		var line string
 		var isOutOfBand bool
@@ -375,6 +372,15 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	if input.ConnID < 0 && input.Player < 0 {
 		p.forcePhantomLogin(input.Player, input.Line)
 		return
+	}
+	// Toast chooses do_login_task or do_command_task when the queued line runs,
+	// from the connection's player at that moment (tasks.cc run_ready_tasks),
+	// not when the line was read: a login slice that yielded can log the
+	// connection in after this line was read.
+	if cm := p.connManager; cm != nil {
+		if conn := cm.getConnectionByConnID(input.ConnID); conn != nil {
+			input.Player = conn.inputPlayer()
+		}
 	}
 	input.Line = unquoteInBandInput(input.Line)
 
