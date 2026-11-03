@@ -197,7 +197,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 	tx.storeVerbResolve(key, steps, verb, definer, err)
 	if cacheable {
-		tx.storeVerbDispatchMemo(key, verb, definer, steps)
+		tx.storeVerbDispatchMemo(key, verb, definer, steps, err)
 	}
 	return verb, definer, err
 }

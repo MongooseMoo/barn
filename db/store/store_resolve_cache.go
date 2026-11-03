@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
@@ -320,6 +319,11 @@ type verbDispatchMemoEntry struct {
 	// shape clock holds, a walk on any later snapshot scans the same objects,
 	// so a writing txn can record exact scan marks without re-matching names.
 	path []types.ObjID
+	// err is the "verb not found" error the producing walk built for a miss.
+	// Its text is a pure function of the queried name, which is part of the
+	// key, and callers only test it for nil or read its text, so every txn
+	// hitting the miss returns this value instead of building its own.
+	err error
 }
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
@@ -372,13 +376,10 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 			if !tx.recordVerbMemoHit(key, entry, precise) {
 				return nil, types.ObjNothing, nil, false
 			}
-			if local.err == nil {
-				local.err = fmt.Errorf("verb not found: %s", key.name)
-			}
 			local.memo, local.memoSeen, local.definer = entry, need, types.ObjNothing
 			tx.storeVerbMemoUse(key, local)
 		}
-		return nil, types.ObjNothing, local.err, true
+		return nil, types.ObjNothing, entry.err, true
 	}
 	obj := tx.object(entry.definer)
 	if !validLiveObject(obj) {
@@ -513,7 +514,7 @@ func (tx *StoreTxn) materializeVerbMemoMarks() {
 // Anonymous objects are never memoized: their ids are recycled constantly and
 // invalidating the memo on each would make it useless. A txn that has mutated
 // the live store has no clean snapshot to tag the entry with.
-func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep) {
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep, err error) {
 	s := tx.store
 	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
 		return
@@ -521,7 +522,7 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 	if obj := tx.object(key.objID); obj == nil || obj.anonymous {
 		return
 	}
-	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer, err: err}
 	for _, step := range steps {
 		if step.scanned {
 			entry.path = append(entry.path, step.id)
