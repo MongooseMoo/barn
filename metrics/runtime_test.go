@@ -65,6 +65,25 @@ func TestPhaseCounterConcurrentAccounting(t *testing.T) {
 	}
 }
 
+func TestPhaseStatsSubIsTheWindow(t *testing.T) {
+	var counter phaseCounter
+	counter.observe(time.Second, 5) // before the window, and its maximum
+	prior := counter.snapshot()
+	counter.observe(time.Millisecond, 2)
+	counter.observe(50*time.Microsecond, 1)
+	got := counter.snapshot().Sub(prior)
+	if got.Count != 2 || got.TotalNS != int64(time.Millisecond+50*time.Microsecond) || got.Ticks != 3 || got.MaxNS != 0 {
+		t.Fatalf("window = %+v", got)
+	}
+	want := make([]int64, len(durationBounds)+1)
+	want[2], want[3] = 1, 1
+	for i := range want {
+		if got.Buckets[i] != want[i] {
+			t.Fatalf("window buckets = %v, want %v", got.Buckets, want)
+		}
+	}
+}
+
 func BenchmarkRuntimeObservation(b *testing.B) {
 	id := Identity{TaskID: 1, This: 2, Verb: "say"}
 	b.RunParallel(func(pb *testing.PB) {

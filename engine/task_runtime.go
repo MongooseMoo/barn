@@ -9,7 +9,9 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -132,7 +134,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	var executedTicks int64
 	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
 	var rerunTicks int64
-	var gate sliceGate
+	gate := sliceGate{holds: &s.gateHolds, key: GateHolder{This: t.This, Verb: t.VerbName}}
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
@@ -890,6 +892,74 @@ type sliceGate struct {
 	// everHeld records that the slice held the gate at some point, for the
 	// slow-slice log.
 	everHeld bool
+	// holds, when set, records each hold under key, timed from heldSince.
+	holds     *gateHoldStats
+	key       GateHolder
+	heldSince time.Time
+}
+
+// GateHolder names the task verb that held the exclusive commit gate.
+type GateHolder struct {
+	This types.ObjID
+	Verb string
+}
+
+// GateHold is the cumulative exclusive commit gate hold of one task verb.
+type GateHold struct {
+	GateHolder
+	Count      int64
+	Total, Max time.Duration
+}
+
+// gateHoldStats accumulates exclusive gate holds. It is touched only when a
+// slice releases a gate it held.
+type gateHoldStats struct {
+	mu    sync.Mutex
+	holds map[GateHolder]*GateHold
+}
+
+func (h *gateHoldStats) observe(key GateHolder, held time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.holds == nil {
+		h.holds = make(map[GateHolder]*GateHold)
+	}
+	entry := h.holds[key]
+	if entry == nil {
+		entry = &GateHold{GateHolder: key}
+		h.holds[key] = entry
+	}
+	entry.Count++
+	entry.Total += held
+	entry.Max = max(entry.Max, held)
+}
+
+// ResetGateHolds forgets the holds recorded so far, starting a new window.
+func (s *Runtime) ResetGateHolds() {
+	s.gateHolds.mu.Lock()
+	s.gateHolds.holds = nil
+	s.gateHolds.mu.Unlock()
+}
+
+// GateHolds returns the cumulative exclusive commit gate holds taken by task
+// slices, one entry per task verb, largest total first.
+func (s *Runtime) GateHolds() []GateHold {
+	s.gateHolds.mu.Lock()
+	out := make([]GateHold, 0, len(s.gateHolds.holds))
+	for _, entry := range s.gateHolds.holds {
+		out = append(out, *entry)
+	}
+	s.gateHolds.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Total != out[j].Total {
+			return out[i].Total > out[j].Total
+		}
+		if out[i].This != out[j].This {
+			return out[i].This < out[j].This
+		}
+		return out[i].Verb < out[j].Verb
+	})
+	return out
 }
 
 func (g *sliceGate) held() bool { return g.grant != nil }
@@ -905,6 +975,7 @@ func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store) (time.Dur
 	}
 	g.grant = grant
 	g.everHeld = true
+	g.heldSince = time.Now()
 	return wait, nil
 }
 
@@ -931,6 +1002,9 @@ func (g *sliceGate) drop() {
 	}
 	g.grant.Release()
 	g.grant = nil
+	if g.holds != nil {
+		g.holds.observe(g.key, time.Since(g.heldSince))
+	}
 }
 
 type taskRetryState struct {

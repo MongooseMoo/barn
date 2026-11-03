@@ -47,6 +47,7 @@ type Runtime struct {
 	tracebackSender         func(types.ObjID, types.Result)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
+	gateHolds               gateHoldStats
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc

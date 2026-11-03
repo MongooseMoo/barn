@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // objectSlot is the per-id storage cell in Store.dir. The published image
@@ -186,6 +187,11 @@ type Store struct {
 	commitSuccesses atomic.Uint64
 	commitConflicts atomic.Uint64
 	commitRetries   atomic.Uint64
+	// sharedGateWaits/sharedGateWaitNS count the ordinary commits that took the
+	// shared commit gate and their total wait for it (escalated commits holding
+	// the gate exclusively skip it and are not counted).
+	sharedGateWaits  atomic.Uint64
+	sharedGateWaitNS atomic.Int64
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
@@ -342,6 +348,12 @@ func (s *Store) AnonCreationCount() uint64 {
 // MVCC commit observability accessors. All lock-free.
 func (s *Store) CommitAttempts() uint64  { return s.commitAttempts.Load() }
 func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
+
+// SharedGateWait reports how many commits took the shared commit gate and
+// their cumulative wait for it.
+func (s *Store) SharedGateWait() (uint64, time.Duration) {
+	return s.sharedGateWaits.Load(), time.Duration(s.sharedGateWaitNS.Load())
+}
 
 // PropertyWriteElisions is the number of property writes dropped as no-ops
 // because the target slot already held an Identical value.
