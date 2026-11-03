@@ -82,7 +82,14 @@ behaviour for this case is not yet read.
 - Scratch diag sources (not committed) are in the session scratchpad
   yield-diag/ folder.
 
+## ConnectionTime at switch_player (lead, same branch)
+Toast's player_switched (server.cc) sets new_h->connection_time =
+time(nullptr), and bf_connected_players lists a handle only when show_all or
+connection_time != 0. Barn's SwitchPlayer never set ConnectionTime, so a
+Mongoose login (do_login_command read()s, suspends, so loginPlayer is
+skipped) left the player out of connected_players(). Fixed in SwitchPlayer;
+TestSwitchPlayerConnectsForConnectedPlayers, mutation caught.
+
 ## Next step
-Lead reruns bench_players.py; expect the look to complete and the identity
-check to fail per the section above. Decide whether to fix the ConnectionTime
-gap (read Toast's switch_player/connected_players first).
+Rerun bench_players.py (Barn 1p+16p, then Toast vs Barn on an idle machine);
+PR; CI; merge.

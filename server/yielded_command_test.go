@@ -116,6 +116,23 @@ func TestLineAfterYieldedLoginIsACommand(t *testing.T) {
 	waitForOutput(t, transport, "pong")
 }
 
+// switch_player() connects the player for connected_players(), as Toast's
+// player_switched sets connection_time: a Mongoose login that read() its
+// username and password suspended, so loginPlayer never runs for it.
+func TestSwitchPlayerConnectsForConnectedPlayers(t *testing.T) {
+	store := dbstore.NewStore()
+	addTestObject(t, store, 0, dbstore.FlagWizard)
+	player := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagProgrammer|dbstore.FlagWizard)
+	cm := NewConnectionManager(7777)
+	conn := cm.NewConnectionFromTransport(newRecordingTransport("client"))
+	if err := cm.SwitchPlayer(types.ObjID(-conn.ID), player); err != nil {
+		t.Fatal(err)
+	}
+	if got := cm.ConnectedPlayers(false); !slices.Contains(got, player) {
+		t.Fatalf("connected_players() = %v, want it to include #%d", got, player)
+	}
+}
+
 func waitForOutput(t *testing.T, transport *recordingTransport, line string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

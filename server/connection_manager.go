@@ -955,8 +955,11 @@ func (cm *ConnectionManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) erro
 		existing.setDisconnectHook("")
 	}
 
-	// Set up new player
+	// Set up new player. Toast's player_switched stamps connection_time, which
+	// connected_players() requires (server.cc); a login that suspended in
+	// do_login_command never reaches loginPlayer to stamp it.
 	conn.SetPlayer(newPlayer)
+	conn.ConnectionTime = time.Now()
 	cm.playerConns[newPlayer] = conn
 	enqueue := cm.connectionEventHandler
 	cm.mu.Unlock()
