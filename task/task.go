@@ -724,6 +724,14 @@ func (t *State) SetReadier(readier *State) {
 	t.readier = readier
 }
 
+// Readier returns the recorded readier (the task whose fork or resume() readied
+// this one), or nil. Unlike PendingReadier it applies no readiness condition.
+func (t *State) Readier() *State {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return t.readier
+}
+
 // PendingReadier identifies a task whose next slice must follow this readied
 // slice. Retain the relation through admission and physical execution, including
 // retries and logical suspension. A future delayed fork does not hold its parent.

@@ -115,6 +115,44 @@ return before;
 	assertCommitGateReleased(t, store)
 }
 
+// A slice that takes the exclusive gate at its irreversible-effect boundary
+// records the hold under its task verb, timed until the gate is released.
+func TestRunTaskRecordsExclusiveGateHoldByVerb(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	const held = 30 * time.Millisecond
+	var sleep builtins.BuiltinFunc = func(*builtins.Execution, []types.Value) types.Result {
+		time.Sleep(held)
+		return types.Ok(types.NewInt(0))
+	}
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("hold_gate_sleep", 0, 0, []int64{}, &sleep))
+	defer s.Stop()
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	queued := NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
+server_log("take the gate");
+hold_gate_sleep();
+#0.write_value = 1;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	queued.Context.Log = slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	queued.This, queued.VerbName = 7, "hold"
+	if holds := s.GateHolds(); len(holds) != 0 {
+		t.Fatalf("holds before the task = %+v", holds)
+	}
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	holds := s.GateHolds()
+	if len(holds) != 1 || holds[0].This != 7 || holds[0].Verb != "hold" || holds[0].Count != 1 ||
+		holds[0].Total < held || holds[0].Max != holds[0].Total {
+		t.Fatalf("holds = %+v, want one #7:hold hold of at least %s", holds, held)
+	}
+	assertCommitGateReleased(t, store)
+	s.ResetGateHolds()
+	if holds := s.GateHolds(); len(holds) != 0 {
+		t.Fatalf("holds after reset = %+v", holds)
+	}
+}
+
 func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	descriptor, _ := bumpReadValueLiveOnce(t, store)

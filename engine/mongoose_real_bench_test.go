@@ -66,6 +66,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/internal/mooprof"
 	"github.com/MongooseMoo/barn/logging"
@@ -286,12 +287,25 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			admissionStatus = string(status)
 		}
 		saved := c.task.VM() != nil
+		// The task whose fork or resume() readied this one; while that readier's
+		// execution is active this task stays queued (task.State.awaitingReadier).
+		readierStatus := "none"
+		if readier := c.task.Readier(); readier != nil {
+			snapshot := readier.ReadinessSnapshot()
+			readierLease := 0
+			if c.runtime != nil {
+				c.runtime.mu.Lock()
+				readierLease = c.runtime.lifecycle.ExecutingTasks[readier.ID]
+				c.runtime.mu.Unlock()
+			}
+			readierStatus = fmt.Sprintf("{task=%d state=%s execution_active=%v lease=%d}", readier.ID, snapshot.State, snapshot.ExecutionActive, readierLease)
+		}
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s readier=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, readierStatus, blockers, readiness, admissionStatus)
 		}
 	}
 	select {
@@ -723,8 +737,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var m0 runtime.MemStats
 		runtime.ReadMemStats(&m0)
 		store.ResetConflictCensus()
+		s.ResetGateHolds()
 		renewed0, refused0, declined0 := store.HotReadStats()
 		before := sampleCommitCounters(store)
+		waits0 := sampleWaitCounters(s, store)
 		uncaught0 := metrics.UncaughtExceptions.Value()
 		var samples []memSample
 		var held []string
@@ -760,6 +776,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		<-sampled
 		cpu1 := readGCCPU()
 		delta := sampleCommitCounters(store).sub(before)
+		waits := sampleWaitCounters(s, store)
 		census := store.ConflictCensus()
 		renewed, refused, declined := store.HotReadStats()
 		var m1 runtime.MemStats
@@ -848,6 +865,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
 			delta.attempts, delta.successes, delta.conflicts, delta.retries,
 			renewed-renewed0, refused-refused0, declined-declined0)
+		logWaitCounters(t, waits0, waits, s.GateHolds())
 		logConflictCensus(t, census, committed, censusTop, staleReads)
 		// Idle probe: with NO commands running, do background tasks (forks
 		// spawned by earlier commands) keep committing? Distinguishes a
@@ -1103,6 +1121,81 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 			e.Checks, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
 			e.UndetectedLost, e.UndetectedTracked)
 	}
+}
+
+// waitCounters holds the cumulative wall-time counters read around a measured
+// window: every runtime phase (metrics/runtime.go), the shared commit gate
+// waits of ordinary commits (store), and admission's totals.
+type waitCounters struct {
+	phases           [metrics.PhaseCount]metrics.PhaseStats
+	sharedGateWaits  uint64
+	sharedGateWaited time.Duration
+	admission        admission.Stats
+}
+
+func sampleWaitCounters(s *Runtime, store *dbstore.Store) waitCounters {
+	var w waitCounters
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		w.phases[p] = metrics.RuntimePhaseStats(p)
+	}
+	w.sharedGateWaits, w.sharedGateWaited = store.SharedGateWait()
+	w.admission = s.AdmissionStats()
+	return w
+}
+
+// logWaitCounters prints where the window's wall time went. Phase intervals
+// overlap (slice contains vm_attempt, which contains readmission); a phase's
+// max is the upper bound of the highest bucket that grew in the window. Gate
+// holds were reset at the start of the window, so they are the window's own.
+func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold) {
+	var b strings.Builder
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		d := after.phases[p].Sub(before.phases[p])
+		if d.Count == 0 {
+			continue
+		}
+		bound := ">10s"
+		for i := len(d.Buckets) - 1; i >= 0; i-- {
+			if d.Buckets[i] > 0 {
+				if i < len(d.UpperNS) {
+					bound = "<=" + time.Duration(d.UpperNS[i]).String()
+				}
+				break
+			}
+		}
+		fmt.Fprintf(&b, " %s=%d/%s/max%s", p, d.Count, time.Duration(d.TotalNS).Round(time.Microsecond), bound)
+	}
+	t.Logf("  wall phases (count/total/max):%s", b.String())
+
+	var holdCount int64
+	var holdTotal, holdMax time.Duration
+	var top []string
+	for i, h := range holds {
+		holdCount += h.Count
+		holdTotal += h.Total
+		holdMax = max(holdMax, h.Max)
+		if i < 8 {
+			top = append(top, fmt.Sprintf("#%d:%s n=%d total=%s max=%s", h.This, h.Verb, h.Count, latStr(h.Total), latStr(h.Max)))
+		}
+	}
+	t.Logf("  exclusive gate holds: count=%d total=%s max=%s top=[%s]", holdCount, latStr(holdTotal), latStr(holdMax), strings.Join(top, ", "))
+
+	sharedN := after.sharedGateWaits - before.sharedGateWaits
+	sharedWait := after.sharedGateWaited - before.sharedGateWaited
+	sharedMean := time.Duration(0)
+	if sharedN > 0 {
+		sharedMean = sharedWait / time.Duration(sharedN)
+	}
+	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (exclusive acquire wait is the commit_gate phase)",
+		sharedN, latStr(sharedWait), latStr(sharedMean))
+
+	a0, a1 := before.admission, after.admission
+	readmit := after.phases[metrics.Readmission].Sub(before.phases[metrics.Readmission])
+	// The engine observes Readmission only when Yield's wait is nonzero
+	// (task_runtime.go), so preemptions can exceed the readmission count.
+	t.Logf("  admission: preemptions=%d readmission_nonzero_waits=%d readmission_total=%s service=%s gate_wait=%s (shared+exclusive, clipped per segment) at_end active=%d queued=%d preempted=%d",
+		a1.Preemptions-a0.Preemptions, readmit.Count, latStr(time.Duration(readmit.TotalNS)),
+		latStr(a1.Service-a0.Service), latStr(a1.GateWait-a0.GateWait), a1.Active, a1.Queued, a1.Preempted)
 }
 
 // logConflictDiag prints what tracking recorded about one census row: who

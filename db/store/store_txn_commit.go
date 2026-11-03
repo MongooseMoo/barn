@@ -251,8 +251,11 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if err != nil {
 			return tx.markTerminal(types.E_INTRPT)
 		}
+		waited := time.Since(started)
+		tx.store.sharedGateWaits.Add(1)
+		tx.store.sharedGateWaitNS.Add(int64(waited))
 		if tx.gateWait != nil {
-			tx.gateWait(time.Since(started))
+			tx.gateWait(waited)
 		}
 		defer grant.Release()
 	} else if !tx.exclusiveGrant.Owns(&tx.store.commitGate, commitgate.Exclusive) {
