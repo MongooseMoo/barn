@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -42,7 +43,8 @@ func (vm *VM) executeCallVerbStatic(nameIdx int) error {
 	if _, err := vm.staticNameFromConstant(nameIdx, "verb"); err != nil {
 		return err
 	}
-	return vm.executeCallVerbNamed(vm.CurrentFrame().Program.Constants[nameIdx], int(vm.FetchByte()))
+	program := vm.CurrentFrame().Program
+	return vm.executeCallVerbNamed(program.Constants[nameIdx], int(vm.FetchByte()), callSiteAt(program, nameIdx))
 }
 
 func (vm *VM) executeCallVerbDynamic() error {
@@ -51,12 +53,13 @@ func (vm *VM) executeCallVerbDynamic() error {
 	if name.Type() != types.TYPE_STR {
 		return newMooError(types.E_TYPE, "dynamic verb name must be a string")
 	}
-	return vm.executeCallVerbNamed(name, argc)
+	return vm.executeCallVerbNamed(name, argc, nil)
 }
 
 // executeCallVerbNamed takes the verb name as the string value the program
-// already holds, which becomes the callee's `verb` without a copy.
-func (vm *VM) executeCallVerbNamed(name types.Value, argc int) error {
+// already holds, which becomes the callee's `verb` without a copy. site is the
+// call site of a static name, or nil.
+func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSite) error {
 	// Pop arguments
 	var args []types.Value
 	argsList := types.None
@@ -73,11 +76,11 @@ func (vm *VM) executeCallVerbNamed(name types.Value, argc int) error {
 
 	// Pop the object
 	objVal := vm.Pop()
-	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil)
+	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil, site)
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
-	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, nil)
+	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, nil, nil)
 }
 
 // resolvedVerb is a call target the caller has already looked up, through the
@@ -92,8 +95,13 @@ type resolvedVerb struct {
 // by the caller: a nil resolved looks the verb up here. nameValue is verbName
 // as a string value when the caller has one, and None otherwise. argsList is
 // args as a list value when the caller has one (a spliced call), which becomes
-// the callee's `args` without a copy, and None otherwise.
-func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, resolved *resolvedVerb) error {
+// the callee's `args` without a copy, and None otherwise. site, when not nil,
+// is the static call site making the call; only a call on a plain object
+// number uses it.
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, resolved *resolvedVerb, site *verbCallSite) error {
+	if objVal.Type() != types.TYPE_OBJ || objVal.IsAnonymous() {
+		site = nil
+	}
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
@@ -153,7 +161,11 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		verb, defObjID = resolved.verb, resolved.definer
 	} else {
 		var err error
-		verb, defObjID, err = findCallableVerbForRead(txn, objID, lookupVerbName)
+		if site != nil {
+			verb, defObjID, err = txn.FindCallableVerbAt(site.lookup, objID, lookupVerbName)
+		} else {
+			verb, defObjID, err = findCallableVerbForRead(txn, objID, lookupVerbName)
+		}
 		if err != nil {
 			vm.Store.NoteVerbCacheMiss()
 			return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
@@ -162,7 +174,13 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
 	// so the cache lookup on this hot path does not rehash the source.
-	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	var prog *bytecode.Program
+	var diagnostics []compiler.Diagnostic
+	if site != nil {
+		prog, diagnostics = site.compile(vm.Builtins.Registry().Compiler(), verb.Code, verb.CodeKey)
+	} else {
+		prog, diagnostics = vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	}
 	if len(diagnostics) > 0 {
 		return newMooErrorf(types.E_VERBNF, "compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -323,7 +341,7 @@ func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin st
 func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved); err != nil {
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved, nil); err != nil {
 		result := types.Err(errorCode(err))
 		result.Reason = exceptionReason(err)
 		return result

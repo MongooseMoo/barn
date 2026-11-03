@@ -106,6 +106,7 @@ func (c *lowerer) compileProgram(program *ir.Program) (*bytecode.Program, error)
 		}
 	}
 	c.program.ClassifyPropertyConstants()
+	c.program.CallSites = bytecode.NewCallSites(len(c.program.Constants))
 
 	return c.program, nil
 }

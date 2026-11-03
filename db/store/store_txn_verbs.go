@@ -184,16 +184,21 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 	}
 
 	if cacheable {
-		if verb, definer, err, hit := tx.lookupVerbDispatchMemo(key, entry); hit {
+		if verb, definer, err, _, hit := tx.lookupVerbDispatchMemo(key, entry); hit {
 			return verb, definer, err
 		}
 	}
+	return tx.resolveVerbByWalk(key, cacheable)
+}
 
-	verb, definer, steps := tx.walkVerb(objID, verbName, requireExecute)
+// resolveVerbByWalk is findVerb past its memos: it walks the ancestry, then
+// records the walk for this txn and, when cacheable, for the store.
+func (tx *StoreTxn) resolveVerbByWalk(key verbResolveKey, cacheable bool) (*Verb, types.ObjID, error) {
+	verb, definer, steps := tx.walkVerb(key.objID, key.name, key.requireExecute)
 	var err error
 	if verb == nil {
 		definer = types.ObjNothing
-		err = fmt.Errorf("verb not found: %s", verbName)
+		err = fmt.Errorf("verb not found: %s", key.name)
 	}
 	tx.storeVerbResolve(key, steps, verb, definer, err)
 	if cacheable {

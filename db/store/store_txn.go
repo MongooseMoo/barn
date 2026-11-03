@@ -101,6 +101,12 @@ type StoreTxn struct {
 	parentWalk  plainScratch
 	verbResolve map[verbResolveKey]verbResolveEntry
 	propResolve map[propResolveKey]propResolveEntry
+	// verbResolveGen counts every write to verbResolve, including dropping it.
+	// verbSites holds, per call site, a copy of a verbResolve record and the
+	// generation it was copied at; while the generation is unchanged the copy
+	// is what the map holds (store_verb_call_site.go).
+	verbResolveGen uint64
+	verbSites      *[verbSiteSlots]verbSiteRecord
 
 	// trackNewReads is set for the one lookup FindPropertyRenewing makes;
 	// newReads then lists the property slots that lookup read for the first
