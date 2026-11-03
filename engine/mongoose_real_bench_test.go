@@ -494,11 +494,6 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// Strict arithmetic manufactures per-look E_TYPE storms this database's code
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
-	if v := os.Getenv("BARN_MONGOOSE_YIN_COMMIT_TICKS"); v != "" {
-		if _, err := fmt.Sscanf(v, "%d", &opts.YinCommitTicks); err != nil || opts.YinCommitTicks < 0 {
-			t.Fatalf("BARN_MONGOOSE_YIN_COMMIT_TICKS=%q: want an integer >= 0", v)
-		}
-	}
 	s := newRuntimeWithRegistry(store, opts, runtime.GOMAXPROCS(0), registry)
 	// Mirror server/input_processor.go processRuntimeTick: the input processor
 	// drives the runtime's ready-task loop on a ticker. Nothing else runs a
@@ -637,8 +632,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 		}
 	}
 
-	t.Logf("GOMAXPROCS=%d warmup=%s measure=%s stale_reads=%v yin_commit_ticks=%d mix=%v",
-		runtime.GOMAXPROCS(0), warmup, measure, staleReads, opts.YinCommitTicks, realShapes)
+	t.Logf("GOMAXPROCS=%d warmup=%s measure=%s stale_reads=%v mix=%v",
+		runtime.GOMAXPROCS(0), warmup, measure, staleReads, realShapes)
 	if memStats {
 		t.Logf("memory MiB after server_started, before workload: %s", readMemSample(t, s))
 		t.Logf("holders before workload: %s", holders(s, store))

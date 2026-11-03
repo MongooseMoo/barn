@@ -514,6 +514,11 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 // Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
 // min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
 // least one argument is supplied.
+// yinCommitTicks is how long a command's slice runs before a yin() commits it.
+// Chosen on the Mongoose workload (16 players: 239/s against master's 138/s;
+// 1000 and 100000 did worse).
+const yinCommitTicks = 10000
+
 func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	seconds := 0.0
 	if len(args) >= 1 {
@@ -560,13 +565,13 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 
 	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
 		// A yield is always Toast-legal here, so a root-VM task that has run
-		// YinCommitTicks in this slice yields for 0 seconds and commits. The
-		// root VM's TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
+		// yinCommitTicks in this slice yields for 0 seconds and commits: a long
+		// command becomes short transactions that rarely lose. The root VM's
+		// TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
 		// Forked tasks keep one slice: the database's background jobs write the
 		// same few hot properties, and split at every yin they overlap and keep
 		// losing to each other (1p: 91% of ticks wasted).
-		k := int64(ctx.RuntimeOptions.YinCommitTicks)
-		if k > 0 && ctx.CanSuspend && t.Kind != task.TaskForked && t.TicksLimit-ctx.TicksRemaining >= k {
+		if ctx.CanSuspend && t.Kind != task.TaskForked && t.TicksLimit-ctx.TicksRemaining >= yinCommitTicks {
 			t.SuspendSeconds(0)
 			return types.Suspend(0)
 		}

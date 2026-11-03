@@ -24,10 +24,6 @@ type Options struct {
 	// whether the value had changed, and the ticks it threw away. It costs
 	// time and memory on every transaction and changes no result.
 	ConflictCensus bool
-	// YinCommitTicks is an experiment knob: when positive, a yin() on a task's
-	// root VM that has run at least this many ticks in its current slice
-	// yields for 0 seconds, so the slice commits there. Zero is off.
-	YinCommitTicks int
 	// Nil uses Barn's default build capabilities; a pointer to zero disables all.
 	BuiltinCapabilities *Capabilities
 }
@@ -65,9 +61,6 @@ func (o Options) Validate() error {
 	}
 	if o.SQLiteCacheKiB < 0 || o.SQLiteCacheKiB > maxSQLiteCacheKiB {
 		return fmt.Errorf("SQLITE_CACHE_KIB must be between 0 and %d", maxSQLiteCacheKiB)
-	}
-	if o.YinCommitTicks < 0 {
-		return fmt.Errorf("YIN_COMMIT_TICKS must not be negative")
 	}
 	if o.Capabilities() & ^DefaultCapabilities() != 0 {
 		return fmt.Errorf("unknown builtin capabilities")

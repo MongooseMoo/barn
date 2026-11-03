@@ -1,26 +1,38 @@
 # perf/commit-at-yin
 
 ## Goal
-Q-approved plan: when YIN_COMMIT_TICKS (experiment knob, removed before merge)
-is K > 0, a yin() on the task's root VM (ctx.CanSuspend) after at least K ticks
-in the current slice yields for 0 seconds, so long yin()-calling tasks
-(#1:forbids, #2700:_handlers) commit there instead of staying one huge
+Q-approved plan ("Make it so!", 2026-11-03): a yin() on a task's root VM
+(ctx.CanSuspend) after at least yinCommitTicks ticks in the current slice
+yields for 0 seconds, so long yin()-calling commands (#1:forbids,
+#2700:_handlers under say/look) commit there instead of staying one huge
 optimistic transaction. Toast's yin() can always yield, so yielding more often
 is Toast-legal. The low-budget branch of builtinYin is unchanged.
 
 ## State
-Implemented and committed on perf/commit-at-yin (not pushed, no PR):
-- config: Options.YinCommitTicks, YIN_COMMIT_TICKS (integer >= 0, Validate
-  rejects negatives), TestYinCommitTicksConfiguration.
+On perf/commit-at-yin:
 - builtins/tasks.go builtinYin: no-yield branch yields 0 seconds when
-  K > 0 && ctx.CanSuspend && t.TicksLimit-ctx.TicksRemaining >= K.
-- engine/yin_commit_test.go: six tests (yield above K, none below K, none
-  with K=0, none in a nested VM, pre-yin write published while queued,
-  conflict after the yin re-runs only from the yin).
-- engine/mongoose_real_bench_test.go: BARN_MONGOOSE_YIN_COMMIT_TICKS sets K;
-  printed in the GOMAXPROCS/warmup log line.
-Mutations of each guard (k > 0, CanSuspend, >= k, slice-ticks measure,
-config validation, parser assignment) were each caught by a test.
+  ctx.CanSuspend && t.Kind != TaskForked && t.TicksLimit-ctx.TicksRemaining
+  >= yinCommitTicks (const 10000).
+- engine/yin_commit_test.go: yield past the threshold (fork runs first), none
+  below it, none for a forked task, none in a nested VM, pre-yin write
+  published while queued, conflict after the yin re-runs only from the yin.
+  Mutations caught: CanSuspend, forked clause, >= threshold, slice-ticks
+  measure, threshold raised to 1e8 (3 tests fail) and lowered to 1 (below-
+  threshold test fails).
+- The experiment knob (YIN_COMMIT_TICKS / BARN_MONGOOSE_YIN_COMMIT_TICKS) used
+  for the gate is removed.
+
+### Gate (TestMongooseRealWorkload, census off, 1p+16p, 3 rotated rounds)
+- First build (forks yield too): 16p 347-390/s vs master 131-142, but 1p
+  23-27 vs 60-68: the database's forked background jobs (#1007:s_run
+  workers, #18714:power_followup_queue) split at every yin overlapped and
+  lost to each other (1p census: 2139 retries, 91% of 259M ticks wasted;
+  master 8 retries, 41M ticks).
+- Forks excluded (this build): 16p K=10000 211, 239, 243/s vs master 133,
+  138, 154; K=100000 168-177. 16p unsettled commands 0 (master 2-3 per run,
+  2 s drain). 1p K=10000 50, 54, 53 vs master 58, 58, 63 (about -9%).
+  p99 16p about master's (1.0-1.2 s). K=1000 was worse in the first build.
+- Follow-up: recover the forked share of the gain without the cron thrash.
 
 ### queued_tasks() lists running background tasks (team lead's follow-up)
 The 1p K=10000 run showed E_RANGE in #1007:reset_scheduler line 9 and
@@ -72,6 +84,5 @@ tested.
   dropped: the outer task ended its slice queued.
 
 ## Next step
-Conformance on CI must confirm the queued_tasks() start-time change for woken
-queued tasks (not run locally). Gate run of TestMongooseRealWorkload with BARN_MONGOOSE_YIN_COMMIT_TICKS
-values (team lead's decision); remove the knob before merge.
+PR; conformance on CI must confirm the queued_tasks() start-time change for
+woken queued tasks (not run locally). Merge when green.
