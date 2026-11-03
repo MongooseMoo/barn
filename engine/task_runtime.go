@@ -130,6 +130,8 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	var bcVM *vm.VM
 	var sliceTicks int64
 	var executedTicks int64
+	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
+	var rerunTicks int64
 	var gate sliceGate
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
@@ -403,6 +405,13 @@ retryAttempt:
 	vmStarted := time.Now()
 	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo)
 	vmElapsed := time.Since(vmStarted)
+	if launchErr == nil {
+		t.Result = result
+		// Handle fork yields: create child tasks and resume parent. The parent
+		// runs on after each fork here, so the attempt's ticks are read after.
+		result = s.drainForks(&t.State, bcVM, result)
+		t.Result = result
+	}
 	var attemptTicks int64
 	if bcVM != nil {
 		attemptTicks = max(bcVM.Ticks-sliceEntryTicks, 0)
@@ -412,12 +421,6 @@ retryAttempt:
 	if launchErr != nil {
 		return launchErr
 	}
-
-	t.Result = result
-
-	// Handle fork yields: create child tasks and resume parent
-	result = s.drainForks(&t.State, bcVM, result)
-	t.Result = result
 
 	if ctx.ConflictRetryRequested {
 		// The attempt stopped itself at its first irreversible effect because its
@@ -431,6 +434,7 @@ retryAttempt:
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
 		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+		rerunTicks += attemptTicks
 		gate.release(ctx.StoreTxn)
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
@@ -452,6 +456,7 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+				rerunTicks += attemptTicks
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
@@ -487,6 +492,7 @@ retryAttempt:
 			isolationprobe.MarkFailed(ctx)
 		}
 	}
+	s.store.NoteSliceAttempts(attempt+1, executedTicks, rerunTicks) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
 	if committed {
 		t.CreatedForks = nil
@@ -602,6 +608,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 		bcVM.Task = &t.State
 		bcVM.Preempt = preempt
 		bcVM.Resumable = true
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		if attempt > 0 {
 			bcVM.TickLimit = t.TicksLimit
 			// Failed attempts are unpublished. Replay the same logical instruction
@@ -661,6 +668,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 		if attempt > 0 {
 			bcVM.Ticks = sliceEntryTicks
 		}
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		configureVMStackLimit(bcVM, s.session)
 
 		if t.IntrinsicEval {

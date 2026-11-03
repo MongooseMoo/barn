@@ -143,6 +143,11 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 				}
 				if _, prop, ok := live.properties.find(key.name); ok {
 					propertyReads[key] = prop.version
+					if tx.diag != nil {
+						if _, seen := tx.diag.readValues[key]; seen {
+							tx.diag.readValues[key] = conflictReadValue{value: prop.value, clear: prop.clear}
+						}
+					}
 				} else {
 					delete(propertyReads, key)
 				}
@@ -169,6 +174,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.verbReads = verbReads
 	next.verbScans = verbScans
 	next.waifs = tx.waifs
+	tx.carryConflictDiag(next, true)
 	return next, publishedWrites, types.E_NONE
 }
 
@@ -205,6 +211,7 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	next.SetCommitWaitObserver(gateWait)
 	next.SetCommitContext(tx.commitContext)
 	next.conflictLabel = tx.conflictLabel
+	tx.carryConflictDiag(next, false)
 	if gateExempt {
 		next.BindExclusiveGrant(grant)
 	}

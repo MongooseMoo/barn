@@ -99,6 +99,9 @@ func (tx *StoreTxn) mapKeyStateFor(objID types.ObjID, actualName string, prop Pr
 	if st == nil {
 		st = &mapKeyState{owner: prop.owner, perms: prop.perms, version: prop.version, name: actualName, baseline: prop.value}
 		lazySet(&tx.mapKeys, rkey, st)
+		if tx.diag != nil {
+			tx.diag.noteRead(rkey, nil)
+		}
 	}
 	return st
 }
@@ -234,6 +237,10 @@ func (tx *StoreTxn) degradeMapKeys() {
 	for rkey, st := range tx.mapKeys {
 		if _, whole := tx.propertyReads[rkey]; !whole {
 			tx.propertyReads[rkey] = st.version
+			if tx.diag != nil {
+				// The whole read is at st.version, whose value is the baseline.
+				tx.diag.noteRead(rkey, &Property{value: st.baseline})
+			}
 		}
 	}
 	tx.mapKeys = nil
@@ -267,6 +274,9 @@ func (tx *StoreTxn) validateMapKeysLocked(first *types.ErrorCode) {
 			c.Live = prop.version
 		default:
 			continue
+		}
+		if tx.diag != nil {
+			tx.diagnoseMapKeyConflictLocked(&c, rkey, st, prop, ok)
 		}
 		tx.noteConflict(first, errCode, c)
 	}

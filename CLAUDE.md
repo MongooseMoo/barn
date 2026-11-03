@@ -321,7 +321,17 @@ curl -s "http://$ADDR/debug/pprof/heap" > heap.out
 curl -s "http://$ADDR/debug/pprof/moo?seconds=30" > moo.pprof  # MOO verb stacks, not Go functions
 go tool pprof -top moo.pprof                                    # values: ticks, wall; label moo.verb
 curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
+curl -s "http://$ADDR/debug/conflict-census" | jq '.Keys[:5]'  # what lost commits were stale on
 ```
+
+`/debug/conflict-census` serves the store's MVCC conflict census as JSON: lost
+commits per key, sole and refused counts, and the labels that lost. With
+`CONFLICT_CENSUS = 1` in the `--config` file, tracking is on and each property and
+map-key row also names the writer (label, verb and line) of the version the loser
+went stale on, the loser's first-read site and slice ticks, how many losses were on
+an unchanged value, and the ticks thrown away; `SliceAttempts` is a histogram of
+attempts per task slice. Tracking costs time and memory on every transaction, so it
+is off by default.
 
 Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 `barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,

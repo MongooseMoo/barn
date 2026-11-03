@@ -29,6 +29,7 @@ import (
 type Server struct {
 	StartScripts        [][]string
 	store               *dbstore.Store
+	loadedStore         atomic.Pointer[dbstore.Store]
 	runtime             *engine.Runtime
 	registry            *builtins.Registry
 	input               *InputProcessor
@@ -69,6 +70,10 @@ func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
 
 // Runtime is the engine LoadDatabase built; nil before then.
 func (s *Server) Runtime() *engine.Runtime { return s.runtime }
+
+// Store is the store LoadDatabase built; nil before then. It is safe to call
+// from any goroutine, such as a debug endpoint started before the load.
+func (s *Server) Store() *dbstore.Store { return s.loadedStore.Load() }
 
 var ErrPanicShutdown = errors.New("panic shutdown")
 
@@ -120,6 +125,8 @@ func (s *Server) LoadDatabase() error {
 	if err != nil {
 		return fmt.Errorf("construct store from database: %w", err)
 	}
+	s.store.SetConflictCensusTracking(s.options.ConflictCensus)
+	s.loadedStore.Store(s.store)
 	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)

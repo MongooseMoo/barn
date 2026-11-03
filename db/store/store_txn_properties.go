@@ -124,6 +124,9 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Prop
 		orig:    orig,
 		hasOrig: hasOrig,
 	})
+	if tx.diag != nil {
+		tx.diag.noteWrite(key)
+	}
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {

@@ -70,8 +70,8 @@ func TestOperatorMuxDoesNotExposeDebugRoutes(t *testing.T) {
 }
 
 func TestDebugMuxRetainsPrivilegedRoutes(t *testing.T) {
-	mux := debugMux()
-	for _, path := range []string{"/debug/vars", "/debug/pprof/", "/debug/loglevel"} {
+	mux := debugMux(nil)
+	for _, path := range []string{"/debug/vars", "/debug/pprof/", "/debug/loglevel", "/debug/conflict-census"} {
 		res := httptest.NewRecorder()
 		mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, path, nil))
 		if res.Code == http.StatusNotFound {
@@ -83,7 +83,7 @@ func TestDebugMuxRetainsPrivilegedRoutes(t *testing.T) {
 // The debug endpoint binds an ephemeral port; debug.addr in the log directory
 // names the bound address so tools need not scrape the log.
 func TestDebugAddrFileNamesBoundEndpoint(t *testing.T) {
-	e, err := startHTTPEndpoint("debug", "127.0.0.1:0", debugMux())
+	e, err := startHTTPEndpoint("debug", "127.0.0.1:0", debugMux(nil))
 	if err != nil {
 		t.Fatalf("start endpoint: %v", err)
 	}

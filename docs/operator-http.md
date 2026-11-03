@@ -7,8 +7,10 @@ boundaries:
   `GET`/`HEAD /readyz` probes. Liveness says the application loop is running;
   readiness becomes true only after player listeners bind and
   `#0:server_started()` completes, and is withdrawn before shutdown.
-* `--debug-addr` exclusively serves `/debug/vars`, `/debug/pprof/*`, and the
-  mutating `/debug/loglevel` endpoint. These diagnostics can be expensive or
+* `--debug-addr` exclusively serves `/debug/vars`, `/debug/pprof/*`, the
+  read-only `/debug/conflict-census` (the MVCC conflict census as JSON; set
+  `CONFLICT_CENSUS = 1` in the config file for writer, read-site and cost
+  detail), and the mutating `/debug/loglevel` endpoint. These diagnostics can be expensive or
   sensitive and must not be exposed as a passive monitoring surface.
 
 Both flags default to `127.0.0.1:0`, a loopback address with an ephemeral port.
