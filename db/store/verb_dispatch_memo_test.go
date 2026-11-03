@@ -514,6 +514,34 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 	}
 }
 
+// A memoized miss answers every later transaction with the error the producing
+// walk built: the same text, and no new error value per transaction.
+func TestVerbDispatchMemoMissReusesWalkError(t *testing.T) {
+	s := testChainStore(t)
+	s.resetVerbDispatchMemoForTest()
+	walk := s.BeginSnapshot(0)
+	_, _, walkErr := walk.findVerb(2, "NoSuch", true)
+	walk.Release()
+	if walkErr == nil || walkErr.Error() != "verb not found: NoSuch" {
+		t.Fatalf("walk error = %v", walkErr)
+	}
+	var first error
+	for i := 0; i < 3; i++ {
+		tx := s.BeginSnapshot(0)
+		_, definer, err := tx.findVerb(2, "NoSuch", true)
+		used := tx.usedVerbMemo
+		tx.Release()
+		if !used || definer != types.ObjNothing || err == nil || err.Error() != "verb not found: NoSuch" {
+			t.Fatalf("txn %d: used=%v definer=#%d err=%v", i, used, definer, err)
+		}
+		if i == 0 {
+			first = err
+		} else if err != first {
+			t.Fatalf("txn %d built a new error value for a memoized miss", i)
+		}
+	}
+}
+
 // A task that dispatched through the memo and then mutates the live store
 // itself (a coarse builtin) must not be condemned by its own clock bump.
 // PrepareLiveMutation re-walks the memoized resolutions into ordinary scan

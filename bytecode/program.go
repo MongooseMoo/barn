@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -29,6 +30,33 @@ type Program struct {
 	// it is nil on a program from anywhere else, whose reads classify the name
 	// when they run.
 	BuiltinPropertyConstants []bool
+
+	// CallSites is runtime scratch with one slot per constant, which the VM
+	// fills for verb calls naming that constant. The compiler makes it; a
+	// program built anywhere else has none, and its calls take the uncached
+	// path. It is not part of what the program means.
+	CallSites *CallSites
+}
+
+// CallSites holds one runtime slot per constant of a program. Programs are
+// shared by every task running them, so each slot is read and written
+// atomically; what a slot holds belongs to the VM.
+type CallSites struct {
+	slots []atomic.Value
+}
+
+// NewCallSites returns a table for a program with n constants.
+func NewCallSites(n int) *CallSites {
+	return &CallSites{slots: make([]atomic.Value, n)}
+}
+
+// Slot returns the slot for calls naming constant index, or nil when the
+// program has no table or index is outside it.
+func (c *CallSites) Slot(index int) *atomic.Value {
+	if c == nil || index < 0 || index >= len(c.slots) {
+		return nil
+	}
+	return &c.slots[index]
 }
 
 // IsBuiltinPropertyName reports whether name, in any case, is one of the
@@ -246,8 +274,9 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		Source:        p.Source,
 		BuiltinSlots:  p.BuiltinSlots,
 		BuiltinLayout: p.BuiltinLayout,
-		// Same constants, same classification.
+		// Same constants, same classification and the same call-site slots.
 		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
+		CallSites:                p.CallSites,
 	}
 }
 
