@@ -487,7 +487,7 @@ retryAttempt:
 			isolationprobe.MarkFailed(ctx)
 		}
 	}
-	s.store.NoteSliceAttempts(attempt + 1) // counted only with census tracking on
+	s.store.NoteSliceAttempts(attempt+1, executedTicks) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
 	if committed {
 		t.CreatedForks = nil

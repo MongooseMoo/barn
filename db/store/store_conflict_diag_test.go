@@ -59,7 +59,7 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 
 	stub.site.Line, stub.ticks = 12, 50
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(3)
+	s.NoteSliceAttempts(3, 200)
 
 	census := s.ConflictCensus()
 	p := censusRow(t, census, ConflictProperty, a, "p")
@@ -88,6 +88,10 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 
 	if got := census.SliceAttempts[2]; got != 1 {
 		t.Errorf("SliceAttempts = %v, want one slice at 3 attempts", census.SliceAttempts)
+	}
+	// The one loss was stale on two keys; its 50 ticks are wasted once.
+	if census.TotalTicks != 200 || census.WastedTicks != 50 || census.WastedShare() != 25 {
+		t.Errorf("total %d wasted %d share %.1f%%, want 200, 50 and 25%%", census.TotalTicks, census.WastedTicks, census.WastedShare())
 	}
 }
 
@@ -131,12 +135,19 @@ func TestConflictDiagMapKeyUnchangedValue(t *testing.T) {
 }
 
 // The attempts histogram counts a slice at its attempt count, puts every count
-// past maxSliceAttempts in its last bucket, and ignores a count below one.
+// past maxSliceAttempts in its last bucket, and ignores a count below one; the
+// ticks of every counted slice add to TotalTicks.
 func TestConflictDiagSliceAttemptsHistogram(t *testing.T) {
 	s, _, _ := conflictFixture(t)
 	s.SetConflictCensusTracking(true)
 	for _, n := range []int{1, 1, maxSliceAttempts, maxSliceAttempts + 1, 1000, 0} {
-		s.NoteSliceAttempts(n)
+		s.NoteSliceAttempts(n, int64(n))
+	}
+	if total := s.ConflictCensus().TotalTicks; total != 1+1+maxSliceAttempts+maxSliceAttempts+1+1000 {
+		t.Errorf("TotalTicks = %d", total)
+	}
+	if share := (ConflictCensus{}).WastedShare(); share != 0 {
+		t.Errorf("WastedShare with no ticks = %v, want 0", share)
 	}
 	got := s.ConflictCensus().SliceAttempts
 	if len(got) != maxSliceAttempts+1 {
@@ -150,6 +161,9 @@ func TestConflictDiagSliceAttemptsHistogram(t *testing.T) {
 	s.ResetConflictCensus()
 	if got := s.ConflictCensus().SliceAttempts; slices.ContainsFunc(got, func(n uint64) bool { return n != 0 }) {
 		t.Errorf("SliceAttempts after reset = %v", got)
+	}
+	if c := s.ConflictCensus(); c.TotalTicks != 0 || c.WastedTicks != 0 {
+		t.Errorf("ticks after reset = %d total, %d wasted", c.TotalTicks, c.WastedTicks)
 	}
 }
 
@@ -166,8 +180,11 @@ func TestConflictDiagOffRecordsNothing(t *testing.T) {
 	readValue(t, loser, a, "p")
 	commitValue(t, s, a, "p", types.NewInt(5))
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(1)
+	s.NoteSliceAttempts(1, 10)
 	census := s.ConflictCensus()
+	if census.TotalTicks != 0 || census.WastedTicks != 0 {
+		t.Errorf("ticks with tracking off = %d total, %d wasted", census.TotalTicks, census.WastedTicks)
+	}
 	p := censusRow(t, census, ConflictProperty, a, "p")
 	if p.Diag.ValueCompared != 0 || len(p.Diag.Writers) != 0 || len(p.Diag.ReadSites) != 0 || p.Diag.UnknownWriters != 0 || p.Diag.WastedTicks != 0 {
 		t.Errorf("diag with tracking off = %+v, want empty", p.Diag)

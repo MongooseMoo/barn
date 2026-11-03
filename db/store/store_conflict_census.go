@@ -150,13 +150,19 @@ type ConflictCount struct {
 // first, then by kind, object and name. Overflow sums the keys met after the
 // census was full; its Kind, ObjID and Name mean nothing. SliceAttempts[i]
 // counts the slices that resolved after i+1 attempts; its last element every
-// slice that took more than maxSliceAttempts.
+// slice that took more than maxSliceAttempts. TotalTicks sums the ticks those
+// slices executed over all their attempts, committed and lost; WastedTicks sums
+// the ticks of each lost attempt once, however many keys it was stale on. Both
+// stay 0 unless tracking is on, and WastedTicks counts only losses whose
+// transaction had a site callback.
 type ConflictCensus struct {
 	LostTxns        uint64
 	RefusedRenewals uint64
 	Keys            []ConflictCount
 	Overflow        ConflictCount
 	SliceAttempts   []uint64
+	TotalTicks      int64
+	WastedTicks     int64
 }
 
 type conflictKey struct {
@@ -179,6 +185,8 @@ type conflictCensus struct {
 	// See store_conflict_diag.go.
 	writers  map[propertyReadKey]*writerRing
 	attempts [maxSliceAttempts + 1]uint64
+	// totalTicks and wastedTicks are ConflictCensus.TotalTicks and WastedTicks.
+	totalTicks, wastedTicks int64
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -228,6 +236,7 @@ func (tx *StoreTxn) lostValidation() {
 	census.mu.Lock()
 	defer census.mu.Unlock()
 	census.lost++
+	census.wastedTicks += lossTicks
 	sole := len(tx.conflicts) == 1
 	for i := range tx.conflicts {
 		c := &tx.conflicts[i]
@@ -268,6 +277,8 @@ func (s *Store) ConflictCensus() ConflictCensus {
 		Keys:            make([]ConflictCount, 0, len(census.keys)),
 		Overflow:        census.overflow.snapshot(),
 		SliceAttempts:   slices.Clone(census.attempts[:]),
+		TotalTicks:      census.totalTicks,
+		WastedTicks:     census.wastedTicks,
 	}
 	for _, count := range census.keys {
 		out.Keys = append(out.Keys, count.snapshot())
@@ -309,6 +320,7 @@ func (s *Store) ResetConflictCensus() {
 	census.keys = nil
 	census.overflow = ConflictCount{}
 	census.attempts = [maxSliceAttempts + 1]uint64{}
+	census.totalTicks, census.wastedTicks = 0, 0
 }
 
 // SetConflictCensusTracking switches the sampling of the clock at each first

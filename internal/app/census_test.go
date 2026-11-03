@@ -45,7 +45,7 @@ func censusStore(t *testing.T) *dbstore.Store {
 	if ec := loser.Commit(); ec == types.E_NONE {
 		t.Fatal("loser committed")
 	}
-	s.NoteSliceAttempts(2)
+	s.NoteSliceAttempts(2, 7)
 	return s
 }
 
@@ -63,6 +63,7 @@ func TestConflictCensusRouteServesCensus(t *testing.T) {
 		Tracking      bool
 		LostTxns      uint64
 		SliceAttempts []uint64
+		TotalTicks    int64
 		Keys          []struct {
 			Kind string
 			Name string
@@ -85,6 +86,9 @@ func TestConflictCensusRouteServesCensus(t *testing.T) {
 	}
 	if len(got.SliceAttempts) < 2 || got.SliceAttempts[1] != 1 {
 		t.Errorf("SliceAttempts = %v, want one slice at two attempts", got.SliceAttempts)
+	}
+	if got.TotalTicks != 7 {
+		t.Errorf("TotalTicks = %d, want 7", got.TotalTicks)
 	}
 }
 

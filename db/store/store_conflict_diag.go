@@ -388,9 +388,19 @@ func (d ConflictDiag) snapshot() ConflictDiag {
 	return out
 }
 
+// WastedShare is WastedTicks as a percentage of TotalTicks, or 0 when no ticks
+// were counted.
+func (c ConflictCensus) WastedShare() float64 {
+	if c.TotalTicks <= 0 {
+		return 0
+	}
+	return 100 * float64(c.WastedTicks) / float64(c.TotalTicks)
+}
+
 // NoteSliceAttempts counts one task slice that resolved (committed, or failed
-// for good) after attempts attempts. It does nothing unless tracking is on.
-func (s *Store) NoteSliceAttempts(attempts int) {
+// for good) after attempts attempts, having executed ticks over all of them. It
+// does nothing unless tracking is on.
+func (s *Store) NoteSliceAttempts(attempts int, ticks int64) {
 	if !s.conflicts.tracking.Load() || attempts < 1 {
 		return
 	}
@@ -398,4 +408,5 @@ func (s *Store) NoteSliceAttempts(attempts int) {
 	census.mu.Lock()
 	defer census.mu.Unlock()
 	census.attempts[min(attempts, maxSliceAttempts+1)-1]++
+	census.totalTicks += ticks
 }

@@ -23,6 +23,15 @@ Done, in two commits on the branch:
    debug route `/debug/conflict-census` (internal/app/census.go); tests; docs in
    CLAUDE.md and docs/operator-http.md.
 
+3. Totals: ConflictCensus.TotalTicks (ticks of every counted slice over all
+   its attempts, passed by the engine as executedTicks to NoteSliceAttempts),
+   WastedTicks (each lost transaction's sampled loss ticks, once, not per key),
+   and WastedShare(); the harness attempts_per_slice line prints total_ticks=,
+   wasted_ticks=, wasted_share=%. Mutation-checked: wasted counted per key,
+   total ticks dropped, reset not clearing the total, share guard removed (NaN),
+   WastedTicks not copied out. Each failed a store or app test and was restored.
+   Not unit-tested: the engine passing executedTicks (vs one attempt's ticks).
+
 Verified: build; gofmt, go vet, staticcheck clean on db/store, engine, config,
 server, internal/app; targeted tests pass (store Conflict/Renewal/MapKey,
 internal/app, config, server ConflictCensusOption, engine Census|Conflict).

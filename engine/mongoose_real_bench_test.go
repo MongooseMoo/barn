@@ -1096,7 +1096,8 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		if slices > 0 {
 			mean = float64(totalAttempts) / float64(slices)
 		}
-		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f hist=[%s]", slices, mean, strings.Join(hist, " "))
+		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f total_ticks=%d wasted_ticks=%d wasted_share=%.1f%% hist=[%s]",
+			slices, mean, census.TotalTicks, census.WastedTicks, census.WastedShare(), strings.Join(hist, " "))
 	}
 }
 
