@@ -17,7 +17,7 @@ import (
 // now holds a DIFFERENT pointer carrying the new value.
 
 // immutFixture builds a tiny store with a wizard root and n plain objects.
-func immutFixture(t *testing.T, n int) (*Store, []types.ObjID) {
+func immutFixture(t testing.TB, n int) (*Store, []types.ObjID) {
 	t.Helper()
 	s := NewStore()
 	root := NewObjectBuilder(0)

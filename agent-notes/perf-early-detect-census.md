@@ -78,9 +78,14 @@ All mutations were applied, seen failing, and undone.
   object ids come from the store-wide allocateID
   (`db/store/store_txn_objects.go:189`), so no published object shares an
   uncommitted created id, and the live lookup already finds no valid object.
-  Kept as briefed; its test passes with or without the clause.
-- CheckNanos read 0 in the Windows test runs (2 checks); the monotonic clock
-  resolution there is coarse. Not verified on Linux.
+  The lead removed the clause (a comment says why validLiveObject covers it);
+  the created_object test stays as coverage of the behaviour.
+- CheckNanos read 0 in the Windows test runs (2 checks): Go's clock on
+  Windows advances in timer-interrupt steps. The lead removed the field (it
+  would under-report in the harness on this machine) and added
+  BenchmarkNoteSupersededHotRead instead: 194-195 ns/op, 0 allocs, three hot
+  reads compared, none superseded (count=3, 2M iterations, Windows, 5950X).
+  conflictFixture and immutFixture now take testing.TB for it.
 
 ## Next step
 

@@ -1099,8 +1099,8 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f total_ticks=%d wasted_ticks=%d wasted_share=%.1f%% hist=[%s]",
 			slices, mean, census.TotalTicks, census.WastedTicks, census.WastedShare(), strings.Join(hist, " "))
 		e := census.EarlyDetection
-		t.Logf("  diag early_detection checks=%d check_ns=%d detected=%d detected_lost=%d detected_not_lost=%d savable_ticks=%d savable_share=%.1f%% undetected_lost=%d undetected_tracked=%d",
-			e.Checks, e.CheckNanos, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
+		t.Logf("  diag early_detection checks=%d detected=%d detected_lost=%d detected_not_lost=%d savable_ticks=%d savable_share=%.1f%% undetected_lost=%d undetected_tracked=%d",
+			e.Checks, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
 			e.UndetectedLost, e.UndetectedTracked)
 	}
 }

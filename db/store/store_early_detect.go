@@ -3,7 +3,6 @@ package store
 import (
 	"slices"
 	"sync/atomic"
-	"time"
 )
 
 // Counting what an early abort at a superseded hot read would save.
@@ -30,8 +29,9 @@ import (
 const maxEarlyHotReads = 16
 
 // EarlyDetection is what the count-only early-abort check found over the run.
-// Checks counts the checks that got past the fast exits and CheckNanos the time
-// they took. Detected counts transactions whose check found a hot read
+// Checks counts the checks that got past the fast exits (what one costs is
+// BenchmarkNoteSupersededHotRead's to measure: the Windows clock is too coarse
+// to time a check in place). Detected counts transactions whose check found a hot read
 // superseded. DetectedLost counts the detected transactions that went on to
 // lose, and SavableTicks sums, over them, the slice ticks from the detection to
 // the loss. DetectedNotLost counts detected transactions released without
@@ -43,7 +43,6 @@ const maxEarlyHotReads = 16
 // rewrite landed after the last check before the loss.
 type EarlyDetection struct {
 	Checks            uint64
-	CheckNanos        int64
 	Detected          uint64
 	DetectedLost      uint64
 	DetectedNotLost   uint64
@@ -66,13 +65,12 @@ func (e EarlyDetection) SavableShare(wasted int64) float64 {
 type earlyDetection struct {
 	checks, detected, detectedLost, detectedNotLost atomic.Uint64
 	undetectedLost, undetectedTracked               atomic.Uint64
-	checkNanos, savableTicks                        atomic.Int64
+	savableTicks                                    atomic.Int64
 }
 
 func (e *earlyDetection) snapshot() EarlyDetection {
 	return EarlyDetection{
 		Checks:            e.checks.Load(),
-		CheckNanos:        e.checkNanos.Load(),
 		Detected:          e.detected.Load(),
 		DetectedLost:      e.detectedLost.Load(),
 		DetectedNotLost:   e.detectedNotLost.Load(),
@@ -86,7 +84,6 @@ func (e *earlyDetection) reset() {
 	for _, c := range []*atomic.Uint64{&e.checks, &e.detected, &e.detectedLost, &e.detectedNotLost, &e.undetectedLost, &e.undetectedTracked} {
 		c.Store(0)
 	}
-	e.checkNanos.Store(0)
 	e.savableTicks.Store(0)
 }
 
@@ -125,12 +122,13 @@ func (tx *StoreTxn) NoteSupersededHotRead() {
 		return
 	}
 	d.lastCheckClock = clock
-	started := time.Now()
 	superseded, found := propertyReadKey{}, false
 	s.mu.RLock()
 	for _, key := range d.hotReads {
+		// An object this transaction created is not live yet (ids come from
+		// the store-wide allocator), so validLiveObject below skips it.
 		read, ok := tx.propertyReads[key]
-		if !ok || tx.createdObjects[key.objID] != nil {
+		if !ok {
 			continue
 		}
 		live := s.liveObjectLocked(key.objID)
@@ -145,7 +143,6 @@ func (tx *StoreTxn) NoteSupersededHotRead() {
 	s.mu.RUnlock()
 	early := &s.conflicts.early
 	early.checks.Add(1)
-	early.checkNanos.Add(time.Since(started).Nanoseconds())
 	if !found {
 		return
 	}

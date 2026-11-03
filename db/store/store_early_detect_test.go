@@ -61,8 +61,8 @@ func TestEarlyDetectionCountsSavableTicksOfALoss(t *testing.T) {
 	c := s.ConflictCensus()
 	e := c.EarlyDetection
 	t.Logf("early = %+v", e)
-	want := EarlyDetection{Checks: 2, CheckNanos: e.CheckNanos, Detected: 1, DetectedLost: 1, SavableTicks: 70}
-	if e != want || e.CheckNanos < 0 {
+	want := EarlyDetection{Checks: 2, Detected: 1, DetectedLost: 1, SavableTicks: 70}
+	if e != want {
 		t.Errorf("early = %+v, want %+v", e, want)
 	}
 	if d := censusRow(t, c, ConflictProperty, a, "p").Diag; d.DetectedLosses != 1 || d.SavableTicks != 70 {
@@ -74,6 +74,38 @@ func TestEarlyDetectionCountsSavableTicksOfALoss(t *testing.T) {
 	s.ResetConflictCensus()
 	if e := s.ConflictCensus().EarlyDetection; e != (EarlyDetection{}) {
 		t.Errorf("after reset: %+v", e)
+	}
+}
+
+// BenchmarkNoteSupersededHotRead times one check past the fast exits: three
+// hot reads, none superseded (the common case at a checkpoint), so every slot
+// is compared. The clock exit is defeated each iteration.
+func BenchmarkNoteSupersededHotRead(b *testing.B) {
+	s, a, obj := conflictFixture(b)
+	s.SetConflictCensusTracking(true)
+	for _, k := range [][2]any{{a, "p"}, {a, "q"}, {obj, "p"}} {
+		s.MarkHotProperty(k[0].(types.ObjID), k[1].(string))
+	}
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	for _, k := range [][2]any{{a, "p"}, {a, "q"}, {obj, "p"}} {
+		if _, ec, next := tx.FindPropertyRenewing(k[0].(types.ObjID), k[1].(string)); ec != types.E_NONE || next != tx {
+			b.Fatalf("read %v: %v", k, ec)
+		}
+	}
+	if ec := tx.SetPropertyValue(obj, "q", types.NewInt(7)); ec != types.E_NONE {
+		b.Fatalf("stage: %v", ec)
+	}
+	if len(tx.diag.hotReads) != 3 {
+		b.Fatalf("hotReads = %v, want 3", tx.diag.hotReads)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		tx.diag.lastCheckClock = ^uint64(0)
+		tx.NoteSupersededHotRead()
+	}
+	if tx.diag.detected {
+		b.Fatal("detected with nothing superseded")
 	}
 }
 
