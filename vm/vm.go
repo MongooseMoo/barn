@@ -716,12 +716,13 @@ func (vm *VM) executeLoop() types.Result {
 	//     Guarded by TestFallOffEndReturnsZero, TestEmptyProgramReturnsZero, and
 	//     TestEveryCompiledProgramEndsWithTerminator.
 	for vm.frame != nil {
-		// Fetch the cached current frame once and dispatch the next opcode
-		// directly, avoiding repeated CurrentFrame lookups on the hottest path.
+		// Fetch the current frame and its code once per entry to the fast
+		// path. No fast-path case can change vm.frame, so code and ip stay
+		// valid in locals for the whole run of fast-path instructions.
 		cur := vm.frame
 		code := cur.Program.Code
 		ip := cur.IP
-		op := bytecode.OpCode(code[ip])
+		var op bytecode.OpCode
 		var err error
 
 		// DISPATCH FAST PATH. The opcodes below make up essentially every hot
@@ -731,11 +732,20 @@ func (vm *VM) executeLoop() types.Result {
 		// operand re-derivation through vm.frame on every instruction.
 		//
 		// Contract: a case only PEEKS operands until it is certain it handles
-		// the instruction completely; then it commits (cur.IP, stack, locals)
-		// and continues. On any guard failure it falls through untouched to the
-		// generic path, so every error, promotion, and edge case is still served
-		// by the one implementation in Execute. Shared bookkeeping (releaseLocal,
-		// fastTick, wideOperand) is factored so the two paths cannot drift.
+		// the instruction completely; then it commits (ip, stack, locals) and
+		// continues the inner loop. On any guard failure it falls through
+		// untouched to the generic path, so every error, promotion, and edge
+		// case is still served by the one implementation in Execute. Shared
+		// bookkeeping (releaseLocal, fastTick, wideOperand) is factored so the
+		// two paths cannot drift.
+		//
+		// IP WRITE-BACK: the fast path advances only the local ip; cur.IP is
+		// stale while it runs. Every way out of the inner loop is the generic
+		// path below, which stores ip into cur.IP before anything that could
+		// read it (Execute, tick and seconds limits, errors, yields, frame
+		// push/pop). No fast-path case reads cur.IP: the out-of-line helpers
+		// take ip as an argument. Guarded by the tests in
+		// interp_dispatch_prop_read_test.go.
 		//
 		// A ticking case charges its tick with fastTick only once its guard
 		// has passed, and before it mutates anything; fastTick declines when
@@ -746,142 +756,147 @@ func (vm *VM) executeLoop() types.Result {
 		// vm.yielded (only suspend/fork/builtin paths do), so the yield check
 		// is skipped safely. The compiler emits only the *_WIDE control-flow
 		// forms; narrow forms stay on the generic path.
-		switch fastKinds[op] {
-		case fkImm:
-			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
-			cur.IP = ip + 1
-			continue
-		case fkPushInt:
-			vm.Push(types.NewInt(int64(binary.BigEndian.Uint64(code[ip+1 : ip+9]))))
-			cur.IP = ip + 9
-			continue
-		case fkGetVar:
-			v := cur.Locals[code[ip+1]]
-			if !v.IsUnbound() {
-				vm.Push(v)
-				cur.IP = ip + 2
+		for {
+			op = bytecode.OpCode(code[ip])
+			switch fastKinds[op] {
+			case fkImm:
+				vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
+				ip++
 				continue
-			}
-		case fkPush:
-			vm.Push(cur.Program.Constants[code[ip+1]])
-			cur.IP = ip + 2
-			continue
-		case fkSetVar:
-			if vm.fastTick() {
+			case fkPushInt:
+				vm.Push(types.NewInt(int64(binary.BigEndian.Uint64(code[ip+1 : ip+9]))))
+				ip += 9
+				continue
+			case fkGetVar:
+				v := cur.Locals[code[ip+1]]
+				if !v.IsUnbound() {
+					vm.Push(v)
+					ip += 2
+					continue
+				}
+			case fkPush:
+				vm.Push(cur.Program.Constants[code[ip+1]])
+				ip += 2
+				continue
+			case fkSetVar:
+				if vm.fastTick() {
+					idx := code[ip+1]
+					vm.releaseLocal(cur.Locals[idx])
+					cur.Locals[idx] = vm.Pop()
+					ip += 2
+					continue
+				}
+			case fkSetLocal:
 				idx := code[ip+1]
 				vm.releaseLocal(cur.Locals[idx])
 				cur.Locals[idx] = vm.Pop()
-				cur.IP = ip + 2
+				ip += 2
 				continue
-			}
-		case fkSetLocal:
-			idx := code[ip+1]
-			vm.releaseLocal(cur.Locals[idx])
-			cur.Locals[idx] = vm.Pop()
-			cur.IP = ip + 2
-			continue
-		case fkAdd:
-			if vm.SP >= 2 {
-				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+			case fkAdd:
+				if vm.SP >= 2 {
+					a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+					if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+						if vm.fastTick() {
+							vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
+							vm.SP--
+							ip++
+							continue
+						}
+					} else if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
+						// Same finite-result rule as executeAdd; NaN/Inf falls
+						// through so the generic path raises E_FLOAT.
+						if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) && vm.fastTick() {
+							vm.Stack[vm.SP-2] = types.NewFloat(r)
+							vm.SP--
+							ip++
+							continue
+						}
+					}
+				}
+			case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
+				// Kept out of line: inlining these grew executeLoop's body enough
+				// to cost the core int loops 6-10% (layout, not frame size). A
+				// small call is still far cheaper than the trip through Execute.
+				if vm.fastTick() {
+					if vm.fastIntBinary(fastKinds[op]) {
+						ip++
+						continue
+					}
+					vm.Ticks--
+				}
+			case fkIndex:
+				if vm.fastTick() {
+					if vm.fastListIndex() {
+						ip++
+						continue
+					}
+					vm.Ticks--
+				}
+			case fkForListLoad:
+				if vm.fastForListLoad(cur, code, ip) {
+					ip += 5
+					continue
+				}
+			case fkForListLoadValue:
+				if vm.fastForListLoadValue(cur, code, ip) {
+					ip += 4
+					continue
+				}
+			case fkPop:
+				if vm.SP > 0 {
+					vm.SP--
+					ip++
+					continue
+				}
+			case fkJump:
+				ip += 5 + wideOperand(code, ip+1)
+				continue
+			case fkJumpIfFalse:
+				if vm.SP > 0 && vm.fastTick() {
+					vm.SP--
+					next := ip + 5
+					if !vm.Stack[vm.SP].Truthy() {
+						next += wideOperand(code, ip+1)
+					}
+					ip = next
+					continue
+				}
+			case fkForRangeCheck, fkForListCheck:
+				a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
 				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-					if vm.fastTick() {
-						vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
-						vm.SP--
-						cur.IP = ip + 1
+					ticked := false
+					if fastKinds[op] == fkForRangeCheck {
+						ticked = vm.fastTick()
+					} else {
+						ticked = vm.fastTickUnchecked()
+					}
+					if ticked {
+						next := ip + 7
+						if a.Int() > b.Int() {
+							next += wideOperand(code, ip+3)
+						}
+						ip = next
 						continue
 					}
-				} else if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
-					// Same finite-result rule as executeAdd; NaN/Inf falls
-					// through so the generic path raises E_FLOAT.
-					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) && vm.fastTick() {
-						vm.Stack[vm.SP-2] = types.NewFloat(r)
-						vm.SP--
-						cur.IP = ip + 1
-						continue
-					}
 				}
-			}
-		case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
-			// Kept out of line: inlining these grew executeLoop's body enough
-			// to cost the core int loops 6-10% (layout, not frame size). A
-			// small call is still far cheaper than the trip through Execute.
-			if vm.fastTick() {
-				if vm.fastIntBinary(fastKinds[op]) {
-					cur.IP = ip + 1
+			case fkForRangeNext:
+				// The MaxInt64 end-bound lowering and object ranges stay generic.
+				vi := code[ip+1]
+				if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
+					cur.Locals[vi] = types.NewInt(a.Int() + 1)
+					ip += 7 - wideOperand(code, ip+3)
 					continue
 				}
-				vm.Ticks--
-			}
-		case fkIndex:
-			if vm.fastTick() {
-				if vm.fastListIndex() {
-					cur.IP = ip + 1
-					continue
-				}
-				vm.Ticks--
-			}
-		case fkForListLoad:
-			if vm.fastForListLoad(cur, code, ip) {
-				cur.IP = ip + 5
+			case fkLoop:
+				ip += 5 - wideOperand(code, ip+1)
 				continue
 			}
-		case fkForListLoadValue:
-			if vm.fastForListLoadValue(cur, code, ip) {
-				cur.IP = ip + 4
-				continue
-			}
-		case fkPop:
-			if vm.SP > 0 {
-				vm.SP--
-				cur.IP = ip + 1
-				continue
-			}
-		case fkJump:
-			cur.IP = ip + 5 + wideOperand(code, ip+1)
-			continue
-		case fkJumpIfFalse:
-			if vm.SP > 0 && vm.fastTick() {
-				vm.SP--
-				next := ip + 5
-				if !vm.Stack[vm.SP].Truthy() {
-					next += wideOperand(code, ip+1)
-				}
-				cur.IP = next
-				continue
-			}
-		case fkForRangeCheck, fkForListCheck:
-			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
-			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-				ticked := false
-				if fastKinds[op] == fkForRangeCheck {
-					ticked = vm.fastTick()
-				} else {
-					ticked = vm.fastTickUnchecked()
-				}
-				if ticked {
-					next := ip + 7
-					if a.Int() > b.Int() {
-						next += wideOperand(code, ip+3)
-					}
-					cur.IP = next
-					continue
-				}
-			}
-		case fkForRangeNext:
-			// The MaxInt64 end-bound lowering and object ranges stay generic.
-			vi := code[ip+1]
-			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
-				cur.Locals[vi] = types.NewInt(a.Int() + 1)
-				cur.IP = ip + 7 - wideOperand(code, ip+3)
-				continue
-			}
-		case fkLoop:
-			cur.IP = ip + 5 - wideOperand(code, ip+1)
-			continue
+			break
 		}
 
-		// GENERIC PATH. An OP_TICKS prefix replaces the next instruction's
-		// default charge.
+		// GENERIC PATH. The instruction at ip was declined by the fast path;
+		// write the local ip back first (see IP WRITE-BACK above). An OP_TICKS
+		// prefix replaces the next instruction's default charge.
 		cur.IP = ip + 1
 		var checked, unchecked int64
 		if op == bytecode.OP_TICKS {

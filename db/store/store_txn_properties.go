@@ -134,17 +134,38 @@ func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, 
 	return prop.View(actualName), types.E_NONE
 }
 
+// FindLiveProperty is ObjectExists(objID) and then, when objID exists,
+// FindProperty(objID, name), with one fetch of objID for both. A missing or
+// recycled objID returns ObjectExists's code; a property it lacks, E_PROPNF.
+func (tx *StoreTxn) FindLiveProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
+	obj, ec := tx.existingObject(objID)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec
+	}
+	prop, actualName, ec := tx.findPropertyFrom(objID, obj, name)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec
+	}
+	return prop.View(actualName), types.E_NONE
+}
+
 func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode) {
+	return tx.findPropertyFrom(objID, nil, name)
+}
+
+// findPropertyFrom is findProperty given root, the transaction's view of objID
+// as an existence check just fetched it, or nil to fetch it here.
+func (tx *StoreTxn) findPropertyFrom(objID types.ObjID, root *Object, name string) (Property, string, types.ErrorCode) {
 	cacheable := tx.resolveCacheActive()
 	key := propResolveKey{objID: objID, name: name}
 	if cacheable {
-		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps) {
+		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps, root) {
 			tx.replayPropSteps(entry.steps)
 			return entry.prop, entry.name, entry.ec
 		}
 	}
 
-	prop, actualName, ec, steps := tx.walkProperty(objID, name)
+	prop, actualName, ec, steps := tx.walkProperty(objID, root, name)
 	if cacheable {
 		tx.storePropResolve(key, steps, prop, actualName, ec)
 	}
@@ -156,8 +177,10 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, stri
 // stores so a later hit can reproduce the identical read set). The scratch it
 // walks on is reused across calls; a (currently impossible) reentrant call
 // falls back to a private scratch rather than corrupting the outer walk. The
-// direct transaction, which goroutines share, walks on a pooled scratch.
-func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode, []propWalkStep) {
+// direct transaction, which goroutines share, walks on a pooled scratch. root,
+// when not nil, is the transaction's view of objID, used instead of fetching
+// it again.
+func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, name string) (Property, string, types.ErrorCode, []propWalkStep) {
 	sc := &tx.propWalk
 	switch {
 	case tx.direct:
@@ -189,7 +212,11 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			continue
 		}
 
-		current := tx.object(currentID)
+		// The walk starts at objID, so root can only stand for the first step.
+		current := root
+		if head != 0 || current == nil {
+			current = tx.object(currentID)
+		}
 		if !validLiveObject(current) {
 			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current})
 			continue

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -25,11 +26,11 @@ func (vm *VM) executeGetPropWide() error {
 }
 
 func (vm *VM) executeGetPropStatic(index int) error {
-	propName, err := vm.staticNameFromConstant(index, "property")
+	propName, builtin, err := vm.staticPropertyName(index)
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, builtin, propWhole)
 }
 
 func (vm *VM) executeGetPropDynamic() error {
@@ -37,7 +38,7 @@ func (vm *VM) executeGetPropDynamic() error {
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropNamed(propName)
+	return vm.executeGetPropAccess(propName, bytecode.IsBuiltinPropertyName(propName), propWhole)
 }
 
 // propAccess says how a GET_PROP-family instruction reaches a defined property.
@@ -49,19 +50,15 @@ const (
 	propKeyBase                   // base of obj.prop[key] = v (OP_GET_PROP_KEYBASE)
 )
 
-func (vm *VM) executeGetPropNamed(propName string) error {
-	return vm.executeGetPropAccess(propName, propWhole)
-}
-
 // executeGetPropKeyed is obj.prop of obj.prop[key]. It leaves the object under
 // the value so OP_INDEX_KEYED can report the entry it reads.
 func (vm *VM) executeGetPropKeyed() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
 	objVal := vm.Peek(0)
-	if err := vm.executeGetPropAccess(propName, propKeyRead); err != nil {
+	if err := vm.executeGetPropAccess(propName, builtin, propKeyRead); err != nil {
 		// executeGetPropAccess popped the object. Put it back so a non-debug
 		// frame, which pushes the error as the value, keeps [obj, value] for
 		// OP_INDEX_KEYED instead of popping into the caller's stack.
@@ -76,11 +73,11 @@ func (vm *VM) executeGetPropKeyed() error {
 
 // executeGetPropKeyBase fetches the base of obj.prop[key] = v.
 func (vm *VM) executeGetPropKeyBase() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
-	return vm.executeGetPropAccess(propName, propKeyBase)
+	return vm.executeGetPropAccess(propName, builtin, propKeyBase)
 }
 
 // executeIndexKeyed is [key] of obj.prop[key]: OP_INDEX, after telling the
@@ -105,14 +102,14 @@ func (vm *VM) executeIndexKeyed() error {
 // fetched was keyed and is still the task's view of the slot, it stages only
 // the entry; otherwise it is OP_SET_PROP.
 func (vm *VM) executeSetPropKeyed() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	propName, builtin, err := vm.staticPropertyName(int(vm.ReadShort()))
 	if err != nil {
 		return err
 	}
 	objVal := vm.Pop()
 	key := vm.Pop()
 	value := vm.Pop()
-	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtins.IsBuiltinProperty(propName) {
+	if isObjLike(objVal) && vm.Store != nil && vm.Builtins != nil && !builtin {
 		txn := vm.Context.StoreTxn
 		objID := objVal.ID()
 		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
@@ -139,7 +136,10 @@ func (vm *VM) executeSetPropKeyed() error {
 	return vm.executeSetPropNamed(propName)
 }
 
-func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
+// executeGetPropAccess reads propName from the object on the stack. builtin is
+// bytecode.IsBuiltinPropertyName(propName), which the caller has: classified at
+// compile time for a static name, at run time for a dynamic one.
+func (vm *VM) executeGetPropAccess(propName string, builtin bool, access propAccess) error {
 	// Pop the object
 	objVal := vm.Pop()
 
@@ -160,33 +160,42 @@ func (vm *VM) executeGetPropAccess(propName string, access propAccess) error {
 		return newMooError(types.E_INVIND, "no object store available")
 	}
 
+	// The object is checked first: an invalid or recycled object is E_INVIND
+	// whatever the name. A whole read of a defined property checks it in the
+	// same store call that looks the property up, so the object is fetched
+	// once; built-in names and keyed reads check it here.
 	txn := vm.Context.StoreTxn
-	if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
-		return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
-	}
-
-	// Built-in property names (.name/.owner/.location/...) can never be defined
-	// properties — add_property rejects them with E_INVARG — so serve them from
-	// the built-in path directly, skipping the (always-failing) inheritance walk.
-	if builtins.IsBuiltinProperty(propName) {
-		if val, ok := getBuiltinProperty(txn, objID, propName); ok {
-			vm.Push(val)
-			return nil
-		}
-		return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
-	}
-
-	// Look up defined property (with inheritance via breadth-first search).
 	var prop dbstore.PropertyView
 	var errCode types.ErrorCode
-	if access != propWhole {
+	if builtin || access != propWhole {
+		if errCode := objectExistsForRead(txn, objID); errCode != types.E_NONE {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
+		// Built-in property names (.name/.owner/.location/...) can never be
+		// defined properties — add_property rejects them with E_INVARG — so
+		// serve them from the built-in path directly, skipping the
+		// (always-failing) inheritance walk.
+		if builtin {
+			if val, ok := getBuiltinProperty(txn, objID, propName); ok {
+				vm.Push(val)
+				return nil
+			}
+			return newMooErrorf(types.E_PROPNF, "Property not found: #%d.%s", objID, propName).withMessage()
+		}
 		prop, _, errCode = txn.MapPropertyForKey(objID, propName, access == propKeyBase)
-	} else if vm.Resumable {
-		// Only the root VM may be handed a renewed transaction: nothing above
-		// it on the Go stack holds the one it replaces.
-		prop, errCode, vm.Context.StoreTxn = txn.FindPropertyRenewing(objID, propName)
 	} else {
-		prop, errCode = findPropertyForRead(txn, objID, propName)
+		// Look up the defined property (with inheritance via breadth-first
+		// search).
+		if vm.Resumable {
+			// Only the root VM may be handed a renewed transaction: nothing
+			// above it on the Go stack holds the one it replaces.
+			prop, errCode, vm.Context.StoreTxn = txn.FindLivePropertyRenewing(objID, propName)
+		} else {
+			prop, errCode = txn.FindLiveProperty(objID, propName)
+		}
+		if errCode != types.E_NONE && errCode != types.E_PROPNF {
+			return newMooErrorf(types.E_INVIND, "invalid object #%d", objID)
+		}
 	}
 	if errCode == types.E_NONE {
 		// Check read permission

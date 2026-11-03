@@ -1,6 +1,8 @@
 package bytecode
 
 import (
+	"strings"
+
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,6 +23,46 @@ type Program struct {
 	NumLocals     int           // Number of local variables
 	Source        []string      // Source lines (1-based by index+1), optional
 	BuiltinSlots  BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+	// BuiltinPropertyConstants[i] reports whether Constants[i] is a string that
+	// names a built-in property (IsBuiltinPropertyName), so a property read
+	// with a static name need not classify it again. The compiler fills it;
+	// it is nil on a program from anywhere else, whose reads classify the name
+	// when they run.
+	BuiltinPropertyConstants []bool
+}
+
+// IsBuiltinPropertyName reports whether name, in any case, is one of the
+// server-maintained object properties: name, owner, location, contents,
+// last_move, programmer, wizard, r, w, f, a. Those can never be defined
+// properties: add_property rejects them. parent/parents/children/player are
+// NOT properties -- they have dedicated accessor built-in functions (parent(),
+// parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
+func IsBuiltinPropertyName(name string) bool {
+	switch strings.ToLower(name) {
+	case "name", "owner", "location", "contents", "last_move",
+		"programmer", "wizard", "r", "w", "f", "a":
+		return true
+	default:
+		return false
+	}
+}
+
+// ClassifyPropertyConstants fills BuiltinPropertyConstants from Constants.
+func (p *Program) ClassifyPropertyConstants() {
+	p.BuiltinPropertyConstants = make([]bool, len(p.Constants))
+	for i, constant := range p.Constants {
+		p.BuiltinPropertyConstants[i] = constant.Type() == types.TYPE_STR && IsBuiltinPropertyName(constant.Str())
+	}
+}
+
+// IsBuiltinPropertyConstant reports whether the string constant at index names
+// a built-in property, from BuiltinPropertyConstants when the compiler filled
+// it.
+func (p *Program) IsBuiltinPropertyConstant(index int) bool {
+	if index < len(p.BuiltinPropertyConstants) {
+		return p.BuiltinPropertyConstants[index]
+	}
+	return IsBuiltinPropertyName(p.Constants[index].Str())
 }
 
 // BuiltinSlots caches the local-variable slots populated when a verb frame is
@@ -204,6 +246,8 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		Source:        p.Source,
 		BuiltinSlots:  p.BuiltinSlots,
 		BuiltinLayout: p.BuiltinLayout,
+		// Same constants, same classification.
+		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
 	}
 }
 

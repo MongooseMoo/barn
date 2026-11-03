@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -16,8 +17,8 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 	}
 
 	for _, name := range []string{"parent", "children", "player"} {
-		if builtins.IsBuiltinProperty(name) {
-			t.Fatalf("IsBuiltinProperty(%q) = true, want false", name)
+		if bytecode.IsBuiltinPropertyName(name) {
+			t.Fatalf("IsBuiltinPropertyName(%q) = true, want false", name)
 		}
 		if value, ok := getBuiltinProperty(store.DirectTxn(), 0, name); ok {
 			t.Fatalf("getBuiltinProperty(%q) = (%v, true), want false", name, value)
@@ -27,8 +28,8 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 		}
 	}
 
-	if !builtins.IsBuiltinProperty("last_move") {
-		t.Fatalf("IsBuiltinProperty(last_move) = false, want true")
+	if !bytecode.IsBuiltinPropertyName("last_move") {
+		t.Fatalf("IsBuiltinPropertyName(last_move) = false, want true")
 	}
 	value, ok := getBuiltinProperty(store.DirectTxn(), 0, "last_move")
 	if !ok {

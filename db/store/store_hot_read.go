@@ -153,16 +153,37 @@ func (s *Store) HotReadStats() (renewed, refused, declined uint64) {
 // renewed one (tx is then released) when this lookup read a hot property at a
 // superseded version and tx could be moved to the current clock.
 func (tx *StoreTxn) FindPropertyRenewing(objID types.ObjID, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
+	return tx.findPropertyRenewing(objID, nil, name)
+}
+
+// FindLivePropertyRenewing is ObjectExists(objID) and then, when objID exists,
+// FindPropertyRenewing(objID, name), with one fetch of objID for both. A
+// missing or recycled objID returns ObjectExists's code and tx.
+func (tx *StoreTxn) FindLivePropertyRenewing(objID types.ObjID, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
+	obj, ec := tx.existingObject(objID)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec, tx
+	}
+	return tx.findPropertyRenewing(objID, obj, name)
+}
+
+// findPropertyRenewing is FindPropertyRenewing given root, tx's view of objID,
+// or nil to fetch it.
+func (tx *StoreTxn) findPropertyRenewing(objID types.ObjID, root *Object, name string) (PropertyView, types.ErrorCode, *StoreTxn) {
 	if tx.direct || len(tx.store.hotPropertySet()) == 0 {
-		view, errCode := tx.FindProperty(objID, name)
-		return view, errCode, tx
+		prop, actualName, errCode := tx.findPropertyFrom(objID, root, name)
+		if errCode != types.E_NONE {
+			return PropertyView{}, errCode, tx
+		}
+		return prop.View(actualName), types.E_NONE, tx
 	}
 	tx.newReads = tx.newReads[:0]
 	tx.trackNewReads = true
-	prop, actualName, errCode := tx.findProperty(objID, name)
+	prop, actualName, errCode := tx.findPropertyFrom(objID, root, name)
 	tx.trackNewReads = false
 	if next := tx.renewAtStaleHotRead(); next != nil {
 		tx = next
+		// root is the old transaction's view; the renewed one fetches its own.
 		prop, actualName, errCode = tx.findProperty(objID, name)
 	}
 	if errCode != types.E_NONE {
