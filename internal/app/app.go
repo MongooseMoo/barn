@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
@@ -58,7 +59,10 @@ func logLevelHandler(w http.ResponseWriter, r *http.Request) {
 // for its side effects, because that only populates http.DefaultServeMux — and
 // exposing pprof on a mux the rest of the program might serve publicly is how it
 // ends up on the open internet.
-func debugMux() *http.ServeMux {
+//
+// store returns the loaded store, or nil before the load; the conflict census
+// route reads it.
+func debugMux(store func() *dbstore.Store) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/debug/vars", expvar.Handler())
 	mux.HandleFunc("/debug/loglevel", logLevelHandler)
@@ -68,6 +72,7 @@ func debugMux() *http.ServeMux {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.HandleFunc("/debug/pprof/moo", mooProfileHandler)
+	mux.HandleFunc("/debug/conflict-census", conflictCensusHandler(store))
 
 	return mux
 }
@@ -341,7 +346,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	defer releaseListeners()
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux(srv.Store))
 		if err != nil {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {

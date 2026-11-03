@@ -11,7 +11,7 @@ import (
 
 func TestMOOProfileRouteReturnsPprofProfile(t *testing.T) {
 	res := httptest.NewRecorder()
-	debugMux().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?seconds=1", nil))
+	debugMux(nil).ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?seconds=1", nil))
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %q", res.Code, res.Body.String())
 	}
@@ -34,7 +34,7 @@ func TestMOOProfileRouteRejectsConcurrentSession(t *testing.T) {
 	}
 	defer session.Stop()
 	res := httptest.NewRecorder()
-	debugMux().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?seconds=1", nil))
+	debugMux(nil).ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?seconds=1", nil))
 	if res.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", res.Code)
 	}
@@ -43,7 +43,7 @@ func TestMOOProfileRouteRejectsConcurrentSession(t *testing.T) {
 func TestMOOProfileRouteRejectsBadSeconds(t *testing.T) {
 	for _, q := range []string{"seconds=abc", "seconds=0", "seconds=-5"} {
 		res := httptest.NewRecorder()
-		debugMux().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?"+q, nil))
+		debugMux(nil).ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/debug/pprof/moo?"+q, nil))
 		if res.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400", q, res.Code)
 		}
