@@ -398,9 +398,10 @@ func (c ConflictCensus) WastedShare() float64 {
 }
 
 // NoteSliceAttempts counts one task slice that resolved (committed, or failed
-// for good) after attempts attempts, having executed ticks over all of them. It
-// does nothing unless tracking is on.
-func (s *Store) NoteSliceAttempts(attempts int, ticks int64) {
+// for good) after attempts attempts, having executed ticks over all of them, of
+// which rerunTicks belong to attempts it discarded and re-ran. It does nothing
+// unless tracking is on.
+func (s *Store) NoteSliceAttempts(attempts int, ticks, rerunTicks int64) {
 	if !s.conflicts.tracking.Load() || attempts < 1 {
 		return
 	}
@@ -409,4 +410,5 @@ func (s *Store) NoteSliceAttempts(attempts int, ticks int64) {
 	defer census.mu.Unlock()
 	census.attempts[min(attempts, maxSliceAttempts+1)-1]++
 	census.totalTicks += ticks
+	census.wastedTicks += rerunTicks
 }

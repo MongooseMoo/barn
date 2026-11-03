@@ -59,7 +59,7 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 
 	stub.site.Line, stub.ticks = 12, 50
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(3, 200)
+	s.NoteSliceAttempts(3, 200, 120)
 
 	census := s.ConflictCensus()
 	p := censusRow(t, census, ConflictProperty, a, "p")
@@ -89,9 +89,9 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 	if got := census.SliceAttempts[2]; got != 1 {
 		t.Errorf("SliceAttempts = %v, want one slice at 3 attempts", census.SliceAttempts)
 	}
-	// The one loss was stale on two keys; its 50 ticks are wasted once.
-	if census.TotalTicks != 200 || census.WastedTicks != 50 || census.WastedShare() != 25 {
-		t.Errorf("total %d wasted %d share %.1f%%, want 200, 50 and 25%%", census.TotalTicks, census.WastedTicks, census.WastedShare())
+	// The run-wide totals are the engine's counts, not the loss samples.
+	if census.TotalTicks != 200 || census.WastedTicks != 120 || census.WastedShare() != 60 {
+		t.Errorf("total %d wasted %d share %.1f%%, want 200, 120 and 60%%", census.TotalTicks, census.WastedTicks, census.WastedShare())
 	}
 }
 
@@ -141,10 +141,13 @@ func TestConflictDiagSliceAttemptsHistogram(t *testing.T) {
 	s, _, _ := conflictFixture(t)
 	s.SetConflictCensusTracking(true)
 	for _, n := range []int{1, 1, maxSliceAttempts, maxSliceAttempts + 1, 1000, 0} {
-		s.NoteSliceAttempts(n, int64(n))
+		s.NoteSliceAttempts(n, int64(n), int64(n-1))
 	}
 	if total := s.ConflictCensus().TotalTicks; total != 1+1+maxSliceAttempts+maxSliceAttempts+1+1000 {
 		t.Errorf("TotalTicks = %d", total)
+	}
+	if wasted := s.ConflictCensus().WastedTicks; wasted != maxSliceAttempts-1+maxSliceAttempts+999 {
+		t.Errorf("WastedTicks = %d", wasted)
 	}
 	if share := (ConflictCensus{}).WastedShare(); share != 0 {
 		t.Errorf("WastedShare with no ticks = %v, want 0", share)
@@ -180,7 +183,7 @@ func TestConflictDiagOffRecordsNothing(t *testing.T) {
 	readValue(t, loser, a, "p")
 	commitValue(t, s, a, "p", types.NewInt(5))
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(1, 10)
+	s.NoteSliceAttempts(1, 10, 5)
 	census := s.ConflictCensus()
 	if census.TotalTicks != 0 || census.WastedTicks != 0 {
 		t.Errorf("ticks with tracking off = %d total, %d wasted", census.TotalTicks, census.WastedTicks)

@@ -152,9 +152,9 @@ type ConflictCount struct {
 // counts the slices that resolved after i+1 attempts; its last element every
 // slice that took more than maxSliceAttempts. TotalTicks sums the ticks those
 // slices executed over all their attempts, committed and lost; WastedTicks sums
-// the ticks of each lost attempt once, however many keys it was stale on. Both
-// stay 0 unless tracking is on, and WastedTicks counts only losses whose
-// transaction had a site callback.
+// the ticks of the attempts among them that were discarded and re-run, so it
+// never exceeds TotalTicks. Both come from the engine's count of each attempt
+// and stay 0 unless tracking is on.
 type ConflictCensus struct {
 	LostTxns        uint64
 	RefusedRenewals uint64
@@ -236,7 +236,6 @@ func (tx *StoreTxn) lostValidation() {
 	census.mu.Lock()
 	defer census.mu.Unlock()
 	census.lost++
-	census.wastedTicks += lossTicks
 	sole := len(tx.conflicts) == 1
 	for i := range tx.conflicts {
 		c := &tx.conflicts[i]

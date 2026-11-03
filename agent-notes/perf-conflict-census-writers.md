@@ -25,12 +25,37 @@ Done, in two commits on the branch:
 
 3. Totals: ConflictCensus.TotalTicks (ticks of every counted slice over all
    its attempts, passed by the engine as executedTicks to NoteSliceAttempts),
-   WastedTicks (each lost transaction's sampled loss ticks, once, not per key),
-   and WastedShare(); the harness attempts_per_slice line prints total_ticks=,
-   wasted_ticks=, wasted_share=%. Mutation-checked: wasted counted per key,
-   total ticks dropped, reset not clearing the total, share guard removed (NaN),
-   WastedTicks not copied out. Each failed a store or app test and was restored.
-   Not unit-tested: the engine passing executedTicks (vs one attempt's ticks).
+   WastedTicks and WastedShare(); the harness attempts_per_slice line prints
+   total_ticks=, wasted_ticks=, wasted_share=%.
+
+4. Fix for wasted > total (Mongoose 16p run: wasted_share=104.2%). Cause,
+   proven by engine/conflict_diag_test.go (after_fork case, before the fix:
+   total=2, wasted=307): engine/task_runtime.go read the attempt's ticks
+   (attemptTicks = bcVM.Ticks - sliceEntryTicks) right after launchSlice and
+   before drainForks, which resumes the VM after every fork and runs the rest
+   of the slice. Everything a task executed after its first fork statement was
+   missing from attemptTicks, executedTicks and TotalTicks (and from the
+   VMAttempt/RetryWaste metrics' ticks), while the site callback, sampled at
+   the commit after drainForks, counted it. Fix: drainForks runs before the
+   ticks are read; WastedTicks is now the engine's attemptTicks summed at the
+   two retry points (rerunTicks, passed as NoteSliceAttempts' third argument),
+   no longer the siteFn sample in lostValidation, so wasted <= total by
+   construction. Per-key ReadTicks/LossTicks/Diag.WastedTicks still come from
+   siteFn; with the reorder a final-commit loss's sample equals the attempt's
+   ticks (asserted), and a boundary loss's sample is the ticks up to the
+   irreversible builtin.
+   Checked and ruled out by reading: retry checkpoint restoring Ticks (launchSlice
+   resets bcVM.Ticks = sliceEntryTicks on attempt > 0, task_runtime.go
+   launchSlice), pooled VMs (task VMs are never pooled, vm/pool.go), closure
+   capturing a stale VM (installed per attempt on the VM that runs it), renew
+   carrying siteFn (same VM and entry).
+   Mutation-checked, each failed and was restored: ticks read before drainForks
+   (after_fork fails), rerunTicks not added at the commit retry (fresh,
+   after_fork, resumed fail), not added at the boundary retry (boundary fails),
+   siteFn sum put back in lostValidation (engine and store tests fail),
+   NoteSliceAttempts not adding rerunTicks (store and app tests fail).
+   vmElapsed is still measured before drainForks (it also feeds lag reports);
+   left alone, not in scope.
 
 Verified: build; gofmt, go vet, staticcheck clean on db/store, engine, config,
 server, internal/app; targeted tests pass (store Conflict/Renewal/MapKey,
@@ -68,7 +93,13 @@ forced false, parser ignoring CONFLICT_CENSUS, server not applying it.
 - The debug endpoint starts before LoadDatabase, so the census handler reaches
   the store through an atomic pointer set after the load.
 
+- The census showed wasted > total because ticks run after a fork statement
+  were never counted in the attempt (item 4). The VMAttempt and RetryWaste
+  metrics had the same undercount before the fix.
+
 ## Next step
-Team lead opens the PR. Not unit-tested: the engine wiring
-(installConflictSite, the NoteSliceAttempts call); it is exercised by the
-Mongoose workload harness only.
+Team lead re-runs the Mongoose workload to confirm wasted_share < 100% and
+opens the PR. The engine wiring is now covered by
+TestConflictCensusWastedTicksAreTheRerunAttempts (fresh, after fork, resumed
+after suspend, boundary loss). Not re-measured: the Mongoose workload numbers
+after the fix.
