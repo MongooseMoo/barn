@@ -138,6 +138,14 @@ type State struct {
 	// started. Toast still finds it suspended (tasks.cc do_resume searches the
 	// background queues), so resume() only replaces its WakeValue.
 	wokenUnrun bool
+	// resumed marks a task that has started a slice from a suspension. Toast
+	// moves such a task to a background queue to run it, and a fork starts
+	// there, so while either runs another task's queued_tasks() lists it.
+	resumed bool
+	// startFrame is the top activation when the current slice started: what
+	// the task showed while queued, and what Toast lists for it until it runs.
+	startFrame    types.ActivationFrame
+	hasStartFrame bool
 
 	settlement SettlementObserver
 
@@ -319,6 +327,12 @@ func (t *State) SettledLocked() bool {
 // manager's index of unfinished tasks stays exact. The caller holds t.Mu.
 func (t *State) setStateLocked(state TaskState) {
 	was := t.SettledLocked()
+	if state == TaskRunning && t.Status != TaskRunning {
+		t.hasStartFrame = len(t.CallStack) > 0
+		if t.hasStartFrame {
+			t.startFrame = t.CallStack[len(t.CallStack)-1]
+		}
+	}
 	t.Status = state
 	if state != TaskQueued {
 		t.wokenUnrun = false
@@ -420,6 +434,23 @@ func (t *State) StartExecution() bool {
 	t.setExecutionActiveLocked(true)
 	t.setStateLocked(TaskRunning)
 	return true
+}
+
+// NoteResumedSlice records that the task's current slice continues a
+// suspended VM.
+func (t *State) NoteResumedSlice() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	t.resumed = true
+}
+
+// RunningInBackground reports a running task that Toast's serial scheduler
+// would hold in a background queue, ready to run: a forked task, or one
+// resumed from a suspension. A command task's first slice is unlisted input.
+func (t *State) RunningInBackground() bool {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return t.Status == TaskRunning && (t.Kind == TaskForked || t.resumed)
 }
 
 // TryClaimQueued atomically takes the execution claim for a queued task.
@@ -1061,7 +1092,18 @@ func (t *State) ToQueuedTaskInfo(includeVariables bool) types.Value {
 func (t *State) QueuedTaskSnapshot(includeVariables bool) (time.Time, int64, int64, types.Value) {
 	t.Mu.RLock()
 	defer t.Mu.RUnlock()
-	return t.StartTime, t.QueueSeq, t.ID, t.toQueuedTaskInfoLocked(includeVariables)
+	return t.queuedStartLocked(), t.QueueSeq, t.ID, t.toQueuedTaskInfoLocked(includeVariables)
+}
+
+// queuedStartLocked is Toast's start_tv for the task: the wake time of a task
+// woken or due to wake from a suspension (tasks.cc enqueue_suspended_task and
+// do_resume), otherwise a fork's scheduled start or the indefinite-suspend
+// sentinel.
+func (t *State) queuedStartLocked() time.Time {
+	if !t.WakeTime.IsZero() {
+		return t.WakeTime
+	}
+	return t.StartTime
 }
 
 func (t *State) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
@@ -1074,8 +1116,15 @@ func (t *State) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 	thisVal := types.None // explicit absence; zero Value{} is integer 0, not None
 	var programmer types.ObjID
 
-	if len(t.CallStack) > 0 {
-		topFrame := t.CallStack[len(t.CallStack)-1]
+	// A running task is listed as it stood when its slice started.
+	var topFrame types.ActivationFrame
+	hasFrame := len(t.CallStack) > 0
+	if t.Status == TaskRunning {
+		hasFrame, topFrame = t.hasStartFrame, t.startFrame
+	} else if hasFrame {
+		topFrame = t.CallStack[len(t.CallStack)-1]
+	}
+	if hasFrame {
 		verbName = topFrame.Verb
 		verbLoc = topFrame.VerbLoc
 		lineNumber = topFrame.LineNumber
@@ -1097,11 +1146,7 @@ func (t *State) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 	// Estimate bytes (0 for now, can be calculated later if needed)
 	bytes := int64(0)
 
-	reportedStart := t.StartTime
-	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
-		reportedStart = t.WakeTime
-	}
-	startValue := types.NewInt(reportedStart.Add(500 * time.Millisecond).Unix())
+	startValue := types.NewInt(t.queuedStartLocked().Add(500 * time.Millisecond).Unix())
 	if t.IsExecSuspended && t.ExecCommandName != "" {
 		startValue = types.NewStr(t.ExecCommandName)
 	}

@@ -49,6 +49,10 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	}
 	snapshots := make([]queuedTaskSnapshot, 0, len(tasks))
 	for _, queuedTask := range tasks {
+		// Toast's caller is the current task, in no queue (tasks.cc bf_queued_tasks).
+		if isCallingTask(ctx, queuedTask) {
+			continue
+		}
 		startTime, queueSeq, id, info := queuedTask.QueuedTaskSnapshot(includeVariables)
 		snapshots = append(snapshots, queuedTaskSnapshot{startTime, queueSeq, id, info})
 	}
@@ -510,6 +514,11 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 // Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
 // min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
 // least one argument is supplied.
+// yinCommitTicks is how long a command's slice runs before a yin() commits it.
+// Chosen on the Mongoose workload (16 players: 239/s against master's 138/s;
+// 1000 and 100000 did worse).
+const yinCommitTicks = 10000
+
 func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	seconds := 0.0
 	if len(args) >= 1 {
@@ -555,6 +564,17 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
+		// A yield is always Toast-legal here, so a root-VM task that has run
+		// yinCommitTicks in this slice yields for 0 seconds and commits: a long
+		// command becomes short transactions that rarely lose. The root VM's
+		// TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
+		// Forked tasks keep one slice: the database's background jobs write the
+		// same few hot properties, and split at every yin they overlap and keep
+		// losing to each other (1p: 91% of ticks wasted).
+		if ctx.CanSuspend && t.Kind != task.TaskForked && t.TicksLimit-ctx.TicksRemaining >= yinCommitTicks {
+			t.SuspendSeconds(0)
+			return types.Suspend(0)
+		}
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -609,7 +629,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 		if target != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
-		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
+		return types.Ok(types.NewInt(countBackgroundTasksFor(ctx, mgr, target)))
 	}
 
 	connected := 0
@@ -628,15 +648,20 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("player"), types.NewObj(target)},
 		{types.NewStr("connected"), types.NewInt(int64(connected))},
-		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(ctx, mgr, target))},
 		{types.NewStr("last_input_task_id"), types.NewInt(lastInputTaskID)},
 	}))
 }
 
-func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
+// isCallingTask reports whether t is the task running this builtin.
+func isCallingTask(ctx *Execution, t *task.State) bool {
+	return (ctx.Task != nil && t == ctx.Task) || (ctx.Context != nil && ctx.TaskID != 0 && t.ID == ctx.TaskID)
+}
+
+func countBackgroundTasksFor(ctx *Execution, tasks TaskLister, player types.ObjID) int64 {
 	count := int64(0)
 	for _, t := range tasks.GetQueuedTasks() {
-		if t.Owner == player {
+		if t.Owner == player && !isCallingTask(ctx, t) {
 			count++
 		}
 	}

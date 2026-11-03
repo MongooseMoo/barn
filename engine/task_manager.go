@@ -166,7 +166,9 @@ func (m *TaskManager) GetAllTasks() []*task.State {
 	return states
 }
 
-// GetQueuedTasks returns all queued (waiting) tasks
+// GetQueuedTasks returns the tasks Toast's queued_tasks() lists: queued and
+// suspended tasks, and running tasks Toast would hold in a background queue.
+// The caller excludes its own task.
 func (m *TaskManager) GetQueuedTasks() []*task.State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -182,7 +184,7 @@ func (m *TaskManager) GetQueuedTasks() []*task.State {
 				continue
 			}
 		}
-		if state == task.TaskQueued || state == task.TaskSuspended {
+		if state == task.TaskQueued || state == task.TaskSuspended || candidate.RunningInBackground() {
 			tasks = append(tasks, &candidate.State)
 		}
 	}
