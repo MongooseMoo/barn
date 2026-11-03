@@ -347,6 +347,7 @@ retryAttempt:
 	if savedVM := t.VM(); attempt == 0 && savedVM != nil && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits(s.session)
 		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
+		t.NoteResumedSlice()
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
 	}

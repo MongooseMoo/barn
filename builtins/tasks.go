@@ -49,6 +49,10 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	}
 	snapshots := make([]queuedTaskSnapshot, 0, len(tasks))
 	for _, queuedTask := range tasks {
+		// Toast's caller is the current task, in no queue (tasks.cc bf_queued_tasks).
+		if isCallingTask(ctx, queuedTask) {
+			continue
+		}
 		startTime, queueSeq, id, info := queuedTask.QueuedTaskSnapshot(includeVariables)
 		snapshots = append(snapshots, queuedTaskSnapshot{startTime, queueSeq, id, info})
 	}
@@ -617,7 +621,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 		if target != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
-		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
+		return types.Ok(types.NewInt(countBackgroundTasksFor(ctx, mgr, target)))
 	}
 
 	connected := 0
@@ -636,15 +640,20 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("player"), types.NewObj(target)},
 		{types.NewStr("connected"), types.NewInt(int64(connected))},
-		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(ctx, mgr, target))},
 		{types.NewStr("last_input_task_id"), types.NewInt(lastInputTaskID)},
 	}))
 }
 
-func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
+// isCallingTask reports whether t is the task running this builtin.
+func isCallingTask(ctx *Execution, t *task.State) bool {
+	return (ctx.Task != nil && t == ctx.Task) || (ctx.Context != nil && ctx.TaskID != 0 && t.ID == ctx.TaskID)
+}
+
+func countBackgroundTasksFor(ctx *Execution, tasks TaskLister, player types.ObjID) int64 {
 	count := int64(0)
 	for _, t := range tasks.GetQueuedTasks() {
-		if t.Owner == player {
+		if t.Owner == player && !isCallingTask(ctx, t) {
 			count++
 		}
 	}
