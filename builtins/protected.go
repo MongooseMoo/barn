@@ -84,16 +84,6 @@ func (r *Session) isProtectedEntryFor(ctx *Execution, e *builtinEntry) bool {
 	return r.isProtectedEntry(e)
 }
 
-// isProtectedNameFor is IsProtectedBuiltin as seen by the task running ctx.
-func (r *Session) isProtectedNameFor(ctx *Execution, name string) bool {
-	if ctx != nil && ctx.Context != nil {
-		if view := ctx.ServerOptions; view != nil && view.ProtectedBuiltins != nil {
-			return view.ProtectedBuiltins[name]
-		}
-	}
-	return r.IsProtectedBuiltin(name)
-}
-
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
 // flags and replaces the protected-builtin set. Called from
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.

@@ -38,6 +38,11 @@ func callSiteAt(program *bytecode.Program, index int) *verbCallSite {
 	if slot == nil {
 		return nil
 	}
+	return callSiteIn(slot)
+}
+
+// callSiteIn returns the call site held in slot, making it on first use.
+func callSiteIn(slot *atomic.Value) *verbCallSite {
 	if site, ok := slot.Load().(*verbCallSite); ok {
 		return site
 	}

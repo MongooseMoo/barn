@@ -2,6 +2,7 @@ package vm
 
 import (
 	"strings"
+	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
@@ -333,20 +334,29 @@ func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin st
 }
 
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
-// suspension with the calling VM. args is owned by the builtin dispatcher, which
-// has just resolved #0:name to verb on definer.
-func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
+// suspension with the calling VM. It resolves #0:name from the call site in
+// slot, the protected builtin's own, so repeated calls reuse the site's lookup
+// record and compiled program; found is false, with nothing pushed, when #0
+// has no callable verb by that name. args belongs to the builtin dispatcher and
+// is copied for the wrapper's frame.
+func (vm *VM) pushProtectedVerb(name types.Value, slot *atomic.Value, args []types.Value) (types.Result, bool) {
+	site := callSiteIn(slot)
+	verb, definer, err := vm.Context.StoreTxn.FindCallableVerbAt(site.lookup, types.ObjID(0), name.Str())
+	if err != nil {
+		return types.Result{}, false
+	}
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved, nil); err != nil {
+	args = append([]types.Value(nil), args...)
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved, site); err != nil {
 		result := types.Err(errorCode(err))
 		result.Reason = exceptionReason(err)
-		return result
+		return result, true
 	}
 	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread
 	// mode rather than the default one (functions.cc call_bi_func).
 	vm.Context.ThreadMode = threadMode
-	return types.Result{Flow: types.FlowBuiltinPush}
+	return types.Result{Flow: types.FlowBuiltinPush}, true
 }
 
 // executePass handles OP_PASS: call the same verb on the parent object.
