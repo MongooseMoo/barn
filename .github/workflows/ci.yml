@@ -14,9 +14,36 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
+  # The pull request, merge queue and master push runs usually test the same
+  # tree against the same suite commit. If a run of this repository already
+  # passed on both, the required jobs below are skipped, which GitHub reports
+  # as success.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+      suite: ${{ steps.suite.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: suite
+        run: echo "sha=$(git ls-remote https://github.com/MongooseMoo/moo-conformance-tests refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+      - id: tree
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: ci
+          extra: ${{ steps.suite.outputs.sha }}
+
   go:
     name: Build & unit tests
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       # A server run as root with /dev/null as its output database replaces the
@@ -71,6 +98,8 @@ jobs:
 
   conformance:
     name: MOO conformance suite
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - name: Check /dev/null is a device
@@ -93,12 +122,13 @@ jobs:
         run: go build -o bin/barn ./cmd/barn/
 
       # The conformance suite is the spec. It lives in its own repo and is a
-      # read-only dependency here; CI always runs barn against its latest tip.
+      # read-only dependency here; CI runs barn against its tip as read when
+      # this run started, the commit the pass record names.
       - name: Checkout moo-conformance-tests
         uses: actions/checkout@v4
         with:
           repository: MongooseMoo/moo-conformance-tests
-          ref: main
+          ref: ${{ needs.tested.outputs.suite }}
           path: moo-conformance-tests
 
       - name: Set up uv
@@ -155,3 +185,15 @@ jobs:
             conformance-logs/
             notifications-logs/
           if-no-files-found: warn
+
+  record:
+    name: Record pass
+    needs: [tested, go, conformance]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: ci
+          extra: ${{ needs.tested.outputs.suite }}
