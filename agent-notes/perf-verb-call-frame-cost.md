@@ -13,7 +13,12 @@ initialised once). Briefed by team-lead; no push, no PR.
   move `verbResolveGen` only when they overwrite a present key or replace the
   map (nil-to-new needs no bump: the map was dropped with a bump, or never existed).
   `invalidateResolveCaches` still bumps on drop.
-- C1, C3, C6, C7: not started.
+- C1: done. `frameFrom` (vm/vm.go) now = `frameWithoutCommandDefaults` (pool,
+  type constants) plus the command-variable defaults. `startVerbCallResolved`
+  and `executePass` (vm/op_verb.go) call `frameWithoutCommandDefaults`; their
+  `copyCommandLocals` writes all six right after. Test
+  `TestVerbCallAndPassCarryCommandVariables` (vm/frame_command_env_test.go).
+- C3, C6, C7: not started.
 
 ## Decisions and why
 
@@ -25,6 +30,14 @@ initialised once). Briefed by team-lead; no push, no PR.
   `TestVerbMemoUseOverflowMovesResolveGeneration` so each of the four bumps has
   a test that fails without it.
 
+- C1: no precomputed slot array in `bytecode.BuiltinSlots`. With the default
+  fill skipped, a verb call builds `commandSlots` once for the callee
+  (`copyCommandLocals`) and once for the caller (`commandEnvironment`), two
+  different programs, so nothing is rebuilt; a new BuiltinSlots field would
+  also change the struct the compiler and db/format tests compare literally.
+- C1 break-check: dropping the `CommandEnvironment` write in
+  `copyCommandLocals` fails the new test (`list[1] = 0, want "a"`).
+
 ## Surprises
 
 - C2 break-checks: the scenario comparison (`TestVerbCallSiteMatchesFindCallableVerb`)
@@ -34,4 +47,4 @@ initialised once). Briefed by team-lead; no push, no PR.
 
 ## Next step
 
-C1.
+C3.

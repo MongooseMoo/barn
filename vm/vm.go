@@ -114,22 +114,33 @@ func (vm *VM) allocLocals(n int) []types.Value {
 	return locals
 }
 
-// frameFrom returns a frame initialized to init, reusing a pooled StackFrame
-// and its LoopStack/ExceptStack backing arrays when one is available. init's
-// Locals must come from allocLocals with localsOnStack set, or be owned.
+// frameFrom returns a frame initialized to init, with the command variables
+// at their defaults ("" for the strings, #-1 for dobj and iobj) and the type
+// constants bound. It reuses a pooled StackFrame and its LoopStack/ExceptStack
+// backing arrays when one is available. init's Locals must come from
+// allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
-	if init.Program != nil {
-		for index, slot := range commandSlots(init.Program) {
+	f := vm.frameWithoutCommandDefaults(init)
+	if f.Program != nil {
+		for index, slot := range commandSlots(f.Program) {
 			value := types.NewStr("")
 			if index >= 4 {
 				value = types.NewObj(types.ObjNothing)
 			}
 			if slot != 0 {
-				init.Locals[slot-1] = value
+				f.Locals[slot-1] = value
 			} else {
-				init.CommandEnvironment[index] = value
+				f.CommandEnvironment[index] = value
 			}
 		}
+	}
+	return f
+}
+
+// frameWithoutCommandDefaults is frameFrom for a caller that sets all six
+// command variables itself (copyCommandLocals), so it leaves them unset.
+func (vm *VM) frameWithoutCommandDefaults(init StackFrame) *StackFrame {
+	if init.Program != nil {
 		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
 			init.Locals[constant.Slot-1] = constant.Value
 		}

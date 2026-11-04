@@ -228,8 +228,9 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		savedThreadMode = vm.Context.ThreadMode
 	}
 
-	// Push new stack frame
-	frame := vm.frameFrom(StackFrame{
+	// Push new stack frame. copyCommandLocals below sets every command
+	// variable, so the frame skips their defaults.
+	frame := vm.frameWithoutCommandDefaults(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
@@ -481,7 +482,9 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := vm.frameFrom(StackFrame{
+	// copyCommandLocals below sets every command variable, so the frame skips
+	// their defaults.
+	newFrame := vm.frameWithoutCommandDefaults(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
