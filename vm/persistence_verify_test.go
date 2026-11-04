@@ -161,6 +161,22 @@ func TestRestoreVMSnapshotValidProgramResumes(t *testing.T) {
 	}
 }
 
+func TestRestoredResumeInitializesStoreTransaction(t *testing.T) {
+	store := dbstore.NewStore()
+	ctx := task.NewContext()
+	machine, err := RestoreVMSnapshot(validRestoredSnapshot(), store, nil, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := machine.Resume()
+	if result.Flow != types.FlowReturn {
+		t.Fatalf("Resume() = %+v, want return", result)
+	}
+	if ctx.Store != store || ctx.StoreTxn != store.DirectTxn() {
+		t.Fatal("restored Resume did not initialize the store and its transaction")
+	}
+}
+
 // FuzzRestoreVMSnapshotDoesNotPanic runs any bytecode the restore verifier
 // accepts. A database's suspended tasks carry these bytes (db/format
 // reader_vm.go), so verifier acceptance is all that stands before the VM.

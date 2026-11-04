@@ -623,6 +623,7 @@ func (vm *VM) IsYielded() bool {
 // Resume continues execution after a yield (suspend or fork).
 // The VM's PC and stack are still intact from the yield point.
 func (vm *VM) Resume() types.Result {
+	vm.ensureContextDependencies()
 	vm.profileEnter()
 	result := vm.resume()
 	vm.profileExit()

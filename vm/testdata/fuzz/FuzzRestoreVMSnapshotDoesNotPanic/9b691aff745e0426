@@ -1,0 +1,5 @@
+go test fuzz v1
+[]byte("00\xb60\u05fb")
+int(0)
+uint16(323)
+byte('\x1f')
