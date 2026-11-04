@@ -46,7 +46,24 @@ const maxConflictRetryAttempts = 64
 // attempt) throughput and tail match no-gate within noise while keeping the
 // cannot-lose guarantee. Escalation is correctness insurance, not a second
 // commit path.
+//
+// A second rule escalates sooner by wasted work instead of by count: see
+// escalateAfterWastedTicks. Either rule (or a slice with no restorable state)
+// takes the gate.
 const escalateAfterAttempts = 63
+
+// escalateAfterWastedTicks escalates a slice to the exclusive commit gate on
+// its next attempt once a single lost attempt executed at least this many
+// ticks (the same per-attempt count the conflict census sums as wasted ticks).
+// An expensive slice therefore loses at most once to a hot writer, while
+// short tasks keep retrying optimistically up to escalateAfterAttempts.
+// Escalating every task at its second attempt serialized the 16p mix
+// (experiments/2026-09-01-escalate-at-2.md), so the threshold sits above
+// ordinary commands. Starting value: on the 1p real Mongoose workload,
+// ordinary commands were seen around 141k ticks per slice and the long
+// scheduled jobs that fall into abort storms around 240k-470k; 200k is between
+// them. To be tuned against the real-workload gate.
+const escalateAfterWastedTicks = 200_000
 
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
@@ -203,6 +220,9 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	}()
 	attempt := 0
 	var sliceEntryTicks int64
+	// lostAttemptTicks is the ticks the previous attempt executed before it
+	// lost, or 0 on the first attempt.
+	var lostAttemptTicks int64
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
 	// gate must never outlive this invocation. The common path releases it
 	// explicitly right after the attempt's commit resolves.
@@ -218,10 +238,16 @@ retryAttempt:
 	// slice that cannot retry has exactly one defence against a lost commit —
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
-	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !gate.held() {
+	// A slice whose last attempt lost after wasting escalateAfterWastedTicks
+	// takes the gate too, so it does not lose that much work again.
+	wastedWork := attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks
+	if (attempt >= escalateAfterAttempts || !retryState.canRetry || wastedWork) && !gate.held() {
 		cause := gateCauseRetryBudget
-		if !retryState.canRetry {
+		switch {
+		case !retryState.canRetry:
 			cause = gateCauseNotRestorable
+		case attempt < escalateAfterAttempts:
+			cause = gateCauseWastedWork
 		}
 		gateWait, err := gate.acquire(taskCtx, s.store, cause)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
@@ -448,6 +474,7 @@ retryAttempt:
 		ctx.ConflictRetryRequested = false
 		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
 		rerunTicks += attemptTicks
+		lostAttemptTicks = attemptTicks
 		gate.release(ctx.StoreTxn)
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
@@ -470,6 +497,7 @@ retryAttempt:
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
 				rerunTicks += attemptTicks
+				lostAttemptTicks = attemptTicks
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
@@ -915,6 +943,7 @@ type GateHolder struct {
 const (
 	gateCauseRetryBudget   = "retry budget spent"
 	gateCauseNotRestorable = "no restorable state"
+	gateCauseWastedWork    = "wasted work"
 )
 
 // GateHold is the cumulative exclusive commit gate hold of one task verb.
