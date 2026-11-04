@@ -65,11 +65,8 @@ const (
 	PREC_POSTFIX        = 14 // . : [ ]
 )
 
-// precedence returns the precedence of the given token type
-func precedence(t TokenType) int {
-	if spec, ok := binaryOperatorByToken(t); ok {
-		return spec.precedence
-	}
+// nonBinaryPrecedence handles assignment, conditional and postfix syntax.
+func nonBinaryPrecedence(t TokenType) int {
 	switch t {
 	case TOKEN_ASSIGN:
 		return PREC_ASSIGNMENT
@@ -93,13 +90,6 @@ func semanticUnaryOperator(token TokenType) ir.UnaryOperator {
 	default:
 		panic(fmt.Sprintf("non-unary token %s", token))
 	}
-}
-
-func semanticBinaryOperator(token TokenType) ir.BinaryOperator {
-	if spec, ok := binaryOperatorByToken(token); ok {
-		return spec.semantic
-	}
-	panic(fmt.Sprintf("non-binary token %s", token))
 }
 
 // ParseExpression parses an expression
@@ -337,19 +327,20 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 	}
 
 	// Parse infix expressions
-	for precedence(p.current.Type) >= prec {
-		switch p.current.Type {
-		case TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
-			TOKEN_CARET, TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE,
-			TOKEN_AND, TOKEN_OR, TOKEN_BITAND, TOKEN_BITOR, TOKEN_BITXOR,
-			TOKEN_LSHIFT, TOKEN_RSHIFT, TOKEN_IN:
-			// Binary operator
-			op := p.current.Type
+	for {
+		spec, binary := binaryOperatorByToken(p.current.Type)
+		opPrec := spec.precedence
+		if !binary {
+			opPrec = nonBinaryPrecedence(p.current.Type)
+		}
+		if opPrec < prec {
+			break
+		}
+		if binary {
+			// The selected record owns recognition, binding and IR meaning.
 			pos := p.current.Position
-			opPrec := precedence(op)
 			p.nextToken()
 
-			spec, _ := binaryOperatorByToken(op)
 			var right ir.Expr
 			if spec.associativity == associateRight {
 				right, err = p.ParseExpression(opPrec) // Don't increment for right-assoc
@@ -362,10 +353,13 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 			left = &ir.BinaryExpr{
 				Pos:      pos,
 				Left:     left,
-				Operator: semanticBinaryOperator(op),
+				Operator: spec.semantic,
 				Right:    right,
 			}
+			continue
+		}
 
+		switch p.current.Type {
 		case TOKEN_LPAREN:
 			// Function call: identifier(args)
 			// Only parse as function call if left is an identifier

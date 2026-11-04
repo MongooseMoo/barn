@@ -1,0 +1,449 @@
+2026/11/04 14:48:37 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:37 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:48:37 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:48:37 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:37 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     632	   1895204 ns/op	   5.93 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   37225	     30858 ns/op	   8.98 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   97540	     12241 ns/op	  11.76 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1018	   1176577 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:48:59 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:48:59 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:48:59 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:48:59 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:48:59 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     627	   1950447 ns/op	   5.76 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   38952	     29683 ns/op	   9.33 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   97272	     12404 ns/op	  11.61 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	     998	   1159699 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:49:18 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:18 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:18 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:18 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:18 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     638	   1896678 ns/op	   5.92 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   38647	     30619 ns/op	   9.05 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   97884	     12237 ns/op	  11.77 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1060	   1128959 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:49:40 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:40 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:40 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:40 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:40 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     618	   1971758 ns/op	   5.70 MB/s	       444.0 programs/op	  733355 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   36722	     33138 ns/op	   8.36 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	  101138	     12112 ns/op	  11.89 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1024	   1167677 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:49:55 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:49:55 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:55 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:49:55 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:49:55 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     618	   1969660 ns/op	   5.70 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   38169	     30214 ns/op	   9.17 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	  102121	     13813 ns/op	  10.42 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1002	   1297190 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:50:18 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:18 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:18 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:18 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:18 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     530	   2190829 ns/op	   5.13 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   38098	     30364 ns/op	   9.12 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   95528	     12616 ns/op	  11.41 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	     946	   1201065 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:50:31 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:31 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:31 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:31 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:31 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     603	   1981086 ns/op	   5.67 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   39202	     30396 ns/op	   9.11 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   88924	     12629 ns/op	  11.40 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1069	   1127291 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:50:52 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:50:52 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:52 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:50:52 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:50:52 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     637	   2135087 ns/op	   5.26 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   36613	     30235 ns/op	   9.16 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   84552	     12617 ns/op	  11.41 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1066	   1145142 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:51:19 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:19 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:51:19 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:51:19 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:19 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     546	   2152668 ns/op	   5.22 MB/s	       444.0 programs/op	  733354 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   38913	     29149 ns/op	   9.50 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	  101937	     12250 ns/op	  11.75 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1006	   1146540 ns/op	  208490 B/op	    3536 allocs/op
+PASS
+
+2026/11/04 14:51:40 WARN #1.child = #51 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #771 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #1491 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #2211 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #2931 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #3651 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #4371 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #5120 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #5840 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #6560 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #7280 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #8000 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #8721 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #9413 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #9729 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #10449 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #11169 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #11907 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #12627 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #13361 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #1.child = #14618 <invalid> ... removed src=startup_repair
+2026/11/04 14:51:40 WARN #0 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #2 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #3 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:51:40 WARN #3 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #4 not in it's location's (#2) contents src=startup_repair
+2026/11/04 14:51:40 WARN #4 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #5 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #6 not in it's parent's (#1) children src=startup_repair
+2026/11/04 14:51:40 WARN #7 not in it's parent's (#1) children src=startup_repair
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/parser
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkParseProgram/TestDB         	     566	   2057967 ns/op	   5.46 MB/s	       444.0 programs/op	  733355 B/op	   10058 allocs/op
+BenchmarkParseProgram/Nested         	   39331	     29607 ns/op	   9.36 MB/s	    2312 B/op	     275 allocs/op
+BenchmarkParseProgram/Malformed      	   91045	     13474 ns/op	  10.69 MB/s	    1124 B/op	     141 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/compiler
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompileCacheCold/Single         	    1012	   1156693 ns/op	  208490 B/op	    3536 allocs/op
+PASS
