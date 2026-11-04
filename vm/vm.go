@@ -140,26 +140,40 @@ func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 // frameWithoutCommandDefaults is frameFrom for a caller that sets all six
 // command variables itself (copyCommandLocals), so it leaves them unset.
 func (vm *VM) frameWithoutCommandDefaults(init StackFrame) *StackFrame {
-	if init.Program != nil {
-		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
-			init.Locals[constant.Slot-1] = constant.Value
-		}
+	f := vm.takeFrame()
+	if init.LoopStack == nil {
+		init.LoopStack = f.LoopStack
 	}
+	if init.ExceptStack == nil {
+		init.ExceptStack = f.ExceptStack
+	}
+	*f = init
+	bindTypeConstants(f)
+	return f
+}
+
+// takeFrame returns a pooled StackFrame, or a new one. Every field is zero
+// except LoopStack and ExceptStack, which are empty slices over the pooled
+// frame's backing arrays (recycleFrame leaves it that way), so a caller that
+// fills the frame in place sets only the fields it needs.
+func (vm *VM) takeFrame() *StackFrame {
 	if n := len(vm.framePool); n > 0 {
 		f := vm.framePool[n-1]
 		vm.framePool = vm.framePool[:n-1]
-		if init.LoopStack == nil {
-			init.LoopStack = f.LoopStack[:0]
-		}
-		if init.ExceptStack == nil {
-			init.ExceptStack = f.ExceptStack[:0]
-		}
-		*f = init
 		return f
 	}
-	f := new(StackFrame)
-	*f = init
-	return f
+	return new(StackFrame)
+}
+
+// bindTypeConstants binds the type constants (and true/false) the frame's
+// program references, as every new frame must.
+func bindTypeConstants(f *StackFrame) {
+	if f.Program == nil {
+		return
+	}
+	for _, constant := range f.Program.BuiltinSlots.TypeConstants {
+		f.Locals[constant.Slot-1] = constant.Value
+	}
 }
 
 // recycleFrame returns a popped frame's resources to the VM: its locals slots

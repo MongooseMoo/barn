@@ -18,7 +18,14 @@ initialised once). Briefed by team-lead; no push, no PR.
   and `executePass` (vm/op_verb.go) call `frameWithoutCommandDefaults`; their
   `copyCommandLocals` writes all six right after. Test
   `TestVerbCallAndPassCarryCommandVariables` (vm/frame_command_env_test.go).
-- C3, C6, C7: not started.
+- C3: done. `takeFrame` (pooled or new, zero but for the loop/handler
+  backing arrays) and `bindTypeConstants` in vm/vm.go; `startVerbCallResolved`
+  fills the taken frame in place. `frameWithoutCommandDefaults` (now only
+  `executePass`) and `frameFrom` are built on the same two helpers. Test
+  `TestVerbCallFrameFieldsFromNewAndPooledFrames` (vm/verb_call_frame_test.go)
+  checks every StackFrame field, new and pooled; break-checks: dropping
+  `frame.SavedThreadMode =` fails it, and so does recycleFrame leaving `IP` non-zero.
+- C6, C7: not started.
 
 ## Decisions and why
 
@@ -47,4 +54,4 @@ initialised once). Briefed by team-lead; no push, no PR.
 
 ## Next step
 
-C3.
+C6.
