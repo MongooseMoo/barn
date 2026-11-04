@@ -1,0 +1,89 @@
+# Pair 1
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  209284	      8026 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	   99816	     10831 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 2
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  222789	      7135 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  133888	      8169 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 3
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  220766	      7682 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  144517	      8361 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 4
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  172200	      6625 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  141062	      9731 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 5
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  188838	      6039 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  156945	      7674 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 6
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  186885	      6483 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  145318	      8011 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 7
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  208293	      6855 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  143814	      8696 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 8
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  159926	      6407 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  165759	      7462 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 9
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  184401	      6761 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  159481	      7658 ns/op	    8992 B/op	      53 allocs/op
+PASS
+
+# Pair 10
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTxnTopologyFlush/without_reads-4         	  237208	      6484 ns/op	    7280 B/op	      45 allocs/op
+BenchmarkTxnTopologyFlush/with_reads-4            	  180654	      8279 ns/op	    8992 B/op	      53 allocs/op
+PASS

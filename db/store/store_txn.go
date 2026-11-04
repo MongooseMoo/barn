@@ -11,7 +11,20 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// objectReadSet owns the object-version dependencies discarded together at a
+// successful coarse flush. Its zero value is empty; reads allocate nil maps on demand.
+type objectReadSet struct {
+	scalarReads        map[types.ObjID]uint64
+	relationshipReads  map[types.ObjID]uint64
+	propertyReads      map[propertyReadKey]uint64
+	propertyScans      map[types.ObjID]uint64
+	propertyShapeScans map[types.ObjID]uint64
+	verbReads          map[verbKey]uint64
+	verbScans          map[types.ObjID]uint64
+}
+
 type StoreTxn struct {
+	objectReadSet
 	readTS uint64
 	store  *Store
 	direct bool
@@ -23,20 +36,13 @@ type StoreTxn struct {
 	gateWait                  func(time.Duration)
 	commitContext             context.Context
 	objects                   map[types.ObjID]*Object
-	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
-	relationshipReads         map[types.ObjID]uint64
 	relationshipWrites        map[types.ObjID]objectRelationshipWrite
-	propertyReads             map[propertyReadKey]uint64
-	propertyScans             map[types.ObjID]uint64
-	propertyShapeScans        map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
 	propertyRenames           map[propertyWriteKey]propertyRename
 	propertyWrites            map[propertyWriteKey]propertyWrite
 	propertyDeletes           map[propertyWriteKey]string
-	verbReads                 map[verbKey]uint64
-	verbScans                 map[types.ObjID]uint64
 	verbWrites                map[verbKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool

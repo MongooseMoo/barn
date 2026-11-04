@@ -408,7 +408,8 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		fresh    = "belongs to the snapshot; the renewed transaction has its own"
 	)
 	disposition := map[string]string{
-		"readTS": fresh, "store": fresh, "released": fresh, "locked": fresh,
+		"objectReadSet": carried, // Its promoted dependency maps are accounted for individually below.
+		"readTS":        fresh, "store": fresh, "released": fresh, "locked": fresh,
 		"objects": restaged, "owned": restaged, "propertyWrites": restaged,
 		"scalarReads": carried, "relationshipReads": carried, "propertyReads": carried,
 		"propertyScans": carried, "propertyShapeScans": carried, "verbReads": carried,
@@ -426,10 +427,10 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"conflicts": fresh, "lossCounted": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
 		"diag": carried,
 	}
-	typ := reflect.TypeFor[StoreTxn]()
-	seen := make(map[string]bool, typ.NumField())
-	for i := range typ.NumField() {
-		name := typ.Field(i).Name
+	fields := reflect.VisibleFields(reflect.TypeFor[StoreTxn]())
+	seen := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		name := field.Name
 		seen[name] = true
 		if disposition[name] == "" {
 			t.Errorf("StoreTxn.%s: renewAtCurrentClock has no stated disposition for this field", name)

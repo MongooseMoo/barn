@@ -386,16 +386,9 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.publishStagedLocked(&writes, tx.store.clock.Load()+1, true)
 	tx.store.mu.Unlock()
 
-	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
-	// triggered the flush still records reads afterward (markVerbScan, etc.), so niling
-	// them would panic on the next read.
-	tx.scalarReads = make(map[types.ObjID]uint64)
-	tx.relationshipReads = make(map[types.ObjID]uint64)
-	tx.propertyReads = make(map[propertyReadKey]uint64)
-	tx.propertyScans = make(map[types.ObjID]uint64)
-	tx.propertyShapeScans = make(map[types.ObjID]uint64)
-	tx.verbReads = make(map[verbKey]uint64)
-	tx.verbScans = make(map[types.ObjID]uint64)
+	// Drop pre-flush dependencies together. Subsequent reads allocate only the
+	// maps they need through lazySet.
+	tx.objectReadSet = objectReadSet{}
 	tx.verbMemoSeen = nil
 
 	// Drop the object cache too: the flush advanced live (a staged property define bumped
