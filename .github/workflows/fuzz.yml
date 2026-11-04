@@ -83,7 +83,7 @@ jobs:
             const title = campaignFailed
               ? `Nightly fuzz failure: ${target}`
               : `Nightly fuzz infrastructure failure: ${target}`;
-            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${context.runAttempt}`;
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`;
             const body = [
               `Target: ${process.env.FUZZ_PACKAGE}/${target}`,
               `Run: ${run}`,
