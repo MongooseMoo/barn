@@ -40,6 +40,14 @@ morning. Local runs are acceptable.
 ## Surprises
 - `claude setup-token` prints nothing without a TTY.
 
+- PR #597. Q answered "Yes, both" (open PR, create label); label created.
+- #594 merged; branch rebased onto master. fuzz.yml now creates new failure
+  issues with label claude-fix and dispatches claude-fix.yml (ref master,
+  issue_number); job gained actions: write. Repeat failures only comment.
+- Verified: docs.github.com github_token page: "events triggered by the
+  GITHUB_TOKEN will not create a new workflow run" except
+  "workflow_dispatch and repository_dispatch events always create workflow runs".
+
 ## Next step
 Get the OAuth token into the repo secret; write claude-fix.yml; wait for #594
 to merge; add label + dispatch to fuzz.yml; PR, CI, merge; test with a dispatch.
