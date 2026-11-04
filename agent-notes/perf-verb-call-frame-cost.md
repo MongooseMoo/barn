@@ -34,7 +34,19 @@ initialised once). Briefed by team-lead; no push, no PR.
   Iterator/End are interfaces that can hold MOO lists and maps, and popped
   entries past len would pin them. Test `TestRecycleFrameClearsLiveHandlers`;
   break-check: removing `clear(f.ExceptStack)` fails it.
-- C7: not started.
+- C7: done. Zero `types.Value` is not Unbound (types/value.go: tagNone -1,
+  tagUnbound -2, zero tag 0). Invariant: every slot of `vm.localStack` past
+  its length is Unbound. allocLocals fills the grown array's free tail once and
+  otherwise hands slots out unfilled; recycleFrame writes Unbound into the
+  stack's released top (and clears f.Locals separately when growth left it in
+  the old array); `reset` (vm/pool.go) fills Unbound instead of zero. Retry
+  restore sets localStack nil (vm/retry.go copyRetryVM); snapshot restore uses
+  a new VM with owned locals (vm/persistence.go). No other writer of
+  localStack (grep). Test `TestFreshLocalsAreUnboundAfterEveryRelease`
+  (vm/frame_slab_test.go); break-checks: recycleFrame filling f.Locals instead
+  of the stack's own slots, reset clearing to zero, and growth without the
+  tail fill each fail it.
+- Benchmarks: not yet run.
 
 ## Decisions and why
 
@@ -63,4 +75,6 @@ initialised once). Briefed by team-lead; no push, no PR.
 
 ## Next step
 
-C7.
+Benchmarks against origin/master in C:/Users/Q/code/barn-gate-master
+(BenchmarkVM, BenchmarkVerbDispatch, BenchmarkProtectedBuiltinDispatch,
+-count 6, benchstat).

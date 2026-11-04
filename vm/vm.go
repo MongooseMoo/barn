@@ -99,19 +99,26 @@ const maxFramePool = 64
 // len(Locals) slots. Growth reallocates the backing array; outer frames keep
 // their slices into the old array, which stays valid for them because every
 // access goes through frame.Locals, never through vm.localStack by index.
+//
+// Every slot of vm.localStack past its length is Unbound, so the slots are
+// handed out as they are: growth fills the new array's free tail, and
+// recycleFrame and reset write Unbound back into the slots they release.
 func (vm *VM) allocLocals(n int) []types.Value {
 	base := len(vm.localStack)
 	if cap(vm.localStack)-base < n {
 		grown := make([]types.Value, base, max(2*cap(vm.localStack), base+n, initialStackCap))
 		copy(grown, vm.localStack)
+		fillUnbound(grown[base:cap(grown)])
 		vm.localStack = grown
 	}
 	vm.localStack = vm.localStack[:base+n]
-	locals := vm.localStack[base : base+n : base+n]
-	for i := range locals {
-		locals[i] = types.Unbound
+	return vm.localStack[base : base+n : base+n]
+}
+
+func fillUnbound(values []types.Value) {
+	for i := range values {
+		values[i] = types.Unbound
 	}
-	return locals
 }
 
 // frameFrom returns a frame initialized to init, with the command variables
@@ -181,9 +188,18 @@ func bindTypeConstants(f *StackFrame) {
 // after popFrame — Return and HandleError copy what they need first.
 func (vm *VM) recycleFrame(f *StackFrame) {
 	if f.localsOnStack {
-		clear(f.Locals)
 		if n := len(vm.localStack) - len(f.Locals); n >= 0 {
+			// The released slots are the stack's own top, which is f.Locals
+			// unless the stack grew while f was live and f.Locals stayed in
+			// the old array; then that copy is cleared too, so it pins nothing.
+			released := vm.localStack[n:]
+			if len(f.Locals) > 0 && &f.Locals[0] != &released[0] {
+				clear(f.Locals)
+			}
+			fillUnbound(released)
 			vm.localStack = vm.localStack[:n]
+		} else {
+			clear(f.Locals)
 		}
 	}
 	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
