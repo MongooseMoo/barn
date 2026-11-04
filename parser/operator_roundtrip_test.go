@@ -9,38 +9,26 @@ import (
 	"github.com/MongooseMoo/barn/parser"
 )
 
-func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
-	groups := [][]ir.BinaryOperator{
-		{ir.BinaryOr, ir.BinaryAnd},
-		{ir.BinaryBitOr, ir.BinaryBitAnd, ir.BinaryBitXor},
-		{ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess, ir.BinaryLessEqual, ir.BinaryGreater, ir.BinaryGreaterEqual, ir.BinaryIn},
-		{ir.BinaryShiftLeft, ir.BinaryShiftRight},
-		{ir.BinaryAdd, ir.BinarySubtract},
-		{ir.BinaryMultiply, ir.BinaryDivide, ir.BinaryModulo},
-		{ir.BinaryPower},
-	}
-
-	for _, group := range groups {
-		for _, parent := range group {
-			for _, child := range group {
-				for _, childOnLeft := range []bool{true, false} {
-					name := parent.String() + "/" + child.String()
-					if childOnLeft {
-						name += "/left"
-					} else {
-						name += "/right"
-					}
-					t.Run(name, func(t *testing.T) {
-						childExpr := binary(child, identifier("a"), identifier("b"))
-						var root *ir.BinaryExpr
-						if childOnLeft {
-							root = binary(parent, childExpr, identifier("c"))
-						} else {
-							root = binary(parent, identifier("a"), childExpr)
-						}
-						assertDirectProgramFormatRoundTrip(t, expressionProgram(root))
-					})
+func TestFormatMOOPreservesEveryBinaryTree(t *testing.T) {
+	for parent := ir.BinaryAdd; parent <= ir.BinaryShiftRight; parent++ {
+		for child := ir.BinaryAdd; child <= ir.BinaryShiftRight; child++ {
+			for _, childOnLeft := range []bool{true, false} {
+				name := parent.String() + "/" + child.String()
+				if childOnLeft {
+					name += "/left"
+				} else {
+					name += "/right"
 				}
+				t.Run(name, func(t *testing.T) {
+					childExpr := binary(child, identifier("a"), identifier("b"))
+					var root *ir.BinaryExpr
+					if childOnLeft {
+						root = binary(parent, childExpr, identifier("c"))
+					} else {
+						root = binary(parent, identifier("a"), childExpr)
+					}
+					assertDirectProgramFormatRoundTrip(t, expressionProgram(root))
+				})
 			}
 		}
 	}
