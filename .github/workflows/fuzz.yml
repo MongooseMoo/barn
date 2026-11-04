@@ -19,6 +19,9 @@ concurrency:
 jobs:
   fuzz:
     name: ${{ matrix.target }}
+    permissions:
+      contents: read
+      issues: write
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 45
     strategy:
@@ -42,21 +45,60 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Fuzz ${{ matrix.target }}
+        id: campaign
         run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30m -parallel=2 -timeout=40m
 
       - name: Upload failing input
+        id: artifact
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-failure-${{ matrix.target }}
           path: ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}/
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Open failure issue
+        if: failure()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_TARGET: ${{ matrix.target }}
+          FUZZ_PACKAGE: ${{ matrix.package }}
+          CAMPAIGN_OUTCOME: ${{ steps.campaign.outcome }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+        with:
+          script: |
+            const target = process.env.FUZZ_TARGET;
+            const campaignFailed = process.env.CAMPAIGN_OUTCOME === 'failure';
+            const title = campaignFailed
+              ? `Nightly fuzz failure: ${target}`
+              : `Nightly fuzz infrastructure failure: ${target}`;
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${context.runAttempt}`;
+            const body = [
+              `Target: ${process.env.FUZZ_PACKAGE}/${target}`,
+              `Run: ${run}`,
+              campaignFailed ? 'The fuzz command failed; inspect its log for the cause.' : 'The job failed outside the fuzz command; inspect the failed step.',
+              process.env.ARTIFACT_URL ? `Failing inputs: ${process.env.ARTIFACT_URL} (retained for 30 days).` : 'No failing-input artifact was uploaded.',
+              'Preserve confirmed failing inputs with their regression fixes.'
+            ].join('\n\n');
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: 'open', per_page: 100
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: existing.number, body
+              });
+            } else {
+              await github.rest.issues.create({...context.repo, title, body});
+            }

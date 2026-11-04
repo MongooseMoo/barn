@@ -85,7 +85,10 @@ These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/4
 PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` runs every fuzz
 target for thirty minutes nightly, scheduled at 3:17 AM America/Denver (and on
 manual dispatch), two at a time, and
-uploads any failing input as an artifact. There is no grammar generator. The useful
+uploads any failing input as an artifact. A failed job opens an issue with its
+run and artifact links; subsequent failures for the same target add those links
+to its existing open issue. Setup failures are reported separately from failed
+fuzz commands. There is no grammar generator. The useful
 principles from [the AFL++ article](https://nullprogram.com/blog/2025/02/05/)
 are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
