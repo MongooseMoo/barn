@@ -10,6 +10,28 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// recycleFrame zeroes the handlers still on a frame's ExceptStack when it is
+// popped (an unwind can leave them there), so a pooled frame keeps no live
+// handler. Entries popped earlier lie past len and hold only error-code
+// slices; every push overwrites its entry whole, so they are never read.
+func TestRecycleFrameClearsLiveHandlers(t *testing.T) {
+	machine := NewVM(nil, nil)
+	prog := &bytecode.Program{NumLocals: 1}
+	frame := machine.frameFrom(StackFrame{Program: prog, Locals: machine.allocLocals(1), localsOnStack: true})
+	machine.pushFrame(frame)
+	for i := 0; i < 3; i++ {
+		frame.ExceptStack = append(frame.ExceptStack, bytecode.Handler{HandlerIP: i + 1, Codes: []types.ErrorCode{types.E_DIV}, VarIndex: 1, StackDepth: 2})
+	}
+	frame.ExceptStack = frame.ExceptStack[:2]
+	backing := frame.ExceptStack[:cap(frame.ExceptStack)]
+	machine.popFrame()
+	for i := 0; i < 2; i++ {
+		if !reflect.ValueOf(backing[i]).IsZero() {
+			t.Fatalf("live handler %d survived recycling: %+v", i, backing[i])
+		}
+	}
+}
+
 // A verb call fills its frame in place. Every StackFrame field must hold what
 // the call sets or be zero, whether the struct is new or comes from the pool;
 // a field added to StackFrame needs a stated value here.

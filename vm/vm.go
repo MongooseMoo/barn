@@ -187,8 +187,12 @@ func (vm *VM) recycleFrame(f *StackFrame) {
 		}
 	}
 	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
+	// A popped loop entry stays in the backing array past len, and its
+	// Iterator/End can hold MOO values, so the whole array is cleared.
 	clear(f.LoopStack[:cap(f.LoopStack)])
-	clear(f.ExceptStack[:cap(f.ExceptStack)])
+	// A handler holds no MOO value, only its error-code slice, and every push
+	// overwrites an entry whole, so only the handlers still live are cleared.
+	clear(f.ExceptStack)
 	*f = StackFrame{LoopStack: loops, ExceptStack: handlers}
 	if len(vm.framePool) < maxFramePool {
 		vm.framePool = append(vm.framePool, f)

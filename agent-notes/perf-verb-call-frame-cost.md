@@ -25,7 +25,16 @@ initialised once). Briefed by team-lead; no push, no PR.
   `TestVerbCallFrameFieldsFromNewAndPooledFrames` (vm/verb_call_frame_test.go)
   checks every StackFrame field, new and pooled; break-checks: dropping
   `frame.SavedThreadMode =` fails it, and so does recycleFrame leaving `IP` non-zero.
-- C6, C7: not started.
+- C6: done for ExceptStack only. recycleFrame clears `f.ExceptStack[:len]`.
+  `bytecode.Handler` holds ints and `Codes []types.ErrorCode` (either a slice
+  of the global `singleExceptCodes` or a small fresh int slice, vm/control.go
+  executeTryExcept); every push (append in control.go, index assign in
+  db/format/reader_vm.go, cloneHandlers) writes an entry whole and every
+  reader stays within len. LoopStack keeps the full-cap clear: `LoopState`
+  Iterator/End are interfaces that can hold MOO lists and maps, and popped
+  entries past len would pin them. Test `TestRecycleFrameClearsLiveHandlers`;
+  break-check: removing `clear(f.ExceptStack)` fails it.
+- C7: not started.
 
 ## Decisions and why
 
@@ -54,4 +63,4 @@ initialised once). Briefed by team-lead; no push, no PR.
 
 ## Next step
 
-C6.
+C7.
