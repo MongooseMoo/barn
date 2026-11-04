@@ -5,7 +5,8 @@ name: Nightly fuzz
 # input Go wrote under testdata/fuzz; commit it with its fix so CI replays it.
 on:
   schedule:
-    - cron: "17 9 * * *"
+    - cron: "17 3 * * *"
+      timezone: America/Denver
   workflow_dispatch:
 
 permissions:
@@ -19,7 +20,7 @@ jobs:
   fuzz:
     name: ${{ matrix.target }}
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       # The self-hosted runners share one workstation with PR CI.
@@ -49,7 +50,7 @@ jobs:
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Fuzz ${{ matrix.target }}
-        run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=10m -parallel=2 -timeout=20m
+        run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30m -parallel=2 -timeout=40m
 
       - name: Upload failing input
         if: failure()
