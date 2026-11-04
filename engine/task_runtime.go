@@ -219,7 +219,11 @@ retryAttempt:
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !gate.held() {
-		gateWait, err := gate.acquire(taskCtx, s.store)
+		cause := gateCauseRetryBudget
+		if !retryState.canRetry {
+			cause = gateCauseNotRestorable
+		}
+		gateWait, err := gate.acquire(taskCtx, s.store, cause)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
 		if err != nil {
@@ -303,7 +307,8 @@ retryAttempt:
 		if gate.held() {
 			return false
 		}
-		gateWait, err := gate.acquire(taskCtx, s.store)
+		// The running frame is the verb that called the irreversible builtin.
+		gateWait, err := gate.acquire(taskCtx, s.store, fmt.Sprintf("#%d:%s", ctx.ThisObj, ctx.Verb))
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		if err != nil {
 			ctx.ConflictRetryRequested = true
@@ -898,11 +903,19 @@ type sliceGate struct {
 	heldSince time.Time
 }
 
-// GateHolder names the task verb that held the exclusive commit gate.
+// GateHolder names the task verb that held the exclusive commit gate and why
+// the slice took it: the verb that called an irreversible builtin
+// ("#123:verb"), or one of the escalation causes below.
 type GateHolder struct {
-	This types.ObjID
-	Verb string
+	This  types.ObjID
+	Verb  string
+	Cause string
 }
+
+const (
+	gateCauseRetryBudget   = "retry budget spent"
+	gateCauseNotRestorable = "no restorable state"
+)
 
 // GateHold is the cumulative exclusive commit gate hold of one task verb.
 type GateHold struct {
@@ -966,13 +979,15 @@ func (g *sliceGate) held() bool { return g.grant != nil }
 
 // acquire takes the gate and reports how long that took, whether or not it
 // succeeded.
-func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store) (time.Duration, error) {
+// The hold is recorded under cause.
+func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause string) (time.Duration, error) {
 	waitStart := time.Now()
 	grant, err := store.AcquireExclusive(ctx)
 	wait := time.Since(waitStart)
 	if err != nil {
 		return wait, err
 	}
+	g.key.Cause = cause
 	g.grant = grant
 	g.everHeld = true
 	g.heldSince = time.Now()
