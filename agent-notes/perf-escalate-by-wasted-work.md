@@ -17,14 +17,33 @@ no PR). Timing gates not run by this agent (the lead runs them).
 
 - `engine/task_runtime.go`: new const `escalateAfterWastedTicks = 200_000`;
   `lostAttemptTicks` records the ticks of the attempt that just lost; at the top
-  of the retry loop `attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks`
-  takes the gate with new cause `gateCauseWastedWork = "wasted work"`. The
-  attempt-63 rule and the `!canRetry` rule are unchanged (cause precedence: no
-  restorable state, then retry budget spent, then wasted work).
-- `engine/wasted_work_escalation_test.go`: two tests (expensive loss escalates
-  once with the new cause; cheap loss retries without the gate).
+  of the retry loop
+  `t.IsForked && attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks`
+  takes the gate with new cause `gateCauseWastedWork = "wasted work"`. Only
+  forked tasks escalate this way; player commands do not. The attempt-63 rule
+  and the `!canRetry` rule are unchanged (cause precedence: no restorable
+  state, then retry budget spent, then wasted work).
+- `engine/wasted_work_escalation_test.go`: three tests. A forked task's first
+  run (retryable via `forkFirstRunRebuilder`) that loses after >= threshold
+  ticks escalates once with the new cause; one that loses under the threshold
+  retries without the gate; a plain command task that loses after >= threshold
+  ticks retries without the gate. The fixture makes `#0` its own
+  `$server_options` with `bg_ticks` 10M and loads it into the session the way
+  server boot does (`Session().LoadServerOptionsFromStore`), since forked
+  tasks take background limits (default 30,000 ticks).
+- Break-checks run: dropping `t.IsForked &&` fails only the command test
+  (escalations=1); dropping the whole wasted-work term fails the forked
+  expensive test (64 attempts, escalation only at the retry budget);
+  threshold 1 fails the forked cheap test (escalations=1).
 
 ## Decisions and why
+
+- Forked tasks only, from the lead's real-workload gate. 16p: escalating heavy
+  player commands serialized the server, goodput mean 215 -> 149/s, p999 up to
+  4.7 s. 1p with the rule: no abort storm in 8 runs vs 1 of 8 on base, abort
+  rate 0.01-4% vs 2.9-8.3%, p999 <= 185 ms vs up to 574 ms. The 1p storms are
+  in forked background jobs, so limiting the rule to forked tasks keeps the 1p
+  gain without serializing 16p commands.
 
 - Wasted-tick source: `attemptTicks` (`bcVM.Ticks - sliceEntryTicks` after the
   attempt), the same number added to `rerunTicks`, which `NoteSliceAttempts`
@@ -49,5 +68,5 @@ no PR). Timing gates not run by this agent (the lead runs them).
 
 ## Next step
 
-Lead: run the 1p and 16p real-workload gate plus conformance; tune
-`escalateAfterWastedTicks` from the result.
+Lead: re-run the 1p and 16p real-workload gate plus conformance with the
+forked-only rule; tune `escalateAfterWastedTicks` from the result.

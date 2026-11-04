@@ -238,9 +238,13 @@ retryAttempt:
 	// slice that cannot retry has exactly one defence against a lost commit —
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
-	// A slice whose last attempt lost after wasting escalateAfterWastedTicks
-	// takes the gate too, so it does not lose that much work again.
-	wastedWork := attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks
+	// A forked task's slice whose last attempt lost after wasting
+	// escalateAfterWastedTicks takes the gate too, so it does not lose that
+	// much work again. Player commands are left out: at 16 players heavy
+	// commands that escalated this way serialized the server (goodput 215/s
+	// -> 149/s), while the slices that fall into 1-player abort storms are
+	// forked background jobs.
+	wastedWork := t.IsForked && attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry || wastedWork) && !gate.held() {
 		cause := gateCauseRetryBudget
 		switch {
