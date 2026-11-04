@@ -1175,7 +1175,7 @@ func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold)
 		holdTotal += h.Total
 		holdMax = max(holdMax, h.Max)
 		if i < 8 {
-			top = append(top, fmt.Sprintf("#%d:%s n=%d total=%s max=%s", h.This, h.Verb, h.Count, latStr(h.Total), latStr(h.Max)))
+			top = append(top, fmt.Sprintf("#%d:%s by %s n=%d total=%s max=%s", h.This, h.Verb, h.Cause, h.Count, latStr(h.Total), latStr(h.Max)))
 		}
 	}
 	t.Logf("  exclusive gate holds: count=%d total=%s max=%s top=[%s]", holdCount, latStr(holdTotal), latStr(holdMax), strings.Join(top, ", "))

@@ -126,10 +126,15 @@ func TestRunTaskRecordsExclusiveGateHoldByVerb(t *testing.T) {
 	}
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("hold_gate_sleep", 0, 0, []int64{}, &sleep))
 	defer s.Stop()
+	// The irreversible builtin is called from a nested verb, so the hold's
+	// cause (#0:caller) differs from the task's root verb (#7:hold).
+	if _, e := store.AddVerb(0, dbstore.NewVerb([]string{"caller"}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{`server_log("take the gate");`, "hold_gate_sleep();"})); e != types.E_NONE {
+		t.Fatalf("AddVerb: %v", e)
+	}
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
-server_log("take the gate");
-hold_gate_sleep();
+#0:caller();
 #0.write_value = 1;
 `), ticks, seconds)
 	queued.Context.IsWizard = true
@@ -142,9 +147,9 @@ hold_gate_sleep();
 		t.Fatalf("runTask failed: %v", err)
 	}
 	holds := s.GateHolds()
-	if len(holds) != 1 || holds[0].This != 7 || holds[0].Verb != "hold" || holds[0].Count != 1 ||
-		holds[0].Total < held || holds[0].Max != holds[0].Total {
-		t.Fatalf("holds = %+v, want one #7:hold hold of at least %s", holds, held)
+	if len(holds) != 1 || holds[0].This != 7 || holds[0].Verb != "hold" || holds[0].Cause != "#0:caller" ||
+		holds[0].Count != 1 || holds[0].Total < held || holds[0].Max != holds[0].Total {
+		t.Fatalf("holds = %+v, want one #7:hold hold by #0:caller of at least %s", holds, held)
 	}
 	assertCommitGateReleased(t, store)
 	s.ResetGateHolds()
