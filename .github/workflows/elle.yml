@@ -9,14 +9,45 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: elle-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Skip the required job when a run of this repository already passed on
+  # this exact tree (see .github/actions/tested-tree). A manual dispatch
+  # always runs.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tree
+        if: github.event_name != 'workflow_dispatch'
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: elle
+
+  record:
+    name: Record pass
+    needs: isolation
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: elle
+
   isolation:
     name: Serializable histories and negative control
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 25
     steps:
