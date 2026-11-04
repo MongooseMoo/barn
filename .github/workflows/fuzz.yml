@@ -4,9 +4,8 @@ name: Nightly fuzz
 # coverage-guided campaign for a fixed time. A failure uploads the minimized
 # input Go wrote under testdata/fuzz; commit it with its fix so CI replays it.
 on:
-  schedule:
-    - cron: "17 3 * * *"
-      timezone: America/Denver
+  # Dispatched at 03:17 Mountain by the runner workstation's native task.
+  # GitHub cron events were created many hours late, during the day.
   workflow_dispatch:
 
 permissions:

@@ -83,10 +83,19 @@ verb bodies accidentally when retaining local-corpus failures.
 
 These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/414).
 PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` runs every fuzz
-target for thirty minutes nightly, scheduled at 3:17 AM America/Denver (and on
-manual dispatch), two at a time, and
+target for thirty minutes nightly, dispatched at 3:17 AM America/Denver by the
+runner workstation's Windows task `Barn - Nightly fuzz` (and on manual
+dispatch), two at a time, and
 uploads any failing input as an artifact. There is no grammar generator. The useful
 principles from [the AFL++ article](https://nullprogram.com/blog/2025/02/05/)
 are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
 [fuzzing documentation](https://go.dev/doc/security/fuzz/).
+
+Install or update the nightly trigger as the logged-in runner owner with
+`./scripts/install-nightly-fuzz-task.ps1`. It uses the existing authenticated
+GitHub CLI and follows the workstation's Mountain timezone, including daylight
+saving. Q must remain logged on, as for the Barn runner tasks. Missed triggers
+are not run later in the day. GitHub cron is disabled because its scheduled
+events arrived many hours late. A dispatch can still wait for GitHub or runner
+availability; this is not a guarantee against outages.
