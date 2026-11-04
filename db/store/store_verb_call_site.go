@@ -14,8 +14,11 @@ import (
 // name on every call. A caller that makes the same call from one place over and
 // over (an OP_CALL_VERB instruction) passes a VerbCallSite instead, and the txn
 // keeps a copy of the record that site last used, stamped with verbResolveGen.
-// Every write to tx.verbResolve, including dropping it, moves the generation,
-// so while it is unchanged the copy is exactly what tx.verbResolve[key] holds.
+// Every write that can change a record already in tx.verbResolve (overwriting
+// a key, dropping the map, replacing it at resolveCacheCap) moves the
+// generation; filing a record under a key the map does not hold changes no
+// existing record and leaves it. So while it is unchanged the copy is exactly
+// what tx.verbResolve[key] holds.
 // The lookup then runs lookupVerbDispatchMemo on the copy, which is what findVerb
 // does with the map's record: same validation, same marks, same result. Anything
 // else falls back to findVerb itself.

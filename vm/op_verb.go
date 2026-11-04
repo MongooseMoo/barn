@@ -228,30 +228,31 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		savedThreadMode = vm.Context.ThreadMode
 	}
 
-	// Push new stack frame
-	frame := vm.frameFrom(StackFrame{
-		Program:         prog,
-		IP:              0,
-		BasePointer:     vm.SP,
-		Locals:          vm.allocLocals(prog.NumLocals),
-		localsOnStack:   true,
-		This:            objID,
-		ThisValue:       thisValue,
-		Player:          player,
-		Verb:            lookupVerbName,
-		StoredVerbNames: verb.Names,
-		Caller:          callerObj,
-		VerbLoc:         defObjID,
-		Args:            args,
-		IsVerbCall:      true,
-		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
-		SavedThisObj:    savedThisObj,
-		SavedThisValue:  savedThisValue,
-		SavedVerb:       savedVerb,
-		SavedProgrammer: savedProgrammer,
-		SavedIsWizard:   savedIsWizard,
-		SavedThreadMode: savedThreadMode,
-	})
+	// Push new stack frame, filled in place: takeFrame's fields are zero
+	// except the loop and handler stacks. copyCommandLocals below sets every
+	// command variable, so the frame skips their defaults.
+	frame := vm.takeFrame()
+	frame.Program = prog
+	frame.BasePointer = vm.SP
+	frame.Locals = vm.allocLocals(prog.NumLocals)
+	frame.localsOnStack = true
+	frame.This = objID
+	frame.ThisValue = thisValue
+	frame.Player = player
+	frame.Verb = lookupVerbName
+	frame.StoredVerbNames = verb.Names
+	frame.Caller = callerObj
+	frame.VerbLoc = defObjID
+	frame.Args = args
+	frame.IsVerbCall = true
+	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
+	frame.SavedThisObj = savedThisObj
+	frame.SavedThisValue = savedThisValue
+	frame.SavedVerb = savedVerb
+	frame.SavedProgrammer = savedProgrammer
+	frame.SavedIsWizard = savedIsWizard
+	frame.SavedThreadMode = savedThreadMode
+	bindTypeConstants(frame)
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
@@ -481,7 +482,9 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := vm.frameFrom(StackFrame{
+	// copyCommandLocals below sets every command variable, so the frame skips
+	// their defaults.
+	newFrame := vm.frameWithoutCommandDefaults(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,

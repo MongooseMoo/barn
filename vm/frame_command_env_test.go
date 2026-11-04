@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,6 +38,42 @@ func TestFrameFromInitializesCommandVariablesLikeNameLookup(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A verb call and pass() hand every command variable to the new frame, whether
+// the callee's program references it (a local) or not (CommandEnvironment),
+// and whether the caller held it as a local or in its environment.
+func TestVerbCallAndPassCarryCommandVariables(t *testing.T) {
+	store := newBytecodeVerbStore()
+	for id, parent := range map[types.ObjID]types.ObjID{1: 0, 2: 1} {
+		builder := dbstore.NewObjectBuilder(id)
+		builder.SetOwner(0)
+		builder.SetName("command variable test object")
+		builder.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+		builder.SetParents([]types.ObjID{parent})
+		if err := store.Add(builder.Build()); err != nil {
+			t.Fatalf("add object #%d: %v", id, err)
+		}
+	}
+	perms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug
+	for _, verb := range []struct {
+		on   types.ObjID
+		name string
+		code string
+	}{
+		// References none of them: all six travel in CommandEnvironment.
+		{2, "relay", "return this:mixed();"},
+		// References two: those are locals, the rest travel in the environment.
+		{2, "mixed", "x = {dobjstr, iobj}; return this:report();"},
+		{2, "report", "return pass();"},
+		{1, "report", "return {argstr, dobjstr, iobjstr, prepstr, dobj, iobj};"},
+	} {
+		if _, ec := store.AddVerb(verb.on, dbstore.NewVerb([]string{verb.name}, 0, perms, dbstore.VerbArgs{}, []string{verb.code})); ec != types.E_NONE {
+			t.Fatalf("add #%d:%s: %v", verb.on, verb.name, ec)
+		}
+	}
+	result := runBytecodeProgram(t, `argstr = "a"; dobjstr = "b"; iobjstr = "c"; prepstr = "d"; dobj = #5; iobj = #6; return #2:relay();`, store, nil)
+	requireList(t, result, types.NewStr("a"), types.NewStr("b"), types.NewStr("c"), types.NewStr("d"), types.NewObj(5), types.NewObj(6))
 }
 
 // nameLookupCommandFrame is the frame the name-based initializer produced:

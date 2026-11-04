@@ -99,56 +99,88 @@ const maxFramePool = 64
 // len(Locals) slots. Growth reallocates the backing array; outer frames keep
 // their slices into the old array, which stays valid for them because every
 // access goes through frame.Locals, never through vm.localStack by index.
+//
+// Every slot of vm.localStack past its length is Unbound, so the slots are
+// handed out as they are: growth fills the new array's free tail, and
+// recycleFrame and reset write Unbound back into the slots they release.
 func (vm *VM) allocLocals(n int) []types.Value {
 	base := len(vm.localStack)
 	if cap(vm.localStack)-base < n {
 		grown := make([]types.Value, base, max(2*cap(vm.localStack), base+n, initialStackCap))
 		copy(grown, vm.localStack)
+		fillUnbound(grown[base:cap(grown)])
 		vm.localStack = grown
 	}
 	vm.localStack = vm.localStack[:base+n]
-	locals := vm.localStack[base : base+n : base+n]
-	for i := range locals {
-		locals[i] = types.Unbound
-	}
-	return locals
+	return vm.localStack[base : base+n : base+n]
 }
 
-// frameFrom returns a frame initialized to init, reusing a pooled StackFrame
-// and its LoopStack/ExceptStack backing arrays when one is available. init's
-// Locals must come from allocLocals with localsOnStack set, or be owned.
+func fillUnbound(values []types.Value) {
+	for i := range values {
+		values[i] = types.Unbound
+	}
+}
+
+// frameFrom returns a frame initialized to init, with the command variables
+// at their defaults ("" for the strings, #-1 for dobj and iobj) and the type
+// constants bound. It reuses a pooled StackFrame and its LoopStack/ExceptStack
+// backing arrays when one is available. init's Locals must come from
+// allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
-	if init.Program != nil {
-		for index, slot := range commandSlots(init.Program) {
+	f := vm.frameWithoutCommandDefaults(init)
+	if f.Program != nil {
+		for index, slot := range commandSlots(f.Program) {
 			value := types.NewStr("")
 			if index >= 4 {
 				value = types.NewObj(types.ObjNothing)
 			}
 			if slot != 0 {
-				init.Locals[slot-1] = value
+				f.Locals[slot-1] = value
 			} else {
-				init.CommandEnvironment[index] = value
+				f.CommandEnvironment[index] = value
 			}
 		}
-		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
-			init.Locals[constant.Slot-1] = constant.Value
-		}
 	}
+	return f
+}
+
+// frameWithoutCommandDefaults is frameFrom for a caller that sets all six
+// command variables itself (copyCommandLocals), so it leaves them unset.
+func (vm *VM) frameWithoutCommandDefaults(init StackFrame) *StackFrame {
+	f := vm.takeFrame()
+	if init.LoopStack == nil {
+		init.LoopStack = f.LoopStack
+	}
+	if init.ExceptStack == nil {
+		init.ExceptStack = f.ExceptStack
+	}
+	*f = init
+	bindTypeConstants(f)
+	return f
+}
+
+// takeFrame returns a pooled StackFrame, or a new one. Every field is zero
+// except LoopStack and ExceptStack, which are empty slices over the pooled
+// frame's backing arrays (recycleFrame leaves it that way), so a caller that
+// fills the frame in place sets only the fields it needs.
+func (vm *VM) takeFrame() *StackFrame {
 	if n := len(vm.framePool); n > 0 {
 		f := vm.framePool[n-1]
 		vm.framePool = vm.framePool[:n-1]
-		if init.LoopStack == nil {
-			init.LoopStack = f.LoopStack[:0]
-		}
-		if init.ExceptStack == nil {
-			init.ExceptStack = f.ExceptStack[:0]
-		}
-		*f = init
 		return f
 	}
-	f := new(StackFrame)
-	*f = init
-	return f
+	return new(StackFrame)
+}
+
+// bindTypeConstants binds the type constants (and true/false) the frame's
+// program references, as every new frame must.
+func bindTypeConstants(f *StackFrame) {
+	if f.Program == nil {
+		return
+	}
+	for _, constant := range f.Program.BuiltinSlots.TypeConstants {
+		f.Locals[constant.Slot-1] = constant.Value
+	}
 }
 
 // recycleFrame returns a popped frame's resources to the VM: its locals slots
@@ -156,14 +188,27 @@ func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 // after popFrame — Return and HandleError copy what they need first.
 func (vm *VM) recycleFrame(f *StackFrame) {
 	if f.localsOnStack {
-		clear(f.Locals)
 		if n := len(vm.localStack) - len(f.Locals); n >= 0 {
+			// The released slots are the stack's own top, which is f.Locals
+			// unless the stack grew while f was live and f.Locals stayed in
+			// the old array; then that copy is cleared too, so it pins nothing.
+			released := vm.localStack[n:]
+			if len(f.Locals) > 0 && &f.Locals[0] != &released[0] {
+				clear(f.Locals)
+			}
+			fillUnbound(released)
 			vm.localStack = vm.localStack[:n]
+		} else {
+			clear(f.Locals)
 		}
 	}
 	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
+	// A popped loop entry stays in the backing array past len, and its
+	// Iterator/End can hold MOO values, so the whole array is cleared.
 	clear(f.LoopStack[:cap(f.LoopStack)])
-	clear(f.ExceptStack[:cap(f.ExceptStack)])
+	// A handler holds no MOO value, only its error-code slice, and every push
+	// overwrites an entry whole, so only the handlers still live are cleared.
+	clear(f.ExceptStack)
 	*f = StackFrame{LoopStack: loops, ExceptStack: handlers}
 	if len(vm.framePool) < maxFramePool {
 		vm.framePool = append(vm.framePool, f)

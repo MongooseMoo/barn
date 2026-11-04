@@ -88,7 +88,8 @@ func (vm *VM) reset() {
 		vm.Frames[i] = nil
 	}
 
-	clear(vm.localStack[:cap(vm.localStack)])
+	// Unbound rather than zero: allocLocals hands free slots out as they are.
+	fillUnbound(vm.localStack[:cap(vm.localStack)])
 
 	stack := vm.Stack[:0]
 	frames := vm.Frames[:0]
