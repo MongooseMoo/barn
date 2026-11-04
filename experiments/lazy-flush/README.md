@@ -41,7 +41,9 @@ Raw observations: [baseline](base.txt), [candidate](candidate.txt),
 `.tmp/lazy-flush-base.exe` and `.tmp/lazy-flush-candidate.exe`. SHA256 respectively:
 `9733A0723EA1C0A6C5AD4A67AD5F18AF0E86B9831661123C94294C3E4BD7D4F6` and
 `9F3CE3373A45D59D31C7279FD2104BB44713DDAD7495ECF250E43BA61E6D1A50`.
-Only a source comment was corrected after these binaries were built.
+A source comment and the existing reflection-based renewal field-coverage test
+were corrected after these binaries were built; production and benchmark logic
+did not change.
 
 Build each lane with `go test -c -o <binary> ./db/store`; baseline also takes
 `-overlay <overlay.json>`. Run each binary with the environment above and quoted
