@@ -5,7 +5,8 @@ Issue #265. Drives N logged-in TCP connections through the same weighted
 command mix the in-process Barn harness uses (engine/mongoose_real_bench_test.go:
 look 35 / say 30 / i 10 / @who 10 / home 15), closed-loop per connection
 (each connection waits for its command to finish before sending the next),
-2 s warm-up then 8 s measurement per player level, and reports completions/s,
+60 s settle after each level's logins, 2 s warm-up then 8 s measurement per
+player level, and reports completions/s,
 p50, p99, p99.9 and max latency. The same code path targets either engine so
 the two numbers are apples to apples.
 
@@ -1068,7 +1069,10 @@ def main() -> int:
     ap.add_argument("--banner-wait", type=float, default=1.5,
                     help="--proxy auto: seconds to wait for the username prompt before sending the PROXY prelude")
     ap.add_argument("--cmd-timeout", type=float, default=30.0, help="per-command completion timeout")
-    ap.add_argument("--settle", type=float, default=2.0, help="seconds to let post-login forks settle before warm-up")
+    ap.add_argument("--settle", type=float, default=60.0,
+                    help="seconds between a level's logins and its warm-up (default 60): Toast spends its"
+                         " first seconds after boot on the database's catch-up work, and a 1-player level"
+                         " measured then reads 2-4/s instead of ~70/s")
     ap.add_argument("--keep-db", action="store_true", help="keep the disposable database copy after the run")
     args = ap.parse_args()
 
