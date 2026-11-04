@@ -1,0 +1,190 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   60838	      2923 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   32298	      5794 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   54624	      3717 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     39093 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 5530820	        39.24 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  133350	      1179 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5087698	        40.06 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   10000	     15314 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   10000	     15382 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   57696	      2954 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   38653	      5001 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   62218	      3835 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     21386 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 5231264	        39.91 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  182523	      1373 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5006940	        36.77 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   12057	     16238 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   14391	     10519 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   55635	      3742 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   31243	      5681 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   46477	      3276 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	    9823	     32172 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 5180485	        36.16 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  181864	      1024 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5074868	        36.09 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   14246	     14407 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   10000	     15204 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   61696	      2781 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   36684	      5582 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   47589	      3562 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     24615 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 4876806	        41.22 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  180030	      1009 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5026935	        37.47 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   12792	     15115 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   16705	     11790 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   60100	      3154 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   30783	      4879 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   56172	      3717 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     26414 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 4490592	        35.94 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  181038	      1322 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 4852921	        35.15 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   10000	     16554 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   14420	     10683 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   55465	      3138 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   29464	      6099 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   36807	      4956 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     25413 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 4384378	        36.49 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  170482	      1056 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5819986	        44.63 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   13471	     17309 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   17378	     11956 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   57622	      2999 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   33663	      5423 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   36666	      4264 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     18646 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 5226738	        37.98 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  180531	      1084 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 4708762	        42.28 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   10000	     15722 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   16323	     12986 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   49360	      3061 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   32270	      6797 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   57780	      3444 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     18210 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 6111410	        36.40 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  126586	      1201 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5062849	        37.18 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   14776	     16230 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   16297	     11903 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   62335	      2848 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   35041	      5182 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   54439	      3763 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     26371 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 6490695	        39.36 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  181550	      1011 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 6529071	        28.87 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   10000	     17842 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   15134	     11839 ns/op	   57392 B/op	       2 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4         	   61534	      2903 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4          	   37842	      6090 ns/op	    7424 B/op	      23 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4        	   50929	      3335 ns/op	    3112 B/op	      17 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4         	   10000	     28980 ns/op	   36096 B/op	      23 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkPropTableClone/LoadedClear/slots1024-4         	 6081778	        30.78 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/MapSparse/slots1024-4           	  134520	      1739 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/MapEmpty/slots1024-4            	 5263249	        40.60 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPropTableClone/LoadedGoneSparse/slots1024-4    	   10000	     20144 ns/op	   57648 B/op	       4 allocs/op
+BenchmarkPropTableClone/LoadedGoneEmpty/slots1024-4     	   12362	     16654 ns/op	   57392 B/op	       2 allocs/op
+PASS

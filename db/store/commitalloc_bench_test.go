@@ -34,6 +34,7 @@ func BenchmarkTxnPropertyWriteCommit(b *testing.B) {
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			b.Fatalf("Commit failed: %v", errCode)
 		}
+		tx.Release()
 	}
 }
 
@@ -52,5 +53,6 @@ func BenchmarkTxnReadOnlyCommit(b *testing.B) {
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			b.Fatalf("Commit failed: %v", errCode)
 		}
+		tx.Release()
 	}
 }

@@ -171,7 +171,7 @@ func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 	if _, exists := tx.scalarReads[objID]; exists {
 		return
 	}
-	tx.scalarReads[objID] = obj.scalarVersion
+	lazySet(&tx.scalarReads, objID, obj.scalarVersion)
 }
 
 func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
@@ -181,7 +181,7 @@ func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
 	if _, exists := tx.relationshipReads[objID]; exists {
 		return
 	}
-	tx.relationshipReads[objID] = obj.relationshipVersion
+	lazySet(&tx.relationshipReads, objID, obj.relationshipVersion)
 }
 
 func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Property) {
@@ -214,7 +214,7 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 		// the transaction saw.
 		if st := tx.mapKeys[rkey]; st != nil && len(st.written) > 0 {
 			if _, whole := tx.propertyReads[rkey]; !whole {
-				tx.propertyReads[rkey] = st.version
+				lazySet(&tx.propertyReads, rkey, st.version)
 			}
 		}
 		return
@@ -232,14 +232,14 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 			}
 		}
 	}
-	tx.propertyReads[rkey] = prop.version
+	lazySet(&tx.propertyReads, rkey, prop.version)
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 	if tx == nil || tx.live() || obj == nil {
 		return
 	}
-	tx.propertyScans[objID] = obj.propertyVersion
+	lazySet(&tx.propertyScans, objID, obj.propertyVersion)
 }
 
 // markPropertyShapeScan records that this txn's result depends on which slots
@@ -249,7 +249,7 @@ func (tx *StoreTxn) markPropertyShapeScan(objID types.ObjID, obj *Object) {
 	if tx == nil || tx.live() || obj == nil {
 		return
 	}
-	tx.propertyShapeScans[objID] = obj.propertyShapeVersion
+	lazySet(&tx.propertyShapeScans, objID, obj.propertyShapeVersion)
 }
 
 func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
@@ -260,7 +260,7 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if _, staged := tx.verbWrites[key]; staged {
 		return
 	}
-	tx.verbReads[key] = verb.version
+	lazySet(&tx.verbReads, key, verb.version)
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
@@ -270,7 +270,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 	if _, exists := tx.verbScans[objID]; exists {
 		return
 	}
-	tx.verbScans[objID] = obj.verbVersion
+	lazySet(&tx.verbScans, objID, obj.verbVersion)
 }
 
 // cloneObjectNonVerbState retains all non-verb defensive copies made by a full

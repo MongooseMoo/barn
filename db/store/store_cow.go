@@ -187,7 +187,7 @@ func (tx *StoreTxn) writesByObject() writeSet {
 // objects have no slot and are changed in place, under store.mu.Lock), or a
 // clone of the published image, which w.old keeps for history. The clone shares
 // the published image's verb nodes; applyTailWrites copies one before changing it.
-func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
+func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64, shareUnchanged bool) {
 	if w.created != nil {
 		w.img = cloneObjectForReadTxn(w.created)
 		stampObjectAll(w.img, ts)
@@ -199,6 +199,17 @@ func (s *Store) ownImage(id types.ObjID, w *objectWrites, ts uint64) {
 		return
 	}
 	w.old = live
+	if shareUnchanged {
+		// Add detached loader inputs. These writes replace scalar fields or
+		// property slots only; every other non-verb facet remains immutable.
+		img := *live
+		if len(w.props) > 0 {
+			img.properties = live.properties.clone()
+		}
+		img.verbList = sharedVerbList(live.verbList)
+		w.img = &img
+		return
+	}
 	w.img = cloneObjectSharingVerbs(live)
 }
 
@@ -364,7 +375,7 @@ func (c commitImages) own(obj *Object) *Object {
 		return img
 	}
 	var w objectWrites
-	c.s.ownImage(obj.id, &w, c.ts)
+	c.s.ownImage(obj.id, &w, c.ts, false)
 	if c.writes.joined == nil {
 		c.writes.joined = make(map[types.ObjID]*Object, c.joinHint)
 	}
@@ -393,8 +404,13 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
 	for i := range writes.entries {
 		w := &writes.entries[i]
-		s.ownImage(w.id, w, ts)
-		applyHeadWrites(w.img, w, tx.renamesOf(w.id), ts)
+		renames := tx.renamesOf(w.id)
+		// A live inheritance walk may modify any staged descendant's slots,
+		// including one whose own writes are scalar-only. Keep its full copy.
+		shareUnchanged := !walkLive && !w.hasRelationship && !w.recycle &&
+			len(w.defDeletes)+len(w.defines)+len(w.propDeletes)+len(w.verbCode)+len(w.verbDeletes)+len(renames) == 0
+		s.ownImage(w.id, w, ts, shareUnchanged)
+		applyHeadWrites(w.img, w, renames, ts)
 	}
 	if walkLive {
 		images := commitImages{s: s, writes: writes, ts: ts}
