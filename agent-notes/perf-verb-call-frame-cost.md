@@ -46,7 +46,12 @@ initialised once). Briefed by team-lead; no push, no PR.
   (vm/frame_slab_test.go); break-checks: recycleFrame filling f.Locals instead
   of the stack's own slots, reset clearing to zero, and growth without the
   tail fill each fail it.
-- Benchmarks: not yet run.
+- Benchmarks (Windows, Ryzen 5950X, branch vs origin/master test binaries run
+  interleaved, 6 rounds): VerbDispatch/verb_call_5k -12.2%,
+  protected_builtin_5k -7.8%, ProtectedBuiltinDispatch Builtin -8.7%, Verb
+  -10.1% (all p=0.002), allocs unchanged. BenchmarkVM interleaved: no
+  significant change; prop_name_1M +1.4% at p=0.065 (its loop reads `n.name`
+  and runs none of the changed code per iteration).
 
 ## Decisions and why
 
@@ -73,8 +78,12 @@ initialised once). Briefed by team-lead; no push, no PR.
   green, because a stale copy of an overwritten record re-validates to the same
   answer and marks. Only the direct generation tests catch those.
 
+- The first sequential BenchmarkVM run (base then branch, minutes apart)
+  showed +2-5% on loops that make no verb call (tostr, if_chain, prop_name);
+  run interleaved the differences disappeared, so they were run-to-run drift.
+
 ## Next step
 
-Benchmarks against origin/master in C:/Users/Q/code/barn-gate-master
-(BenchmarkVM, BenchmarkVerbDispatch, BenchmarkProtectedBuiltinDispatch,
--count 6, benchstat).
+All five items committed on perf/verb-call-frame-cost, not pushed. Next is
+team-lead's: push, PR, CI (full suite and conformance have not been run
+here).
