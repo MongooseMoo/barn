@@ -101,7 +101,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	obj.verbIdx = live.verbIdx // same aliases in the same order as live
 	obj.verbVersion = live.verbVersion
 	tx.owned[objID] |= facetVerbs // a fresh list of fresh nodes
-	tx.verbScans[objID] = live.verbVersion
+	lazySet(&tx.verbScans, objID, live.verbVersion)
 	for key := range tx.verbReads {
 		if key.objID != objID {
 			continue
@@ -161,7 +161,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		}
 		tx.owned[objID] |= facetContents | facetChildren // fresh slices
 		obj.relationshipVersion = live.relationshipVersion
-		tx.relationshipReads[objID] = live.relationshipVersion
+		lazySet(&tx.relationshipReads, objID, live.relationshipVersion)
 	}
 	return types.E_NONE
 }

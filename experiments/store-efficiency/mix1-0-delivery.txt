@@ -1,0 +1,9 @@
+    mongoose_real_bench_test.go:931: gc settings in effect: percent=400 memlimit_bytes=9223372036854775807 (GOGC="" GOMEMLIMIT="")
+    mongoose_real_bench_test.go:467: loaded /mnt/c/Users/Q/code/barn/mongoose.db.new in 14.199672748s
+    mongoose_real_bench_test.go:579: memory MiB after load: heap_alloc=541 heap_inuse=701 heap_sys=1127 sys=1168 retained=742 next_gc=2709 live_after_gc=541 resident=0
+    mongoose_real_bench_test.go:826: cohort submitted=381 completed=381 failed=0 unsettled_at_return=0 elapsed=8.037090208s drain=37.090208ms
+    mongoose_real_bench_test.go:830: players=1 goodput=47/s failed=0 uncaught=0 abort=0.47% elided=4336 p50=21.36ms p99=44.50ms p999=87.41ms max=87.41ms allocs/op=61646 bytes/op=6601526 GCs=1
+    mongoose_real_bench_test.go:837:   gc: cycles=1 pause_total=253.161µs gc_cpu=0.53s busy_cpu=16.32s gc_share=3.2% alloc_rate=298MiB/s
+    mongoose_real_bench_test.go:846:   memory MiB after the window and a forced GC: heap_alloc=621 heap_inuse=916 heap_sys=2867 sys=2953 retained=2948 next_gc=3080 live_after_gc=616 resident=1
+--- PASS: TestMongooseRealWorkload (37.47s)
+PASS

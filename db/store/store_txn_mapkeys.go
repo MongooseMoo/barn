@@ -236,7 +236,7 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 func (tx *StoreTxn) degradeMapKeys() {
 	for rkey, st := range tx.mapKeys {
 		if _, whole := tx.propertyReads[rkey]; !whole {
-			tx.propertyReads[rkey] = st.version
+			lazySet(&tx.propertyReads, rkey, st.version)
 			if tx.diag != nil {
 				// The whole read is at st.version, whose value is the baseline.
 				tx.diag.noteRead(rkey, &Property{value: st.baseline})

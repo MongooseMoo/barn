@@ -203,8 +203,8 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID, oldParents []ty
 			tx.objects[id] = obj
 		}
 		tx.store.mu.RUnlock()
-		tx.propertyScans[id] = obj.propertyVersion
-		tx.propertyShapeScans[id] = obj.propertyShapeVersion
+		lazySet(&tx.propertyScans, id, obj.propertyVersion)
+		lazySet(&tx.propertyShapeScans, id, obj.propertyShapeVersion)
 
 		w := staged[id]
 		if w == nil {

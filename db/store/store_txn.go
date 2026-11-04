@@ -130,10 +130,10 @@ type StoreTxn struct {
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
-// write-staging maps on StoreTxn are left nil by BeginSnapshot and stay nil for
-// read-only tasks; only an actual stage allocates. A nil map is indistinguishable
-// from an empty one for read/range/delete/len/validate/commit, so only inserts
-// need this guard.
+// write-staging and read-dependency maps on StoreTxn are left nil by
+// BeginSnapshot; only an actual stage or read mark allocates. A nil map is
+// indistinguishable from an empty one for read/range/delete/len/validate/commit,
+// so only inserts need this guard.
 func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -155,16 +155,10 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	// deregistration is StoreTxn.Release (called by the runtime), with a finalizer
 	// backstop so a dropped-without-Release txn cannot leak its registration forever.
 	tx := &StoreTxn{
-		readTS:             readTS,
-		store:              s,
-		objects:            make(map[types.ObjID]*Object),
-		scalarReads:        make(map[types.ObjID]uint64),
-		relationshipReads:  make(map[types.ObjID]uint64),
-		propertyReads:      make(map[propertyReadKey]uint64),
-		propertyScans:      make(map[types.ObjID]uint64),
-		propertyShapeScans: make(map[types.ObjID]uint64),
-		verbReads:          make(map[verbKey]uint64),
-		verbScans:          make(map[types.ObjID]uint64),
+		readTS:  readTS,
+		store:   s,
+		objects: make(map[types.ObjID]*Object),
+		// Read-dependency maps are allocated on their first mark (see lazySet).
 		// scalarWrites, relationshipWrites, propertyDefines,
 		// propertyDefinitionDeletes, propertyRenames, propertyWrites,
 		// propertyDeletes, and verbWrites

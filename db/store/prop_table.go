@@ -268,9 +268,11 @@ func (t propTable) clone() propTable {
 		return newPropTable(0)
 	}
 	next := &propState{base: s.base, set: slices.Clone(s.set)}
-	next.over = make(map[string]Property, len(s.over))
-	for key, prop := range s.over {
-		next.over[key] = prop
+	if len(s.over) > 0 {
+		next.over = make(map[string]Property, len(s.over))
+		for key, prop := range s.over {
+			next.over[key] = prop
+		}
 	}
 	if len(s.gone) > 0 {
 		next.gone = make(map[string]struct{}, len(s.gone))

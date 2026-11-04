@@ -636,6 +636,10 @@ func (s *Store) Add(obj *Object) error {
 		return fmt.Errorf("object #%d already exists", obj.id)
 	}
 
+	// Published non-verb backing belongs to the store. Builders can retain
+	// supplied arrays/maps; detach them once so later images can share facets
+	// they do not change. Verb inputs retain their separate ownership handling.
+	obj = cloneObjectNonVerbState(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
 	s.noteVerbShapeChanged()
