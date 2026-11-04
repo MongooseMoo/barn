@@ -348,12 +348,15 @@ func TestVerbCallSiteMatchesFindCallableVerb(t *testing.T) {
 }
 
 // A repeat call from a site answers from the txn's copy of its record: after
-// the first call the copy is current, and a write to the txn's records (here a
-// lookup of another name that walks) makes it stale until the next call.
+// the first call the copy is current. Filing records under other keys (a walk
+// of another name, a memo hit on another receiver) leaves it current, so the
+// next call is still a site hit. Overwriting the site's own key, or replacing
+// the map when it is full, makes it stale until the next call.
 func TestVerbCallSiteRecordFollowsResolveGeneration(t *testing.T) {
 	s := siteWorld(t)
 	warm := s.BeginSnapshot(0)
 	warm.findVerb(2, "look", true)
+	warm.findVerb(3, "look", true)
 	warm.Release()
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
@@ -362,7 +365,12 @@ func TestVerbCallSiteRecordFollowsResolveGeneration(t *testing.T) {
 		t.Fatalf("first call: %v", err)
 	}
 	record := &tx.verbSites[site.slot]
-	if record.site != site || record.gen != tx.verbResolveGen || record.local.memo == nil {
+	// current is the condition findCallableVerbAt answers from the copy under.
+	current := func() bool {
+		key := verbResolveKey{objID: 2, name: "look", requireExecute: true}
+		return record.site == site && record.key == key && record.gen == tx.verbResolveGen && record.local.memo != nil
+	}
+	if !current() {
 		t.Fatalf("first call left no current record: %+v gen=%d", record, tx.verbResolveGen)
 	}
 	before := tx.verbResolveGen
@@ -372,12 +380,96 @@ func TestVerbCallSiteRecordFollowsResolveGeneration(t *testing.T) {
 	if tx.verbResolveGen != before {
 		t.Fatalf("repeat calls wrote the txn's records: gen %d -> %d", before, tx.verbResolveGen)
 	}
+
+	walks, _ := tx.resolveCacheLenForTest()
 	tx.findVerb(2, "other", true)
-	if record.gen == tx.verbResolveGen {
-		t.Fatal("a walk filed a record without moving the generation")
+	if after, _ := tx.resolveCacheLenForTest(); after != walks+1 {
+		t.Fatalf("the walk of another name filed %d records, want 1", after-walks)
+	}
+	tx.findVerb(3, "look", true)
+	if _, ok := tx.verbResolve[verbResolveKey{objID: 3, name: "look", requireExecute: true}]; !ok {
+		t.Fatal("the memo hit on another receiver filed no record")
+	}
+	if !current() {
+		t.Fatalf("records filed under other keys made the copy stale: %+v gen=%d", record, tx.verbResolveGen)
 	}
 	tx.findCallableVerbAt(site, 2, "look")
-	if record.gen != tx.verbResolveGen {
+	if !current() || tx.verbResolveGen != before {
+		t.Fatalf("the call after unrelated records was not a site hit: %+v gen %d -> %d", record, before, tx.verbResolveGen)
+	}
+
+	key := verbResolveKey{objID: 2, name: "look", requireExecute: true}
+	tx.storeVerbMemoUse(key, tx.verbResolve[key])
+	if current() {
+		t.Fatal("overwriting the site's key left the copy current")
+	}
+	tx.findCallableVerbAt(site, 2, "look")
+	if !current() {
 		t.Fatal("the next call did not refresh the copy")
+	}
+
+	for i := 0; len(tx.verbResolve) < resolveCacheCap; i++ {
+		tx.findVerb(2, fmt.Sprintf("missing%d", i), true)
+	}
+	if !current() {
+		t.Fatal("filling the records with other keys made the copy stale")
+	}
+	tx.findVerb(2, "overflow", true)
+	if current() {
+		t.Fatal("replacing the full records map left the copy current")
+	}
+}
+
+// A walk that replaces the site's memo record with a walk record (here after a
+// concurrent verb add stops the memo answering) must move the generation.
+func TestVerbWalkOverwriteMovesResolveGeneration(t *testing.T) {
+	s := siteWorld(t)
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(2, "look", true)
+	warm.Release()
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	site := NewVerbCallSite()
+	tx.findCallableVerbAt(site, 2, "look")
+	record := &tx.verbSites[site.slot]
+	key := verbResolveKey{objID: 2, name: "look", requireExecute: true}
+	if record.gen != tx.verbResolveGen || tx.verbResolve[key].memo == nil {
+		t.Fatalf("first call left no current memo record: %+v", record)
+	}
+	addVerbT(t, s, 1, []string{"look"}, VerbRead|VerbExecute)
+	tx.findVerb(2, "look", true)
+	if tx.verbResolve[key].memo != nil {
+		t.Fatal("the lookup after a concurrent verb add did not file a walk record")
+	}
+	if record.gen == tx.verbResolveGen {
+		t.Fatal("overwriting the site's key with a walk record left the copy current")
+	}
+}
+
+// Filing a dispatch memo record under a new key when the map is full replaces
+// the map, so it must also move the generation.
+func TestVerbMemoUseOverflowMovesResolveGeneration(t *testing.T) {
+	s := siteWorld(t)
+	warm := s.BeginSnapshot(0)
+	warm.findVerb(2, "look", true)
+	warm.findVerb(3, "look", true)
+	warm.Release()
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	site := NewVerbCallSite()
+	tx.findCallableVerbAt(site, 2, "look")
+	record := &tx.verbSites[site.slot]
+	for i := 0; len(tx.verbResolve) < resolveCacheCap; i++ {
+		tx.findVerb(2, fmt.Sprintf("missing%d", i), true)
+	}
+	if record.gen != tx.verbResolveGen {
+		t.Fatal("filling the records with other keys made the copy stale")
+	}
+	tx.findVerb(3, "look", true) // a memo hit filed under a new key
+	if _, ok := tx.verbResolve[verbResolveKey{objID: 2, name: "look", requireExecute: true}]; ok {
+		t.Fatal("the memo hit did not replace the full records map")
+	}
+	if record.gen == tx.verbResolveGen {
+		t.Fatal("replacing the full records map from a memo hit left the copy current")
 	}
 }

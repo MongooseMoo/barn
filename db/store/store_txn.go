@@ -107,7 +107,9 @@ type StoreTxn struct {
 	parentWalk  plainScratch
 	verbResolve map[verbResolveKey]verbResolveEntry
 	propResolve map[propResolveKey]propResolveEntry
-	// verbResolveGen counts every write to verbResolve, including dropping it.
+	// verbResolveGen moves on every write that can change a record verbResolve
+	// already holds: overwriting a key, dropping the map or replacing it. A
+	// record filed under a new key leaves it unchanged.
 	// verbSites holds, per call site, a copy of a verbResolve record and the
 	// generation it was copied at; while the generation is unchanged the copy
 	// is what the map holds (store_verb_call_site.go).

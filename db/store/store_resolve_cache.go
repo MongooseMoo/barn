@@ -417,13 +417,13 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 
 // storeVerbMemoUse files the txn's record of a dispatch memo hit.
 func (tx *StoreTxn) storeVerbMemoUse(key verbResolveKey, use verbResolveEntry) {
-	tx.verbResolveGen++
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
+	} else if _, present := tx.verbResolve[key]; present {
+		tx.verbResolveGen++
 	} else if len(tx.verbResolve) >= resolveCacheCap {
-		if _, present := tx.verbResolve[key]; !present {
-			tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
-		}
+		tx.verbResolveGen++
+		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
 	}
 	tx.verbResolve[key] = use
 }
@@ -564,11 +564,13 @@ func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, v
 			return
 		}
 	}
-	tx.verbResolveGen++
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
 	} else if len(tx.verbResolve) >= resolveCacheCap {
+		tx.verbResolveGen++
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
+	} else if _, present := tx.verbResolve[key]; present {
+		tx.verbResolveGen++
 	}
 	tx.verbResolve[key] = verbResolveEntry{
 		steps:   append([]verbWalkStep(nil), steps...),
