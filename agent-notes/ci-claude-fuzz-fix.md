@@ -48,6 +48,17 @@ morning. Local runs are acceptable.
   GITHUB_TOKEN will not create a new workflow run" except
   "workflow_dispatch and repository_dispatch events always create workflow runs".
 
+- #597 CI all green (build, Elle, conformance, record). `gh pr merge 597`
+  refused by the PreToolUse hook (no Q message names this merge); reported to Q.
+- Codex (bridge): #593's fixes are in its PR #596, held until scheduling PR
+  #595 merges; #595 removes on.schedule but leaves "Open failure issue"
+  unchanged. No other open fuzz finding, so no live test target without
+  duplicating #596.
+
+- Q 2026-11-04 asked that a run which cannot find the cause comment on the
+  issue with what it tried, so later attempts build on it. Prompt step 5 now
+  does that (one comment, reads earlier comments first); job issues: write.
+
 ## Next step
 Get the OAuth token into the repo secret; write claude-fix.yml; wait for #594
 to merge; add label + dispatch to fuzz.yml; PR, CI, merge; test with a dispatch.

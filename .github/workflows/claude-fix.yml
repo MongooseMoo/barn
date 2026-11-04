@@ -29,7 +29,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      issues: read
+      issues: write
       actions: read
       id-token: write
     env:
@@ -78,9 +78,14 @@ jobs:
             4. Create branch claude/issue-${{ env.ISSUE }}, commit, push, and open the PR against master with
                `gh pr create`. The body says what failed, the cause with file:line, the fix, and "Fixes #${{ env.ISSUE }}".
                Stage named paths only, never `git add -A`.
-            5. If you cannot find or fix the cause, open no PR. End by stating what you established and what is unknown.
+            5. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
+               `gh issue comment ${{ env.ISSUE }} --body-file <file>` so the next attempt can build on it:
+               whether and how you reproduced the failure, each hypothesis you tested and the evidence that
+               ruled it in or out (file:line, command, output), what is established, what is still unknown, and
+               the next step you would take. Before that comment, read the issue's earlier comments and do not
+               repeat work they already record.
 
-            Post no issue comments or reviews.
+            Post nothing else: no other comments and no reviews.
           claude_args: |
             --model claude-opus-5-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
