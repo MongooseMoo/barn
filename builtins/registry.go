@@ -1,10 +1,11 @@
 package builtins
 
 import (
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
-	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/mooprof"
 	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -20,10 +21,11 @@ type Execution struct {
 	Registry *Registry
 	Session  *Session
 	PushEval func(*bytecode.Program) types.Result
-	// PushProtectedVerb runs an executable #0 wrapper on the calling VM. The
-	// verb and its definer are the dispatcher's own resolution of the name,
-	// which is passed as a string value.
-	PushProtectedVerb    func(types.Value, dbstore.VerbView, types.ObjID, []types.Value) types.Result
+	// PushProtectedVerb runs the executable #0 wrapper named by the string
+	// value on the calling VM, resolving it from the call site held in the slot
+	// (one per builtin). found is false, with nothing pushed, when #0 has no
+	// such callable verb.
+	PushProtectedVerb    func(name types.Value, site *atomic.Value, args []types.Value) (result types.Result, found bool)
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	PushInitialize       func(types.Value, []types.Value, string) types.Result
@@ -79,6 +81,9 @@ type builtinEntry struct {
 	sig        Signature
 	visibility Visibility
 	lineSync   bool
+	// protectedSite is the VM's call site for the bf_ wrapper, filled on the
+	// first redirected call (see Execution.PushProtectedVerb).
+	protectedSite atomic.Value
 }
 
 // Registry holds all registered builtin functions
@@ -229,9 +234,9 @@ func (s *Session) CallByNameWithExecution(name string, ctx *Execution, args []ty
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
 func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
-	// Cheap pre-check (nil ctx, #0 caller, unprotected entry) before the
-	// redirect helper so the common case never builds and copies its 88-byte
-	// Result. The helper repeats these checks; they are the same predicate.
+	// The redirect applies only to a protected builtin called from a verb whose
+	// `this` is not #0 (the bf_ wrapper itself, or any #0 verb, runs the real
+	// builtin).
 	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e) {
 		if redirect, ok := s.maybeProtectedRedirect(e, ctx, args); ok {
 			return redirect
@@ -251,33 +256,23 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 //     (ok=false) and a non-wizard caller gets E_PERM.
 //
 // Returns (result, true) when the call was handled by the redirect path, or
-// (_, false) when the caller should run the real builtin normally.
+// (_, false) when the caller should run the real builtin normally. dispatch,
+// its only caller, has already established that the call is protected and not
+// made from #0.
 func (s *Session) maybeProtectedRedirect(e *builtinEntry, ctx *Execution, args []types.Value) (types.Result, bool) {
-	if ctx == nil || e.name == "" {
+	if ctx.Store == nil {
 		return types.Result{}, false
 	}
-	// caller() == #0 (the bf_ wrapper, or any #0 verb) runs the real builtin.
-	if ctx.ThisObj == types.ObjID(0) {
-		return types.Result{}, false
-	}
-	if !s.isProtectedNameFor(ctx, e.name) {
-		return types.Result{}, false
-	}
-	store := ctx.Store
-	if store == nil {
-		return types.Result{}, false
-	}
-	bfName := e.bfName.Str()
-	verb, definer, err := findCallableVerbForRead(ctx, types.ObjID(0), bfName)
-	if err == nil {
-		// #0:bf_<name> exists: run it and use its outcome (return or raise).
-		verbArgs := append([]types.Value(nil), args...)
-		if ctx.PushProtectedVerb != nil {
-			// The VM activates the verb just resolved rather than looking it
-			// up again; nothing has touched the transaction in between.
-			return ctx.PushProtectedVerb(e.bfName, verb, definer, verbArgs), true
+	if ctx.PushProtectedVerb != nil {
+		// The VM resolves #0:bf_<name> from this builtin's own call site, so a
+		// repeated protected call reuses its lookup record and compiled program
+		// as an OP_CALL_VERB site does.
+		if result, found := ctx.PushProtectedVerb(e.bfName, &e.protectedSite, args); found {
+			return result, true
 		}
-		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
+	} else if _, _, err := findCallableVerbForRead(ctx, types.ObjID(0), e.bfName.Str()); err == nil {
+		// #0:bf_<name> exists: run it and use its outcome (return or raise).
+		return s.CallVerb(types.ObjID(0), e.bfName.Str(), append([]types.Value(nil), args...), ctx), true
 	}
 	// No wrapper verb: wizards fall through to the real builtin, others denied.
 	if !ctx.IsWizard {
