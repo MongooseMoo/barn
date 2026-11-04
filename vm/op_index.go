@@ -521,19 +521,34 @@ func (vm *VM) executeListRange() error {
 		return newMooError(types.E_TYPE, "list range requires integer end")
 	}
 
-	// Build the list
-	var elements []types.Value
-	if start <= end {
-		// Ascending range
-		elements = make([]types.Value, 0, end-start+1)
-		for i := start; i <= end; i++ {
-			elements = append(elements, types.NewInt(i))
+	// Unsigned subtraction preserves the distance even across the signed bounds.
+	distance := uint64(end) - uint64(start)
+	step := int64(1)
+	if start > end {
+		distance = uint64(start) - uint64(end)
+		step = -1
+	}
+	// Bound the allocation before constructing the list. The quota is exclusive.
+	overhead := types.ValueBytes(types.NewList(nil))
+	itemBytes := types.ValueBytes(types.NewInt(0))
+	maxItems := uint64((int(^uint(0)>>1) - overhead) / itemBytes)
+	if vm.Builtins != nil {
+		if limit := vm.Builtins.ListValueLimitForTask(vm.Context); limit > 0 {
+			if limit <= overhead {
+				return newMooError(types.E_QUOTA, "list too large")
+			}
+			maxItems = uint64((limit - overhead - 1) / itemBytes)
 		}
-	} else {
-		// Descending range
-		elements = make([]types.Value, 0, start-end+1)
-		for i := start; i >= end; i-- {
-			elements = append(elements, types.NewInt(i))
+	}
+	if distance >= maxItems {
+		return newMooError(types.E_QUOTA, "list too large")
+	}
+	elements := make([]types.Value, int(distance)+1)
+	value := start
+	for i := range elements {
+		elements[i] = types.NewInt(value)
+		if i+1 < len(elements) {
+			value += step
 		}
 	}
 

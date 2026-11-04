@@ -226,6 +226,47 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+func TestListRangeChecksQuotaBeforeAllocation(t *testing.T) {
+	for _, source := range []string{
+		`return {35 << 35..35};`,
+		`return {35..35 << 35};`,
+		`return {-9223372036854775807 - 1..9223372036854775807};`,
+		`return {9223372036854775807..-9223372036854775807 - 1};`,
+	} {
+		t.Run(source, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, source, nil, nil), types.E_QUOTA)
+		})
+	}
+}
+
+func TestListRangeUsesExclusivePendingQuota(t *testing.T) {
+	for _, limit := range []int{64, 65} {
+		ctx := task.NewContext()
+		ctx.PendingEffects = []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
+		}}
+		result := runBytecodeProgram(t, `return {1..2};`, nil, ctx)
+		if limit == 64 {
+			requireError(t, result, types.E_QUOTA)
+		} else if result.Flow != types.FlowReturn || result.Val.String() != `{1, 2}` {
+			t.Fatalf("range with byte limit %d = %+v, want {1, 2}", limit, result)
+		}
+	}
+}
+
+func TestListRangeTerminatesAtIntegerEndpoints(t *testing.T) {
+	for source, want := range map[string]string{
+		`return {9223372036854775806..9223372036854775807};`:       `{9223372036854775806, 9223372036854775807}`,
+		`return {-9223372036854775807..-9223372036854775807 - 1};`: `{-9223372036854775807, -9223372036854775808}`,
+	} {
+		result := runBytecodeProgram(t, source, nil, nil)
+		if result.Flow != types.FlowReturn || result.Val.String() != want {
+			t.Fatalf("%s = %+v, want %s", source, result, want)
+		}
+	}
+}
+
 func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := task.NewContext()
 	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
