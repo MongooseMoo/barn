@@ -61,6 +61,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Nightly fuzz dispatches as github-actions[bot].
           allowed_bots: github-actions
+          settings: .github/claude-fix-settings.json
           prompt: |
             Fix GitHub issue #${{ env.ISSUE }} in ${{ github.repository }} and open a pull request for review.
 
@@ -68,10 +69,14 @@ jobs:
             ./moo-conformance-tests; the CI workflow .github/workflows/ci.yml shows the managed conformance
             command, and the WSL Toast oracle on this runner is the behavioural reference.
 
+            All runners share a Unix user. Never kill processes by name or pattern: that kills other
+            jobs' tests too. Start potentially hanging reproductions with timeout, and clean up only
+            PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
+
             1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, download its
                failing inputs with `gh run download <run-id> -n fuzz-failure-<target>` from the linked run, and
-               reproduce the failure with `go test <package> -run '<Target>/<input-file>'` after copying the
-               input into <package>/testdata/fuzz/<Target>/.
+               copy the input into <package>/testdata/fuzz/<Target>/, then reproduce with
+               `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
             2. Find the cause in the code and make the smallest production fix. Commit the failing input under
                testdata/fuzz with the fix so ordinary CI replays it. Never weaken, skip or delete a test or check.
             3. Run the affected package's tests.
