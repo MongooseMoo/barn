@@ -91,8 +91,14 @@ interface stubs in builtins/session_test.go and vm/session_test.go.
 
 ## Perf gate (2026-11-04, vs master at the #603 merge, idle-gated, interleaved)
 Measured on the first version, before the two CI fixes above (they add one
-row lookup per slice end and narrow the tasks.mu span); a 3-round re-check
-on the fixed branch follows CI.
+row lookup per slice end and narrow the tasks.mu span). Fixed branch:
+- 3-round re-check 1p+16p: 1p 55.3 base vs 55.0; 16p 378/386/369 vs
+  373/367/352 (all lower, -3.6%).
+- So a 16p three-way, 5 rounds interleaved (base | first version | fixed):
+  base 344 335 331 344 325 (335.8); first 364 347 362 331 342 (349.2);
+  fixed 350 328 353 347 346 (344.8); fixed beat base in 4 of 5, p99
+  696-801 ms vs base 754-794 ms. The re-check's drop was noise. Over all 8
+  16p pairs: base 351.5/s, fixed 352/s.
 - 1p x8 goodput/s: base 50 50 50 48 50 52 52 52 (mean 50.5); cand 51 50 50
   47 52 51 53 49 (mean 50.4). Equal.
 - 16p x3 goodput/s: base 329 342 338 (mean 336); cand 346 344 364 (mean
