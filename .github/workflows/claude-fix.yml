@@ -61,12 +61,17 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Nightly fuzz dispatches as github-actions[bot].
           allowed_bots: github-actions
+          settings: .github/claude-fix-settings.json
           prompt: |
             Fix GitHub issue #${{ env.ISSUE }} in ${{ github.repository }} and open a pull request for review.
 
             Read CLAUDE.md and AGENTS.md first and follow them. The conformance suite is checked out at
             ./moo-conformance-tests; the CI workflow .github/workflows/ci.yml shows the managed conformance
             command, and the WSL Toast oracle on this runner is the behavioural reference.
+
+            All runners share a Unix user. Never kill processes by name or pattern: that kills other
+            jobs' tests too. Start potentially hanging reproductions with timeout, and clean up only
+            PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
 
             1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, download its
                failing inputs with `gh run download <run-id> -n fuzz-failure-<target>` from the linked run, and

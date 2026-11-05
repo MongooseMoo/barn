@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$GITHUB_WORKSPACE/scripts/claude_process_guard.py\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
