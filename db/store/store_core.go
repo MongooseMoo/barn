@@ -157,6 +157,8 @@ type Store struct {
 	history historyIndex
 	// waifs versions WAIF images (waifVersions).
 	waifs waifVersions
+	// tasks holds the task rows (store_task_rows.go).
+	tasks taskRowTable
 
 	// readers registers live transactions' read timestamps (readerRegistry).
 	readers readerRegistry

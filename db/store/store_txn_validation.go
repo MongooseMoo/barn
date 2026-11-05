@@ -15,7 +15,11 @@ var debugValidation = os.Getenv("BARN_DEBUG_RETRY") != ""
 func (tx *StoreTxn) validateReads() types.ErrorCode {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
-	return tx.validateReadsLocked()
+	errCode := tx.validateReadsLocked()
+	tx.store.tasks.mu.Lock()
+	defer tx.store.tasks.mu.Unlock()
+	tx.validateTaskReadsLocked(&errCode)
+	return errCode
 }
 
 // validateReadsLocked runs every stage -- scalar, relationship, property, verb,

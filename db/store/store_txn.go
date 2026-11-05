@@ -45,8 +45,13 @@ type StoreTxn struct {
 	propertyDeletes           map[propertyWriteKey]string
 	verbWrites                map[verbKey]verbWrite
 	verbDeletes               []verbDelete
-	validationFail            bool
-	waifs                     map[types.WaifIdentity]*waifTxnImage
+	// taskReads holds the version of each task row read (0 for a missing row)
+	// and taskWrites the rows staged for publication (store_task_rows.go).
+	// Unlike the object reads, renewal carries taskReads forward.
+	taskReads      map[int64]uint64
+	taskWrites     map[int64]TaskRow
+	validationFail bool
+	waifs          map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
 	// resolution and must instead fail validation if dispatch.shapeChangeTS moved
@@ -302,7 +307,12 @@ func (tx *StoreTxn) HasWrites() bool {
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
-	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (tx.hasObjectWrites() || len(tx.taskWrites) > 0)
+}
+
+// hasObjectWrites reports staged writes other than task rows.
+func (tx *StoreTxn) hasObjectWrites() bool {
+	return tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0
 }
 
 // markTerminal records an operation/apply failure that cannot become valid by
@@ -354,6 +364,13 @@ func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
 	if tx != nil {
 		tx.gateWait = waited
 	}
+}
+
+func (tx *StoreTxn) commitContextOrBackground() context.Context {
+	if tx.commitContext == nil {
+		return context.Background()
+	}
+	return tx.commitContext
 }
 
 // SetCommitContext permits cancellation while waiting for shared admission.
