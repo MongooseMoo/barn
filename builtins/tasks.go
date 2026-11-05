@@ -93,9 +93,20 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
+// liveTaskRow reads task id's store row through the calling task's
+// transaction, reporting whether it names a live task.
+func liveTaskRow(ctx *Execution, id int64) (dbstore.TaskRow, bool) {
+	if ctx.Context == nil || ctx.StoreTxn == nil {
+		return dbstore.TaskRow{}, false
+	}
+	row, ok := ctx.StoreTxn.ReadTaskRow(id)
+	return row, ok && row.Live()
+}
+
 // builtinKillTask: kill_task(task_id) → none
-// Kills the specified task
-// Requires permission: must be task owner or wizard
+// Kills the specified task: it stages the task's row as killed, and the
+// runtime stops the task once that commits (tasks.cc kill_task). Requires
+// permission: must be task owner or wizard.
 func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	taskID := args[0].Int()
 
@@ -103,30 +114,15 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if ctx.TaskID == taskID {
 		return types.Err(types.E_INTRPT)
 	}
-
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
+	row, ok := liveTaskRow(ctx, taskID)
+	if !ok {
 		return types.Err(types.E_INVARG)
 	}
-
-	// Only a kill that will happen is irreversible. A refused kill has no effect
-	// (LambdaCore's $code_utils:task_valid probes existence this way as $no_one),
-	// so it must not end the attempt's retryability or take the commit gate.
-	if errCode := mgr.CheckKill(taskID, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if row.Owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
-	if ctx.Context != nil {
-		if !beginIrreversible(ctx) {
-			return abortedAttempt()
-		}
-		ctx.IrreversibleSideEffect = true
-	}
-	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	ctx.Session.CancelHTTPReadTask(taskID)
-
+	row.Status, row.Value, row.By = dbstore.TaskRowKilled, types.None, ctx.TaskID
+	ctx.StoreTxn.StageTaskRow(taskID, row)
 	return types.Ok(types.NewInt(0))
 }
 
@@ -180,6 +176,10 @@ func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 // Resumes a suspended task with the given value
 // The value (or 0 if not specified) is returned from suspend()
 // Requires permission: must be task owner or wizard
+// Like Toast's do_resume (tasks.cc), it reaches a task waiting in suspend(),
+// which it queues with the value, and a task resumed but not yet run, whose
+// value it replaces. It stages the task's row; the runtime readies the task
+// once that commits.
 func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	taskID := args[0].Int()
 
@@ -189,15 +189,15 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 		value = args[1]
 	}
 
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
+	row, ok := liveTaskRow(ctx, taskID)
+	if !ok || taskID == ctx.TaskID || (row.Status != dbstore.TaskRowSuspended && row.Status != dbstore.TaskRowQueued) {
 		return types.Err(types.E_INVARG)
 	}
-	errCode := mgr.ResumeTask(taskID, value, ctx.Programmer, ctx.IsWizard, ctx.Task)
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
+	if row.Owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
-
+	row.Status, row.Value, row.By = dbstore.TaskRowQueued, value, ctx.TaskID
+	ctx.StoreTxn.StageTaskRow(taskID, row)
 	return types.Ok(types.NewInt(0))
 }
 
@@ -746,10 +746,10 @@ func tasksDescriptors() []Descriptor {
 		function("thread_pool", builtinThreadPool, 2, 3, 2, 2, 0),
 		function("threads", builtinThreads, 0, 0),
 		function("queued_tasks", builtinQueuedTasks, 0, 2, 0, 0),
-		function("kill_task", builtinKillTask, 1, 1, 0).withEffect(ImplementationOwned),
+		function("kill_task", builtinKillTask, 1, 1, 0),
 		function("task_stack", builtinTaskStack, 1, 3, 0, -1, -1).withLineSync(),
 		function("suspend", builtinSuspend, 0, 1, -2),
-		function("resume", builtinResume, 1, 2, 0, -1).withEffect(Irreversible),
+		function("resume", builtinResume, 1, 2, 0, -1),
 		function("callers", builtinCallers, 0, 1, -1).withLineSync(),
 		function("set_task_perms", builtinSetTaskPerms, 1, 1, 1),
 		function("caller_perms", builtinCallerPerms, 0, 0),

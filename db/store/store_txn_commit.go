@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -234,6 +233,20 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.store == nil {
 		return tx.markTerminal(types.E_INVARG)
 	}
+	// The task rows this commit publishes go to the observer once every lock
+	// below is released: registered first, this runs last.
+	var published []PublishedTaskRow
+	defer func() { tx.store.notifyTaskRows(published) }()
+	if !tx.hasObjectWrites() {
+		tx.store.commitAttempts.Add(1)
+		published, commitErr = tx.commitTaskRowsOnly()
+		if commitErr == types.E_NONE {
+			tx.store.commitSuccesses.Add(1)
+		} else if tx.validationFail {
+			tx.store.commitConflicts.Add(1)
+		}
+		return commitErr
+	}
 	// Belt and braces: staged writes already disabled the memo (they privatize),
 	// but publishing them changes the world the memo described.
 	tx.invalidateResolveCaches()
@@ -243,11 +256,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
 		started := time.Now()
-		ctx := tx.commitContext
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		grant, err := tx.store.commitGate.Acquire(ctx, commitgate.Shared)
+		grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
 		if err != nil {
 			return tx.markTerminal(types.E_INTRPT)
 		}
@@ -341,10 +350,26 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if !exclusive {
 		isolationprobe.Pause("commit/timestamped")
 	}
+	// Task rows are validated and published under their own leaf lock, held
+	// from their validation through publication. It covers only that span, so
+	// it orders this commit against other task-row commits and adds no
+	// exclusion to the object commit above. Nothing is published yet, so a lost
+	// row validation here leaves no trace.
+	if len(tx.taskReads)+len(tx.taskWrites) > 0 {
+		s.tasks.mu.Lock()
+		defer s.tasks.mu.Unlock()
+		rowErr := types.E_NONE
+		tx.validateTaskReadsLocked(&rowErr)
+		if rowErr != types.E_NONE {
+			tx.lostValidation()
+			return rowErr
+		}
+	}
 	// Only the exclusive route walks a definer's live children (see
 	// publishStagedLocked). On the shared route, staging recorded a relationship
 	// read on every object it walked, so validation fails if a child joined since.
 	tx.publishStagedLocked(&writes, ts, exclusive)
+	published = tx.publishTaskRowsLocked()
 	if exclusive {
 		isolationprobe.Note("exclusive")
 	} else {

@@ -3,6 +3,7 @@ package engine
 import (
 	"sync"
 
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -12,20 +13,35 @@ type TaskManager struct {
 	tasks           map[int64]*Task
 	mu              sync.RWMutex
 	scheduleChanged chan struct{}
-	resume          func(t *Task, value types.Value, readier *task.State) bool
 
 	// unfinished is the catalog's tasks that are neither completed nor killed,
 	// kept exact by State's settlement notifications. unfinishedMu is a leaf lock: it is
 	// taken under a task's lock and never the other way round.
 	unfinishedMu sync.Mutex
 	unfinished   map[int64]*Task
+
+	// rows, when set, holds each registered task's store row: a task gets one
+	// when it is registered and loses it when it finishes.
+	rows *dbstore.Store
 }
 
-// SetResumeScheduler routes resume() through the runtime scheduler, which
-// orders the resumed task among ready work. Without one, resume() only marks
-// the task queued.
-func (m *TaskManager) SetResumeScheduler(resume func(t *Task, value types.Value, readier *task.State) bool) {
-	m.resume = resume
+// SetTaskRows gives each task registered from now on a row in store.
+func (m *TaskManager) SetTaskRows(store *dbstore.Store) {
+	m.rows = store
+}
+
+// registrationRow is the row a task gets when it is registered.
+func registrationRow(t *Task) (dbstore.TaskRow, bool) {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	row := dbstore.TaskRow{Owner: t.Owner, Status: dbstore.TaskRowRunning}
+	switch {
+	case t.ID == 0 || t.Status == task.TaskCompleted || t.Status == task.TaskKilled:
+		return row, false
+	case t.Status == task.TaskSuspended && !t.IsExecSuspended:
+		row.Status = dbstore.TaskRowSuspended
+	}
+	return row, true
 }
 
 // NewTaskManager creates an empty task manager for one execution engine.
@@ -59,10 +75,20 @@ func (m *TaskManager) GetTask(id int64) *Task {
 // RegisterTask registers an externally created task with the manager
 // This allows builtins to find tasks created by the execution runtime.
 func (m *TaskManager) RegisterTask(t *Task) {
+	m.registerTask(t, true)
+}
+
+// registerTask registers t, giving it its row now when withRow is set. A
+// forked child is registered without one: its row is written by its parent's
+// commit.
+func (m *TaskManager) registerTask(t *Task, withRow bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if replaced := m.tasks[t.ID]; replaced != nil && replaced != t {
 		m.forget(replaced)
+	}
+	if row, ok := registrationRow(t); ok && withRow && m.rows != nil {
+		t.NoteRowVersion(m.rows.PutTaskRow(t.ID, row))
 	}
 	m.tasks[t.ID] = t
 	t.Mu.Lock()
@@ -74,8 +100,13 @@ func (m *TaskManager) RegisterTask(t *Task) {
 }
 
 // noteFinished records that scheduling is done with t, or that it is not. The
-// caller holds t's lock.
+// caller holds t's lock. A finished task's row goes: one whose last commit did
+// not remove it (a panic, a failed commit, a kill) must not be found by
+// kill_task() or resume().
 func (m *TaskManager) noteFinished(t *Task, finished bool) {
+	if finished && m.rows != nil && t.ID != 0 {
+		m.rows.RemoveTaskRow(t.ID)
+	}
 	m.unfinishedMu.Lock()
 	defer m.unfinishedMu.Unlock()
 	if !finished {
@@ -189,73 +220,6 @@ func (m *TaskManager) GetQueuedTasks() []*task.State {
 		}
 	}
 	return tasks
-}
-
-// KillTask kills a task by ID
-// Returns ErrorCode if task doesn't exist, already killed, or caller doesn't have permission
-func (m *TaskManager) KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode {
-	candidate, errCode := m.killable(taskID, killerID, isWizard)
-	if errCode != types.E_NONE {
-		return errCode
-	}
-	candidate.Kill()
-	return types.E_NONE
-}
-
-// CheckKill reports the error KillTask would return without killing anything.
-func (m *TaskManager) CheckKill(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode {
-	_, errCode := m.killable(taskID, killerID, isWizard)
-	return errCode
-}
-
-func (m *TaskManager) killable(taskID int64, killerID types.ObjID, isWizard bool) (*Task, types.ErrorCode) {
-	candidate := m.GetTask(taskID)
-	if candidate == nil {
-		return nil, types.E_INVARG
-	}
-
-	// Check if task is already killed
-	if candidate.GetState() == task.TaskKilled {
-		return nil, types.E_INVARG
-	}
-
-	// Permission check: must be task owner or wizard
-	if candidate.Owner != killerID && !isWizard {
-		return nil, types.E_PERM
-	}
-	return candidate, types.E_NONE
-}
-
-// ResumeTask resumes a suspended task with a value on behalf of task readier.
-func (m *TaskManager) ResumeTask(taskID int64, value types.Value, resumerID types.ObjID, isWizard bool, readier *task.State) types.ErrorCode {
-	candidate := m.GetTask(taskID)
-	if candidate == nil {
-		return types.E_INVARG
-	}
-
-	// Permission check: must be task owner or wizard
-	if candidate.Owner != resumerID && !isWizard {
-		return types.E_PERM
-	}
-
-	if candidate.GetState() != task.TaskSuspended {
-		if candidate.ReplaceWakeValue(value) {
-			return types.E_NONE
-		}
-		return types.E_INVARG
-	}
-
-	resumed := false
-	if m.resume != nil {
-		resumed = m.resume(candidate, value, readier)
-	} else {
-		resumed = candidate.Resume(value)
-	}
-	if !resumed {
-		return types.E_INVARG
-	}
-
-	return types.E_NONE
 }
 
 // FindReadingTask returns the oldest suspended task that is read()ing from the

@@ -359,7 +359,9 @@ return {before, missing, foreign};
 	}
 }
 
-func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
+// A kill stages the victim's row in the killer's transaction, so it takes no
+// gate: a lost commit re-runs the killer like any other write.
+func TestKillTaskTakesNoGate(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
 	defer s.Stop()
@@ -381,7 +383,7 @@ func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
 	if victim.GetState() != task.TaskKilled {
 		t.Fatalf("victim state = %v, want killed", victim.GetState())
 	}
-	if got := store.CommitEscalations(); got == 0 {
-		t.Fatal("a kill that happens must cross the irreversible boundary")
+	if got := store.CommitEscalations(); got != 0 {
+		t.Fatalf("commit escalations = %d, want 0: a kill takes no gate", got)
 	}
 }

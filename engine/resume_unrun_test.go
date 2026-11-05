@@ -3,46 +3,49 @@ package engine
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 )
 
 // Toast's do_resume finds a task woken from a suspension until its slice starts,
 // and only replaces the value its suspend returns.
 func TestResumeTaskReachesWokenTaskUntilItRuns(t *testing.T) {
-	manager := NewTaskManager()
-	parked := NewTask(1, 2, 100, 5)
-	manager.RegisterTask(parked)
-	parked.SetState(task.TaskRunning)
-	parked.SuspendSeconds(0)
+	store := newBoundaryTestStore(t)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
+	defer s.Stop()
+	parked := registerRowTask(t, s, 7101, 5, "return suspend(0);")
+	if err := s.runTask(parked); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
 	if state := parked.GetState(); state != task.TaskQueued {
 		t.Fatalf("suspend(0) state = %v, want queued", state)
 	}
 
-	if errCode := manager.ResumeTask(1, types.NewInt(42), 2, false, nil); errCode != types.E_NONE {
-		t.Fatalf("resume of a task in suspend(0) = %v, want E_NONE", errCode)
+	if got := resumeVia(t, s, 7101, "42"); got != "0" {
+		t.Fatalf("resume of a task in suspend(0) = %s, want 0", got)
 	}
-	if errCode := manager.ResumeTask(1, types.NewInt(43), 2, false, nil); errCode != types.E_NONE {
-		t.Fatalf("second resume before it runs = %v, want E_NONE", errCode)
+	if got := resumeVia(t, s, 7101, "43"); got != "0" {
+		t.Fatalf("second resume before it runs = %s, want 0", got)
 	}
-	if !parked.WakeValue.Equal(types.NewInt(43)) {
-		t.Fatalf("wake value = %v, want the latest resume value 43", parked.WakeValue)
+	s.ProcessReadyTasks()
+	if got := resultString(parked); got != "43" {
+		t.Fatalf("suspend(0) returned %s, want the latest resume value 43", got)
 	}
-
-	if !parked.TryClaimQueued() {
-		t.Fatal("woken task could not be claimed")
-	}
-	if errCode := manager.ResumeTask(1, types.NewInt(44), 2, false, nil); errCode != types.E_INVARG {
-		t.Fatalf("resume of a running task = %v, want E_INVARG", errCode)
+	if got := resumeVia(t, s, 7101, "44"); got != "E_INVARG" {
+		t.Fatalf("resume of a task that has run = %s, want E_INVARG", got)
 	}
 }
 
 func TestResumeTaskRejectsUnrunForkedTask(t *testing.T) {
-	manager := NewTaskManager()
-	forked := NewTask(1, 2, 100, 5)
-	manager.RegisterTask(forked)
-	forked.SetState(task.TaskQueued)
-	if errCode := manager.ResumeTask(1, types.NewInt(42), 2, false, nil); errCode != types.E_INVARG {
-		t.Fatalf("resume of a forked task that has not run = %v, want E_INVARG", errCode)
+	store := newBoundaryTestStore(t)
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
+	defer s.Stop()
+	defer removeTasksForOwner(s, 5)
+	parent := newRowTask(t, s, 7201, 5, "fork id (3600) endfork return `resume(id, 42) ! ANY';")
+	if err := s.runTask(parent); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if got := resultString(parent); got != "E_INVARG" {
+		t.Fatalf("resume of a forked task that has not run = %s, want E_INVARG", got)
 	}
 }

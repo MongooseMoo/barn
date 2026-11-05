@@ -65,8 +65,13 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 		t.Fatalf("second task state changed with first suspend: %v", got)
 	}
 
-	if errCode := first.taskManager.ResumeTask(firstTask.ID, types.NewInt(42), firstTask.Owner, false, nil); errCode != types.E_NONE {
-		t.Fatalf("resume first task: %s", errCode)
+	// The task's own suspending commit would write this row.
+	first.store.PutTaskRow(firstTask.ID, dbstore.TaskRow{Owner: firstTask.Owner, Status: dbstore.TaskRowSuspended})
+	resumeCtx := task.NewContext()
+	resumeCtx.Programmer = firstTask.Owner
+	resumeCtx.Store = first.store
+	if result, _ := first.session.CallByNameWithExecution("resume", first.session.NewExecution(resumeCtx, nil), []types.Value{types.NewInt(firstTask.ID), types.NewInt(42)}); result.Error != types.E_NONE {
+		t.Fatalf("resume first task: %s", result.Error)
 	}
 	if got := firstTask.GetState(); got != task.TaskQueued {
 		t.Fatalf("first task state after resume = %v, want queued", got)

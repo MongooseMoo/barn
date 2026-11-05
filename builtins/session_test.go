@@ -50,15 +50,10 @@ func TestHostValidationRejectsPartlyWiredServer(t *testing.T) {
 
 type taskManagerStub struct{}
 
-func (taskManagerStub) GetAllTasks() []*task.State                         { return nil }
-func (taskManagerStub) GetQueuedTasks() []*task.State                      { return nil }
-func (taskManagerStub) FindTaskState(int64) *task.State                    { return nil }
-func (taskManagerStub) FindReadingTaskState(types.ObjID) *task.State       { return nil }
-func (taskManagerStub) KillTask(int64, types.ObjID, bool) types.ErrorCode  { return types.E_NONE }
-func (taskManagerStub) CheckKill(int64, types.ObjID, bool) types.ErrorCode { return types.E_NONE }
-func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool, *task.State) types.ErrorCode {
-	return types.E_NONE
-}
+func (taskManagerStub) GetAllTasks() []*task.State                   { return nil }
+func (taskManagerStub) GetQueuedTasks() []*task.State                { return nil }
+func (taskManagerStub) FindTaskState(int64) *task.State              { return nil }
+func (taskManagerStub) FindReadingTaskState(types.ObjID) *task.State { return nil }
 
 func TestExecutionCarriesRegistryAndSession(t *testing.T) {
 	registry := NewRegistry()

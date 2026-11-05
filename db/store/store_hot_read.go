@@ -262,7 +262,7 @@ func (tx *StoreTxn) onlyPropertyValuesStaged() bool {
 		tx.terminalErr == types.E_NONE && !tx.privateVerbShape &&
 		len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 &&
 		len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyRenames) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 &&
-		len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0
+		len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0 && len(tx.taskWrites) == 0
 }
 
 // renewAtCurrentClock returns a transaction at the current clock that carries
@@ -297,6 +297,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.propertyShapeScans = maps.Clone(tx.propertyShapeScans)
 	next.verbReads = maps.Clone(tx.verbReads)
 	next.verbScans = maps.Clone(tx.verbScans)
+	next.taskReads = maps.Clone(tx.taskReads)
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)

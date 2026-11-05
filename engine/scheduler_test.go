@@ -169,7 +169,7 @@ func TestNextWakeWaitsForPhysicalExecutionBeforeClassifyingVM(t *testing.T) {
 			tk.Suspend(time.Hour) // Logical suspension precedes the VM handoff.
 			checkActive()
 			// An explicit resumption may queue the task before its slice returns.
-			if !tk.ResumeFrom(types.NewInt(0), nil, 1, now) {
+			if !tk.ResumeAtRow(1, types.NewInt(0), nil, 1, now) {
 				t.Fatal("task did not resume")
 			}
 			checkActive()
@@ -313,7 +313,8 @@ func TestResumedTaskRunsBeforeResumerYield(t *testing.T) {
 	if !resumer.StartExecution() {
 		t.Fatal("resumer did not start")
 	}
-	if !s.Resume(target, types.NewInt(0), &resumer.State, now) {
+	s.ResumeAtRow(target, 1, types.NewInt(0), &resumer.State, now)
+	if target.GetState() != task.TaskQueued {
 		t.Fatal("resume failed")
 	}
 	if batch := s.ReadyBatch(now, []*Task{target}); len(batch) != 0 {

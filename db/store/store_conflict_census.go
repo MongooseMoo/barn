@@ -67,6 +67,8 @@ const (
 	// ConflictMapKey is an entry of a map-valued property read through keyed
 	// access, or the slot's owner, perms or map type that such access relied on.
 	ConflictMapKey
+	// ConflictTask is a task's row; Name is the task id.
+	ConflictTask
 )
 
 var conflictKindNames = [...]string{
@@ -81,6 +83,7 @@ var conflictKindNames = [...]string{
 	ConflictWaif:          "waif",
 	ConflictObjectID:      "object-id",
 	ConflictMapKey:        "map-key",
+	ConflictTask:          "task",
 }
 
 func (k ConflictKind) String() string {
