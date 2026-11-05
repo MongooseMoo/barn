@@ -16,7 +16,7 @@ const (
 	// TaskRowFinished is no row: the task completed or was never given one.
 	TaskRowFinished TaskRowStatus = iota
 	// TaskRowRunning is a live task resume() cannot reach: one running, a fork
-	// waiting to start, or one waiting on exec().
+	// waiting to start, or one waiting in read(), read_http() or exec().
 	TaskRowRunning
 	// TaskRowSuspended is a task waiting in suspend(); resume() readies it.
 	TaskRowSuspended

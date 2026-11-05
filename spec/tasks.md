@@ -240,14 +240,22 @@ resume(task_id);
 resume(task_id, value);
 ```
 
-**Semantics:**
-- The task's programmer or a wizard can make a suspended task runnable now.
+**Semantics** (Toast `do_resume`, tasks.cc):
+- `resume()` reaches exactly two kinds of task:
+  - a task waiting in `suspend()`, which it makes runnable now with `value`;
+  - a task already resumed and waiting in a runnable background queue, whose
+    pending value it replaces, leaving its place in the queue.
 - `value`, defaulting to `0`, becomes the result delivered at the suspension
   point.
-- Resuming a suspended task that is already in a runnable background queue
-  replaces its pending resume value.
-- A different programmer receives `E_PERM`; an ID that does not identify a
-  suspended task receives `E_INVARG`.
+- Permission: the caller must be a wizard or the programmer of the verb the
+  target is suspended in (the programmer of its top activation,
+  `progr_of_cur_verb`), which need not be the programmer that started the
+  task. For an already-resumed task it is the programmer whose background
+  queue holds it, which is that same programmer at the time of the resume.
+  Otherwise `E_PERM`.
+- Any other ID receives `E_INVARG`: no such task, the current task, a forked
+  task that has not yet started, a task waiting in `read()`, and a task
+  waiting on `exec()`.
 
 ---
 
@@ -259,13 +267,20 @@ resume(task_id, value);
 kill_task(task_id);
 ```
 
-**Permissions:**
-- The current programmer can kill a queued task owned by that programmer; a
-  task blocked in `read()` is owned for this check by the connection player.
-- Wizards can kill any located task.
-- Killing the current task aborts it with `ABORT_KILL`.
-- A located task owned by someone else yields `E_PERM`; an unknown task ID
-  yields `E_INVARG`.
+**Permissions** (Toast `kill_task`, tasks.cc): the caller must be a wizard or
+the programmer the located task is checked against, which depends on where it
+is:
+- a forked task that has not yet started: the programmer that executed the
+  `fork`;
+- a task waiting in `suspend()`: the programmer of the verb it is suspended in
+  (its top activation, `progr_of_cur_verb`), which need not be the programmer
+  that started it;
+- a task waiting in a background queue (resumed or forked, about to run): the
+  programmer whose queue holds it;
+- a task blocked in `read()`: the connection's player.
+
+Killing the current task aborts it with `ABORT_KILL`. A located task the
+caller may not kill yields `E_PERM`; an unknown task ID yields `E_INVARG`.
 
 ### 7.2 Abort Reasons
 

@@ -350,13 +350,14 @@ func (s *Runtime) CreateForkedTask(parent *task.State, forkInfo *types.ForkInfo)
 	t.SetReadier(parent)
 	// The child's row is written by the parent's commit, so no other task finds
 	// the child before the parent's slice is published, and a parent attempt
-	// that is discarded leaves no row behind.
+	// that is discarded leaves no row behind. Until it starts, kill_task()
+	// checks the programmer that forked it (Toast forked.a.progr).
 	var parentTxn *dbstore.StoreTxn
 	if parent != nil && parent.Context != nil {
 		parentTxn = parent.Context.StoreTxn
 	}
 	if parentTxn != nil {
-		parentTxn.StageTaskRow(taskID, dbstore.TaskRow{Owner: t.Owner, Status: dbstore.TaskRowRunning, By: parent.ID})
+		parentTxn.StageTaskRow(taskID, dbstore.TaskRow{Owner: programmer, Status: dbstore.TaskRowRunning, By: parent.ID})
 	}
 	childID := s.queueTask(t, parentTxn == nil)
 	if parent != nil {

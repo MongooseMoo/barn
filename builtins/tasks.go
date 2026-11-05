@@ -461,11 +461,21 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+	// Toast's find_suspended_task (tasks.cc) finds no fork that has not started.
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled || t.ForkNotStarted() {
 		return types.Err(types.E_INVARG)
 	}
-	// Permission check: must be task owner or wizard
-	if t.Owner != ctx.Programmer && !ctx.IsWizard {
+
+	// Get call stack
+	callStack := types.ExpandBuiltinFrames(t.GetCallStack())
+
+	// Permission: a wizard, or the programmer of the task's current verb
+	// (Toast bf_task_stack, progr_of_cur_verb).
+	owner := t.Owner
+	if len(callStack) > 0 {
+		owner = callStack[len(callStack)-1].Programmer
+	}
+	if owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 
@@ -479,9 +489,6 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	if len(args) >= 3 {
 		includeVariables = args[2].Truthy()
 	}
-
-	// Get call stack
-	callStack := types.ExpandBuiltinFrames(t.GetCallStack())
 
 	// Convert to list of lists: {this, verb_name, programmer, verb_loc, player [, line]}
 	// Order: innermost frame first (most recently called verb first), matching Toast.
