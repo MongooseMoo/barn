@@ -50,9 +50,22 @@ interface stubs in builtins/session_test.go and vm/session_test.go.
   commit nothing and so never validated its object reads; validating them now
   would make every read-only command able to lose, which the plan did not
   ask for. A commit that also writes objects validates everything.
-- Renewal (CommitAndRenew, the hot-read renewal) carries task-row reads at the
-  versions its own commit published, so a kill that lands after a mid-slice
-  boundary still fails the slice's final commit.
+- The hot-read renewal (same transaction, new snapshot, no commit) carries
+  task-row reads. CommitAndRenew does NOT: a commit boundary ends them, like
+  object reads. The slice re-reads its own row just before staging its end
+  row, so a kill that landed after a mid-slice boundary still stops it.
+  (The first version carried them; PR #604 CI failed 3 conformance tests:
+  fork_timing suspend_zero_queued_tasks_lists_child_suspended_first and two
+  waif.yaml queued_tasks/task_stack tests. recycle()'s beginIrreversible
+  boundary published the parent's kill of its child, the child settled and
+  its row was removed outside any transaction, and the parent's final
+  commit, holding the exclusive gate, lost on the carried read -> E_INVARG.
+  Regression test engine/task_rows_conformance_test.go.)
+- tasks.mu is taken only from row validation (after the commit/validated
+  and commit/timestamped probe points, before any publication) through row
+  publication. The first version took it before object validation, which
+  re-serialized every commit and made Elle's fault-commit-exclusion negative
+  control come out serializable (CI "Serializable histories" red).
 - The scheduler applies a published row only when its version is newer than
   the version the task last saw (State.rowVersion); the task's own slice
   records the version it read, so a late application of an older row is
@@ -77,6 +90,9 @@ interface stubs in builtins/session_test.go and vm/session_test.go.
   disposition; taskReads carried, taskWrites declines.
 
 ## Perf gate (2026-11-04, vs master at the #603 merge, idle-gated, interleaved)
+Measured on the first version, before the two CI fixes above (they add one
+row lookup per slice end and narrow the tasks.mu span); a 3-round re-check
+on the fixed branch follows CI.
 - 1p x8 goodput/s: base 50 50 50 48 50 52 52 52 (mean 50.5); cand 51 50 50
   47 52 51 53 49 (mean 50.4). Equal.
 - 16p x3 goodput/s: base 329 342 338 (mean 336); cand 346 344 364 (mean

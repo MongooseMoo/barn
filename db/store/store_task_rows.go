@@ -157,10 +157,8 @@ func (tx *StoreTxn) validateTaskReadsLocked(first *types.ErrorCode) {
 	}
 }
 
-// publishTaskRowsLocked publishes the staged task rows and moves this
-// transaction's reads of them to the versions it published, so a renewed
-// transaction carrying those reads does not conflict with its own commit. The
-// caller holds tasks.mu.
+// publishTaskRowsLocked publishes the staged task rows. The caller holds
+// tasks.mu.
 func (tx *StoreTxn) publishTaskRowsLocked() []PublishedTaskRow {
 	if len(tx.taskWrites) == 0 {
 		return nil
@@ -168,9 +166,6 @@ func (tx *StoreTxn) publishTaskRowsLocked() []PublishedTaskRow {
 	published := make([]PublishedTaskRow, 0, len(tx.taskWrites))
 	for id, row := range tx.taskWrites {
 		row.Version = tx.store.tasks.putLocked(id, row)
-		if _, read := tx.taskReads[id]; read {
-			tx.taskReads[id] = row.Version
-		}
 		published = append(published, PublishedTaskRow{ID: id, TaskRow: row})
 	}
 	clear(tx.taskWrites)

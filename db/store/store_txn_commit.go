@@ -210,9 +210,6 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	next.SetCommitWaitObserver(gateWait)
 	next.SetCommitContext(tx.commitContext)
 	next.conflictLabel = tx.conflictLabel
-	// Task-row reads survive renewal, at the versions this commit published, so
-	// the slice's final commit still detects a kill or resume that landed since.
-	next.taskReads = tx.taskReads
 	tx.carryConflictDiag(next, false)
 	if gateExempt {
 		next.BindExclusiveGrant(grant)
@@ -328,15 +325,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 	}
 
-	// Task rows are validated and published under their own leaf lock, held
-	// from validation through publication like the locks above.
-	if len(tx.taskReads)+len(tx.taskWrites) > 0 {
-		s.tasks.mu.Lock()
-		defer s.tasks.mu.Unlock()
-	}
-	errCode := tx.validateReadsLocked()
-	tx.validateTaskReadsLocked(&errCode)
-	if errCode != types.E_NONE {
+	if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return errCode
 	}
@@ -360,6 +349,21 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	ts := s.clock.Load() + 1
 	if !exclusive {
 		isolationprobe.Pause("commit/timestamped")
+	}
+	// Task rows are validated and published under their own leaf lock, held
+	// from their validation through publication. It covers only that span, so
+	// it orders this commit against other task-row commits and adds no
+	// exclusion to the object commit above. Nothing is published yet, so a lost
+	// row validation here leaves no trace.
+	if len(tx.taskReads)+len(tx.taskWrites) > 0 {
+		s.tasks.mu.Lock()
+		defer s.tasks.mu.Unlock()
+		rowErr := types.E_NONE
+		tx.validateTaskReadsLocked(&rowErr)
+		if rowErr != types.E_NONE {
+			tx.lostValidation()
+			return rowErr
+		}
 	}
 	// Only the exclusive route walks a definer's live children (see
 	// publishStagedLocked). On the shared route, staging recorded a relationship

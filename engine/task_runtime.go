@@ -499,6 +499,15 @@ retryAttempt:
 	}
 
 	if hasOwnRow {
+		// Read the row again: a commit boundary inside the slice started a new
+		// transaction, which has not read it. A kill_task() that committed since
+		// the slice began stops the task here, publishing nothing.
+		if row, ok := s.readOwnRow(t, ctx.StoreTxn); ok && row.Status == dbstore.TaskRowKilled {
+			s.discardCreatedForks(t)
+			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+			t.Kill()
+			return context.Canceled
+		}
 		ctx.StoreTxn.StageTaskRow(t.ID, ownEndRow(t, ownRow, result))
 	}
 	committed := true

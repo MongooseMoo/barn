@@ -172,37 +172,46 @@ func TestTaskRowMixedCommitValidatesTaskReads(t *testing.T) {
 	}
 }
 
-// Renewal keeps task-row reads, at the versions its own commit published, so
-// a later commit still detects another writer of a row read before renewal.
-func TestTaskRowReadsSurviveRenewal(t *testing.T) {
+// A commit boundary ends the transaction's task-row reads, like its object
+// reads: they were validated by the commit that published. The renewed
+// transaction must not lose to what followed from that publication, such as
+// the killed task's row being removed when it settles.
+func TestCommitAndRenewStartsFreshTaskRowReads(t *testing.T) {
 	store := taskRowStore(t)
-	store.PutTaskRow(7, TaskRow{Owner: 3, Status: TaskRowRunning})
+	store.PutTaskRow(7, TaskRow{Owner: 3, Status: TaskRowSuspended})
 	store.PutTaskRow(8, TaskRow{Owner: 3, Status: TaskRowSuspended})
 	tx := store.BeginSnapshot(0)
 	tx.ReadTaskRow(7)
-	tx.ReadTaskRow(8)
-	tx.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowQueued, Value: types.NewInt(1)})
+	tx.StageTaskRow(7, TaskRow{Owner: 3, Status: TaskRowKilled})
 	next, published, errCode := tx.CommitAndRenew()
 	if errCode != types.E_NONE || !published {
 		t.Fatalf("CommitAndRenew = %v published %v", errCode, published)
 	}
 	defer next.Release()
-	next.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowQueued, Value: types.NewInt(2)})
+	store.RemoveTaskRow(7)
+	next.ReadTaskRow(8)
+	next.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowQueued, Value: types.NewInt(1)})
 	if errCode := next.Commit(); errCode != types.E_NONE {
-		t.Fatalf("Commit after renewal = %v, want its own publication of row 8 not to conflict", errCode)
+		t.Fatalf("Commit after renewal = %v, want no conflict on row 7 read before the boundary", errCode)
 	}
+}
 
-	again := store.BeginSnapshot(0)
-	again.ReadTaskRow(7)
-	renewed, _, errCode := again.CommitAndRenew()
+// A task-row read after renewal is validated as usual.
+func TestTaskRowReadAfterRenewalConflicts(t *testing.T) {
+	store := taskRowStore(t)
+	store.PutTaskRow(7, TaskRow{Owner: 3, Status: TaskRowRunning})
+	tx := store.BeginSnapshot(0)
+	tx.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowRunning})
+	next, _, errCode := tx.CommitAndRenew()
 	if errCode != types.E_NONE {
 		t.Fatalf("CommitAndRenew = %v", errCode)
 	}
-	defer renewed.Release()
+	defer next.Release()
+	next.ReadTaskRow(7)
 	store.PutTaskRow(7, TaskRow{Owner: 3, Status: TaskRowKilled})
-	renewed.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowQueued, Value: types.NewInt(3)})
-	if errCode := renewed.Commit(); errCode != types.E_INVARG || !renewed.ValidationFailed() {
-		t.Fatalf("Commit = %v, want the row read before renewal to conflict", errCode)
+	next.StageTaskRow(8, TaskRow{Owner: 3, Status: TaskRowSuspended})
+	if errCode := next.Commit(); errCode != types.E_INVARG || !next.ValidationFailed() {
+		t.Fatalf("Commit = %v, want the row read after renewal to conflict", errCode)
 	}
 }
 
