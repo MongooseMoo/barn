@@ -66,7 +66,21 @@ no PR). Timing gates not run by this agent (the lead runs them).
   escalation assertion. Fixed with a literal 10M-tick limit, and the
   escalation assertion is checked first in the cheap-loss test.
 
+## Gate (forked-only rule, base = master at the #601 merge)
+
+TestMongooseRealWorkload with the deployment sound db, 1p x8 and 16p x3 per
+side, interleaved, idle-gated:
+- 1p goodput: base 47/29/34/41/43/31/33/28 (mean 35.8), branch
+  51/47/46/53/46/48/49/52 (mean 49.0).
+- 1p abort: base 0.5-63% (abort storms in 4 of 8 runs), branch 0.00-0.07%.
+- 1p p999: base 101-647 ms (median ~255), branch 81-203 ms (median ~120).
+- 16p goodput: base 135/303/207 (mean 215), branch 323/332/299 (mean 318).
+- The 0.5-0.6 s #1007:reset_scheduler gate holds (3 of 8 base runs) did not
+  appear on the branch.
+- With the deferred kill_task branch added on top (local measurement only),
+  results were within noise of this branch (1p mean 45.5, 16p mean 298).
+200_000 was kept: the gate passed at the starting value.
+
 ## Next step
 
-Lead: re-run the 1p and 16p real-workload gate plus conformance with the
-forked-only rule; tune `escalateAfterWastedTicks` from the result.
+PR, CI, merge.
