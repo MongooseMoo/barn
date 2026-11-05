@@ -322,6 +322,16 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		}
 		return nil
 	}
+	// A handler follows the instruction that installs it, as the compiler
+	// emits it. Unwinding to a handler at or before its own TRY would re-run
+	// the TRY, re-arm the handler and unwind to it again: a cycle with no
+	// checked tick, which no tick budget ends.
+	handler := func(ip int) error {
+		if ip <= instruction.ip {
+			return fmt.Errorf("handler target %d does not follow its instruction", ip)
+		}
+		return target(ip)
+	}
 
 	switch op {
 	case OP_PUSH:
@@ -372,16 +382,18 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		}
 	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
 		OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE, OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE,
-		OP_TRY_FINALLY, OP_END_FINALLY, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
+		OP_END_FINALLY, OP_END_FINALLY_WIDE:
 		return target(branchTarget(instruction))
+	case OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE:
+		return handler(branchTarget(instruction))
 	case OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE:
 		return verifyFork(program, instruction, boundaries)
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
-		return forEachExceptClause(instruction, func(varOperand, handler int) error {
+		return forEachExceptClause(instruction, func(varOperand, handlerIP int) error {
 			if varOperand > 0 && varOperand-1 >= program.NumLocals {
 				return fmt.Errorf("local index %d outside %d locals", varOperand-1, program.NumLocals)
 			}
-			return target(handler)
+			return handler(handlerIP)
 		})
 	case OP_INDEX_MARKER:
 		if operand[0] > RangeMarkerLast {
