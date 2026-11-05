@@ -6,7 +6,7 @@ Investigate the 2026-11-05 scheduled fuzz failure and ensure automated repairs d
 ## State
 Q authorized the bounded repair plan with "Make it so!". Implementation is in the isolated fix/fuzz-repair-process-guard worktree; unrelated main-worktree changes are preserved. The repair workflow now supplies a Bash PreToolUse hook through the pinned action's settings input. The guard denies explicit pkill/killall text, including quoting, escaping, line continuation, nested shell strings and compound commands. It is a conservative command-text guard, not a security sandbox. It permits PID-specific cleanup and timeout; the workflow prompt requires ownership of those PIDs. Missing or broken scripts also deny through the hook shell's exit-2 fallback.
 
-Focused Linux guard tests passed, including the exact original tool command preserved as input data and the configured shell hook's exit behavior. actionlint exited 0; offline zizmor reported "No findings to report" (3 existing suppressed findings). No new suppression was added. PR CI and publication are next.
+Published as PR #609. Focused Linux guard tests passed, including the exact original tool command preserved as input data and the configured shell hook's exit behavior. actionlint exited 0; offline zizmor reported "No findings to report" (3 existing suppressed findings). No new suppression was added. The reproduction instruction itself now uses timeout --kill-after=5s 60s rather than prescribing an unbounded go test command. Final delivery evidence belongs to the PR's checks and merge state.
 
 Run https://github.com/MongooseMoo/barn/actions/runs/42009421620 began at 10:17:04 UTC (03:17 Mountain). Its snapshot and source-execution campaigns failed; both artifact/reporting steps succeeded. The reporter created issues #606 and #607 and dispatched both repair workflows. My initial statement that reporting failed was incorrect and was corrected in chat.
 
@@ -15,7 +15,7 @@ Raw snapshot log:
 2026-11-05T11:05:14.9128933Z fuzzing process hung or terminated unexpectedly: exit status 2
 2026-11-05T11:05:14.9129769Z Failing input written to testdata/fuzz/FuzzRestoreVMSnapshotDoesNotPanic/f10bcff0e9a20440
 ```
-Artifact 13408519086 remains available. Existing PR https://github.com/MongooseMoo/barn/pull/608 contains that input and a verifier repair. Its diff was read; its checks reported SUCCESS, but the proposal has not received a complete source review in this investigation. Do not call it ready or merge it on this evidence alone.
+Artifact 13408519086 remains available. Existing PR https://github.com/MongooseMoo/barn/pull/608 contains that input and a verifier repair. The separate source review and byte-for-byte artifact comparison are recorded in that PR's agent-notes/fix-fuzz-handler-review.md. Its final-head checks and merge state are the delivery authority.
 
 The #606 repair session issued this command, verified directly from its original JSONL tool call:
 ```
@@ -31,7 +31,7 @@ Issue #607's automation comment attributes this termination to that broad proces
 ## Decisions and why
 Preserve issue reporting: live evidence shows it worked. A red fuzz run correctly retains the discovery as a failure even after an issue is filed.
 
-Read target-branch .github/workflows/fuzz.yml, .github/workflows/claude-fix.yml, vm/persistence_verify_test.go, bytecode/verify.go, vm/stack.go, vm/control.go, vm/vm.go, bytecode/opcodes.go, plus PR #608's diff. The restore fuzz target installs only a tick budget. The verifier accepts a finally handler at its own TRY; Return jumps to HandlerIP, allowing the handler to be reinstalled. TRY_FINALLY uses unchecked ticks. PR #608 rejects handler targets at or before their TRY. Its body also reports a separate free LOOP cycle; that claim has not been independently reproduced here and must not be silently treated as covered by the handler fix.
+Read target-branch .github/workflows/fuzz.yml, .github/workflows/claude-fix.yml, vm/persistence_verify_test.go, bytecode/verify.go, vm/stack.go, vm/control.go, vm/vm.go, bytecode/opcodes.go, plus PR #608's diff. The restore fuzz target installs a tick budget but no execution deadline. The verifier accepts a finally handler at its own TRY; Return jumps to HandlerIP, allowing the handler to be reinstalled. TRY_FINALLY uses unchecked ticks. PR #608 rejects handler targets at or before their TRY. Its body also reports a separate free LOOP cycle; source assessment and the limit of this scoped fix are recorded in its task note. No fresh runtime reproduction of the free cycle was performed here.
 
 ## Repair plan
 1. Fix the automation owner first: add a mechanical Bash tool guard to the Claude repair workflow rejecting process-name kills, including the exact compound command above, and require cleanup of only explicitly owned processes. Read the pinned action's settings/hook contract before choosing the implementation; exercise the observed command and safe owned-process cleanup in focused guard tests. Do not rely on prompt wording alone.
@@ -43,4 +43,4 @@ Read target-branch .github/workflows/fuzz.yml, .github/workflows/claude-fix.yml,
 Reporting and automatic repair already ran successfully. The repair agent itself disrupted a sibling campaign. The relevant workflow fix is process ownership enforcement, not replacing the issue reporter.
 
 ## Next step
-Publish the guard repair for PR CI, finish the source review of #608, and merge authorized repairs in dependency order. Only the guard test file was run locally; no manual oracle/server launches were run.
+Finish final-head CI and normal merges in dependency order (#609, then #608), verify their remote two-parent merge state and issue closures, and clean up task-owned branches/worktrees. Only the guard test file was run locally; no manual oracle/server launches were run. Do not describe either delivery as resolving all malformed-bytecode execution limits.

@@ -75,8 +75,8 @@ jobs:
 
             1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, download its
                failing inputs with `gh run download <run-id> -n fuzz-failure-<target>` from the linked run, and
-               reproduce the failure with `go test <package> -run '<Target>/<input-file>'` after copying the
-               input into <package>/testdata/fuzz/<Target>/.
+               copy the input into <package>/testdata/fuzz/<Target>/, then reproduce with
+               `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
             2. Find the cause in the code and make the smallest production fix. Commit the failing input under
                testdata/fuzz with the fix so ordinary CI replays it. Never weaken, skip or delete a test or check.
             3. Run the affected package's tests.
