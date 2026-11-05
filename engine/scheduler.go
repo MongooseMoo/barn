@@ -130,18 +130,18 @@ func (s *scheduler) yieldHeldLocked(t *Task) bool {
 	return false
 }
 
-// Resume applies resume() by readier and queues the task at now, behind work
-// that was already ready. The selection lock keeps the state change and its
-// queue position atomic with respect to readiness scans.
-func (s *scheduler) Resume(t *Task, value types.Value, readier *task.State, now time.Time) bool {
+// ResumeAtRow applies a resume() by readier published at version of t's row
+// and queues a task it woke at now, behind work that was already ready. The
+// selection lock keeps the state change and its queue position atomic with
+// respect to readiness scans.
+func (s *scheduler) ResumeAtRow(t *Task, version uint64, value types.Value, readier *task.State, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !t.ResumeFrom(value, readier, s.queueSeq+1, now) {
-		return false
+	if !t.ResumeAtRow(version, value, readier, s.queueSeq+1, now) {
+		return
 	}
 	s.queueSeq++
 	heap.Push(&s.waiting, t)
-	return true
 }
 
 // Ready selects tasks ready at now, including resumed catalog tasks. Selection

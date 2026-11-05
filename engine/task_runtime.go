@@ -303,6 +303,17 @@ retryAttempt:
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	ctx.StoreTxn.SetCommitContext(taskCtx)
+	// The task's own row: a kill that committed since the last slice stops it,
+	// and a resume's value is what its suspend() returns. The attempt's commit
+	// validates the version read here.
+	ownRow, hasOwnRow := s.readOwnRow(t, ctx.StoreTxn)
+	switch {
+	case hasOwnRow && ownRow.Status == dbstore.TaskRowKilled:
+		t.Kill()
+		return context.Canceled
+	case hasOwnRow && ownRow.Status == dbstore.TaskRowQueued:
+		t.SetWakeValue(ownRow.Value)
+	}
 	if gate.held() {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
@@ -487,9 +498,20 @@ retryAttempt:
 		goto retryAttempt
 	}
 
+	if hasOwnRow {
+		ctx.StoreTxn.StageTaskRow(t.ID, ownEndRow(t, ownRow, result))
+	}
 	committed := true
 	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			if hasOwnRow && ctx.StoreTxn.ValidationFailed() && s.ownRowKilled(t) {
+				// kill_task() of this task committed during the slice: it stops
+				// here, publishing nothing.
+				s.discardCreatedForks(t)
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+				t.Kill()
+				return context.Canceled
+			}
 			// A conflict surfaces as E_INVARG (a read-set version moved) OR E_INVIND (a
 			// read-set object was recycled/renumbered out from under us since the
 			// snapshot). Both set validationFail, and only the read-set validators set

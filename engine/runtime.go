@@ -194,9 +194,10 @@ func newRuntimeWithRegistry(store *dbstore.Store, options config.Options, worker
 	s.session = builtins.NewSession(registry, host)
 	s.scheduler = newScheduler(workerCount, taskIsConflictRetryable, s.runTask)
 	s.scheduler.SetLane(forkFirstRunLane)
-	manager.SetResumeScheduler(func(t *Task, value types.Value, readier *task.State) bool {
-		return s.scheduler.Resume(t, value, readier, time.Now())
-	})
+	if store != nil {
+		manager.SetTaskRows(store)
+		store.SetTaskRowObserver(s.applyTaskRows)
+	}
 	limit := options.AdmissionLimit
 	if limit == 0 {
 		limit = workerCount

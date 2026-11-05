@@ -10,7 +10,10 @@ import (
 func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// Captured independently from d6d396e's centralized table. Pin both the
 	// whole native order (including its appended tail) and every policy column.
-	const expected = "a524c2e564e4889ec0101d7df08910ea30e91df48828a52b76ffe9f90408646e"
+	// Since then kill_task (ImplementationOwned) and resume (Irreversible) became
+	// Transactional: they stage the target task's store row in the caller's
+	// transaction.
+	const expected = "2bcef05fd9d282ae5448964c281a1ac6e9dd3b3b7310e8891392128677c95c0f"
 	type contract struct {
 		Name       string
 		Signature  *Signature

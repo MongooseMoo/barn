@@ -30,6 +30,11 @@ func configureVMStackLimit(machine *vm.VM, session *builtins.Session) {
 
 // QueueTask adds a task to the execution runtime.
 func (s *Runtime) QueueTask(t *Task) int64 {
+	return s.queueTask(t, true)
+}
+
+// queueTask adds t, giving it its row now when withRow is set.
+func (s *Runtime) queueTask(t *Task, withRow bool) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -37,7 +42,7 @@ func (s *Runtime) QueueTask(t *Task) int64 {
 		s.populateContextDependencies(ctx)
 	}
 	t.SetState(task.TaskQueued)
-	s.taskManager.RegisterTask(t)
+	s.taskManager.registerTask(t, withRow)
 	s.scheduler.Enqueue(t)
 	// Registration can wake a selector before the heap insertion is visible.
 	// Publish another hint after insertion to close that lost-wakeup window.
@@ -343,7 +348,17 @@ func (s *Runtime) CreateForkedTask(parent *task.State, forkInfo *types.ForkInfo)
 	})
 
 	t.SetReadier(parent)
-	childID := s.QueueTask(t)
+	// The child's row is written by the parent's commit, so no other task finds
+	// the child before the parent's slice is published, and a parent attempt
+	// that is discarded leaves no row behind.
+	var parentTxn *dbstore.StoreTxn
+	if parent != nil && parent.Context != nil {
+		parentTxn = parent.Context.StoreTxn
+	}
+	if parentTxn != nil {
+		parentTxn.StageTaskRow(taskID, dbstore.TaskRow{Owner: t.Owner, Status: dbstore.TaskRowRunning, By: parent.ID})
+	}
+	childID := s.queueTask(t, parentTxn == nil)
 	if parent != nil {
 		parent.CreatedForks = append(parent.CreatedForks, childID)
 	}

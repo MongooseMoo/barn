@@ -146,6 +146,11 @@ type State struct {
 	// the task showed while queued, and what Toast lists for it until it runs.
 	startFrame    types.ActivationFrame
 	hasStartFrame bool
+	// rowVersion is the newest version of this task's store row the task has
+	// read or the scheduler has applied. A row published by another task's
+	// commit is applied only when newer, so application after the commit
+	// cannot undo a later transition.
+	rowVersion uint64
 
 	settlement SettlementObserver
 
@@ -966,33 +971,67 @@ func (t *State) resumeLocked(value types.Value) bool {
 	return true
 }
 
-// ReplaceWakeValue is resume() of a task already woken from a suspension whose
-// slice has not started: Toast's do_resume gives it the new value and leaves its
-// place in the queue. It returns false for any other task.
-func (t *State) ReplaceWakeValue(value types.Value) bool {
+// SetWakeValue sets the value suspend() returns when the task's VM resumes.
+func (t *State) SetWakeValue(value types.Value) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
-	if t.Status != TaskQueued || !t.wokenUnrun || t.executionActive {
+	t.WakeValue = value
+}
+
+// NoteRowVersion records that the task has seen version of its store row.
+func (t *State) NoteRowVersion(version uint64) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	t.noteRowVersionLocked(version)
+}
+
+// noteRowVersionLocked reports whether version is newer than any the task has
+// seen, and records it if so. The caller holds Mu.
+func (t *State) noteRowVersionLocked(version uint64) bool {
+	if version <= t.rowVersion {
 		return false
 	}
-	t.WakeValue = value
+	t.rowVersion = version
 	return true
 }
 
-// ResumeFrom is resume() issued by task readier. Toast appends the target to
-// the ready queue at once, so the resume is stamped as a readiness event at now
-// with enqueue order sequence; an early resume of a timed suspension drops its
-// future wake deadline.
-func (t *State) ResumeFrom(value types.Value, readier *State, sequence int64, now time.Time) bool {
+// KillAtRow applies a kill_task() published at version of the task's row,
+// unless the task has already seen that version or a later one. It reports
+// whether it killed the task.
+func (t *State) KillAtRow(version uint64) bool {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
-	if !t.resumeLocked(value) {
+	if !t.noteRowVersionLocked(version) {
 		return false
 	}
-	t.readier = readier
-	t.WakeTime = now
-	t.QueueSeq = sequence
+	t.killLocked()
 	return true
+}
+
+// ResumeAtRow applies a resume() published at version of the task's row by
+// task readier, unless the task has already seen that version or a later one.
+// A task waiting in suspend() is queued: Toast appends it to the ready queue at
+// once, so the resume is stamped as a readiness event at now with enqueue order
+// sequence, and an early resume of a timed suspension drops its future wake
+// deadline. It then returns true and the caller enqueues it. A task already
+// woken whose slice has not started gets the new value and keeps its place, as
+// Toast's do_resume does. A running task reads its row itself.
+func (t *State) ResumeAtRow(version uint64, value types.Value, readier *State, sequence int64, now time.Time) bool {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if !t.noteRowVersionLocked(version) {
+		return false
+	}
+	if t.resumeLocked(value) {
+		t.readier = readier
+		t.WakeTime = now
+		t.QueueSeq = sequence
+		return true
+	}
+	if t.Status == TaskQueued && t.wokenUnrun && !t.executionActive {
+		t.WakeValue = value
+	}
+	return false
 }
 
 // ResumeAndClaim resumes a suspended task directly into the running state.
@@ -1062,6 +1101,10 @@ func (t *State) WakeDue(now time.Time) bool {
 func (t *State) Kill() {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
+	t.killLocked()
+}
+
+func (t *State) killLocked() {
 	t.cancelRequested = true
 	t.setStateLocked(TaskKilled)
 	t.notifyScheduleLocked()

@@ -218,6 +218,9 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	var leasedTask *Task
 	var inheritedLease bool
 	var ownedCtx *task.Context
+	// A sweep runs as a registered task with a row, which its commit ends.
+	var ownRow dbstore.TaskRow
+	var hasOwnRow bool
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -351,6 +354,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 		t.SetState(task.TaskRunning)
 		t.StartExecution()
 		s.taskManager.RegisterTask(t)
+		ownRow, hasOwnRow = s.readOwnRow(t, ctx.StoreTxn)
 		defer func() {
 			s.scheduler.ReleaseExecution(t)
 			s.taskManager.NotifyScheduleChange()
@@ -410,6 +414,9 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 
 	// Handle fork yields: create child tasks and resume parent
 	result = s.drainForks(&t.State, bcVM, result)
+	if hasOwnRow {
+		ctx.StoreTxn.StageTaskRow(t.ID, ownEndRow(t, ownRow, result))
+	}
 	committed := true
 	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
