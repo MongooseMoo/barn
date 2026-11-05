@@ -56,17 +56,28 @@ func (s *Runtime) readOwnRow(t *Task, txn *dbstore.StoreTxn) (dbstore.TaskRow, b
 	return row, ok
 }
 
-// ownEndRow is the row a slice that ended with result commits for its task: a
-// suspended task can be resumed, unless it waits on exec(); any other end
-// finishes it.
+// ownEndRow is the row a slice that ended with result commits for its task.
+// Any end but a suspension finishes it. A task waiting in suspend() can be
+// resumed, and kill_task() and resume() check the programmer of the verb it is
+// suspended in (Toast tasks.cc kill_task and do_resume, progr_of_cur_verb). A
+// task waiting in read() or read_http() is its connection's reading task:
+// resume() cannot reach it, and kill_task() checks the connection's player.
+// One waiting on exec() cannot be resumed either.
 func ownEndRow(t *Task, row dbstore.TaskRow, result types.Result) dbstore.TaskRow {
 	end := dbstore.TaskRow{Owner: row.Owner, By: t.ID}
 	if result.Flow != types.FlowSuspend {
 		return end
 	}
+	if t.Context != nil {
+		end.Owner = t.Context.Programmer
+	}
 	end.Status = dbstore.TaskRowSuspended
 	t.Mu.RLock()
-	if t.IsExecSuspended {
+	switch {
+	case t.ReadingPlayer != types.ObjNothing:
+		end.Status = dbstore.TaskRowRunning
+		end.Owner = t.ReadingPlayer
+	case t.IsHTTPReadSuspended, t.IsExecSuspended:
 		end.Status = dbstore.TaskRowRunning
 	}
 	t.Mu.RUnlock()

@@ -142,6 +142,9 @@ type State struct {
 	// moves such a task to a background queue to run it, and a fork starts
 	// there, so while either runs another task's queued_tasks() lists it.
 	resumed bool
+	// started marks a task that has begun running. Until then a fork is Toast's
+	// TASK_FORKED, which task_stack() and resume() cannot find.
+	started bool
 	// startFrame is the top activation when the current slice started: what
 	// the task showed while queued, and what Toast lists for it until it runs.
 	startFrame    types.ActivationFrame
@@ -183,6 +186,14 @@ func (t *State) SetReadingPlayer(player types.ObjID) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
 	t.ReadingPlayer = player
+}
+
+// ForkNotStarted reports whether the task is a fork that has not yet begun
+// running.
+func (t *State) ForkNotStarted() bool {
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
+	return t.Kind == TaskForked && !t.started
 }
 
 // IsReadingFrom reports whether the task is suspended waiting for player input.
@@ -333,6 +344,7 @@ func (t *State) SettledLocked() bool {
 func (t *State) setStateLocked(state TaskState) {
 	was := t.SettledLocked()
 	if state == TaskRunning && t.Status != TaskRunning {
+		t.started = true
 		t.hasStartFrame = len(t.CallStack) > 0
 		if t.hasStartFrame {
 			t.startFrame = t.CallStack[len(t.CallStack)-1]

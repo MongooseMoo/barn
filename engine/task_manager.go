@@ -34,12 +34,24 @@ func (m *TaskManager) SetTaskRows(store *dbstore.Store) {
 func registrationRow(t *Task) (dbstore.TaskRow, bool) {
 	t.Mu.RLock()
 	defer t.Mu.RUnlock()
+	// The owner is the programmer kill_task() and resume() check (ownEndRow):
+	// for a fork not yet started, the programmer that forked it.
 	row := dbstore.TaskRow{Owner: t.Owner, Status: dbstore.TaskRowRunning}
+	if t.IsForked {
+		row.Owner = t.Programmer
+	}
 	switch {
 	case t.ID == 0 || t.Status == task.TaskCompleted || t.Status == task.TaskKilled:
 		return row, false
-	case t.Status == task.TaskSuspended && !t.IsExecSuspended:
+	case t.Status != task.TaskSuspended:
+	case t.ReadingPlayer != types.ObjNothing:
+		row.Owner = t.ReadingPlayer
+	case t.IsExecSuspended || t.IsHTTPReadSuspended:
+	default:
 		row.Status = dbstore.TaskRowSuspended
+		if t.Context != nil {
+			row.Owner = t.Context.Programmer
+		}
 	}
 	return row, true
 }
