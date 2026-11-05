@@ -9,10 +9,9 @@ ordinary MVCC conflict; the target's own transitions are row writes in its own
 commits; committed rows are applied to the scheduler by version.
 
 ## State
-Built and committed on perf/task-state-store (not pushed). Targeted tests,
-race run, vet, gofmt and staticcheck on the changed packages pass. Not yet
-measured: the perf gate (harness 1p x8 + 16p x3 vs master) and managed
-conformance belong to the lead.
+Built on perf/task-state-store. Targeted tests, race run, vet, gofmt and
+staticcheck on the changed packages pass. Perf gate passed (below). Managed
+conformance runs in the PR's CI.
 
 What exists:
 - db/store/store_task_rows.go: TaskRow / TaskRowStatus (Finished = no row,
@@ -77,7 +76,24 @@ interface stubs in builtins/session_test.go and vm/session_test.go.
 - TestRenewalAccountsForEveryTxnField pins every StoreTxn field's renewal
   disposition; taskReads carried, taskWrites declines.
 
+## Perf gate (2026-11-04, vs master at the #603 merge, idle-gated, interleaved)
+- 1p x8 goodput/s: base 50 50 50 48 50 52 52 52 (mean 50.5); cand 51 50 50
+  47 52 51 53 49 (mean 50.4). Equal.
+- 16p x3 goodput/s: base 329 342 338 (mean 336); cand 346 344 364 (mean
+  351). p99 736-749 ms base vs 747-793 ms cand, p999 1.28-1.44 s vs
+  1.24-1.32 s: within run-to-run spread.
+- Exclusive gate holds, 1p: count 109-120 -> 9-13, total ~330-400 ms ->
+  ~295-350 ms (the remaining holds have other causes).
+- The harness abort% fell 28.6% -> 11.6% at 16p, but that is the
+  denominator: abort% = retries / store.CommitAttempts, and every slice now
+  commits its end row. Absolute 16p retries: base 4796/4843/5056, cand
+  4961/5088/5195, in proportion to goodput. Not an abort reduction.
+- Pre-existing Toast divergences seen while checking, not changed here:
+  resume() reaches a read() task (Toast E_INVARG, it is not on
+  waiting_tasks), and kill/resume perms use the task owner, not
+  progr_of_cur_verb (tasks.cc:2783-2826).
+
 ## Next step
-Lead: perf gate (harness 1p x8 + 16p x3 vs master) and managed conformance.
+Managed conformance via the PR's CI; merge when green.
 Known gaps: Runtime.KillTask / Runtime.ResumeTask (task_factory.go) were
 already uncalled before this branch and still act on memory only; left as is.
