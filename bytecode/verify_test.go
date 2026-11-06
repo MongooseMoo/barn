@@ -110,6 +110,58 @@ func TestVerifyProgramRejectsStackUnsafeBytecode(t *testing.T) {
 	}
 }
 
+func TestVerifyProgramRejectsTickFreeCycles(t *testing.T) {
+	tests := []struct {
+		name string
+		code []byte
+	}{
+		{"wide loop to itself", []byte{byte(OP_LOOP_WIDE), 0, 0, 0, 5, byte(OP_RETURN_NONE)}},
+		{"range next to itself", []byte{byte(OP_FOR_RANGE_NEXT), 0, 0, 0, 5, byte(OP_RETURN_NONE)}},
+		{"loop through free pushes", []byte{
+			immediate(1), byte(OP_POP),
+			byte(OP_LOOP), 0, 5, // back to the push
+			byte(OP_RETURN_NONE),
+		}},
+		{"zero tick prefix on the loop test", []byte{
+			immediate(0),
+			byte(OP_TICKS), 0,
+			byte(OP_JUMP_IF_FALSE), 0, 3, // to the RETURN_NONE
+			byte(OP_LOOP), 0, 9, // back to the push
+			byte(OP_RETURN_NONE),
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := VerifyProgram(&Program{Code: tt.code, NumLocals: 1})
+			if err == nil || !strings.Contains(err.Error(), "charges no tick") {
+				t.Fatalf("VerifyProgram() error = %v, want a tick-free cycle", err)
+			}
+		})
+	}
+}
+
+func TestVerifyProgramAcceptsTickingLoops(t *testing.T) {
+	for name, code := range map[string][]byte{
+		"checked test": {
+			immediate(0),
+			byte(OP_JUMP_IF_FALSE), 0, 3,
+			byte(OP_LOOP), 0, 7,
+			byte(OP_RETURN_NONE),
+		},
+		"unchecked prefix": {
+			immediate(0),
+			byte(OP_TICKS), 1 | TicksUnchecked,
+			byte(OP_JUMP_IF_FALSE), 0, 3,
+			byte(OP_LOOP), 0, 9,
+			byte(OP_RETURN_NONE),
+		},
+	} {
+		if err := VerifyProgram(&Program{Code: code}); err != nil {
+			t.Errorf("%s: VerifyProgram() error = %v", name, err)
+		}
+	}
+}
+
 func TestStackHeightsFollowsEveryEdge(t *testing.T) {
 	program := &Program{Code: []byte{
 		immediate(0),                // 0: h0
