@@ -1,6 +1,9 @@
 package command
 
-import "github.com/MongooseMoo/barn/types"
+import (
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/types"
+)
 
 // InputEvent represents a line of input, or a disconnect, from a connection.
 type InputEvent struct {
@@ -14,9 +17,11 @@ type InputEvent struct {
 	Handler      types.ObjID
 	Done         chan struct{}
 	OnProcessed  func() // first slice completed, or event discarded
+	Diagnostic   *metrics.Command
 }
 
 func (input InputEvent) Complete() {
+	input.Diagnostic.FinishInput("discarded")
 	if input.OnProcessed != nil {
 		input.OnProcessed()
 	}

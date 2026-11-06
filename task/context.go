@@ -6,6 +6,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -15,6 +16,7 @@ import (
 // - Current player/programmer (permissions)
 // - Current object and verb (for 'this', 'caller', etc.)
 type Context struct {
+	CommandDiagnostic *metrics.Command // process-local, not part of MOO task-local state
 	// Admission is borrowed only by synchronous nested VMs, never by forked work.
 	Admission            *admission.Scope
 	TicksRemaining       int64       // Infinite loop protection
@@ -130,10 +132,11 @@ func (ctx *Context) Logger() *slog.Logger {
 }
 
 type PendingNotification struct {
-	Player    types.ObjID
-	Message   string
-	NoFlush   bool
-	NoNewline bool
+	CommandDiagnostic *metrics.Command
+	Player            types.ObjID
+	Message           string
+	NoFlush           bool
+	NoNewline         bool
 }
 
 type PendingConnectionSwitch struct {

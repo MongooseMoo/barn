@@ -12,7 +12,11 @@ func runtimeIdentity(ctx *Execution) metrics.Identity {
 	if ctx.Task == nil {
 		return metrics.Identity{}
 	}
-	return metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+	id := metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+	if ctx.CommandDiagnostic != nil {
+		id.CommandID = ctx.CommandDiagnostic.ID
+	}
+	return id
 }
 
 // Threaded builtins mirror ToastStunt's background_thread() (background.cc).

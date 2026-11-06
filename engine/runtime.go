@@ -43,8 +43,8 @@ type Runtime struct {
 	session                 *builtins.Session
 	store                   *dbstore.Store
 	pendingFinalizationSink func([]types.Value)
-	taskLineSender          func(types.ObjID, string)
-	tracebackSender         func(types.ObjID, types.Result)
+	taskLineSender          func(types.ObjID, string, *metrics.Command)
+	tracebackSender         func(types.ObjID, types.Result, *metrics.Command)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
 	gateHolds               gateHoldStats
@@ -556,11 +556,11 @@ func (s *Runtime) SetPendingFinalizationSink(sink func([]types.Value)) {
 	s.pendingFinalizationSink = sink
 }
 
-func (s *Runtime) SetTaskLineSender(sender func(types.ObjID, string)) {
+func (s *Runtime) SetTaskLineSender(sender func(types.ObjID, string, *metrics.Command)) {
 	s.taskLineSender = sender
 }
 
-func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.Result)) {
+func (s *Runtime) SetTracebackSender(sender func(types.ObjID, types.Result, *metrics.Command)) {
 	s.tracebackSender = sender
 }
 

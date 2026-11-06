@@ -54,6 +54,7 @@ func main() {
 	raw := flag.Bool("json", false, "Print the matching records as JSON instead of formatting them")
 	runtimeReport := flag.Bool("runtime", false, "Summarize runtime phases, terminal exceptions and threaded lifecycle (ignores -level and -n)")
 	taskID := flag.Int64("task", -1, "With -runtime, select one task ID (-1 = all)")
+	commandID := flag.Int64("command", -1, "With -runtime, select one received command ID (-1 = all)")
 	flag.Parse()
 
 	if *run == "list" {
@@ -61,7 +62,7 @@ func main() {
 		return
 	}
 	if *runtimeReport {
-		summary, err := readRuntimeSummary(filepath.Join(*dir, *run), *taskID)
+		summary, err := readRuntimeSummary(filepath.Join(*dir, *run), *taskID, *commandID)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)

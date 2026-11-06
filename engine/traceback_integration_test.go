@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -110,7 +111,7 @@ func TestHandledForkedUncaughtExceptionLogsOneWarnRecord(t *testing.T) {
 		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message");`, "endfork", "return 1;"}))
 
 	s := NewRuntime(store)
-	s.SetTracebackSender(func(types.ObjID, types.Result) {})
+	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {})
 	records := captureRecords(t, func() {
 		if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
 			t.Fatalf("run forkboom: %v", err)
@@ -147,7 +148,7 @@ func TestFailingUncaughtHandlerLogsBothErrors(t *testing.T) {
 		[]string{`raise(E_INVARG);`}))
 
 	s := NewRuntime(store)
-	s.SetTracebackSender(func(types.ObjID, types.Result) {})
+	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {})
 	records := captureRecords(t, func() {
 		if _, err := s.RunServerVerbTask(0, "boom", nil, 2); err != nil {
 			t.Fatalf("run boom: %v", err)
@@ -184,7 +185,7 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 
 	s := NewRuntime(store)
 	fallbacks := 0
-	s.SetTracebackSender(func(types.ObjID, types.Result) {
+	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {
 		fallbacks++
 	})
 	if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
@@ -262,7 +263,7 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	timeoutTask.Kind = task.TaskForked
 
 	fallbacks := 0
-	s.SetTracebackSender(func(types.ObjID, types.Result) {
+	s.SetTracebackSender(func(types.ObjID, types.Result, *metrics.Command) {
 		fallbacks++
 	})
 	if err := s.runTask(timeoutTask); err != nil {

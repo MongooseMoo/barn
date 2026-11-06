@@ -892,7 +892,7 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	}
 	// Capture framing now: connection options may change before the task's
 	// deferred output is published.
-	note := taskpkg.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline}
+	note := taskpkg.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline, CommandDiagnostic: ctx.CommandDiagnostic}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
 			Kind:         taskpkg.PendingEffectNotification,

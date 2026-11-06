@@ -197,3 +197,67 @@ source. A capture with no records cannot prove there were no exceptions: it may
 predate this collector, start late or have diagnostics disabled. Correlate the
 origin ID with task-filtered runtime records and profiles from the same process;
 an actor's latest issue can belong to unrelated work.
+
+## Player input and first response
+
+With `BARN_RUNTIME_DIAGNOSTICS=1` and debug logging, physical transport inputs
+receive a process-local `command_id` when decoding completes, before input-buffer
+backpressure. `player command` records contain IDs, classification and elapsed
+nanoseconds from that receipt. They exclude input lines and output payloads.
+Initial banners and forced input do not create physical-input measurements.
+The player field is the identity observed at receipt; queued login transitions
+can change which player eventually executes that input.
+
+The reader continues accepting input while its existing per-connection worker
+executes events in order. At most 16 transport events are outstanding with a
+5 MiB aggregate payload budget; one additional decoded input can wait at that
+budget. A transport message already larger than the byte budget enters alone,
+preserving existing framing policy. Forced input does not wait on this budget.
+The shared dispatcher is never blocked waiting for a connection worker.
+
+| Record stage | Meaning |
+| --- | --- |
+| `received` | One physical input has been decoded. |
+| `dequeued` | Its connection worker begins processing; elapsed time includes shared queue, connection queue and input-buffer waits. |
+| `classified` | Identifies a command, login, held input, out-of-band input or delivery to `read()`. |
+| `task_started` | A root command task is registered, before execution. Its elapsed time also includes admission, parsing/lookup and compilation; it is not pure admission wait. |
+| `first_committed_output` | The first published notification/direct response for the initiating connection reaches the output path. This is not a successful write. |
+| `first_output` | The first attributed response successfully completes its transport write. `write_ns` records time in the output path, including output serialization when measured there. |
+| `output_failed` | An attributed output attempt failed; no payload or error message is retained. |
+| `pending` | No successful response write or completion after 100 ms. Includes admission state and up to 64 unfinished task summaries, plus an omitted count. Emitted once while still pending. |
+| `input_finished` | The first input-processing invocation returned or the input was discarded; root tasks can remain suspended. |
+| `task_finished` | A correlated root task/error handler reached terminal state. |
+| `finished` | Input processing and its correlated tasks ended, with explicit committed/written output flags. |
+
+Command IDs follow `do_command`, the selected command verb, intrinsic eval,
+their suspensions/retries, and database error/timeout handlers. Runtime phase,
+threaded-lifecycle and terminal-exception records from those tasks include the
+same ID. Discarded attempts cannot satisfy first output. Buffered notifications
+retain their identity until a successful flush, which can happen after `finished`.
+Prefixes/suffixes, unrelated room output, and output to a replacement connection
+cannot satisfy the response measurement. Forked background tasks have independent
+contexts; output produced only by a fork is not attributed to its parent's input.
+Login, held input and delivery to `read()` are classified separately and do not
+imply command-response coverage. Programming input is also classified separately;
+its direct compile/error replies carry the input identity.
+
+```powershell
+go run ./cmd/barn_logs -dir <logs> -runtime
+go run ./cmd/barn_logs -dir <logs> -runtime -command <command_id> -json
+```
+
+The summary aggregates fixed stage buckets and preserves errors from the whole
+log. It distinguishes other input from classified commands. A finished-without-
+write count describes the state at completion; a buffered response can be written
+later. Missing output, unfinished input and absent diagnostics are not zero
+latency. A task filter excludes input records without a task ID; prefer a command
+filter for the full path. Stage timestamps share one receipt origin and must not
+be added together. They are wall durations, not CPU time.
+
+The pending task/admission fields are independent context snapshots, not an atomic
+snapshot or evidence that a listed task caused delay. Pair them with task-filtered
+runtime records, gate evidence, conflict census and profiles. Decoded-input timing
+excludes network/client delays and bytes waiting before the next transport read.
+A successful server write establishes neither client rendering nor audible receipt.
+Detailed collection adds work; do not use differently instrumented runs as a speed
+comparison.

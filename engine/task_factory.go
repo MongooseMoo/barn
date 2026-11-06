@@ -476,6 +476,9 @@ func (s *Runtime) CleanupFinishedTasks() {
 		}
 		st := t.GetState()
 		if st == task.TaskCompleted || st == task.TaskKilled {
+			if ctx := t.ContextValue(); ctx != nil {
+				ctx.CommandDiagnostic.TaskFinished(t.ID, st.String())
+			}
 			s.taskManager.RemoveTaskIf(t.ID, t)
 		}
 	}

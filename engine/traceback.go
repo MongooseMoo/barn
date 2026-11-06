@@ -66,9 +66,9 @@ func tracebackAttrs(err types.ErrorCode, message string, stack []types.Activatio
 }
 
 // SendTracebackToPlayer sends a formatted traceback through the server-owned output hook.
-func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result) {
+func (s *Runtime) SendTracebackToPlayer(player types.ObjID, result types.Result, diagnostic *metrics.Command) {
 	if s.tracebackSender != nil {
-		s.tracebackSender(player, result)
+		s.tracebackSender(player, result, diagnostic)
 		return
 	}
 
