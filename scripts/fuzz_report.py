@@ -53,7 +53,9 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     if error:
         first_error = error[0].strip()
     elif kind == "divergence":
-        first_error = "\n".join([divergence[1], divergence[4], divergence[5]])
+        # The oracle is built in the job, so the issue names that binary.
+        toast = re.search(r"^- toast binary: .*$", text, re.M)
+        first_error = "\n".join([divergence[1], divergence[4], divergence[5]] + ([toast[0]] if toast else []))
     else:
         first_error = check[0].strip() if setup and check else next((line.strip() for line in lines if re.search(
             r"(?:error:|Error:|FAIL|build failed|setup failed|cannot |no required module)", line)),

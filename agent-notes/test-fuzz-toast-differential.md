@@ -54,7 +54,14 @@ Built and run locally; PR open against master (see PR body for commands).
   difference in Barn's eval path versus Toast emergency mode, so the first
   nightly run will fail and open an issue until it is fixed.
 - Toast is built in the job (surprise 2) rather than changing permissions on
-  the workstation.
+  the workstation. Q chose "Build in the job" (relayed by team-lead,
+  2026-11-06). It is a job-built binary from the pinned ref, not the
+  documented /root binary (plans/barn-toast-mongoose-convergence-workstreams.md
+  names that one). The path is one job-level input, `TOAST_BIN` in fuzz.yml,
+  under the job's own workspace (concurrent runners never share it). The
+  report header and a divergence issue's first error carry the binary's
+  path, sha256 and `-v` version line (`ToastStunt version 2.7.3_5`; Toast
+  prints it to stderr and exits 1, server.cc main case 'v').
 - PR #612 (reporting rewrite) merged while this PR was open; rebased onto
   it. The differential runs inside #612's tee'd campaign block, and
   `scripts/fuzz_report.py` gains one kind, `divergence`: recognised from the

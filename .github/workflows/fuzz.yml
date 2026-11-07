@@ -24,6 +24,11 @@ jobs:
       actions: write
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 45
+    env:
+      # The Toast oracle ToastDifferential runs: a job-built binary from the
+      # manifest's pinned ref, not the documented /root binary (Q 2026-11-06).
+      # Built under this job's own workspace, so concurrent runners never share it.
+      TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
     strategy:
       fail-fast: false
       # The self-hosted runners share one workstation with PR CI.
@@ -93,7 +98,7 @@ jobs:
             go version
             if [ "${{ matrix.target }}" = ToastDifferential ]; then
               cache="$(go env GOCACHE)/fuzz/github.com/MongooseMoo/barn"
-              python3 scripts/fuzz_differential.py --toast "$PWD/toaststunt/build/moo" --barn-linux bin/barn --out fuzz-differential \
+              python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
                 "$cache/vm/FuzzSourceExecution" "$cache/compiler/FuzzCompileVerifiable" \
                 vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
             else
