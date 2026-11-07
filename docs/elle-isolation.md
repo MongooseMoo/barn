@@ -116,6 +116,20 @@ rounds each, plus one run of the first seed under each deliberate fault.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
+The existing `Elle isolation` workflow also accepts `seeds` and `rounds` on a
+manual dispatch. For example, run a bounded larger campaign with:
+
+```sh
+gh workflow run elle.yml --ref master \
+  -f 'seeds=412 395 396 397 398 399 400 401' -f rounds=200
+```
+
+PR and merge-queue runs retain the three-seed, 40-round defaults. Manual runs
+use the same pinned checker, negative controls and evidence archive; no recurring
+campaign is scheduled. Choose a bounded campaign size within the workflow's
+25-minute limit and preserve a failed run's evidence before changing that size.
+Manual runs do not record a tested-tree pass for the standard PR configuration.
+
 Direct generation needs `BARN_ELLE_OUTPUT`, `GOMAXPROCS=4` and `-tags elle`:
 
 ```sh
@@ -140,6 +154,7 @@ reject the resulting append history with an anomaly witness:
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
+| `ring-reads` | property-value validation only for the four ring properties | held four-transaction ring |
 | `property-scans` | validation of enumerated property definitions | definition enumeration/add pair |
 | `property-shapes` | validation of absent property lookup's fall-through | absent property/create pair |
 | `verb-scans` | validation of verb-list generations | verb enumeration/add pair |
@@ -194,3 +209,17 @@ obtain a green result.
 
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.
+
+The corpus also runs a held four-transaction ring. Each task reads the row its
+predecessor will append to before any task can write, then appends to its own row.
+The `ring-reads` fault removes validation only for these properties, leaving the
+other waves healthy so its witness must come from the ring.
+
+Healthy random rounds vary one to four slices per task and one to four appends
+per generated append body, including repeated appends to a key and sparse reads.
+Register bodies alternate blind writes, read-only/repeated reads, cross-key
+read/write dependencies, intermediate writes followed by own reads, and full reads
+around a write. Every shape must appear in committed coverage. Random writes use
+unique increasing tokens starting at 2^40, separate from held schedules; forked
+operations use the same allocator. Seeds reproduce generation on the same tree,
+not scheduling or histories produced by an older generator.

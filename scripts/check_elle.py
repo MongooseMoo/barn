@@ -13,8 +13,8 @@ import sys
 # test_check_elle.py.
 FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
           "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture",
-          "commit-exclusion", "valid-reads", "property-scans", "property-shapes",
-          "verb-scans", "verb-memo"]
+          "commit-exclusion", "valid-reads", "ring-reads", "property-scans",
+          "property-shapes", "verb-scans", "verb-memo"]
 
 
 def verdict(output, history):

@@ -5,9 +5,10 @@ Extend the existing Elle workload with actual definition, inheritance, and dispa
 dependencies and demonstrated negative controls. Parent owns publication and CI.
 
 ## State
-Implemented sixteen held scenarios and four precise negative controls; awaiting
-parent-owned PR CI. No Barn tests run locally. Parent confirmed the existing
-pinned baseline passed with every healthy history true and each fault false.
+Implemented sixteen held scenarios and four precise negative controls. The first
+PR CI accepted the healthy histories and rejected each deliberate fault. This
+branch now integrates actual default-branch changes after the history-shapes and
+campaign PRs merged. New integration CI is pending. No Barn tests run locally.
 This worktree is isolated on test/elle-definitions.
 
 ## Decisions and why
@@ -59,5 +60,19 @@ JUnit/admission evidence remains under `/tmp/barn-elle-definition-oracle` in Deb
 This proves selected MOO semantics, not concurrent Barn isolation.
 
 ## Next step
-Parent publishes this independent branch, runs exact-head PR CI, inspects healthy
-and fault EDN/witnesses, and merges normally only after the checks succeed.
+Parent reviews and pushes the integration merge, then runs exact-head PR CI and
+merges normally only after the integrated checks succeed.
+
+## Prior PR evidence and integration
+Retained `barn-elle-evidence/pr628/elle-evidence/results.json` reports explicit true
+with exit 0 for append/register histories of seeds 412, 395 and 396; all ten old
+controls and the four new controls report false with exit 1. The retained
+seed-412 manifest has every one of the sixteen definition/NAME paths equal to 1.
+These are pre-integration results, not proof for the merged tree.
+
+The integration retains the default branch's four-transaction ring, variable
+transaction shapes, disjoint random token allocator, manual workflow inputs,
+action pins and self-hosted cache selection. The fault order is baseline ten,
+ring-reads, property-scans, property-shapes, verb-scans, verb-memo in both workload
+and driver. Definition helper/scenarios are unchanged. Shared conflicts in the
+fault list and documentation were resolved by union, not by dropping controls.

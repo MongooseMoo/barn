@@ -2,6 +2,7 @@ package store
 
 import (
 	"os"
+	"strings"
 
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
@@ -103,6 +104,9 @@ func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 	for key, version := range tx.propertyReads {
 		if isolationprobe.Fault("property-reads") {
 			break
+		}
+		if isolationprobe.Fault("ring-reads") && strings.HasPrefix(key.name, "elle_ring_") {
+			continue // isolate the held four-transaction ring from the other waves
 		}
 		if tx.createdObjects[key.objID] != nil {
 			continue
