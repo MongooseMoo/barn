@@ -62,6 +62,12 @@ func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
 	for _, value := range values {
 		t.Run(strconv.Quote(value), func(t *testing.T) {
 			source := "return " + mooStringLiteral(value) + ";"
+			if strings.Contains(value, "\n") {
+				if _, err := parser.NewParser(source).ParseProgram(); err == nil {
+					t.Fatal("source string containing a newline compiled")
+				}
+				return
+			}
 			assertCanonicalRoundTrip(t, source)
 
 			program, err := parser.NewParser(source).ParseProgram()
