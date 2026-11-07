@@ -227,21 +227,21 @@ func formatTelnetCommand(command []byte) string {
 }
 
 func (t *TCPTransport) ReadChunk() (string, error) {
-	var chunk strings.Builder
-	b, err := t.reader.ReadByte()
+	if _, err := t.reader.Peek(1); err != nil {
+		return "", err
+	}
+	n := t.reader.Buffered()
+	data, err := t.reader.Peek(n)
 	if err != nil {
 		return "", err
 	}
-	chunk.WriteByte(b)
-
-	for t.reader.Buffered() > 0 {
-		b, err = t.reader.ReadByte()
-		if err != nil {
-			break
-		}
-		chunk.WriteByte(b)
+	builtins.AppendRawToBinary(&t.lineBuf, data)
+	if _, err := t.reader.Discard(n); err != nil {
+		return "", err
 	}
-	return chunk.String(), nil
+	chunk := t.lineBuf.String()
+	t.lineBuf.Reset()
+	return chunk, nil
 }
 
 // WriteOutput sends bytes with optional CRLF framing.

@@ -174,23 +174,6 @@ func filterTextMode(data []byte) string {
 	return b.String()
 }
 
-func encodeBinaryBytes(data []byte) string {
-	var b strings.Builder
-	for _, ch := range data {
-		encodeByte(&b, ch)
-	}
-	return b.String()
-}
-
-// EncodeRawToBinary converts raw bytes to MOO binary-string text (~XX for
-// non-printables, ~7E for '~'), Toast's raw_bytes_to_binary. Capture
-// boundaries that hand raw external bytes to MOO code (telnet OOB commands,
-// exec output) must encode with this — MOO strings store the ENCODED text;
-// toliteral emits string bytes raw and must not re-encode.
-func EncodeRawToBinary(data []byte) string {
-	return encodeBinaryBytes(data)
-}
-
 func builtinFileOpen(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -332,7 +315,7 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 	}
 	data := buf[:count]
 	if h.binary {
-		return types.Ok(types.NewStr(encodeBinaryBytes(data)))
+		return types.Ok(types.NewStr(EncodeRawToBinary(data)))
 	}
 	return types.Ok(types.NewStr(filterTextMode(data)))
 }
@@ -418,7 +401,7 @@ func builtinFileReadline(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_FILE)
 	}
 	if h.binary {
-		return types.Ok(types.NewStr(encodeBinaryBytes(buf)))
+		return types.Ok(types.NewStr(EncodeRawToBinary(buf)))
 	}
 	trimmed := bytes.TrimRight(buf, "\r\n")
 	return types.Ok(types.NewStr(filterTextMode(trimmed)))
@@ -469,7 +452,7 @@ func builtinFileReadlines(ctx *Execution, args []types.Value) types.Result {
 			lineNo++
 			if lineNo >= start {
 				if h.binary {
-					out = append(out, types.NewStr(encodeBinaryBytes(line)))
+					out = append(out, types.NewStr(EncodeRawToBinary(line)))
 				} else {
 					out = append(out, types.NewStr(filterTextMode(line)))
 				}

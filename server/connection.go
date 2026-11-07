@@ -240,7 +240,12 @@ func (c *Connection) SetProxiedIP(ip string) {
 	c.proxiedIP = ip
 }
 
+// WakeInputReader reselects the read strategy after a binary-mode change.
+// Transports without binary reads keep the same strategy and need no wake.
 func (c *Connection) WakeInputReader() {
+	if _, ok := c.transport.(BinaryTransport); !ok {
+		return
+	}
 	if wakeTransport, ok := c.transport.(interface{ WakeReader() }); ok {
 		wakeTransport.WakeReader()
 		return

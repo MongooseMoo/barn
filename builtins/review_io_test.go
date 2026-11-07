@@ -54,7 +54,7 @@ func TestReview_IO_SqliteSandboxEscape(t *testing.T) {
 // M1: file_readlines() ignores the binary flag
 // builtinFileReadlines uses bufio.Scanner unconditionally and returns
 // scanner.Text() without calling filterTextMode (text mode) or
-// encodeBinaryBytes (binary mode).  Binary-mode readlines must ~XX-encode
+// EncodeRawToBinary (binary mode).  Binary-mode readlines must ~XX-encode
 // non-printable bytes; it currently does not.
 // ---------------------------------------------------------------------------
 
@@ -118,7 +118,7 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 		t.Fatalf(
 			"CONFIRMED BUG (M1): file_readlines in binary mode returned %q, want %q.\n"+
 				"Cause: builtinFileReadlines ignores h.binary; it called scanner.Text() directly\n"+
-				"without encodeBinaryBytes (binary path).",
+				"without EncodeRawToBinary (binary path).",
 			got, want,
 		)
 	}
