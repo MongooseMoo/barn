@@ -75,19 +75,28 @@ jobs:
 
             1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, download its
                failing inputs with `gh run download <run-id> -n fuzz-failure-<target>` from the linked run, and
-               copy the input into <package>/testdata/fuzz/<Target>/, then reproduce with
+               copy the input the issue names into <package>/testdata/fuzz/<Target>/, then reproduce with
                `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
-            2. Find the cause in the code and make the smallest production fix. Commit the failing input under
+               The artifact can hold inputs for other failures found the same night; use only this issue's input.
+            2. Before fixing, check for the same bug already filed or being fixed. One bug can appear under two
+               fuzz signatures (for example two hangs, or a different top frame). List open issues with
+               `gh issue list --state open --search '"Nightly fuzz failure" in:title'` and open PRs from
+               claude/issue-* branches with `gh pr list --state open --json number,title,headRefName`, and read
+               each one's cause. If one has the same root cause as this issue (the same cause at the same
+               file:line, not only the same fuzz target), open no PR: use your one allowed issue comment
+               (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) to link that issue or PR with the
+               evidence (the shared file:line, and the reproduction output of this issue's input), and stop.
+            3. Find the cause in the code and make the smallest production fix. Commit the failing input under
                testdata/fuzz with the fix so ordinary CI replays it. Never weaken, skip or delete a test or check.
-            3. Run the affected package's tests.
-            4. Create branch claude/issue-${{ env.ISSUE }}, commit, push, and open the PR against master with
+            4. Run the affected package's tests.
+            5. Create branch claude/issue-${{ env.ISSUE }}, commit, push, and open the PR against master with
                `gh pr create`. The body says what failed, the cause with file:line, the fix, and "Fixes #${{ env.ISSUE }}".
                Include a "Known related gaps" section listing related defects you noticed but did not fix,
                with file:line and evidence; write "None noticed" if there are none. Do not omit an unfixed
                defect just because it is outside this issue's scope.
                Do not add attribution trailers to commits or attribution footers to the PR body.
                Stage named paths only, never `git add -A`.
-            5. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
+            6. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
                `gh issue comment ${{ env.ISSUE }} --body-file <file>` so the next attempt can build on it:
                whether and how you reproduced the failure, each hypothesis you tested and the evidence that
                ruled it in or out (file:line, command, output), what is established, what is still unknown, and

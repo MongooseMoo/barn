@@ -88,16 +88,27 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     }
 
 
+def summarize(logs, package, target, commit, campaign_outcome="failure"):
+    """One report per distinct signature, in first-seen order, with its count."""
+    distinct = {}
+    for log in logs or [""]:
+        result = report(log, package, target, commit, campaign_outcome)
+        first = distinct.setdefault(result["signature"], {**result, "count": 0})
+        first["count"] += 1
+    return list(distinct.values())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--log", required=True, type=Path)
+    # One log per failed campaign of the night, in run order.
+    parser.add_argument("--log", action="append", default=[], type=Path)
     parser.add_argument("--package", required=True)
     parser.add_argument("--target", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--campaign-outcome", required=True)
     args = parser.parse_args()
-    log = args.log.read_text(errors="replace") if args.log.exists() else ""
-    print(json.dumps(report(log, args.package, args.target, args.commit, args.campaign_outcome)))
+    logs = [log.read_text(errors="replace") for log in args.log if log.exists()]
+    print(json.dumps(summarize(logs, args.package, args.target, args.commit, args.campaign_outcome)))
 
 
 if __name__ == "__main__":
