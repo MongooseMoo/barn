@@ -24,6 +24,23 @@ standalone GC path replaces the transaction, making the late-bound release
 necessary. Next step: parent checks the delivered report and remaining coverage
 limits; conformance and isolation CI were pending at last inspection.
 
+## Resource semantics analyst checkpoint
+
+State: actual PR #639 source review found the native-catalog contract pin still
+reflected the old scan policies, causing its first unit job to fail. Exact source
+comparison proves fileioDescriptors is otherwise identical after removing only
+the two added Irreversible annotations. Catalog order/builders/enums are unchanged.
+Decisions and why: retain the existing whole-catalog check and reconcile its pin
+only after this exact delta proof; do not bypass it. No other production defect
+has been established in the bounded review. Surprises: the focused scan tests
+passed but the full required catalog pin caught the intended metadata change.
+Parent verified the old whole-catalog hash by temporarily normalizing only those
+two policies, removed that temporary diagnostic, then updated the pin/comment.
+The unchanged check body passes with the corrected pin. Next: publish the repair
+and collect new exact-head CI. Analyst report preserves the initial failure and
+delta proof. No local tests,
+builds, source repair or publication was performed by the analyst.
+
 ## Execution plan
 
 ### Outcome and authority
