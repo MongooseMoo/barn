@@ -59,7 +59,93 @@ func StackHeights(program *Program) ([]int, error) {
 			return nil, fmt.Errorf("bytecode at %d (%s): %w", instruction.ip, instruction.op, err)
 		}
 	}
-	return stackHeights(len(program.Code), instructions)
+	heights, err := stackHeights(len(program.Code), instructions)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyLoopsTick(program.Code, instructions, heights); err != nil {
+		return nil, err
+	}
+	return heights, nil
+}
+
+// verifyLoopsTick rejects a reachable control-flow cycle in which no
+// instruction charges a tick. Jumps, loops and FOR_RANGE_NEXT are tick-free
+// (vm/vm.go fkJump, fkLoop, fkForRangeNext), so such a cycle (a LOOP that
+// targets itself, say) never reaches the tick limit or a seconds checkpoint
+// and spins forever. Compiled loops always pass through a ticking test
+// (JUMP_IF_FALSE, FOR_RANGE_CHECK, FOR_LIST_CHECK). An OP_TICKS prefix
+// executes together with the instruction it modifies and replaces its charge,
+// so it stands for that instruction here.
+func verifyLoopsTick(code []byte, instructions []decodedInstruction, heights []int) error {
+	index := make(map[int]int, len(instructions))
+	for i, instruction := range instructions {
+		index[instruction.ip] = i
+	}
+	// freeEdges reports whether the instruction at ip charges no tick and, if
+	// so, where control can go next.
+	freeEdges := func(ip int) (bool, []flowEdge) {
+		instruction := instructions[index[ip]]
+		var checked, unchecked int64
+		if instruction.op == OP_TICKS {
+			checked = int64(instruction.operands[0] &^ TicksUnchecked)
+			instruction = instructions[index[instruction.next]]
+		} else {
+			checked, unchecked = InstructionTicks(instruction.op, code, instruction.ip)
+		}
+		if checked|unchecked != 0 {
+			return false, nil
+		}
+		return true, successors(instruction, 0, 0)
+	}
+	const (
+		unvisited = iota
+		active
+		done
+	)
+	state := make([]uint8, len(code))
+	type visit struct {
+		edges []flowEdge
+		next  int
+	}
+	for _, root := range instructions {
+		if heights[root.ip] < 0 || state[root.ip] != unvisited {
+			continue
+		}
+		free, edges := freeEdges(root.ip)
+		if !free {
+			state[root.ip] = done
+			continue
+		}
+		state[root.ip] = active
+		stack := []visit{{edges: edges}}
+		ips := []int{root.ip}
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			if top.next == len(top.edges) {
+				state[ips[len(ips)-1]] = done
+				stack, ips = stack[:len(stack)-1], ips[:len(ips)-1]
+				continue
+			}
+			target := top.edges[top.next].ip
+			top.next++
+			switch state[target] {
+			case active:
+				return fmt.Errorf("bytecode at %d (%s): control-flow cycle through %d charges no tick",
+					ips[len(ips)-1], instructions[index[ips[len(ips)-1]]].op, target)
+			case unvisited:
+				free, edges := freeEdges(target)
+				if !free {
+					state[target] = done
+					continue
+				}
+				state[target] = active
+				stack = append(stack, visit{edges: edges})
+				ips = append(ips, target)
+			}
+		}
+	}
+	return nil
 }
 
 // stackHeights propagates operand stack heights from the entry point (height
