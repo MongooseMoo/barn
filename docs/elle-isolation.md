@@ -155,6 +155,9 @@ reject the resulting append history with an anomaly witness:
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
 | `ring-reads` | property-value validation only for the four ring properties | held four-transaction ring |
+| `map-key-metadata` | owner and permission validation for keyed accesses | nonwizard map permission and ownership revocation pairs |
+| `map-key-presence` | validation of an absent map entry | missing-key read/insertion pair |
+| `map-key-whole-read` | promotion to a whole-property read after a keyed write | whole-map observation after writing another entry |
 | `hot-map-carry` | cloning keyed reads into the transaction renewed at a stale hot read | held map/hot-property pair |
 | `hot-memo-guard` | checking dispatch shape changes since the pre-renewal snapshot | held missing-dispatch/hot-property pair |
 
@@ -177,6 +180,23 @@ publication after an earlier successful one. A store regression checks that a
 keyed dependency is converted to a whole-property dependency at renewal, accepts
 its own republished map, and still detects a later change. These are semantic
 regressions, not additional Elle anomaly witnesses or MOO scheduling-order proof.
+
+Eight additional held pairs exercise keyed reads against whole-map replacement,
+whole-map reads against keyed writes, whole reads after keyed writes, missing
+entries, inherited map entries, clear overrides, and nonwizard reads across
+property permission or ownership changes. Each pair owns a separate map and
+marker. Its observed row changes once from `{}` to a unique-token list; the
+writer reads the marker before publishing and the held reader then appends to
+the marker. Removing the reader's dependency exposes a cycle through values both
+tasks actually observed. Missing-key `E_RANGE` and denied-read `E_PERM` are
+recorded as the selected scenario's state, while other errors remain native
+failures. Healthy runs execute all eight pairs and require committed reads and
+appends for every pair row. The new fault runs execute only their precise
+scenarios: metadata runs both nonwizard revocations, presence runs the missing
+entry pair, and whole-read runs the whole-after-keyed pair. Existing faults skip
+these additional map pairs and retain their original bounded witness schedules.
+Every fault still requires a completed Go run and an Elle rejection with a witness;
+each selected pair retains its final-state assertion and committed row counts.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
@@ -211,6 +231,14 @@ To investigate, start with the Go log and manifest,
 then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
+
+Map byte quotas are a separate semantic invariant: a serializable merge of
+disjoint keys can still exceed the task's value limit. The
+`TestKeyedMapRebaseRespectsTaskValueQuota` regression in `vm/map_key_test.go`
+stages real VM property assignments from the same snapshot. It checks preservation
+of both updates below the limit, validation loss without publication at or above
+the limit, and E_QUOTA when the rejected assignment is rerun against the committed
+map. These outcomes are not Elle dependency-graph witnesses.
 
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.

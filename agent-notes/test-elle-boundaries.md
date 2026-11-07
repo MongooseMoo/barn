@@ -18,7 +18,17 @@ manual-campaign PRs merged. Resolved fault-list unions as the original ten,
 ring-reads, hot-map-carry, hot-memo-guard in the same order in Go and Python.
 Preserved history shapes, the ring workload, manual inputs/action pins/cache
 recording restriction, and receiver 18 with its fixture-isolation assertion.
-The integrated tree's exact-head CI and combined fault witnesses remain pending.
+That integrated tree passed Build & unit tests and MOO conformance in workflow
+42347444392 and Serializable histories and negative control in workflow
+42347444400. Those results precede the next default-branch advance.
+
+Integrated the actual default branch again after the map/permission PR merged.
+The combined fault order is original ten, ring-reads, map-key-metadata,
+map-key-presence, map-key-whole-read, hot-map-carry, hot-memo-guard in both Go and
+Python. Kept the map helper's precise fault selection and healthy eight-pair
+committed-key checks, the hot-renewal helper/counters, receiver isolation, ring and
+random shapes, manual workflow controls, and quota semantic regression/docs.
+All sixteen controls and healthy combined histories now require fresh CI.
 
 Changes: two list-append controls (`hot-map-carry`, `hot-memo-guard`), held runtime
 reader/writer pairs, three actual-runtime recorder regressions, and one store
@@ -61,7 +71,7 @@ uses the same receiver constant; the original invariant check remains unchanged.
 
 ## Next step
 Return the integration merge to root for CI. Required evidence: healthy
-append/register true; all thirteen list-append faults false with cycle witnesses;
+append/register true; all sixteen list-append faults false with cycle witnesses;
 committed pair and shape counters, specific renewal assertions, and recorder/store
 regressions in the integrated tree's CI.
 
