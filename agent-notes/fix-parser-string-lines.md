@@ -5,7 +5,8 @@ Close the reported parser divergence with Toast-first eval conformance.
 
 ## State
 Independent branch from origin/master. Source changes and Go regressions exist.
-PR and CI pending. No merge, comments, or issues authorized.
+Barn PR #622 and conformance PR #174 are open. CI repair pending rerun.
+No merge, comments, or issues authorized.
 
 ## Decisions and why
 Reject newline/EOF even after backslash in readString. Preserve Missing quote then syntax error. eval previously returned only diagnostics[0]; return all compiler diagnostics so the managed result preserves both errors.
@@ -41,3 +42,19 @@ No private corpus or probe is staged.
 
 ## Next step
 Open PR and watch CI; fix red. Do not merge.
+
+## CI repair
+Full CI found formatter tests that treated a physical newline as representable
+inside a source string. The formatter itself could emit that invalid source
+from a literal IR value. It now rejects string newlines through its existing
+FormattingError path with no partial output. Preserve round trips for every
+other non-NUL byte; explicitly assert newline rejection in both formatter modes.
+
+```text
+--- FAIL: TestFormatMOOPreservesAllNonNULBytes
+format_string_test.go:53: Missing quote
+--- FAIL: TestFormatMOOPreservesMOOStringLiteralBytes/"line1\nline2"
+format_test.go:65: initial parse error = Missing quote
+go test ./parser -run '^TestFormatMOO(PreservesAllRepresentableStringBytes|RejectsStringNewlinesWithoutOutput|PreservesMOOStringLiteralBytes)$' -count=1
+ok github.com/MongooseMoo/barn/parser 1.746s
+```
