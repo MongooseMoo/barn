@@ -1,25 +1,33 @@
 # Verb-source fuzzing
 
-Barn uses Go's coverage-guided fuzzer for three internal invariants:
+Barn uses Go's coverage-guided fuzzer for source invariants and runtime inputs:
 
 | Target | Invariant |
 | --- | --- |
 | `parser/FuzzParseFormatRoundTrip` | Accepted source formats and reparses to the same semantic IR in both formatter modes, ignoring positions and case-insensitive variable spelling; canonical formatting is stable. |
 | `compiler/FuzzCompileVerifiable` | Accepted compilation produces bytecode accepted by the bytecode verifier. |
-| `vm/FuzzSourceExecution` | Arbitrary source can be compiled and, when accepted, initially executed without a Go panic. |
+| `vm/FuzzSourceExecution` | Accepted compilation executes, resumes suspend/fork yields and runs queued children under one shared tick budget; representable return values survive a literal round trip. Go panics and failed assertions fail the input. |
 | `command/FuzzCommandLine` | Any input line passes word splitting (the pre-login path), command parsing with object matching, and verb lookup as Test.db player `#3` in `#2` without a Go panic. |
 
 Parsing/compilation errors are normal results. Execution uses a fresh empty
 store, task, core builtin registry, and session with a 100-tick budget. MOO
-errors, exhaustion and suspension/fork results are normal. The target does not
-resume yielded tasks, run a scheduler, or exercise optional I/O capabilities.
+errors and exhaustion are normal results. Suspend/fork yields are driven to a
+terminal return or exception; children run in creation order on the remaining
+budget. This does not run a real scheduler or optional I/O capabilities.
 It does not assert MOO behavioral conformance; use the managed Toast oracle for
 that. No target recovers Go panics.
 
-Each target seeds every programmed verb in the tracked `Test.db`, including
+The raw source targets seed every programmed verb in the tracked `Test.db`, including
 empty programs and anonymous objects. Identical source bytes are added once.
 Small syntax/boundary cases complement whole verbs. Ordinary `go test` replays
 these seeds and any committed findings, without running timed fuzz campaigns.
+The corresponding `FuzzStructuredParseFormatRoundTrip`,
+`FuzzStructuredCompileVerifiable` and `FuzzStructuredSourceExecution` targets
+use the existing bounded generator in `internal/fuzzseed/structured.go`.
+Their exact `[]byte` choices replay through `cmd/moo-fuzz-source`; they require
+generated programs to compile. Keep those bytes with the generator's source
+version. The workflow also includes snapshot, bytecode, database reader,
+HTTP chunking, TCP input and string-builtin targets; its matrix is the inventory.
 
 ## Import a larger local corpus
 
@@ -82,18 +90,63 @@ attach an appropriate reproduction to a separate issue. Do not publish private
 verb bodies accidentally when retaining local-corpus failures.
 
 These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/414).
-PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` runs every fuzz
-target for thirty minutes nightly, dispatched at 3:17 AM America/Denver by the
-runner workstation's Windows task `Barn - Nightly fuzz` (and on manual
-dispatch), two at a time, and
-uploads any failing input as an artifact. A failed job opens an issue with its
+PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` gives each native
+target thirty minutes, with two Go fuzz workers per target. The default
+`legacy` mode preserves the workstation's 3:17 AM America/Denver task
+`Barn - Nightly fuzz`, its `CI_RUNNER_LABELS` hosted fallback and two-job cap.
+A failed job opens an issue with its
 run and artifact links; subsequent failures for the same target add those links
 to its existing open issue. Setup failures are reported separately from failed
-fuzz commands. There is no grammar generator. The useful
+fuzz commands. The useful
 principles from [the AFL++ article](https://nullprogram.com/blog/2025/02/05/)
 are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
 [fuzzing documentation](https://go.dev/doc/security/fuzz/).
+
+The single `compute-mode` dispatch input also accepts `dedicated-once` and
+`dedicated-continuous`. Both require master, runner group `barn-bug-discovery`,
+`FUZZ_RUNNER_POLICY_VERIFIED=true` and nonempty JSON `FUZZ_RUNNER_LABELS`
+including `self-hosted` and `barn-fuzz`. Missing configuration fails before
+fuzz workload routing, without a workstation fallback. `FUZZ_MAX_PARALLEL`
+defaults to two and accepts only two or four. The policy marker records the
+operator's verified group enforcement; it is not itself enforcement. Ordinary
+PR CI and repair workflows keep their existing runner ownership.
+
+Each native job starts with an isolated public-only fuzz cache and clears
+`BARN_FUZZ_CORPUS`. `scripts/fuzz_retention.py` restores retained records,
+captures successful interesting inputs as well as testdata findings, verifies
+SHA-256 identities, and records package/target, source head, Go version, pinned
+profile digest and origins. Corpus plus provenance is bounded to 256 MiB per
+target. Exhaustion fails without deleting retained records. A census preserves
+the raw logs and sums the highest native `execs` count from each campaign;
+zero measured executions is inconclusive and fails. This is execution work,
+not a claim of valid MOO program or distinct bug counts.
+
+The next cycle restores a target's explicit public corpus cache across hosts.
+Native `fuzz-corpus-*` artifacts retain the corpus, provenance and census for
+30 days, including on failure. Toast differential replay waits for the entire
+native matrix and downloads that run's artifacts, so it cannot depend on matrix
+ordering or a shared workstation cache. It currently consumes raw VM/compiler
+source records; structured-choice decoding is a separate oracle change.
+Artifacts expire and GitHub can evict caches: preserve confirmed findings with
+their regression fixes before expiry. The helper does not determine privacy
+from arbitrary input bytes; do not feed local private corpora to public jobs.
+
+Continuous mode additionally requires `FUZZ_CONTINUOUS_ENABLED=true`. A
+successful continuous dispatch's completion starts the controller path in the
+same workflow with a new repository-variable snapshot. The controller checks
+the stop switch and dedicated configuration, accepts only a trusted master
+source dispatch, and submits one successor only when there is no newer or
+active dispatch. Controller completions cannot run fuzz jobs or replenish.
+Failures and inconclusive cycles stop the chain. Setting the switch to anything
+other than `true` prevents replenishment; cancel an active run separately when
+immediate stopping is required. The controller uses its new run's variable
+snapshot; the switch does not interrupt an already-running controller. No extra credential or variables REST read is
+used. See GitHub's [completion event rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
+and [token dispatch rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+Trigger delivery, runner policy, a completed dedicated cycle and corpus replay
+after restart must be verified during activation; source changes and offline
+controller tests do not establish live acceptance.
 
 Install or update the nightly trigger as the logged-in runner owner with
 `./scripts/install-nightly-fuzz-task.ps1`. It uses the existing authenticated

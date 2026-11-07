@@ -1,6 +1,7 @@
 """Real nightly logs and offline execution of the issue/dispatch script."""
 
 import json
+import itertools
 import os
 from pathlib import Path
 import shutil
@@ -168,9 +169,11 @@ class FuzzReportTests(unittest.TestCase):
 
 
 class IssueScriptTests(unittest.TestCase):
-    def execute(self, result, issues=(), checkout=True):
+    def execute(self, result, issues=(), checkout=True, logs=()):
         workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
-        script = textwrap.dedent(workflow.split("          script: |\n", 1)[1])
+        lines = workflow.split("          script: |\n", 1)[1].splitlines()
+        script = textwrap.dedent("\n".join(itertools.takewhile(
+            lambda line: not line.strip() or line.startswith("            "), lines)))
         harness = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -183,8 +186,11 @@ const github = {
          actions: {createWorkflowDispatch: record('dispatch')}}
 };
 const context = {repo: {owner: 'test', repo: 'barn'}, sha: 'commit', serverUrl: 'https://github.com', runId: 1};
-const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => []}
-  : name === 'node:child_process' ? {execFileSync: () => JSON.stringify(input.result)} : require(name);
+const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => input.logs}
+  : name === 'node:child_process' ? {execFileSync: (command, args) => {
+      if (args.some(arg => arg.includes('success-'))) throw new Error('Successful campaign log passed to failure reporter');
+      return JSON.stringify(input.result);
+    }} : require(name);
 vm.runInNewContext('(async () => {' + input.script + '})()', {
   require: mockedRequire, github, context,
   process: {env: {FUZZ_TARGET: 'FuzzTarget', FUZZ_PACKAGE: './vm', CAMPAIGN_OUTCOME: 'failure', GITHUB_RUN_ATTEMPT: '1'}}
@@ -196,7 +202,7 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
             # adding it to PATH for shell steps.
             node = str(Path(os.environ["RUNNER_TEMP"]).parents[1] / "externals/node24/bin/node")
         completed = subprocess.run([node, "-e", harness], input=json.dumps({
-            "script": script, "result": result, "issues": list(issues), "checkout": checkout}),
+            "script": script, "result": result, "issues": list(issues), "checkout": checkout, "logs": list(logs)}),
             text=True, capture_output=True, check=True, cwd=ROOT)
         return json.loads(completed.stdout)
 
@@ -208,6 +214,11 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         calls = self.execute(result, [{"number": 12, "body": calls[0]["body"]}])
         self.assertEqual([c["name"] for c in calls], ["comment"])
         self.assertEqual(calls[0]["issue_number"], 12)
+
+    def test_successful_campaign_logs_are_retained_without_creating_failure_reports(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        calls = self.execute(result, logs=("run-001.log", "success-002.log"))
+        self.assertEqual([call["name"] for call in calls], ["create", "dispatch"])
 
     def test_each_distinct_signature_of_the_night_is_reported_once(self):
         # Synthetic two-failure night with the first failure refound once.
