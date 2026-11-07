@@ -9,6 +9,15 @@ reported lag without a measured incident.
 
 ## State
 
+PR #614 is open: https://github.com/MongooseMoo/barn/pull/614 . Q authorized
+publication with "yup, do it." The branch has been pushed. First PR CI found
+two metrics metadata-contract failures because unassociated records included
+command_id:0. The correction emits command_id only for actual command-associated
+work; the original strict metadata tests are unchanged. A new regression covering
+runtime phases, threaded lifecycle and terminal exceptions first failed with
+"unassociated work claimed command identity" on the actual runtime record.
+CI/Elle final verdicts for the correction remain pending.
+
 Implemented bounded transport read-ahead (16 outstanding events, 5 MiB budget,
 one decoded input may wait outside the budget), diagnostic command identity,
 receipt/task/committed-output/first-write records, a 100 ms pending record with
@@ -37,8 +46,8 @@ ok  github.com/MongooseMoo/barn/cmd/barn_logs 1.621s
 The real diagnostic test emitted pending at elapsed_ns=100151300, with its
 suspended task and admission snapshot, then first_output at elapsed_ns=103221400.
 It also checked a discarded retry produces no output, one published response
-after retry, and error-handler task/output correlation. No candidate conformance
-verdict, CI verdict, publication or deployment yet. CI runner variable currently
+after retry, and error-handler task/output correlation. These are pre-publication
+local results, not candidate conformance or isolation verdicts. CI runner variable
 selects self-hosted Linux X64 barn; CI/Elle are triggered by a PR, not branch push.
 
 Isolated worktree from origin/master. Existing master changes remain untouched.
@@ -105,9 +114,8 @@ The focused TestPlayerCommandDiagnostics regression then passed with -race:
 
 ## Next step
 
-The implementation and zero-byte regression/fix are committed locally together.
-PR text is prepared at .tmp/player-command-latency-pr.md. Q explicitly authorized
-pushing the branch and opening the PR with "yup, do it." Publish that one PR,
-run PR CI and repair failures. No merge or deployment was requested in this
-publication instruction. Do not claim real-world lag resolved, candidate
-conformance passed, isolation verified, or deployment performed from focused tests.
+Validate and publish the metadata-contract correction, then watch PR #614's CI
+and repair any remaining failures. The PR's checks and retained workflow
+artifacts are the authoritative candidate conformance and isolation evidence.
+No merge or deployment was requested. Do not claim real-world lag resolved or
+deployment performed from these diagnostics or tests.

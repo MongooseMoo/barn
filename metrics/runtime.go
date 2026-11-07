@@ -149,6 +149,13 @@ type Identity struct {
 	Verb      string
 }
 
+func commandIdentityAttr(id Identity) slog.Attr {
+	if id.CommandID > 0 {
+		return slog.Int64("command_id", id.CommandID)
+	}
+	return slog.Attr{}
+}
+
 // ObserveRuntime records every interval, including zero-length intervals.
 // Detailed records additionally require BARN_RUNTIME_DIAGNOSTICS=1 and debug
 // logging. Their overhead belongs to diagnostic runs, not performance claims.
@@ -156,7 +163,7 @@ func ObserveRuntime(p Phase, id Identity, elapsed time.Duration, ticks int64) {
 	runtimePhases[p].observe(elapsed, ticks)
 	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.LogAttrs(context.Background(), slog.LevelDebug, "runtime phase",
-			slog.Int64("command_id", id.CommandID),
+			commandIdentityAttr(id),
 			slog.String("phase", p.String()), slog.Int64("task_id", id.TaskID),
 			slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.Int64("elapsed_ns", int64(max(elapsed, 0))), slog.Int64("ticks", max(ticks, 0)))
@@ -167,7 +174,7 @@ func ObserveRuntime(p Phase, id Identity, elapsed time.Duration, ticks int64) {
 func RuntimeEvent(stage string, id Identity, generation uint64, accepted bool) {
 	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.LogAttrs(context.Background(), slog.LevelDebug, "threaded lifecycle",
-			slog.Int64("command_id", id.CommandID),
+			commandIdentityAttr(id),
 			slog.String("stage", stage), slog.Int64("task_id", id.TaskID),
 			slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.Uint64("generation", generation), slog.Bool("accepted", accepted))
@@ -181,7 +188,7 @@ func RuntimeEvent(stage string, id Identity, generation uint64, accepted bool) {
 func TerminalException(id Identity, code types.ErrorCode, reason types.ExceptionReason, intrinsicEval, committed bool) {
 	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.LogAttrs(context.Background(), slog.LevelDebug, "terminal task exception",
-			slog.Int64("command_id", id.CommandID),
+			commandIdentityAttr(id),
 			slog.Int64("task_id", id.TaskID), slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.String("error", code.String()), slog.String("reason", reason.String()),
 			slog.Bool("intrinsic_eval", intrinsicEval), slog.Bool("committed", committed))
