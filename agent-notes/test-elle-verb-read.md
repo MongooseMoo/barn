@@ -6,8 +6,16 @@ builtin admission and existing transaction fixture. Root owns publication and CI
 
 ## State
 Implemented the focused builtin transaction regression and documentation in
-isolated branch `test/elle-verb-read`. No production change, local Barn tests,
-or publication. Root-owned exact-head CI and pinned Elle remain pending.
+isolated branch `test/elle-verb-read`. No production change or local Barn tests.
+The initial PR head passed Build & unit tests and MOO conformance in workflow
+42346956937 and Serializable histories and negative control in workflow
+42346956936. These results do not establish the newly integrated tree's outcome.
+
+Merged the actual default branch after the quota PR landed. Preserved its quota
+semantic documentation and regression, existing ring/history shapes and manual
+workflow controls, and this branch's verb-read regression/authority mapping.
+Resolved the documentation conflict by retaining both semantic coverage sections.
+The combined head's exact-head CI remains pending root's publication.
 
 ## Decisions and why
 - Extend the existing builtin regression owner; no copied helpers or new fault.
@@ -44,5 +52,6 @@ cases establish allowed and denied semantics; they are not concurrent Barn proof
 None yet.
 
 ## Next step
-Root publishes the commit, runs CI and inspects the focused regression and pinned
-Elle evidence. No result is inferred from source inspection or formatting.
+Root publishes the integration merge, runs fresh CI and inspects the focused
+regression, quota regression and pinned Elle evidence on the combined tree.
+No result is inferred from the previous head, source inspection or formatting.
