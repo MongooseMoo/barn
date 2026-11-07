@@ -116,13 +116,16 @@ func TestSessionConnectionAndHeldInputStateIsIsolatedAndClosed(t *testing.T) {
 	registry := NewRegistry()
 	s1, s2 := NewSession(registry, NoHost()), NewSession(registry, NoHost())
 	const player = types.ObjID(7)
+	for _, session := range []*Session{s1, s2} {
+		configureTestHost(session, func(host *Host) { host.ConnManager = &stubConnManager{conn: &stubConn{id: 7}} })
+	}
 
-	s1.setConnectionOption(player, "hold-input", types.NewInt(1))
-	s2.setConnectionOption(player, "hold-input", types.NewInt(1))
-	if handled, _ := s1.HandleHeldInput(player, "one", false); !handled {
+	s1.setConnectionOption(int64(player), nil, "hold-input", types.NewInt(1))
+	s2.setConnectionOption(int64(player), nil, "hold-input", types.NewInt(1))
+	if handled, _ := s1.HandleHeldInput(player, int64(player), "one", false); !handled {
 		t.Fatal("first registry did not hold input")
 	}
-	if handled, _ := s2.HandleHeldInput(player, "two", false); !handled {
+	if handled, _ := s2.HandleHeldInput(player, int64(player), "two", false); !handled {
 		t.Fatal("second registry did not hold input")
 	}
 
@@ -142,13 +145,13 @@ func TestSessionConnectionAndHeldInputStateIsIsolatedAndClosed(t *testing.T) {
 	if err := s1.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if s1.ConnectionOptionTruthy(player, "hold-input") {
+	if s1.ConnectionOptionTruthy(int64(player), "hold-input") {
 		t.Fatal("closed registry retained connection options")
 	}
 	if got := sessionHeldHTTPInputCount(s1); got != 0 {
 		t.Fatalf("closed registry retained %d HTTP input states", got)
 	}
-	if !s2.ConnectionOptionTruthy(player, "hold-input") {
+	if !s2.ConnectionOptionTruthy(int64(player), "hold-input") {
 		t.Fatal("closing first registry affected second registry options")
 	}
 	if got := sessionHeldHTTPInputCount(s2); got != 1 {

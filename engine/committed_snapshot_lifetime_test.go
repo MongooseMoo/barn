@@ -39,7 +39,7 @@ func TestRunTaskReleasesSnapshotBeforeBlockedCommittedOutput(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	release := make(chan struct{})
-	conn := &snapshotBlockingConn{entered: make(chan struct{}), release: release}
+	conn := &snapshotBlockingConn{evalCommandStubConn: evalCommandStubConn{id: 1}, entered: make(chan struct{}), release: release}
 	manager := &snapshotBlockingConnManager{output: conn}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = manager })
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())

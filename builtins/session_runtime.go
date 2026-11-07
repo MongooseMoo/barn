@@ -28,8 +28,8 @@ type sessionRuntime struct {
 	protected         atomic.Pointer[protectedSet]
 	serverOptions     serverOptionsState
 	connectionOptions struct {
-		mu       sync.RWMutex
-		byPlayer map[types.ObjID]map[string]types.Value
+		mu           sync.RWMutex
+		byConnection map[int64]map[string]types.Value
 	}
 	heldCommands struct {
 		mu       sync.Mutex
@@ -62,7 +62,7 @@ func newSessionRuntime() *sessionRuntime {
 	s.files.nextID, s.files.handles = 1, make(map[int64]*mooFileHandle)
 	s.sqlite.nextID, s.sqlite.handles = 1, make(map[int64]*sqliteHandle)
 	s.recycle.ids = make(map[types.ObjID]int)
-	s.connectionOptions.byPlayer = make(map[types.ObjID]map[string]types.Value)
+	s.connectionOptions.byConnection = make(map[int64]map[string]types.Value)
 	s.heldCommands.byPlayer = make(map[types.ObjID][]string)
 	s.heldHTTPInput.byPlayer = make(map[types.ObjID]*httpHeldInput)
 	s.protected.Store(&protectedSet{byName: map[string]bool{}})
@@ -130,7 +130,7 @@ func (s *Session) Close() error {
 	r.runtime.recycle.mu.Unlock()
 
 	r.runtime.connectionOptions.mu.Lock()
-	r.runtime.connectionOptions.byPlayer = make(map[types.ObjID]map[string]types.Value)
+	r.runtime.connectionOptions.byConnection = make(map[int64]map[string]types.Value)
 	r.runtime.connectionOptions.mu.Unlock()
 
 	r.runtime.heldCommands.mu.Lock()

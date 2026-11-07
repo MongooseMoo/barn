@@ -165,7 +165,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		var line string
 		var isOutOfBand bool
 		var err error
-		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(player, "binary") {
+		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
 				line, err = binaryTransport.ReadChunk()
 			} else {
@@ -391,7 +391,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	input.Line = unquoteInBandInput(input.Line)
 
 	oob := strings.HasPrefix(input.Line, "#$#")
-	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.Player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.ConnID, "disable-oob")
 	if input.IsOutOfBand || (oob && !disableOOB) {
 		input.Diagnostic.Classify("out_of_band")
 		if !disableOOB {
@@ -400,7 +400,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		return
 	}
 	if !oob || disableOOB {
-		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.Line, false)
+		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.ConnID, input.Line, false)
 		if handled {
 			input.Diagnostic.Classify("held_input")
 			if flushed != nil && p.connManager != nil {
@@ -483,10 +483,16 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 }
 
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool, onProcessed func()) {
+	connID := int64(0)
+	if p.connManager != nil {
+		if conn := p.connManager.GetConnection(player); conn != nil {
+			connID = conn.ConnectionID()
+		}
+	}
 	oob := strings.HasPrefix(line, "#$#")
-	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(connID, "disable-oob")
 	if !oob || disableOOB {
-		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
+		handled, _ := p.runtime.Session().HandleHeldInput(player, connID, line, atFront)
 		if handled {
 			if onProcessed != nil {
 				onProcessed()
@@ -502,14 +508,6 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 	// task inline inside the calling task's builtin; once the caller held the
 	// commit gate (its irreversible-effect boundary) and the resumed slice took
 	// the gate too, the server deadlocked and no connection could log in again.
-	connID := int64(0)
-	if p.connManager != nil {
-		if conn := p.connManager.GetConnection(player); conn != nil {
-			if c, ok := conn.(*Connection); ok {
-				connID = c.ID
-			}
-		}
-	}
 	if player < 0 && connID == 0 {
 		connID = int64(player)
 	}
@@ -561,6 +559,9 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		delete(cm.playerConns, types.ObjID(-conn.ID))
 	}
 	cm.mu.Unlock()
+
+	conn.cancel()
+	p.runtime.Session().ForgetConnectionOptions(conn.ID)
 
 	// Kill EVERY login task tied to this connection — the tracked one and any
 	// task left suspended on read() from this (negative) connID — so no orphan

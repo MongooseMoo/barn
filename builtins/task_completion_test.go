@@ -7,7 +7,7 @@ import (
 )
 
 func TestQueueInfoReportsLastInputTaskID(t *testing.T) {
-	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{lastInputTaskID: 913}})
+	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7, lastInputTaskID: 913}})
 	ctx.IsWizard = true
 	ctx.Player = 2
 	wireTestTaskHost(ctx)

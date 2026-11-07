@@ -762,7 +762,7 @@ func TestRunTaskFlushesBufferedEffectsInCallOrder(t *testing.T) {
 	store := dbstore.NewStore()
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	conn := &evalCommandStubConn{}
+	conn := &evalCommandStubConn{id: 1}
 	manager := &evalCommandStubConnManager{
 		player:           7,
 		conn:             conn,
@@ -838,7 +838,7 @@ func TestRunTaskDoesNotReplaceResultAfterDeferredEffectFailure(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	conn := &evalCommandStubConn{sendErr: errors.New("send failed")}
+	conn := &evalCommandStubConn{id: 1, sendErr: errors.New("send failed")}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 7, conn: conn} })
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
