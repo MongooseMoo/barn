@@ -46,6 +46,7 @@ type serverOptionsState struct {
 	maxStringConcat    int
 	maxListValueBytes  int
 	maxMapValueBytes   int
+	maxQueuedOutput    int64
 	fgTicks            int64
 	bgTicks            int64
 	fgSeconds          float64
@@ -69,6 +70,7 @@ func newSessionRuntime() *sessionRuntime {
 	s.serverOptions.maxStringConcat = defaults.MaxStringConcat
 	s.serverOptions.maxListValueBytes = defaults.MaxListValueBytes
 	s.serverOptions.maxMapValueBytes = defaults.MaxMapValueBytes
+	s.serverOptions.maxQueuedOutput = defaults.MaxQueuedOutput
 	s.serverOptions.fgTicks = defaults.FgTicks
 	s.serverOptions.bgTicks = defaults.BgTicks
 	s.serverOptions.fgSeconds = defaults.FgSeconds

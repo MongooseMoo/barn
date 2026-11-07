@@ -182,6 +182,7 @@ type PendingServerOptions struct {
 	MaxStringConcat    int
 	MaxListValueBytes  int
 	MaxMapValueBytes   int
+	MaxQueuedOutput    int64
 	FgTicks            int64
 	BgTicks            int64
 	FgSeconds          float64
