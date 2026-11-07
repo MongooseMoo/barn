@@ -8,8 +8,17 @@ merges after CI. No posting or pushing from this worker.
 ## State
 Root supplied the completed pinned-baseline result before implementation:
 workflow 42344496116, healthy verdicts true, all ten faults false, errors empty.
-The first PR CI exposed a fixture collision; repaired below and awaiting exact-head
-CI. No local tests run. Root owns PR publication and CI evidence collection.
+The first PR CI exposed a fixture collision, repaired below. Follow-up workflow
+42345607812 completed healthy true and both new fault controls false with
+witnesses, as reported by root from retained evidence. No local tests run.
+Root owns PR publication and CI evidence collection.
+
+Integrated the actual default branch after the independent history-shapes and
+manual-campaign PRs merged. Resolved fault-list unions as the original ten,
+ring-reads, hot-map-carry, hot-memo-guard in the same order in Go and Python.
+Preserved history shapes, the ring workload, manual inputs/action pins/cache
+recording restriction, and receiver 18 with its fixture-isolation assertion.
+The integrated tree's exact-head CI and combined fault witnesses remain pending.
 
 Changes: two list-append controls (`hot-map-carry`, `hot-memo-guard`), held runtime
 reader/writer pairs, three actual-runtime recorder regressions, and one store
@@ -51,9 +60,10 @@ population's scratch property before adding renew_missing. Every call and mutati
 uses the same receiver constant; the original invariant check remains unchanged.
 
 ## Next step
-Return the repaired commit to root for CI. Required evidence: healthy append/register true; both
-new list-append faults false with cycle witnesses; committed pair counters and
-specific renewal assertions; recorder and store regressions in CI.
+Return the integration merge to root for CI. Required evidence: healthy
+append/register true; all thirteen list-append faults false with cycle witnesses;
+committed pair and shape counters, specific renewal assertions, and recorder/store
+regressions in the integrated tree's CI.
 
 ## Scope remaining after this change
 The irreversible boundary's memo materialization already has a store regression
