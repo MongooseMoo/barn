@@ -58,11 +58,13 @@ class CleanupReportTests(unittest.TestCase):
             root = Path(root)
             source = root / "source.db"
             source.write_bytes(b"disposable test fixture")
+            sound = root / "sound.sqlite"
+            sound.write_bytes(b"sound catalog fixture")
             out = root / "run"
             server = Mock(identity={})
             server.start.side_effect = RuntimeError("startup failed")
             server.stop.side_effect = RuntimeError("ownership mismatch")
-            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--out", str(out)]),
+            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--sound", str(sound), "--out", str(out)]),
                   patch.object(bench, "load_login_script", return_value=("proxy", "user", "pass")),
                   patch.object(bench, "ToastServer", return_value=server),
                   patch.object(bench, "log")):
@@ -71,6 +73,30 @@ class CleanupReportTests(unittest.TestCase):
             self.assertEqual(report["error"], "RuntimeError: startup failed")
             self.assertEqual(report["cleanup_error"], "RuntimeError: ownership mismatch")
             self.assertTrue((out / "run.db").is_file())
+            self.assertEqual((out / "files" / "sqlite" / "sound.sqlite").read_bytes(), sound.read_bytes())
+            self.assertEqual(report["fixture"]["sound"]["sha256"], bench.sha256_file(sound))
+            self.assertEqual(report["fixture"]["sound"]["copy_sha256"], bench.sha256_file(sound))
+
+
+class BarnDiagnosticLaunchTests(unittest.TestCase):
+    def test_runtime_diagnostic_capture_enables_debug_logging(self):
+        with tempfile.TemporaryDirectory() as root:
+            server = bench.BarnServer.__new__(bench.BarnServer)
+            server.run_dir = Path(root)
+            server.db_copy = Path(root) / "run.db"
+            server.exe = Path(root) / "barn.exe"
+            server.host, server.port = "127.0.0.1", 7777
+            server.identity = {}
+            with (patch.dict(os.environ, {"BARN_RUNTIME_DIAGNOSTICS": "1"}),
+                  patch.object(bench.subprocess, "Popen") as launch,
+                  patch.object(bench, "wait_port", return_value=0.0)):
+                try:
+                    server.start()
+                    command = launch.call_args.args[0]
+                    self.assertIn("--log-level", command)
+                    self.assertEqual(command[command.index("--log-level") + 1], "debug")
+                finally:
+                    server.log_file.close()
 
 
 class LinuxOwnershipTests(unittest.TestCase):

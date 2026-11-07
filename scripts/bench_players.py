@@ -114,8 +114,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / "mongoose.db.new"
-TOAST_MOO = "/root/src/toaststunt-mongoose/build-release/moo"
-TOAST_SRC = "/root/src/toaststunt-mongoose"
+TOAST_SRC = "/root/src/toaststunt-mongoose-login-20260917"
+TOAST_MOO = TOAST_SRC + "/build-release/moo"
 WSL_DISTRO = "Debian"
 BARN_CONFIG = REPO_ROOT / "profiles" / "barn" / "mongoose-outbound-on.conf"
 BARN_PROFILE_ID = "barn-windows-mongoose-outbound-on"
@@ -787,6 +787,8 @@ class BarnServer(Server):
             "--log-dir", str(self.run_dir / "logs"),
             "--debug-addr", "127.0.0.1:0",
         ]
+        if os.environ.get("BARN_RUNTIME_DIAGNOSTICS") == "1":
+            cmd += ["--log-level", "debug"]
         self.identity["command"] = cmd
         self.proc = subprocess.Popen(
             cmd, cwd=str(self.run_dir), stdin=subprocess.DEVNULL,
@@ -1059,6 +1061,7 @@ def main() -> int:
     ap.add_argument("--warmup", type=float, default=2.0, help="warm-up seconds per level (default 2)")
     ap.add_argument("--measure", type=float, default=8.0, help="measure seconds per level (default 8)")
     ap.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"source fixture (default {DEFAULT_DB})")
+    ap.add_argument("--sound", type=Path, help="sound catalog to copy into the disposable world's files/sqlite")
     ap.add_argument("--port", type=int, default=7777, help="listen port; 7777 = $network.port makes $prod() true")
     ap.add_argument("--out", type=Path, default=None, help="run directory (default .tmp/bench_players/<engine>-<ts>)")
     ap.add_argument("--barn-exe", type=Path, default=REPO_ROOT / "bin" / "barn.exe")
@@ -1098,6 +1101,19 @@ def main() -> int:
         sys.exit("disposable copy hash differs from source")
     fixture = {"source_path": str(src), "size_bytes": src.stat().st_size, "sha256": src_sha,
                "copy_path": str(db_copy), "copy_sha256": copy_sha}
+    if args.sound is not None:
+        sound = args.sound.resolve()
+        if not sound.is_file():
+            sys.exit(f"sound catalog not found: {sound}")
+        sound_sha = sha256_file(sound)
+        sound_copy = run_dir / "files" / "sqlite" / "sound.sqlite"
+        shutil.copy2(sound, sound_copy)
+        sound_copy_sha = sha256_file(sound_copy)
+        if sound_copy_sha != sound_sha:
+            sys.exit("disposable sound catalog hash differs from source")
+        fixture["sound"] = {"source_path": str(sound), "sha256": sound_sha,
+                            "size_bytes": sound.stat().st_size, "copy_path": str(sound_copy),
+                            "copy_sha256": sound_copy_sha}
     log(f"fixture {src} size={fixture['size_bytes']} sha256={src_sha}")
     log(f"run dir {run_dir}")
     if supplied_login is None:

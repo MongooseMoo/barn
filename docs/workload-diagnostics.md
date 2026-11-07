@@ -25,6 +25,26 @@ Determine the actual hook and effective programmer before changing property or
 builtin checks. Confirm uncertain behavior through managed WSL Toast conformance
 with capability admission; see [mongoose-conformance.md](mongoose-conformance.md).
 
+## TCP player-command harness
+
+Use `scripts/bench_players.py` when measuring decoded input to first socket output.
+It logs in real roster players and runs the native look/say/inventory/who/home
+mix against a disposable world. Supply the real sound catalog; its source and
+copy hashes are saved with the checkpoint hashes in `run.json`.
+
+```powershell
+$env:BARN_RUNTIME_DIAGNOSTICS = '1'
+python scripts/bench_players.py --engine barn --players 1,4,16 --db C:\fixtures\mongoose.db --sound C:\fixtures\sound.sqlite --barn-exe C:\build\barn.exe --out C:\new-evidence --keep-db
+```
+
+The diagnostic opt-in also selects debug logging for Barn. Read the command
+records in `logs/` with `barn_logs -runtime -command ID`. The harness's terminal
+latencies include an out-of-band completion probe and its scheduling delay;
+use the command's `first_output` stage for time to first response. Inspect native
+tracebacks and broken connections before accepting any throughput comparison.
+The harness creates private accounts offline using the documented Mongoose
+Toast build; it does not need live player credentials.
+
 ## In-process command harness
 
 The harness drives normal command dispatch and waits for terminal output
