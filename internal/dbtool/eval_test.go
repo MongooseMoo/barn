@@ -9,6 +9,7 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -44,6 +45,55 @@ func runEval(t *testing.T, store *dbstore.Store, input string) (string, string, 
 	var out, errOut bytes.Buffer
 	err := EvalExpression(&out, &errOut, store, input, config.DefaultOptions())
 	return out.String(), errOut.String(), err
+}
+
+func TestEvalSessionCloseReleasesBuiltinHandles(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, test := range []struct {
+		name, source, inspect string
+	}{
+		{"file", `return file_open("eval-cleanup", "w+tn");`, "file_name"},
+		{"SQLite", `return sqlite_open(":memory:");`, "sqlite_info"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session, err := NewEvalSession(evalStore(t), config.DefaultOptions())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := session.Close(); err != nil {
+					t.Errorf("cleanup eval session: %v", err)
+				}
+			}()
+			builtinSession := session.runtime.Session()
+			t.Cleanup(func() {
+				if err := builtinSession.Close(); err != nil {
+					t.Errorf("cleanup builtin session: %v", err)
+				}
+			})
+			outcome, err := session.eval([]string{test.source})
+			if err != nil || !completed(outcome) || outcome.Result.Val.Type() != types.TYPE_INT {
+				t.Fatalf("open handle through eval: outcome=%+v error=%v", outcome, err)
+			}
+			ctx := task.NewContext()
+			ctx.IsWizard = true
+			execution := builtinSession.NewExecution(ctx, nil)
+			handle := []types.Value{outcome.Result.Val}
+			if result, found := builtinSession.CallByNameWithExecution(test.inspect, execution, handle); !found || result.IsError() {
+				t.Fatalf("handle before Close: found=%v result=%+v", found, result)
+			}
+			if err := session.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			execution = builtinSession.NewExecution(ctx, nil)
+			if result, found := builtinSession.CallByNameWithExecution(test.inspect, execution, handle); !found || result.Error != types.E_INVARG {
+				t.Fatalf("handle after Close: found=%v result=%+v, want E_INVARG", found, result)
+			}
+			if err := session.Close(); err != nil {
+				t.Fatalf("repeated Close: %v", err)
+			}
+		})
+	}
 }
 
 func TestEvalExpressionRunsStatementList(t *testing.T) {

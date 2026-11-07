@@ -498,7 +498,7 @@ No throughput improvement or measured performance neutrality is claimed.
 
 The P4 readiness/admission scout completed its producer/lifetime survey. The
 unused required TaskYielder host capability and two forwarding methods are now
-deleted locally, together with startup wiring and three obsolete test
+deleted in merged PR #637, together with startup wiring and three obsolete test
 assignments. The seven-Go-file source diff adds one line and removes twenty;
 the now-unnecessary Yin helper local is replaced with a direct constructor return.
 it preserves ProcessReadyTasks and its engine/eval.go caller. Raw checks:
@@ -510,8 +510,10 @@ removed_symbol_search_exit=1
 ```
 
 The last result is the repository Go search for TaskYielder/YieldReadyTasks,
-with no matches. No local tests/build ran for this deletion-only slice. Its
-publication can now proceed independently against current master.
+with no matches. No local tests/build ran for this deletion-only slice. Build,
+full conformance and Elle PR CI passed; analyst and final verifier cleared the
+actual diff. The required merge queue completed and local integration fast-
+forwarded on November 7.
 Reservation, physical lease and dispatch slots have distinct producers and
 lifetimes and retain keep dispositions. The implementation report is
 reports/system-layering-task-yielder-coder.md.
@@ -538,12 +540,71 @@ separately and ignores errors, so a multi-line program created an empty file.
 Preserve toast-file-scan.xml as a fixture non-verdict. The corrected single-
 program fixture passed all three scan cases plus admission on stock Toast;
 toast-file-scan-v2.xml records count/all-match cursor at EOF and first-match
-cursor immediately after the matching line. Barn comparison is next.
+cursor immediately after the matching line. Barn passed admission/count/all-
+match but first-match grep raised E_FILE on the next file_readline instead of
+returning omega. barn-file-scan-before.xml preserves this confirmed cursor
+defect. Focused new regressions reproduced first-match cursor 19 instead of 13
+in text and binary modes. Registered file_count_lines/file_grep calls also ran
+with zero boundary crossings and moved to 19 despite a refusing callback:
+
+```text
+fileio_readline_buffer_test.go:60: result = {19 0 E_NONE unknown  <nil> []}, want 13
+file_count_lines: crossings=0 irreversible=false, want aborted before effect
+file_grep: crossings=0 irreversible=false, want aborted before effect
+FAIL github.com/MongooseMoo/barn/builtins 0.133s
+```
+
+The coder is holding production edits while the parent verifies long-line
+behavior, because replacing Scanner with Reader also removes Scanner's token
+limit. No additional stream machinery has been added. Fix read-ahead
+consumption and the two missing effect policies after that evidence arrives.
 SQL slot/row
 conversion, immutable worker inputs and generation-based resume have keep
 dispositions. Subprocess shutdown cancellation remains an unverified lifetime
 question. Findings and their limits live in
-reports/system-layering-builtins-scout.md. P6-P9 deeper surveys remain pending.
+reports/system-layering-builtins-scout.md.
+
+P6's completed store survey found a prompt snapshot-release omission in
+standalone callVerbWithArgstr: ordinary login hooks lack explicit Release;
+sweep hooks capture the original receiver even when GC renewal replaces it.
+The existing owner's correction is unconditional late-bound cleanup, now
+implemented locally. With Go GC disabled, its real ordinary-hook
+regressions reproduced one active snapshot after read/write/error/run_gc
+returns where zero are required; actual run_gc replacement was asserted.
+The same focused selector then reported:
+
+```text
+gofmt_exit=0
+diff_check_exit=0
+ok github.com/MongooseMoo/barn/engine 0.116s
+```
+
+It also covers read/write/error hooks under the actual held sweep barriers and
+reentrant run_gc's no-op snapshot behavior. The source change adds one
+late-bound defer and removes the sweep-only captured defer. No broad local
+tests or Elle ran; independent PR CI and explicit isolation evidence remain
+pending. Implementation details are recorded in
+reports/system-layering-call-verb-snapshot-coder.md.
+Preserve raw source findings in
+reports/system-layering-store-scout.md. Granular map dependencies, publication
+locks, task-row atomicity, renewal distinctions and pruning retain keep decisions.
+
+P7's language/value survey completed. Keep decisions cover the bounded compiler
+cache, immutable builtin IDs, shared sourcekey owner, compilation outside locks,
+retry versus persistence snapshots and immutable values/WAIF images. Two direct
+beauty candidates are consolidating optional activation-list fields in
+ActivationFrame.ToList and deleting the literal error forwarding wrapper.
+Exact-size frame construction must preserve lazy variables and redaction.
+reports/system-layering-language-scout.md preserves the handoff.
+
+P8's persistence/finalization survey completed. The writer's emitted surfaces
+are detached after store/task capture and value rewriting; use the existing
+Checkpoint and Writer owners to split Capture from Serialize. Only running
+checkpoints may encode/publish after the capture barrier. Terminal checkpoints
+retain the whole barrier. Before implementation, finish current direct-caller
+inspection and write deterministic blocked-encoding/frozen-graph regressions.
+Preserve finalization roots, parking, path locks and recovery ownership. The
+handoff is reports/system-layering-persistence-scout.md. P9 survey is pending.
 Output acceptance and concurrent result semantics remain a P1 prerequisite for P3.
 
 First pass traced input, admission, background selection, task slices,

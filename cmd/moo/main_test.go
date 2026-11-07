@@ -156,7 +156,9 @@ func minimalDBFile(t *testing.T) string {
 	}
 	var out, errOut bytes.Buffer
 	compiled, completed := session.Print(&out, &errOut, []string{`add_property(#0, "from_file", "yes", {player, "r"});`})
-	session.Close()
+	if err := session.Close(); err != nil {
+		t.Fatalf("close fixture session: %v", err)
+	}
 	if !compiled || !completed {
 		t.Fatalf("marking the fixture: %s%s", out.String(), errOut.String())
 	}
