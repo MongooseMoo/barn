@@ -140,6 +140,7 @@ reject the resulting append history with an anomaly witness:
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
+| `ring-reads` | property-value validation only for the four ring properties | held four-transaction ring |
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
@@ -177,3 +178,17 @@ obtain a green result.
 
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.
+
+The corpus also runs a held four-transaction ring. Each task reads the row its
+predecessor will append to before any task can write, then appends to its own row.
+The `ring-reads` fault removes validation only for these properties, leaving the
+other waves healthy so its witness must come from the ring.
+
+Healthy random rounds vary one to four slices per task and one to four appends
+per generated append body, including repeated appends to a key and sparse reads.
+Register bodies alternate blind writes, read-only/repeated reads, cross-key
+read/write dependencies, intermediate writes followed by own reads, and full reads
+around a write. Every shape must appear in committed coverage. Random writes use
+unique increasing tokens starting at 2^40, separate from held schedules; forked
+operations use the same allocator. Seeds reproduce generation on the same tree,
+not scheduling or histories produced by an older generator.

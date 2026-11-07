@@ -204,7 +204,7 @@ var elleExpectedExceptions = map[int64]bool{}
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, the write-skew pair for commit exclusion, and the
 // valid/recycle pair for the read a true valid() records.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads", "ring-reads"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
@@ -227,7 +227,7 @@ var elleWaves = []string{
 }
 
 func elleRegisterReads() string {
-	return `elle_observe("r","property",#30.data); elle_observe("r","name",toint(#32.name)); lines=verb_code(#31,1); line=lines[1]; elle_observe("r","verb-code",toint(line[1..$-1]));`
+	return elleRegisterRead(0) + elleRegisterRead(1) + elleRegisterRead(2)
 }
 
 func elleAppend(kind int, n int) string {
@@ -629,36 +629,64 @@ func TestElleIsolationHistories(t *testing.T) {
 				})
 				id += 2
 			}
+			if model == "list-append" && paths["parallel"] {
+				id = elleRing(t, rt, id)
+			}
+			// Keep random writes disjoint from the fixed tokens in held schedules.
+			nextToken := 1 << 40
+			token := func() int {
+				n := nextToken
+				nextToken++
+				return n
+			}
 			for round := 0; round < rounds; round++ {
 				var batch []*Task
 				for worker := 0; worker < 4; worker++ {
 					var source string
-					for slice := 0; slice < 2; slice++ {
+					slices := 1 + (round+worker)%4
+					for slice := 0; slice < slices; slice++ {
 						if round%4 == 0 && paths["exclusive_gate"] {
 							source += `elle_effect();`
 						}
 						if model == "list-append" {
 							kind := rng.Intn(len(elleRows))
-							token := 1000 + round*100 + worker*10 + slice
-							source += elleAppend(kind, token)
-							source += elleAppend(rng.Intn(len(elleRows)), 2000000+token)
+							operations := 1 + rng.Intn(4)
+							for operation := 0; operation < operations; operation++ {
+								source += elleAppend(kind, token())
+								if rng.Intn(2) == 0 {
+									kind = rng.Intn(len(elleRows))
+								}
+							}
 							if round%5 == 0 && paths["exclusive"] {
 								source += `w=#0:make_waif(); w.data=1; #0.waif=w;`
 							}
-							source += elleReadAll()
-						} else {
-							token := 1000 + round*100 + worker*10 + slice
-							switch rng.Intn(3) {
-							case 0:
-								source += fmt.Sprintf(`#30.data=%d; elle_observe("w","property",%d);`, token, token)
-							case 1:
-								source += fmt.Sprintf(`#32.name="%d"; elle_observe("w","name",%d);`, token, token)
-							case 2:
-								source += fmt.Sprintf(`set_verb_code(#31,1,{"%d;"}); elle_observe("w","verb-code",%d);`, token, token)
+							if (round+worker+slice)%4 == 0 {
+								source += elleReadAll()
+								source += `elle_invariant_mark({"append_full"});`
+							} else {
+								source += `elle_invariant_mark({"append_sparse"});`
 							}
-							source += elleRegisterReads()
+						} else {
+							kind := rng.Intn(3)
+							switch (round + worker + slice) % 5 {
+							case 0: // Blind write, without an observation of the overwritten value.
+								source += elleRegisterWrite(kind, token())
+								source += `elle_invariant_mark({"register_blind"});`
+							case 1: // Read-only transaction, including a repeated read.
+								source += elleRegisterRead(kind) + elleRegisterRead((kind+1)%3) + elleRegisterRead(kind)
+								source += `elle_invariant_mark({"register_read_only"});`
+							case 2: // Read a different key before writing.
+								source += elleRegisterRead((kind+1)%3) + elleRegisterWrite(kind, token())
+								source += `elle_invariant_mark({"register_read_write"});`
+							case 3: // Observe our own intermediate and final writes.
+								source += elleRegisterWrite(kind, token()) + elleRegisterRead(kind) + elleRegisterWrite(kind, token()) + elleRegisterRead(kind)
+								source += `elle_invariant_mark({"register_intermediate"});`
+							case 4:
+								source += elleRegisterReads() + elleRegisterWrite(kind, token()) + elleRegisterReads()
+								source += `elle_invariant_mark({"register_full"});`
+							}
 						}
-						if slice == 0 && paths["suspend"] {
+						if slice < slices-1 && paths["suspend"] {
 							source += `suspend(0);`
 						}
 					}
@@ -686,7 +714,7 @@ func TestElleIsolationHistories(t *testing.T) {
 					id++
 				}
 				if round%3 == 0 && model == "list-append" && paths["fork"] {
-					source := fmt.Sprintf(`fork (0) %s endfork return 1;`, elleAppend(0, 4000000+round))
+					source := fmt.Sprintf(`fork (0) %s endfork return 1;`, elleAppend(0, token()))
 					batch = append(batch, elleTask(t, rt, id, source))
 					id++
 				}
@@ -713,6 +741,11 @@ func TestElleIsolationHistories(t *testing.T) {
 	for _, key := range []string{"native_exception", "read_only", "operation/move", "operation/chparent", "operation/create", "operation/recycle", "operation/delete_property", "operation/delete_verb", "operation/clear_property", "operation/flags", "operation/owner", "operation/permissions", "operation/invariant"} {
 		if coverage[key] == 0 {
 			t.Errorf("missing actual coverage: %s", key)
+		}
+	}
+	for _, shape := range []string{"append_full", "append_sparse", "register_blind", "register_read_only", "register_read_write", "register_intermediate", "register_full"} {
+		if coverage["operation/"+shape] == 0 {
+			t.Errorf("missing committed history shape: %s", shape)
 		}
 	}
 }
