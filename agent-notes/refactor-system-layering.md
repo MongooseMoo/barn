@@ -433,14 +433,49 @@ variable is present; the native matrix requires both, while the in-process
 workload has a separate credential-free path. Runner selection is already
 ["self-hosted","Linux","X64","barn"].
 
-P1 has a managed stock WSL Toast session running for capability_admission,
-notify_semantics, notify_call_shapes and buffered_output_length. Its Linux uv
-environment is /root/.cache/barn-system-layering-conformance-linux. Evidence
-targets are .tmp/system-layering/toast-output.xml and
-toast-output-admission.json. The last observed output was environment creation
-and dependency installation; a terminal verdict is not yet available.
+P1's managed stock WSL Toast session completed: 72 passed for admission,
+notify semantics/call shapes and buffered output length. Four additional
+byte-accounting cases plus admission passed on stock Toast with no skips, then
+failed all four behavior cases on Barn: expected byte deltas 5, 3, 3/7 and 2;
+Barn returned notification counts 1, 1, 1/2 and 1. Raw XML and admission evidence
+are in .tmp/system-layering/toast-byte-v2.xml and barn-byte-before.xml with
+matching admission JSON files. The initial incorrect singular getter produced
+four skips; toast-byte.xml preserves that non-verdict. The corrected generic
+suite uses canonical connection_options without an optional prerequisite.
+Two further stock-oracle acceptance cases plus admission passed. Reloading
+max_queued_output changes the no-argument length result within the same task.
+With a 2048-byte capacity, a small queued notification followed by a 4096-byte
+payload with no_flush returns {1, 0}, even when the earlier bytes can drain.
+Raw evidence is toast-acceptance.xml and its admission JSON. The frozen Barn
+comparison passed admission and failed both cases: 65536 instead of 4096 and
+{1, 1} instead of {1, 0}. barn-acceptance-before.xml preserves both failures.
+This establishes real
+rejectable notify results, so deferred always-success acceptance cannot be the
+P3 design. Full slow-peer/discard/boot ordering contracts remain unresolved.
 
-P2's first bounded slice is implemented and awaiting PR CI and review: consolidate duplicated
+The byte-accounting coder has captured focused red tests for queued bytes,
+partial flush suffixes, pending framing, UTF-8 and binary output. It is applying
+the shared PendingNotification calculation and a cached connection total;
+physical transport/framing and effect ordering stay outside this slice.
+
+The bounded byte-accounting implementation now shares PendingNotification.ByteLength
+between deferred effects and connection queue accounting. Connection maintains
+its total at existing enqueue and successful-delivery sites, preserving O(1)
+length queries and failed suffix ownership. Edited focused tests captured the
+original count failures and now report:
+
+```text
+ok github.com/MongooseMoo/barn/server 0.006s
+ok github.com/MongooseMoo/barn/builtins 0.100s
+diff_check_exit=0
+```
+
+The managed post-fix byte suite then reported five passes with no skipped cases
+in 7.29 seconds, including admission. barn-byte-after.xml and its admission JSON
+preserve the result. PR CI and analyst/verifier review remain pending. The
+implementation report records exact focused selectors and red/green evidence.
+
+P2's first bounded slice is implemented in PR #634: consolidate duplicated
 command-output settlement in the existing Runtime.settleTaskResult owner,
 using Task/error inputs rather than the scheduler's result carrier. The three
 entrypoints are ExecuteVerbTaskSyncWithStart, successful runServerVerbTask and
@@ -450,7 +485,14 @@ reports/system-layering-execution-scout.md and
 reports/system-layering-settlement-coder.md. The source diff is 8 insertions and
 27 deletions across three engine files. It leaves one production
 flushTaskOutput(t) call in the existing settlement owner. No local test result
-is claimed. The scout and coder have delivered their reports and stopped.
+is claimed. PR CI completed successfully: build/unit, managed conformance and
+Elle workflow. The analyst found no concrete defect; final verifier approved
+the exact published diff. PR #634 merged through the required merge queue on
+November 7. All four review/implementation agents delivered and stopped.
+No throughput improvement or measured performance neutrality is claimed.
+
+The P4 readiness/admission scout is surveying actual producers and retained
+resources independently of the bounded byte-accounting implementation.
 
 P3-P9 remain pending their bounded caller/contract surveys. Output acceptance
 and concurrent result semantics remain a P1 prerequisite for P3.
@@ -987,10 +1029,14 @@ identity and settled workload outcomes are still needed for measurement.
 
 ## Next step
 
-Collect the managed oracle session's terminal summary and preserve raw evidence.
-Review the bounded settlement consolidation, then run the gauntlet analyst and
-verifier stages against its actual diff and PR CI. Finish fixture identity and
-credential access before the native matrix. Resolve output acceptance,
+Settlement consolidation is merged; continue with the next independent slice.
+Deliver the verified byte-accounting correction through PR CI and review.
+Preserve the generic oracle suite and raw red/green evidence. Then fix dynamic
+capacity and rejectable notify acceptance in their existing owners before P3
+changes physical draining. The P4 scout continues its independent source survey.
+Both baseline and candidate native binaries exist under .tmp/system-layering.
+The native matrix credential-source question is pending; continue independent
+work while awaiting it. Resolve output acceptance,
 overflow, no_flush and byte-length using the canonical managed oracle before
 selecting P3's implementation. Existing output-deadline tests alone do not
 establish isolation of unrelated progress.

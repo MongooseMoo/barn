@@ -240,36 +240,51 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 }
 
 func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
-	conn := &stubConn{}
-	store := dbstore.NewStore()
-	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
-	ctx.Player = -8
-	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginSnapshot(0)
-
-	before := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
-	if before.IsError() {
-		t.Fatalf("buffered_output_length before notify failed: %v", before.Error)
-	}
-	beforeValue := before.Val.Int()
-
-	for i := 0; i < 5; i++ {
-		res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(-8), types.NewStr("buffered_output_length probe")})
-		if res.IsError() {
-			t.Fatalf("notify %d failed: %v", i, res.Error)
-		}
-	}
-
-	after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
-	if after.IsError() {
-		t.Fatalf("buffered_output_length after notify failed: %v", after.Error)
-	}
-	afterValue := after.Val.Int()
-	if afterValue <= beforeValue {
-		t.Fatalf("buffered_output_length after pending notifications = %d, want > %d", afterValue, beforeValue)
-	}
-	if len(conn.sent) != 0 {
-		t.Fatalf("sent before transaction flush = %#v, want none", conn.sent)
+	for _, test := range []struct {
+		name      string
+		message   string
+		noNewline int64
+		binary    int64
+		wantBytes int64
+	}{
+		{name: "CRLF", message: "abc", wantBytes: 5},
+		{name: "no newline", message: "abc", noNewline: 1, wantBytes: 3},
+		{name: "UTF-8 bytes", message: "\u00e9", wantBytes: 4},
+		{name: "empty line", wantBytes: 2},
+		{name: "empty unframed", noNewline: 1},
+		{name: "decoded binary", message: "~41~42", binary: 1, wantBytes: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn := &stubConn{}
+			ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+			ctx.Player = -8
+			ctx.IsWizard = true
+			ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+			ctx.Session.setConnectionOption(-8, "binary", types.NewInt(test.binary))
+			for i := int64(1); i <= 2; i++ {
+				res := admitTestBuiltin("notify", ctx, []types.Value{
+					types.NewObj(-8), types.NewStr(test.message), types.NewInt(1), types.NewInt(test.noNewline),
+				})
+				if res.IsError() {
+					t.Fatalf("notify %d failed: %v", i, res.Error)
+				}
+				after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
+				if after.IsError() || after.Val.Int() != i*test.wantBytes {
+					t.Fatalf("buffered_output_length after notify %d = %v, error %v, want %d", i, after.Val, after.Error, i*test.wantBytes)
+				}
+			}
+			ctx.Session.setConnectionOption(-8, "binary", types.NewInt(0))
+			if res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(-9), types.NewStr("other player")}); res.IsError() {
+				t.Fatalf("other-player notify failed: %v", res.Error)
+			}
+			after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
+			if after.IsError() || after.Val.Int() != 2*test.wantBytes {
+				t.Fatalf("buffered_output_length after option change and other-player notify = %v, error %v, want %d", after.Val, after.Error, 2*test.wantBytes)
+			}
+			if len(conn.sent) != 0 || len(conn.buffered) != 0 {
+				t.Fatalf("output before transaction flush: sent=%q buffered=%q", conn.sent, conn.buffered)
+			}
+		})
 	}
 }
 

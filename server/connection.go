@@ -25,6 +25,7 @@ type Connection struct {
 	loggedIn       bool
 	disconnectHook *string // nil: client close; empty: notification already handled
 	outputBuffer   []task.PendingNotification
+	outputBytes    int
 	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
 	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
 	resolvedName   string
@@ -113,6 +114,7 @@ func (c *Connection) SendNotification(note task.PendingNotification) error {
 	defer c.mu.Unlock()
 	if note.NoFlush {
 		c.outputBuffer = append(c.outputBuffer, note)
+		c.outputBytes += note.ByteLength()
 		return nil
 	}
 	if err := c.flushLocked(); err != nil {
@@ -128,7 +130,9 @@ func (c *Connection) SendNotification(note task.PendingNotification) error {
 func (c *Connection) Buffer(message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.outputBuffer = append(c.outputBuffer, task.PendingNotification{Message: message})
+	note := task.PendingNotification{Message: message}
+	c.outputBuffer = append(c.outputBuffer, note)
+	c.outputBytes += note.ByteLength()
 }
 
 // Flush flushes the output buffer
@@ -150,6 +154,7 @@ func (c *Connection) flushLocked() error {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
+		c.outputBytes -= msg.ByteLength()
 		c.outputBuffer[i] = task.PendingNotification{}
 	}
 	c.outputBuffer = c.outputBuffer[:0]
@@ -310,11 +315,11 @@ func (c *Connection) GetOutputSuffix() string {
 	return c.outputSuffix
 }
 
-// BufferedOutputLength returns the number of queued output lines.
+// BufferedOutputLength returns the number of queued MOO output bytes.
 func (c *Connection) BufferedOutputLength() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.outputBuffer)
+	return c.outputBytes
 }
 
 // ConnectedSeconds returns how long the connection has been active.
