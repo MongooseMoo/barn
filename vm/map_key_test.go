@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -164,6 +166,8 @@ func TestKeyedAssignmentCapturedBeforeRHSWriteUsesWholeDependency(t *testing.T) 
 		want       int64
 	}{
 		{"keyed-rhs", `r=(#0.m["a"]=(#0.m["b"]=5)); if (r != 5 || #0.m["a"] != 5 || #0.m["b"] != 0) raise(E_INVARG); endif`, 5},
+		// The nested whole write already supplies a whole dependency. This
+		// variant checks evaluation semantics; keyed-rhs isolates the guard.
 		{"whole-rhs", `r=(#0.m["a"]=(#0.m=["a"->2,"b"->3])["b"]); if (r != 3 || #0.m["a"] != 3 || #0.m["b"] != 0) raise(E_INVARG); endif`, 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -179,8 +183,8 @@ func TestKeyedAssignmentCapturedBeforeRHSWriteUsesWholeDependency(t *testing.T) 
 					defer other.Release()
 					runOn(t, store, writer, test.code)
 					if concurrent {
-						// Neither RHS nor its assertions touch c. The real VM writeback,
-						// rather than a test-side whole read, must supply this dependency.
+						// Neither RHS nor its assertions touch c. For keyed-rhs, only
+						// real VM writeback can supply the required whole dependency.
 						runOn(t, store, other, `#0.m["c"]=7;`)
 						if ec := other.Commit(); ec != types.E_NONE {
 							t.Fatalf("other commit: %v %v", ec, other.Conflicts())
@@ -200,6 +204,91 @@ func TestKeyedAssignmentCapturedBeforeRHSWriteUsesWholeDependency(t *testing.T) 
 						t.Fatalf("a=%d b=%d; want captured base with a=%d b=0", a, b, test.want)
 					}
 				})
+			}
+		})
+	}
+}
+
+// Each assignment fits its snapshot's quota, but commit must check the merged
+// map too. A rejected merge leaves the first update intact; a serial retry then
+// encounters the ordinary VM assignment quota rather than publishing an oversize
+// value. This is a value-size contract, independent of Elle serializability.
+func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		spare int
+	}{
+		{name: "below-limit", spare: 1},
+		{name: "at-limit", spare: 0},
+		{name: "above-limit", spare: -1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := mapKeyVMStore(t)
+			initial, ec := store.DirectTxn().PropertyValue(0, "m")
+			if ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			keyA, keyB := types.NewStr("a"), types.NewStr("b")
+			valueA, valueB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+			first := initial.MapSet(keyA, types.NewStr(valueA))
+			second := initial.MapSet(keyB, types.NewStr(valueB))
+			merged := first.MapSet(keyB, types.NewStr(valueB))
+			limit := types.ValueBytes(merged) + test.spare
+			if types.ValueBytes(first) >= limit || types.ValueBytes(second) >= limit {
+				t.Fatal("fixture assignments do not individually fit the task quota")
+			}
+			ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+			defer ta.Release()
+			defer tb.Release()
+			for _, assignment := range []struct {
+				txn   *dbstore.StoreTxn
+				key   string
+				value string
+			}{
+				{txn: ta, key: "a", value: valueA},
+				{txn: tb, key: "b", value: valueB},
+			} {
+				ctx := task.NewContext()
+				ctx.StoreTxn = assignment.txn
+				ctx.ServerOptions = &task.PendingServerOptions{MaxListValueBytes: limit}
+				result := runBytecodeProgram(t, fmt.Sprintf(`#0.m[%q]=%q; return 1;`, assignment.key, assignment.value), store, ctx)
+				if result.Flow != types.FlowReturn || result.Val.Int() != 1 {
+					t.Fatalf("initial %s assignment = %+v; want successful staging", assignment.key, result)
+				}
+			}
+			if ec := ta.Commit(); ec != types.E_NONE {
+				t.Fatalf("first commit = %v, conflicts %v", ec, ta.Conflicts())
+			}
+			want := merged
+			if test.spare > 0 {
+				if ec := tb.Commit(); ec != types.E_NONE {
+					t.Fatalf("below-limit merge = %v, conflicts %v", ec, tb.Conflicts())
+				}
+			} else {
+				if ec := tb.Commit(); ec != types.E_INVARG || !tb.ValidationFailed() {
+					t.Fatalf("oversize merge = %v, validationFailed=%v; want retryable E_INVARG", ec, tb.ValidationFailed())
+				}
+				conflicts := tb.Conflicts()
+				if len(conflicts) != 1 || conflicts[0].Kind != dbstore.ConflictMapKey || conflicts[0].ObjID != 0 || conflicts[0].Name != "m" {
+					t.Fatalf("oversize merge conflicts = %+v; want one map-key conflict on #0.m", conflicts)
+				}
+				want = first
+				retry := store.BeginSnapshot(0)
+				defer retry.Release()
+				ctx := task.NewContext()
+				ctx.StoreTxn = retry
+				ctx.ServerOptions = &task.PendingServerOptions{MaxListValueBytes: limit}
+				result := runBytecodeProgram(t, fmt.Sprintf(`#0.m["b"]=%q; return 1;`, valueB), store, ctx)
+				if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+					t.Fatalf("serial retry = %+v; want E_QUOTA", result)
+				}
+				if retry.HasWrites() {
+					t.Fatal("quota-rejected serial assignment staged a write")
+				}
+			}
+			actual, ec := store.DirectTxn().PropertyValue(0, "m")
+			if ec != types.E_NONE || !actual.Identical(want) || types.ValueBytes(actual) >= limit {
+				t.Fatalf("published map = %v, error=%v, bytes=%d, limit=%d; want %v below limit", actual, ec, types.ValueBytes(actual), limit, want)
 			}
 		})
 	}

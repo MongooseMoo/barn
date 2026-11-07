@@ -6,7 +6,11 @@ property assignment. Root owns publication and CI; this worker commits only.
 
 ## State
 Implemented the missing real-VM regression after exact managed WSL Toast evidence.
-No production changes and no local Barn tests. Parent-owned PR CI remains required.
+No production changes and no local Barn tests. The original head passed all three
+required PR checks. Integration with actual merged master retains both this RHS
+regression and the quota regression in the same existing VM test owner. The
+comment/note distinction from private review is retained. Combined-head CI remains
+required before normal merge.
 
 ## Decisions and why
 Reuse existing fixtures and keyed tracking; add no duplicate store helpers.
@@ -24,9 +28,11 @@ Reuse existing fixtures and keyed tracking; add no duplicate store helpers.
   when another task changes a third key not mentioned by the RHS.
 - The new VM regression runs nested keyed and whole-map RHS assignments as MOO.
   Each checks its assignment result and actual a/b values, then tests both serial
-  publication and conflict with a separately committed new key c. The test never
-  reads the whole property on the writer's transaction, so it cannot manufacture
-  the dependency it intends to verify.
+  publication and conflict with a separately committed new key c. The keyed-RHS
+  assertions do not introduce a whole-property dependency, so that case isolates
+  the outer writeback guard. The whole-RHS assignment inherently records a whole
+  dependency before the outer writeback; its conflict is semantic coverage, not
+  independent proof of that guard.
 - This is semantic producer coverage. No new Elle schedule/control is claimed:
   existing controls target their own concrete workloads; adding another helper
   would not make this minimal VM producer test an additional anomaly witness.
