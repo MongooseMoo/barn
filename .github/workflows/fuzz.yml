@@ -1,13 +1,11 @@
 name: Nightly fuzz
-run-name: Nightly fuzz / ${{ github.event_name == 'workflow_run' && 'controller' || inputs.compute-mode }}
+run-name: Nightly fuzz / ${{ inputs.compute-mode }}
 
 # Workstation Task Scheduler continues dispatching the default legacy mode at
 # 03:17 Mountain. Dedicated modes use only the explicitly verified runner group.
+# fuzz-controller.yml replenishes continuous cycles: GitHub rejects a workflow
+# whose workflow_run trigger names itself.
 on:
-  workflow_run:
-    workflows: [Nightly fuzz]
-    types: [completed]
-    branches: [master]
   workflow_dispatch:
     inputs:
       compute-mode:
@@ -24,7 +22,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: nightly-fuzz-${{ github.event_name == 'workflow_run' && 'controller' || inputs.compute-mode == 'legacy' && 'legacy' || 'dedicated' }}
+  group: nightly-fuzz-${{ inputs.compute-mode == 'legacy' && 'legacy' || 'dedicated' }}
   cancel-in-progress: false
 
 jobs:
@@ -397,34 +395,3 @@ jobs:
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: await require('./scripts/fuzz_compute.cjs').accept({github, context, core});
-
-  replenish:
-    # Controller completions are ineligible. Only a source dispatch whose
-    # Accept discovery cycle job passed can replenish, findings or not.
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.event == 'workflow_dispatch' &&
-      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
-      github.event.workflow_run.display_title == 'Nightly fuzz / dedicated-continuous' &&
-      github.event.workflow_run.head_branch == 'master' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      vars.FUZZ_CONTINUOUS_ENABLED == 'true'
-    runs-on:
-      group: barn-bug-discovery
-      labels: ${{ fromJSON(vars.FUZZ_RUNNER_LABELS || '[]') }}
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        env:
-          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
-          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
-          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
-          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
-        with:
-          script: await require('./scripts/fuzz_compute.cjs').replenish({github, context, core});

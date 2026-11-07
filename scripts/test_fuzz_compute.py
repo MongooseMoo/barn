@@ -161,6 +161,16 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 self.assertIn("error", result)
                 self.assertEqual(result["calls"], [])
 
+    def test_fuzz_workflow_does_not_trigger_on_itself(self):
+        # GitHub refuses to dispatch a workflow whose workflow_run trigger
+        # names itself ("cannot listen to itself"); the controller is separate.
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        controller = (ROOT / ".github/workflows/fuzz-controller.yml").read_text()
+        self.assertNotIn("workflow_run:", fuzz)
+        self.assertIn("name: Nightly fuzz\n", fuzz)
+        self.assertIn("workflows: [Nightly fuzz]", controller)
+        self.assertNotIn("name: Nightly fuzz\n", controller)
+
     def test_changed_dedicated_configuration_prevents_replenishment(self):
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})
         self.assertIn("error", result)
