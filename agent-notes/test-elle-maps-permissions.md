@@ -8,6 +8,11 @@ This worker owns branch `test/elle-maps-permissions`; publication belongs to roo
 ## State
 Root reported pinned baseline healthy true/fault false with retained evidence.
 Implemented eight held map/authority pairs and three narrow checker-only faults.
+After the assembly and fault-scope fixes, workflow 42346406743 accepted all six
+healthy model/seed histories and rejected all controls with no driver errors.
+Integrating merged master retains the ring control and all varied history shapes,
+plus manual campaign inputs and their standard-cache exclusion. The combined
+source needs its own exact-head CI; earlier evidence is not integration proof.
 PR CI failed because scenario source fragments were concatenated without a token
 separator. Raw `seed-412-go.log` from workflow 42345312373 reported:
 `CompileMOO() failed: Line 1: Unknown built-in function: endtryelle_observe`.

@@ -13,7 +13,7 @@ import sys
 # test_check_elle.py.
 FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
           "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture",
-          "commit-exclusion", "valid-reads", "map-key-metadata",
+          "commit-exclusion", "valid-reads", "ring-reads", "map-key-metadata",
           "map-key-presence", "map-key-whole-read"]
 
 
