@@ -19,9 +19,10 @@ seconds) has no probe result there; those are listed but not compared,
 because tick accounting is not claimed to be Toast-exact.  A recovered Barn
 panic is always a divergence.
 
-Exit status: 0 no divergence, 1 divergences (listed in ``<out>/report.md``),
-2 nothing was compared (no corpus, or a lane's output did not hold one result
-per input).
+Exit status: 0 positive completed coverage with no divergence or unknown outcome,
+1 divergences (listed in ``<out>/report.md``), 2 inconclusive (zero completed
+pairs, one-sided aborts, or malformed/incomplete output). Known both-engine
+aborts can coexist with success, but are reported as partial coverage.
 """
 
 from __future__ import annotations
@@ -198,40 +199,69 @@ def main() -> int:
         return 2
     lanes = run_lanes(args.db, barn_bin, args.toast, inputs, args.out, args.timeout)
     records = {lane: results(stdout) for lane, (stdout, _) in lanes.items()}
+    record_errors = []
     for lane, got in records.items():
         if len(got) != len(inputs):
             # Without one record per input the positions mean nothing.
-            print(f"{lane}: {len(got)} result records for {len(inputs)} inputs; see {lane}_raw.txt",
-                  file=sys.stderr)
-            return 2
+            message = f"{lane}: {len(got)} result records for {len(inputs)} inputs; see {lane}_raw.txt"
+            print(message, file=sys.stderr)
+            record_errors.append(message)
 
     rows = []
-    for index, (key, source, origin) in enumerate(keyed, 1):
+    completed = 0
+    for index, (key, source, origin) in enumerate(keyed if not record_errors else [], 1):
         t_raw, b_raw = records["toast"][index], records["barn"][index]
         t, b = outcome(key, t_raw), outcome(key, b_raw)
+        if t is not None and b is not None:
+            completed += 1
         if b_raw.startswith("Error: internal error"):
             # A recovered Go panic is a Barn defect whatever Toast does.
             kind = "divergence"
-        elif t is None and b is None:
+        elif t_raw == "=> *Aborted*" and b_raw == "=> *Aborted*":
             kind = "aborted on both"
-        elif t is None or b is None:
+        elif (t_raw == "=> *Aborted*" and b is not None) or (b_raw == "=> *Aborted*" and t is not None):
             kind = "aborted on " + ("toast" if t is None else "barn")
+        elif t is None or b is None:
+            kind = "unknown"
         else:
             kind = "match" if t == b else "divergence"
         rows.append({"key": key, "kind": kind, "origin": origin, "source": source,
-                     "toast": t or t_raw, "barn": b or b_raw})
+                     "toast": t or t_raw, "barn": b or b_raw,
+                     "toast_raw": t_raw, "barn_raw": b_raw})
 
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["kind"]] = counts.get(row["kind"], 0) + 1
+    # Record-count errors prevent attribution to a source, but cannot erase
+    # an explicit recovered Go panic in the preserved Barn transcript.
+    recovered_panics = [record for record in records["barn"]
+                        if record.startswith("Error: internal error")]
+    inconclusive = bool(record_errors or not completed or counts.get("unknown")
+                        or counts.get("aborted on toast") or counts.get("aborted on barn"))
+    status = 1 if counts.get("divergence") or recovered_panics else 2 if inconclusive else 0
+    summary = {
+        "outcome": {0: "success", 1: "divergence", 2: "inconclusive"}[status],
+        "loaded": len(programs) + sum(excluded.values()),
+        "eligible": len(programs), "excluded": sum(excluded.values()),
+        "completed_pairs": completed,
+        "aborted_pairs": sum(counts.get(kind, 0) for kind in
+                             ("aborted on both", "aborted on toast", "aborted on barn")),
+        "unknown_pairs": counts.get("unknown", 0),
+        "partial": completed != len(programs),
+        "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
+    }
     report = [
         "# Barn vs Toast fuzz differential", "",
-        f"- programs compared: {len(rows)}; results: {json.dumps(counts, sort_keys=True)}",
+        f"- outcome: {summary['outcome']}; partial coverage: {summary['partial']}",
+        f"- programs loaded: {summary['loaded']}; eligible: {len(programs)}; completed comparisons: {completed}",
+        f"- results: {json.dumps(counts, sort_keys=True)}",
+        f"- record errors: {json.dumps(record_errors)}",
+        f"- recovered Barn panics: {json.dumps(recovered_panics)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
         f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; db `{args.db}`",
         f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`", "",
     ]
-    for kind in ("divergence", "aborted on barn", "aborted on toast"):
+    for kind in ("divergence", "aborted on barn", "aborted on toast", "aborted on both", "unknown"):
         listed = [r for r in rows if r["kind"] == kind]
         if listed:
             report += [f"## {kind} ({len(listed)})", ""]
@@ -240,10 +270,11 @@ def main() -> int:
                            f"- toast: `{r['toast']}`", f"- barn: `{r['barn']}`", ""]
     text = "\n".join(report)
     (args.out / "report.md").write_text(text, encoding="utf-8")
-    (args.out / "results.json").write_text(json.dumps({"excluded": excluded, "rows": rows}, indent=2),
+    (args.out / "results.json").write_text(json.dumps({"summary": summary, "excluded": excluded, "rows": rows,
+                                                       "records": records}, indent=2),
                                            encoding="utf-8")
     print(text)
-    return 1 if counts.get("divergence") else 0
+    return status
 
 
 if __name__ == "__main__":

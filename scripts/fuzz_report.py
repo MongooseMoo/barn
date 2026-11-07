@@ -33,11 +33,26 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     # scripts/fuzz_differential.py's report: the first diverging program.
     divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n```moo\n(.*?)\n```\n\n"
                            r"(- toast: [^\n]*)\n(- barn: [^\n]*)", text, re.M | re.S)
+    # A count mismatch prevents source attribution, but the differential
+    # producer still preserves explicit recovered Barn panics as JSON.
+    recovered_panics = []
+    if target == "ToastDifferential":
+        recovered = re.search(r"^- recovered Barn panics: (.*)$", text, re.M)
+        if recovered:
+            try:
+                records = json.loads(recovered[1])
+            except json.JSONDecodeError:
+                records = None
+            if isinstance(records, list):
+                recovered_panics = [record for record in records if isinstance(record, str)
+                                    and record.startswith("Error: internal error")]
     # A recorded input is a finding, even when its worker died from a signal.
     # Program sources in a differential report are not Go output, so it is
     # classified before anything that could match their text.
     if divergence and campaign_outcome == "failure":
         kind, error = "divergence", None
+    elif recovered_panics and campaign_outcome == "failure":
+        kind, error = "panic", None
     elif not saved and (campaign_outcome != "failure" or signal or setup):
         kind, error = "infrastructure", signal
     elif panic:
@@ -56,6 +71,8 @@ def report(log, package, target, commit, campaign_outcome="failure"):
         # The oracle is built in the job, so the issue names that binary.
         toast = re.search(r"^- toast binary: .*$", text, re.M)
         first_error = "\n".join([divergence[1], divergence[4], divergence[5]] + ([toast[0]] if toast else []))
+    elif recovered_panics and kind == "panic":
+        first_error = "\n".join(recovered_panics)
     else:
         first_error = check[0].strip() if setup and check else next((line.strip() for line in lines if re.search(
             r"(?:error:|Error:|FAIL|build failed|setup failed|cannot |no required module)", line)),
@@ -76,6 +93,9 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     if kind == "divergence":
         # The first diverging corpus file stands in for the top frame.
         top, input_path, input_text = divergence[2], divergence[2], divergence[3][:INLINE_LIMIT]
+    elif recovered_panics and kind == "panic" and not frames:
+        # Deduplicate by observed native error, without assigning a source/frame.
+        top = recovered_panics[0]
     signature = hashlib.sha256(f"{target}|{kind}|{top}".encode()).hexdigest()
     if saved:
         relative = Path(saved[1])

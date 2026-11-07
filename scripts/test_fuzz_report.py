@@ -17,6 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures") / "fuzz"
 TARGET = "FuzzRestoreVMSnapshotDoesNotPanic"
 
+# Exact summary lines produced by the differential count-mismatch regression,
+# using its existing real Barn `Error: internal error: boom` transcript record.
+UNATTRIBUTED_DIFFERENTIAL_PANIC = '''# Barn vs Toast fuzz differential
+
+- outcome: divergence; partial coverage: True
+- programs loaded: 1; eligible: 1; completed comparisons: 0
+- results: {}
+- record errors: ["barn: 3 result records for 2 inputs; see barn_raw.txt"]
+- recovered Barn panics: ["Error: internal error: boom"]
+'''
+
 
 class FuzzReportTests(unittest.TestCase):
     def test_raw_fixtures_are_not_tool_truncations(self):
@@ -99,6 +110,28 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["input_path"], f"vm/testdata/fuzz/{TARGET}/synthetic-crash")
         self.assertEqual(result["repro"],
                          f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/synthetic-crash'")
+
+    def test_unattributed_differential_panic_is_a_finding_with_native_evidence(self):
+        result = report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "panic")
+        self.assertEqual(result["first_error"], "Error: internal error: boom")
+        self.assertIn('recovered Barn panics: ["Error: internal error: boom"]', result["log_tail"])
+        self.assertEqual(result["barn_frames"], [])
+        self.assertIsNone(result["input_path"])
+        self.assertIsNone(result["input_text"])
+        self.assertIsNone(result["repro"])
+        other = report(UNATTRIBUTED_DIFFERENTIAL_PANIC.replace("boom", "other native error"),
+                       "./scripts", "ToastDifferential", "commit")
+        self.assertNotEqual(result["signature"], other["signature"])
+
+    def test_empty_or_malformed_panic_summary_does_not_invent_a_finding(self):
+        for value in ('[]', 'not JSON', '{}', '["other error"]'):
+            with self.subTest(value=value):
+                log = "- recovered Barn panics: " + value
+                self.assertEqual(report(log, "./scripts", "ToastDifferential", "commit")["kind"],
+                                 "infrastructure")
+        self.assertEqual(report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential",
+                                "commit", "skipped")["kind"], "infrastructure")
 
     def test_non_crash_signal_without_saved_input_is_infrastructure(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:170-176
@@ -249,6 +282,13 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         calls = self.execute(summarize([log], "./vm", "FuzzTarget", "commit"))
         self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
         self.assertEqual(calls[0]["labels"], ["claude-fix"])
+
+    def test_unattributed_differential_panic_dispatches_with_native_evidence(self):
+        result = summarize([UNATTRIBUTED_DIFFERENTIAL_PANIC], "./scripts", "ToastDifferential", "commit")
+        calls = self.execute(result)
+        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
+        self.assertEqual(calls[0]["labels"], ["claude-fix"])
+        self.assertIn("Error: internal error: boom", calls[0]["body"])
 
     def test_body_keeps_corpus_fences_inside_code_block(self):
         result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
