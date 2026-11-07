@@ -82,6 +82,10 @@ jobs:
             3. Run the affected package's tests.
             4. Create branch claude/issue-${{ env.ISSUE }}, commit, push, and open the PR against master with
                `gh pr create`. The body says what failed, the cause with file:line, the fix, and "Fixes #${{ env.ISSUE }}".
+               Include a "Known related gaps" section listing related defects you noticed but did not fix,
+               with file:line and evidence; write "None noticed" if there are none. Do not omit an unfixed
+               defect just because it is outside this issue's scope.
+               Do not add attribution trailers to commits or attribution footers to the PR body.
                Stage named paths only, never `git add -A`.
             5. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
                `gh issue comment ${{ env.ISSUE }} --body-file <file>` so the next attempt can build on it:
