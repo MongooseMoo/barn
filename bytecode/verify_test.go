@@ -14,7 +14,7 @@ func TestVerifyProgramRejectsMalformedBytecode(t *testing.T) {
 		want    string
 	}{
 		{"empty", Program{}, "empty"},
-		{"unknown opcode", Program{Code: []byte{0xff}}, "unknown opcode"},
+		{"truncated unwind jump", Program{Code: []byte{0xff}}, "truncated operands for UNWIND_JUMP"},
 		{"truncated operand", Program{Code: []byte{byte(OP_PUSH)}}, "truncated"},
 		{"constant index", Program{Code: []byte{byte(OP_PUSH), 0, byte(OP_RETURN)}}, "constant index"},
 		{"local index", Program{Code: []byte{byte(OP_GET_VAR), 1, byte(OP_RETURN)}, VarNames: []string{"x"}, NumLocals: 1}, "local index"},

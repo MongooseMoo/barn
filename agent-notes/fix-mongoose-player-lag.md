@@ -292,7 +292,14 @@ Its first Go job failed Staticcheck ST1005 at compiler/native_import.go259
 because an error began with a capitalized product name. The message is
 corrected in source; no check was weakened. Raw first-job log is retained in
 .tmp/pr635-first-go-job.log. CI and Elle were running against the published
-head; no full acceptance is established. Next: push this correction and watch
-the new exact-head PR CI and pinned Elle before any merge.
+head; no full acceptance is established. The next run passed formatting, vet,
+Staticcheck, golangci-lint and build, then found the old malformed-bytecode
+fixture still expected0xff to be unknown. UNWIND_JUMP now occupies that final
+byte value; all opcode bytes are assigned. The same raw one-byte malformed
+input now requires the specific truncated-UNWIND_JUMP rejection. The verifier's
+unknown/dead/truncated checks remain intact. Raw second-job log is retained in
+.tmp/pr635-second-go-job.log; the first interrupted Elle archive is retained
+under .tmp/pr635-first-elle. Next: push the fixture correction and finish the
+new exact-head PR CI and pinned Elle before any merge.
 Remaining first-output work needs a schedule-preserving credential path; no
 login script is available and the unsafe Toast bootstrap remains rejected.
