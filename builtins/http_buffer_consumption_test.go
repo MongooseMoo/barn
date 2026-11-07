@@ -24,8 +24,8 @@ func httpBufferFixture(kind string, count int, body string) []byte {
 }
 
 func httpBufferSession() *Session {
-	session := NewSession(NewRegistry(), NoHost())
-	session.setConnectionOption(7, "hold-input", types.NewInt(1))
+	session := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}}).Session
+	session.setConnectionOption(7, nil, "hold-input", types.NewInt(1))
 	return session
 }
 
@@ -57,7 +57,7 @@ func TestHTTPBufferedDrainsPreserveMessagesAndIncompleteTail(t *testing.T) {
 					last := state.waiters[5]
 					first := append([]httpReadWaiter(nil), state.waiters[:5]...)
 					session.runtime.heldHTTPInput.mu.Lock()
-					wakes := session.collectHTTPWakeupsLocked(7, state)
+					wakes := session.collectHTTPWakeupsLocked(7, 7, state)
 					session.runtime.heldHTTPInput.mu.Unlock()
 					if len(wakes) != 5 || len(state.waiters) != 1 || state.waiters[0] != last {
 						t.Fatalf("wakes=%d remaining waiters=%d", len(wakes), len(state.waiters))
@@ -69,12 +69,12 @@ func TestHTTPBufferedDrainsPreserveMessagesAndIncompleteTail(t *testing.T) {
 					}
 				} else {
 					for i, want := range wants {
-						got, complete := session.prepareHTTPRead(7, kind, nil)
+						got, complete := session.prepareHTTPRead(7, 7, kind, nil)
 						if !complete || !got.Equal(want) {
 							t.Fatalf("immediate read %d changed value", i)
 						}
 					}
-					if _, complete := session.prepareHTTPRead(7, kind, nil); complete {
+					if _, complete := session.prepareHTTPRead(7, 7, kind, nil); complete {
 						t.Fatal("incomplete final message completed")
 					}
 				}
@@ -102,12 +102,12 @@ func TestHTTPConsumedStorageReleasesEmptyAndLargePrefix(t *testing.T) {
 			if queued {
 				state.waiters = []httpReadWaiter{suspendedHTTPWaiter(5100)}
 				session.runtime.heldHTTPInput.mu.Lock()
-				wakes := session.collectHTTPWakeupsLocked(7, state)
+				wakes := session.collectHTTPWakeupsLocked(7, 7, state)
 				session.runtime.heldHTTPInput.mu.Unlock()
 				if len(wakes) != 1 {
 					t.Fatal("large queued message did not complete")
 				}
-			} else if _, complete := session.prepareHTTPRead(7, "request", nil); !complete {
+			} else if _, complete := session.prepareHTTPRead(7, 7, "request", nil); !complete {
 				t.Fatal("large immediate message did not complete")
 			}
 			if !bytes.Equal(state.buffer, tail) {
@@ -134,17 +134,17 @@ func TestHTTPBufferedMalformedAndFrontInsertion(t *testing.T) {
 	if !complete || consumed != len(malformed) {
 		t.Fatal("malformed fixture boundary changed")
 	}
-	got, complete := session.prepareHTTPRead(7, "request", nil)
+	got, complete := session.prepareHTTPRead(7, 7, "request", nil)
 	if !complete || !got.Equal(want) || !bytes.Equal(state.buffer, valid) {
 		t.Fatal("malformed message changed value or consumed bytes")
 	}
 	front := []byte("GET /front HTTP/1.1\r\n\r\n")
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(front), true); !handled {
+	if handled, _ := session.HandleHeldInput(7, 7, encodeBinaryStr(front), true); !handled {
 		t.Fatal("front input was not intercepted")
 	}
 	for _, next := range [][]byte{front, valid} {
 		want, _, _ := parseHTTPMessage("request", next)
-		got, complete := session.prepareHTTPRead(7, "request", nil)
+		got, complete := session.prepareHTTPRead(7, 7, "request", nil)
 		if !complete || !got.Equal(want) {
 			t.Fatal("front insertion changed message order or values")
 		}
@@ -162,18 +162,18 @@ func TestHTTPAppendAndCancellationAfterConsumption(t *testing.T) {
 	partial := []byte("GET /next HTTP/1.1\r\n")
 	state := &httpHeldInput{buffer: append(first, partial...)}
 	session.runtime.heldHTTPInput.byPlayer[7] = state
-	if _, complete := session.prepareHTTPRead(7, "request", nil); !complete {
+	if _, complete := session.prepareHTTPRead(7, 7, "request", nil); !complete {
 		t.Fatal("first message did not complete")
 	}
-	if handled, _ := session.HandleHeldInput(7, "Content-Length: 4~0D~0A~0D~0Abody", false); !handled {
+	if handled, _ := session.HandleHeldInput(7, 7, "Content-Length: 4~0D~0A~0D~0Abody", false); !handled {
 		t.Fatal("suffix append was not intercepted")
 	}
-	got, complete := session.prepareHTTPRead(7, "request", nil)
+	got, complete := session.prepareHTTPRead(7, 7, "request", nil)
 	if !complete || mustStringAt(t, got, "uri") != "/next" || mustStringAt(t, got, "body") != "body" {
 		t.Fatal("append after consumption changed the next message")
 	}
 	state.buffer = append(httpBufferFixture("request", 1, "body"), partial...)
-	if _, complete := session.prepareHTTPRead(7, "request", nil); !complete {
+	if _, complete := session.prepareHTTPRead(7, 7, "request", nil); !complete {
 		t.Fatal("second prefix did not complete")
 	}
 	waiter := suspendedHTTPWaiter(5300)
@@ -182,11 +182,11 @@ func TestHTTPAppendAndCancellationAfterConsumption(t *testing.T) {
 	if state.buffer != nil || len(state.waiters) != 0 {
 		t.Fatal("cancellation retained consumed input")
 	}
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(first), false); !handled {
+	if handled, _ := session.HandleHeldInput(7, 7, encodeBinaryStr(first), false); !handled {
 		t.Fatal("fresh input was not intercepted")
 	}
 	want, _, _ := parseHTTPMessage("request", first)
-	got, complete = session.prepareHTTPRead(7, "request", nil)
+	got, complete = session.prepareHTTPRead(7, 7, "request", nil)
 	if !complete || !got.Equal(want) || state.buffer != nil {
 		t.Fatal("fresh parse after cancellation changed input")
 	}
@@ -204,7 +204,7 @@ func TestHTTPDrainingAllocationScalesWithMessageCount(t *testing.T) {
 			state.buffer = fixture
 			for range messages {
 				var complete bool
-				httpBufferValueSink, complete = session.prepareHTTPRead(7, "request", nil)
+				httpBufferValueSink, complete = session.prepareHTTPRead(7, 7, "request", nil)
 				if !complete {
 					t.Fatal("allocation fixture did not drain")
 				}
@@ -229,15 +229,15 @@ func TestHTTPLargeAppendAfterConsumptionReleasesNewAllocation(t *testing.T) {
 	header := []byte(fmt.Sprintf("GET /next HTTP/1.1\r\nContent-Length: %d\r\n\r\n", len(body)))
 	state := &httpHeldInput{buffer: append(httpBufferFixture("request", 1, "body"), header...)}
 	session.runtime.heldHTTPInput.byPlayer[7] = state
-	if _, complete := session.prepareHTTPRead(7, "request", nil); !complete {
+	if _, complete := session.prepareHTTPRead(7, 7, "request", nil); !complete {
 		t.Fatal("first message did not complete")
 	}
 	tail := []byte("GET /unfinished")
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(append([]byte(body), tail...)), false); !handled {
+	if handled, _ := session.HandleHeldInput(7, 7, encodeBinaryStr(append([]byte(body), tail...)), false); !handled {
 		t.Fatal("large suffix append was not intercepted")
 	}
 	allocation := state.buffer
-	if _, complete := session.prepareHTTPRead(7, "request", nil); !complete {
+	if _, complete := session.prepareHTTPRead(7, 7, "request", nil); !complete {
 		t.Fatal("appended large body did not complete")
 	}
 	if !bytes.Equal(state.buffer, tail) || &state.buffer[0] == &allocation[len(header)+len(body)] || cap(state.buffer) > 64<<10 {
@@ -275,7 +275,7 @@ func BenchmarkHTTPBufferDrain(b *testing.B) {
 							copy(backing, waiters)
 							state.waiters = backing
 							session.runtime.heldHTTPInput.mu.Lock()
-							wakes := session.collectHTTPWakeupsLocked(7, state)
+							wakes := session.collectHTTPWakeupsLocked(7, 7, state)
 							session.runtime.heldHTTPInput.mu.Unlock()
 							if len(wakes) != messages {
 								b.Fatal("queued workload did not drain")
@@ -284,7 +284,7 @@ func BenchmarkHTTPBufferDrain(b *testing.B) {
 						} else {
 							for range messages {
 								var complete bool
-								httpBufferValueSink, complete = session.prepareHTTPRead(7, kind, nil)
+								httpBufferValueSink, complete = session.prepareHTTPRead(7, 7, kind, nil)
 								if !complete {
 									b.Fatal("immediate workload did not drain")
 								}

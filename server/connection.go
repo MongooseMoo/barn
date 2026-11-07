@@ -78,6 +78,12 @@ func NewConnection(id int64, transport Transport) *Connection {
 	}
 }
 
+// ConnectionID is immutable across login and player switches.
+func (c *Connection) ConnectionID() int64 { return c.ID }
+
+// Done exposes the physical connection's existing lifetime.
+func (c *Connection) Done() <-chan struct{} { return c.ctx.Done() }
+
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
 	return c.transport.WriteOutput(message, true)

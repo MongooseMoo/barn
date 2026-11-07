@@ -17,9 +17,15 @@ import (
 )
 
 type evalCommandStubConn struct {
+	id      int64
 	sent    []string
 	sendErr error
 }
+
+func (c *evalCommandStubConn) ConnectionID() int64 { return c.id }
+
+// Command fixtures do not disconnect their recording connection.
+func (c *evalCommandStubConn) Done() <-chan struct{} { return nil }
 
 func (c *evalCommandStubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
@@ -167,7 +173,7 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		t.Fatalf("MoveObject player failed: %v", errCode)
 	}
 
-	conn := &evalCommandStubConn{}
+	conn := &evalCommandStubConn{id: 1}
 	s := NewRuntime(store)
 	defer s.Stop()
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
@@ -309,7 +315,7 @@ func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 
 	s := NewRuntime(store)
 	defer s.Stop()
-	conn := &evalCommandStubConn{}
+	conn := &evalCommandStubConn{id: 1}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
 	source := `
 a = create($nothing);
@@ -359,7 +365,7 @@ func TestCommandEvalRunGCCyclicAnonymousChainCompletes(t *testing.T) {
 			s := NewRuntime(store)
 			defer s.Stop()
 
-			conn := &evalCommandStubConn{}
+			conn := &evalCommandStubConn{id: 1}
 			configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 3, conn: conn} })
 			source := fmt.Sprintf(`
 c = head = tail = #-1;
