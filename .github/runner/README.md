@@ -79,6 +79,15 @@ start with two. Do not store a PAT, OAuth secret or organization management toke
 in the guest. A Windows CRLF token line is normalized before registration. An
 already configured listener cannot be overwritten by the installation script.
 
+The runner user cannot install packages. `user-data.example` installs the
+ToastDifferential job's Toast build dependencies through cloud-init. The first
+guest was provisioned before nettle-dev, libargon2-dev, libaspell-dev and
+libjemalloc-dev were in that list, so root installed them afterwards with:
+
+```sh
+DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends nettle-dev libargon2-dev libaspell-dev libjemalloc-dev
+```
+
 Read the group policy back from GitHub before assigning work. Prove both actual
 master-workflow assignment and non-assignment for a disallowed ref/workflow while
 the listeners are online; an accepted group setting alone is not that proof.

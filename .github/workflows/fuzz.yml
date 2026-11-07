@@ -84,6 +84,8 @@ jobs:
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
           - { package: ./server, target: FuzzTCPReadInput }
           - { package: ./builtins, target: FuzzStringBuiltins }
+          - { package: ./vm, target: FuzzCheckpointResumeEquivalence }
+          - { package: ./types, target: FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder }
     steps:
       - name: Check /dev/null is a device
         run: |
