@@ -31,8 +31,11 @@ jobs:
       matrix:
         include:
           - { package: ./parser, target: FuzzParseFormatRoundTrip }
+          - { package: ./parser, target: FuzzStructuredParseFormatRoundTrip }
           - { package: ./compiler, target: FuzzCompileVerifiable }
+          - { package: ./compiler, target: FuzzStructuredCompileVerifiable }
           - { package: ./vm, target: FuzzSourceExecution }
+          - { package: ./vm, target: FuzzStructuredSourceExecution }
           - { package: ./vm, target: FuzzRestoreVMSnapshotDoesNotPanic }
           - { package: ./bytecode, target: FuzzVerifyProgram }
           - { package: ./command, target: FuzzCommandLine }

@@ -28,6 +28,7 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"return @(1 + 2);",
 		"return (@0) ? 1 | 2;",
 		"items[^] = value; items[2..$] = replacement;",
+		"return items[(^).name]; items[(^).name] = 1;",
 		"{required, ?missing, ?optional = 2, @rest} = values;",
 		"if (a) return 1; elseif (b) return 2; else return 3; endif",
 		"while named (condition) continue named; endwhile",
