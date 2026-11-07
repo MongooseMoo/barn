@@ -50,6 +50,7 @@ func BenchmarkObjectLifecycleVM(b *testing.B) {
 									b.Fatal(ec)
 								}
 							}
+							store.ShareLoadedPropertySlots(nil)
 							rt := NewRuntime(store)
 							run := func(name string) {
 								result, err := rt.RunServerVerbTask(0, name, nil, 2)
