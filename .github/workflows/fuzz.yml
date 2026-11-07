@@ -1,38 +1,74 @@
 name: Nightly fuzz
+run-name: Nightly fuzz / ${{ github.event_name == 'workflow_run' && 'controller' || inputs.compute-mode }}
 
-# Ordinary CI only replays committed fuzz inputs. This runs each target's
-# coverage-guided campaigns for a fixed time. A failure uploads the minimized
-# inputs Go wrote under testdata/fuzz; commit each with its fix so CI replays it.
+# Workstation Task Scheduler continues dispatching the default legacy mode at
+# 03:17 Mountain. Dedicated modes use only the explicitly verified runner group.
 on:
-  # Dispatched at 03:17 Mountain by the runner workstation's native task.
-  # GitHub cron events were created many hours late, during the day.
+  workflow_run:
+    workflows: [Nightly fuzz]
+    types: [completed]
+    branches: [master]
   workflow_dispatch:
+    inputs:
+      compute-mode:
+        description: Compute pool and cycle lifetime
+        type: choice
+        default: legacy
+        options: [legacy, dedicated-once, dedicated-continuous]
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
-  group: nightly-fuzz
+  group: nightly-fuzz-${{ github.event_name == 'workflow_run' && 'controller' || inputs.compute-mode == 'legacy' && 'legacy' || 'dedicated' }}
   cancel-in-progress: false
 
 jobs:
+  route:
+    if: github.event_name == 'workflow_dispatch'
+    name: Validate compute routing
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.route.outputs.runner }}
+      parallel: ${{ steps.route.outputs.parallel }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: route
+        env:
+          COMPUTE_MODE: ${{ inputs.compute-mode }}
+          CI_RUNNER_LABELS: ${{ vars.CI_RUNNER_LABELS }}
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: require('./scripts/fuzz_compute.cjs').configure({context, core});
+
   fuzz:
+    needs: route
     name: ${{ matrix.target }}
     permissions:
       contents: read
       issues: write
       actions: write
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
     timeout-minutes: 45
     env:
-      # The Toast oracle ToastDifferential runs: a job-built binary from the
-      # manifest's pinned ref, not the documented /root binary (Q 2026-11-06).
-      # Built under this job's own workspace, so concurrent runners never share it.
-      TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
+      # An isolated public-only fuzz/build cache prevents importing a runner
+      # owner's private local-world corpus. Retained corpus is restored below.
+      GOCACHE: ${{ github.workspace }}/.fuzz/go-cache/${{ github.run_id }}-${{ matrix.target }}
+      BARN_FUZZ_CORPUS: ''
     strategy:
       fail-fast: false
-      # The self-hosted runners share one workstation with PR CI.
-      max-parallel: 2
+      max-parallel: ${{ fromJSON(needs.route.outputs.parallel) }}
       matrix:
         include:
           - { package: ./parser, target: FuzzParseFormatRoundTrip }
@@ -48,11 +84,6 @@ jobs:
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
           - { package: ./server, target: FuzzTCPReadInput }
           - { package: ./builtins, target: FuzzStringBuiltins }
-          # Not a Go fuzz target: replays the programs the FuzzSourceExecution,
-          # FuzzCompileVerifiable and FuzzStructured* campaigns keep in Go's
-          # fuzz cache on Barn and on Toast (scripts/fuzz_differential.py) and
-          # fails on a divergence.
-          - { package: ./scripts, target: ToastDifferential }
     steps:
       - name: Check /dev/null is a device
         run: |
@@ -68,34 +99,20 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-          cache: ${{ runner.environment == 'github-hosted' }}
+          cache: false
 
-      # The runner user cannot read the workstation's /root Toast build, so the
-      # differential builds the oracle the manifest pins: same ref, Release,
-      # and options.h checked against the manifest's config checksum.
-      - name: Read Toast oracle pin
-        id: toast-pin
-        if: matrix.target == 'ToastDifferential'
-        run: |
-          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: matrix.target == 'ToastDifferential'
+      - name: Restore retained public corpus
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          repository: MongooseMoo/toaststunt
-          ref: ${{ steps.toast-pin.outputs.ref }}
-          path: toaststunt
-          persist-credentials: false
-
-      - name: Build Toast oracle and Barn
-        if: matrix.target == 'ToastDifferential'
+          path: |
+            .fuzz/retained/${{ matrix.package }}/${{ matrix.target }}/inputs
+            .fuzz/retained/${{ matrix.package }}/${{ matrix.target }}/manifest.json
+          key: fuzz-public-v1-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-public-v1-${{ matrix.target }}-
+      - name: Replay retained corpus into native cache
         run: |
-          echo "${{ steps.toast-pin.outputs.options }}  toaststunt/src/include/options.h" | sha256sum -c -
-          # CMakeLists.txt generates version_options.h in cmake's working
-          # directory, which must be the build directory to be included.
-          mkdir toaststunt/build
-          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
-          go build -o bin/ ./cmd/barn
+          python3 scripts/fuzz_retention.py restore --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)"
 
       - name: Fuzz ${{ matrix.target }}
         id: campaign
@@ -103,30 +120,17 @@ jobs:
         # again with the time left until the 30 minutes are used.
         run: |
           set -o pipefail
-          if [ "${{ matrix.target }}" = ToastDifferential ]; then
-            # One pass, not a campaign; its log goes where the issue step reads.
-            logs="$RUNNER_TEMP/fuzz-logs" cache="$(go env GOCACHE)/fuzz/github.com/MongooseMoo/barn"
-            rm -rf "$logs"
-            mkdir -p "$logs"
-            {
-              go version
-              python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
-                "$cache/vm/FuzzSourceExecution" "$cache/compiler/FuzzCompileVerifiable" \
-                "$cache/vm/FuzzStructuredSourceExecution" "$cache/compiler/FuzzStructuredCompileVerifiable" \
-                "$cache/parser/FuzzStructuredParseFormatRoundTrip" \
-                vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
-            } 2>&1 | tee "$logs/run-001.log"
-            exit
-          fi
           inputs="${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}"
           found="$RUNNER_TEMP/fuzz-found" logs="$RUNNER_TEMP/fuzz-logs"
           rm -rf "$found" "$logs"
-          mkdir -p "$found" "$logs"
+          mkdir -p "$found" "$logs" "$inputs"
           # Go replays testdata/fuzz as seeds and a failing seed stops the next
           # campaign at once, so saved inputs wait aside until the step ends.
           # Go names inputs by content hash: equal names hold equal bytes.
           trap 'find "$found" -type f -exec mv -t "$inputs" {} +' EXIT
           deadline=$((SECONDS + 1800)) run=0 status=0
+          # The cycle acceptance job reads `cycle`: a saved finding is a
+          # completed campaign; a failure without a saved input is not.
           while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
             run=$((run + 1))
             log="$logs/run-$(printf %03d "$run").log"
@@ -134,7 +138,7 @@ jobs:
               go version
               go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -parallel=2 -timeout="$((remaining + 600))s"
             } 2>&1 | tee "$log"; then
-              rm "$log"
+              mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
             fi
             status=1
@@ -142,10 +146,36 @@ jobs:
             input=$(python3 scripts/fuzz_report.py --log "$log" --package '${{ matrix.package }}' \
                 --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure |
               python3 -c 'import json, sys; r = json.load(sys.stdin)[0]; print(r["input_path"] if r["kind"] != "infrastructure" and r["input_path"] else "")')
-            [ -n "$input" ] || break
+            if [ -z "$input" ]; then echo "cycle=infrastructure" >> "$GITHUB_OUTPUT"; exit 1; fi
             mv "$input" "$found/"
           done
+          echo "cycle=$([ "$status" = 0 ] && echo clean || echo finding)" >> "$GITHUB_OUTPUT"
           exit "$status"
+
+
+      - name: Capture public interesting inputs and execution census
+        if: always()
+        run: |
+          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign '${{ steps.campaign.outputs.cycle }}'
+
+      - name: Upload retained corpus and native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: .fuzz/retained/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save retained public corpus for the next host or cycle
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .fuzz/retained/${{ matrix.package }}/${{ matrix.target }}/inputs
+            .fuzz/retained/${{ matrix.package }}/${{ matrix.target }}/manifest.json
+          key: fuzz-public-v1-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload failing input
         id: artifact
@@ -153,11 +183,12 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-failure-${{ matrix.target }}
-          path: ${{ matrix.target == 'ToastDifferential' && 'fuzz-differential/' || format('{0}/testdata/fuzz/{1}/', matrix.package, matrix.target) }}
+          path: ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}/
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Open failure issues
+      - &failure-reporter
+        name: Open failure issues
         if: failure()
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
@@ -172,7 +203,7 @@ jobs:
             const {execFileSync} = require('node:child_process');
             // One log per failed campaign, named so that sorting gives run order.
             const logs = `${process.env.RUNNER_TEMP}/fuzz-logs`;
-            const logArgs = fs.existsSync(logs) ? fs.readdirSync(logs).sort().flatMap(name => ['--log', `${logs}/${name}`]) : [];
+            const logArgs = fs.existsSync(logs) ? fs.readdirSync(logs).filter(name => name.startsWith('run-')).sort().flatMap(name => ['--log', `${logs}/${name}`]) : [];
             // Checkout/setup can fail before the reporter is available.
             const reports = fs.existsSync('scripts/fuzz_report.py')
               ? JSON.parse(execFileSync('python3', [
@@ -234,3 +265,166 @@ jobs:
                 }
               }
             }
+
+      - name: Remove this job's disposable build cache
+        if: always()
+        run: |
+          expected="$GITHUB_WORKSPACE/.fuzz/go-cache/$GITHUB_RUN_ID-${{ matrix.target }}"
+          [ "$GOCACHE" = "$expected" ] && [ "$GOCACHE" != / ] && rm -rf -- "$GOCACHE"
+
+  differential:
+    needs: [route, fuzz]
+    # Even a native finding must preserve and replay the producers' artifacts.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
+    name: ToastDifferential
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 45
+    env:
+      TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
+      BARN_FUZZ_CORPUS: ''
+    strategy:
+      matrix:
+        include:
+          - {package: ./scripts, target: ToastDifferential}
+    steps:
+      - name: Check /dev/null is a device
+        run: |
+          if [ ! -c /dev/null ]; then
+            echo "::error::/dev/null on this runner is not a character device: $(stat -c '%F %U:%G %a' /dev/null). Restore it as root with: rm /dev/null && mknod -m 666 /dev/null c 1 3"
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+
+      - name: Download this cycle's native producer artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-corpus-*
+          merge-multiple: true
+          path: .fuzz/retained
+      # The runner user cannot read the workstation's /root Toast build, so the
+      # differential builds the oracle the manifest pins: same ref, Release,
+      # and options.h checked against the manifest's config checksum.
+      - name: Read Toast oracle pin
+        id: toast-pin
+        run: |
+          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/toaststunt
+          ref: ${{ steps.toast-pin.outputs.ref }}
+          path: toaststunt
+          persist-credentials: false
+
+      - name: Build Toast oracle and Barn
+        env:
+          OPTIONS_SHA256: ${{ steps.toast-pin.outputs.options }}
+        run: |
+          echo "$OPTIONS_SHA256  toaststunt/src/include/options.h" | sha256sum -c -
+          # CMakeLists.txt generates version_options.h in cmake's working
+          # directory, which must be the build directory to be included.
+          mkdir toaststunt/build
+          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+          go list -f '{{.ImportPath}} {{.Name}}' ./cmd/barn
+          go build -o bin/ ./cmd/barn
+
+
+      - name: Compare retained public source on Barn and Toast
+        id: campaign
+        run: |
+          set -o pipefail
+          logs="$RUNNER_TEMP/fuzz-logs"
+          rm -rf "$logs"
+          mkdir -p "$logs"
+          {
+            go version
+            python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
+              .fuzz/retained/vm/FuzzSourceExecution/inputs .fuzz/retained/compiler/FuzzCompileVerifiable/inputs \
+              .fuzz/retained/vm/FuzzStructuredSourceExecution/inputs .fuzz/retained/compiler/FuzzStructuredCompileVerifiable/inputs \
+              .fuzz/retained/parser/FuzzStructuredParseFormatRoundTrip/inputs \
+              vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
+          } 2>&1 | tee "$logs/run-001.log"
+
+      - name: Upload differential evidence
+        id: artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-failure-ToastDifferential
+          path: fuzz-differential/
+          if-no-files-found: error
+          retention-days: 30
+
+      - *failure-reporter
+
+  accept:
+    needs: [route, fuzz, differential]
+    # Findings keep their jobs red. This job instead judges whether the cycle
+    # completed measured work with its evidence kept; replenishment needs it.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
+    name: Accept discovery cycle
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-corpus-*
+          merge-multiple: true
+          path: .fuzz/retained
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fuzz-failure-ToastDifferential
+          path: fuzz-differential
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').accept({github, context, core});
+
+  replenish:
+    # Controller completions are ineligible. Only a source dispatch whose
+    # Accept discovery cycle job passed can replenish, findings or not.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
+      github.event.workflow_run.display_title == 'Nightly fuzz / dedicated-continuous' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.FUZZ_CONTINUOUS_ENABLED == 'true'
+    runs-on:
+      group: barn-bug-discovery
+      labels: ${{ fromJSON(vars.FUZZ_RUNNER_LABELS || '[]') }}
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').replenish({github, context, core});
