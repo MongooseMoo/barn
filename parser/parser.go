@@ -189,7 +189,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 				// Parse arguments
 				args := []ir.Expr{}
 				for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
-					arg, err := p.ParseExpression(PREC_LOWEST)
+					arg, err := p.parseArgument()
 					if err != nil {
 						return nil, err
 					}
@@ -261,20 +261,6 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		}
 		p.nextToken()
 		left = expr
-
-	case TOKEN_AT:
-		// Parse splice operator: @expr. The operand is any expression, assignment
-		// included (Toast parser.y `'@' expr`), so @x = y splices the assignment.
-		pos := p.current.Position
-		p.nextToken()
-		operand, err := p.ParseExpression(PREC_LOWEST)
-		if err != nil {
-			return nil, err
-		}
-		left = &ir.SpliceExpr{
-			Pos:  pos,
-			Expr: operand,
-		}
 
 	case TOKEN_BACKTICK:
 		// Parse catch expression: `expr ! codes => default`
@@ -373,7 +359,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 			args := []ir.Expr{}
 			if p.current.Type != TOKEN_RPAREN {
 				for {
-					arg, err := p.ParseExpression(PREC_LOWEST)
+					arg, err := p.parseArgument()
 					if err != nil {
 						return nil, err
 					}
@@ -491,7 +477,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 			// Parse arguments
 			args := []ir.Expr{}
 			for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
-				arg, err := p.ParseExpression(PREC_LOWEST)
+				arg, err := p.parseArgument()
 				if err != nil {
 					return nil, err
 				}
@@ -757,6 +743,21 @@ func (p *Parser) parseLiteralExpr() (*ir.LiteralExpr, error) {
 	}
 }
 
+// parseArgument parses expr or '@' expr (Toast parser.y ne_arglist).
+// Splicing belongs to a list entry, never to an expression operand.
+func (p *Parser) parseArgument() (ir.Expr, error) {
+	if p.current.Type != TOKEN_AT {
+		return p.ParseExpression(PREC_LOWEST)
+	}
+	pos := p.current.Position
+	p.nextToken()
+	operand, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, err
+	}
+	return &ir.SpliceExpr{Pos: pos, Expr: operand}, nil
+}
+
 // parseCatchCodes parses the codes of an except arm or catch expression:
 // ANY, or a nonempty argument list whose elements may be any expression or
 // splice (Toast parser.y `codes: tANY | ne_arglist`).
@@ -768,7 +769,7 @@ func (p *Parser) parseCatchCodes() ([]ir.Expr, bool, error) {
 
 	var codes []ir.Expr
 	for {
-		code, err := p.ParseExpression(PREC_LOWEST)
+		code, err := p.parseArgument()
 		if err != nil {
 			return nil, false, err
 		}
@@ -796,7 +797,7 @@ func (p *Parser) parseListExpr() (ir.Expr, error) {
 	}
 
 	// Parse first element
-	elem, err := p.ParseExpression(PREC_LOWEST)
+	elem, err := p.parseArgument()
 	if err != nil {
 		return nil, err
 	}
@@ -831,7 +832,7 @@ func (p *Parser) parseListExpr() (ir.Expr, error) {
 			break
 		}
 
-		elem, err := p.ParseExpression(PREC_LOWEST)
+		elem, err := p.parseArgument()
 		if err != nil {
 			return nil, err
 		}
