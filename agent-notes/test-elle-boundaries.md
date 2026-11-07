@@ -8,8 +8,8 @@ merges after CI. No posting or pushing from this worker.
 ## State
 Root supplied the completed pinned-baseline result before implementation:
 workflow 42344496116, healthy verdicts true, all ten faults false, errors empty.
-This branch's new tests and controls are implemented but unverified; no local
-tests run. Root owns PR publication and CI evidence collection.
+The first PR CI exposed a fixture collision; repaired below and awaiting exact-head
+CI. No local tests run. Root owns PR publication and CI evidence collection.
 
 Changes: two list-append controls (`hot-map-carry`, `hot-memo-guard`), held runtime
 reader/writer pairs, three actual-runtime recorder regressions, and one store
@@ -39,9 +39,19 @@ shape guard. Both observations stay in one actual reader publication.
 There is no `responds_to` builtin in this checkout. Missing dispatch must be
 observed through an actual caught verb-call error, not a fabricated helper result.
 
+PR CI run 42345121723 failed in seed-412-go.log:
+`task 100062 native error E_INVARG` at
+`if (length(verbs(#42)) != 1) raise(E_INVARG);`.
+The boundary fixture added renew_missing to #42, one of the moving invariant
+objects whose own verb list must contain only scratchV. The unchanged invariant
+correctly detected contamination. The fixture now chooses #18, whose producer
+creates a data property and parent #0 but no own verb. The existing warm task
+asserts that the chosen receiver has neither an own verb nor the invariant
+population's scratch property before adding renew_missing. Every call and mutation
+uses the same receiver constant; the original invariant check remains unchanged.
+
 ## Next step
-Format the literal Go files, inspect the diff, commit this independent change and
-return it to root for CI. Required evidence: healthy append/register true; both
+Return the repaired commit to root for CI. Required evidence: healthy append/register true; both
 new list-append faults false with cycle witnesses; committed pair counters and
 specific renewal assertions; recorder and store regressions in CI.
 

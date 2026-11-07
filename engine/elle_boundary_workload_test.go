@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -75,14 +76,19 @@ func elleRenewalPairs(t *testing.T, rt *Runtime, store *dbstore.Store, id int64)
 	// Warm the negative dispatch memo without mutating anything. The reader's
 	// missing call then depends on the memo's shape guard, not an existing verb's
 	// value version. Creating the verb leaves every previously resolved verb alone.
-	const missing = `try v=#42:renew_missing(); except (E_VERBNF) v={}; endtry `
-	elleDrain(t, rt, []*Task{elleTask(t, rt, id, missing)})
+	// #18's property participates in the append model, but its own verb list
+	// is unused. The moving invariant objects already have scratchV/scratch;
+	// assert the actual fixture is separate before adding our dispatch verb.
+	const receiver = 18
+	missing := fmt.Sprintf(`try v=#%d:renew_missing(); except (E_VERBNF) v={}; endtry `, receiver)
+	isolated := fmt.Sprintf(`if (length(verbs(#%[1]d)) != 0 || "scratch" in properties(#%[1]d)) raise(E_INVARG); endif `, receiver)
+	elleDrain(t, rt, []*Task{elleTask(t, rt, id, isolated+missing)})
 	id++
 	memoBefore := isolationprobe.Snapshot()["verb_memo"]
 	renewedBefore, refusedBefore, _ = store.HotReadStats()
 	elleDrain(t, rt, []*Task{
 		elleTask(t, rt, id, missing+`elle_observe("r","hot-memo",v); elle_renew_step(1,0); elle_observe("r","property",#11.data);`),
-		elleTask(t, rt, id+1, `elle_renew_step(1,1); n=add_verb(#42,{#0,"rxd","renew_missing"},{"this","none","none"}); set_verb_code(#42,n,{"return {212};"}); elle_observe("append","hot-memo",212);`+elleAppend(0, 213)+`elle_renew_step(1,2);`),
+		elleTask(t, rt, id+1, fmt.Sprintf(`elle_renew_step(1,1); n=add_verb(#%[1]d,{#0,"rxd","renew_missing"},{"this","none","none"}); set_verb_code(#%[1]d,n,{"return {212};"}); elle_observe("append","hot-memo",212);`, receiver)+elleAppend(0, 213)+`elle_renew_step(1,2);`),
 	})
 	renewed, refused, _ = store.HotReadStats()
 	if isolationprobe.Fault("hot-memo-guard") {
@@ -96,6 +102,6 @@ func elleRenewalPairs(t *testing.T, rt *Runtime, store *dbstore.Store, id int64)
 		t.Fatal("hot memo pair did not use dispatch memo")
 	}
 	isolationprobe.Note("hot_memo_pair")
-	elleDrain(t, rt, []*Task{elleTask(t, rt, id+2, `elle_observe("r","hot-memo",#42:renew_missing()); elle_observe("r","property",#11.data);`)})
+	elleDrain(t, rt, []*Task{elleTask(t, rt, id+2, fmt.Sprintf(`elle_observe("r","hot-memo",#%d:renew_missing()); elle_observe("r","property",#11.data);`, receiver))})
 	return id + 3
 }
