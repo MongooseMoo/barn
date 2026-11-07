@@ -96,6 +96,12 @@ Go 1.27.1 sources below. Implementing.
 - Q then answered "Yes, open them" (relayed by the team lead). Rebased on
   master after #613 merged, pushed, opened PR #618.
 
+- PR #618 CI all green: Build & unit tests (scripts suite `Ran 259 tests ...
+  OK`, the four new tests listed as ok), MOO conformance suite (10m53s),
+  Elle serializable histories, Record pass.
+
 ## Next step
 
-Watch PR #618 checks to green and fix anything red. Do not merge.
+Team lead reviews and merges #618. After the first nightly run with it, check
+that a failing target ran more than one campaign and that the artifact and
+issues match the kept logs.
