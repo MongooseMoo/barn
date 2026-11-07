@@ -1,8 +1,10 @@
 package vm
 
 import (
+	"math"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
@@ -11,6 +13,15 @@ import (
 
 func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *task.Context) types.Result {
 	t.Helper()
+	registry := BuildVMRegistry()
+	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+	return runCompiledBytecodeProgram(prog, registry, store, ctx)
+}
+
+func runCompiledBytecodeProgram(prog *bytecode.Program, registry *builtins.Registry, store *dbstore.Store, ctx *task.Context) types.Result {
 	if store == nil {
 		store = dbstore.NewStore()
 	}
@@ -19,14 +30,8 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ta
 	}
 	taskValue := task.NewState(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
-	registry := BuildVMRegistry()
 	session := newTestSessionWithTaskManager(registry)
 	ctx.Store = store
-
-	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
-	if len(diagnostics) > 0 {
-		t.Fatalf("compile failed: %v", diagnostics)
-	}
 
 	machine := NewVM(store, session)
 	machine.Context = ctx
@@ -226,16 +231,27 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+// OP_LIST_RANGE remains executable in persisted bytecode, although MOO source
+// has no list-range production. Exercise the opcode without invalid source.
+func runListRangeBytecode(start, end int64, ctx *task.Context) types.Result {
+	program := &bytecode.Program{
+		Constants: []types.Value{types.NewInt(start), types.NewInt(end)},
+		Code: []byte{
+			byte(bytecode.OP_PUSH), 0, byte(bytecode.OP_PUSH), 1,
+			byte(bytecode.OP_LIST_RANGE), byte(bytecode.OP_RETURN),
+		},
+	}
+	return runCompiledBytecodeProgram(program, BuildVMRegistry(), nil, ctx)
+}
+
 func TestListRangeChecksQuotaBeforeAllocation(t *testing.T) {
-	for _, source := range []string{
-		`return {35 << 35..35};`,
-		`return {35..35 << 35};`,
-		`return {-9223372036854775807 - 1..9223372036854775807};`,
-		`return {9223372036854775807..-9223372036854775807 - 1};`,
+	for _, bounds := range [][2]int64{
+		{35 << 35, 35},
+		{35, 35 << 35},
+		{math.MinInt64, math.MaxInt64},
+		{math.MaxInt64, math.MinInt64},
 	} {
-		t.Run(source, func(t *testing.T) {
-			requireError(t, runBytecodeProgram(t, source, nil, nil), types.E_QUOTA)
-		})
+		requireError(t, runListRangeBytecode(bounds[0], bounds[1], nil), types.E_QUOTA)
 	}
 }
 
@@ -246,7 +262,7 @@ func TestListRangeUsesExclusivePendingQuota(t *testing.T) {
 			Kind:          task.PendingEffectServerOptions,
 			ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
 		}}
-		result := runBytecodeProgram(t, `return {1..2};`, nil, ctx)
+		result := runListRangeBytecode(1, 2, ctx)
 		if limit == 64 {
 			requireError(t, result, types.E_QUOTA)
 		} else if result.Flow != types.FlowReturn || result.Val.String() != `{1, 2}` {
@@ -256,13 +272,13 @@ func TestListRangeUsesExclusivePendingQuota(t *testing.T) {
 }
 
 func TestListRangeTerminatesAtIntegerEndpoints(t *testing.T) {
-	for source, want := range map[string]string{
-		`return {9223372036854775806..9223372036854775807};`:       `{9223372036854775806, 9223372036854775807}`,
-		`return {-9223372036854775807..-9223372036854775807 - 1};`: `{-9223372036854775807, -9223372036854775808}`,
+	for bounds, want := range map[[2]int64]string{
+		{math.MaxInt64 - 1, math.MaxInt64}: `{9223372036854775806, 9223372036854775807}`,
+		{math.MinInt64 + 1, math.MinInt64}: `{-9223372036854775807, -9223372036854775808}`,
 	} {
-		result := runBytecodeProgram(t, source, nil, nil)
+		result := runListRangeBytecode(bounds[0], bounds[1], nil)
 		if result.Flow != types.FlowReturn || result.Val.String() != want {
-			t.Fatalf("%s = %+v, want %s", source, result, want)
+			t.Fatalf("%v = %+v, want %s", bounds, result, want)
 		}
 	}
 }

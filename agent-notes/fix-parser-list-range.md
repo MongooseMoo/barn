@@ -72,3 +72,20 @@ the full VM registry including eval/pass, fails on any compile diagnostic, and
 verifies every emitted program. Command: set BARN_FUZZ_CORPUS to that directory,
 then `go test C:/Users/Q/code/barn-parser-list-range/.tmp/parser_corpus_test.go -count=1 -v`.
 No corpus or probe is staged. Full CI remains pending at this checkpoint.
+
+## PR CI repair
+Barn PR #620; conformance PR #172. CI found VM opcode tests still compiling
+list-range source. Preserve the same quota and integer-endpoint assertions by
+assembling OP_LIST_RANGE bytecode and executing it through VM.Run; source
+compilation is no longer the producer for that opcode. Share the existing test
+execution helper rather than duplicating VM setup.
+
+```text
+Build & unit tests fail 1m23s
+--- FAIL: TestListRangeChecksQuotaBeforeAllocation
+bytecode_execution_test.go:237: compile failed: [Line 1:  syntax error]
+--- FAIL: TestListRangeUsesExclusivePendingQuota
+--- FAIL: TestListRangeTerminatesAtIntegerEndpoints
+go test ./vm -run '^TestListRange' -count=1
+ok github.com/MongooseMoo/barn/vm 1.540s
+```
