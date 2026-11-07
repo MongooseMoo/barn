@@ -1,0 +1,90 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   79822	      4340 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  114733	      3236 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   73095	      4733 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   61366	      5072 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   88124	      4085 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  117529	      3005 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   76267	      4657 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   57106	      5950 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   90438	      3902 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  119575	      2981 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   76160	      4546 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   78003	      4623 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   89334	      3945 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  119404	      3217 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   77628	      4639 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   71838	      4804 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   84334	      4576 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  108435	      3269 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   75406	      4808 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   73342	      4802 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   84469	      4021 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  117067	      3301 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   66823	      5043 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   74182	      5030 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   90157	      3922 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  120285	      2954 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   77746	      4546 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   78367	      4595 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   82569	      4098 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  116472	      3043 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   71382	      5030 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   71817	      4849 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   90782	      3868 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  115009	      3119 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   70117	      5194 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   61534	      5999 ns/op	    8176 B/op	      44 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCallersFormatting/no_lines         	   77917	      4129 ns/op	    7360 B/op	      39 allocs/op
+BenchmarkCallersFormatting/lines            	  119822	      3143 ns/op	    6128 B/op	      25 allocs/op
+BenchmarkTaskStackFormatting/lines          	   76950	      4761 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   77961	      4747 ns/op	    8176 B/op	      44 allocs/op
+PASS

@@ -218,6 +218,81 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	}
 }
 
+// BenchmarkCallersFormatting includes the real task snapshot and builtin
+// dispatch, while measuring both ordinary six-field and trimmed five-field lists.
+func BenchmarkCallersFormatting(b *testing.B) {
+	for _, lines := range []bool{false, true} {
+		name := "no_lines"
+		if lines {
+			name = "lines"
+		}
+		b.Run(name, func(b *testing.B) {
+			taskValue := NewTask(91877, 2, 1000, 1)
+			for range 8 {
+				taskValue.PushFrame(types.ActivationFrame{
+					This: 7, Programmer: 2, Verb: "caller", VerbLoc: 8,
+					Player: 3, LineNumber: 14,
+				})
+			}
+			ctx := newTaskBuiltinExecution()
+			ctx.Task = &taskValue.State
+			ctx.TaskID, ctx.Programmer, ctx.Verb = 91877, 2, "current"
+			args := []types.Value{types.NewInt(0)}
+			if lines {
+				args[0] = types.NewInt(1)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				result := callTaskBuiltin("callers", ctx, args)
+				if result.IsError() || result.Val.Len() != 7 {
+					b.Fatalf("callers returned %v", result)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkTaskStackFormatting measures the language-visible observer, including
+// task lookup, frame snapshots and list construction, with a suspended real task.
+func BenchmarkTaskStackFormatting(b *testing.B) {
+	for _, variables := range []bool{false, true} {
+		name := "lines"
+		if variables {
+			name = "lines_and_variables"
+		}
+		b.Run(name, func(b *testing.B) {
+			const taskID = int64(91876)
+			taskValue := NewTask(taskID, 2, 1000, 1)
+			for range 8 {
+				taskValue.PushFrame(types.ActivationFrame{
+					This: 7, Programmer: 2, Verb: "suspended", VerbLoc: 8,
+					Player: 3, LineNumber: 14,
+					RuntimeVariables: types.NewMap([][2]types.Value{
+						{types.NewStr("marker"), types.NewInt(42)},
+					}),
+				})
+			}
+			taskValue.SetState(task.TaskSuspended)
+			ctx := newTaskBuiltinExecution()
+			ctx.TaskID, ctx.Programmer = 1, 2
+			manager := wireTestTaskManager(ctx)
+			manager.RegisterTask(taskValue)
+			defer manager.RemoveTask(taskID)
+			args := []types.Value{types.NewInt(taskID), types.NewInt(1), types.NewInt(0)}
+			if variables {
+				args[2] = types.NewInt(1)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				result := callTaskBuiltin("task_stack", ctx, args)
+				if result.IsError() || result.Val.Len() != 8 {
+					b.Fatalf("task_stack returned %v", result)
+				}
+			}
+		})
+	}
+}
+
 func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 	const taskID = int64(91875)
 	runtimeVariables := types.NewMap([][2]types.Value{
