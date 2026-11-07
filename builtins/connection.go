@@ -111,8 +111,7 @@ func inputReceipt(ctx *Execution) func() {
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {
-	// The no-argument form describes the current connection and therefore uses
-	// Player as its default target, never as an authority source.
+	// The no-argument form reports the default maximum output buffer size.
 	target := ctx.Player
 	if len(args) == 0 {
 		return types.Ok(types.NewInt(65536))
@@ -140,7 +139,7 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 			}
 			note := effect.Notification
 			if note.Player == target {
-				length++
+				length += note.ByteLength()
 			}
 		}
 	}

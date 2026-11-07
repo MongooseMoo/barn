@@ -38,13 +38,14 @@ func assertDeliveredNotificationsCleared(t *testing.T, backing []task.PendingNot
 
 func TestFlushClearsDeliveredNotificationsAndPreservesRetry(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		failAt int
+		name      string
+		failAt    int
+		wantBytes int
 	}{
-		{"successful flush", 0},
-		{"first write failure", 1},
-		{"partial failure", 2},
-		{"last write failure", 3},
+		{"successful flush", 0, 0},
+		{"first write failure", 1, 42},
+		{"partial failure", 2, 29},
+		{"last write failure", 3, 13},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			transport := &notificationRetryTransport{failAt: test.failAt}
@@ -70,8 +71,11 @@ func TestFlushClearsDeliveredNotificationsAndPreservesRetry(t *testing.T) {
 				delivered = test.failAt - 1
 			}
 			assertDeliveredNotificationsCleared(t, backing[:delivered])
-			if !slices.Equal(conn.outputBuffer, notes[delivered:]) || conn.BufferedOutputLength() != len(notes)-delivered {
+			if !slices.Equal(conn.outputBuffer, notes[delivered:]) {
 				t.Fatalf("retry suffix=%+v, want %+v", conn.outputBuffer, notes[delivered:])
+			}
+			if got := conn.BufferedOutputLength(); got != test.wantBytes {
+				t.Fatalf("buffered bytes after Flush = %d, want %d", got, test.wantBytes)
 			}
 			if err := conn.Flush(); err != nil {
 				t.Fatalf("retry Flush: %v", err)
