@@ -86,7 +86,9 @@ func (t *WebSocketTransport) WriteOutput(message string, newline bool) error {
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	return t.conn.Write(context.Background(), websocket.MessageText, []byte(message))
+	ctx, cancel := context.WithTimeout(context.Background(), outputWriteTimeout)
+	defer cancel()
+	return t.conn.Write(ctx, websocket.MessageText, []byte(message))
 }
 
 func (t *WebSocketTransport) Close() error {

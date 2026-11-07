@@ -645,8 +645,8 @@ func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 		return fmt.Errorf("player not connected")
 	}
 
-	_ = conn.Send("*** Disconnected ***")
 	conn.setDisconnectHook("user_disconnected")
+	_ = conn.Send("*** Disconnected ***")
 	_ = conn.Close()
 	return nil
 }
@@ -660,8 +660,8 @@ func (cm *ConnectionManager) RecyclePlayer(player types.ObjID) error {
 		return nil
 	}
 
-	_ = conn.Send("*** Recycled ***")
 	conn.setDisconnectHook("")
+	_ = conn.Send("*** Recycled ***")
 	_ = conn.Close()
 	return nil
 }
