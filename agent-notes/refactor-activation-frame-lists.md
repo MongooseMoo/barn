@@ -27,8 +27,22 @@ campaign_owned_diff_exit=0
 ```
 
 Six production ToList calls supply both flags. The wrapper search has no Go
-match. No local tests or builds ran, and no source behavior changed during this
-move. Commits, PR CI, review and publication remain pending with the coordinator.
+match. No local tests or builds ran during the source move, and no source
+behavior changed during that move. The coordinator published PR #640. The
+independent analyst inspected its
+published diff, list ownership, all six observers and relevant existing tests;
+see reports/system-layering-frame-format-analyst.md. No correctness finding was
+identified. The later benchmark work below supplies bounded observer evidence;
+compiler inlining and all-input performance non-regression remain unknown.
+List ownership establishes no extra source-level backing-array copy.
+
+Raw PR checks at the analyst checkpoint:
+
+```text
+Build & unit tests pass 1m58s
+Serializable histories and negative control pass 4m42s
+MOO conformance suite pending 0
+```
 
 ## Decisions and why
 
@@ -39,10 +53,28 @@ wrapper. Add no parallel representation or compatibility surface.
 
 ## Surprises
 
-None observed during the initial source/base inspection.
+NewList retains its input backing array without copying it. Both the former
+literal and the new dynamic slice therefore supply returned list storage; this
+source fact does not establish compiler inlining or runtime performance.
 
 ## Next step
 
-The coordinator reviews the isolated six-file diff, commits this note and the
-two reports with the source, then handles publication, CI and merge. No commit,
-push, PR or merge was performed by this move task.
+The benchmark worker added real callers and task_stack observer measurements
+in engine/task_builtins_test.go. Ten samples per side and a second ten-pair
+CPU-affinity/interleaved comparison are retained under reports; the report is
+reports/system-layering-frame-measurement.md. All six production files are
+restored exactly to their committed PR versions (explicit diff exit zero).
+
+The common six-field callers(1) path retains 6128 B/op and 25 allocs/op on both
+sides; neither comparison detected a significant timing difference. The pinned
+comparison is 3.131us to 3.223us, p=0.363, so a small regression remains unresolved.
+callers(0) reduces allocations from 39 to 25; both task_stack cases reduce 44 to
+28. WSL frequency/host interference and timing intervals limit CPU conclusions.
+No application-wide or all-input non-regression claim follows. No speculative
+performance special case was added.
+
+The coordinator reviews these evidence limits, publishes the substantive
+benchmark additions and completes final verification. The worker publishes
+nothing. Broad local tests were not run; only the edited test file's explicit
+benchmarks were measured. The checkpoint-requested primary-checkout temporary
+measurement note was consolidated here and removed before handoff.

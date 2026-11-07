@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkTaskStackFormatting/lines         	   51938	      4576 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   51135	      4615 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   52707	      4571 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   49438	      4631 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   50881	      4692 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   52168	      4744 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   50740	      4841 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   47919	      4721 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   51150	      4796 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines         	   52551	      4975 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   49041	      4691 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   49224	      4635 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   51465	      4595 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   51980	      4611 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   45668	      5014 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   49345	      4694 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   52570	      4695 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   50704	      4748 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   51270	      4641 ns/op	    8176 B/op	      44 allocs/op
+BenchmarkTaskStackFormatting/lines_and_variables         	   49892	      4891 ns/op	    8176 B/op	      44 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	5.098s
