@@ -1,0 +1,26 @@
+File: store.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build146967060\b001\store.test.exe2026-11-07 10:58:33.2539346 -0700 MST
+Type: alloc_space
+Time: 2026-11-07 10:58:34 MST
+Showing nodes accounting for 608.20MB, 95.94% of 633.94MB total
+Dropped 74 nodes (cum <= 3.17MB)
+Showing top 18 nodes out of 47
+      flat  flat%   sum%        cum   cum%
+  309.78MB 48.87% 48.87%   309.78MB 48.87%  slices.Clone[go.shape.[]github.com/MongooseMoo/barn/db/store.setSlot,go.shape.struct { github.com/MongooseMoo/barn/db/store.idx int32; github.com/MongooseMoo/barn/db/store.prop github.com/MongooseMoo/barn/db/store.Property }] (inline)
+  117.23MB 18.49% 67.36%   447.30MB 70.56%  github.com/MongooseMoo/barn/db/store.cloneObjectNonVerbState
+   38.99MB  6.15% 73.51%    38.99MB  6.15%  github.com/MongooseMoo/barn/db/store.propTable.put
+   20.28MB  3.20% 76.71%   330.06MB 52.07%  github.com/MongooseMoo/barn/db/store.propTable.clone
+   20.01MB  3.16% 79.86%    20.51MB  3.24%  github.com/MongooseMoo/barn/db/store.(*Store).BeginSnapshot
+   17.81MB  2.81% 82.67%   108.65MB 17.14%  github.com/MongooseMoo/barn/db/store.loadedClass
+   15.99MB  2.52% 85.20%    15.99MB  2.52%  github.com/MongooseMoo/barn/db/store.(*objectDir).ensureSegment
+   15.01MB  2.37% 87.56%    15.01MB  2.37%  github.com/MongooseMoo/barn/db/store.lazySet[go.shape.int64,go.shape.da34d83691f85ee8e7d0bb61767cb9317520673d566627ed56437daa9a344446] (inline)
+   11.06MB  1.74% 89.31%    13.57MB  2.14%  github.com/MongooseMoo/barn/db/store.propTable.share
+    9.50MB  1.50% 90.81%       11MB  1.74%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).privatizeCached (inline)
+       7MB  1.10% 91.91%        7MB  1.10%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).writesByObject
+    5.50MB  0.87% 92.78%        8MB  1.26%  github.com/MongooseMoo/barn/db/store.NewObject (inline)
+    4.50MB  0.71% 93.49%     4.50MB  0.71%  github.com/MongooseMoo/barn/db/store.lazySet[go.shape.int64,go.shape.uint64] (inline)
+    4.02MB  0.63% 94.12%     4.02MB  0.63%  github.com/MongooseMoo/barn/db/store.NewStore
+    3.50MB  0.55% 94.68%   146.80MB 23.16%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).CreateObject
+    3.50MB  0.55% 95.23%     3.50MB  0.55%  github.com/MongooseMoo/barn/internal/commitgate.(*Gate).Acquire
+    2.50MB  0.39% 95.62%    19.01MB  3.00%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).RecycleObject
+    2.01MB  0.32% 95.94%    76.77MB 12.11%  github.com/MongooseMoo/barn/db/store.addLoaded

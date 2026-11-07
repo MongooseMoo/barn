@@ -1,0 +1,94 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                         │ experiments/object-lifecycle/final-base-store.txt │ experiments/object-lifecycle/final-candidate-store.txt │
+                                                         │                      sec/op                       │             sec/op              vs base                │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                           174.3µ ± 10%                     199.7µ ± 11%  +14.59% (p=0.019 n=10)
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                          166.6µ ±  9%                     169.2µ ±  5%        ~ (p=0.853 n=10)
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                             325.4µ ± 11%                     338.6µ ± 10%        ~ (p=0.165 n=10)
+ObjectLifecycle/anon=false/slots=150/Create/parents=1-4                                        1788.5µ ± 20%                     303.6µ ± 36%  -83.02% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=1-4                                        291.7µ ± 14%                     279.8µ ±  4%        ~ (p=0.912 n=10)
+ObjectLifecycle/anon=false/slots=150/Pair/parents=1-4                                          2291.3µ ±  7%                     588.5µ ±  8%  -74.32% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Create/parents=2-4                                         1.981m ±  9%                     1.359m ±  2%  -31.38% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                        317.8µ ± 10%                     316.7µ ± 13%        ~ (p=0.436 n=10)
+ObjectLifecycle/anon=false/slots=150/Pair/parents=2-4                                           2.257m ± 10%                     1.677m ±  4%  -25.70% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                            70.71µ ± 17%                     81.70µ ± 16%        ~ (p=0.052 n=10)
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                           31.20µ ± 19%                     33.10µ ± 16%        ~ (p=0.436 n=10)
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                              100.7µ ± 21%                     118.7µ ± 16%  +17.83% (p=0.005 n=10)
+ObjectLifecycle/anon=true/slots=150/Create/parents=1-4                                         1682.0µ ± 12%                     212.4µ ± 20%  -87.37% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=1-4                                         77.61µ ± 22%                     74.59µ ± 15%        ~ (p=0.739 n=10)
+ObjectLifecycle/anon=true/slots=150/Pair/parents=1-4                                           1767.5µ ± 10%                     316.4µ ± 20%  -82.10% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Create/parents=2-4                                          1.777m ±  7%                     1.145m ±  4%  -35.56% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                        110.87µ ± 30%                     81.73µ ± 16%  -26.28% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Pair/parents=2-4                                            1.782m ± 10%                     1.263m ±  8%  -29.12% (p=0.000 n=10)
+geomean                                                                                         433.2µ                           274.5µ        -36.63%
+
+                                                         │ experiments/object-lifecycle/final-base-store.txt │ experiments/object-lifecycle/final-candidate-store.txt │
+                                                         │                    objects/op                     │          objects/op            vs base                 │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                             32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                            32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                               32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Create/parents=1-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=1-4                                          32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=1-4                                             32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Create/parents=2-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                          32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=2-4                                             32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                              32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                             32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                                32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Create/parents=1-4                                            32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=1-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=1-4                                              32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Create/parents=2-4                                            32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                           32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=2-4                                              32.00 ± 0%                      32.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                           32.00                           32.00       +0.00%
+¹ all samples are equal
+
+                                                         │ experiments/object-lifecycle/final-base-store.txt │ experiments/object-lifecycle/final-candidate-store.txt │
+                                                         │                       B/op                        │             B/op              vs base                  │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                           197.6Ki ± 0%                   197.6Ki ± 0%        ~ (p=0.769 n=10)
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                          176.5Ki ± 0%                   176.5Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                             343.1Ki ± 0%                   343.1Ki ± 0%        ~ (p=0.842 n=10)
+ObjectLifecycle/anon=false/slots=150/Create/parents=1-4                                        1861.9Ki ± 0%                   576.1Ki ± 0%  -69.06% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=1-4                                        556.5Ki ± 0%                   556.5Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=1-4                                           2.331Mi ± 0%                   1.076Mi ± 0%  -53.86% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Create/parents=2-4                                         1.884Mi ± 0%                   1.321Mi ± 0%  -29.89% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                        610.7Ki ± 0%                   610.7Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=2-4                                           2.419Mi ± 0%                   1.856Mi ± 0%  -23.27% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                            72.78Ki ± 0%                   72.78Ki ± 0%        ~ (p=0.737 n=10)
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                           23.75Ki ± 0%                   23.75Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                              92.77Ki ± 0%                   92.77Ki ± 0%        ~ (p=0.068 n=10)
+ObjectLifecycle/anon=true/slots=150/Create/parents=1-4                                         1737.0Ki ± 0%                   451.3Ki ± 0%  -74.02% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=1-4                                         403.8Ki ± 0%                   403.8Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=1-4                                           2137.0Ki ± 0%                   851.3Ki ± 0%  -60.17% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Create/parents=2-4                                          1.725Mi ± 0%                   1.162Mi ± 0%  -32.63% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                         427.0Ki ± 0%                   427.0Ki ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=2-4                                            2.135Mi ± 0%                   1.572Mi ± 0%  -26.37% (p=0.000 n=10)
+geomean                                                                                         564.8Ki                        415.3Ki       -26.47%
+¹ all samples are equal
+
+                                                         │ experiments/object-lifecycle/final-base-store.txt │ experiments/object-lifecycle/final-candidate-store.txt │
+                                                         │                     allocs/op                     │          allocs/op            vs base                  │
+ObjectLifecycle/anon=false/slots=0/Create/parents=1-4                                            1.346k ± 0%                    1.346k ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Recycle/parents=1-4                                           1.101k ± 0%                    1.101k ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=0/Pair/parents=1-4                                              2.382k ± 0%                    2.382k ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Create/parents=1-4                                          1.890k ± 0%                    1.378k ± 0%  -27.09% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=1-4                                         1.165k ± 0%                    1.165k ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=1-4                                            2.990k ± 0%                    2.478k ± 0%  -17.12% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Create/parents=2-4                                          2.251k ± 0%                    1.995k ± 0%  -11.37% (p=0.000 n=10)
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                         1.517k ± 0%                    1.517k ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=false/slots=150/Pair/parents=2-4                                            3.638k ± 0%                    3.382k ± 0%   -7.04% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=0/Create/parents=1-4                                              538.0 ± 0%                     538.0 ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Recycle/parents=1-4                                             224.0 ± 0%                     224.0 ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=0/Pair/parents=1-4                                                762.0 ± 0%                     762.0 ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Create/parents=1-4                                           1082.0 ± 0%                     570.0 ± 0%  -47.32% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=1-4                                           288.0 ± 0%                     288.0 ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=1-4                                             1370.0 ± 0%                     858.0 ± 0%  -37.37% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Create/parents=2-4                                           1.299k ± 0%                    1.043k ± 0%  -19.71% (p=0.000 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                           480.0 ± 0%                     480.0 ± 0%        ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Pair/parents=2-4                                             1.779k ± 0%                    1.523k ± 0%  -14.39% (p=0.000 n=10)
+geomean                                                                                          1.151k                         1.020k       -11.41%
+¹ all samples are equal

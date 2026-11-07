@@ -7,7 +7,14 @@ import (
 )
 
 func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID, owner types.ObjID) propTable {
-	result := newPropTable(0)
+	return copyInheritedProperties(parents, owner, s.liveObjectLocked)
+}
+
+// copyInheritedProperties keeps the same breadth-first precedence and visits
+// every ancestor even when the first table can supply a shared base. The txn
+// reader records its dependencies on each visit; the live reader holds s.mu.
+func copyInheritedProperties(parents []types.ObjID, owner types.ObjID, object func(types.ObjID) *Object) propTable {
+	var result propTable
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -19,20 +26,40 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID, owner types
 		}
 		visited[currentID] = true
 
-		current := s.liveObjectLocked(currentID)
+		current := object(currentID)
 		if !validLiveObject(current) {
 			continue
+		}
+		queue = append(queue, current.parents...)
+		if result.s == nil {
+			if base := current.properties.inheritedBase(owner); base != nil {
+				result = propTable{s: &propState{base: base}}
+				continue
+			}
+			result = newPropTable(0)
 		}
 		for name, prop := range current.properties.all() {
 			// Keys are canonical on every object, so a direct hit suffices.
 			if _, exists := result.lookup(name); exists {
 				continue
 			}
+			if result.s.base != nil {
+				// A later ancestor or parent adds a name. Build the union through
+				// the ordinary representation so shareCreatedProperties interns
+				// the complete shape, rather than retaining private placeholders.
+				union := newPropTable(result.count() + 1)
+				for key, slot := range result.all() {
+					union.put(key, slot)
+				}
+				result = union
+			}
 			result.put(name, inheritedSlot(prop, owner))
 		}
-		queue = append(queue, current.parents...)
 	}
 
+	if result.s == nil {
+		return newPropTable(0)
+	}
 	return result
 }
 

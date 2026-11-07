@@ -9,10 +9,30 @@ isolated worktree. Q also authorized opening a PR and merging after green CI.
 
 Q said "Make it so!". Implementation and publication through normal merge are
 authorized. The branch was fast-forwarded to current master before editing.
-Benchmark-only baseline added in the two planned packages; its one-iteration
-fixture check completed with the expected counts, including automatic anonymous
-collection and exactly-once inherited recycle hooks. Production code is still
-unchanged. Repeated measurements and profiles are next. Branch:
+Benchmark-only baseline retained in a detached sibling worktree. Its fixture
+check completed with expected counts, including automatic anonymous collection
+and exactly-once inherited recycle hooks. Profiles identified inherited-slot
+map materialization and property-table copies as allocation costs. Implemented
+reuse of an existing matching inherited base through one shared ancestry walk,
+and replaced recycle's temporary property-value slice with direct visitation.
+New semantic regressions pass, including multiple-parent shape union. Repeated
+paired store measurements with the corrected snapshot-release guard completed:
+ten samples per arm, 32 objects per operation. For a single 150-slot parent,
+regular/anonymous create time fell 83.02%/87.37% and pair time fell
+74.32%/82.10%; allocated bytes for creation fell about 69%/74%. These are
+synthetic results with some noisy rows, not production throughput claims.
+The single-parent 150-slot store-only recycle time is statistically unchanged.
+VM batches of 32 show 69.61%/56.70% lower creation bytes, 18.08%/18.96% lower
+recycle bytes, and 39.33%/45.05% lower pair time for regular/anonymous objects.
+Longer empty-store measurements did not reproduce initial short-run slowdowns.
+Retained heap is unchanged at about 555/631 bytes per regular/anonymous object.
+The isolated store recycle fixture now completes setup GC before timing, which
+removed the repeatable two-parent slowdown. Short empty-store timing changes
+vary in sign across campaigns; retain them but make no small-case speed claim.
+Final CPU/allocation/in-use profiles and all raw samples are preserved under
+`experiments/object-lifecycle/`, with methods, rejected samples and limitations
+in its README. Source and performance work is complete. Full CI, PR publication
+and normal merge are the remaining delivery steps. Branch:
 `perf/object-lifecycle`.
 
 Read `AGENTS.md`, `docs/workload-diagnostics.md`, `docs/elle-isolation.md`,
@@ -22,7 +42,7 @@ workflow, inspecting all twelve page images. Paper relevance is medium:
 separate construction cost from allocation cost and measure reclamation as well
 as allocation; its kernel allocator results are not Barn results.
 
-## Source findings
+## Baseline source findings
 
 - `builtins/objects.go:229`: regular creation stages through `StoreTxn.CreateObject`
   until a task has mutated live state. Anonymous creation crosses `beforeCoarse`,
@@ -105,12 +125,33 @@ CPU/heap profiles or four-way lifecycle measurements have been collected.
 
 ## Decisions and why
 
+The baseline VM fixture now shares its loaded class slots before measurement,
+matching the store fixture and production loader. Baseline and candidate use
+the same benchmark source. The inherited-base path retains every ancestor scan
+and falls back to materializing the union if another parent adds slots. Changed
+slot ownership/permissions use the existing full construction. Property
+visitation retains both shape and per-value dependencies. No lifecycle order,
+identity allocation, transaction publication or locking policy changes.
+
 Measurement precedes the production edit. Both regular and anonymous lifetimes
 are in scope, including explicit recycle and an automatic-anonymous collection
 guard. Existing isolation and lifecycle boundaries remain the correctness
 contract; shortening a benchmark by bypassing them is not an optimization.
 
 ## Surprises
+
+The initial store benchmark committed snapshots without calling Release, which
+retained history until finalizers ran. Those store samples and exploratory
+profile magnitudes are rejected as performance proof. The benchmark now uses
+explicit Release and mechanically rejects any nonzero ActiveReadTransactions
+count at a cohort boundary. Both worktrees have the corrected benchmark.
+
+The first relative profile-path invocation produced no profile files at the
+requested root location. Go's command docs were checked; absolute profile paths
+and an explicit test-binary output produced readable CPU and heap profiles.
+The initial VM profile includes untimed fixture setup, so its totals are not
+timed-region percentages. The PropertyValues allocation line is visible, but
+its benefit must be judged by the setup-excluded paired benchmarks.
 
 The paper fetch helper's Semantic Scholar request returned HTTP 429 and could
 not resolve metadata. The retriever's open-repository fallback downloaded the
@@ -123,6 +164,8 @@ the actual `engine/deferred_gc_maintenance.go` and `engine/gc_handshake.go` file
 
 ## Next step
 
-Capture repeated baseline measurements and profiles, then choose the smallest
-production optimization they support. Publication and normal merge are already
-authorized; do not ask Q to authorize those again.
+Publish the authorized PR and clear its current-head CI, including managed
+conformance and pinned Elle. Normal-merge when green, verify remote and local
+integration, preserve canonical paper assets, and remove only this task's
+worktrees and branches. No further implementation is planned. Publication and
+normal merge are already authorized; do not ask Q again.
