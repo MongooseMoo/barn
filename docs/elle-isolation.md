@@ -160,6 +160,23 @@ reject the resulting append history with an anomaly witness:
 | `map-key-whole-read` | promotion to a whole-property read after a keyed write | whole-map observation after writing another entry |
 | `hot-map-carry` | cloning keyed reads into the transaction renewed at a stale hot read | held map/hot-property pair |
 | `hot-memo-guard` | checking dispatch shape changes since the pre-renewal snapshot | held missing-dispatch/hot-property pair |
+| `property-scans` | validation of enumerated property definitions | definition enumeration/add pair |
+| `property-shapes` | validation of absent property lookup's fall-through | absent property/create pair |
+| `verb-scans` | validation of verb-list generations | verb enumeration/add pair |
+| `verb-memo` | validation of the dispatch shape clock after a memo hit | warmed dispatch/shadow pair |
+
+The append workload also runs sixteen held definition pairs. Each row has exactly
+one transition from `{}` to its unique token: creation, deletion or rename of a
+definition; inherited override, clear or reparent; dispatch code replacement,
+shadow, deletion or reparent; and numeric verb selection after an earlier verb is
+deleted. Presence predicates normalize the actual lookup result, as the valid row
+does; property and dispatch reads return the actual stored list. The mutator reads
+a separate append ledger before changing the definition, while the observer reads
+the definition and stages an append to that ledger in one transaction. Each successful observer records
+`definition/NAME` in the manifest. The memo pairs check that the observer really
+hit the warmed dispatch memo before releasing their mutator. Other dispatch pairs
+stage a write first to exercise precise ancestry scan validation. The ledger is
+not the hot-renewal property, so renewal cannot mask a missing definition check.
 
 The hot-renewal pairs retain one reader publication. A reader observes a map entry
 or a warmed missing verb, waits for a writer to publish that dependency together

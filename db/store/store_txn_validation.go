@@ -131,12 +131,16 @@ func (tx *StoreTxn) validatePropertyReadsLocked(first *types.ErrorCode) {
 		}
 		tx.noteConflict(first, errCode, c)
 	}
-	tx.validateObjectReadsLocked(first, ConflictPropertyScan, tx.propertyScans)
-	tx.validateObjectReadsLocked(first, ConflictPropertyShape, tx.propertyShapeScans)
+	if !isolationprobe.Fault("property-scans") {
+		tx.validateObjectReadsLocked(first, ConflictPropertyScan, tx.propertyScans)
+	}
+	if !isolationprobe.Fault("property-shapes") {
+		tx.validateObjectReadsLocked(first, ConflictPropertyShape, tx.propertyShapeScans)
+	}
 }
 
 func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
-	if tx.usedVerbMemo && !tx.liveMutated {
+	if tx.usedVerbMemo && !tx.liveMutated && !isolationprobe.Fault("verb-memo") {
 		if changed := tx.store.dispatch.shapeChangeTS.Load(); changed > tx.readTS {
 			tx.noteConflict(first, types.E_INVARG, ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
 		}
@@ -159,7 +163,9 @@ func (tx *StoreTxn) validateVerbReadsLocked(first *types.ErrorCode) {
 		c.Name = tx.verbConflictName(key)
 		tx.noteConflict(first, errCode, c)
 	}
-	tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
+	if !isolationprobe.Fault("verb-scans") {
+		tx.validateObjectReadsLocked(first, ConflictVerbScan, tx.verbScans)
+	}
 }
 
 // verbConflictName names a conflicting verb read for the census by the first
