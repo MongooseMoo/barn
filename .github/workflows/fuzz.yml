@@ -24,6 +24,11 @@ jobs:
       actions: write
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 45
+    env:
+      # The Toast oracle ToastDifferential runs: a job-built binary from the
+      # manifest's pinned ref, not the documented /root binary (Q 2026-11-06).
+      # Built under this job's own workspace, so concurrent runners never share it.
+      TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
     strategy:
       fail-fast: false
       # The self-hosted runners share one workstation with PR CI.
@@ -37,6 +42,10 @@ jobs:
           - { package: ./bytecode, target: FuzzVerifyProgram }
           - { package: ./command, target: FuzzCommandLine }
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
+          # Not a Go fuzz target: replays the programs the FuzzSourceExecution
+          # and FuzzCompileVerifiable campaigns keep in Go's fuzz cache on Barn
+          # and on Toast (scripts/fuzz_differential.py) and fails on a divergence.
+          - { package: ./scripts, target: ToastDifferential }
     steps:
       - name: Check /dev/null is a device
         run: |
@@ -54,13 +63,47 @@ jobs:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
+      # The runner user cannot read the workstation's /root Toast build, so the
+      # differential builds the oracle the manifest pins: same ref, Release,
+      # and options.h checked against the manifest's config checksum.
+      - name: Read Toast oracle pin
+        id: toast-pin
+        if: matrix.target == 'ToastDifferential'
+        run: |
+          python3 -c 'import json; m = json.load(open("profiles/toast/stock-wsl-testdb.json")); print("ref=" + m["implementation_ref"]); print("options=" + m["config_checksum"])' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: matrix.target == 'ToastDifferential'
+        with:
+          repository: MongooseMoo/toaststunt
+          ref: ${{ steps.toast-pin.outputs.ref }}
+          path: toaststunt
+          persist-credentials: false
+
+      - name: Build Toast oracle and Barn
+        if: matrix.target == 'ToastDifferential'
+        run: |
+          echo "${{ steps.toast-pin.outputs.options }}  toaststunt/src/include/options.h" | sha256sum -c -
+          # CMakeLists.txt generates version_options.h in cmake's working
+          # directory, which must be the build directory to be included.
+          mkdir toaststunt/build
+          (cd toaststunt/build && cmake -DCMAKE_BUILD_TYPE=Release .. && cmake --build . -j2)
+          go build -o bin/ ./cmd/barn
+
       - name: Fuzz ${{ matrix.target }}
         id: campaign
         run: |
           set -o pipefail
           {
             go version
-            go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30m -parallel=2 -timeout=40m
+            if [ "${{ matrix.target }}" = ToastDifferential ]; then
+              cache="$(go env GOCACHE)/fuzz/github.com/MongooseMoo/barn"
+              python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
+                "$cache/vm/FuzzSourceExecution" "$cache/compiler/FuzzCompileVerifiable" \
+                vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
+            else
+              go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30m -parallel=2 -timeout=40m
+            fi
           } 2>&1 | tee "$RUNNER_TEMP/fuzz.log"
 
       - name: Upload failing input
@@ -69,7 +112,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-failure-${{ matrix.target }}
-          path: ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}/
+          path: ${{ matrix.target == 'ToastDifferential' && 'fuzz-differential/' || format('{0}/testdata/fuzz/{1}/', matrix.package, matrix.target) }}
           if-no-files-found: ignore
           retention-days: 30
 

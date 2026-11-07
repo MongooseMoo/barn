@@ -63,6 +63,29 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
+    def test_real_toast_differential_divergence(self):
+        # Real output of scripts/fuzz_differential.py over the runner's fuzz
+        # cache, run inside WSL Debian (2026-11-06).
+        log = (FIXTURES / "toast-differential-2026-11-06.txt").read_text()
+        result = report(log, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "divergence")
+        self.assertEqual(result["first_error"],
+                         "## divergence (16)\n- toast: `compile 0`\n- barn: `raised E_TYPE`\n"
+                         "- toast binary: `/root/src/toaststunt/build-release/moo` sha256 "
+                         "`72fb1cf96cb303647a8ee72808e7c1ff62a491ecf44f547e6757e71ba2402bde` "
+                         "version `ToastStunt version 2.7.3_5`")
+        self.assertEqual(result["input_path"], "0ede3170ad3ee915")
+        self.assertEqual(result["input_text"], "{\"\"/@`A!ANY=>{}'};")
+        self.assertIsNone(result["repro"])
+        self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
+        # Program text in the report never reclassifies it, and the same
+        # first divergence keeps the same signature.
+        self.assertEqual(report(log + "\npanic: in a program\n", "./scripts", "ToastDifferential",
+                                "other")["signature"], result["signature"])
+        # A run that compared nothing (exit 2) has no divergence section.
+        self.assertEqual(report(log.split("## divergence")[0], "./scripts", "ToastDifferential",
+                                "commit")["kind"], "infrastructure")
+
     def test_saved_crash_signal_is_a_finding(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:186
         # formats "fuzzing process hung or terminated unexpectedly: %v".
