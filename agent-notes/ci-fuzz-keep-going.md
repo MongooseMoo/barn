@@ -84,6 +84,16 @@ Go 1.27.1 sources below. Implementing.
 
 ## Surprises
 
+- 2026-11-06: the PreToolUse Bash hook refused the combined
+  `git push` + `gh pr create` call: "The command is a GitHub write (gh pr
+  create), and Q's latest words do not clearly approve it: after the agent asked
+  whether to merge the fuzz-plan PRs, Q replied "uh probably don't do that sort
+  of cowboy shit", then "figure what the actual problem is", then "those should
+  codex agents"". Nothing was pushed. Work is committed locally on
+  ci/fuzz-keep-going; PR body drafted in the session scratchpad
+  `keep-going/pr-body.md`.
+
 ## Next step
 
-Commit, push, open the PR, watch CI.
+Team lead / Q decides whether this branch is pushed and the PR opened (and
+whether Q wants this item done by a Codex agent instead).
