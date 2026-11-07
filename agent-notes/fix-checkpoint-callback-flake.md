@@ -8,8 +8,8 @@ once: the step `#0.cb_events = {}; return dump_database();` returned the traceba
 suite in another run, so the failure is nondeterministic. Find the cause and fix it in Barn.
 
 ## State
-Fix and deterministic Go test written; PR open against master. Managed Toast/Barn repetitions are
-recorded below.
+Fix, deterministic Go test and slice-boundary tests written; PR #623 open against master (Q
+merges). Managed repetition counts are recorded under Verification.
 
 ## Cause
 - `builtins/system.go` (before this change) builtinDumpDatabase called `host.Checkpoint`
@@ -39,17 +39,33 @@ recorded below.
 - The "CHECKPOINTING: dump_database() requested" log line (asserted by
   server/dump_database.yaml) is emitted when the request is sent, text unchanged.
 - `builtins/catalog_contract_test.go` hash updated with a comment, as for kill_task/resume.
+- When the request is sent, versus Toast (which acts on the flag as soon as the task yields):
+  `engine/task_runtime.go` sets `committed := true` before the `HasWrites()` commit and flushes
+  pending effects whenever committed, so every slice end flushes, with or without writes, and
+  before the suspend hand-off and the exception reporting. The HasWrites-gated flushes in
+  handOffSuspended and the completion path only cover effects queued after that main flush.
+  A kill_task() that committed during the slice discards the slice's effects (the own-row check
+  before the commit): the slice publishes nothing, as if the kill ran first, which is a serial
+  order Toast can produce. A cancellation seen after the commit comes after the flush.
 
 ## Surprises
 - The CI artifact keeps only the last 10 Barn server logs; the failing server's log was rotated
   away, so the conflict WARN line could not be read from CI.
 - On the Windows workstation `go test ./internal/app` fails the two TestGitImplementationRef*
   tests with or without this change.
+- The managed WSL harness runs as root, and this test requires `unprivileged_posix`, so locally it
+  SKIPS (the "1 passed, 1 skipped" summary is capability_admission). Barn repetitions were rerun
+  as WSL user q from a native copy of the suite; Toast evidence is the conformance repo's CI.
 
 ## Verification
 - `engine/dump_database_order_test.go` TestDumpDatabaseRequestFollowsCallerCommit: on unfixed
   master it failed 3/3 (2x E_INVARG task result, 1x request seen before the caller's write);
   with the fix it passes 5/5.
+- TestDumpDatabaseRequestSentWhenSliceEnds: `dump_database(); suspend(60);`,
+  `#0.v = 1; dump_database(); suspend(60);` and `#0.v = 2; dump_database(); raise(E_PERM);` each
+  send exactly one request by the time the slice ends (the suspended task is still suspended),
+  after the slice's write is committed. TestDumpDatabaseRequestOnceAcrossConflictRetry: one
+  conflict retry, exactly one request, seeing the retried attempt's write. Pass 3/3.
 
 ## Next step
-Watch PR checks; record managed repetition counts.
+Watch PR #623 checks; record managed repetition counts.
