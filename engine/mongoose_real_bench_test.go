@@ -429,6 +429,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if os.Getenv("BARN_MONGOOSE_BENCH") == "" {
 		t.Skip("set BARN_MONGOOSE_BENCH=1 to run the real-database mongoose workload")
 	}
+	if runtime.GOOS == "windows" && (runtime.Version() == "go1.27.0" || runtime.Version() == "go1.27.1") && runtime.SetMutexProfileFraction(-1) > 0 {
+		t.Fatal("Windows mutex profiling can deadlock GC on this Go toolchain (golang/go#80982); use Go 1.27.2 or newer, or capture a block profile and execution trace")
+	}
 	if dir := os.Getenv("BARN_MONGOOSE_LOG_DIR"); dir != "" {
 		priorLogger, priorLevel := slog.Default(), logging.Level.Level()
 		// Keep detailed diagnostics in JSON without flooding the cohort report.
@@ -1198,7 +1201,7 @@ func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold)
 	if sharedN > 0 {
 		sharedMean = sharedWait / time.Duration(sharedN)
 	}
-	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (exclusive acquire wait is the commit_gate phase)",
+	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (shared_commit_gate phase; exclusive acquire wait is commit_gate)",
 		sharedN, latStr(sharedWait), latStr(sharedMean))
 
 	a0, a1 := before.admission, after.admission

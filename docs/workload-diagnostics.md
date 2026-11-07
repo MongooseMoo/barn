@@ -144,6 +144,31 @@ MOO wall samples describe active execution intervals, not suspension/admission
 latency or pure CPU time. A leased running timeout needs execution/lock evidence;
 a queued or suspended timeout needs readiness/completion evidence.
 
+`shared_commit_gate` records successful ordinary and task-row-only shared
+acquisitions for runtime tasks and standalone hooks. Records carry the task,
+hook and command identities available at that entry; standalone system hooks
+can have task ID zero and no command ID. `commit_gate` records exclusive
+acquisitions. Admitted work charges both waits to admission gate-wait accounting
+rather than execution service; sweep hooks have no admission scope. Canceled
+acquisitions are not included in these shared records.
+Earlier captures omitted task-row-only shared waits from counters and admission
+accounting; their absence is not proof that a yielded command did not wait.
+For example, a restored Mongoose `say` traversed 174 slices and the Go trace
+attributed about 321ms to task-row commit blocking while the old task records
+showed only 5.5ms of exclusive acquisition. Keep trace-derived blocking separate
+from active VM wall durations and sampled CPU.
+
+On Windows with Go 1.27.1, do not enable mutex profiling for a capture. The Go
+runtime's asynchronous preemption can deadlock during GC while mutex profiling
+is enabled ([upstream issue](https://github.com/golang/go/issues/80982)). Use
+Go 1.27.2 or newer for mutex collection, or execution traces and block profiles
+on this toolchain. The real-world harness rejects enabled mutex profiling on
+Windows Go 1.27.0/1. Preserve stalled captures;
+their missing terminal results are failures, not latency samples. For an external
+Delve attachment, use a persistent interactive terminal or an explicit command
+file that captures stacks and detaches; an attachment with immediate EOF cannot
+establish the requested stacks.
+
 Before proposing a fix, report the exact failure frames and relevant profile
 rows, identify the evidence still missing, and choose a deterministic regression
 for the suspected cause. Keep native application errors, benchmark fixture faults,

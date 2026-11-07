@@ -28,6 +28,7 @@ const (
 	AsyncWork
 	ResumeQueue
 	ResumeToVM
+	SharedCommitGate
 	phaseCount
 )
 
@@ -37,7 +38,7 @@ const PhaseCount = phaseCount
 var phaseNames = [...]string{
 	"slice", "vm_attempt", "retry_waste", "input_admission", "background_admission", "readmission",
 	"commit_gate", "sqlite_handle_wait", "sqlite_work", "async_work",
-	"resume_queue", "resume_to_vm",
+	"resume_queue", "resume_to_vm", "shared_commit_gate",
 }
 
 var durationBounds = [...]time.Duration{

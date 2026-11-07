@@ -1,5 +1,12 @@
 # Mongoose player lag
 
+Shared-wait review is complete. The accounting helper, task-row and object
+commit routes preserve gate order/exemption/publication and count each
+successful acquisition once. Standalone admitted and sweep-owned hook coverage
+is corrected and has focused race regressions. The analyst report preserves
+the original finding and its addressed disposition. Full PR CI and Elle
+acceptance remain outstanding.
+
 ## Goal
 
 Complete Q's approved diagnostics and lag investigation using the existing
@@ -35,8 +42,81 @@ precede the current native-import work. The latter is now implemented:
 Independent analyses and fixes are recorded in reports/*-analyst.md and
 reports/*-coder.md. The final scoped cleanup review found the original pending
 reason loss addressed: exact probes now return73,73 and an empty list.
-No full-change CI/Elle or merge verdict exists yet. New PR publication still
-awaits Q's explicit posting authority; do not push/post while that hold remains.
+No full-change CI/Elle or merge verdict exists yet. Q explicitly authorized
+publishing and PR work in the current turn. Publish this branch and run its
+required checks; no live deployment is authorized.
+
+Shared native restoration is now committed locally. Both candidate and private
+historical control have merged the same fetched upstream code without source
+conflicts. Their executable source differs only in runtime.go, task_factory.go
+and task_runtime.go (the mutex repair); notes and its regression test also differ.
+The scoped final verifier found no new concrete blocker, with NO-MERGE pending
+remote exact-head CI and pinned Elle evidence. Its report is retained under
+reports/native-restoration-verifier.md and awaits the next substantive commit.
+
+The first sequential 30-second paired capture is retained in
+.tmp/player-lag-paired-r1/{control,candidate}. Binary hashes and source revisions
+are in its manifests. No agent builds/tests run during capture; editor Go
+metadata probes observed beforehand remain uncontrolled background activity.
+Both sequential captures completed; all cohorts settled. Control vs candidate:
+one-player p99=119.11/124.32ms, max243.09/343.69ms, goodput43/43;
+four-player p99=622.44/667.83ms, max985.21/1205.13ms, goodput88/80;
+16-player p99=1158.98/834.42ms, max2061.52/1913.32ms, goodput183/275.
+Control application failures0/10/81; candidate0/9/119. Console and profiles
+preserved. This instrumented single pair has mixed results and does not prove a
+universal speedup or resolution of remaining lag. The mutex repair independently
+has its deterministic unrelated-start regression. Whole-capture CPU reports
+PendingReadier8.14% cumulative; VM execution68.25% cumulative. These overlap.
+Input admission max2.718ms and completion-to-VM max45.297ms on the candidate do
+not individually explain successful command tails near2s. Original errors and
+shared #2585.handle conflicts remain visible; no MOO permission/content repair.
+
+Diagnostic capture .tmp/player-lag-warmed-trace used the same candidate
+binary, original fixtures, 16 players, 60s warmup and 30s measure, plus existing
+Go trace, block/mutex profiling and runtime diagnostics. It stalled after77.3s
+and did not produce a terminal cohort. Log/trace stopped at00:46:18. The
+five-minute timeout did not produce stacks. Delve was mistakenly attached with
+no persistent stdin; it exited at EOF and the target then exited before stacks
+were captured. Partial trace/log/console are retained. No application-deadlock
+conclusion is justified from this failed capture.
+
+Primary upstream issue golang/go#80982 documents Windows mutex-profiling/GC
+deadlock; its backport #81145 is in Go1.27.2. This binary uses Go1.27.1.
+The workload now rejects enabled mutex profiling on Windows Go1.27.0/1 before
+heavy loading, and diagnostics docs specify block/trace captures on this
+toolchain. The controlled retry removes mutex profiling only. A trace parser
+read the partial trace but its huge empty-region output was truncated; it is
+not a complete deadlock verdict. Raw binary trace remains available.
+
+The mutex-disabled retry .tmp/player-lag-warmed-block completed104.60s after
+60s warmup: submitted9494/completed9358/failed136/unsettled0, goodput307/s,
+p99=756.77ms/max1450.09ms. Its terminal tool output was truncated; retained
+console.partial.txt identifies that limitation. Full JSON logs, Go trace, CPU
+and block profiles and measurement-only MOO profile remain intact. The guard
+was exercised with enabled mutex profiling and failed before loading at0.00s.
+
+Concrete slow task2146093051 (#261:say) spans1442.878ms across174 slices, with
+175 VM attempts (one retry), VM-attempt total690.231ms/max12.652ms,1883122ticks,
+slice total1242.311ms and two SQLite operations. Task-filtered trace profile
+reports523.52ms synchronization blocking, of which327.53ms is StoreTxn.Commit
+(320.93ms task-rows-only); scheduling latency60.59ms. These are scoped to the
+actual task's regions, not process-wide deltas. CPU sampling for that task is
+0.57s cumulative through executeLoop; sampling is approximate. MOO profiles do
+not have a moo.task label; attempted filter returned no samples and was rejected.
+
+Source trace: original #1:forbids line21 calls yin() per handler; original
+#1:can_be_seen_by line9 calls forbids for viewer and target. #35:say_action
+line27 calls players_seeing_differently, which computes per-player titles.
+builtins/tasks.go deliberately makes nonforked yin() commit after10000ticks.
+This explains the observed slice scale but is not yet a changed policy or proof
+that removing yields improves latency. No yin/performance policy was changed.
+
+The Go trace viewer parsed the308665975-byte trace and took minutes/~43GB to
+prepare. It is currently listening at127.0.0.1:20205 in owned session17902.
+Task-scoped blocking profiles downloaded by pprof are in C:/Users/Q/pprof.
+Stop that owned viewer before new performance measurements. No workload runs
+remain active. Distinguish terminal command completion from first socket output;
+the original-checkpoint TCP bootstrap remains blocked by Toast schedule changes.
 
 ## Fixtures
 
@@ -141,24 +221,73 @@ encoding evidence. The valid byte producer uses chr(195,169).
 ## Next step
 
 1. Consolidate shared implementation in a substantive local commit, including
-   this note. Integrate newly fetched origin/master changes before publication.
-   Upstream now includes newer Elle coverage, parser, checkpoint and output fixes.
+   this note (completed). Both branches now share newer upstream Elle coverage,
+   parser, checkpoint and output fixes. Preserve generated files/ from staging.
 2. Complete final scoped verification without claiming CI/Elle. Native inputs
    were rechecked after the reason-stack cutover (engine9.038s); startup controls
    passed (server1.136s). Final worker/analyst focused commands are in reports.
 3. Control worktree C:/Users/Q/code/barn-mongoose-lag-control exists on
    bench/mongoose-lag-control. It starts historically before the mutex repair
-   and has the subsequent shared harness change applied forward. Apply identical
-   completed common fixes and upstream code there, then verify that implementation
-   differences are only the mutex repair. Do not revert the active branch.
-4. Run quiescent paired1/4/16 cohorts with identical original fixtures/settings,
-   retain failures, and inspect slow task phases, profiles and scheduling before
-   any further performance change. Current diagnostic smoke still has real tails.
-5. Obtain explicit posting authority only when the result is concrete/reviewable,
-   then run required PR CI and pinned Elle workflow before any merge. A green
+   and has all common fixes and upstream code applied forward. Source differences
+   were verified as the three mutex-repair files plus notes/test. Do not revert
+   the active branch.
+4. Paired1/4/16 captures and warmed trace are complete, with failures retained.
+   The measured task-row wait omission is repaired and scoped tests/capture
+   expose it. Preserve the remaining terminal/first-output distinction before
+   making further performance-policy changes.
+5. Posting authority is now explicit. Run required PR CI and pinned Elle
+   workflow before any merge. A green
    local focused test is not a remote exact-head, isolation or deployment verdict.
 
 PR #614 evidence from its removed old worktree remains archived in
 C:/Users/Q/code/barn/.tmp/player-command-latency-evidence.tar. Root master was not
 fast-forwarded because unrelated untracked paper files would be overwritten.
 The task worktree preserves those unrelated files and other agents' work.
+
+## Shared commit wait correction checkpoint
+
+The real task-row-only regression reproduced missing shared-gate counters and
+observer calls while queued behind a held exclusive grant. The object-writing
+path and gate-exempt controls establish the existing intended accounting.
+Both paths now use one acquireSharedCommitGate owner method; gate policy,
+validation/publication and exemption checks remain unchanged. Focused selector
+TestTaskRowSharedGateWaitAccounting and
+TestTaskRowExclusiveGrantDoesNotAccountSharedWait passed (store1.529s).
+Report reports/task-row-wait-coder.md retains RED/GREEN and a clock-resolution
+fixture correction. Parent owns per-task engine/metrics phase integration.
+The same focused race selector passed (store2.722s). Next: parent integration
+and scoped review. No full
+CI, Elle, publication or merge acceptance is established by this correction.
+
+Parent runtime held-gate regression now passes with-race (engine1.306s), and
+Store focused-race result is2.722s. The .tmp/player-lag-accounted-smoke run
+finished all1/4/16 cohorts with restored1080/49 and zero unsettled tasks.
+One-player shared phase7193/447.424ms matches store counters7193/447.42ms;
+four-player14436/2905.361ms;16-player27330/31304.313ms. These are process-wide
+window totals and are not attributed to an individual command. Per-task records
+are saved in JSON. 16-player p99=961.41ms/max1444.69ms,2325 completed/33 failed;
+this diagnostic validation is not a controlled speedup comparison.
+
+Standalone CallVerb and sweep-owned hooks in engine/call_verb.go now use the
+same shared observer with the available hook/owner identity and nil-scope
+handling. Their missing-observation finding is addressed: admitted and sweep
+hook endpoints both reproduced missing observations, then passed with
+the held-gate root test under-race (engine1.469s). The analyst's source followup
+found its coverage issue addressed. Canceled acquisitions are explicitly outside
+the successful-acquisition accounting. No gate policy changes.
+The owned Go trace viewer has been stopped; task-specific downloaded profiles
+were copied beside the raw trace. Q has now authorized publication and PR work.
+
+The existing barn_logs CLI read actual task2145966056 from the corrected capture:
+shared_commit_gate172/306.3509ms versus exclusivecommit_gate2/3.0939ms,
+174slices totaling1156.4991ms, invalidrecords0, terminalexceptions0 and
+commandrecords0 (in-process harness). Raw CLI JSON is saved with the capture.
+The final hook correction postdates this smoke; it has focused-race coverage.
+Final scoped local review found no remaining concrete source blocker; its
+verdict remains NO-MERGE pending exact-head PR CI and pinned Elle evidence.
+Both requested prose corrections (current hook coverage and admission scope)
+are applied. Source, reports and this note belong to the substantive correction.
+Next: integrate fetched upstream changes, publish the prepared PR, and run
+exact-head PR CI and pinned Elle before any merge.
+Remaining first-output work needs a schedule-preserving credential path; no
+login script is available and the unsafe Toast bootstrap remains rejected.

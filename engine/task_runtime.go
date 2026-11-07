@@ -308,7 +308,7 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
 	ctx.StoreTxn.SetCommitContext(taskCtx)
 	// The task's own row: a kill that committed since the last slice stops it,
 	// and a resume's value is what its suspend() returns. The attempt's commit
@@ -591,7 +591,7 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
 	// Every suspension yields the commit gate along with execution. Everything
 	// after this point (completion hooks, the suspend hand-off, a failure-path
 	// txn that lives on) takes the gate normally. Checkpoint requests are
@@ -844,7 +844,7 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+		ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, taskRuntimeIdentity(t)))
 	}
 	// Outside shutdown, the WAIFs queued above and the store's committed
 	// anonymous objects cover the ledger, which otherwise grows on every
