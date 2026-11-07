@@ -116,6 +116,20 @@ rounds each, plus one run of the first seed under each deliberate fault.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
+The existing `Elle isolation` workflow also accepts `seeds` and `rounds` on a
+manual dispatch. For example, run a bounded larger campaign with:
+
+```sh
+gh workflow run elle.yml --ref master \
+  -f 'seeds=412 395 396 397 398 399 400 401' -f rounds=200
+```
+
+PR and merge-queue runs retain the three-seed, 40-round defaults. Manual runs
+use the same pinned checker, negative controls and evidence archive; no recurring
+campaign is scheduled. Choose a bounded campaign size within the workflow's
+25-minute limit and preserve a failed run's evidence before changing that size.
+Manual runs do not record a tested-tree pass for the standard PR configuration.
+
 Direct generation needs `BARN_ELLE_OUTPUT`, `GOMAXPROCS=4` and `-tags elle`:
 
 ```sh
@@ -140,6 +154,27 @@ reject the resulting append history with an anomaly witness:
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
+| `ring-reads` | property-value validation only for the four ring properties | held four-transaction ring |
+| `map-key-metadata` | owner and permission validation for keyed accesses | nonwizard map permission and ownership revocation pairs |
+| `map-key-presence` | validation of an absent map entry | missing-key read/insertion pair |
+| `map-key-whole-read` | promotion to a whole-property read after a keyed write | whole-map observation after writing another entry |
+
+Eight additional held pairs exercise keyed reads against whole-map replacement,
+whole-map reads against keyed writes, whole reads after keyed writes, missing
+entries, inherited map entries, clear overrides, and nonwizard reads across
+property permission or ownership changes. Each pair owns a separate map and
+marker. Its observed row changes once from `{}` to a unique-token list; the
+writer reads the marker before publishing and the held reader then appends to
+the marker. Removing the reader's dependency exposes a cycle through values both
+tasks actually observed. Missing-key `E_RANGE` and denied-read `E_PERM` are
+recorded as the selected scenario's state, while other errors remain native
+failures. Healthy runs execute all eight pairs and require committed reads and
+appends for every pair row. The new fault runs execute only their precise
+scenarios: metadata runs both nonwizard revocations, presence runs the missing
+entry pair, and whole-read runs the whole-after-keyed pair. Existing faults skip
+these additional map pairs and retain their original bounded witness schedules.
+Every fault still requires a completed Go run and an Elle rejection with a witness;
+each selected pair retains its final-state assertion and committed row counts.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
@@ -175,5 +210,27 @@ then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
 
+Map byte quotas are a separate semantic invariant: a serializable merge of
+disjoint keys can still exceed the task's value limit. The
+`TestKeyedMapRebaseRespectsTaskValueQuota` regression in `vm/map_key_test.go`
+stages real VM property assignments from the same snapshot. It checks preservation
+of both updates below the limit, validation loss without publication at or above
+the limit, and E_QUOTA when the rejected assignment is rerun against the committed
+map. These outcomes are not Elle dependency-graph witnesses.
+
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.
+
+The corpus also runs a held four-transaction ring. Each task reads the row its
+predecessor will append to before any task can write, then appends to its own row.
+The `ring-reads` fault removes validation only for these properties, leaving the
+other waves healthy so its witness must come from the ring.
+
+Healthy random rounds vary one to four slices per task and one to four appends
+per generated append body, including repeated appends to a key and sparse reads.
+Register bodies alternate blind writes, read-only/repeated reads, cross-key
+read/write dependencies, intermediate writes followed by own reads, and full reads
+around a write. Every shape must appear in committed coverage. Random writes use
+unique increasing tokens starting at 2^40, separate from held schedules; forked
+operations use the same allocator. Seeds reproduce generation on the same tree,
+not scheduling or histories produced by an older generator.

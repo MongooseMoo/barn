@@ -36,9 +36,12 @@ func TestFormatMOORejectsNULWithoutOutput(t *testing.T) {
 	}
 }
 
-func TestFormatMOOPreservesAllNonNULBytes(t *testing.T) {
+func TestFormatMOOPreservesAllRepresentableStringBytes(t *testing.T) {
 	var bytes []byte
 	for i := 1; i <= 255; i++ {
+		if i == '\n' {
+			continue // A source string cannot cross its source line.
+		}
 		bytes = append(bytes, byte(i))
 	}
 	value := string(bytes)
@@ -59,6 +62,19 @@ func TestFormatMOOPreservesAllNonNULBytes(t *testing.T) {
 		again, err := formatMOOChecked(reparsed, fully)
 		if err != nil || strings.Join(again, "\n") != strings.Join(lines, "\n") {
 			t.Fatalf("byte-preserving formatter is not idempotent: first %q, second %q, error %v", lines, again, err)
+		}
+	}
+}
+
+func TestFormatMOORejectsStringNewlinesWithoutOutput(t *testing.T) {
+	for _, value := range []string{"\n", "line1\nline2", "escaped\\\nline"} {
+		literal := &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: value}
+		program := &ir.Program{Statements: []ir.Stmt{&ir.ReturnStmt{Value: literal}}}
+		for _, fully := range []bool{false, true} {
+			lines, err := formatMOOChecked(program, fully)
+			if lines != nil || err == nil || err.Error() != "newline is not representable in a MOO string literal" {
+				t.Fatalf("fully=%t lines=%q error=%v", fully, lines, err)
+			}
 		}
 	}
 }

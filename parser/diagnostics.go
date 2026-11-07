@@ -63,6 +63,10 @@ func (p *Parser) ParseProgramWithDiagnostics(checkBuiltin func(string, ir.Positi
 		stmt, err := p.parseStatement()
 		if p.lexer.lexicalError != nil {
 			p.diagnostics = append(p.diagnostics, p.lexer.lexicalError)
+			if p.lexer.lexicalError.Msg == "Missing quote" {
+				// Toast reports the lexical error before the resulting syntax error.
+				p.diagnostics = append(p.diagnostics, &ParseError{Position: p.lexer.lexicalError.Position, Msg: "syntax error"})
+			}
 			return nil, p.orderedDiagnostics()
 		}
 		if err != nil {

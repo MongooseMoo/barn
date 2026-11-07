@@ -23,10 +23,10 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"return (1).name; (1).name = 2;",
 		"return (-1)[1];",
 		"return (-1).name; (-1).name = 2;",
-		"return (@0) % 0;",
-		"return (@{1})[1];",
-		"return @(1 + 2);",
-		"return (@0) ? 1 | 2;",
+		"return {@(0 % 0)};",
+		"return {@{1}[1]};",
+		"return {@(1 + 2)};",
+		"return {@(0 ? 1 | 2)};",
 		"items[^] = value; items[2..$] = replacement;",
 		"{required, ?missing, ?optional = 2, @rest} = values;",
 		"if (a) return 1; elseif (b) return 2; else return 3; endif",
@@ -62,6 +62,12 @@ func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
 	for _, value := range values {
 		t.Run(strconv.Quote(value), func(t *testing.T) {
 			source := "return " + mooStringLiteral(value) + ";"
+			if strings.Contains(value, "\n") {
+				if _, err := parser.NewParser(source).ParseProgram(); err == nil {
+					t.Fatal("source string containing a newline compiled")
+				}
+				return
+			}
 			assertCanonicalRoundTrip(t, source)
 
 			program, err := parser.NewParser(source).ParseProgram()

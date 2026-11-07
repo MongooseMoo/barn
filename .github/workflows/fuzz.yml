@@ -35,9 +35,11 @@ jobs:
           - { package: ./vm, target: FuzzSourceExecution }
           - { package: ./vm, target: FuzzRestoreVMSnapshotDoesNotPanic }
           - { package: ./bytecode, target: FuzzVerifyProgram }
+          - { package: ./db/format, target: FuzzReadDatabase }
           - { package: ./command, target: FuzzCommandLine }
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
           - { package: ./server, target: FuzzTCPReadInput }
+          - { package: ./builtins, target: FuzzStringBuiltins }
     steps:
       - name: Check /dev/null is a device
         run: |

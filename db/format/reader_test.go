@@ -11,6 +11,53 @@ import (
 	"testing"
 )
 
+// Toast's ng_read_object (db_file.cc, DBV_NextGen and later, i.e. v5 and v17)
+// reads a numbered object's "#N" label and ignores it: dbpriv_new_object(-1)
+// takes the next slot. v4_read_object instead rejects a non-consecutive label.
+func TestNumberedObjectLabelMismatch(t *testing.T) {
+	for _, tc := range []struct {
+		path, eol string
+		wantErr   bool
+	}{
+		{"testdata/Broken1.db", "\n", false},
+		{"testdata/Anon6.db", "\n", false},
+		{"../../Test_fresh2.db", "\r\n", true},
+	} {
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			raw, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := parseDatabaseWithWaifIdentities(bufio.NewReader(strings.NewReader(string(raw))), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			label := tc.eol + "#2" + tc.eol
+			if !strings.Contains(string(raw), label) {
+				t.Fatalf("fixture has no %q record", label)
+			}
+			mutated := strings.Replace(string(raw), label, tc.eol+"#9"+tc.eol, 1)
+			database, err := parseDatabaseWithWaifIdentities(bufio.NewReader(strings.NewReader(mutated)), nil)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "object record 2 has ID #9") {
+					t.Fatalf("error = %v, want rejected label #9 at record 2", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := database.Objects[2]
+			if !ok || got.Name() != original.Objects[2].Name() {
+				t.Fatalf("record 2 not placed at #2: %v", database.Objects)
+			}
+			if _, ok := database.Objects[9]; ok {
+				t.Fatal("label #9 created object #9")
+			}
+		})
+	}
+}
+
 func TestNewStoreFromDatabaseReturnsAddError(t *testing.T) {
 	first := store.NewObjectBuilder(1)
 	duplicate := store.NewObjectBuilder(1)

@@ -268,7 +268,9 @@ func (tx *StoreTxn) validateMapKeysLocked(first *types.ErrorCode) {
 		switch {
 		case !ok:
 			c.Missing = true
-		case prop.clear || prop.owner != st.owner || prop.perms != st.perms || prop.value.Type() != types.TYPE_MAP:
+		case prop.clear || prop.value.Type() != types.TYPE_MAP:
+			c.Live = prop.version
+		case !isolationprobe.Fault("map-key-metadata") && (prop.owner != st.owner || prop.perms != st.perms):
 			c.Live = prop.version
 		case !mapEntriesUnchanged(prop.value, st.reads):
 			c.Live = prop.version
@@ -284,6 +286,9 @@ func (tx *StoreTxn) validateMapKeysLocked(first *types.ErrorCode) {
 
 func mapEntriesUnchanged(live types.Value, reads []mapKeyRead) bool {
 	for _, r := range reads {
+		if !r.present && isolationprobe.Fault("map-key-presence") {
+			continue
+		}
 		v, present := live.MapGet(r.key)
 		if present != r.present || (present && !v.Identical(r.value)) {
 			return false

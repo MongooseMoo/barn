@@ -12,8 +12,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// whole native order (including its appended tail) and every policy column.
 	// Since then kill_task (ImplementationOwned) and resume (Irreversible) became
 	// Transactional: they stage the target task's store row in the caller's
-	// transaction.
-	const expected = "2bcef05fd9d282ae5448964c281a1ac6e9dd3b3b7310e8891392128677c95c0f"
+	// transaction. dump_database (CommitGateReentrant) became Transactional too:
+	// it queues its checkpoint request as a commit-deferred effect.
+	const expected = "02be89d588ee263e04e460ab456bbdec04a4bcce8a1125c170433c0600e09537"
 	type contract struct {
 		Name       string
 		Signature  *Signature

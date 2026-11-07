@@ -473,6 +473,9 @@ func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 		if strings.IndexByte(v.StringValue, 0) >= 0 {
 			return f.fail(v.Pos, ErrNULInSource)
 		}
+		if strings.Contains(v.StringValue, "\n") {
+			return f.fail(v.Pos, fmt.Errorf("newline is not representable in a MOO string literal"))
+		}
 		return quoteMOOString(v.StringValue)
 	case ir.LiteralBool:
 		if v.BoolValue {
@@ -514,8 +517,8 @@ func (f *mooFormatter) errorName(pos ir.Position, name string) string {
 
 // quoteMOOString emits a string literal using MOO's escape rules. A backslash
 // only quotes the byte immediately following it, so only quotes and backslashes
-// need escaping; representable non-NUL bytes are preserved verbatim. Public
-// formatter paths reject NUL before returning any source.
+// need escaping; representable bytes are preserved verbatim. Public formatter
+// paths reject NUL and string newlines before returning any source.
 func quoteMOOString(value string) string {
 	var quoted strings.Builder
 	quoted.Grow(len(value) + 2)

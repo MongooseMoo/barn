@@ -52,9 +52,13 @@ func vmDescriptors() []builtins.Descriptor {
 			code := joinLines(lines)
 			prog, diagnostics := ctx.Registry.Compiler().CompileMOO(strings.Split(code, "\n"))
 			if len(diagnostics) > 0 {
+				errors := make([]types.Value, len(diagnostics))
+				for i, diagnostic := range diagnostics {
+					errors[i] = types.NewStr(diagnostic.Error())
+				}
 				return types.Ok(types.NewList([]types.Value{
 					types.NewInt(0),
-					types.NewList([]types.Value{types.NewStr(diagnostics[0].Error())}),
+					types.NewList(errors),
 				}))
 			}
 
