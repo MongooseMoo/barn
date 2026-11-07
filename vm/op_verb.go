@@ -40,12 +40,16 @@ func (vm *VM) executeCallVerbWide() error {
 	return vm.executeCallVerbStatic(int(vm.ReadShort()))
 }
 
+// executeCallVerbStatic reads the argc operand before it can fail: a frame
+// without the 'd' flag pushes the error and continues at the current ip, which
+// must be the next instruction, not this one's operand.
 func (vm *VM) executeCallVerbStatic(nameIdx int) error {
+	argc := int(vm.FetchByte())
 	if _, err := vm.staticNameFromConstant(nameIdx, "verb"); err != nil {
 		return err
 	}
 	program := vm.CurrentFrame().Program
-	return vm.executeCallVerbNamed(program.Constants[nameIdx], int(vm.FetchByte()), callSiteAt(program, nameIdx))
+	return vm.executeCallVerbNamed(program.Constants[nameIdx], argc, callSiteAt(program, nameIdx))
 }
 
 func (vm *VM) executeCallVerbDynamic() error {
