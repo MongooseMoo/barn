@@ -912,11 +912,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		metrics.UncaughtExceptions.Add(1)
 		stackValues := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {
-			frame := stack[i].ToList()
-			if s.session.IncludeRTVars(t.Context) {
-				frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-			}
-			stackValues = append(stackValues, frame)
+			stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 		}
 		formattedLines := task.FormatTraceback(stack, result.ErrorMessage())
 		formattedValues := make([]types.Value, 0, len(formattedLines))
@@ -1240,11 +1236,7 @@ func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource 
 	}
 	stackValues := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
-		frame := stack[i].ToList()
-		if s.session.IncludeRTVars(t.Context) {
-			frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-		}
-		stackValues = append(stackValues, frame)
+		stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 	}
 	traceLines := task.FormatTraceback(stack, "Task ran out of "+resource)
 	traceValues := make([]types.Value, 0, len(traceLines))

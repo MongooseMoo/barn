@@ -35,12 +35,7 @@ func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 		if f.ThisValue.Type() == types.TYPE_ANON {
 			f.ThisValue = types.NewAnon(types.ObjNothing)
 		}
-		frame := f.ToList()
-		if includeVariables {
-			values := append(frame.Elements(), f.RuntimeVariableMap())
-			frame = types.NewList(values)
-		}
-		frames = append(frames, frame)
+		frames = append(frames, f.ToList(true, includeVariables))
 		if f.IsEvalFrame {
 			break
 		}

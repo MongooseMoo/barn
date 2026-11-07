@@ -58,11 +58,7 @@ func (s *Runtime) reportLaggingTask(t *Task, scope *admission.Scope, result type
 		}
 		frames := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {
-			frame := stack[i].ToList()
-			if s.session.IncludeRTVars(t.Context) {
-				frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-			}
-			frames = append(frames, frame)
+			frames = append(frames, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 		}
 		payload = types.NewList(frames)
 	} else {

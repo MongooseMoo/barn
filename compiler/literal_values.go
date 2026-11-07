@@ -20,7 +20,7 @@ func valueFromLiteral(lit *ir.LiteralExpr) (types.Value, error) {
 	case ir.LiteralObj:
 		return types.NewObj(types.ObjID(lit.ObjID)), nil
 	case ir.LiteralErr:
-		code, ok := errorNameToCode(lit.ErrorName)
+		code, ok := types.ErrorFromString(lit.ErrorName)
 		if !ok {
 			return types.None, fmt.Errorf("unknown error code: %s", lit.ErrorName)
 		}
@@ -28,10 +28,6 @@ func valueFromLiteral(lit *ir.LiteralExpr) (types.Value, error) {
 	default:
 		return types.None, fmt.Errorf("unknown literal kind: %d", lit.Kind)
 	}
-}
-
-func errorNameToCode(name string) (types.ErrorCode, bool) {
-	return types.ErrorFromString(name)
 }
 
 // literalErrorCodes returns the error codes of a code list made only of error
