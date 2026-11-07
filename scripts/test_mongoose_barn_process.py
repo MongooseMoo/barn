@@ -24,7 +24,8 @@ class BarnProcessTests(unittest.TestCase):
         db.write_bytes(b"prepared image")
         config.write_text("OUTBOUND_NETWORK = 1\nPROMOTE_NUMBERS = 1\n")
         registry.write_text(json.dumps({"profiles": [{"profile_id": barn.PROFILE_ID,
-            "runtime_os": "linux", "config_file": config.name, "support_status": "supported"}]}))
+            "runtime_os": "linux", "config_file": config.name, "support_status": "supported",
+            "expected_features": {"option.OUTBOUND_NETWORK": True, "option.PROMOTE_NUMBERS": True}}]}))
         owner = barn.OwnedBarnServer(exe, db, root, 17778, config=config, registry=registry)
         owner.proc = Mock(pid=123456, returncode=0)
         owner.proc.poll.return_value = None
@@ -332,6 +333,74 @@ class BarnProcessTests(unittest.TestCase):
             owner.profile_path.write_text(json.dumps(row))
             with self.assertRaisesRegex(RuntimeError, "profile does not match"):
                 owner._validate_profile()
+
+    def test_registered_feature_mismatch_rejects_manifest(self):
+        owner, _ = self.owner()
+        good = self.profile(owner)
+        for features in ({"option.OUTBOUND_NETWORK": True}, {"option.OUTBOUND_NETWORK": 1, "option.PROMOTE_NUMBERS": True},
+                         {"option.OUTBOUND_NETWORK": False, "option.PROMOTE_NUMBERS": True}):
+            owner.profile_path.write_text(json.dumps(dict(good, features=features)))
+            with self.assertRaisesRegex(RuntimeError, "profile does not match"):
+                owner._validate_profile()
+
+    def test_public_testdb_profile_comes_from_the_real_registry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "barn").write_bytes(b"fixture")
+            owner = barn.OwnedBarnServer(root / "barn", root / "Test.db", root, 17779,
+                                         config=barn.ROOT / "profiles" / "barn" / "outbound-on.conf",
+                                         profile_id="barn-linux-testdb-outbound-on")
+            self.assertEqual(owner.command[owner.command.index("--profile-id") + 1], "barn-linux-testdb-outbound-on")
+            self.assertEqual(owner.identity["profile_id"], "barn-linux-testdb-outbound-on")
+            self.assertEqual(owner.expected_features, {"option.OUTBOUND_NETWORK": True,
+                                                       "builtin.open_network_connection": "present"})
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):  # config must be the registered one
+                barn.OwnedBarnServer(root / "barn", root / "Test.db", root, 17779,
+                                     profile_id="barn-linux-testdb-outbound-on")
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):  # Windows diagnostics are not owned here
+                barn.OwnedBarnServer(root / "barn", root / "Test.db", root, 17779,
+                                     config=barn.ROOT / "profiles" / "barn" / "outbound-on.conf",
+                                     profile_id="barn-windows-testdb-outbound-on")
+
+    def test_pause_resume_crash_signal_only_the_verified_owned_pidfd(self):
+        owner, _ = self.owner()
+        owner.log_file = owner.log_path.open("xb")
+        owner.proc.returncode = -9
+        with patch.object(owner, "verify_owned") as guard, \
+             patch.object(barn.signal, "pidfd_send_signal") as send, patch.object(barn.os, "close") as close:
+            owner.pause()
+            self.assertTrue(owner.paused)
+            owner.resume()
+            self.assertFalse(owner.paused)
+            result = owner.crash()
+        self.assertEqual([call.args for call in send.call_args_list],
+                         [(77, signal.SIGSTOP), (77, signal.SIGCONT), (77, signal.SIGKILL)])
+        self.assertEqual(guard.call_count, 3)
+        owner.proc.wait.assert_called_once_with(timeout=10)
+        close.assert_called_once_with(77)
+        self.assertIsNone(owner.pidfd)
+        self.assertTrue(owner.log_file.closed)
+        self.assertEqual(result["exit_code"], -9)
+        self.assertTrue(result["forced"])
+        self.assertFalse(result["final_checkpoint"]["verified"])
+
+    def test_fault_methods_refuse_changed_identity_or_exited_process(self):
+        for method in ("pause", "resume", "crash"):
+            with self.subTest(method=method):
+                owner, _ = self.owner()
+                with patch.object(owner, "verify_owned", side_effect=RuntimeError("identity changed")), \
+                     patch.object(barn.signal, "pidfd_send_signal") as send, patch.object(barn.os, "close"):
+                    with self.assertRaisesRegex(RuntimeError, "identity changed"):
+                        getattr(owner, method)()
+                send.assert_not_called()
+                owner, _ = self.owner()
+                owner.proc.poll.return_value = 0
+                with patch.object(owner, "verify_owned") as guard, \
+                     patch.object(barn.signal, "pidfd_send_signal") as send, patch.object(barn.os, "close"):
+                    with self.assertRaisesRegex(RuntimeError, "not running"):
+                        getattr(owner, method)()
+                guard.assert_not_called()
+                send.assert_not_called()
 
     def test_endpoints_accept_actual_text_and_json_only_on_private_loopback(self):
         text = 'time=now msg="operator endpoint listening" addr=127.0.0.1:8123\n'
