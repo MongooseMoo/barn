@@ -2,10 +2,48 @@ package store
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )
+
+// BenchmarkRetainedCreatedObjects measures live heap after a full GC, separately
+// from transient allocations. Time and alloc/op include GC and are not throughput
+// results. Use -benchtime=1x; the retained-B/object metric is the comparison.
+func BenchmarkRetainedCreatedObjects(b *testing.B) {
+	const count = 1024
+	for _, anonymous := range []bool{false, true} {
+		b.Run(fmt.Sprintf("anon=%t", anonymous), func(b *testing.B) {
+			for b.Loop() {
+				s := NewStore()
+				parent, _ := loadedClass(b, s, 150)
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				for range count {
+					tx := s.BeginSnapshot(0)
+					_, ec := tx.CreateObject([]types.ObjID{parent}, 1, anonymous)
+					if ec != types.E_NONE {
+						b.Fatal(ec)
+					}
+					ec = tx.Commit()
+					tx.Release()
+					if ec != types.E_NONE {
+						b.Fatal(ec)
+					}
+				}
+				if active := s.ActiveReadTransactions(); active != 0 {
+					b.Fatalf("cohort retained %d snapshots", active)
+				}
+				runtime.GC()
+				runtime.ReadMemStats(&after)
+				runtime.KeepAlive(s)
+				b.ReportMetric(float64(int64(after.HeapAlloc)-int64(before.HeapAlloc))/count, "retained-B/object")
+			}
+		})
+	}
+}
 
 // Each sample uses a fresh store and exactly 32 objects. In particular, recycle
 // is measured with already committed objects, not with its creation included.
