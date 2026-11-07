@@ -19,6 +19,7 @@ const (
 	defaultMaxStringConcat    = 64537861
 	defaultMaxListValueBytes  = 64537861
 	defaultMaxMapValueBytes   = 64537861
+	defaultMaxQueuedOutput    = 65536
 	defaultFgTicks            = 60000
 	defaultBgTicks            = 30000
 	defaultFgSeconds          = 5.0
@@ -29,6 +30,7 @@ const (
 	minStringConcatLimit      = 1021
 	minListValueBytesLimit    = 1021
 	minMapValueBytesLimit     = 1021
+	minQueuedOutputLimit      = 2048
 	maxStringConcatLimit      = math.MaxInt32 - minStringConcatLimit
 	maxListValueBytesLimit    = math.MaxInt32 - minListValueBytesLimit
 	maxMapValueBytesLimit     = math.MaxInt32 - minMapValueBytesLimit
@@ -113,6 +115,7 @@ func defaultServerOptionsSnapshot() task.PendingServerOptions {
 		MaxStringConcat:    defaultMaxStringConcat,
 		MaxListValueBytes:  defaultMaxListValueBytes,
 		MaxMapValueBytes:   defaultMaxMapValueBytes,
+		MaxQueuedOutput:    defaultMaxQueuedOutput,
 		FgTicks:            defaultFgTicks,
 		BgTicks:            defaultBgTicks,
 		FgSeconds:          defaultFgSeconds,
@@ -133,6 +136,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *task.PendingServerOptions
 	state.maxStringConcat = snapshot.MaxStringConcat
 	state.maxListValueBytes = snapshot.MaxListValueBytes
 	state.maxMapValueBytes = snapshot.MaxMapValueBytes
+	state.maxQueuedOutput = snapshot.MaxQueuedOutput
 	state.fgTicks = snapshot.FgTicks
 	state.bgTicks = snapshot.BgTicks
 	state.fgSeconds = snapshot.FgSeconds
@@ -169,6 +173,19 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	if prop, ok := findDefined(serverOptsID, "include_rt_vars"); ok {
 		snapshot.IncludeRTVars = prop.Value.Truthy()
 		snapshot.Loaded++
+	}
+
+	if prop, ok := findDefined(serverOptsID, "max_queued_output"); ok {
+		if prop.Value.Type() == types.TYPE_INT {
+			// The cached server option is a signed 32-bit value even when
+			// MOO integers are wider; clamp only after that conversion.
+			value := int64(int32(prop.Value.Int()))
+			if value > 0 && value < minQueuedOutputLimit {
+				value = minQueuedOutputLimit
+			}
+			snapshot.MaxQueuedOutput = value
+			snapshot.Loaded++
+		}
 	}
 
 	// Read max_string_concat (searching inheritance chain)
@@ -324,6 +341,16 @@ func (r *Session) maxStringConcatFor(ctx *task.Context) int {
 		return view.MaxStringConcat
 	}
 	return r.GetMaxStringConcat()
+}
+
+func (r *Session) maxQueuedOutputFor(ctx *task.Context) int64 {
+	if view := pendingServerOptions(ctx); view != nil {
+		return view.MaxQueuedOutput
+	}
+	state := &r.runtime.serverOptions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.maxQueuedOutput
 }
 
 func numericSeconds(value types.Value) (float64, bool) {

@@ -45,6 +45,110 @@ func requireFileInt(t testing.TB, r types.Result, want int64) {
 	}
 }
 
+func TestFileGrepFirstMatchPreservesNextLine(t *testing.T) {
+	for _, test := range []struct{ mode, wantNext string }{
+		{"r-tf", "omega"},
+		{"r-bf", "omega~0A"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			ctx, id := readlineFixture(t, "alpha\nneedle\nomega\n", test.mode)
+			requireFileInt(t, builtinFileSeek(ctx, []types.Value{id, types.NewInt(15)}), 15)
+			result := admitTestBuiltin("file_grep", ctx, []types.Value{id, types.NewStr("needle")})
+			if !result.IsNormal() || result.Val.String() != `{{"needle", 2}}` {
+				t.Fatalf("file_grep = %+v, want {{\"needle\", 2}}", result)
+			}
+			requireFileInt(t, builtinFileTell(ctx, []types.Value{id}), 13)
+			requireFileString(t, builtinFileReadline(ctx, []types.Value{id}), test.wantNext)
+		})
+	}
+}
+
+func TestFileScansRewindAndConsumeToEOF(t *testing.T) {
+	for _, test := range []struct {
+		name, builtin, needle, want string
+	}{
+		{"count", "file_count_lines", "", "3"},
+		{"all matches", "file_grep", "a", `{{"alpha", 1}, {"omega", 3}}`},
+		{"no matches", "file_grep", "missing", "{}"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, id := readlineFixture(t, "alpha\nneedle\nomega\n", "r-tf")
+			requireFileInt(t, builtinFileSeek(ctx, []types.Value{id, types.NewInt(15)}), 15)
+			args := []types.Value{id}
+			if test.builtin == "file_grep" {
+				args = append(args, types.NewStr(test.needle), types.NewInt(1))
+			}
+			result := admitTestBuiltin(test.builtin, ctx, args)
+			if !result.IsNormal() || result.Val.String() != test.want {
+				t.Fatalf("%s = %+v, want %s", test.builtin, result, test.want)
+			}
+			requireFileInt(t, builtinFileTell(ctx, []types.Value{id}), 19)
+			requireFileInt(t, builtinFileEOF(ctx, []types.Value{id}), 1)
+		})
+	}
+}
+
+func TestFileCountLinesHandlesFragmentsAndFinalLines(t *testing.T) {
+	for _, test := range []struct {
+		name, data string
+		want       int64
+	}{
+		{"empty", "", 0},
+		{"empty line", "\n", 1},
+		{"final unterminated", "alpha\nlast", 2},
+		{"exact reader buffer", strings.Repeat("x", 4096), 1},
+		{"long unterminated", strings.Repeat("x", 65536), 1},
+		{"long terminated", strings.Repeat("x", 65536) + "\n", 1},
+		{"long with tail", strings.Repeat("x", 65536) + "\ntail\n", 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, id := readlineFixture(t, test.data, "r-tf")
+			requireFileInt(t, admitTestBuiltin("file_count_lines", ctx, []types.Value{id}), test.want)
+			requireFileInt(t, builtinFileTell(ctx, []types.Value{id}), int64(len(test.data)))
+		})
+	}
+}
+
+func TestFileGrepReadsLongMatchedLineWithoutConsumingTail(t *testing.T) {
+	line := strings.Repeat("x", 65536)
+	ctx, id := readlineFixture(t, line+"\ntail\n", "r-tf")
+	result := admitTestBuiltin("file_grep", ctx, []types.Value{id, types.NewStr("x")})
+	if !result.IsNormal() || len(result.Val.Elements()) != 1 {
+		t.Fatalf("long-line file_grep = %+v, want one match", result)
+	}
+	match := result.Val.Elements()[0].Elements()
+	if len(match) != 2 || match[0].Str() != line || match[1].Int() != 1 {
+		t.Fatal("long-line file_grep did not return the complete first line")
+	}
+	requireFileInt(t, builtinFileTell(ctx, []types.Value{id}), 65537)
+	requireFileString(t, builtinFileReadline(ctx, []types.Value{id}), "tail")
+}
+
+func TestFileScansDoNotRunWhenEffectBoundaryRefuses(t *testing.T) {
+	for _, name := range []string{"file_count_lines", "file_grep"} {
+		t.Run(name, func(t *testing.T) {
+			ctx, id := readlineFixture(t, "alpha\nneedle\nomega\n", "r-tf")
+			requireFileInt(t, builtinFileSeek(ctx, []types.Value{id, types.NewInt(13)}), 13)
+			crossings := 0
+			ctx.BeforeIrreversibleEffect = func() bool {
+				crossings++
+				ctx.ConflictRetryRequested = true
+				return true
+			}
+			args := []types.Value{id}
+			if name == "file_grep" {
+				args = append(args, types.NewStr("needle"))
+			}
+			result := admitTestBuiltin(name, ctx, args)
+			if result.Flow != types.FlowAbortAttempt || crossings != 1 || ctx.IrreversibleSideEffect {
+				t.Errorf("%s = %+v, crossings=%d irreversible=%v, want aborted before effect", name, result, crossings, ctx.IrreversibleSideEffect)
+			}
+			requireFileInt(t, builtinFileTell(ctx, []types.Value{id}), 13)
+			requireFileString(t, builtinFileReadline(ctx, []types.Value{id}), "omega")
+		})
+	}
+}
+
 func TestReadlineBufferedValuesAndPosition(t *testing.T) {
 	for _, binary := range []bool{false, true} {
 		t.Run(fmt.Sprint(binary), func(t *testing.T) {
