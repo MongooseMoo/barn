@@ -17,3 +17,12 @@ func FuzzParseFormatRoundTrip(f *testing.F) {
 		assertDirectProgramFormatRoundTrip(t, program)
 	})
 }
+
+// FuzzStructuredParseFormatRoundTrip checks the same round trip on generated
+// programs. Each is valid MOO, so a format or parse failure fails the case.
+func FuzzStructuredParseFormatRoundTrip(f *testing.F) {
+	fuzzseed.AddChoices(f)
+	f.Fuzz(func(t *testing.T, choices []byte) {
+		assertDirectProgramFormatRoundTrip(t, fuzzseed.Program(choices))
+	})
+}

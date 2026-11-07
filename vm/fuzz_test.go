@@ -20,43 +20,59 @@ const sourceFuzzTicks = 100
 func FuzzSourceExecution(f *testing.F) {
 	fuzzseed.Add(f)
 	f.Fuzz(func(t *testing.T, source string) {
-		// Core capabilities exclude optional network, SQLite and process input.
-		// State and compiler caches are private to this input, with no server.
-		registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
-		if err != nil {
-			t.Fatal(err)
-		}
-		program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
-		if len(diagnostics) != 0 {
-			return
-		}
-		session := newTestSessionWithTaskManager(registry)
-		defer func() {
-			if err := session.Close(); err != nil {
-				t.Error(err)
-			}
-		}()
-		store := dbstore.NewStore()
-		tasks := &sourceFuzzTasks{nextID: 2}
-		machine := newSourceFuzzVM(store, session, 1, sourceFuzzTicks)
-		// Errors and tick exhaustion are results; a Go panic fails the case.
-		result := tasks.run(t, machine, machine.Run(program))
-		spent := machine.Ticks
-		if result.Flow == types.FlowReturn {
-			checkLiteralRoundTrip(t, store, session, result.Val)
-		}
-		// Forked children run after their creator, in creation order, on the
-		// ticks the earlier tasks left. A child that would start with none left
-		// is not run. Children fork further children onto the same queue.
-		for len(tasks.forks) > 0 && spent < sourceFuzzTicks {
-			fork := tasks.forks[0]
-			tasks.forks = tasks.forks[1:]
-			child := NewForkVM(store, session, fork.id, fork.info, ForkBodyProgram(fork.info), sourceFuzzTicks-spent)
-			attachSourceFuzzTask(child, fork.id)
-			tasks.run(t, child, child.ExecuteLoop())
-			spent += child.Ticks
-		}
+		executeFuzzSource(t, source, false)
 	})
+}
+
+// FuzzStructuredSourceExecution runs generated programs. Each is valid MOO,
+// so every case reaches execution; a compile diagnostic fails the case.
+func FuzzStructuredSourceExecution(f *testing.F) {
+	fuzzseed.AddChoices(f)
+	f.Fuzz(func(t *testing.T, choices []byte) {
+		executeFuzzSource(t, fuzzseed.StructuredSource(t, choices), true)
+	})
+}
+
+func executeFuzzSource(t *testing.T, source string, mustCompile bool) {
+	// Core capabilities exclude optional network, SQLite and process input.
+	// State and compiler caches are private to this input, with no server.
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
+	if len(diagnostics) != 0 {
+		if mustCompile {
+			t.Fatalf("generated program does not compile: %v\nsource:\n%s", diagnostics, source)
+		}
+		return
+	}
+	session := newTestSessionWithTaskManager(registry)
+	defer func() {
+		if err := session.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	store := dbstore.NewStore()
+	tasks := &sourceFuzzTasks{nextID: 2}
+	machine := newSourceFuzzVM(store, session, 1, sourceFuzzTicks)
+	// Errors and tick exhaustion are results; a Go panic fails the case.
+	result := tasks.run(t, machine, machine.Run(program))
+	spent := machine.Ticks
+	if result.Flow == types.FlowReturn {
+		checkLiteralRoundTrip(t, store, session, result.Val)
+	}
+	// Forked children run after their creator, in creation order, on the
+	// ticks the earlier tasks left. A child that would start with none left
+	// is not run. Children fork further children onto the same queue.
+	for len(tasks.forks) > 0 && spent < sourceFuzzTicks {
+		fork := tasks.forks[0]
+		tasks.forks = tasks.forks[1:]
+		child := NewForkVM(store, session, fork.id, fork.info, ForkBodyProgram(fork.info), sourceFuzzTicks-spent)
+		attachSourceFuzzTask(child, fork.id)
+		tasks.run(t, child, child.ExecuteLoop())
+		spent += child.Ticks
+	}
 }
 
 // sourceFuzzTasks numbers forked children and queues them to run.
