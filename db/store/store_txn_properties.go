@@ -414,7 +414,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
-		// within this txn (e.g. PropertyValues) see the staged change.
+		// within this txn (e.g. VisitPropertyValues) see the staged change.
 		obj.properties.put(actualName, prop)
 		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
