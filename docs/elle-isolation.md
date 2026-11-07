@@ -232,6 +232,16 @@ then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
 
+Ordinary-user authority also has focused transaction regressions in
+`builtins/verbs_txn_test.go`. The existing
+`TestDeleteVerbAuthorityRevocationConflictsBeforeMutation` checks object owner and
+write-flag revocation during a staged deletion. The distinct
+`TestVerbCodeReadPermissionRevocationConflictsBeforePublication` admits a code read
+as a nonwizard/nonowner, removes only the verb's read bit, and checks a dependent
+marker cannot publish from that stale permission view. It requires a conflict on
+the selected verb, not merely its list generation, and a serial retry returns
+E_PERM. These are semantic regressions, not additional Elle graph witnesses.
+
 Map byte quotas are a separate semantic invariant: a serializable merge of
 disjoint keys can still exceed the task's value limit. The
 `TestKeyedMapRebaseRespectsTaskValueQuota` regression in `vm/map_key_test.go`

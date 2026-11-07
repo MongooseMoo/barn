@@ -268,6 +268,71 @@ func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	}
 }
 
+func TestVerbCodeReadPermissionRevocationConflictsBeforePublication(t *testing.T) {
+	reader, store := verbMetadataTxnTestContext(t)
+	addTxnObject(t, store, 1, 1, dbstore.FlagProgrammer)
+	reader.StoreTxn.Release()
+	reader.StoreTxn = store.BeginSnapshot(0)
+	defer reader.StoreTxn.Release()
+	reader.IsWizard, reader.Player, reader.Programmer = false, 1, 1
+	args := []types.Value{types.NewObj(0), types.NewStr("look")}
+	result := admitTestBuiltin("verb_code", reader, args)
+	if result.IsError() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 1 || result.Val.Get(1).Str() != "return 1;" {
+		t.Fatalf("nonowner read of readable verb = %+v; want its source", result)
+	}
+
+	// Only the verb's read bit changes. Object ownership/flags, code, names,
+	// and the marker stay untouched, so an unrelated stale read cannot mask
+	// omission of the selected verb's permission dependency.
+	revoker := newTestExecution()
+	revoker.Store, revoker.StoreTxn, revoker.IsWizard = store, store.DirectTxn(), true
+	result = admitTestBuiltin("set_verb_info", revoker, []types.Value{
+		types.NewObj(0), types.NewStr("look"),
+		types.NewList([]types.Value{types.NewObj(0), types.NewStr("wxd"), types.NewStr("look")}),
+	})
+	if result.IsError() {
+		t.Fatalf("set_verb_info revocation failed: %+v", result)
+	}
+	if ec := reader.StoreTxn.SetPropertyValue(0, "marker", types.NewInt(1)); ec != types.E_NONE {
+		t.Fatalf("stage dependent marker write: %v", ec)
+	}
+	if ec := reader.StoreTxn.Commit(); ec != types.E_INVARG || !reader.StoreTxn.ValidationFailed() {
+		t.Fatalf("commit after read-bit revocation = %v, validationFailed=%v; want retryable E_INVARG", ec, reader.StoreTxn.ValidationFailed())
+	}
+	selectedVerbConflict := false
+	for _, conflict := range reader.StoreTxn.Conflicts() {
+		if conflict.ObjID != 0 || (conflict.Kind != dbstore.ConflictVerb && conflict.Kind != dbstore.ConflictVerbScan) {
+			t.Fatalf("unrelated conflict masks verb permission dependency: %+v", conflict)
+		}
+		if conflict.Kind == dbstore.ConflictVerb && conflict.Name == "look" {
+			selectedVerbConflict = true
+		}
+	}
+	if !selectedVerbConflict {
+		t.Fatalf("missing selected-verb conflict after read-bit revocation: %+v", reader.StoreTxn.Conflicts())
+	}
+	marker, ec := store.DirectTxn().PropertyValue(0, "marker")
+	if ec != types.E_NONE || marker.Int() != 0 {
+		t.Fatalf("failed reader published marker = %v, error=%v; want 0", marker, ec)
+	}
+	live, err := store.DirectTxn().FindVerbOnObject(0, "look")
+	if err != nil || live.Owner != 0 || live.Perms.Has(dbstore.VerbRead) || live.Perms.String() != "wxd" || len(live.Code) != 1 || live.Code[0] != "return 1;" {
+		t.Fatalf("revoked live verb = %+v, error=%v; want only read permission removed", live, err)
+	}
+
+	retry := newTestExecution()
+	retry.Store, retry.StoreTxn = store, store.BeginSnapshot(0)
+	defer retry.StoreTxn.Release()
+	retry.IsWizard, retry.Player, retry.Programmer = false, 1, 1
+	result = admitTestBuiltin("verb_code", retry, args)
+	if !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("serial nonowner retry = %+v; want E_PERM", result)
+	}
+	if retry.StoreTxn.HasWrites() {
+		t.Fatal("denied serial retry staged a write")
+	}
+}
+
 func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
 	ctx, store := verbMetadataTxnTestContext(t)
 	ctx.IsWizard = false
