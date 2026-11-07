@@ -6,15 +6,19 @@ builtin admission and existing transaction fixture. Root owns publication and CI
 
 ## State
 Implemented the focused builtin transaction regression and documentation in
-isolated branch `test/elle-verb-read`. No production change or local Barn tests.
-The initial PR head passed Build & unit tests and MOO conformance in workflow
-42346956937 and Serializable histories and negative control in workflow
-42346956936. These results do not establish the newly integrated tree's outcome.
+isolated branch `test/elle-verb-read`. This branch's change remains tests and
+documentation; the integration retains master's checker-only map fault hooks.
+No local Barn tests. The preceding integrated PR head passed Build & unit tests
+and MOO conformance in workflow 42348426119, and Serializable histories and
+negative control in workflow 42348426116, as read directly from the current PR
+checks. These results do not establish this newly combined tree's outcome.
 
-Merged the actual default branch after the quota PR landed. Preserved its quota
-semantic documentation and regression, existing ring/history shapes and manual
-workflow controls, and this branch's verb-read regression/authority mapping.
-Resolved the documentation conflict by retaining both semantic coverage sections.
+Merged the actual default branch again after the maps/permissions PR landed.
+Preserved its metadata/presence/whole-read fault hooks, workload pair selection,
+committed row requirements and matching driver declarations. Retained quota
+semantic documentation and regression, ring/history shapes and manual workflow
+controls, and this branch's verb-read regression/authority mapping. The current
+merge applied without conflicts; no formatter or test command was needed.
 The combined head's exact-head CI remains pending root's publication.
 
 ## Decisions and why
