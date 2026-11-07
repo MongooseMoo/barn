@@ -160,8 +160,9 @@ blocked and the writer joins after Close. This remains meaningful across PR
 reports/system-layering-option-identity-evidence.json preserves twelve raw
 captures losslessly with decoded UTF-8 SHA256 checks, including source identities,
 pair order, behavioral RED/GREEN and precursor timings. Original files remain.
-Integrate current default containing PR 646 before publication, then finish
-required exact-head PR CI/final review.
+Current default containing PR 646 integrated without conflicts. The real
+blocked-write option fixture passed before integration; required exact-head PR
+CI will verify the combined source. Finish that CI and final review.
 Preserve the original/revised timing evidence and disclose residual costs in the
 reviewable result. No further measurement or alternate design is selected.
 Keep same-task pending views and output redesign outside this bounded fix.
