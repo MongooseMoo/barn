@@ -336,6 +336,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	defer func() { ctx.StoreTxn.Release() }()
 	ctx.StoreTxn.SetConflictLabel(objID, verbName)
 	ctx.Admission = scope
 	if scope != nil {
@@ -343,7 +344,6 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	}
 	ctx.RuntimeOptions = s.options
 	if ownership == vmOwnershipSweep {
-		defer ctx.StoreTxn.Release()
 		ctx.TaskID = t.ID
 		ctx.DeferredGC = true
 		t.Context = ctx
