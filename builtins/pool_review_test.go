@@ -69,7 +69,7 @@ func TestPoolReviewFileBufferBoundsAndConversionOwnership(t *testing.T) {
 				t.Fatal("invalid retained buffer")
 			}
 			copy(buf, bytes.Repeat([]byte{'A'}, n))
-			text, binary := filterTextMode(buf), encodeBinaryBytes(buf)
+			text, binary := filterTextMode(buf), EncodeRawToBinary(buf)
 			for i := range buf {
 				buf[i] = 'B'
 			}

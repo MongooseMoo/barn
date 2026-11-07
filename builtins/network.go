@@ -354,7 +354,7 @@ func parseHTTPHeaders(data []byte, start int) httpHeaderParseResult {
 			if lastHeader < 0 {
 				return httpHeaderParseResult{bodyStart: pos, state: httpHeadersInvalid}
 			}
-			continued := encodeBinaryStr(trimHTTPLeadingWhitespace(line))
+			continued := EncodeRawToBinary(trimHTTPLeadingWhitespace(line))
 			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].Str() + continued)
 			continue
 		}
@@ -365,7 +365,7 @@ func parseHTTPHeaders(data []byte, start int) httpHeaderParseResult {
 		}
 
 		name := string(line[:colon])
-		value := encodeBinaryStr(trimHTTPLeadingWhitespace(line[colon+1:]))
+		value := EncodeRawToBinary(trimHTTPLeadingWhitespace(line[colon+1:]))
 		headers = append(headers, [2]types.Value{types.NewStr(name), types.NewStr(value)})
 		lastHeader = len(headers) - 1
 
@@ -413,7 +413,7 @@ func parseHTTPChunkedBody(data []byte, start int) (string, int, bool) {
 				}
 				pos = nextTrailer
 				if len(trailer) == 0 {
-					return encodeBinaryStr(body), pos, true
+					return EncodeRawToBinary(body), pos, true
 				}
 			}
 		}
@@ -475,7 +475,7 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(EncodeRawToBinary(data[header.bodyStart : header.bodyStart+header.contentLength]))})
 		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true
@@ -533,7 +533,7 @@ func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(EncodeRawToBinary(data[header.bodyStart : header.bodyStart+header.contentLength]))})
 		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true

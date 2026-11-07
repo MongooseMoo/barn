@@ -93,18 +93,7 @@ func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Encode the result as a binary string with ~XX escapes
-	var result strings.Builder
-	for _, b := range decoded {
-		if b == '~' {
-			result.WriteString("~7E")
-		} else if b < 32 || b > 126 {
-			result.WriteString(encodeByteHex(b))
-		} else {
-			result.WriteByte(b)
-		}
-	}
-
-	return types.Ok(types.NewStr(result.String()))
+	return types.Ok(types.NewStr(EncodeRawToBinary(decoded)))
 }
 
 // builtinEncodeBinary converts values to ~XX binary encoding
@@ -123,9 +112,7 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	encodeValue = func(v types.Value) types.ErrorCode {
 		switch v.Type() {
 		case types.TYPE_STR:
-			for _, b := range []byte(v.Str()) {
-				encodeByte(&result, b)
-			}
+			AppendRawToBinary(&result, []byte(v.Str()))
 		case types.TYPE_INT:
 			if v.Int() < 0 || v.Int() > 255 {
 				return types.E_INVARG
@@ -161,6 +148,13 @@ func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(resultStr))
 }
 
+// AppendRawToBinary appends raw bytes as MOO binary-string text.
+func AppendRawToBinary(result *strings.Builder, data []byte) {
+	for _, b := range data {
+		encodeByte(result, b)
+	}
+}
+
 // encodeByte writes a byte to the builder, escaping non-printable chars
 func encodeByte(result *strings.Builder, b byte) {
 	if b == '~' {
@@ -170,6 +164,15 @@ func encodeByte(result *strings.Builder, b byte) {
 	} else {
 		result.WriteByte(b)
 	}
+}
+
+// EncodeRawToBinary converts raw bytes to MOO binary-string text (~XX for
+// non-printables, ~7E for '~'). External-byte producers must encode here:
+// MOO strings store encoded text, and toliteral emits their bytes unchanged.
+func EncodeRawToBinary(data []byte) string {
+	var result strings.Builder
+	AppendRawToBinary(&result, data)
+	return result.String()
 }
 
 // encodeByteHex encodes a byte as ~XX
@@ -1432,7 +1435,7 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	resultStr := encodeBinaryStr(bytes)
+	resultStr := EncodeRawToBinary(bytes)
 
 	// Check actual encoded length (may be longer due to escapes)
 	if errCode := ctx.CheckStringLimit(len(resultStr)); errCode != types.E_NONE {
@@ -1442,24 +1445,8 @@ func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(resultStr))
 }
 
-// encodeBinaryStr encodes bytes as MOO binary string (~XX)
-// This encodes non-printable bytes and tildes, leaving printable ASCII as-is
-func encodeBinaryStr(data []byte) string {
-	var result strings.Builder
-	for _, b := range data {
-		if b == '~' {
-			result.WriteString("~7E")
-		} else if b < 32 || b > 126 {
-			result.WriteString(encodeByteHex(b))
-		} else {
-			result.WriteByte(b)
-		}
-	}
-	return result.String()
-}
-
 // encodeAllBinaryStr encodes ALL bytes as ~XX format (for hash binary output)
-// Unlike encodeBinaryStr, this doesn't leave printable ASCII unencoded
+// Unlike EncodeRawToBinary, this doesn't leave printable ASCII unencoded
 func encodeAllBinaryStr(data []byte) string {
 	var result strings.Builder
 	for _, b := range data {

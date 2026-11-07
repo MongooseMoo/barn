@@ -139,7 +139,7 @@ func TestHTTPBufferedMalformedAndFrontInsertion(t *testing.T) {
 		t.Fatal("malformed message changed value or consumed bytes")
 	}
 	front := []byte("GET /front HTTP/1.1\r\n\r\n")
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(front), true); !handled {
+	if handled, _ := session.HandleHeldInput(7, EncodeRawToBinary(front), true); !handled {
 		t.Fatal("front input was not intercepted")
 	}
 	for _, next := range [][]byte{front, valid} {
@@ -182,7 +182,7 @@ func TestHTTPAppendAndCancellationAfterConsumption(t *testing.T) {
 	if state.buffer != nil || len(state.waiters) != 0 {
 		t.Fatal("cancellation retained consumed input")
 	}
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(first), false); !handled {
+	if handled, _ := session.HandleHeldInput(7, EncodeRawToBinary(first), false); !handled {
 		t.Fatal("fresh input was not intercepted")
 	}
 	want, _, _ := parseHTTPMessage("request", first)
@@ -233,7 +233,7 @@ func TestHTTPLargeAppendAfterConsumptionReleasesNewAllocation(t *testing.T) {
 		t.Fatal("first message did not complete")
 	}
 	tail := []byte("GET /unfinished")
-	if handled, _ := session.HandleHeldInput(7, encodeBinaryStr(append([]byte(body), tail...)), false); !handled {
+	if handled, _ := session.HandleHeldInput(7, EncodeRawToBinary(append([]byte(body), tail...)), false); !handled {
 		t.Fatal("large suffix append was not intercepted")
 	}
 	allocation := state.buffer

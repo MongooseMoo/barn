@@ -163,7 +163,7 @@ func TestReadlineBufferedValuesAndPosition(t *testing.T) {
 			for _, line := range lines {
 				want := filterTextMode([]byte(strings.TrimRight(line, "\r\n")))
 				if binary {
-					want = encodeBinaryBytes([]byte(line))
+					want = EncodeRawToBinary([]byte(line))
 				}
 				requireFileString(t, builtinFileReadline(ctx, []types.Value{id}), want)
 				pos += int64(len(line))

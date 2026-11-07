@@ -241,7 +241,7 @@ func builtinEncodeChars(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 	}
-	result := encodeBinaryStr([]byte(encoded))
+	result := EncodeRawToBinary([]byte(encoded))
 	ctx.Session.UpdateContextLimits(ctx.Context)
 	if err := ctx.CheckStringLimit(len(result)); err != types.E_NONE {
 		return types.Err(err)
