@@ -27,10 +27,19 @@ mixed +5-6%, and one-byte transport +13.96% costs remain explicit/unexplained.
 These are not cleared, neutral, or target-Linux performance claims. Allocations
 remain unchanged. Full raw measurements/history and investigation are preserved.
 
-Parent owns committing this feature, integrating current default (including
-merged #647), preserving both physical IDs and canonical codec names in HTTP
-test signatures, then repeating the managed selection on integrated source.
-Required exact-head CI/final verification and publication remain parent-owned.
+The feature is committed and current default, including merged 647, is integrated.
+Three HTTP fixture conflicts were resolved by retaining both the physical-ID
+arguments and canonical codec name. Exact edited-file selections pass on the
+combined source: builtins 1.445s and server 1.107s. Fresh integrated managed
+selection again passes all three established cases plus admission (four tests,
+10.16s), with four passed probes and thirteen unchanged captured Go hashes.
+Required exact-head PR CI and final verification remain.
+
+reports/system-layering-binary-input-evidence.json losslessly packages sixteen
+raw text captures, four diagnostic profiles, both managed source/result summaries
+and focused integration output. Decoded hashes match originals. Private raw
+admission/XML and frozen binaries remain under .tmp; no performance-neutral or
+all-caller performance claim is made.
 Worker changed documents only for this handoff; no new code/Go/benchmark work.
 
 ## Historical trial sequence

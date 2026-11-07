@@ -401,6 +401,43 @@ unused by original ReadChunk; record source composition and all binary hashes.
 Preserve all earlier raw evidence/profiles/binaries. No further speculative
 change if substantial regressions remain; no publication.
 
+## Parent current-default integration verification
+
+Parent committed the selected source and integrated current default containing
+646/647. Three HTTP fixture conflicts combine the already-owned physical ID with
+the canonical codec name; their assertions and parsing logic stay unchanged.
+The current-default-relative HTTP diff is exactly those three name changes.
+
+Explicit edited-file integration output:
+
+```text
+go test ./builtins -run '^(TestHTTPBufferedMalformedAndFrontInsertion|TestHTTPAppendAndCancellationAfterConsumption|TestHTTPLargeAppendAfterConsumptionReleasesNewAllocation)$' -count=1 -v
+ok github.com/MongooseMoo/barn/builtins 1.445s
+go test ./server -run '^(TestTCPReadChunk(PreservesPendingText|EncodesExternalBytes|RetainsPrefixOnInitialError|IndependentReadBoundaries)|TestRawToBinaryLiteralOracle|TestAppendRawToBinaryPreservesPrefix)$' -count=1 -v
+ok github.com/MongooseMoo/barn/server 1.107s
+```
+
+Parent verified the main package, built an isolated Linux Go 1.27.1 Barn and
+repeated the same three canonical-proven behavior cases plus capability admission
+through the documented managed harness. The separately named integrated binary,
+source capture, XML and admission JSON remain in .tmp.
+
+```text
+4 passed, 2 deselected, 1 warning in 10.16s
+XML: all four named cases PASS; no failures/errors/skips
+admission: schema 2, all four probe statuses passed
+captured current-default-relative Go hashes: 13 unchanged after execution
+```
+
+The warning is the harness's existing record_property/xunit2 warning. The CR-only
+observer remains deselected and unsettled. Lossless publication archive
+system-layering-binary-input-evidence.json contains sixteen raw text captures,
+four diagnostic profiles, both managed source/result summaries and the full
+focused integration output. Decoded UTF-8/base64 hashes match originals. Raw
+private admissions/XML stay local; no secrets are copied into the public archive.
+Required PR CI and final verifier remain outstanding. Timing limits and the
+normalized-work comparison remain separate; no performance-parity claim follows.
+
 ## Investigation-earned correction: measured result and handoff
 
 Parent granted exclusive compilation/timing. Only the selected private helper

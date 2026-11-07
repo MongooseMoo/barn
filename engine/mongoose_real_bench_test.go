@@ -83,9 +83,15 @@ import (
 // db code calling idle_seconds()/connected_seconds() (@who, room renders) gets
 // answers instead of E_INVARG (network.go resolveConnection nil → E_INVARG).
 type benchConnection struct {
+	id          int64
 	connectedAt time.Time
 	lastActive  atomic.Int64 // unix seconds
 }
+
+func (c *benchConnection) ConnectionID() int64 { return c.id }
+
+// Simulated benchmark players remain connected throughout the workload.
+func (c *benchConnection) Done() <-chan struct{} { return nil }
 
 func (c *benchConnection) Send(string) error                                  { return nil }
 func (c *benchConnection) SendNotification(taskpkg.PendingNotification) error { return nil }
@@ -120,8 +126,8 @@ type benchConnManager struct {
 func newBenchConnManager(players []types.ObjID) *benchConnManager {
 	m := &benchConnManager{players: players, conns: make(map[types.ObjID]*benchConnection, len(players))}
 	now := time.Now()
-	for _, p := range players {
-		c := &benchConnection{connectedAt: now}
+	for index, p := range players {
+		c := &benchConnection{id: int64(index + 1), connectedAt: now}
 		c.touch()
 		m.conns[p] = c
 	}

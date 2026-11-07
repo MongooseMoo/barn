@@ -22,7 +22,7 @@ func newReadHTTPTestExecution(t *testing.T, owner, programmer types.ObjID, wizar
 	manager := taskManagerStub{}
 	session := NewSession(NewRegistry(), NoHost())
 	configureTestHost(session, func(host *Host) {
-		host.ConnManager = &stubConnManager{conn: &stubConn{lastInputTaskID: lastInputTaskID}}
+		host.ConnManager = &stubConnManager{conn: &stubConn{id: 7, lastInputTaskID: lastInputTaskID}}
 		host.TaskManager = manager
 	})
 	taskValue := task.NewState(taskID, connection, 1000, 5)
@@ -247,15 +247,15 @@ func FuzzParseHTTPChunkedBody(f *testing.F) {
 
 func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	player := types.ObjID(7)
-	r := NewSession(NewRegistry(), NoHost())
+	r := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}}).Session
 
-	r.setConnectionOption(player, "hold-input", types.NewInt(1))
-	if handled, _ := r.HandleHeldInput(player, "~ZZ~!!", false); !handled {
+	r.setConnectionOption(int64(player), nil, "hold-input", types.NewInt(1))
+	if handled, _ := r.HandleHeldInput(player, int64(player), "~ZZ~!!", false); !handled {
 		t.Fatal("expected held input to be intercepted")
 	}
 
 	readTask := task.NewState(99, player, 1000, 5)
-	value, complete := r.prepareHTTPRead(player, "request", readTask)
+	value, complete := r.prepareHTTPRead(player, int64(player), "request", readTask)
 	if !complete {
 		t.Fatal("expected read to complete immediately")
 	}
@@ -273,7 +273,7 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	r := NewSession(NewRegistry(), NoHost())
 
 	pending := task.NewState(101, player, 1000, 5)
-	if value, complete := r.prepareHTTPRead(player, "request", pending); complete {
+	if value, complete := r.prepareHTTPRead(player, int64(player), "request", pending); complete {
 		t.Fatalf("expected incomplete request to suspend, got %v", value)
 	}
 	pending.SuspendIndefinite()
@@ -287,26 +287,26 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 
 func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	player := types.ObjID(8)
-	r := NewSession(NewRegistry(), NoHost())
+	r := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 8}}).Session
 
-	r.setConnectionOption(player, "hold-input", types.NewInt(1))
-	if handled, _ := r.HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false); !handled {
+	r.setConnectionOption(int64(player), nil, "hold-input", types.NewInt(1))
+	if handled, _ := r.HandleHeldInput(player, int64(player), "GET /1~0D~0Aone: two~0D~0A", false); !handled {
 		t.Fatal("expected partial input to be intercepted")
 	}
 
 	stalled := task.NewState(101, player, 1000, 5)
-	if value, complete := r.prepareHTTPRead(player, "request", stalled); complete {
+	if value, complete := r.prepareHTTPRead(player, int64(player), "request", stalled); complete {
 		t.Fatalf("expected partial request to suspend, got %v", value)
 	}
 	stalled.SuspendIndefinite()
 	r.CancelHTTPReadTask(stalled.ID)
 
-	if handled, _ := r.HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {
+	if handled, _ := r.HandleHeldInput(player, int64(player), "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {
 		t.Fatal("expected fresh input to be intercepted")
 	}
 
 	fresh := task.NewState(102, player, 1000, 5)
-	value, complete := r.prepareHTTPRead(player, "request", fresh)
+	value, complete := r.prepareHTTPRead(player, int64(player), "request", fresh)
 	if !complete {
 		t.Fatal("expected fresh request to parse immediately")
 	}

@@ -194,5 +194,115 @@
         "result": "passed"
       }
     ]
-  }
+  },
+  "managedAfterDefaultIntegration": {
+    "scope": "Current default integrated; Go file hashes verified unchanged after managed run",
+    "source": {
+      "state": "default integrated and conflicts resolved; before merge commit, Go source frozen",
+      "featureHead": "434b3201319da849b23d5619bd25c00a6cf01903",
+      "defaultBase": "cd9b409851de59bd412de1d277a0dc24889734d2",
+      "worktree": "C:/Users/Q/code/barn-binary-input",
+      "go": "go1.27.1 linux/amd64",
+      "build": "go build -o .tmp/barn-binary-integrated ./cmd/barn",
+      "files": [
+        {
+          "path": "builtins/crypto.go",
+          "sha256": "FD1BB1D2F88876824FF4A3D6C9E235D70FEA9C22E49AA17B07B9BAE710B72A29"
+        },
+        {
+          "path": "builtins/file_conversion_bench_test.go",
+          "sha256": "85523FF31F6B02985730310C5F5A7B9119B3870A4E5CE47DE904A032C5F8A64C"
+        },
+        {
+          "path": "builtins/fileio.go",
+          "sha256": "9973E763AED01D1CE4C7D87E0072E79817B9C57A6AA81A671E8C49F69FAA104D"
+        },
+        {
+          "path": "builtins/fileio_pool_bench_test.go",
+          "sha256": "5FC25A70039EE17E7299BF0B482B37755E2DC079F0C6E9F3FB0CADEDA5D49E64"
+        },
+        {
+          "path": "builtins/fileio_readline_buffer_test.go",
+          "sha256": "95FA54016F709718DB72315E1930BB6CEA09BE5285DA3CDEFCEDBFB383C6785D"
+        },
+        {
+          "path": "builtins/http_buffer_consumption_test.go",
+          "sha256": "48FD59AB0E54B1D6B10966FE0907366ABACE6C5C9792ACDDD1867FA8C8EBF15C"
+        },
+        {
+          "path": "builtins/network.go",
+          "sha256": "48BB7251C30F143E45C39A7B255A55716F4C503770D20F1931B52D510CC00923"
+        },
+        {
+          "path": "builtins/pool_review_test.go",
+          "sha256": "55AC7CBBEF530B5D767780839CB71BA9A87AB1734432C2D7F06CED0E20AF3B26"
+        },
+        {
+          "path": "builtins/review_io_test.go",
+          "sha256": "59CF35D72BDF717E8BED3976DECF0F56AEB86CB8FDF926D4CC97419A63BFBAEC"
+        },
+        {
+          "path": "builtins/system.go",
+          "sha256": "0FC3309171FBA6E78660C271F9999A60DC345FCBE87B2FB4A36B6E10DA3ACAD5"
+        },
+        {
+          "path": "builtins/unicode.go",
+          "sha256": "523B10174317E0B11B8765938DE2EEC47028220E593997563011A3E294C28E79"
+        },
+        {
+          "path": "server/binary_input_stream_test.go",
+          "sha256": "1266BFCC0155D8330633778BFCB459E8A1B90A88AC9A2EE0C0526375BA9CF13D"
+        },
+        {
+          "path": "server/transport.go",
+          "sha256": "AF5375AEB8CEEBBCC12F15393032BF04F23A556CE610E65C4BF70F03398A4704"
+        }
+      ]
+    },
+    "binarySha256": "4E7363BE4B83D23A0A946344E080D033824E5A17265E37A9E423FF170F33FC07",
+    "xmlSha256": "F5004C957854B25BA91D63E204EC7D81D4DDAAA88D8BD56203D6339599765A09",
+    "admissionSha256": "40527B4A40E208B461AB135872BEAFA3B7E0B5B1256BC7A50C24B14873D3BB9C",
+    "schemaVersion": 2,
+    "probeStatuses": [
+      "passed",
+      "passed",
+      "passed",
+      "passed"
+    ],
+    "cases": [
+      {
+        "name": "test_capability_admission",
+        "result": "passed"
+      },
+      {
+        "name": "test_yaml_conformance[binary-dispatch-chunks.yaml::binary_mode_preserves_partial_text_input]",
+        "result": "passed"
+      },
+      {
+        "name": "test_yaml_conformance[binary-dispatch-chunks.yaml::binary_mode_encodes_external_bytes]",
+        "result": "passed"
+      },
+      {
+        "name": "test_yaml_conformance[binary-dispatch-chunks.yaml::binary_mode_preserves_literal_tilde_prefix]",
+        "result": "passed"
+      }
+    ],
+    "elapsedSeconds": 10.16
+  },
+  "integrationFocusedChecks": [
+    {
+      "chunk_id": "b31d24",
+      "wall_time_seconds": 5.8842772,
+      "exit_code": 0,
+      "original_token_count": 108,
+      "output": "=== RUN   TestHTTPBufferedMalformedAndFrontInsertion\n--- PASS: TestHTTPBufferedMalformedAndFrontInsertion (0.01s)\n=== RUN   TestHTTPAppendAndCancellationAfterConsumption\n--- PASS: TestHTTPAppendAndCancellationAfterConsumption (0.01s)\n=== RUN   TestHTTPLargeAppendAfterConsumptionReleasesNewAllocation\n--- PASS: TestHTTPLargeAppendAfterConsumptionReleasesNewAllocation (0.02s)\nPASS\nok  \tgithub.com/MongooseMoo/barn/builtins\t1.445s\n"
+    },
+    {
+      "chunk_id": "1eb646",
+      "wall_time_seconds": 6.5857715,
+      "exit_code": 0,
+      "original_token_count": 231,
+      "output": "=== RUN   TestTCPReadChunkPreservesPendingText\n=== RUN   TestTCPReadChunkPreservesPendingText/ASCII\n=== RUN   TestTCPReadChunkPreservesPendingText/literal_tilde\n--- PASS: TestTCPReadChunkPreservesPendingText (0.00s)\n    --- PASS: TestTCPReadChunkPreservesPendingText/ASCII (0.00s)\n    --- PASS: TestTCPReadChunkPreservesPendingText/literal_tilde (0.00s)\n=== RUN   TestTCPReadChunkEncodesExternalBytes\n--- PASS: TestTCPReadChunkEncodesExternalBytes (0.00s)\n=== RUN   TestTCPReadChunkRetainsPrefixOnInitialError\n--- PASS: TestTCPReadChunkRetainsPrefixOnInitialError (0.00s)\n=== RUN   TestTCPReadChunkIndependentReadBoundaries\n--- PASS: TestTCPReadChunkIndependentReadBoundaries (0.00s)\n=== RUN   TestRawToBinaryLiteralOracle\n--- PASS: TestRawToBinaryLiteralOracle (0.00s)\n=== RUN   TestAppendRawToBinaryPreservesPrefix\n--- PASS: TestAppendRawToBinaryPreservesPrefix (0.00s)\nPASS\nok  \tgithub.com/MongooseMoo/barn/server\t1.107s\n"
+    }
+  ]
 }

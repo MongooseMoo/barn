@@ -59,7 +59,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 }
 
 func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
-	manager := &stubConnManager{conn: &stubConn{}}
+	manager := &stubConnManager{conn: &stubConn{id: 7}}
 
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
