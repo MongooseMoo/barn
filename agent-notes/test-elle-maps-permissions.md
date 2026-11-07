@@ -20,6 +20,22 @@ future endtry/endif block endings from following tokens instead of depending on
 individual case strings to carry whitespace. No checker or expected verdict was
 weakened. No local Barn tests were run; root must publish and inspect fresh CI.
 
+The fresh run from workflow 42345893470 completed healthy histories with true
+verdicts and all thirteen fault append histories with false verdicts, but the
+property-reads Go workload failed before completion. Its raw log reported task
+900023 E_INVARG at the final `map-whole-after-keyed` assertion expecting {600004}.
+Source trace confirms that the broad property-read fault disabled the whole-map
+dependency after the reader's keyed write, allowing its old whole map to replace
+the writer's updated entry. The assertion correctly exposed injected corruption;
+a false Elle verdict from this incomplete workload does not satisfy the driver.
+
+Repair the fault workload's scope rather than its assertion: healthy runs keep
+all eight scenarios; metadata faults keep both revocations; presence faults keep
+the absent-entry scenario; whole-read faults keep whole-after-keyed. Other faults
+do not run these off-target map fixtures and keep their original witness waves.
+Final assertions, native error handling, selected committed-row checks and driver
+requirements are unchanged. No local tests; new exact-head CI remains required.
+
 Managed WSL Toast command in this worktree:
 `make conformance-toast K="map_authority or builtin_property_write_permissions or owner_change_permission or clear_property_call_shapes"`
 ran through its terminal summary: `1 failed, 27 passed, 13219 deselected`.

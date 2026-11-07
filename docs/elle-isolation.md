@@ -153,7 +153,13 @@ writer reads the marker before publishing and the held reader then appends to
 the marker. Removing the reader's dependency exposes a cycle through values both
 tasks actually observed. Missing-key `E_RANGE` and denied-read `E_PERM` are
 recorded as the selected scenario's state, while other errors remain native
-failures. The manifest requires committed reads and appends for every pair row.
+failures. Healthy runs execute all eight pairs and require committed reads and
+appends for every pair row. The new fault runs execute only their precise
+scenarios: metadata runs both nonwizard revocations, presence runs the missing
+entry pair, and whole-read runs the whole-after-keyed pair. Existing faults skip
+these additional map pairs and retain their original bounded witness schedules.
+Every fault still requires a completed Go run and an Elle rejection with a witness;
+each selected pair retains its final-state assertion and committed row counts.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly

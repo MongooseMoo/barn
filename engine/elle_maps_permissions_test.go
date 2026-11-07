@@ -10,6 +10,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -20,6 +21,14 @@ import (
 // Internal map entries not named by the row are deliberately not observations.
 func elleMapPermissionHistories(t *testing.T, store *dbstore.Store, recorder *elleRecorder) []string {
 	t.Helper()
+	fault := isolationprobe.ActiveFault()
+	switch fault {
+	case "", "map-key-metadata", "map-key-presence", "map-key-whole-read":
+	default:
+		// Existing faults retain their own bounded witness schedules. Running
+		// unrelated scenarios under them can corrupt later fixture state.
+		return nil
+	}
 	cases := []struct {
 		name, setup, read, write string
 		ordinary                 bool
@@ -72,6 +81,20 @@ func elleMapPermissionHistories(t *testing.T, store *dbstore.Store, recorder *el
 	}
 	var keys []string
 	for i, scenario := range cases {
+		switch fault {
+		case "map-key-metadata":
+			if scenario.name != "map-permission-revoke" && scenario.name != "map-owner-revoke" {
+				continue
+			}
+		case "map-key-presence":
+			if scenario.name != "map-absent-entry" {
+				continue
+			}
+		case "map-key-whole-read":
+			if scenario.name != "map-whole-after-keyed" {
+				continue
+			}
+		}
 		row, marker := scenario.name, scenario.name+"-marker"
 		keys = append(keys, row, marker)
 		token := 600000 + i*2
