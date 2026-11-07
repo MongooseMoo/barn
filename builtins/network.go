@@ -1356,7 +1356,7 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 	if !ctx.Session.setConnectionOption(conn.ConnectionID(), conn.Done(), name, value) {
 		return types.Ok(types.NewInt(0))
 	}
-	if name == "binary" && value.Truthy() {
+	if name == "binary" {
 		if wakeConn, ok := conn.(inputWakeConnection); ok {
 			wakeConn.WakeInputReader()
 		}

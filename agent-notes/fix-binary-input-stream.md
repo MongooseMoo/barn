@@ -1,5 +1,63 @@
 # Binary input stream
 
+## Current merge instruction
+
+Goal: complete Q's new instruction to merge the Barn and MCT campaign PRs.
+State: Q resumed this bounded delivery after the off-design handoff. Barn 648
+is open with nine HTTP conformance failures; MCT 180 has one failed required
+Toast profile. Both require repair/verification before normal merge.
+Decisions and why: preserve the handoff and measured costs as evidence; the
+new instruction authorizes completing these concrete published PRs, without
+claiming performance parity or restarting the wider campaign.
+Surprises: the CLI PR's required 64-bit outbound-on profile failed while its
+other profiles and quality checks passed; cause is not yet known.
+The real blocked-reader regression reproduced the missing disable wake and
+subsequent statement syntax error; symmetric wake passed. Managed frozen Barn
+HTTP selection reproduced all nine failures; the repaired TCP selection passed
+26 cases with admission. Analyst then found that a generic wake cancels a
+WebSocket read fatally. Whole-repo callers show this connection wake is used
+only by the binary-option builtin; shutdown uses CloseNow. The revised bounded
+repair restricts the existing wake to BinaryTransport, tests the actual
+WebSocket setter, and preserves direct transport cancellation coverage.
+
+MCT original failure remains unexplained. Its trusted lane does not execute
+the changed CLI; candidate same-profile CI passed, and focused canonical move
+cases passed. The failed required full job is being repeated as a recurrence
+probe, not a claimed fix. Original artifacts are retained separately.
+
+The final owner guard and real WebSocket 0/1 regressions are complete. Combined
+TCP/WebSocket/direct cancellation selector passes (server 1.583s). Independent
+delta analysis found no remaining actionable defect. The frozen final Linux
+source, including corrected comments, passes managed HTTP/admission: 26 passed,
+one deselected in 12.54 seconds. Lossless evidence JSON preserves ten raw
+XML/admission captures plus all seventeen changed Go-source hashes and the
+final executable identity. Existing benchmark costs remain unchanged claims.
+
+Next step: publish the scoped repair, obtain required exact-head checks and
+independent final verification, then normal merges and local integration.
+Preserve unrelated dirty work and raw artifacts.
+
+## Design-departure stop
+
+Goal: preserve the correctness evidence and original no-regression constraint.
+State: PR 648 is open and conformance is red (nine HTTP failures). Execution
+stopped after root found that accepting measured slowdowns departed from the
+campaign plan. The earlier parent disposition to retain this candidate despite
+one-byte transport +13.96% and codec regressions is superseded by this notice.
+No merge is authorized by that disposition.
+
+Decisions and why: the written campaign requires an unavoidable correctness
+slowdown conflict to go to Q before merge. Disclosure of costs is not acceptance.
+Surprises: focused canonical Toast HTTP/admission passes 26 cases, whereas Barn
+full CI fails nine. Source supports a possible reader-mode wake omission, but
+no deterministic reproduction or causal proof has been obtained.
+
+Next step: work is stopped under Q's off-design handoff instruction. The root
+handoff is C:/Users/Q/code/barn-system-layering/agent-notes/refactor-system-layering.md.
+It records source, departures, affected states and undo/redo decisions. Raw
+profiles, binaries, XML and admission evidence remain preserved. No production
+code changed during this stop.
+
 ## Goal
 
 Preserve partial text input when binary mode starts, and encode new external
@@ -159,3 +217,30 @@ released. Residual codec and tiny-chunk costs are reported; no further change.
 Complete corrected-codec and transport matrices/hashes/compositions are in the
 coder report and binary-codec-restored / binary-transport-restored raw reports.
 Await parent review; no commit, publication or managed post-change run by worker.
+
+## Final verifier handoff state
+
+Goal: verify the published binary-input change and its actual callers, raw
+evidence and required CI, without changing implementation or publishing.
+
+State: source and analyst/investigation review found no actionable correctness
+defect. All sixteen archived text captures and four profiles match their raw
+files; all thirteen changed Go files match the integrated managed-build source
+manifest. Both native managed XML/admission summaries match private raw files.
+Build/unit CI passed. Isolation CI passed with six healthy true verdicts,
+twenty negative-control false verdicts and nonempty witnesses; every recorded
+healthy path is nonzero. Full conformance failed: nine HTTP cases, eight with
+fixture setup syntax errors and one expected E_INVARG receiving E_PROPNF.
+Raw XML, admission, JSONL and profiles are retained in the verifier's private
+artifact directory. The verifier verdict is NO-MERGE pending repair and CI.
+
+Decisions and why: preserve the bounded correctness fix and canonical owner.
+Do not treat normalized instructions as proof of timing parity. Recorded Windows
+codec and one-byte transport regressions remain explicit limitations.
+
+Surprises: the pinned Elle CLI logs verdicts as a path followed by a boolean,
+rather than an EDN map; raw records and native exit codes agree. The verifier
+report holds detailed evidence and remains separate from implementation files.
+
+Next step: parent diagnoses and repairs the required conformance failures,
+then obtains required exact-head CI. Do not merge the current red head.
