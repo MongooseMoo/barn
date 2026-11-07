@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Barn vs Toast differential run over Go fuzz corpora of MOO source.
 
-Reads Go fuzz corpus files (``go test fuzz v1`` + one ``string(...)`` value)
-from the given directories -- the committed ``testdata/fuzz/<Target>`` inputs
-and Go's fuzz cache, which the nightly campaigns of vm FuzzSourceExecution and
-compiler FuzzCompileVerifiable fill -- and runs every program through both
+Reads Go fuzz corpus files (``go test fuzz v1`` + one value) from the given
+directories -- the committed ``testdata/fuzz/<Target>`` inputs and Go's fuzz
+cache, which the nightly campaigns fill. A ``string(...)`` value (vm
+FuzzSourceExecution, compiler FuzzCompileVerifiable) is the program. A
+``[]byte(...)`` value is the choice bytes of a structured target
+(FuzzStructured*); ``cmd/moo-fuzz-source -corpus`` decodes it and renders the
+program with internal/fuzzseed, and each row keeps the choice bytes (hex) with
+the rendered source. Each directory is one lane with its own counts; a record
+neither form decodes is excluded as undecodable. It runs every program through both
 engines with bench_differ's lanes (Barn ``-eval-file``, Toast emergency mode),
 one process per engine.  Each program becomes one input line::
 
@@ -31,6 +36,7 @@ import argparse
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -103,6 +109,31 @@ def decode_corpus_file(data: bytes) -> str | None:
     return ast.literal_eval(m.group(1))
 
 
+def is_choices_record(data: bytes) -> bool:
+    """Whether a Go fuzz corpus file holds one []byte value, the choice
+    encoding of the structured targets (internal/fuzzseed)."""
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    return len(lines) == 2 and lines[0] == "go test fuzz v1" and lines[1].startswith("[]byte(")
+
+
+def render_choices(paths: list[str]) -> dict[str, dict[str, str]]:
+    """Path -> {"choices": hex, "source": MOO} or {"error": text} for each
+    structured corpus file, decoded and rendered by cmd/moo-fuzz-source, the
+    one owner of the choice encoding and of the generated program."""
+    if not paths:
+        return {}
+    proc = subprocess.run(["go", "run", "./cmd/moo-fuzz-source", "-corpus"], cwd=REPO,
+                          input="".join(path + "\n" for path in paths), capture_output=True,
+                          text=True, encoding="utf-8", check=True)
+    rendered = {}
+    for line in proc.stdout.splitlines():
+        record = json.loads(line)
+        rendered[record.pop("path")] = record
+    if sorted(rendered) != sorted(paths):
+        raise RuntimeError(f"moo-fuzz-source rendered {len(rendered)} of {len(paths)} structured records")
+    return rendered
+
+
 def exclusion(source: str) -> str | None:
     """Why a program is not compared, or None."""
     # Barn strings are Unicode by design and Toast strings are bytes, so
@@ -142,27 +173,60 @@ def outcome(key: str, record: str | None) -> str | None:
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
 
 
-def load_programs(dirs: list[Path]) -> tuple[dict[str, str], dict[str, int]]:
-    """Unique compared sources -> first corpus file, and exclusion counts."""
-    programs: dict[str, str] = {}
-    excluded: dict[str, int] = {}
-    seen = set()
+def load_programs(dirs: list[Path]) -> tuple[dict[str, dict[str, str]], dict[str, int], dict[str, dict]]:
+    """Unique compared sources -> their first corpus record (origin path,
+    lane, and the choice bytes of a structured record), exclusion counts,
+    and per-lane counts. Each corpus directory is one lane."""
+    records: list[tuple[str, str, str | None]] = []  # lane, path, string source
+    choice_paths: list[str] = []
+    lanes: dict[str, dict] = {}
     for directory in dirs:
+        lane = str(directory)
+        lanes[lane] = {"records": 0, "duplicates": 0, "excluded": 0, "eligible": 0, "completed": 0,
+                       "undecodable": []}
         if not directory.is_dir():
             print(f"corpus directory missing: {directory}", file=sys.stderr)
             continue
         for path in sorted(directory.iterdir()):
-            source = decode_corpus_file(path.read_bytes()) if path.is_file() else None
-            if source is None or source in seen:
+            if not path.is_file():
                 continue
+            data = path.read_bytes()
+            records.append((lane, str(path.resolve()), decode_corpus_file(data)))
+            if is_choices_record(data):
+                choice_paths.append(records[-1][1])
+    rendered = render_choices(choice_paths)
+
+    programs: dict[str, dict[str, str]] = {}
+    excluded: dict[str, int] = {}
+    seen = set()
+    for lane, path, source in records:
+        counts = lanes[lane]
+        counts["records"] += 1
+        record = {"origin": path, "lane": lane}
+        if path in rendered:
+            # moo-fuzz-source omits empty fields: no choices means zero bytes.
+            record["choices"] = rendered[path].get("choices", "")
+            source = rendered[path].get("source")
+            error = rendered[path].get("error")
+        else:
+            error = None if source is not None else "not one string or []byte value"
+        if source is None:
+            reason = "undecodable corpus record"
+            counts["undecodable"].append({"path": path, "error": error})
+        elif source in seen:
+            counts["duplicates"] += 1
+            continue
+        else:
             seen.add(source)
             reason = exclusion(source) or (None if len(probe("F00000", source)) <= MAX_LINE
                                            else "longer than one emergency-mode line")
-            if reason:
-                excluded[reason] = excluded.get(reason, 0) + 1
-            else:
-                programs[source] = str(path)
-    return programs, excluded
+        if reason:
+            excluded[reason] = excluded.get(reason, 0) + 1
+            counts["excluded"] += 1
+        else:
+            programs[source] = record
+            counts["eligible"] += 1
+    return programs, excluded, lanes
 
 
 def main() -> int:
@@ -178,7 +242,7 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=900, help="seconds per engine lane")
     args = ap.parse_args()
 
-    programs, excluded = load_programs(args.corpus)
+    programs, excluded, corpus_lanes = load_programs(args.corpus)
     if not programs:
         print("no comparable programs in the corpus", file=sys.stderr)
         return 2
@@ -187,7 +251,7 @@ def main() -> int:
     if not args.barn_linux:
         build_barn_linux(barn_bin)
 
-    keyed = [("F%05d" % i, source, origin) for i, (source, origin) in enumerate(programs.items(), 1)]
+    keyed = [("F%05d" % i, source, record) for i, (source, record) in enumerate(programs.items(), 1)]
     inputs = [(line, ";;" + line) for line in [PREAMBLE] + [probe(k, s) for k, s, _ in keyed]]
     # The nightly job builds its own Toast from the pinned ref, so the report
     # names the exact binary: sha256 and its -v version line. Toast's -v
@@ -209,11 +273,12 @@ def main() -> int:
 
     rows = []
     completed = 0
-    for index, (key, source, origin) in enumerate(keyed if not record_errors else [], 1):
+    for index, (key, source, record) in enumerate(keyed if not record_errors else [], 1):
         t_raw, b_raw = records["toast"][index], records["barn"][index]
         t, b = outcome(key, t_raw), outcome(key, b_raw)
         if t is not None and b is not None:
             completed += 1
+            corpus_lanes[record["lane"]]["completed"] += 1
         if b_raw.startswith("Error: internal error"):
             # A recovered Go panic is a Barn defect whatever Toast does.
             kind = "divergence"
@@ -225,7 +290,7 @@ def main() -> int:
             kind = "unknown"
         else:
             kind = "match" if t == b else "divergence"
-        rows.append({"key": key, "kind": kind, "origin": origin, "source": source,
+        rows.append({"key": key, "kind": kind, **record, "source": source,
                      "toast": t or t_raw, "barn": b or b_raw,
                      "toast_raw": t_raw, "barn_raw": b_raw})
 
@@ -249,6 +314,7 @@ def main() -> int:
         "unknown_pairs": counts.get("unknown", 0),
         "partial": completed != len(programs),
         "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
+        "lanes": corpus_lanes,
     }
     report = [
         "# Barn vs Toast fuzz differential", "",
@@ -260,13 +326,21 @@ def main() -> int:
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
         f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; db `{args.db}`",
         f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`", "",
+        "## lanes", "",
     ]
+    for lane, lane_counts in corpus_lanes.items():
+        shown = {name: value for name, value in lane_counts.items() if name != "undecodable"}
+        report.append(f"- `{lane}`: {json.dumps(shown)}; undecodable: {len(lane_counts['undecodable'])}")
+    report.append("")
     for kind in ("divergence", "aborted on barn", "aborted on toast", "aborted on both", "unknown"):
         listed = [r for r in rows if r["kind"] == kind]
         if listed:
             report += [f"## {kind} ({len(listed)})", ""]
             for r in listed:
-                report += [f"### {r['key']} `{Path(r['origin']).name}`", "", "```moo", r["source"], "```", "",
+                report += [f"### {r['key']} `{Path(r['origin']).name}`", "", f"- lane: `{r['lane']}`"]
+                if "choices" in r:
+                    report.append(f"- choices (hex): `{r['choices']}`")
+                report += ["", "```moo", r["source"], "```", "",
                            f"- toast: `{r['toast']}`", f"- barn: `{r['barn']}`", ""]
     text = "\n".join(report)
     (args.out / "report.md").write_text(text, encoding="utf-8")

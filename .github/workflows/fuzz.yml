@@ -48,9 +48,10 @@ jobs:
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
           - { package: ./server, target: FuzzTCPReadInput }
           - { package: ./builtins, target: FuzzStringBuiltins }
-          # Not a Go fuzz target: replays the programs the FuzzSourceExecution
-          # and FuzzCompileVerifiable campaigns keep in Go's fuzz cache on Barn
-          # and on Toast (scripts/fuzz_differential.py) and fails on a divergence.
+          # Not a Go fuzz target: replays the programs the FuzzSourceExecution,
+          # FuzzCompileVerifiable and FuzzStructured* campaigns keep in Go's
+          # fuzz cache on Barn and on Toast (scripts/fuzz_differential.py) and
+          # fails on a divergence.
           - { package: ./scripts, target: ToastDifferential }
     steps:
       - name: Check /dev/null is a device
@@ -111,6 +112,8 @@ jobs:
               go version
               python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
                 "$cache/vm/FuzzSourceExecution" "$cache/compiler/FuzzCompileVerifiable" \
+                "$cache/vm/FuzzStructuredSourceExecution" "$cache/compiler/FuzzStructuredCompileVerifiable" \
+                "$cache/parser/FuzzStructuredParseFormatRoundTrip" \
                 vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
             } 2>&1 | tee "$logs/run-001.log"
             exit

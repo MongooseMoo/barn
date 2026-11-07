@@ -1,13 +1,29 @@
 import contextlib
 import io
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fuzz_differential import decode_corpus_file, exclusion, main, outcome, probe, results
+from bench_differ import REPO
+from fuzz_differential import (decode_corpus_file, exclusion, load_programs, main, outcome, probe,
+                               render_choices, results)
+
+# Real records copied byte for byte from Go's fuzz cache of the structured
+# targets, as Go's internal/fuzz marshalCorpusFile wrote them.
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "fuzz"
+VM_RECORD = FIXTURES / "FuzzStructuredSourceExecution" / "e58adbf989baa13f"
+COMPILER_RECORD = FIXTURES / "FuzzStructuredCompileVerifiable" / "0c4d4bbfffc14e70"
+
+
+def go_owner_source(choices: bytes) -> str:
+    """The program cmd/moo-fuzz-source prints for raw choice bytes on stdin."""
+    return subprocess.run(["go", "run", "./cmd/moo-fuzz-source"], cwd=REPO, input=choices,
+                          capture_output=True, check=True).stdout.decode("utf-8").removesuffix("\n")
 
 # Excerpts of real lane output from the first local run (2026-11-06).
 TOAST_STDOUT = """
@@ -48,6 +64,70 @@ class CorpusFileTests(unittest.TestCase):
     def test_other_files_are_not_programs(self):
         self.assertIsNone(decode_corpus_file(b"go test fuzz v1\n[]byte(\"x\")\n"))
         self.assertIsNone(decode_corpus_file(b"not a corpus file\n"))
+
+
+class StructuredCorpusTests(unittest.TestCase):
+    def test_real_record_renders_as_the_go_owner_renders_its_choices(self):
+        rendered = render_choices([str(COMPILER_RECORD), str(VM_RECORD)])
+        compiler = rendered[str(COMPILER_RECORD)]
+        # []byte("#_\"x\xa2"): '#', '_', '"', 'x', 0xa2.
+        self.assertEqual(compiler["choices"], "235f2278a2")
+        self.assertNotIn("error", compiler)
+        for record in rendered.values():
+            self.assertEqual(record["source"], go_owner_source(bytes.fromhex(record["choices"])))
+        # Go's %q leaves printable UTF-8 runs raw among \x escapes.
+        self.assertIn("de9a", rendered[str(VM_RECORD)]["choices"])
+
+    def test_lanes_keep_choices_and_count_undecodable_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            structured, strings = Path(directory, "structured"), Path(directory, "strings")
+            structured.mkdir()
+            strings.mkdir()
+            shutil.copy(COMPILER_RECORD, structured)
+            shutil.copy(VM_RECORD, structured)
+            Path(structured, "bad-escape").write_bytes(b'go test fuzz v1\n[]byte("\\q")\n')
+            Path(structured, "two-values").write_bytes(b'go test fuzz v1\n[]byte("a")\n[]byte("b")\n')
+            Path(strings, "program").write_bytes(b'go test fuzz v1\nstring("return 1;")\n')
+            with contextlib.redirect_stderr(io.StringIO()):
+                programs, excluded, lanes = load_programs([structured, strings])
+        compiled = programs[go_owner_source(bytes.fromhex("235f2278a2"))]
+        self.assertEqual(compiled["choices"], "235f2278a2")
+        self.assertEqual(compiled["lane"], str(structured))
+        self.assertTrue(compiled["origin"].endswith("0c4d4bbfffc14e70"))
+        self.assertNotIn("choices", programs["return 1;"])
+        # The vm record's program forks, which is never compared.
+        self.assertEqual(excluded, {"undecodable corpus record": 2, "fork": 1})
+        self.assertEqual({k: v for k, v in lanes[str(structured)].items() if k != "undecodable"},
+                         {"records": 4, "duplicates": 0, "excluded": 3, "eligible": 1, "completed": 0})
+        self.assertEqual(sorted(Path(u["path"]).name for u in lanes[str(structured)]["undecodable"]),
+                         ["bad-escape", "two-values"])
+        self.assertEqual(lanes[str(strings)]["eligible"], 1)
+
+    def test_undecodable_record_is_never_a_completed_comparison(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lane, out = Path(directory, "lane"), Path(directory, "out")
+            lane.mkdir()
+            shutil.copy(COMPILER_RECORD, lane)
+            Path(lane, "bad-escape").write_bytes(b'go test fuzz v1\n[]byte("\\q")\n')
+            completed = '=> {"F00001", "value", {1, 0}}'
+            lanes = {engine: ("\n".join(["=> 0", completed]), "") for engine in ("toast", "barn")}
+            with (patch("sys.argv", ["fuzz_differential.py", str(lane), "--barn-linux", "barn", "--out", str(out)]),
+                  patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
+                      stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
+                  patch("fuzz_differential.run_lanes", return_value=lanes) as run_lanes,
+                  contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO())):
+                code = main()
+            data = json.loads((out / "results.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        # The preamble and the one decodable program; nothing for the bad record.
+        self.assertEqual(len(run_lanes.call_args.args[3]), 2)
+        summary = data["summary"]
+        self.assertEqual((summary["loaded"], summary["eligible"], summary["completed_pairs"]), (2, 1, 1))
+        self.assertEqual(data["excluded"], {"undecodable corpus record": 1})
+        self.assertEqual(summary["lanes"][str(lane)]["completed"], 1)
+        self.assertEqual(len(summary["lanes"][str(lane)]["undecodable"]), 1)
+        self.assertEqual(data["rows"][0]["choices"], "235f2278a2")
+        self.assertEqual(data["rows"][0]["source"], go_owner_source(bytes.fromhex("235f2278a2")))
 
 
 class ExclusionTests(unittest.TestCase):
@@ -92,14 +172,16 @@ class ResultTests(unittest.TestCase):
 class CampaignTests(unittest.TestCase):
     def run_campaign(self, toast, barn, excluded=None):
         # These are lane transcripts, including the production preamble result.
-        programs = {f"return {i};": f"corpus/{i}" for i in range(len(toast))}
+        programs = {f"return {i};": {"origin": f"corpus/{i}", "lane": "corpus"} for i in range(len(toast))}
+        lanes_counts = {"corpus": {"records": len(toast), "duplicates": 0, "excluded": 0,
+                                   "eligible": len(toast), "completed": 0, "undecodable": []}}
         lanes = {"toast": ("\n".join(["=> 0"] + toast), ""),
                  "barn": ("\n".join(["=> 0"] + barn), "")}
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             with (patch("sys.argv", ["fuzz_differential.py", "corpus", "--barn-linux", "barn",
                                      "--out", directory]),
-                  patch("fuzz_differential.load_programs", return_value=(programs, excluded or {})),
+                  patch("fuzz_differential.load_programs", return_value=(programs, excluded or {}, lanes_counts)),
                   patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
                       stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
                   patch("fuzz_differential.run_lanes", return_value=lanes),
