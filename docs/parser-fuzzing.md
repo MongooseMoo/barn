@@ -142,13 +142,14 @@ opens its issue as before, yet the cycle is still accepted. A setup failure,
 zero measured work, an inconclusive differential or a failed upload, cache save
 or issue report is not accepted.
 
-A completed continuous dispatch's completion starts the controller path in the
-same workflow with a new repository-variable snapshot. The controller checks
-the stop switch and dedicated configuration, accepts only a trusted master
-source dispatch whose acceptance job passed, and submits one successor only when
-there is no newer or active dispatch. Controller completions cannot run fuzz
-jobs or replenish. An unaccepted cycle stops the chain with a red controller
-run. Setting the switch to anything
+A completed continuous dispatch's completion starts the separate
+`fuzz-controller.yml` workflow with a new repository-variable snapshot (GitHub
+rejects a workflow whose `workflow_run` trigger names itself). It runs on the
+ordinary CI selector, since the dedicated group admits only `fuzz.yml`, and only
+dispatches. The controller checks the stop switch and dedicated configuration,
+accepts only a trusted master source dispatch whose acceptance job passed, and
+submits one successor only when there is no newer or active dispatch. An
+unaccepted cycle stops the chain with a red controller run. Setting the switch to anything
 other than `true` prevents replenishment; cancel an active run separately when
 immediate stopping is required. The controller uses its new run's variable
 snapshot; the switch does not interrupt an already-running controller. No extra credential or variables REST read is
