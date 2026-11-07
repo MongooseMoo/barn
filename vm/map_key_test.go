@@ -152,3 +152,55 @@ func TestKeyedReadOfOneEntryIgnoresAWriteToAnother(t *testing.T) {
 		t.Fatalf("b = %d, want 9", b)
 	}
 }
+
+// The outer assignment captures its map before evaluating the RHS. A nested
+// assignment can replace that slot, but the outer writeback still uses its
+// captured base. It must therefore become a whole-property write: otherwise a
+// later keyed rebase would retain the RHS mutation or another task's new key.
+// These evaluation results were verified through the managed WSL Toast oracle.
+func TestKeyedAssignmentCapturedBeforeRHSWriteUsesWholeDependency(t *testing.T) {
+	for _, test := range []struct {
+		name, code string
+		want       int64
+	}{
+		{"keyed-rhs", `r=(#0.m["a"]=(#0.m["b"]=5)); if (r != 5 || #0.m["a"] != 5 || #0.m["b"] != 0) raise(E_INVARG); endif`, 5},
+		{"whole-rhs", `r=(#0.m["a"]=(#0.m=["a"->2,"b"->3])["b"]); if (r != 3 || #0.m["a"] != 3 || #0.m["b"] != 0) raise(E_INVARG); endif`, 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, concurrent := range []bool{false, true} {
+				name := "captured-value"
+				if concurrent {
+					name = "new-key-conflicts"
+				}
+				t.Run(name, func(t *testing.T) {
+					store := mapKeyVMStore(t)
+					writer, other := store.BeginSnapshot(0), store.BeginSnapshot(0)
+					defer writer.Release()
+					defer other.Release()
+					runOn(t, store, writer, test.code)
+					if concurrent {
+						// Neither RHS nor its assertions touch c. The real VM writeback,
+						// rather than a test-side whole read, must supply this dependency.
+						runOn(t, store, other, `#0.m["c"]=7;`)
+						if ec := other.Commit(); ec != types.E_NONE {
+							t.Fatalf("other commit: %v %v", ec, other.Conflicts())
+						}
+						if ec := writer.Commit(); ec == types.E_NONE || !writer.ValidationFailed() {
+							t.Fatalf("captured write commit=%v conflicts=%v; want lost whole-property validation", ec, writer.Conflicts())
+						}
+						if a, b, c := entry(t, store, "a"), entry(t, store, "b"), entry(t, store, "c"); a != 0 || b != 0 || c != 7 {
+							t.Fatalf("failed write leaked: a=%d b=%d c=%d", a, b, c)
+						}
+						return
+					}
+					if ec := writer.Commit(); ec != types.E_NONE {
+						t.Fatalf("captured write commit: %v %v", ec, writer.Conflicts())
+					}
+					if a, b := entry(t, store, "a"), entry(t, store, "b"); a != test.want || b != 0 {
+						t.Fatalf("a=%d b=%d; want captured base with a=%d b=0", a, b, test.want)
+					}
+				})
+			}
+		})
+	}
+}
