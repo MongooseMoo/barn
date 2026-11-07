@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"os"
@@ -25,6 +26,29 @@ func (h *manifestAtListenHandler) Handle(ctx context.Context, r slog.Record) err
 		h.valid = err == nil && json.Valid(content)
 	}
 	return h.Handler.Handle(ctx, r)
+}
+
+func TestRunRejectsMissingStartupScriptBeforeProfileAndServer(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.DatabasePath = filepath.Join(dir, "invalid.db")
+	if err := os.WriteFile(cfg.DatabasePath, []byte("invalid database\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConfigPath = filepath.Join("..", "..", "profiles", "barn", "outbound-on.conf")
+	cfg.ProfileID = "barn-linux-testdb-outbound-on"
+	cfg.ProfileManifest = filepath.Join(dir, "profile.json")
+	cfg.Listen = []string{"tcp://127.0.0.1:0"}
+	cfg.DebugAddr, cfg.OperatorAddr = "off", "off"
+	script := filepath.Join(dir, "missing.moo")
+	cfg.StartScript = &script
+	err := Run(context.Background(), cfg, &bytes.Buffer{}, &bytes.Buffer{})
+	if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "read startup script") {
+		t.Errorf("Run = %v, want native missing-script error before server/database work", err)
+	}
+	if _, err := os.Stat(cfg.ProfileManifest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing script created profile manifest: %v", err)
+	}
 }
 
 func TestRunPublishesManifestBeforeGameSocket(t *testing.T) {
