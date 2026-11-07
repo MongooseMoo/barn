@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,12 +115,30 @@ func WriteManifest(path string, manifest Manifest) error {
 }
 
 func checksumFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	hash := sha256.New()
+	var buffer [32 << 10]byte
+	var readErr error
+	for {
+		n, err := file.Read(buffer[:])
+		if n > 0 {
+			_, _ = hash.Write(buffer[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			readErr = err
+			break
+		}
+	}
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func fixtureID(profileID, dbPath string) string {

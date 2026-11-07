@@ -328,7 +328,7 @@ func (s *Server) Start() error {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
-		return fmt.Errorf("listen failed: %w", err)
+		return errors.Join(fmt.Errorf("listen failed: %w", err), s.runtime.Session().Close())
 	}
 
 	for _, lines := range s.StartScripts {
