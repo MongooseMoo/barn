@@ -20,12 +20,21 @@ func asObjID(v types.Value) (types.ObjID, bool) {
 	return 0, false
 }
 
-// readObject reads a single object
+// labelID tells readObjectCommon to identify the object by its "#N" label.
+// Toast's ng_read_object (db_file.cc) uses the label only for anonymous
+// objects (dbpriv_find_object(oid)); numbered objects take the next slot.
+const labelID types.ObjID = -1
+
+// readObject reads a single object identified by its label (anonymous objects).
 func (database *Database) readObject(r *bufio.Reader) (*store.ObjectBuilder, error) {
-	return database.readObjectCommon(r, true)
+	return database.readObjectCommon(r, true, labelID)
 }
 
-func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.ObjectBuilder, error) {
+// readObjectCommon reads one object record. A numbered object is placed at
+// slot, its record position, and its label is ignored, matching Toast's
+// ng_read_object -> dbpriv_new_object(-1) and dbpriv_new_recycled_object.
+// Pass labelID to use the label instead.
+func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool, slot types.ObjID) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -51,6 +60,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, fmt.Errorf("parse object ID: %w", err)
 	}
 	objID = types.ObjID(id)
+	if slot != labelID {
+		objID = slot
+	}
 
 	if recycled {
 		// Recycled object - track for reuse but don't create full object

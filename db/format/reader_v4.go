@@ -42,7 +42,7 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 
 	// Objects section
 	for i := 0; i < objCount; i++ {
-		obj, err := database.readObjectV4(r)
+		obj, err := database.readObjectV4(r, types.ObjID(i))
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
@@ -86,7 +86,9 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 }
 
 // readObjectV4 reads a single object in version 4 format
-func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, error) {
+// readObjectV4 reads the record expected at slot. Like Toast's v4_read_object
+// (db_file.cc), it rejects a label that is not the next consecutive ID.
+func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -112,6 +114,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 		return nil, fmt.Errorf("parse object ID: %w", err)
 	}
 	objID = types.ObjID(id)
+	if objID != slot {
+		return nil, fmt.Errorf("object record %d has ID #%d", slot, objID)
+	}
 
 	if recycled {
 		database.RecycledObjs = append(database.RecycledObjs, objID)

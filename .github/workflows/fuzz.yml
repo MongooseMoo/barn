@@ -35,6 +35,7 @@ jobs:
           - { package: ./vm, target: FuzzSourceExecution }
           - { package: ./vm, target: FuzzRestoreVMSnapshotDoesNotPanic }
           - { package: ./bytecode, target: FuzzVerifyProgram }
+          - { package: ./db/format, target: FuzzReadDatabase }
           - { package: ./command, target: FuzzCommandLine }
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
     steps:

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("** LambdaMOO Database, Format Version 17 **\n1\n0\n1 values pending finalization\n2\n\n\n0 queued tasks\n0 suspended tasks\n0 interrupted tasks\n0 active connections\n4\n#0\n\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n\n0\n0\n0\n0\n0\n#1\n\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n\n1\n0\n0\n0\n0\n#0\n\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n\n0\n0\n0\n0\n0\n#0\n\n0\n0\n0\n0\n0\n0\n0\n0\n1\n1\n0\n0\n0\n0\n0\n0\n0\n")
