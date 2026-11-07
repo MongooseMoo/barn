@@ -4,8 +4,9 @@ Shared-wait review is complete. The accounting helper, task-row and object
 commit routes preserve gate order/exemption/publication and count each
 successful acquisition once. Standalone admitted and sweep-owned hook coverage
 is corrected and has focused race regressions. The analyst report preserves
-the original finding and its addressed disposition. Full PR CI and Elle
-acceptance remain outstanding.
+the original finding and its addressed disposition. Prior-head Go and pinned
+Elle evidence passed, but conformance failed one timeout audit. The scoped
+reader deadline correction below still requires new exact-head CI and Elle.
 
 ## Goal
 
@@ -220,6 +221,11 @@ encoding evidence. The valid byte producer uses chr(195,169).
 
 ## Next step
 
+Current action: publish the reviewed reader deadline correction and complete
+its exact-head CI/Elle. Keep the failed cohort and isolated oracle evidence.
+Leave PR #635 open; no merge or deployment is authorized for this publication.
+The numbered record below preserves the earlier completed investigation steps.
+
 1. Consolidate shared implementation in a substantive local commit, including
    this note (completed). Both branches now share newer upstream Elle coverage,
    parser, checkpoint and output fixes. Preserve generated files/ from staging.
@@ -299,7 +305,31 @@ byte value; all opcode bytes are assigned. The same raw one-byte malformed
 input now requires the specific truncated-UNWIND_JUMP rejection. The verifier's
 unknown/dead/truncated checks remain intact. Raw second-job log is retained in
 .tmp/pr635-second-go-job.log; the first interrupted Elle archive is retained
-under .tmp/pr635-first-elle. Next: push the fixture correction and finish the
-new exact-head PR CI and pinned Elle before any merge.
+under .tmp/pr635-first-elle. The fixture correction is pushed. The current
+build/unit job (run42359492056) passed formatting, vet, Staticcheck,
+golangci-lint, build, full Go tests, types/store race tests and benchmark-driver
+tests. Raw job output is retained in .tmp/pr635-current/go-job.log. The current
+Elle job passed in4m12s. Its raw results have errors[], healthy literaltrue
+with exit0, deliberatefault literalfalse with exit1, all selected paths nonzero
+for the three healthy seeds, and all nonempty fault witnesses present. The
+independent verifier accepted that bounded evidence and its exact head/base
+mapping; no fail/info terminal appeared in those healthy EDN ledgers. Raw
+histories/manifests/witnesses and logs are retained under .tmp/pr635-current.
+MOO conformance completed with one failure: audit_connect_timeout_server_option
+expected six ones but returned zero. Its XML, admission evidence and full job
+log are retained under .tmp/pr635-current/conformance-failed. Managed stock
+Toast and the exact published Barn each passed that audit with canonical
+admission in isolation. The cause of the full-suite failure remains unproven.
+Source inspection found a separate concrete regression: an early binary-mode
+reader wake recalculated and extended the unauthenticated idle deadline.
+The new real TCP transport/builtin regression reproduced a one-second extension
+without input. The reader now preserves its deadline across synthetic wakes
+and resets it only after real input or authentication. Both prelogin regression
+tests pass under the race detector. The initial regression assertion incorrectly
+expected a bare eval value; engine/eval.go establishes the actual {1, value}
+record, and correcting that fixture exposed the deadline failure before repair.
+No full PR CI or merge acceptance is claimed. Next: review and publish this
+scoped correction, finish exact-head CI and Elle, retain raw evidence, and leave
+the published PR open. Publication permission does not grant merge authority.
 Remaining first-output work needs a schedule-preserving credential path; no
 login script is available and the unsafe Toast bootstrap remains rejected.

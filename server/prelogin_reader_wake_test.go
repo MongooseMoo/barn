@@ -100,3 +100,67 @@ return 0;`)
 		t.Fatalf("binary output expired the prelogin reader: %q, %v", line, err)
 	}
 }
+
+type preloginDeadlineRecorder struct {
+	*TCPTransport
+	deadlines chan time.Time
+}
+
+func (p *preloginDeadlineRecorder) SetReadDeadline(deadline time.Time) error {
+	p.deadlines <- deadline
+	return p.TCPTransport.SetReadDeadline(deadline)
+}
+
+func TestPreloginBinaryWakePreservesIdleDeadline(t *testing.T) {
+	store := dbstore.NewStore()
+	addTestObject(t, store, 0, dbstore.FlagWizard|dbstore.FlagProgrammer)
+	addTestVerb(store, 0, "do_login_command", "return 0;")
+	rt := engine.NewRuntime(store)
+	defer rt.Stop()
+	p := NewInputProcessor(store, rt)
+	cm := NewConnectionManager(7777)
+	cm.connectTimeout = 10 * time.Second
+	p.SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
+	server, client := net.Pipe()
+	transport := &preloginDeadlineRecorder{TCPTransport: NewTCPTransport(server), deadlines: make(chan time.Time, 8)}
+	conn := cm.NewConnectionFromTransport(transport)
+	p.Start()
+	defer p.Stop()
+	done := make(chan struct{})
+	go func() { p.HandleConnection(conn); close(done) }()
+	defer func() {
+		_ = client.Close()
+		_ = conn.Close()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("reader did not stop")
+		}
+	}()
+	readDeadline := func() time.Time {
+		t.Helper()
+		select {
+		case deadline := <-transport.deadlines:
+			return deadline
+		case <-time.After(3 * time.Second):
+			t.Fatal("reader did not set a deadline")
+			return time.Time{}
+		}
+	}
+	initial := readDeadline()
+	// Cross an actual second boundary so recomputing Toast's integer-second
+	// idle deadline cannot accidentally produce the same value.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	code := fmt.Sprintf("set_connection_option(#-%d, \"binary\", 1); return 1;", conn.ID)
+	if got := rt.EvalCommandOutput(0, code); got != "{1, 1}" {
+		t.Fatalf("binary mode producer = %q", got)
+	}
+	wake := readDeadline()
+	if !wake.Before(initial) {
+		t.Fatalf("binary mode did not interrupt the read: %v >= %v", wake, initial)
+	}
+	if retried := readDeadline(); !retried.Equal(initial) {
+		t.Fatalf("binary wake extended idle deadline from %v to %v without input", initial, retried)
+	}
+}
