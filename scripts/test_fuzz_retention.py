@@ -33,11 +33,11 @@ class RetentionTests(unittest.TestCase):
         self.lane = self.retained / "vm" / TARGET
         self.digest = hashlib.sha256(RECORD).hexdigest()
 
-    def run_transfer(self, mode="capture", cache=None, logs=None, head="source-one"):
+    def run_transfer(self, mode="capture", cache=None, logs=None, head="source-one", campaign=None):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             transfer(mode, self.retained, cache or self.cache, "./vm", TARGET,
-                     head, "go version test", "profile-digest", logs)
+                     head, "go version test", "profile-digest", logs, campaign)
         return json.loads(output.getvalue())
 
     def test_successful_interesting_and_failing_inputs_restore_on_another_host(self):
@@ -77,10 +77,13 @@ class RetentionTests(unittest.TestCase):
             "string(\"execs: 999999\")\n")
         (logs / "run-002.log").write_text(
             "fuzz: elapsed: 3s, execs: 4 (1/sec), new interesting: 0 (total: 2)\n")
-        summary = self.run_transfer(logs=logs)
+        summary = self.run_transfer(logs=logs, campaign="finding")
         self.assertEqual(summary["completed_executions"], 13)
+        self.assertEqual(summary["campaign"], "finding")
         self.assertEqual(json.loads((self.lane / "census.json").read_text()), summary)
         self.assertEqual((self.lane / "logs/run-001.log").read_bytes(), (logs / "run-001.log").read_bytes())
+        # A campaign step that never finished leaves its output empty.
+        self.assertIsNone(self.run_transfer(logs=logs, campaign="")["campaign"])
 
     def test_real_go_statistics_are_counted_without_summing_progress_lines(self):
         raw = (ROOT / "scripts/fixtures/fuzz/42201471629.log").read_text()

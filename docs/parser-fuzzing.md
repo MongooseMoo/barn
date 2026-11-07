@@ -132,13 +132,23 @@ Artifacts expire and GitHub can evict caches: preserve confirmed findings with
 their regression fixes before expiry. The helper does not determine privacy
 from arbitrary input bytes; do not feed local private corpora to public jobs.
 
-Continuous mode additionally requires `FUZZ_CONTINUOUS_ENABLED=true`. A
-successful continuous dispatch's completion starts the controller path in the
+Continuous mode additionally requires `FUZZ_CONTINUOUS_ENABLED=true`. Every
+dispatch ends with an `Accept discovery cycle` job. It passes when each native
+lane ran to completion with nonzero measured executions, kept its census and
+evidence, and ended clean or with a saved finding, and the differential
+completed with `success` or `divergence`. Only the step that found something
+may fail. A saved finding or a real divergence keeps its job and the run red and
+opens its issue as before, yet the cycle is still accepted. A setup failure,
+zero measured work, an inconclusive differential or a failed upload, cache save
+or issue report is not accepted.
+
+A completed continuous dispatch's completion starts the controller path in the
 same workflow with a new repository-variable snapshot. The controller checks
 the stop switch and dedicated configuration, accepts only a trusted master
-source dispatch, and submits one successor only when there is no newer or
-active dispatch. Controller completions cannot run fuzz jobs or replenish.
-Failures and inconclusive cycles stop the chain. Setting the switch to anything
+source dispatch whose acceptance job passed, and submits one successor only when
+there is no newer or active dispatch. Controller completions cannot run fuzz
+jobs or replenish. An unaccepted cycle stops the chain with a red controller
+run. Setting the switch to anything
 other than `true` prevents replenishment; cancel an active run separately when
 immediate stopping is required. The controller uses its new run's variable
 snapshot; the switch does not interrupt an already-running controller. No extra credential or variables REST read is

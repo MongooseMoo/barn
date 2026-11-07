@@ -12,7 +12,7 @@ import shutil
 MAX_BYTES = 256 * 1024 * 1024
 
 
-def transfer(mode, root, cache, package, target, head, go_version, profile, logs=None):
+def transfer(mode, root, cache, package, target, head, go_version, profile, logs=None, campaign=None):
     if mode not in ("capture", "restore"):
         raise ValueError("unknown corpus transfer mode")
     if not re.fullmatch(r"\./[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", package):
@@ -93,6 +93,8 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
             completed += max(map(int, executions), default=0)
             shutil.copyfile(path, evidence / path.name)
         summary["completed_executions"] = completed
+        # clean, finding or infrastructure; empty when the campaign never ended.
+        summary["campaign"] = campaign or None
         (lane / "census.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, sort_keys=True))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -113,9 +115,11 @@ def main():
     parser.add_argument("--go-version", required=True)
     parser.add_argument("--profile", type=Path, default=Path("profiles/toast/stock-wsl-testdb.json"))
     parser.add_argument("--logs", type=Path)
+    parser.add_argument("--campaign", choices=("", "clean", "finding", "infrastructure"))
     args = parser.parse_args()
     transfer(args.mode, args.root, args.cache, args.package, args.target,
-             args.head, args.go_version, hashlib.sha256(args.profile.read_bytes()).hexdigest(), args.logs)
+             args.head, args.go_version, hashlib.sha256(args.profile.read_bytes()).hexdigest(), args.logs,
+             args.campaign)
 
 
 if __name__ == "__main__":

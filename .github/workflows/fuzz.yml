@@ -129,6 +129,8 @@ jobs:
           # Go names inputs by content hash: equal names hold equal bytes.
           trap 'find "$found" -type f -exec mv -t "$inputs" {} +' EXIT
           deadline=$((SECONDS + 1800)) run=0 status=0
+          # The cycle acceptance job reads `cycle`: a saved finding is a
+          # completed campaign; a failure without a saved input is not.
           while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
             run=$((run + 1))
             log="$logs/run-$(printf %03d "$run").log"
@@ -144,16 +146,17 @@ jobs:
             input=$(python3 scripts/fuzz_report.py --log "$log" --package '${{ matrix.package }}' \
                 --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure |
               python3 -c 'import json, sys; r = json.load(sys.stdin)[0]; print(r["input_path"] if r["kind"] != "infrastructure" and r["input_path"] else "")')
-            [ -n "$input" ] || break
+            if [ -z "$input" ]; then echo "cycle=infrastructure" >> "$GITHUB_OUTPUT"; exit 1; fi
             mv "$input" "$found/"
           done
+          echo "cycle=$([ "$status" = 0 ] && echo clean || echo finding)" >> "$GITHUB_OUTPUT"
           exit "$status"
 
 
       - name: Capture public interesting inputs and execution census
         if: always()
         run: |
-          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs"
+          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign '${{ steps.campaign.outputs.cycle }}'
 
       - name: Upload retained corpus and native evidence
         if: always()
@@ -365,13 +368,41 @@ jobs:
 
       - *failure-reporter
 
+  accept:
+    needs: [route, fuzz, differential]
+    # Findings keep their jobs red. This job instead judges whether the cycle
+    # completed measured work with its evidence kept; replenishment needs it.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
+    name: Accept discovery cycle
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: fuzz-corpus-*
+          merge-multiple: true
+          path: .fuzz/retained
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fuzz-failure-ToastDifferential
+          path: fuzz-differential
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').accept({github, context, core});
+
   replenish:
-    # Controller completions are ineligible: only successful source dispatches
-    # can replenish. A failed/inconclusive cycle never submits a successor.
+    # Controller completions are ineligible. Only a source dispatch whose
+    # Accept discovery cycle job passed can replenish, findings or not.
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
-      github.event.workflow_run.conclusion == 'success' &&
+      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
       github.event.workflow_run.display_title == 'Nightly fuzz / dedicated-continuous' &&
       github.event.workflow_run.head_branch == 'master' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
