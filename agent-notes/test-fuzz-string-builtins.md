@@ -36,4 +36,6 @@ json.cc:457-458 (int), 490-504 (list, bool), 203-229 (bool and integer parse), 3
 Toast bounds pcre_match with PCRE2 match/depth counters plus JIT (10,000,000 match steps and depth 10,000, `/root/src/toaststunt/src/pcre_moo.cc:51,53`; `pcre2_jit_compile` at :113), while Barn uses a two-second regexp2 timeout, so results can differ near the limit. Engine parity is separate work.
 
 ## Next step
-PR #615 is open against master. Every CI check passed on the first push: Build & unit tests, MOO conformance suite, and Serializable histories and negative control. Left unmerged for the coordinator.
+PR #615 is open against master. CI passed on both earlier pushes, including the MOO conformance suite.
+
+2026-11-06: rebased onto origin/master after #613 and #616-#624 merged. One conflict, in the `.github/workflows/fuzz.yml` matrix: kept master's new `./server FuzzTCPReadInput` line and added this PR's `./builtins FuzzStringBuiltins` line after it. Every other master entry, including `./db/format FuzzReadDatabase`, is unchanged. After the rebase: `go test ./builtins -run Fuzz -count=1` gives `ok ... 1.242s`, `gofmt -l builtins/fuzz_test.go` is empty, and `go vet ./builtins` is clean. Committed locally; the coordinator pushes. Left unmerged.
