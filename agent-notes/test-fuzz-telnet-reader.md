@@ -5,6 +5,9 @@ Add FuzzTCPReadInput for arbitrary pre-login TCP bytes and chunk boundaries,
 and register it in the nightly fuzz matrix (approved plan item C2).
 
 ## State
+PR #613 is open against master on test/fuzz-telnet-reader. Query its live
+checks for CI status; the evidence below records local verification.
+
 Implemented the target and nightly matrix entry. Focused transport tests,
 go vet, staticcheck, and golangci-lint on ./server passed. gofmt -d produced
 no diff. The cap close-path test through HandleConnection also passed.
@@ -58,6 +61,4 @@ structs. The existing vet check blocked it; changed the diagnostic to %v and
 reran the tests and package checks successfully.
 
 ## Next step
-Publish the independently based PR against master and watch its checks to
-completion. CI status is held by the PR checks; this note records local
-verification. Leave the PR unmerged for the parent task's review.
+The parent task reviews PR #613 and its CI results. Leave the PR unmerged.
