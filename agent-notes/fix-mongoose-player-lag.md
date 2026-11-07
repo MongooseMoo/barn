@@ -16,7 +16,7 @@ No live deployment. PR #614 was already merged normally.
 
 ## State
 
-The shared implementation is local and has not been published. The input
+The shared implementation is published in PR #635. The input
 reader wakeup repair, login-bracket synchronization and runtime mutex repair
 precede the current native-import work. The latter is now implemented:
 
@@ -287,7 +287,12 @@ Final scoped local review found no remaining concrete source blocker; its
 verdict remains NO-MERGE pending exact-head PR CI and pinned Elle evidence.
 Both requested prose corrections (current hook coverage and admission scope)
 are applied. Source, reports and this note belong to the substantive correction.
-Next: integrate fetched upstream changes, publish the prepared PR, and run
-exact-head PR CI and pinned Elle before any merge.
+PR #635 is open after integrating fetched upstream isolation/map changes.
+Its first Go job failed Staticcheck ST1005 at compiler/native_import.go259
+because an error began with a capitalized product name. The message is
+corrected in source; no check was weakened. Raw first-job log is retained in
+.tmp/pr635-first-go-job.log. CI and Elle were running against the published
+head; no full acceptance is established. Next: push this correction and watch
+the new exact-head PR CI and pinned Elle before any merge.
 Remaining first-output work needs a schedule-preserving credential path; no
 login script is available and the unsafe Toast bootstrap remains rejected.

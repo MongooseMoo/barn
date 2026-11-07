@@ -256,7 +256,7 @@ func importedHandlers(program *bytecode.Program, recorded []barnImportHandler, c
 			}
 		}
 		if !active {
-			return nil, fmt.Errorf("Barn handler has no corresponding native control scope")
+			return nil, fmt.Errorf("imported handler has no corresponding native control scope")
 		}
 		operands := program.Code[entry.SetupIP+1:]
 		if op == bytecode.OP_TRY_FINALLY_WIDE {
