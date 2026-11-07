@@ -46,6 +46,32 @@ func runCompiledBytecodeProgram(prog *bytecode.Program, registry *builtins.Regis
 	return result
 }
 
+// Raw reported input: builtins/map.yaml::first_last_index. Markers evaluated
+// inside range bounds must expose the actual first/last keys, not the map size.
+func TestMapRangeFirstLastMarkersExposeActualKeys(t *testing.T) {
+	result := runBytecodeProgram(t, `
+x = [];
+r = {};
+x[1] = 1;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[2] = 2;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[3] = 3;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[5] = 5;
+x[(a = ^)..(b = $)];
+r = {@r, {a, b}};
+x[8] = 8;
+x[(a = ^)..(b = $)];
+return {@r, {a, b}};`, nil, nil)
+	if result.Flow != types.FlowReturn || result.Val.String() != `{{1, 1}, {1, 2}, {1, 3}, {1, 5}, {1, 8}}` {
+		t.Fatalf("map range marker result = %+v; want actual first and last keys", result)
+	}
+}
+
 func runBytecodeExpr(t *testing.T, expr string) types.Result {
 	t.Helper()
 	return runBytecodeProgram(t, "return "+expr+";", nil, nil)
@@ -997,7 +1023,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	}
 }
 
-func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
+func TestBytecodeMapRangeBoundariesSelectAllKeys(t *testing.T) {
 	read := runBytecodeExpr(t, `["b" -> 2, "a" -> 1][^..$]`)
 	wantRead := types.NewMap([][2]types.Value{
 		{types.NewStr("a"), types.NewInt(1)},
@@ -1017,6 +1043,23 @@ func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
 	})
 	if assigned.Flow != types.FlowReturn || !assigned.Val.Equal(wantAssigned) {
 		t.Fatalf("map range assignment = %#v, want %v", assigned, wantAssigned)
+	}
+}
+
+func TestBytecodeMapRangeIntegerEndpointsAreKeys(t *testing.T) {
+	for _, test := range []struct {
+		name, program, want string
+	}{
+		{"sparse keys", `return mapkeys([10 -> "a", 20 -> "b", 30 -> "c"][10..20]);`, `{10, 20}`},
+		{"missing keys", `try return [10 -> "a", 20 -> "b"][1..2]; except e (E_RANGE) return e[1]; endtry`, `E_RANGE`},
+		{"inverted missing keys", `return mapkeys([10 -> "a", 20 -> "b"][9..2]);`, `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.program, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("map range result = %+v; want %s", result, test.want)
+			}
+		})
 	}
 }
 
