@@ -4,37 +4,80 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func TestMapUpdatesPreserveSnapshotsAndInsertionOrder(t *testing.T) {
-	rng := rand.New(rand.NewSource(743))
+	rapid.Check(t, mapUpdatesPreserveSnapshotsAndInsertionOrder)
+}
+
+func FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder(f *testing.F) {
+	// MakeFuzz interprets bytes as Rapid choices, not serialized operations.
+	// Keep enough choice data for complete bounded histories; exhausted inputs
+	// are skipped by Rapid rather than treated as checked histories.
+	f.Add(make([]byte, 128))
+	seed := make([]byte, 16*1024)
+	_, _ = rand.New(rand.NewSource(743)).Read(seed)
+	f.Add(seed)
+	f.Fuzz(rapid.MakeFuzz(mapUpdatesPreserveSnapshotsAndInsertionOrder))
+}
+
+type mapHistoryOperation struct {
+	delete bool
+	key    int64
+	value  int64
+}
+
+// This single property runs under both Rapid's shrinking/replay runner and
+// Go's coverage-guided fuzzer. Rapid logs generation choices; the explicit
+// action log also keeps the concrete history readable if generators change.
+func mapUpdatesPreserveSnapshotsAndInsertionOrder(t *rapid.T) {
+	operation := rapid.Custom(func(t *rapid.T) mapHistoryOperation {
+		op := mapHistoryOperation{
+			delete: rapid.SampledFrom([]bool{false, false, false, true}).Draw(t, "delete"),
+			key:    rapid.Int64Range(0, 119).Draw(t, "key"),
+		}
+		if !op.delete {
+			op.value = rapid.Int64().Draw(t, "value")
+		}
+		return op
+	})
+	// Vary the minimum length so generation also explores longer histories,
+	// while shrinking it lets SliceOfN remove groups of operations. Keeping
+	// the upper bound fixed avoids an exact-length constraint on those removals.
+	minimum := rapid.IntRange(1, 128).Draw(t, "minimum history length")
+	operations := rapid.SliceOfN(operation, minimum, 256).Draw(t, "operations")
 	m := NewEmptyMap()
 	reference := map[int64]int64{}
 	var order []int64
-	var snapshots []Value
-	var expected [][][2]Value
-	check := func(m Value, pairs [][2]Value) {
+	snapshots := []Value{m}
+	expected := [][][2]Value{nil}
+	step := -1
+	check := func(version int, m Value, pairs [][2]Value) {
 		t.Helper()
 		got := m.PairsInInsertionOrder()
 		if len(got) != len(pairs) || m.Len() != len(pairs) {
-			t.Fatalf("map length %d/%d, want %d", len(got), m.Len(), len(pairs))
+			t.Fatalf("after op %d snapshot %d: map length %d/%d, want %d", step, version, len(got), m.Len(), len(pairs))
 		}
 		for i, p := range pairs {
 			if !got[i][0].Identical(p[0]) || !got[i][1].Identical(p[1]) {
-				t.Fatalf("insertion pair %d = %v, want %v", i, got[i], p)
+				t.Fatalf("after op %d snapshot %d: insertion pair %d = %v, want %v", step, version, i, got[i], p)
 			}
 			value, ok := m.MapGet(p[0])
 			if !ok || !value.Identical(p[1]) {
-				t.Fatalf("lookup %v = %v/%v", p[0], value, ok)
+				t.Fatalf("after op %d snapshot %d: lookup %v = %v/%v, want %v", step, version, p[0], value, ok, p[1])
 			}
 		}
 		if ValueBytes(m) != ValueBytes(NewMap(pairs)) {
-			t.Fatal("cached size changed")
+			t.Fatalf("after op %d snapshot %d: cached size %d, want %d", step, version, ValueBytes(m), ValueBytes(NewMap(pairs)))
 		}
 	}
-	for i := 0; i < 3000; i++ {
-		key := int64(rng.Intn(120))
-		if rng.Intn(4) == 0 {
+	for i, op := range operations {
+		step = i
+		key := op.key
+		if op.delete {
+			t.Logf("op %d: delete(%d)", step, key)
 			m = m.MapDelete(NewInt(key))
 			delete(reference, key)
 			for j, k := range order {
@@ -44,30 +87,29 @@ func TestMapUpdatesPreserveSnapshotsAndInsertionOrder(t *testing.T) {
 				}
 			}
 			if _, ok := m.MapGet(NewInt(key)); ok {
-				t.Fatalf("deleted key %d remains", key)
+				t.Fatalf("after op %d: deleted key %d remains", step, key)
 			}
 		} else {
-			value := int64(i)
+			value := op.value
+			t.Logf("op %d: set(%d, %d)", step, key, value)
 			if _, exists := reference[key]; !exists {
 				order = append(order, key)
 			}
 			reference[key] = value
 			m = m.MapSet(NewInt(key), NewInt(value))
 		}
-		if i%31 == 0 {
-			pairs := make([][2]Value, len(order))
-			for j, k := range order {
-				pairs[j] = [2]Value{NewInt(k), NewInt(reference[k])}
-			}
-			check(m, pairs)
-			// Force the lazy Toast tree too, before later aliases change.
-			_ = m.Pairs()
-			snapshots = append(snapshots, m)
-			expected = append(expected, pairs)
+		pairs := make([][2]Value, len(order))
+		for j, k := range order {
+			pairs[j] = [2]Value{NewInt(k), NewInt(reference[k])}
 		}
-	}
-	for i, snapshot := range snapshots {
-		check(snapshot, expected[i])
+		// Force the lazy Toast tree before later aliases change, as in the
+		// original fixed-seed test. Expected pairs come only from the model.
+		_ = m.Pairs()
+		snapshots = append(snapshots, m)
+		expected = append(expected, pairs)
+		for version, snapshot := range snapshots {
+			check(version, snapshot, expected[version])
+		}
 	}
 }
 

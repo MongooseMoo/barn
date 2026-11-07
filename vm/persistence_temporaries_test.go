@@ -1,10 +1,8 @@
 package vm
 
 import (
-	"path/filepath"
 	"testing"
 
-	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -99,35 +97,7 @@ func resumeThroughCheckpoint(t *testing.T, source []string) types.Result {
 		t.Fatalf("initial result = %#v, want suspend inside the loop", result)
 	}
 
-	snapshot := machine.PersistenceVMSnapshot()
-	suspended := []task.Snapshot{{
-		ID:            1,
-		Owner:         2,
-		State:         task.TaskSuspended,
-		WakeValue:     types.NewInt(0),
-		TaskLocal:     types.NewEmptyMap(),
-		Programmer:    2,
-		This:          0,
-		ReadingPlayer: types.ObjNothing,
-		VM:            snapshot,
-	}}
-	path := filepath.Join(t.TempDir(), "loop.db")
-	if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
-		t.Fatalf("WriteCheckpoint failed: %v", err)
-	}
-	reloaded, err := dbformat.LoadDatabase(path + ".new")
-	if err != nil {
-		t.Fatalf("LoadDatabase failed: %v", err)
-	}
-	if got := len(reloaded.SuspendedTasks); got != 1 {
-		t.Fatalf("suspended tasks = %d, want 1", got)
-	}
-
-	restored, err := RestoreVMSnapshot(reloaded.SuspendedTasks[0].Snapshot.VM, store, session, task.NewContext())
-	if err != nil {
-		t.Fatalf("RestoreVMSnapshot after checkpoint reload: %v", err)
-	}
-	restored.Task = taskValue
+	restored, _ := checkpointSuspendedVM(t, machine, store)
 	result := restored.Resume()
 	for suspends := 0; result.Flow == types.FlowSuspend; suspends++ {
 		if suspends > 3 {

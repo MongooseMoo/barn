@@ -66,43 +66,91 @@ func FuzzReadDatabase(f *testing.F) {
 		f.Fatalf("suspended seed: %v", err)
 	}
 	f.Add(bytes.Clone(suspended.Bytes()))
+	// Queued, suspended and interrupted tasks with task-only anonymous roots.
+	f.Add(taskRoundTripRaw(f))
 	f.Add([]byte{})
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		database, err := parseDatabaseWithWaifIdentities(bufio.NewReader(bytes.NewReader(raw)), nil)
 		if err != nil {
 			return
 		}
-		original, err := database.NewStoreFromDatabase()
-		if err != nil {
-			t.Fatalf("accepted database cannot construct store: %v", err)
-		}
-		// The first dump normalizes each object's property slot count to its
-		// ancestry (reader_helpers.go slotNames, writer_object.go
-		// writeProperties), where Toast keeps the file's raw count. So the
-		// invariant is idempotence: a second round trip matches the first.
-		first, err := dumpAndReload(original)
+		first, second, err := checkpointTwice(database)
 		if err != nil {
 			t.Fatal(err)
 		}
-		second, err := dumpAndReload(first)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := CompareRoundTripStores(first, second); err != nil {
+		if err := compareRoundTripPersistence(first, second); err != nil {
 			t.Fatal(err)
 		}
 	})
 }
 
-// dumpAndReload writes s as a database and loads the result into a new store.
-func dumpAndReload(s *store.Store) (*store.Store, error) {
+// checkpointTwice writes and re-reads an accepted database twice, with its
+// queued and suspended tasks, and returns the state captured from each reload.
+// The first dump normalizes each object's property slot count to its ancestry
+// (reader_helpers.go slotNames, writer_object.go writeProperties), where Toast
+// keeps the file's raw count, and turns interrupted tasks into ready suspended
+// tasks (readInterruptedTask). So the invariant is idempotence: the second
+// round trip matches the first.
+func checkpointTwice(database *Database) (first, second persistedState, err error) {
+	original, err := captureDatabase(database)
+	if err != nil {
+		return first, second, fmt.Errorf("accepted database cannot construct store: %w", err)
+	}
+	firstDatabase, err := writeAndParse(original, database.ActiveConnections)
+	if err != nil {
+		return first, second, err
+	}
+	if first, err = captureDatabase(firstDatabase); err != nil {
+		return first, second, err
+	}
+	secondDatabase, err := writeAndParse(first, firstDatabase.ActiveConnections)
+	if err != nil {
+		return first, second, err
+	}
+	second, err = captureDatabase(secondDatabase)
+	return first, second, err
+}
+
+// captureDatabase builds the state a checkpoint of database writes, through
+// the checkpoint's own task-root snapshot. It consumes database: suspended
+// task values are rewritten in place, so capture each Database once.
+func captureDatabase(database *Database) (persistedState, error) {
+	s, err := database.NewStoreFromDatabase()
+	if err != nil {
+		return persistedState{}, fmt.Errorf("construct store: %w", err)
+	}
+	queued := make([]task.Snapshot, len(database.QueuedTasks))
+	for i, saved := range database.QueuedTasks {
+		queued[i] = saved.persistenceSnapshot()
+	}
+	suspended := make([]task.Snapshot, len(database.SuspendedTasks))
+	for i, saved := range database.SuspendedTasks {
+		suspended[i] = saved.Snapshot
+	}
+	return persistedState{snapshot: snapshotWithTaskRoots(s, queued, suspended), queued: queued, suspended: suspended}, nil
+}
+
+// writeAndParse writes state as a database and parses the written bytes.
+func writeAndParse(state persistedState, connections []ActiveConnection) (*Database, error) {
 	var dump bytes.Buffer
-	if err := NewWriter(&dump, s.Snapshot()).WriteDatabase(); err != nil {
+	writer := NewWriter(&dump, state.snapshot)
+	writer.SetTaskSnapshots(state.queued, state.suspended)
+	writer.SetActiveConnections(connections)
+	if err := writer.WriteDatabase(); err != nil {
 		return nil, fmt.Errorf("write database: %w", err)
 	}
 	reloaded, err := parseDatabaseWithWaifIdentities(bufio.NewReader(&dump), nil)
 	if err != nil {
 		return nil, fmt.Errorf("read written database: %w", err)
+	}
+	return reloaded, nil
+}
+
+// dumpAndReload writes s as a database and loads the result into a new store.
+func dumpAndReload(s *store.Store) (*store.Store, error) {
+	reloaded, err := writeAndParse(persistedState{snapshot: s.Snapshot()}, nil)
+	if err != nil {
+		return nil, err
 	}
 	restored, err := reloaded.NewStoreFromDatabase()
 	if err != nil {
