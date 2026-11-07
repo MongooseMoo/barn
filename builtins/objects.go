@@ -468,12 +468,11 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
 	anonRefs := make(map[types.ObjID]types.Value)
-	propValues, errCode := tx.PropertyValues(objID)
+	errCode := tx.VisitPropertyValues(objID, func(value types.Value) {
+		collectAnonymousRefs(value, anonRefs)
+	})
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
-	}
-	for _, value := range propValues {
-		collectAnonymousRefs(value, anonRefs)
 	}
 
 	if len(anonRefs) > 0 {

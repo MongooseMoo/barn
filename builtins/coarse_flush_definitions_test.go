@@ -34,11 +34,12 @@ func TestCoarseCreateSeesStagedPropertyDefinition(t *testing.T) {
 		t.Fatalf("create child: %+v", child)
 	}
 
-	values, errCode := ctx.StoreTxn.PropertyValues(child.Val.ID())
+	count := 0
+	errCode := ctx.StoreTxn.VisitPropertyValues(child.Val.ID(), func(types.Value) { count++ })
 	if errCode != types.E_NONE {
-		t.Fatalf("PropertyValues: %v", errCode)
+		t.Fatalf("VisitPropertyValues: %v", errCode)
 	}
-	if len(values) != 1 {
-		t.Fatalf("child has %d property slots, want 1 (the inherited x)", len(values))
+	if count != 1 {
+		t.Fatalf("child has %d property slots, want 1 (the inherited x)", count)
 	}
 }

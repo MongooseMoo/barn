@@ -261,6 +261,29 @@ func (t propTable) all() iter.Seq2[string, Property] {
 	}
 }
 
+// inheritedBase returns this table's base when its placeholders are exactly
+// the slots a child owned by owner inherits. Values, definitions and versions
+// do not pass to the child; changed metadata and shapes use the ordinary walk.
+func (t propTable) inheritedBase(owner types.ObjID) *propBase {
+	s := t.s
+	if s == nil || s.base == nil || len(s.over) != 0 || len(s.gone) != 0 {
+		return nil
+	}
+	base := s.base
+	for i, perms := range base.perms {
+		if perms.Has(PropChown) && base.owners[i] != owner {
+			return nil
+		}
+	}
+	for _, slot := range s.set {
+		prop := inheritedSlot(slot.prop, owner)
+		if prop.owner != base.owners[slot.idx] || prop.perms != base.perms[slot.idx] {
+			return nil
+		}
+	}
+	return base
+}
+
 // clone returns an independent table with the same slots. The base is shared.
 func (t propTable) clone() propTable {
 	s := t.s

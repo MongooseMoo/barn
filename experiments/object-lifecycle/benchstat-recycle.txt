@@ -1,0 +1,29 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                         │ experiments/object-lifecycle/recycle-base.txt │ experiments/object-lifecycle/recycle-candidate.txt │
+                                                         │                    sec/op                     │           sec/op            vs base                │
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                     340.5µ ± 5%                 379.1µ ± 13%  +11.33% (p=0.004 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                      92.54µ ± 9%                113.07µ ± 13%  +22.18% (p=0.001 n=10)
+geomean                                                                                      177.5µ                      207.0µ        +16.63%
+
+                                                         │ experiments/object-lifecycle/recycle-base.txt │ experiments/object-lifecycle/recycle-candidate.txt │
+                                                         │                  objects/op                   │        objects/op          vs base                 │
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                      32.00 ± 0%                  32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                       32.00 ± 0%                  32.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                       32.00                       32.00       +0.00%
+¹ all samples are equal
+
+                                                         │ experiments/object-lifecycle/recycle-base.txt │ experiments/object-lifecycle/recycle-candidate.txt │
+                                                         │                     B/op                      │            B/op              vs base               │
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                    610.7Ki ± 0%                  610.7Ki ± 0%       ~ (p=0.660 n=10)
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                     427.0Ki ± 0%                  427.0Ki ± 0%  +0.00% (p=0.011 n=10)
+geomean                                                                                     510.7Ki                       510.7Ki       +0.00%
+
+                                                         │ experiments/object-lifecycle/recycle-base.txt │ experiments/object-lifecycle/recycle-candidate.txt │
+                                                         │                   allocs/op                   │         allocs/op          vs base                 │
+ObjectLifecycle/anon=false/slots=150/Recycle/parents=2-4                                     1.517k ± 0%                 1.517k ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycle/anon=true/slots=150/Recycle/parents=2-4                                       480.0 ± 0%                  480.0 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                       853.3                       853.3       +0.00%
+¹ all samples are equal

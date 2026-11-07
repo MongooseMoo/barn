@@ -53,7 +53,7 @@ func TestDirectReadsRaceWritersAndCommits(t *testing.T) {
 					d.IsRecycled(id)
 					d.FindProperty(id, "p_x")
 					d.PropertyValue(id, "p_x")
-					d.PropertyValues(id)
+					d.VisitPropertyValues(id, func(types.Value) {})
 					d.LocalProperty(id, "p_x")
 					d.DefinedPropertyNames(id)
 					d.TruthyPropertiesWithPrefixInAncestry(id, "p_")

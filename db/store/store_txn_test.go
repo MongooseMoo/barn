@@ -2164,7 +2164,7 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 	}
 }
 
-func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
+func TestTransactionVisitPropertyValuesSeesStagedWrites(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
@@ -2177,15 +2177,18 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue failed: %v", errCode)
 	}
-	values, errCode := tx.PropertyValues(0)
+	var values []types.Value
+	errCode := tx.VisitPropertyValues(0, func(value types.Value) {
+		values = append(values, value)
+	})
 	if errCode != types.E_NONE {
-		t.Fatalf("PropertyValues failed: %v", errCode)
+		t.Fatalf("VisitPropertyValues failed: %v", errCode)
 	}
 	if len(values) != 1 {
-		t.Fatalf("len(PropertyValues) = %d, want 1", len(values))
+		t.Fatalf("visited %d values, want 1", len(values))
 	}
 	if got := values[0].Int(); got != 2 {
-		t.Fatalf("PropertyValues[0] = %d, want 2", got)
+		t.Fatalf("visited value = %d, want 2", got)
 	}
 }
 
