@@ -1,8 +1,8 @@
 name: Nightly fuzz
 
 # Ordinary CI only replays committed fuzz inputs. This runs each target's
-# coverage-guided campaign for a fixed time. A failure uploads the minimized
-# input Go wrote under testdata/fuzz; commit it with its fix so CI replays it.
+# coverage-guided campaigns for a fixed time. A failure uploads the minimized
+# inputs Go wrote under testdata/fuzz; commit each with its fix so CI replays it.
 on:
   # Dispatched at 03:17 Mountain by the runner workstation's native task.
   # GitHub cron events were created many hours late, during the day.
@@ -57,12 +57,38 @@ jobs:
 
       - name: Fuzz ${{ matrix.target }}
         id: campaign
+        # Go stops a campaign at its first failing input, so start the target
+        # again with the time left until the 30 minutes are used.
         run: |
           set -o pipefail
-          {
-            go version
-            go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime=30m -parallel=2 -timeout=40m
-          } 2>&1 | tee "$RUNNER_TEMP/fuzz.log"
+          inputs="${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}"
+          found="$RUNNER_TEMP/fuzz-found" logs="$RUNNER_TEMP/fuzz-logs"
+          rm -rf "$found" "$logs"
+          mkdir -p "$found" "$logs"
+          # Go replays testdata/fuzz as seeds and a failing seed stops the next
+          # campaign at once, so saved inputs wait aside until the step ends.
+          # Go names inputs by content hash: equal names hold equal bytes.
+          trap 'find "$found" -type f -exec mv -t "$inputs" {} +' EXIT
+          deadline=$((SECONDS + 1800)) run=0 status=0
+          while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
+            run=$((run + 1))
+            log="$logs/run-$(printf %03d "$run").log"
+            if {
+              go version
+              go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -parallel=2 -timeout="$((remaining + 600))s"
+            } 2>&1 | tee "$log"; then
+              rm "$log"
+              break
+            fi
+            status=1
+            # Go on only after a saved finding, so a broken setup cannot spin.
+            input=$(python3 scripts/fuzz_report.py --log "$log" --package '${{ matrix.package }}' \
+                --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure |
+              python3 -c 'import json, sys; r = json.load(sys.stdin)[0]; print(r["input_path"] if r["kind"] != "infrastructure" and r["input_path"] else "")')
+            [ -n "$input" ] || break
+            mv "$input" "$found/"
+          done
+          exit "$status"
 
       - name: Upload failing input
         id: artifact
@@ -74,7 +100,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Open failure issue
+      - name: Open failure issues
         if: failure()
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
@@ -87,60 +113,67 @@ jobs:
             const target = process.env.FUZZ_TARGET;
             const fs = require('node:fs');
             const {execFileSync} = require('node:child_process');
+            // One log per failed campaign, named so that sorting gives run order.
+            const logs = `${process.env.RUNNER_TEMP}/fuzz-logs`;
+            const logArgs = fs.existsSync(logs) ? fs.readdirSync(logs).sort().flatMap(name => ['--log', `${logs}/${name}`]) : [];
             // Checkout/setup can fail before the reporter is available.
-            const report = fs.existsSync('scripts/fuzz_report.py')
+            const reports = fs.existsSync('scripts/fuzz_report.py')
               ? JSON.parse(execFileSync('python3', [
-                  'scripts/fuzz_report.py', '--log', `${process.env.RUNNER_TEMP}/fuzz.log`,
+                  'scripts/fuzz_report.py', ...logArgs,
                   '--package', process.env.FUZZ_PACKAGE, '--target', target,
                   '--commit', context.sha, '--campaign-outcome', process.env.CAMPAIGN_OUTCOME
                 ], {encoding: 'utf8'}))
-              : {kind: 'infrastructure', first_error: 'Checkout failed; inspect the failed step.',
+              : [{kind: 'infrastructure', first_error: 'Checkout failed; inspect the failed step.',
                  signature: require('node:crypto').createHash('sha256').update(`${target}|infrastructure|unavailable`).digest('hex'), commit: context.sha,
-                 go_version: 'unavailable', barn_frames: [], log_tail: ''};
-            const infrastructure = report.kind === 'infrastructure';
-            const title = infrastructure
-              ? `Nightly fuzz infrastructure failure: ${target}`
-              : `Nightly fuzz failure: ${target}`;
+                 go_version: 'unavailable', barn_frames: [], log_tail: '', count: 1}];
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...context.repo, state: 'open', per_page: 100
+            });
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`;
-            const marker = `<!-- fuzz-signature: ${report.signature} -->`;
             // A corpus can contain Markdown fences; keep its contents inside the block.
             const block = value => {
               const text = String(value ?? 'Unavailable');
               const fence = '`'.repeat(Math.max(3, ...Array.from(text.matchAll(/`+/g), m => m[0].length + 1)));
               return `${fence}text\n${text}\n${fence}`;
             };
-            const body = [
-              marker,
-              `Target: ${process.env.FUZZ_PACKAGE}/${target}`,
-              `Run: ${run}`,
-              `Kind: ${report.kind}`,
-              `Commit: ${report.commit}\nGo: ${report.go_version}`,
-              `First error:\n${block(report.first_error)}`,
-              `Top Barn frames:\n${block(report.barn_frames.map(f => `${f.function}\n  ${f.location}`).join('\n') || 'Unavailable in Go output')}`,
-              `Failing input (${report.input_path || 'none recorded'}):\n${block(report.input_text)}`,
-              `Bounded reproduction:\n${block(report.repro || 'No failing input recorded; inspect the log.')}`,
-              `Log tail:\n${block(report.log_tail)}`,
-              process.env.ARTIFACT_URL ? `Failing inputs: ${process.env.ARTIFACT_URL} (retained for 30 days).` : 'No failing-input artifact was uploaded.',
-              'Preserve confirmed failing inputs with their regression fixes.'
-            ].join('\n\n');
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              ...context.repo, state: 'open', per_page: 100
-            });
-            const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(marker));
-            if (existing) {
-              await github.rest.issues.createComment({
-                ...context.repo, issue_number: existing.number, body
-              });
-            } else {
-              // GITHUB_TOKEN events start no other workflows, except
-              // workflow_dispatch, so dispatch the fix run explicitly.
-              const {data: issue} = await github.rest.issues.create({
-                ...context.repo, title, body, labels: infrastructure ? [] : ['claude-fix']
-              });
-              if (!infrastructure) {
-                await github.rest.actions.createWorkflowDispatch({
-                  ...context.repo, workflow_id: 'claude-fix.yml', ref: 'master',
-                  inputs: {issue_number: String(issue.number)}
+            // One issue or comment per distinct signature found in the night.
+            for (const report of reports) {
+              const infrastructure = report.kind === 'infrastructure';
+              const title = infrastructure
+                ? `Nightly fuzz infrastructure failure: ${target}`
+                : `Nightly fuzz failure: ${target}`;
+              const marker = `<!-- fuzz-signature: ${report.signature} -->`;
+              const body = [
+                marker,
+                `Target: ${process.env.FUZZ_PACKAGE}/${target}`,
+                `Run: ${run}`,
+                `Kind: ${report.kind}`,
+                `Times found in this run's campaigns: ${report.count} (the input below is from the first; the artifact holds every saved input).`,
+                `Commit: ${report.commit}\nGo: ${report.go_version}`,
+                `First error:\n${block(report.first_error)}`,
+                `Top Barn frames:\n${block(report.barn_frames.map(f => `${f.function}\n  ${f.location}`).join('\n') || 'Unavailable in Go output')}`,
+                `Failing input (${report.input_path || 'none recorded'}):\n${block(report.input_text)}`,
+                `Bounded reproduction:\n${block(report.repro || 'No failing input recorded; inspect the log.')}`,
+                `Log tail:\n${block(report.log_tail)}`,
+                process.env.ARTIFACT_URL ? `Failing inputs: ${process.env.ARTIFACT_URL} (retained for 30 days).` : 'No failing-input artifact was uploaded.',
+                'Preserve confirmed failing inputs with their regression fixes.'
+              ].join('\n\n');
+              const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(marker));
+              if (existing) {
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: existing.number, body
                 });
+              } else {
+                // GITHUB_TOKEN events start no other workflows, except
+                // workflow_dispatch, so dispatch the fix run explicitly.
+                const {data: issue} = await github.rest.issues.create({
+                  ...context.repo, title, body, labels: infrastructure ? [] : ['claude-fix']
+                });
+                if (!infrastructure) {
+                  await github.rest.actions.createWorkflowDispatch({
+                    ...context.repo, workflow_id: 'claude-fix.yml', ref: 'master',
+                    inputs: {issue_number: String(issue.number)}
+                  });
+                }
               }
             }
