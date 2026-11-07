@@ -661,7 +661,7 @@ func (p *Parser) parseScatterAssign(valuePrec int) (*ir.AssignExpr, error) {
 
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
 		if !optionalSeen && p.current.Type != TOKEN_QUESTION {
-			element, err := p.ParseExpression(PREC_LOWEST)
+			element, err := p.parseArgument()
 			if err != nil {
 				return nil, err
 			}
