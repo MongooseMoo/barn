@@ -76,6 +76,23 @@ func TestEvalExpressionRunsAsFirstWizardWithEvalFrame(t *testing.T) {
 	}
 }
 
+func TestEvalExpressionNotifyWithoutConnectionManager(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"wizard", `return notify(#2, "offline");`, "=> 1\n"},
+		{"programmer self", `set_task_perms(#2); return notify(#2, "offline");`, "=> 1\n"},
+		{"programmer other", `set_task_perms(#2); return notify(#3, "offline");`, "Error: E_PERM\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errOut, err := runEval(t, evalStore(t), tc.input)
+			if err != nil || errOut != "" || out != tc.want {
+				t.Fatalf("EvalExpression = (%q, %q, %v), want (%q, empty, nil)", out, errOut, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestEvalExpressionReportsUncaughtError(t *testing.T) {
 	out, _, err := runEval(t, evalStore(t), "return 1 / 0;")
 	if err != nil {

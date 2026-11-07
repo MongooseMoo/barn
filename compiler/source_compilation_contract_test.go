@@ -28,7 +28,7 @@ func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
 		"binary = integer + 2 * 3;",
 		"ternary = boolean ? integer | 0;",
 		"list = {integer, @{2, 3}};",
-		"list_range = {1..3};",
+		"list_range = {1, 2, 3}[1..3];",
 		"map = [\"key\" -> integer];",
 		"indexed = list[1];",
 		"ranged = list[^..$];",

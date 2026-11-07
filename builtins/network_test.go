@@ -157,11 +157,66 @@ func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool)
 	return "lookup", nil
 }
 
+func TestNotifyReturnAndProgrammerPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		connected  bool
+		deferred   bool
+		wizard     bool
+		programmer types.ObjID
+		wantError  types.ErrorCode
+	}{
+		{name: "connected self", connected: true, programmer: 7},
+		{name: "connected wizard", connected: true, wizard: true, programmer: 3},
+		{name: "deferred self", connected: true, deferred: true, programmer: 7},
+		{name: "connected other programmer", connected: true, programmer: 3, wantError: types.E_PERM},
+		{name: "deferred other programmer", connected: true, deferred: true, programmer: 3, wantError: types.E_PERM},
+		{name: "disconnected self", programmer: 7},
+		{name: "disconnected wizard", wizard: true, programmer: 3},
+		{name: "disconnected other programmer", programmer: 3, wantError: types.E_PERM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &stubConn{}
+			var manager ConnectionManager
+			if tc.connected {
+				manager = &stubConnManager{conn: conn}
+			}
+			ctx := ctxWithConnManager(manager)
+			ctx.Player = 7 // Authority must follow Programmer, even on this player's socket.
+			ctx.Programmer = tc.programmer
+			ctx.IsWizard = tc.wizard
+			if tc.deferred {
+				ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+			}
+			res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
+			if res.Error != tc.wantError {
+				t.Fatalf("notify error = %v, want %v", res.Error, tc.wantError)
+			}
+			if tc.wantError != types.E_NONE {
+				if len(conn.sent) != 0 || len(ctx.PendingEffects) != 0 {
+					t.Fatal("denied notification produced output or pending effects")
+				}
+				return
+			}
+			if res.Val.Type() != types.TYPE_INT || res.Val.Int() != 1 {
+				t.Fatalf("notify = %v, want integer 1", res.Val)
+			}
+			if tc.connected {
+				FlushPendingEffects(ctx)
+				if len(conn.sent) != 1 || conn.sent[0] != "hello" {
+					t.Fatalf("sent = %#v, want hello", conn.sent)
+				}
+			}
+		})
+	}
+}
+
 func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	conn := &stubConn{}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
@@ -223,6 +278,7 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
@@ -247,6 +303,7 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})

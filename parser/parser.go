@@ -780,9 +780,8 @@ func (p *Parser) parseCatchCodes() ([]ir.Expr, bool, error) {
 	}
 }
 
-// parseListExpr parses a list expression: {expr, expr, ...} or {start..end}.
+// parseListExpr parses a list expression: {expr, expr, ...}.
 // It allows full expressions including splice (@).
-// Returns either *ListExpr or *ListRangeExpr depending on the syntax
 func (p *Parser) parseListExpr() (ir.Expr, error) {
 	pos := p.current.Position
 	p.nextToken() // skip '{'
@@ -799,25 +798,6 @@ func (p *Parser) parseListExpr() (ir.Expr, error) {
 	elem, err := p.ParseExpression(PREC_LOWEST)
 	if err != nil {
 		return nil, err
-	}
-
-	// Check for range syntax: {start..end}
-	if p.current.Type == TOKEN_RANGE {
-		p.nextToken() // skip '..'
-
-		// Parse end expression
-		endExpr, err := p.ParseExpression(PREC_LOWEST)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse range end: %w", err)
-		}
-
-		// Expect closing '}'
-		if p.current.Type != TOKEN_RBRACE {
-			return nil, fmt.Errorf("expected '}' after range expression, got %s", p.current.Type)
-		}
-		p.nextToken() // skip '}'
-
-		return &ir.ListRangeExpr{Pos: pos, Start: elem, End: endExpr}, nil
 	}
 
 	elements = append(elements, elem)

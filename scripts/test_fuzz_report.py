@@ -9,7 +9,7 @@ import textwrap
 import unittest
 from unittest.mock import mock_open, patch
 
-from fuzz_report import INLINE_LIMIT, TAIL_LIMIT, report
+from fuzz_report import INLINE_LIMIT, TAIL_LIMIT, report, summarize
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +118,31 @@ class FuzzReportTests(unittest.TestCase):
         self.assertNotEqual(a["signature"], summary(frame + "Other")["signature"])
         self.assertNotEqual(a["signature"], summary(frame, kind="signal: terminated")["signature"])
 
+    def test_summary_keeps_each_distinct_signature_once_with_its_count(self):
+        # Synthetic night: the loop kept one log per failed campaign. A panic
+        # was found, then a hang, then the same panic again from another input.
+        panic = ("panic: runtime error: index out of range\n"
+                 "github.com/MongooseMoo/barn/vm.(*VM).Resume(0x{})\n /src/vm.go:1 +0x12\n"
+                 f"Failing input written to testdata/fuzz/{TARGET}/{{}}\n")
+        hang = ("fuzzing process hung or terminated unexpectedly: exit status 2\n"
+                f"Failing input written to testdata/fuzz/{TARGET}/bbbb\n")
+        logs = [panic.format("1", "aaaa"), hang, panic.format("2", "cccc")]
+        summary = summarize(logs, "./vm", TARGET, "commit")
+        self.assertEqual([(r["kind"], r["count"]) for r in summary], [("panic", 2), ("hang", 1)])
+        self.assertEqual(summary[0]["input_path"], f"vm/testdata/fuzz/{TARGET}/aaaa")
+        self.assertEqual(summary[1]["input_path"], f"vm/testdata/fuzz/{TARGET}/bbbb")
+
+    def test_summary_without_logs_reports_the_failed_job(self):
+        for outcome in ["failure", "skipped"]:
+            summary = summarize([], "./vm", TARGET, "commit", outcome)
+            self.assertEqual([(r["kind"], r["count"]) for r in summary], [("infrastructure", 1)])
+
+    def test_real_fixtures_summarize_like_single_reports(self):
+        logs = [(FIXTURES / f"{run}.log").read_text() for run in (41882671144, 42201471629)]
+        summary = summarize(logs, "./vm", TARGET, "commit")
+        self.assertEqual([r["kind"] for r in summary], ["panic", "hang"])
+        self.assertEqual(summary[0]["signature"], report(logs[0], "./vm", TARGET, "commit")["signature"])
+
 
 class IssueScriptTests(unittest.TestCase):
     def execute(self, result, issues=(), checkout=True):
@@ -135,7 +160,7 @@ const github = {
          actions: {createWorkflowDispatch: record('dispatch')}}
 };
 const context = {repo: {owner: 'test', repo: 'barn'}, sha: 'commit', serverUrl: 'https://github.com', runId: 1};
-const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout}
+const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => []}
   : name === 'node:child_process' ? {execFileSync: () => JSON.stringify(input.result)} : require(name);
 vm.runInNewContext('(async () => {' + input.script + '})()', {
   require: mockedRequire, github, context,
@@ -153,7 +178,7 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         return json.loads(completed.stdout)
 
     def test_new_signature_on_same_target_dispatches_and_repeat_comments(self):
-        result = report("panic: failure", "./vm", "FuzzTarget", "commit")
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
         calls = self.execute(result, [{"title": "Nightly fuzz failure: FuzzTarget", "body": "old signature"}])
         self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
         self.assertEqual(calls[1]["inputs"], {"issue_number": "999"})
@@ -161,9 +186,25 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         self.assertEqual([c["name"] for c in calls], ["comment"])
         self.assertEqual(calls[0]["issue_number"], 12)
 
+    def test_each_distinct_signature_of_the_night_is_reported_once(self):
+        # Synthetic two-failure night with the first failure refound once.
+        first = ("panic: first\ngithub.com/MongooseMoo/barn/vm.(*VM).Resume()\n /src/vm.go:1 +0x1\n"
+                 "Failing input written to testdata/fuzz/FuzzTarget/aaaa\n")
+        second = ("panic: second\ngithub.com/MongooseMoo/barn/vm.(*VM).Step()\n /src/vm.go:2 +0x1\n"
+                  "Failing input written to testdata/fuzz/FuzzTarget/bbbb\n")
+        result = summarize([first, second, first], "./vm", "FuzzTarget", "commit")
+        calls = self.execute(result)
+        self.assertEqual([c["name"] for c in calls], ["create", "dispatch", "create", "dispatch"])
+        self.assertIn("Times found in this run's campaigns: 2", calls[0]["body"])
+        self.assertIn("Times found in this run's campaigns: 1", calls[2]["body"])
+        # The first signature already has an open issue: comment there, new issue for the second.
+        calls = self.execute(result, [{"number": 12, "body": calls[0]["body"]}])
+        self.assertEqual([c["name"] for c in calls], ["comment", "create", "dispatch"])
+        self.assertEqual(calls[0]["issue_number"], 12)
+
     def test_infrastructure_never_dispatches_or_labels(self):
         for checkout in [True, False]:
-            calls = self.execute(report("signal: terminated", "./vm", "FuzzTarget", "commit"), checkout=checkout)
+            calls = self.execute(summarize(["signal: terminated"], "./vm", "FuzzTarget", "commit"), checkout=checkout)
             self.assertEqual([c["name"] for c in calls], ["create"])
             self.assertIn("infrastructure failure", calls[0]["title"])
             self.assertEqual(calls[0]["labels"], [])
@@ -171,13 +212,13 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
     def test_saved_crash_signal_dispatches_repair(self):
         log = ("fuzzing process hung or terminated unexpectedly: signal: segmentation fault\n"
                "Failing input written to testdata/fuzz/FuzzTarget/synthetic-crash\n")
-        calls = self.execute(report(log, "./vm", "FuzzTarget", "commit"))
+        calls = self.execute(summarize([log], "./vm", "FuzzTarget", "commit"))
         self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
         self.assertEqual(calls[0]["labels"], ["claude-fix"])
 
     def test_body_keeps_corpus_fences_inside_code_block(self):
-        result = report("panic: failure", "./vm", "FuzzTarget", "commit")
-        result.update(input_text="go test fuzz v1\n```\n@someone", input_path="input", repro="bounded command")
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        result[0].update(input_text="go test fuzz v1\n```\n@someone", input_path="input", repro="bounded command")
         body = self.execute(result)[0]["body"]
         self.assertIn("````text\ngo test fuzz v1\n```\n@someone\n````", body)
         self.assertIn("bounded command", body)

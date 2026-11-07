@@ -4,22 +4,24 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // ParsedCommand is the structured representation of a parsed player command
 type ParsedCommand struct {
-	Verb    string
-	Argstr  string
-	Args    []string
-	Words   []string
-	Dobjstr string
-	Dobj    types.ObjID
-	Prepstr string
-	Prep    preposition.Spec
-	Iobjstr string
-	Iobj    types.ObjID
+	Diagnostic *metrics.Command
+	Verb       string
+	Argstr     string
+	Args       []string
+	Words      []string
+	Dobjstr    string
+	Dobj       types.ObjID
+	Prepstr    string
+	Prep       preposition.Spec
+	Iobjstr    string
+	Iobj       types.ObjID
 }
 
 // NewParsedCommand creates an empty parsed command

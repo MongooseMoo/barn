@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -81,12 +82,33 @@ func (c *Connection) Send(message string) error {
 	return c.transport.WriteOutput(message, true)
 }
 
+func (c *Connection) sendCommandResponse(message string, diagnostic *metrics.Command) error {
+	diagnostic.Committed(c.ID)
+	var started time.Time
+	if diagnostic != nil {
+		started = time.Now()
+	}
+	err := c.transport.WriteOutput(message, true)
+	diagnostic.Output(c.ID, started, err)
+	return err
+}
+
 func (c *Connection) SendNotification(note task.PendingNotification) error {
+	// A notification with no text and no newline cannot establish a response.
+	if note.Message == "" && note.NoNewline {
+		note.CommandDiagnostic = nil
+	}
+	var started time.Time
+	if note.CommandDiagnostic != nil {
+		started = time.Now()
+	}
 	if validator, ok := c.transport.(OutputValidator); ok {
 		if err := validator.ValidateOutput(note.Message); err != nil {
+			note.CommandDiagnostic.Output(c.ID, started, err)
 			return err
 		}
 	}
+	note.CommandDiagnostic.Committed(c.ID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if note.NoFlush {
@@ -94,9 +116,12 @@ func (c *Connection) SendNotification(note task.PendingNotification) error {
 		return nil
 	}
 	if err := c.flushLocked(); err != nil {
+		note.CommandDiagnostic.Output(c.ID, started, err)
 		return err
 	}
-	return c.transport.WriteOutput(note.Message, !note.NoNewline)
+	err := c.transport.WriteOutput(note.Message, !note.NoNewline)
+	note.CommandDiagnostic.Output(c.ID, started, err)
+	return err
 }
 
 // Buffer adds a message to the output buffer (flushed later)
@@ -115,7 +140,13 @@ func (c *Connection) Flush() error {
 
 func (c *Connection) flushLocked() error {
 	for i, msg := range c.outputBuffer {
-		if err := c.transport.WriteOutput(msg.Message, !msg.NoNewline); err != nil {
+		var started time.Time
+		if msg.CommandDiagnostic != nil {
+			started = time.Now()
+		}
+		err := c.transport.WriteOutput(msg.Message, !msg.NoNewline)
+		msg.CommandDiagnostic.Output(c.ID, started, err)
+		if err != nil {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
