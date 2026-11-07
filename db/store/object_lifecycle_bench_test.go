@@ -28,6 +28,7 @@ func BenchmarkObjectLifecycle(b *testing.B) {
 						}
 						create := func() types.ObjID {
 							tx := s.BeginSnapshot(0)
+							defer tx.Release()
 							id, ec := tx.CreateObject(parents, 1, anonymous)
 							if ec != types.E_NONE {
 								b.Fatal(ec)
@@ -45,6 +46,7 @@ func BenchmarkObjectLifecycle(b *testing.B) {
 								return
 							}
 							tx := s.BeginSnapshot(0)
+							defer tx.Release()
 							if handled, ec := tx.RecycleObject(id); !handled || ec != types.E_NONE {
 								b.Fatalf("recycle: handled=%t error=%v", handled, ec)
 							}
@@ -68,6 +70,9 @@ func BenchmarkObjectLifecycle(b *testing.B) {
 							}
 						}
 						b.StopTimer()
+						if active := s.ActiveReadTransactions(); active != 0 {
+							b.Fatalf("cohort retained %d snapshots", active)
+						}
 						for _, id := range ids {
 							if got, want := s.DirectTxn().Valid(id), operation == "Create"; got != want {
 								b.Fatalf("valid(%d) = %t, want %t", id, got, want)
