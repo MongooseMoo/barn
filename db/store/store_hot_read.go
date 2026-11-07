@@ -282,7 +282,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	// A memoized verb resolution holds while no verb shape has changed since the
 	// snapshot it was made on; next's own commit covers changes after its own.
 	// max_object() and the like answer from the watermarks without a read mark.
-	if (tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS) ||
+	if (tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS && !isolationprobe.Fault("hot-memo-guard")) ||
 		next.maxObjID != tx.maxObjID || next.highWaterID != tx.highWaterID {
 		next.Release()
 		return nil
@@ -326,6 +326,9 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	for rkey, st := range tx.mapKeys {
 		c := *st
 		c.reads, c.written = slices.Clone(st.reads), slices.Clone(st.written)
+		if isolationprobe.Fault("hot-map-carry") {
+			c.reads = nil // omit the observations made before the hot renewal
+		}
 		// With nothing written, next sees the slot as it is at the new clock, so an
 		// entry read from here on is told from the snapshot's by that map. The
 		// version stays: a degrade then records a whole read at the original.

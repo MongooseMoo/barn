@@ -140,6 +140,28 @@ reject the resulting append history with an anomaly witness:
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
+| `hot-map-carry` | cloning keyed reads into the transaction renewed at a stale hot read | held map/hot-property pair |
+| `hot-memo-guard` | checking dispatch shape changes since the pre-renewal snapshot | held missing-dispatch/hot-property pair |
+
+The hot-renewal pairs retain one reader publication. A reader observes a map entry
+or a warmed missing verb, waits for a writer to publish that dependency together
+with an append to the hot property, and then reads the hot property. Healthy
+renewal refuses the changed carried dependency and keeps the old snapshot. Each
+fault instead permits renewal: the reader observes the old dependency and the new
+hot value. The map pair uses the existing `map-a` row. The dispatch pair adds a
+`hot-memo` row, initially empty while the verb is missing and then the literal list
+returned by its newly created verb. Committed pair coverage is reported as
+`hot_map_pair` and `hot_memo_pair`; the specific fault also requires that renewal
+actually happened. Tokens 210 through 213 are reserved for these pairs.
+
+Irreversible publication is different: the runtime holds the exclusive commit
+gate through the remainder of the slice. An ordinary competing commit cannot be
+inserted inside that interval. Recorder regressions check separate effect,
+suspend, fork and exception publications, retry of a resumed slice, and a failed
+publication after an earlier successful one. A store regression checks that a
+keyed dependency is converted to a whole-property dependency at renewal, accepts
+its own republished map, and still detects a later change. These are semantic
+regressions, not additional Elle anomaly witnesses or MOO scheduling-order proof.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
