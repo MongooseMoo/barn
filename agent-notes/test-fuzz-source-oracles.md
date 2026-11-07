@@ -43,6 +43,19 @@ round trip. No fuzz.yml change: no new target.
   interesting inputs, no failure. No wrong-value or panic finding, so nothing
   saved under vm/testdata/fuzz and no production fix.
 
+- Hang found by fuzz-grammar (C6) and confirmed here: `n = 1; while o (n)
+  endwhile` charges only unchecked ticks (`compiler/lower_control.go:126-130`,
+  Toast EOP_WHILE_ID decrements without testing, `execute.cc:2286-2288`), so
+  only the seconds check at a tick checkpoint stops it (`vm/vm.go:481-491`).
+  `task.NewState(..., 1)` without a deadline keeps `SecondsLeft` at 1
+  (`task/task.go:814-821`). The saved input
+  `vm/testdata/fuzz/FuzzSourceExecution/named-while-unchecked-ticks` timed out
+  at 60 s before the fix (exit 124) and passes in 0.11 s after
+  `attachSourceFuzzTask` sets a 100 ms execution deadline. Harness defect, not
+  a Barn production bug; it predates this branch (the old target had the same
+  NewState call). fuzz-grammar carries the same fix and input on
+  test/fuzz-structured-source; whoever merges second rebases vm/fuzz_test.go.
+
 ## Surprises
 
 - read() cannot suspend in this host (no connection manager), so only
