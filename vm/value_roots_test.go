@@ -20,8 +20,12 @@ func TestVMRootCollectorsObserveEveryValueBearingField(t *testing.T) {
 		{"argument", func(vm *VM, v types.Value) { vm.Frames[0].Args = []types.Value{v} }},
 		{"receiver", func(vm *VM, v types.Value) { vm.Frames[0].ThisValue = v }},
 		{"saved receiver", func(vm *VM, v types.Value) { vm.Frames[0].SavedThisValue = v }},
-		{"pending return", func(vm *VM, v types.Value) { vm.Frames[0].PendingReturn, vm.Frames[0].HasPendingReturn = v, true }},
-		{"pending exception", func(vm *VM, v types.Value) { vm.Frames[0].PendingError = VMException{Code: types.E_INVARG, Value: v} }},
+		{"pending return", func(vm *VM, v types.Value) {
+			vm.Frames[0].PendingReasons = []pendingReason{{Kind: task.PendingReturn, Value: v}}
+		}},
+		{"pending exception", func(vm *VM, v types.Value) {
+			vm.Frames[0].PendingReasons = []pendingReason{{Kind: task.PendingError, Error: VMException{Code: types.E_INVARG, Value: v}}}
+		}},
 		{"loop iterator", func(vm *VM, v types.Value) { vm.Frames[0].LoopStack = []bytecode.LoopState{{Iterator: v}} }},
 		{"loop end", func(vm *VM, v types.Value) { vm.Frames[0].LoopStack = []bytecode.LoopState{{End: v}} }},
 		{"move what", func(vm *VM, v types.Value) { vm.Frames[0].MoveContinuation = &task.MoveContinuationSnapshot{What: v} }},
@@ -122,7 +126,9 @@ func TestPopFrameRetainsEveryFrameValueAndDiscardedOperand(t *testing.T) {
 		set  func(*StackFrame, types.Value)
 	}{
 		{"argument", func(f *StackFrame, v types.Value) { f.Args = []types.Value{v} }},
-		{"pending return", func(f *StackFrame, v types.Value) { f.PendingReturn, f.HasPendingReturn = v, true }},
+		{"pending return", func(f *StackFrame, v types.Value) {
+			f.PendingReasons = []pendingReason{{Kind: task.PendingReturn, Value: v}}
+		}},
 		{"move continuation", func(f *StackFrame, v types.Value) { f.MoveContinuation = &task.MoveContinuationSnapshot{What: v} }},
 		{"recycle continuation", func(f *StackFrame, v types.Value) {
 			f.RecycleContinuation = &recycleContinuation{request: builtins.RecycleLifecycleRequest{Object: v}}

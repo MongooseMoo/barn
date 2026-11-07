@@ -1,0 +1,63 @@
+name: control_transfer_finally
+description: Loop transfers unwind crossed finally blocks exactly once without losing nested cleanup transfers.
+tests:
+  - name: jump_canceled_before_outer_cleanup_exit
+    statement: |
+      for i in [1..1] try return 73; finally for j in [1..1] try continue i; finally break j; endtry endfor endtry endfor return 42;
+    expect:
+      value: 73
+  - name: named_outer_continue
+    statement: |
+      seen={}; for i in [1..2] for j in [1..2] try continue i; finally seen={@seen,{i,j}}; endtry endfor endfor return seen;
+    expect:
+      value: [[1, 1], [2, 1]]
+  - name: named_outer_break
+    statement: |
+      seen={}; for i in [1..2] for j in [1..2] try break i; finally seen={@seen,{i,j}}; endtry endfor endfor return seen;
+    expect:
+      value: [[1, 1]]
+  - name: error_overrides_continue
+    statement: |
+      try for i in [1..2] try continue; finally raise(E_INVARG); endtry endfor except (E_INVARG) return 73; endtry return 0;
+    expect:
+      value: 73
+  - name: sibling_except_not_active
+    statement: |
+      try try raise(E_TYPE); except (E_TYPE) raise(E_INVARG); except (E_INVARG) return 99; endtry except (E_INVARG) return 73; endtry return 0;
+    expect:
+      value: 73
+  - name: nested_cleanup_preserves_return
+    statement: |
+      seen={}; try return 73; finally try seen={@seen,1}; finally seen={@seen,2}; endtry seen={@seen,3}; return seen; endtry
+    expect:
+      value: [1, 2, 3]
+  - name: nested_cleanup_preserves_error
+    statement: |
+      seen={}; try try raise(E_INVARG); finally try seen={@seen,1}; finally seen={@seen,2}; endtry seen={@seen,3}; endtry except (E_INVARG) return seen; endtry
+    expect:
+      value: [1, 2, 3]
+  - name: nested_finally_continue
+    statement: |
+      seen={}; for i in [1..2] try try continue; finally seen={@seen,i}; endtry finally seen={@seen,-i}; endtry endfor return seen;
+    expect:
+      value: [1, -1, 2, -2]
+  - name: return_overrides_continue
+    statement: |
+      for i in [1..2] try continue; finally return 73; endtry endfor return 0;
+    expect:
+      value: 73
+  - name: continue_overrides_return
+    statement: |
+      for i in [1..2] try return 99; finally continue; endtry endfor return 73;
+    expect:
+      value: 73
+  - name: cleanup_inner_loop_continue
+    statement: |
+      seen={}; for i in [1..2] try continue; finally for j in [1..2] try continue; finally seen={@seen,{i,j}}; endtry endfor endtry endfor return seen;
+    expect:
+      value: [[1, 1], [1, 2], [2, 1], [2, 2]]
+  - name: crossed_except_removed
+    statement: |
+      seen=0; for i in [1..2] try continue; except (E_INVARG) seen=99; endtry endfor try raise(E_INVARG); except (E_INVARG) seen=73; endtry return seen;
+    expect:
+      value: 73

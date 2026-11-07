@@ -34,7 +34,7 @@ copy hashes are saved with the checkpoint hashes in `run.json`.
 
 ```powershell
 $env:BARN_RUNTIME_DIAGNOSTICS = '1'
-python scripts/bench_players.py --engine barn --players 1,4,16 --db C:\fixtures\mongoose.db --sound C:\fixtures\sound.sqlite --barn-exe C:\build\barn.exe --out C:\new-evidence --keep-db
+uv run --project C:\Users\Q\src\lambdamoo-db-py python scripts/bench_players.py --engine barn --players 1,4,16 --db C:\fixtures\mongoose.db --sound C:\fixtures\sound.sqlite --barn-exe C:\build\barn.exe --out C:\new-evidence --keep-db
 ```
 
 The diagnostic opt-in also selects debug logging for Barn. Read the command
@@ -45,8 +45,14 @@ tracebacks and broken connections before accepting any throughput comparison.
 The harness creates private accounts offline using the documented Mongoose
 Toast build; it does not need live player credentials.
 
-That bootstrap loads and saves the whole checkpoint through Toast. It is not
-schedule preserving for far-future queued tasks: the original Mongoose task
+That bootstrap loads and saves the whole checkpoint through Toast. It now
+requires current `lambdamoo-db-py` in the Python environment and uses its reader
+to compare saved task identities, deadlines and native VM function IDs before replacing the
+input copy. A mismatch aborts preparation and retains the original copy, rejected
+`.boot` output and `bootstrap-schedule.json`. Supplying an existing login avoids
+this bootstrap. An old installed reader without `read_v17_header` is rejected.
+
+Toast is not schedule preserving for far-future queued tasks: the Mongoose task
 1787475465 changed from Unix seconds 109290153959993 to 416145977. A reduced
 stock-Toast checkpoint/restart probe also ran a future fork immediately. Do not
 use bootstrap-based runs as evidence for the original checkpoint's scheduling
@@ -64,10 +70,14 @@ No source checkpoint is opened for writing.
 The harness restores queued and suspended tasks after preparing its host and
 boot caches, before starting dispatch, using the same runtime loaders as the
 server. It reports restored/input counts. Native restore warnings remain in
-the JSON log; a completed cohort does not establish that every saved task was
-restored. In particular, the November 5 Mongoose checkpoint restored all 1080
-queued tasks but rejected all 49 suspended tasks with empty bytecode frames.
-This limits full-world replay claims. Detailed diagnostics go to JSON without
+the JSON log. Unsupported or invalid suspended continuations now fail startup
+and the harness before dispatch, rather than accepting a partial world. The old
+loader rejected all 49 suspended/interrupted tasks in the November 5 checkpoint
+with empty bytecode frames. The native importer now translates saved positions,
+locals and control state without replaying source effects; focused verification
+restored all 49 and preserved all 1080 queued deadlines. Native builtin
+continuations, pending native-finally reasons and incompatible byte-string
+iteration remain explicit unsupported errors. Detailed diagnostics go to JSON without
 duplicating every record on stderr, leaving cohort results readable.
 
 For a diagnostic run, set these alongside the ordinary workload knobs:

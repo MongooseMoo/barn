@@ -527,7 +527,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 	s.Session().LoadServerOptionsFromStore(store)
 	s.Session().LoadProtectedBuiltinsFromStore(store)
 	s.LoadQueuedTasks(database.QueuedTasks)
-	s.LoadSuspendedTasks(database.SuspendedTasks)
+	if err := s.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		s.Stop()
+		t.Fatalf("restore checkpoint continuations before dispatch: %v", err)
+	}
 	queuedRestored, suspendedRestored := 0, 0
 	for _, saved := range database.QueuedTasks {
 		if saved != nil && s.GetTask(saved.ID) != nil {

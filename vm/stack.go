@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -115,14 +116,12 @@ func (vm *VM) Return(value types.Value) error {
 			continue
 		}
 		frame.ExceptStack = frame.ExceptStack[:i]
-		frame.PendingReturn = value
-		frame.HasPendingReturn = true
+		vm.abandonPendingTo(handler.HandlerIP)
+		frame.PendingReasons = append(frame.PendingReasons, pendingReason{Kind: task.PendingReturn, FinallyIP: handler.HandlerIP, Value: value})
 		vm.SP = handler.StackDepth
 		frame.IP = handler.HandlerIP
 		return nil
 	}
-	frame.HasPendingReturn = false
-
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
 		wrapped := types.NewList([]types.Value{

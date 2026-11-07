@@ -118,18 +118,18 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 		t.Fatalf("result = %+v, want suspend in finally", result)
 	}
 	frame := machine.CurrentFrame()
-	if frame == nil || frame.PendingError == nil {
+	if frame == nil || len(frame.PendingReasons) == 0 {
 		t.Fatal("suspended fixture has no active pending-error frame")
 	}
-	pending, ok := frame.PendingError.(VMException)
+	pending, ok := frame.PendingReasons[len(frame.PendingReasons)-1].Error.(VMException)
 	if !ok || pending.Reason != types.ExceptionReasonFrameDepth || pending.Value.Len() != 4 {
-		t.Fatalf("pending error = %#v, want unchanged four-field tuple and frame reason", frame.PendingError)
+		t.Fatalf("pending error = %#v, want unchanged four-field tuple and frame reason", frame.PendingReasons[len(frame.PendingReasons)-1].Error)
 	}
 	snapshot := machine.PersistenceVMSnapshot()
 	checkpoint := machine.CheckpointForRetry()
-	frame.PendingError = VMException{Code: types.E_MAXREC, Value: types.None}
+	frame.PendingReasons[len(frame.PendingReasons)-1].Error = VMException{Code: types.E_MAXREC, Value: types.None}
 	checkpoint.Restore(machine)
-	if got := exceptionReason(machine.CurrentFrame().PendingError); got != types.ExceptionReasonFrameDepth {
+	if got := exceptionReason(machine.CurrentFrame().PendingReasons[0].Error); got != types.ExceptionReasonFrameDepth {
 		t.Fatalf("retry restored reason = %s", got)
 	}
 	requireExceptionReason(t, machine.Resume(), types.ExceptionReasonFrameDepth)
@@ -150,7 +150,7 @@ func TestExceptionReasonPendingFinallyRetryAndCheckpoint(t *testing.T) {
 		t.Fatalf("tasks = %d, want 1", len(loaded.SuspendedTasks))
 	}
 	saved := loaded.SuspendedTasks[0].Snapshot.VM
-	if saved.Frames[0].PendingError.Reason != types.ExceptionReasonFrameDepth {
+	if saved.Frames[0].PendingReasons[0].Error.Reason != types.ExceptionReasonFrameDepth {
 		t.Fatal("checkpoint lost pending native reason")
 	}
 	ctx := task.NewContext()
@@ -193,7 +193,7 @@ func TestExceptionReasonRestoreRejectsIncompatiblePendingMetadata(t *testing.T) 
 		{Present: true, Code: types.E_MAXREC, Reason: types.ExceptionReason(255)},
 	} {
 		snapshot := validRestoredSnapshot()
-		snapshot.Frames[0].PendingError = pending
+		snapshot.Frames[0].PendingReasons = []task.PendingReasonSnapshot{{Kind: task.PendingError, Error: pending}}
 		if _, err := RestoreVMSnapshot(snapshot, nil, nil, task.NewContext()); err == nil {
 			t.Fatalf("restored incompatible pending reason %#v", pending)
 		}

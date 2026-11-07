@@ -44,6 +44,32 @@ type Snapshot struct {
 type VMSnapshot struct {
 	MaxStackDepth int
 	Frames        []VMFrameSnapshot
+	// NativeRootVector is meaningful only when Frames contain native metadata.
+	// Toast uses -1 for its main vector and nonnegative fork-vector indexes.
+	NativeRootVector int
+	NativeFunctionID int
+}
+
+// NativeFrameSnapshot retains the state which cannot be interpreted as Barn
+// bytecode until the compiler has converted a native call continuation.
+// Source, named locals, operand values and PC remain in the owning frame;
+// OperandTypes distinguishes native control-stack markers from MOO integers.
+type NativeFrameSnapshot struct {
+	LanguageVersion int
+	Programmer      types.ObjID
+	ErrorPC         int
+	OperandTypes    []int
+	Sentinel        types.Value
+	Temporary       types.Value
+	Builtin         *NativeBuiltinSnapshot
+}
+
+// NativeBuiltinSnapshot is Toast's recursively serialized builtin call state.
+// State is kept verbatim until a builtin-specific converter validates it.
+type NativeBuiltinSnapshot struct {
+	Name  string
+	State string
+	Inner *NativeBuiltinSnapshot
 }
 
 // MoveContinuationSnapshot is the persistent native state retained while a
@@ -68,8 +94,28 @@ type RecycleContinuationSnapshot struct {
 	OldLocation  types.ObjID
 }
 
+type PendingReasonKind uint8
+
+const (
+	PendingReturn PendingReasonKind = iota + 1
+	PendingError
+	PendingJump
+)
+
+// PendingReasonSnapshot owns one unwind reason while its cleanup executes.
+type PendingReasonSnapshot struct {
+	Kind         PendingReasonKind
+	Value        types.Value
+	Error        VMErrorSnapshot
+	TargetIP     int
+	HandlerDepth int
+	FinallyIP    int
+	Stack        []types.Value
+}
+
 // VMFrameSnapshot is one activation and its operand-stack segment.
 type VMFrameSnapshot struct {
+	Native              *NativeFrameSnapshot
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
@@ -84,9 +130,7 @@ type VMFrameSnapshot struct {
 	VerbLoc             types.ObjID
 	Args                []types.Value
 	ExceptStack         []bytecode.Handler
-	PendingError        VMErrorSnapshot
-	PendingReturn       types.Value
-	HasPendingReturn    bool
+	PendingReasons      []PendingReasonSnapshot
 	VerbDebug           bool
 	DiscardReturn       bool
 	ReturnLocal         int
@@ -152,6 +196,10 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	s.TaskLocal = transform(s.TaskLocal)
 	for frameIndex := range s.VM.Frames {
 		frame := &s.VM.Frames[frameIndex]
+		if frame.Native != nil {
+			frame.Native.Sentinel = transform(frame.Native.Sentinel)
+			frame.Native.Temporary = transform(frame.Native.Temporary)
+		}
 		for index, value := range frame.Program.Constants {
 			frame.Program.Constants[index] = transform(value)
 		}
@@ -168,9 +216,13 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 		for index, value := range frame.Args {
 			frame.Args[index] = transform(value)
 		}
-		frame.PendingError.Value = transform(frame.PendingError.Value)
-		if frame.HasPendingReturn {
-			frame.PendingReturn = transform(frame.PendingReturn)
+		for pendingIndex := range frame.PendingReasons {
+			pending := &frame.PendingReasons[pendingIndex]
+			pending.Value = transform(pending.Value)
+			pending.Error.Value = transform(pending.Error.Value)
+			for valueIndex, value := range pending.Stack {
+				pending.Stack[valueIndex] = transform(value)
+			}
 		}
 		frame.SavedThisValue = transform(frame.SavedThisValue)
 		if frame.MoveContinuation != nil {

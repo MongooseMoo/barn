@@ -1,0 +1,47 @@
+name: native_string_iteration
+description: Native byte-string iteration retains its byte cursor while suspended.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, suspend, dump_database, chr]
+  config: [managed_server]
+tests:
+  - name: native_utf8_string_iteration_checkpoint
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_native_string_iteration", o, {player, ""});
+          add_property(o, "seen", {}, {player, ""});
+          add_property(o, "done", 0, {player, ""});
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"for c in (chr(195, 169))", "if (!length(this.seen)) suspend(20); endif", "this.seen = {@this.seen, length(c)};", "endfor", "this.done = this.done + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_native_string_iteration;
+          return {o.seen, o.done};
+        expect:
+          value: [[], 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_native_string_iteration;
+          return {o.seen, o.done};
+        expect:
+          value: [[1, 1], 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_native_string_iteration;
+          delete_property(#1, "conformance_native_string_iteration");
+          recycle(o);
+          return 0;

@@ -273,7 +273,10 @@ func (s *Server) LoadDatabase() error {
 	s.runtime.Session().LoadProtectedBuiltinsFromStore(s.store)
 
 	s.runtime.LoadQueuedTasks(database.QueuedTasks)
-	s.runtime.LoadSuspendedTasks(database.SuspendedTasks)
+	if err := s.runtime.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		s.runtime.Stop()
+		return errors.Join(fmt.Errorf("restore suspended tasks: %w", err), s.runtime.Session().Close())
+	}
 
 	slog.Info("database loaded",
 		slog.Int("version", database.Version),

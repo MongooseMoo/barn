@@ -17,21 +17,20 @@ type loopContext struct {
 	ContinueJumps []int // Patch locations for continue jumps (forward jumps to increment)
 	ContinueIP    int   // Target IP for continue (0 = use ContinueJumps for forward patching)
 	StartIP       int   // Loop condition start (for backward jump at end of body)
-	ResultVar     int   // Variable slot holding loop result (from break expr or default 0)
+	HandlerDepth  int   // Handlers retained by a break/continue to this loop
 }
 
 // beginLoop starts a new loop context.
-// resultVar is the local slot that holds the loop's result value (from break expr or default 0).
-func (c *lowerer) beginLoop(label string, resultVar int, valueName, indexName string) {
+func (c *lowerer) beginLoop(label, valueName, indexName string) {
 	c.loops = append(c.loops, loopContext{
 		Label:         label,
 		ValueName:     valueName,
 		IndexName:     indexName,
 		StartIP:       c.currentOffset(),
+		HandlerDepth:  c.handlerDepth,
 		ContinueIP:    0, // 0 = not set yet; will use ContinueJumps for forward patching
 		BreakJumps:    make([]int, 0, 4),
 		ContinueJumps: make([]int, 0, 4),
-		ResultVar:     resultVar,
 	})
 }
 
@@ -41,7 +40,7 @@ func (c *lowerer) endLoop() {
 		loop := &c.loops[len(c.loops)-1]
 		// Patch all break jumps to point to current location (after the loop)
 		for _, offset := range loop.BreakJumps {
-			c.patchJump(offset)
+			c.patchWide(offset, c.currentOffset())
 		}
 		c.loops = c.loops[:len(c.loops)-1]
 	}
@@ -95,6 +94,9 @@ func (c *lowerer) compileIf(n *ir.IfStmt) error {
 
 	endJump := c.emitJump(bytecode.OP_JUMP)
 	c.patchJump(elseJump)
+	if c.importLayout != nil {
+		c.importLayout.resetBranch(c)
+	}
 	if err := c.compileBlock(n.Else); err != nil {
 		return err
 	}
@@ -113,7 +115,7 @@ func (c *lowerer) compileWhile(n *ir.WhileStmt) error {
 	c.emitStoreLocal(resultVar)
 
 	// Start loop
-	c.beginLoop(n.Label, resultVar, "", "")
+	c.beginLoop(n.Label, "", "")
 	loopStart := c.currentOffset()
 	// For while loops, continue jumps back to condition check
 	c.currentLoop().ContinueIP = loopStart
@@ -126,6 +128,10 @@ func (c *lowerer) compileWhile(n *ir.WhileStmt) error {
 	// Exit loop if false. A named loop's test is Toast's EOP_WHILE_ID, an
 	// extended opcode whose tick is not tested against the budget.
 	if n.Label != "" {
+		// EOP_WHILE_ID binds the complete condition value on every test,
+		// including the false value which terminates the loop.
+		c.emit(bytecode.OP_DUP)
+		c.emitStoreLocal(c.declareVariable(n.Label))
 		c.emitTicks(1 | bytecode.TicksUnchecked)
 	}
 	exitJump := c.emitJump(bytecode.OP_JUMP_IF_FALSE)
@@ -155,67 +161,68 @@ func (c *lowerer) compileWhile(n *ir.WhileStmt) error {
 // compileRangeLoop compiles: for x in [start..end] ... endfor
 // Compiles to equivalent while loop pattern.
 func (c *lowerer) compileRangeLoop(n *ir.RangeLoopStmt) error {
-	// Hidden variable for end bound
+	// Native range state has a private next cursor and end bound. The user's
+	// loop variable can be assigned in the body without changing iteration.
 	endVar := c.declareInternalVariable(c.tempVar("end"))
+	nextVar := c.declareInternalVariable(c.tempVar("range_next"))
 	valueVar := c.declareVariable(n.Value)
 
-	// Declare temp variable for loop result (break expr value or default 0)
-	resultVar := c.declareInternalVariable(c.tempVar("loop_result"))
-	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
-		c.emit(op)
+	// Evaluate both bounds from left to right before binding the user variable.
+	if err := c.compileNode(n.Start); err != nil {
+		return err
 	}
-	c.emitStoreLocal(resultVar)
-
-	// Evaluate end and store
 	if err := c.compileNode(n.End); err != nil {
 		return err
 	}
 	c.emitStoreLocal(endVar)
-
-	// Evaluate start and store as loop variable. Toast's OP_FOR_RANGE binds the
-	// variable itself, so this store is not an OP_PUT.
-	if err := c.compileNode(n.Start); err != nil {
-		return err
-	}
-	c.emitStoreLocal(valueVar)
+	c.emitStoreLocal(nextVar)
 
 	// Loop start
-	c.beginLoop(n.Label, resultVar, n.Value, "")
+	c.beginLoop(n.Label, n.Value, "")
 	loopStart := c.currentOffset()
+	c.currentLoop().ContinueIP = loopStart
 
 	// Condition: if value > end, jump to exit. Fused FOR_RANGE_CHECK replaces the
 	// GET_VAR/GET_VAR/LE/JUMP_IF_FALSE sequence (same compare semantics, one dispatch).
 	c.emit(bytecode.OP_FOR_RANGE_CHECK_WIDE)
-	c.emitByte(byte(valueVar))
+	c.emitByte(byte(nextVar))
 	c.emitByte(byte(endVar))
 	exitJump := c.currentOffset()
 	c.emitWide(^uint32(0)) // exit offset placeholder, patched below
+
+	// Bind the value and advance the private state before executing the body,
+	// exactly as native OP_FOR_RANGE does. The existing NEXT opcode's zero
+	// backward distance performs only its overflow-safe advance; its semantics
+	// for historical checkpoint programs remain unchanged.
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(nextVar))
+	c.emitStoreLocal(valueVar)
+	c.emit(bytecode.OP_FOR_RANGE_NEXT_WIDE)
+	c.emitByte(byte(nextVar))
+	c.emitByte(byte(endVar))
+	c.emitWideInt(0)
+	if c.importLayout != nil {
+		c.importLayout.flush(c)
+		c.importLayout.locals[nextVar] = barnImportValue{origin: NativeValueOrigin{Kind: NativeRangeNext, Node: n}}
+		c.importLayout.locals[endVar] = barnImportValue{origin: NativeValueOrigin{Kind: NativeRangeLimit, Node: n}}
+	}
 
 	// Body
 	if err := c.compileBlock(n.Body); err != nil {
 		return err
 	}
 
-	// Patch continue jumps to point here (the increment section)
-	// continue in a for-range should increment before re-checking condition
-	for _, offset := range c.currentLoop().ContinueJumps {
-		c.patchJump(offset)
-	}
-
-	// Increment + loop back: value += 1; jump to condition. Fused FOR_RANGE_NEXT
-	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same +1 semantics, counts one tick).
-	c.emit(bytecode.OP_FOR_RANGE_NEXT_WIDE)
-	c.emitByte(byte(valueVar))
-	c.emitByte(byte(endVar))
+	// The cursor was advanced before the body, including before continue.
+	c.emit(bytecode.OP_LOOP_WIDE)
 	offset := c.currentOffset() + 4 - loopStart
 	c.emitWideInt(offset)
 
 	// Patch exit
 	c.patchJump(exitJump)
 	c.endLoop()
-	// Push loop result onto stack
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(resultVar))
+	// Break carries no value, so the loop's result is the constant zero.
+	op, _ := bytecode.MakeImmediateOpcode(0)
+	c.emit(op)
 	return nil
 }
 
@@ -266,7 +273,7 @@ func (c *lowerer) compileCollectionLoop(n *ir.CollectionLoopStmt) error {
 	c.emitStoreLocal(lenVar)
 
 	// Loop start
-	c.beginLoop(n.Label, resultVar, n.Value, n.Index)
+	c.beginLoop(n.Label, n.Value, n.Index)
 	loopStart := c.currentOffset()
 
 	// Condition: if idx > len, jump to exit. Fused FOR_LIST_CHECK (idx and len are
@@ -295,6 +302,10 @@ func (c *lowerer) compileCollectionLoop(n *ir.CollectionLoopStmt) error {
 		c.emitByte(byte(valueVar))
 	}
 
+	if c.importLayout != nil {
+		c.importLayout.flush(c)
+		c.importLayout.locals[idxVar] = barnImportValue{origin: NativeValueOrigin{Kind: NativeLoopCursor, Node: n}, projection: importCursor}
+	}
 	// Body
 	if err := c.compileBlock(n.Body); err != nil {
 		return err
@@ -303,7 +314,7 @@ func (c *lowerer) compileCollectionLoop(n *ir.CollectionLoopStmt) error {
 	// Patch continue jumps to point here (the increment section)
 	// continue in a for-list should increment before re-checking condition
 	for _, offset := range c.currentLoop().ContinueJumps {
-		c.patchJump(offset)
+		c.patchWide(offset, c.currentOffset())
 	}
 
 	// Increment + loop back: idx += 1; jump to condition. Fused FOR_RANGE_NEXT
@@ -339,7 +350,7 @@ func (c *lowerer) compileBreak(n *ir.BreakStmt) error {
 	// Emit a forward jump past the loop end (will be patched by endLoop). It
 	// stands for Toast's EOP_EXIT / EOP_EXIT_ID: one unchecked tick.
 	c.emitTicks(1 | bytecode.TicksUnchecked)
-	patchOffset := c.emitJump(bytecode.OP_JUMP)
+	patchOffset := c.emitUnwindJump(loop.HandlerDepth, -1)
 	loop.BreakJumps = append(loop.BreakJumps, patchOffset)
 	return nil
 }
@@ -357,18 +368,30 @@ func (c *lowerer) compileContinue(n *ir.ContinueStmt) error {
 	// Like break, continue is Toast's EOP_EXIT / EOP_EXIT_ID.
 	c.emitTicks(1 | bytecode.TicksUnchecked)
 	if loop.ContinueIP > 0 {
-		// ContinueIP is known (while loops) -- emit backward jump directly
-		c.emit(bytecode.OP_LOOP_WIDE)
-		// After reading opcode + uint32, IP = currentOffset + 4.
-		// We want IP - offset = ContinueIP.
-		offset := c.currentOffset() + 4 - loop.ContinueIP
-		c.emitWideInt(offset)
+		c.emitUnwindJump(loop.HandlerDepth, loop.ContinueIP)
 	} else {
 		// ContinueIP not yet known (for loops) -- emit forward jump, patch later
-		patchOffset := c.emitJump(bytecode.OP_JUMP)
+		patchOffset := c.emitUnwindJump(loop.HandlerDepth, -1)
 		loop.ContinueJumps = append(loop.ContinueJumps, patchOffset)
 	}
 	return nil
+}
+
+func (c *lowerer) emitUnwindJump(depth, target int) int {
+	if depth < 0 || depth > math.MaxUint16 {
+		if c.err == nil {
+			c.err = fmt.Errorf("too many active exception handlers")
+		}
+	}
+	c.emit(bytecode.OP_UNWIND_JUMP)
+	patch := c.currentOffset()
+	if target < 0 {
+		c.emitWide(^uint32(0))
+	} else {
+		c.emitWideInt(target)
+	}
+	c.emitShort(uint16(depth))
+	return patch
 }
 
 func (c *lowerer) compileReturn(n *ir.ReturnStmt) error {
@@ -420,6 +443,7 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		c.emit(bytecode.OP_TRY_FINALLY_WIDE)
 		finallyIPPatch = len(c.program.Code)
 		c.emitWide(^uint32(0))
+		c.handlerDepth++
 	}
 
 	if len(n.Handlers) == 0 {
@@ -455,10 +479,12 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 			c.emitWide(^uint32(0))
 		}
 
+		c.handlerDepth += numHandlers
 		if err := c.compileBlock(n.Body); err != nil {
 			return err
 		}
 
+		c.handlerDepth -= numHandlers
 		c.emit(bytecode.OP_END_EXCEPT)
 		c.emitByte(byte(numHandlers))
 		endHandlersJump := c.emitJump(bytecode.OP_JUMP)
@@ -467,6 +493,9 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 		for i, handler := range n.Handlers {
 			handlerIP := c.currentOffset()
 			c.patchWide(handlerOffsetPatches[i], handlerIP)
+			if c.importLayout != nil {
+				c.importLayout.resetBranch(c)
+			}
 
 			if err := c.compileBlock(handler.Body); err != nil {
 				return err
@@ -483,6 +512,7 @@ func (c *lowerer) compileTry(n *ir.TryStmt) error {
 	}
 
 	if n.Finalizer != nil {
+		c.handlerDepth--
 		c.emit(bytecode.OP_END_FINALLY_WIDE)
 		endFinallyIPPatch := len(c.program.Code)
 		c.emitWide(^uint32(0))
@@ -529,9 +559,12 @@ func (c *lowerer) compileFork(n *ir.ForkStmt) error {
 
 	// Compile the fork body (will be skipped at runtime but compiled for future use)
 	bodyStart := c.currentOffset()
+	parentDepth, parentLoops := c.handlerDepth, c.loops
+	c.handlerDepth, c.loops = 0, nil
 	if err := c.compileBlock(n.Body); err != nil {
 		return err
 	}
+	c.handlerDepth, c.loops = parentDepth, parentLoops
 	bodyEnd := c.currentOffset()
 
 	// Patch body length

@@ -55,6 +55,9 @@ func (c *lowerer) declareVariable(name string) int {
 // when their lifetimes are known not to overlap.
 func (c *lowerer) declareInternalVariable(name string) int {
 	if idx, ok := c.internalVariables[name]; ok {
+		if c.importLayout != nil {
+			c.importLayout.localOwners[idx] = c.importLayout.currentNode()
+		}
 		return idx
 	}
 
@@ -67,6 +70,9 @@ func (c *lowerer) declareInternalVariable(name string) int {
 	}
 
 	c.internalVariables[name] = idx
+	if c.importLayout != nil {
+		c.importLayout.localOwners[idx] = c.importLayout.currentNode()
+	}
 	if idx+1 > c.program.NumLocals {
 		c.program.NumLocals = idx + 1
 	}

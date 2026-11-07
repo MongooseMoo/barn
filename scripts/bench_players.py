@@ -89,7 +89,9 @@ Usage
 
 Outputs <out>/run.json, <out>/report.md, <out>/server.log; default --out is
 .tmp/bench_players/<engine>-<UTC timestamp>/ under the repo root.
-Stdlib only.
+Offline bootstrap additionally requires current lambdamoo-db-py, whose reader
+checks saved task identity/deadlines before accepting Toast's prepared copy.
+Changed scheduling aborts preparation and retains both copies and the census.
 """
 
 from __future__ import annotations
@@ -1019,6 +1021,26 @@ def load_login_script(port: int) -> tuple[str, str, str] | None:
 BOOTSTRAP_USER = "benchboot"
 
 
+def checkpoint_schedule(path: Path) -> list[list]:
+    """Read task identity/deadlines through the existing v17 checkpoint reader."""
+    from lambdamoo_db.database import MooDatabase
+    from lambdamoo_db.reader import Reader
+
+    if not hasattr(Reader, "read_v17_header"):
+        raise RuntimeError("offline bootstrap requires current lambdamoo-db-py (Reader.read_v17_header)")
+    database = MooDatabase()
+    with path.open("r", encoding="latin-1", newline="") as stream:
+        reader = Reader(stream, str(path))
+        reader.read_version(database)
+        if database.version < 17:
+            raise RuntimeError("offline bootstrap schedule check requires a v17-or-newer checkpoint")
+        reader.read_v17_header(database)
+    rows = [["queued", task.id, task.st] for task in database.queuedTasks]
+    rows += [["suspended", task.id, task.startTime, task.vm.funcId] for task in database.suspendedTasks]
+    rows += [["interrupted", task.id, task.status] for task in database.interruptedTasks]
+    return sorted(rows)
+
+
 def bootstrap_control_account(run_dir: Path, db_copy: Path, port: int) -> tuple[str, str, str]:
     """Create the control account offline, in the disposable copy only.
 
@@ -1028,6 +1050,7 @@ def bootstrap_control_account(run_dir: Path, db_copy: Path, port: int) -> tuple[
     mode does not have, so that error is expected and the stored account is
     finished by hand.
     """
+    before = checkpoint_schedule(db_copy)
     password = uuid.uuid4().hex
     script = run_dir / "bootstrap.moo"
     script.write_text(
@@ -1045,7 +1068,14 @@ def bootstrap_control_account(run_dir: Path, db_copy: Path, port: int) -> tuple[
                   "bench-bootstrap", TOAST_MOO, db_wsl, script_wsl, timeout=600.0)
         if f'=> {{"bootstrap", "{BOOTSTRAP_USER}", 1}}' not in out:
             raise RuntimeError(f"offline control account was not created: {out[-600:]!r}")
-        wsl("mv", db_wsl + ".boot", db_wsl)
+        prepared = Path(str(db_copy) + ".boot")
+        after = checkpoint_schedule(prepared)
+        (run_dir / "bootstrap-schedule.json").write_text(
+            json.dumps({"before": before, "after": after, "preserved": before == after}, indent=2) + "\n",
+            encoding="utf-8")
+        if before != after:
+            raise RuntimeError("offline bootstrap changed saved task scheduling; original copy and rejected .boot output retained")
+        prepared.replace(db_copy)
     finally:
         script.unlink(missing_ok=True)
     return f"PROXY TCP4 127.0.0.1 127.0.0.1 40000 {port}", BOOTSTRAP_USER, password
@@ -1121,15 +1151,6 @@ def main() -> int:
                             "copy_sha256": sound_copy_sha}
     log(f"fixture {src} size={fixture['size_bytes']} sha256={src_sha}")
     log(f"run dir {run_dir}")
-    if supplied_login is None:
-        proxy_line, ctl_user, ctl_pass = bootstrap_control_account(run_dir, db_copy, args.port)
-        fixture["control_account"] = "created offline in the copy by Toast emergency mode"
-        fixture["copy_sha256_after_bootstrap"] = sha256_file(db_copy)
-        log(f"control account {ctl_user!r} created offline in the disposable copy")
-    else:
-        proxy_line, ctl_user, ctl_pass = supplied_login
-        fixture["control_account"] = "MONGOOSE_LOGIN_SCRIPT"
-
     record: dict = {
         "issue": 265, "engine": args.engine, "started_utc": stamp, "fixture": fixture,
         "mix": [{"name": n, "line": l, "weight": w} for n, l, w in SHAPES],
@@ -1138,16 +1159,25 @@ def main() -> int:
         "python": sys.version,
     }
 
-    if args.engine == "toast":
-        server: Server = ToastServer(run_dir, db_copy, args.port)
-    else:
-        if not args.barn_exe.is_file():
-            sys.exit(f"barn executable not found: {args.barn_exe} (go build -o bin/ ./cmd/barn)")
-        server = BarnServer(run_dir, db_copy, args.port, args.barn_exe)
-    record["server"] = server.identity
+    server: Server | None = None
     bench_conns: list[LineConn] = []
-    exit_code = 0
+    exit_code = 1
     try:
+        if supplied_login is None:
+            proxy_line, ctl_user, ctl_pass = bootstrap_control_account(run_dir, db_copy, args.port)
+            fixture["control_account"] = "created offline in the copy by Toast emergency mode"
+            fixture["copy_sha256_after_bootstrap"] = sha256_file(db_copy)
+            log(f"control account {ctl_user!r} created offline in the disposable copy")
+        else:
+            proxy_line, ctl_user, ctl_pass = supplied_login
+            fixture["control_account"] = "MONGOOSE_LOGIN_SCRIPT"
+        if args.engine == "toast":
+            server = ToastServer(run_dir, db_copy, args.port)
+        else:
+            if not args.barn_exe.is_file():
+                raise FileNotFoundError(f"barn executable not found: {args.barn_exe} (go build -o bin/ ./cmd/barn)")
+            server = BarnServer(run_dir, db_copy, args.port, args.barn_exe)
+        record["server"] = server.identity
         t_listen = server.start()
         record["listen_after_s"] = round(t_listen, 3)
         log(f"{args.engine} listening on {server.host}:{args.port} after {t_listen:.1f}s")
@@ -1256,15 +1286,20 @@ def main() -> int:
             bench_conns = []
             time.sleep(1.0)
         record["results"] = results
+        exit_code = 0
     except Exception as exc:  # noqa: BLE001 - report and keep the run record
         record["error"] = f"{type(exc).__name__}: {exc}"
         log(f"ERROR {record['error']}")
         exit_code = 1
+    except BaseException as exc:
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
         for c in bench_conns:
             c.close()
         try:
-            server.stop()
+            if server is not None:
+                server.stop()
         except Exception as exc:
             record["cleanup_error"] = f"{type(exc).__name__}: {exc}"
             log(f"CLEANUP ERROR {record['cleanup_error']}")
@@ -1272,7 +1307,7 @@ def main() -> int:
         record["finished_utc"] = utc_stamp()
         (run_dir / "run.json").write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
         write_report(run_dir / "report.md", record)
-        if not args.keep_db and "cleanup_error" not in record:
+        if not args.keep_db and exit_code == 0:
             for p in (db_copy, Path(str(db_copy) + ".new"), Path(str(db_copy) + ".new.PANIC")):
                 try:
                     p.unlink()

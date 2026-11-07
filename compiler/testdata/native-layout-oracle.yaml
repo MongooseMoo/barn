@@ -1,0 +1,43 @@
+name: native_layout_oracle
+description: Compile test-owned sources and retain native disassembly for continuation layout.
+requires:
+  builtins: [create, recycle, add_verb, set_verb_code, disassemble, generate_json, server_log]
+tests:
+  - name: native_layout_sources
+    permission: wizard
+    steps:
+      - run: |
+          o = create($nothing);
+          add_verb(o, {player, "rxd", "probe"}, {"this", "none", "this"});
+          cases = {
+            {"calls", {"x = suspend(0) + suspend(0);", "return x;"}},
+            {"elseif", {"if (1)", "suspend(0);", "elseif (2)", "suspend(0);", "else", "suspend(0);", "endif"}},
+            {"nested_if", {"if (1)", "suspend(0);", "else", "if (2)", "suspend(0);", "else", "suspend(0);", "endif", "endif"}},
+            {"loops", {"for item, idx in ({1, 2})", "suspend(0);", "continue idx;", "endfor", "for item in [1..3]", "suspend(0);", "break item;", "endfor", "while named (suspend(0))", "suspend(0);", "continue named;", "endwhile"}},
+            {"catch", {"x = `suspend(0) ! E_TYPE, E_DIV => suspend(0)';", "return x;"}},
+            {"except", {"try", "suspend(0);", "except e (E_TYPE, E_DIV)", "suspend(0);", "except (ANY)", "suspend(0);", "endtry"}},
+            {"finally", {"try", "return suspend(0);", "finally", "suspend(0);", "endtry"}},
+            {"targets", {"x = o.(suspend(0)) = suspend(0);", "items[suspend(0)][suspend(0)] = suspend(0);", "o.p[suspend(0)] = suspend(0);", "items[suspend(0)..suspend(0)] = suspend(0);"}},
+            {"scatter", {"{a, ?b = suspend(0), @rest} = suspend(0);", "return b;"}},
+            {"numbers", {"x = {-11, -10, 97, 98, -(-5), 0.0, -0.0, 1.0, -1.0};", "suspend(0);"}},
+            {"collections", {"return {suspend(0), @suspend(0), [suspend(0) -> suspend(0)]};"}},
+            {"forks", {"fork outer (0)", "fork inner (0)", "suspend(0);", "endfork", "suspend(0);", "endfork", "suspend(0);"}}
+          };
+          wide = {};
+          literals = {};
+          forks = {};
+          for i in [1..300]
+            wide = {@wide, "v" + tostr(i) + " = " + tostr(i) + ";"};
+            literals = {@literals, "x = \"literal_" + tostr(i) + "\";"};
+            forks = {@forks, "fork (0)", "suspend(0);", "endfork"};
+          endfor
+          cases = {@cases, {"wide_variables", {@wide, "suspend(0);"}}, {"wide_literals", {@literals, "suspend(0);"}}, {"wide_forks", {@forks, "suspend(0);"}}};
+          for entry in (cases)
+            errors = set_verb_code(o, "probe", entry[2]);
+            if (errors) raise(E_INVARG, entry[1], errors); endif
+            server_log("NATIVE_LAYOUT_ORACLE " + generate_json({entry[1], entry[2], disassemble(o, "probe")}));
+          endfor
+          recycle(o);
+          return length(cases);
+        expect:
+          value: 15

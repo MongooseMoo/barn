@@ -48,7 +48,7 @@ func TestCaughtErrorMaterializesObservedOrPendingValue(t *testing.T) {
 			t.Fatalf("handler %v did not receive control", handlerType)
 		}
 		if handlerType == bytecode.HandlerFinally {
-			pending, ok := frame.PendingError.(VMException)
+			pending, ok := frame.PendingReasons[len(frame.PendingReasons)-1].Error.(VMException)
 			if !ok || value.Len() != 4 || !pending.Value.Equal(value) {
 				t.Fatal("finally did not preserve the original exception tuple")
 			}

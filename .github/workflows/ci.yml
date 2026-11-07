@@ -93,8 +93,16 @@ jobs:
       - name: Store race tests
         run: go test -race ./db/store
 
+      - name: Set up uv for benchmark drivers
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+
       - name: Benchmark driver tests
-        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+        # The root uv project belongs to managed conformance. These drivers
+        # need the checkpoint reader, including its native-task header API.
+        run: >-
+          uv run --no-project --python 3.13
+          --with 'lambdamoo-db @ git+https://github.com/MongooseMoo/lambdamoo-db-py.git@40d1bb3f13812ade4d848e341eb528493bf999c8'
+          python -m unittest discover -s scripts -p 'test_*.py' -v
 
   conformance:
     name: MOO conformance suite

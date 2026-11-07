@@ -2,245 +2,163 @@
 
 ## Goal
 
-Merge PR #614, use the existing Mongoose player harness to reproduce intermittent
-command delays, diagnose them and fix the verified cause. No live deployment.
+Complete Q's approved diagnostics and lag investigation using the existing
+Mongoose player harness. Preserve the original checkpoint's semantics, repair
+verified defects, compare the runtime mutex repair, and inspect remaining waits.
+No live deployment. PR #614 was already merged normally.
 
 ## State
 
-The diagnostics PR's first queue run failed the checkpoint_finished suspend
-callback conformance case with a socket timeout. Unit and Elle checks succeeded.
-Preserved queue artifacts under the diagnostics worktree's
-.tmp/pr614-queue-failure. The exact CI suite revision passed the focused managed
-stock Toast check and Barn check plus five more Barn repetitions. The queue log
-shows a checkpoint hook read before the caller's hook definition was visible;
-separate PR #623 addresses that checkpoint ordering race. The queue-only timeout
-cause remains unverified. The second queue run passed (CI 42333068808, Elle
-42333068721); #614 merged at 2026-11-07T03:25:55Z with two parents. Integrated
-the remote default branch into this branch and built cmd/barn successfully.
-Started the actual-player TCP harness under .tmp/player-lag-baseline with the
-fixture/settings below. Bootstrap completed, then control login failed with
-WinError 10054 before any cohort. Preserved run.json, checkpoint and logs.
-The login task waited 1.623622s for the commit gate, but the reset cause is being
-verified separately. Actual dump code $telnet:send_raw enables binary, sends raw
-Telnet bytes, then disables binary before login. That wakes the concurrent TCP
-reader by expiring its deadline; HandleConnection currently interprets any
-unauthenticated timeout as login expiry and returns. Added the exact sequence
-as a candidate managed regression. Stock Toast passed it with canonical admission
-(2 passed), evidence .tmp/prelogin-toast.xml and prelogin-toast-admission.json.
-The deterministic TestPreloginBinaryOutputDoesNotExpireLogin then failed with
-"binary output expired the prelogin reader: write pipe: i/o timeout". After the
-deadline comparison fix, its race run passed (ok server 1.259s). Built the fixed
-cmd/barn binary at .tmp/player-lag-barn-fixed.exe for the next actual-player run.
-No new flag/queue/lock. This fixes the capture/login defect introduced by
-read-ahead; the original reported lag still needs player-cohort evidence.
+The shared implementation is local and has not been published. The input
+reader wakeup repair, login-bracket synchronization and runtime mutex repair
+precede the current native-import work. The latter is now implemented:
 
-The second run .tmp/player-lag-reader-fixed logged in successfully, then failed
-Control's bracketed look. The log classifies all three bracket/look inputs as
-login at 20:37:36.424 before the switch to player #2 in that same millisecond.
-Actual $account:login_as_player prints Welcome before end_login_music (which can
-suspend), record_connection and switch_player. The harness wrongly treats that
-early text as player readiness. Reuse its existing prefix/suffix/look exchange
-as bounded synchronization: retry it within the existing 30s deadline until an
-actual prefix followed by suffix arrives. Do not add a login protocol or alter
-MOO login behavior. Added a regression with one dropped exchange, failing on the
-old arm_bracket. The repair passes scripts/test_bench_players.py. HTTP captures
-attempted after this failed run ended were refused; those are not profiles.
-The third capture .tmp/player-lag-cohorts now has 16 accounts from 524 real player
-candidates and has verified its 1-player cohort connected with no extras. A 90s
-whole-process CPU capture has started against its private debug endpoint; its
-window includes settle/background work and must not be attributed entirely to
-one command or cohort. New PR publication is pending Q's reply to the question
-tool; no new PR has been posted.
+- Native layout over the same parsed IR matches exact saved PCs, vector sizes,
+  widths and operand heights. No source effects are replayed.
+- Original input coverage is1080 queued tasks and49 suspended/interrupted tasks,
+  comprising70 native frames. All restore through the unchanged VM verifier;
+  every queued absolute deadline remains unchanged.
+- Implicit command environment survives suspension and reaches later callees.
+  A second native checkpoint proves nonempty values in all six fields.
+- The same existing iteration normalizer is shared by VM and converter.
+- Invalid or unsupported suspended restoration returns aggregated errors.
+  Server loading stops/closes the runtime session; the harness fails before
+  dispatch. A valid/bad-native-PC control was RED then GREEN.
+- Range bounds run left to right before binding; private iteration survives
+  user-variable mutation and maximum integer. Dead range-result storage was
+  deleted to preserve local capacity. Named while stores every test value.
+- Break/continue use an explicit unwind jump. One owner-scoped pending-reason
+  stack covers return/error/jump, survives checkpoint/retry and retains roots.
+  Older ambiguous ownership is rejected rather than guessed. Ordinary jumps
+  retain their existing interpretation.
 
-The cohort run finished exit 0. All command failures and traceback counts are
-zero. Results (terminal times include the OOB probe): 1 player 491 commands,
-p99 210.37ms/max 322.05ms; 4 players 842 commands, p99 373.41ms/max 2744.16ms;
-16 players 1063 commands, p99 2399.94ms/max 5712.16ms. Direct command records
-distinguish early print from later completion: home command 1196 first printed
-at 37.8787ms and finished at 2735.6964ms; setup home 3009 first printed at
-57.2422ms and finished at 10411.9618ms through 1067 slices. No SQL slot/work
-delay was measured for 3009; its resume_queue maximum was 3.5113ms. Original
-first-output delay 911 (@who) was 284.398ms with VM attempts totaling only
-9.0726ms; the native slice took 272.9007ms, so the missing interval is outside
-the VM attempt and requires lock/lease evidence, not a VM CPU claim.
+Independent analyses and fixes are recorded in reports/*-analyst.md and
+reports/*-coder.md. The final scoped cleanup review found the original pending
+reason loss addressed: exact probes now return73,73 and an empty list.
+No full-change CI/Elle or merge verdict exists yet. New PR publication still
+awaits Q's explicit posting authority; do not push/post while that hold remains.
 
-Retained 90s Go CPU and MOO profiles plus vars-before/stacks-before. CPU total
-206.03s over 90s: NextTaskWake 38.58s cumulative (18.73%), PendingReadier 33.78s
-(16.40%); task-labelled CPU #9655:arm 60.55s, #0:server_started 47.89s. Labels
-are root tasks. MOO profile shows background physics arm/rearm, declaration and
-validation. These are whole-process windows, not command-exclusive CPU.
+## Fixtures
 
-The 30s HTTP trace request was interrupted by normal benchmark teardown (curl
-56); retain the truncated go.trace. Go trace's viewer explicitly reports an
-incomplete final generation and recovers the complete prefix (0 B reported
-lost), so this is bounded-prefix evidence, not a complete 30s capture. Raw
-trace-derived blocking/scheduler profiles are retained. Blocking prefix:
-acquireTaskExecution 65.71s aggregate across goroutines, of which VMStartMu.Lock
-at runtime.go:274 accounts for 60.53s and s.mu.Lock for 5.18s. Investigate actual
-VMStartMu holders and admission/root/GC ownership before changing lock order or
-scheduling. Source shows the runtime mutex held while releaseTaskExecution waits
-for scheduler.ReleaseExecution, and while queueTask/handOffSuspended wait to
-enqueue. NextWake/Ready scan the same scheduler under its mutex. That lets a
-long scheduler scan hold up the runtime mutex indirectly; acquireTaskExecution
-then retains VMStartMu waiting for it and all other VM starts line up there.
+Original checkpoint:
+C:/Users/Q/projects/mongoose/db/mongoose.db.new.2026-11-05T0034
+(278104681 bytes), SHA256
+28E8179503B246F50FFD5147AC10E43B47CCB297EF0846B171A67A921B8CF37F.
 
-Bounded repair to test: remove scheduler waits from the runtime-mutex critical
-sections. Registration and saved-VM publication stay under runtime.mu; enqueue
-after unlocking while the physical execution lease still prevents early resume.
-For final physical release, acquire scheduler.mu before runtime.mu and change
-the lease map/active flag while holding both, preserving the atomic handoff.
-No change to readiness order, admission weights, MVCC validation or VM budget.
-Add a deterministic regression that holds a scheduler scan, begins a background
-handoff, and proves an unrelated VM can still acquire its execution lease.
-Run the new regression with race detection, then repeat the same real-player
-capture and obtain CI/Elle verdicts before any merge. This is a hypothesis-backed
-lock-convoy repair; a latency improvement is not established yet.
-TestSchedulerHandoffLeavesUnrelatedVMStartsAvailable first failed for both
-releaseTaskExecution and queueTask with "blocked an unrelated VM start". After
-moving the scheduler waits outside runtime.mu, the new file's race run passed
-(ok engine 1.339s). Final release now takes scheduler.mu before runtime.mu and
-clears the physical-active flag under both; queue registration and saved-VM
-publication unlock runtime.mu before heap operations. Task-row observers are
-called after store publication locks are released. Repeat the same cohort
-capture before accepting the performance hypothesis; CI/Elle are still pending.
+Sound catalog:
+C:/Users/Q/code/barn/files/sqlite/sound.sqlite, SHA256
+0FCDC8D7F909D3E57A801EC1089B69C86FB390B4DC1D85331E25E68E00639318.
+The harness copies it into its worktree sandbox; preserve unrelated root dirt.
+
+Native producer fixtures and provenance are in engine/testdata. The first
+nested-call checkpoint proves before=1,after=1,result=173,finished=1 after resume.
+The environment producer proves inherited values reach a callee after resume.
+The incompatible byte-string fixture is ASCII base64 retaining exact binary
+bytes and a checked decoded hash. Native source/oracle cases are also retained
+under compiler/testdata and tests/mongoose-conformance.
 
 ## Decisions and why
 
-Use scripts/bench_players.py: it already connects real players over TCP, selects
-the native command mix and waits for terminal acknowledgements. The in-process
-harness bypasses socket first-output instrumentation, so no adapter is needed.
-Before capturing, add an optional --sound input copied and hashed alongside the
-checkpoint, select debug logging when BARN_RUNTIME_DIAGNOSTICS=1, and correct the
-bootstrap default to the installed Mongoose Toast path documented in
-docs/mongoose-performance.md. These address observed missing fixture input,
-disabled diagnostic records and an absent executable. Test these harness paths
-with scripts/test_bench_players.py, then run 1/4/16 actual-player cohorts.
+Toast's loader reads queued start time into C int. Offline account bootstrap
+changed415 of1129 scheduling rows, including task1787475465 from109290153959993
+to416145977. Both earlier TCP engine runs therefore used altered scheduling.
+Their throughput/tail comparisons are NOT original-world speedup evidence.
+Canonical managed Toast also ran a newly created far-future fork immediately
+after reload; do not emulate that truncation in Barn or silently patch an oracle.
 
-Retain failed cohorts. Separate socket first output from harness terminal time
-(which includes the completion probe). Inspect exceptions, runtime phases and
-profiles before changing runtime policy. $sh.handle is separate planned work.
+The shared bootstrap owner now compares task identity/deadline/function-ID
+censuses through current lambdamoo-db-py's existing reader before replacement.
+Mismatch retains input, rejected .boot output, census and normal failure record.
+Interruptions also retain input. Three callers share this owner. Current-reader
+setup is documented; CI supplies a verified immutable first-party revision via
+uv in its existing benchmark test step.
 
-## Surprises
+The native VM header's third field is function ID, NOT readiness. Earlier
+interim wording was wrong. Frame values, control tags and builtin payloads must
+be retained before conversion. Native PCs cannot be reused as Barn PCs.
 
-Historical October 11 evidence has exit_code=1 and is not a valid baseline.
-The old TCP harness creates an empty sound directory and starts Barn at info.
-The configured Toast executable is missing; the documented September build is
-installed. No evidence yet establishes the cause of current intermittent lag.
+Native builtin continuations, nonzero native VM function IDs, pending native
+finally reasons (including FIN_EXIT), and active foreign byte-string iteration
+whose normalized columns differ from native bytes remain explicit unsupported
+errors. Normal Barn Unicode behavior was not changed. Do not claim generic
+all-state cross-engine checkpoint compatibility.
 
-Harness preparation: scripts/test_bench_players.py first failed on the missing
---sound argument and missing debug launch option, then passed after their fixes.
-The optional catalog copy records source/copy hashes; the Toast default matches
-the installed documented Mongoose build. These edits are local, not published.
+The earlier empty-bytecode rejection is fixed for this exact original input.
+The originally recorded E_MAXREC was tick_budget, not call depth. It has not
+been established on an equivalent original Toast workload: the saved target's
+deadline was altered by bootstrap. Keep errors and uncertainty visible.
 
-Selected the newest checkpoint in the Mongoose hub:
-C:/Users/Q/projects/mongoose/db/mongoose.db.new.2026-11-05T0034 (278104681 bytes,
-SHA256 28E8179503B246F50FFD5147AC10E43B47CCB297EF0846B171A67A921B8CF37F).
-Catalog C:/Users/Q/code/barn/files/sqlite/sound.sqlite has SHA256
-0FCDC8D7F909D3E57A801EC1089B69C86FB390B4DC1D85331E25E68E00639318;
-read-only schema inspection found AssetFiles and 123338 rows. The harness records
-and verifies both copies before the server starts. Use 1/4/16 players, GOGC=400,
-GOMAXPROCS=32, default 60s settle, 2s warmup and 30s measurement per level.
+## Latest diagnostic capture
+
+.tmp/player-lag-full-native-smoke contains retained engine.test.exe, manifest,
+console, JSON logs and Go/MOO profiles. Original hashes were rechecked. Settings:
+1/4/16 players;2s warmup/8s measurement;GOMAXPROCS32;GOGC400;repairs off;
+runtime debug diagnostics and profiles on; no Toast bootstrap.
+
+The retained binary identifies the uncommitted source actually run. This is a
+diagnostic smoke, not a clean paired speedup comparison; an analyst's short Go
+probe builds overlapped it. It measures in-process terminal completion, NOT
+socket first output.
+
+Raw cohort results:
+
+    players=1 completed=359 failed=0 unsettled=0 p99=126.76ms max=165.58ms
+    players=4 completed=815 failed=4 unsettled=0 p99=566.59ms max=854.99ms
+    players=16 completed=1340 failed=18 unsettled=0 p99=1415.43ms max=3097.09ms
+
+Native full-capture terminal census: E_NACC10,E_PROPNF19, no E_MAXREC record.
+Counts include warmup/background; do not attribute process-wide deltas to a
+command. Source failure frames include #71 home/bf_move and @who/bf_idle_seconds;
+do not change permissions from labels alone.
+
+The largest whole-capture commit-gate waits (~1.426s) belong to restored startup
+tasks around00:21:33. A6.384s slice has root label #0:server_started around
+00:22:17; labels identify root tasks, not the currently running nested verb.
+The16-player MOO wall profile has do_say42.52% and forbids36.67% cumulative.
+Nested wall intervals overlap and are not CPU. Go whole-run samples include
+startup/warmup/drain and show VM/property work plus scheduler scans. Neither
+profile alone explains off-CPU waits or proves a new optimization.
+
+## Surprises and corrected findings
+
+Lossless native conversion required preserving CATCH/FINALLY type tags, selected
+fork vector, error PC, temporary and builtin state. A one-line recompile would
+lose continuation semantics. Exact native disassembly corpus and all70 original
+frame continuations were checked.
+
+The first control repair's passing focused tests missed nested pending reasons.
+Independent probes exposed overwritten outer errors/returns/jumps; managed Toast
+confirmed them. The corrective shared reason stack replaces the separate slots,
+rather than layering backups. Nested cancellation is trimmed at the next actual
+cleanup destination, not prematurely at an eventual jump target.
+
+The elseif-layout objection and dynamic-except-count objection were retracted
+after source checks; reports preserve those corrections. An initial loop probe
+used expression mode and returned early; corrected statement-mode results are
+the evidence. A literal non-ASCII string probe produced an empty loop; it is not
+encoding evidence. The valid byte producer uses chr(195,169).
 
 ## Next step
 
-The paired handoff-repair run finished exit 0 in .tmp/player-lag-handoff-fixed.
-Terminal p99/max: 1 player 246.01/563.91ms; 4 players 264.76/443.67ms;
-16 players 744.69/1282.68ms. Throughput 17.8/54.6/105.5 completed/s. Baseline
-16-player p99/max was 2399.94/5712.16ms and throughput 34.3/s. This is one
-instrumented pair, not a clean speedup proof: both worlds retain the same
-background #9655:arm E_MAXREC and player #71 home E_NACC application errors
-(35 baseline, 82 candidate); the native handler hides the latter from the TCP
-traceback counter. One-player first-output p99/max worsened from 33.98/284.40ms
-to 42.21/487.14ms (includes setup/warmup); latency is not universally fixed.
+1. Consolidate shared implementation in a substantive local commit, including
+   this note. Integrate newly fetched origin/master changes before publication.
+   Upstream now includes newer Elle coverage, parser, checkpoint and output fixes.
+2. Complete final scoped verification without claiming CI/Elle. Native inputs
+   were rechecked after the reason-stack cutover (engine9.038s); startup controls
+   passed (server1.136s). Final worker/analyst focused commands are in reports.
+3. Control worktree C:/Users/Q/code/barn-mongoose-lag-control exists on
+   bench/mongoose-lag-control. It starts historically before the mutex repair
+   and has the subsequent shared harness change applied forward. Apply identical
+   completed common fixes and upstream code there, then verify that implementation
+   differences are only the mutex repair. Do not revert the active branch.
+4. Run quiescent paired1/4/16 cohorts with identical original fixtures/settings,
+   retain failures, and inspect slow task phases, profiles and scheduling before
+   any further performance change. Current diagnostic smoke still has real tails.
+5. Obtain explicit posting authority only when the result is concrete/reviewable,
+   then run required PR CI and pinned Elle workflow before any merge. A green
+   local focused test is not a remote exact-head, isolation or deployment verdict.
 
-Q asked whether the E_MAXREC also occurs on Toast. Barn's originating-task
-census classifies task 1787475465 as tick_budget, not frame recursion. Ran the
-same checkpoint/catalog through the WSL Mongoose Toast harness in
-.tmp/player-lag-toast-maxrec: no corresponding tick-exhaustion/task error in
-the fresh server log. Absence alone is insufficient. Its shutdown produced a
-PANIC-named checkpoint, and moodb rejected that output with duplicate
-server-equivalent map key; preserve it without loosening the parser. A second
-Toast harness is active in .tmp/player-lag-toast-task-check with a longer settle
-window to query queued_tasks directly before shutdown. Source moodb inspection
-lists the original saved task as queued with when=109290153959993s. Confirm
-actual Toast scheduling before investigating a Barn restore/time mismatch.
-
-The live Toast probe did return the exact task as queued:
-{1787475465,416145977,0,30000,#249,#9655,"arm",1,#9655,1436}.
-The probe used an early return inside Control.eval, violating that helper's
-last-return tagging contract; it raised ControlEvalError after retaining the
-real untagged result above. Do not repeat that caller shape.
-
-Critical fixture finding: using the existing moodb Reader.read_v17_header on
-the source and private copies shows that offline Toast bootstrap changed task
-1787475465's timestamp from 109290153959993 to 416145977 before BOTH engines
-ran. The installed Mongoose Toast's tasks.cc read_task_queue reads st into C int
-using %d. The queued count stays 1080. This makes the prior TCP measurements
-observations of an altered scheduling workload, not an original-world speedup
-proof. Mark all earlier throughput/tail comparisons accordingly. Do not infer a
-Barn restore/time defect: task_load.go uses time.Unix and readiness checks the
-absolute future deadline. The error has not been reproduced on Toast, but the
-bootstrap discrepancy prevents a clean original-checkpoint parity verdict.
-
-Read-only partial moodb inspection of #24.traceback_log (parsing valid header
-and objects through its ancestors, without suppressing the later duplicate-key
-error) found no retained E_MAXREC rows in either Toast output. This is bounded
-history, not proof none ever occurred. The post-run task header no longer holds
-the target; absence cannot distinguish normal completion, cancellation or error.
-
-Ran the existing TestMongooseRealWorkload on the original checkpoint and catalog
-with 1/4/16 players, GOGC=400, GOMAXPROCS=32, 2s warmup/8s measurement; it passed
-in 55.16s. Evidence .tmp/player-lag-original-input/ has manifest, JSON logs and
-Go/MOO profiles. Its code does not load persisted queued/suspended tasks, so this
-run cannot decide the saved-task MaxRec question. Console diagnostics were huge;
-do not claim missing per-cohort stdout as retained. It is a player-code/startup
-service capture, not full server replay or socket response evidence.
-
-Next: preserve original task scheduling in any further TCP replay. Existing
-wizard credentials avoid the lossy bootstrap, but MONGOOSE_LOGIN_SCRIPT is absent.
-Do not build a new bootstrap layer or accept rewritten scheduling as equivalent.
-New PR publication still awaits Q's pending approval. Do not push/post or claim
-CI/isolation coverage for these local fixes. Keep all captures and manifests.
-
-Q approved restoring saved tasks in the existing harness and a reduced Toast
-timestamp reproduction. Harness setup now installs host/catalog/options before
-loading tasks and starting dispatch. Original-input 1/4/16 capture completed in
-57.12s under .tmp/player-lag-restored-input, but suspended restorations warn
-"frame 0: empty bytecode program". PASS is not complete workload acceptance.
-Task 1787475465 has zero diagnostic phase records during that window.
-Detailed JSON logging now uses the existing Stderr option to avoid flooding the
-cohort report. Second capture .tmp/player-lag-restored-report is running with
-exact restored/input counts and snapshot repairs disabled.
-
-Reduced managed canonical stock Toast case future_fork_deadline failed after
-restart: expected [1,0] (deadline preserved, fork not run), got [0,1]. Admission
-passed. XML/admission retained .tmp/future-fork-toast*. Both Toast source trees
-read queued st into C int using %d. This establishes timestamp loss and early
-fork execution on reload, not the original MaxRec result. No oracle patch.
-First managed invocation failed before startup because disposable candidate
-fixtures were absent; copied packaged fixtures as documented and reran.
-Current checkpoint summary also exists at the root checkout task note required
-by the runtime checkpoint instruction: agent-notes/fix-mongoose-player-lag.md.
-
-Second original-input capture completed in 56.41s. Retained console.txt plus
-JSON logs and per-cohort MOO/whole-run Go profiles in .tmp/player-lag-restored-report.
-Exact restoration: queued 1080/1080, suspended 0/49. Native reader_vm.go leaves
-Toast-shaped frames with variable names/source but no bytecode; runtime restore
-rejects them. This matches the production loader path and is an unresolved
-compatibility limit, not permission to discard the warnings or claim full replay.
-No source checkpoint or oracle was modified.
-
-Measured terminal cohorts (snapshot repairs disabled, 2s warmup/8s measurement,
-GOMAXPROCS=32/GOGC=400, debug diagnostics and CPU/MOO profiles): 1 player
-400 completed/0 failed/0 unsettled, p99 106.00ms max153.51ms; 4 players
-872 completed/4 failed/0 unsettled, p99 492.93ms max889.54ms; 16 players
-2741 completed/39 failed/0 unsettled, p99 660.52ms max1336.98ms. Native terminal
-errors include home E_NACC and @who E_PROPNF. PASS does not clear those errors.
-The 16-player MOO wall profile has #410:do_say 44.98% and #1:forbids 39.02%
-cumulative; nested wall times overlap. These are not CPU percentages or unique
-command costs. No universal lag-fix claim and no socket first-output timing.
-
-Next: preserve this local work for review. New PR publication remains pending;
-no current-head CI/Elle verdict. Suspended-frame compatibility needs its own
-exact stock-Toast fixture before a runtime implementation change. Do not clamp
-deadlines or emulate Toast's timestamp truncation in Barn.
+PR #614 evidence from its removed old worktree remains archived in
+C:/Users/Q/code/barn/.tmp/player-command-latency-evidence.tar. Root master was not
+fast-forwarded because unrelated untracked paper files would be overwritten.
+The task worktree preserves those unrelated files and other agents' work.
