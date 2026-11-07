@@ -205,7 +205,7 @@ var elleExpectedExceptions = map[int64]bool{}
 // part of the workload makes Elle reject every run: a synchronized wave for
 // each validation stage, the write-skew pair for commit exclusion, and the
 // valid/recycle pair for the read a true valid() records.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads", "ring-reads", "property-scans", "property-shapes", "verb-scans", "verb-memo"}
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads", "ring-reads", "map-key-metadata", "map-key-presence", "map-key-whole-read", "hot-map-carry", "hot-memo-guard", "property-scans", "property-shapes", "verb-scans", "verb-memo"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
@@ -458,7 +458,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		definitions := &elleDefinitions{}
 		var definitionStep builtins.BuiltinFunc = definitions.step
 		rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
-			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
+			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot, elleRenewalStepSlot(),
 			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
 			testBuiltinSlot("elle_torn", 1, 1, []int64{int64(types.TYPE_INT)}, &torn),
 			testBuiltinSlot("elle_valid", 1, 1, []int64{int64(types.TYPE_INT)}, &validStep),
@@ -468,6 +468,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
 		func() {
 			defer rt.Stop()
+			var mapPermissionKeys []string
 			defer func() {
 				counts, err := recorder.write(filepath.Join(out, model+".edn"))
 				paths := isolationprobe.Snapshot()
@@ -489,6 +490,11 @@ func TestElleIsolationHistories(t *testing.T) {
 				for _, key := range keys {
 					if counts[operation+key] == 0 {
 						t.Errorf("missing committed %s%s", operation, key)
+					}
+				}
+				for _, key := range mapPermissionKeys {
+					if counts["r/"+key] == 0 || counts["append/"+key] == 0 {
+						t.Errorf("missing committed map/permission history: %s", key)
 					}
 				}
 			}()
@@ -627,8 +633,10 @@ func TestElleIsolationHistories(t *testing.T) {
 			}
 			if model == "list-append" && paths["parallel"] {
 				definitions.run(t, rt, &id)
+				mapPermissionKeys = elleMapPermissionHistories(t, store, recorder)
 			}
 			if model == "list-append" && paths["hot_renewal"] {
+				id = elleRenewalPairs(t, rt, store, id)
 				// Hold an old reader until a newer hot-key publication has completed.
 				elleDrain(t, rt, []*Task{
 					elleTask(t, rt, id, `elle_hot_wait();`+elleReadAll()),

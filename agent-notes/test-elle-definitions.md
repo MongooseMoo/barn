@@ -7,8 +7,9 @@ dependencies and demonstrated negative controls. Parent owns publication and CI.
 ## State
 Implemented sixteen held scenarios and four precise negative controls. The first
 PR CI accepted the healthy histories and rejected each deliberate fault. This
-branch now integrates actual default-branch changes after the history-shapes and
-campaign PRs merged. New integration CI is pending. No Barn tests run locally.
+branch now integrates actual default-branch changes after the history-shapes,
+campaign, map/permission, boundary, verb-read, RHS and map-range repair PRs
+merged. New integration CI is pending. No Barn tests run locally.
 This worktree is isolated on test/elle-definitions.
 
 ## Decisions and why
@@ -60,8 +61,11 @@ JUnit/admission evidence remains under `/tmp/barn-elle-definition-oracle` in Deb
 This proves selected MOO semantics, not concurrent Barn isolation.
 
 ## Next step
-Parent reviews and pushes the integration merge, then runs exact-head PR CI and
-merges normally only after the integrated checks succeed.
+Root reviews and pushes the final integration merge and inspects exact-head PR CI
+before normal merge. The boundary, verb-read and RHS PRs were confirmed MERGED
+before fetching actual origin/master; no unmerged peer reference was integrated.
+Root owns the next push and exact-head CI; no local Barn tests or publication by
+this worker.
 
 ## Prior PR evidence and integration
 Retained `barn-elle-evidence/pr628/elle-evidence/results.json` reports explicit true
@@ -70,9 +74,19 @@ controls and the four new controls report false with exit 1. The retained
 seed-412 manifest has every one of the sixteen definition/NAME paths equal to 1.
 These are pre-integration results, not proof for the merged tree.
 
-The integration retains the default branch's four-transaction ring, variable
-transaction shapes, disjoint random token allocator, manual workflow inputs,
-action pins and self-hosted cache selection. The fault order is baseline ten,
-ring-reads, property-scans, property-shapes, verb-scans, verb-memo in both workload
-and driver. Definition helper/scenarios are unchanged. Shared conflicts in the
-fault list and documentation were resolved by union, not by dropping controls.
+The final integration retains the default branch's four-transaction ring,
+variable transaction shapes, disjoint random token allocator, map/permission
+histories and committed row counts, hot-renewal pairs and counters, recorder and
+store boundary regressions, manual workflow inputs, action pins and self-hosted
+cache selection. It also preserves the merged map first/last production repair,
+RHS map writeback regression, quota cases and verb metadata runtime dependency
+regression unchanged against actual default branch.
+
+The fault order is baseline ten, ring-reads, map-key-metadata, map-key-presence,
+map-key-whole-read, hot-map-carry, hot-memo-guard, then property-scans,
+property-shapes, verb-scans and verb-memo. A source-only structural comparison
+reports `Go=20, Python=20, Table=20, GoPythonOrder=True, TableOrder=True`.
+Definition helper/scenarios are unchanged. Shared actual conflicts in fault
+lists, helper calls and documentation were resolved by union, without changing
+fault scope, native errors or assertions. Integrated runtime acceptance remains
+unknown until the new CI run.

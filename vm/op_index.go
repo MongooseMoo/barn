@@ -221,32 +221,21 @@ func (vm *VM) executeRangeSet() error {
 		newColl = types.NewStr(s[:prefixEnd] + newStr.Str() + s[suffixStart:])
 
 	case types.TYPE_MAP:
-		var startIdx int64
-		if start.Type() == types.TYPE_INT {
-			startIdx = start.Int()
-		} else {
-			switch start.Type() {
-			case types.TYPE_LIST, types.TYPE_MAP:
-				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-			}
-			startIdx = coll.KeyPosition(start)
-			if startIdx == 0 {
-				return newMooError(types.E_RANGE, "map range start key not found")
-			}
+		switch start.Type() {
+		case types.TYPE_LIST, types.TYPE_MAP:
+			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
 		}
-
-		var endIdx int64
-		if end.Type() == types.TYPE_INT {
-			endIdx = end.Int()
-		} else {
-			switch end.Type() {
-			case types.TYPE_LIST, types.TYPE_MAP:
-				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-			}
-			endIdx = coll.KeyPosition(end)
-			if endIdx == 0 {
-				return newMooError(types.E_RANGE, "map range end key not found")
-			}
+		startIdx := coll.KeyPosition(start)
+		if startIdx == 0 {
+			return newMooError(types.E_RANGE, "map range start key not found")
+		}
+		switch end.Type() {
+		case types.TYPE_LIST, types.TYPE_MAP:
+			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
+		}
+		endIdx := coll.KeyPosition(end)
+		if endIdx == 0 {
+			return newMooError(types.E_RANGE, "map range end key not found")
 		}
 
 		// Value must be a map
@@ -369,30 +358,23 @@ func (vm *VM) executeRange() error {
 		return nil
 
 	case types.TYPE_MAP:
-		var startIdx int64
-		if start.Type() == types.TYPE_INT {
-			startIdx = start.Int()
-		} else {
-			if !types.IsValidMapKey(start) {
-				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-			}
-			startIdx = collection.KeyPosition(start)
-			if startIdx == 0 {
-				return newMooError(types.E_RANGE, "map range start key not found")
-			}
+		if start.Type() == types.TYPE_INT && end.Type() == types.TYPE_INT && start.Int() > end.Int() {
+			vm.Push(types.NewEmptyMap())
+			return nil
 		}
-
-		var endIdx int64
-		if end.Type() == types.TYPE_INT {
-			endIdx = end.Int()
-		} else {
-			if !types.IsValidMapKey(end) {
-				return newMooError(types.E_TYPE, "range indices must be integers or map keys")
-			}
-			endIdx = collection.KeyPosition(end)
-			if endIdx == 0 {
-				return newMooError(types.E_RANGE, "map range end key not found")
-			}
+		if !types.IsValidMapKey(start) {
+			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
+		}
+		startIdx := collection.KeyPosition(start)
+		if startIdx == 0 {
+			return newMooError(types.E_RANGE, "map range start key not found")
+		}
+		if !types.IsValidMapKey(end) {
+			return newMooError(types.E_TYPE, "range indices must be integers or map keys")
+		}
+		endIdx := collection.KeyPosition(end)
+		if endIdx == 0 {
+			return newMooError(types.E_RANGE, "map range end key not found")
 		}
 		length := int64(collection.Len())
 
@@ -420,11 +402,19 @@ func (vm *VM) executeRange() error {
 	}
 }
 
-// executeIndexMarker resolves ^/$ markers against a collection. Index markers
-// resolve map boundaries to keys; range markers remain positional.
+// executeIndexMarker resolves ^/$ markers against a collection. Map markers
+// expose keys in both index and range expressions.
 func (vm *VM) executeIndexMarker() error {
 	marker := vm.FetchByte()
 	coll := vm.Pop()
+	if coll.Type() == types.TYPE_MAP {
+		switch marker {
+		case bytecode.RangeMarkerFirst:
+			marker = bytecode.IndexMarkerFirst
+		case bytecode.RangeMarkerLast:
+			marker = bytecode.IndexMarkerLast
+		}
+	}
 	if marker == bytecode.RangeMarkerFirst || marker == bytecode.RangeMarkerLast {
 		if coll.Type() != types.TYPE_LIST && coll.Type() != types.TYPE_STR && coll.Type() != types.TYPE_MAP {
 			return newMooError(types.E_TYPE, "invalid range marker context")

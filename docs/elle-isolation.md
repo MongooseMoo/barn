@@ -155,6 +155,11 @@ reject the resulting append history with an anomaly witness:
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
 | `ring-reads` | property-value validation only for the four ring properties | held four-transaction ring |
+| `map-key-metadata` | owner and permission validation for keyed accesses | nonwizard map permission and ownership revocation pairs |
+| `map-key-presence` | validation of an absent map entry | missing-key read/insertion pair |
+| `map-key-whole-read` | promotion to a whole-property read after a keyed write | whole-map observation after writing another entry |
+| `hot-map-carry` | cloning keyed reads into the transaction renewed at a stale hot read | held map/hot-property pair |
+| `hot-memo-guard` | checking dispatch shape changes since the pre-renewal snapshot | held missing-dispatch/hot-property pair |
 | `property-scans` | validation of enumerated property definitions | definition enumeration/add pair |
 | `property-shapes` | validation of absent property lookup's fall-through | absent property/create pair |
 | `verb-scans` | validation of verb-list generations | verb enumeration/add pair |
@@ -172,6 +177,43 @@ the definition and stages an append to that ledger in one transaction. Each succ
 hit the warmed dispatch memo before releasing their mutator. Other dispatch pairs
 stage a write first to exercise precise ancestry scan validation. The ledger is
 not the hot-renewal property, so renewal cannot mask a missing definition check.
+
+The hot-renewal pairs retain one reader publication. A reader observes a map entry
+or a warmed missing verb, waits for a writer to publish that dependency together
+with an append to the hot property, and then reads the hot property. Healthy
+renewal refuses the changed carried dependency and keeps the old snapshot. Each
+fault instead permits renewal: the reader observes the old dependency and the new
+hot value. The map pair uses the existing `map-a` row. The dispatch pair adds a
+`hot-memo` row, initially empty while the verb is missing and then the literal list
+returned by its newly created verb. Committed pair coverage is reported as
+`hot_map_pair` and `hot_memo_pair`; the specific fault also requires that renewal
+actually happened. Tokens 210 through 213 are reserved for these pairs.
+
+Irreversible publication is different: the runtime holds the exclusive commit
+gate through the remainder of the slice. An ordinary competing commit cannot be
+inserted inside that interval. Recorder regressions check separate effect,
+suspend, fork and exception publications, retry of a resumed slice, and a failed
+publication after an earlier successful one. A store regression checks that a
+keyed dependency is converted to a whole-property dependency at renewal, accepts
+its own republished map, and still detects a later change. These are semantic
+regressions, not additional Elle anomaly witnesses or MOO scheduling-order proof.
+
+Eight additional held pairs exercise keyed reads against whole-map replacement,
+whole-map reads against keyed writes, whole reads after keyed writes, missing
+entries, inherited map entries, clear overrides, and nonwizard reads across
+property permission or ownership changes. Each pair owns a separate map and
+marker. Its observed row changes once from `{}` to a unique-token list; the
+writer reads the marker before publishing and the held reader then appends to
+the marker. Removing the reader's dependency exposes a cycle through values both
+tasks actually observed. Missing-key `E_RANGE` and denied-read `E_PERM` are
+recorded as the selected scenario's state, while other errors remain native
+failures. Healthy runs execute all eight pairs and require committed reads and
+appends for every pair row. The new fault runs execute only their precise
+scenarios: metadata runs both nonwizard revocations, presence runs the missing
+entry pair, and whole-read runs the whole-after-keyed pair. Existing faults skip
+these additional map pairs and retain their original bounded witness schedules.
+Every fault still requires a completed Go run and an Elle rejection with a witness;
+each selected pair retains its final-state assertion and committed row counts.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
@@ -206,6 +248,24 @@ To investigate, start with the Go log and manifest,
 then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
+
+Ordinary-user authority also has focused transaction regressions in
+`builtins/verbs_txn_test.go`. The existing
+`TestDeleteVerbAuthorityRevocationConflictsBeforeMutation` checks object owner and
+write-flag revocation during a staged deletion. The distinct
+`TestVerbCodeReadPermissionRevocationConflictsBeforePublication` admits a code read
+as a nonwizard/nonowner, removes only the verb's read bit, and checks a dependent
+marker cannot publish from that stale permission view. It requires a conflict on
+the selected verb, not merely its list generation, and a serial retry returns
+E_PERM. These are semantic regressions, not additional Elle graph witnesses.
+
+Map byte quotas are a separate semantic invariant: a serializable merge of
+disjoint keys can still exceed the task's value limit. The
+`TestKeyedMapRebaseRespectsTaskValueQuota` regression in `vm/map_key_test.go`
+stages real VM property assignments from the same snapshot. It checks preservation
+of both updates below the limit, validation loss without publication at or above
+the limit, and E_QUOTA when the rejected assignment is rerun against the committed
+map. These outcomes are not Elle dependency-graph witnesses.
 
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.
