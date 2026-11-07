@@ -27,6 +27,13 @@ server.cc:2304-2305 exit(1). Barn does not; no suite asserts it, so not added.
 go test ./db/format -count=1: ok. gofmt, go vet, staticcheck, golangci-lint on
 ./db/format: clean (0 issues).
 
+Managed conformance with the suite from branch test/db-object-labels,
+`make conformance-k CONFORMANCE_SUITE=<that worktree> K=startup_object_label`
+in WSL: this branch 3 passed (admission, v4 refuses, v5 loads at record
+position). `make conformance-toast` with the same selection: 3 passed.
+Barn master after #624 (before this change) failed v4 only on the log text.
+I re-read Toast db_file.cc:917-927 and :1246-1250 for the citations.
+
 ## Next step
-Edit, go test ./db/format, rerun the suites on Toast and this branch, commit
-locally. No push/PR.
+Merge this PR, then the conformance PR (moo-conformance-tests
+test/db-object-labels).
