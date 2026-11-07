@@ -45,6 +45,14 @@ tracebacks and broken connections before accepting any throughput comparison.
 The harness creates private accounts offline using the documented Mongoose
 Toast build; it does not need live player credentials.
 
+That bootstrap loads and saves the whole checkpoint through Toast. It is not
+schedule preserving for far-future queued tasks: the original Mongoose task
+1787475465 changed from Unix seconds 109290153959993 to 416145977. A reduced
+stock-Toast checkpoint/restart probe also ran a future fork immediately. Do not
+use bootstrap-based runs as evidence for the original checkpoint's scheduling
+or as a clean Barn/Toast comparison. Preserve both checkpoint hashes and task
+headers when investigating this discrepancy.
+
 ## In-process command harness
 
 The harness drives normal command dispatch and waits for terminal output
@@ -52,6 +60,15 @@ acknowledgement. Run Go tests from the repository root with `./engine`; a prebui
 test executable must run from `engine/`. Its file sandbox switches to the repository
 root. Use an isolated worktree: setup copies the catalog into `files/sqlite/`.
 No source checkpoint is opened for writing.
+
+The harness restores queued and suspended tasks after preparing its host and
+boot caches, before starting dispatch, using the same runtime loaders as the
+server. It reports restored/input counts. Native restore warnings remain in
+the JSON log; a completed cohort does not establish that every saved task was
+restored. In particular, the November 5 Mongoose checkpoint restored all 1080
+queued tasks but rejected all 49 suspended tasks with empty bytecode frames.
+This limits full-world replay claims. Detailed diagnostics go to JSON without
+duplicating every record on stderr, leaving cohort results readable.
 
 For a diagnostic run, set these alongside the ordinary workload knobs:
 

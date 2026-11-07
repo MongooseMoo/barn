@@ -201,3 +201,46 @@ wizard credentials avoid the lossy bootstrap, but MONGOOSE_LOGIN_SCRIPT is absen
 Do not build a new bootstrap layer or accept rewritten scheduling as equivalent.
 New PR publication still awaits Q's pending approval. Do not push/post or claim
 CI/isolation coverage for these local fixes. Keep all captures and manifests.
+
+Q approved restoring saved tasks in the existing harness and a reduced Toast
+timestamp reproduction. Harness setup now installs host/catalog/options before
+loading tasks and starting dispatch. Original-input 1/4/16 capture completed in
+57.12s under .tmp/player-lag-restored-input, but suspended restorations warn
+"frame 0: empty bytecode program". PASS is not complete workload acceptance.
+Task 1787475465 has zero diagnostic phase records during that window.
+Detailed JSON logging now uses the existing Stderr option to avoid flooding the
+cohort report. Second capture .tmp/player-lag-restored-report is running with
+exact restored/input counts and snapshot repairs disabled.
+
+Reduced managed canonical stock Toast case future_fork_deadline failed after
+restart: expected [1,0] (deadline preserved, fork not run), got [0,1]. Admission
+passed. XML/admission retained .tmp/future-fork-toast*. Both Toast source trees
+read queued st into C int using %d. This establishes timestamp loss and early
+fork execution on reload, not the original MaxRec result. No oracle patch.
+First managed invocation failed before startup because disposable candidate
+fixtures were absent; copied packaged fixtures as documented and reran.
+Current checkpoint summary also exists at the root checkout task note required
+by the runtime checkpoint instruction: agent-notes/fix-mongoose-player-lag.md.
+
+Second original-input capture completed in 56.41s. Retained console.txt plus
+JSON logs and per-cohort MOO/whole-run Go profiles in .tmp/player-lag-restored-report.
+Exact restoration: queued 1080/1080, suspended 0/49. Native reader_vm.go leaves
+Toast-shaped frames with variable names/source but no bytecode; runtime restore
+rejects them. This matches the production loader path and is an unresolved
+compatibility limit, not permission to discard the warnings or claim full replay.
+No source checkpoint or oracle was modified.
+
+Measured terminal cohorts (snapshot repairs disabled, 2s warmup/8s measurement,
+GOMAXPROCS=32/GOGC=400, debug diagnostics and CPU/MOO profiles): 1 player
+400 completed/0 failed/0 unsettled, p99 106.00ms max153.51ms; 4 players
+872 completed/4 failed/0 unsettled, p99 492.93ms max889.54ms; 16 players
+2741 completed/39 failed/0 unsettled, p99 660.52ms max1336.98ms. Native terminal
+errors include home E_NACC and @who E_PROPNF. PASS does not clear those errors.
+The 16-player MOO wall profile has #410:do_say 44.98% and #1:forbids 39.02%
+cumulative; nested wall times overlap. These are not CPU percentages or unique
+command costs. No universal lag-fix claim and no socket first-output timing.
+
+Next: preserve this local work for review. New PR publication remains pending;
+no current-head CI/Elle verdict. Suspended-frame compatibility needs its own
+exact stock-Toast fixture before a runtime implementation change. Do not clamp
+deadlines or emulate Toast's timestamp truncation in Barn.
