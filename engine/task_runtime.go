@@ -1151,14 +1151,14 @@ func (s *Runtime) forkFirstRunRebuilder(t *Task, ticks int64) func() *vm.VM {
 	if saved == nil || saved.IsYielded() {
 		return nil
 	}
-	forkProg := forkBodyProgram(t.ForkInfo)
+	forkProg := vm.ForkBodyProgram(t.ForkInfo)
 	if forkProg == nil {
 		return nil
 	}
 	forkInfo := t.ForkInfo
 	taskID := t.ID
 	return func() *vm.VM {
-		child := s.newForkVM(taskID, forkInfo, forkProg, ticks)
+		child := vm.NewForkVM(s.store, s.session, taskID, forkInfo, forkProg, ticks)
 		child.Task = &t.State
 		return child
 	}

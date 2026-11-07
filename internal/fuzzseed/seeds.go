@@ -67,6 +67,7 @@ func Add(f *testing.F) {
 		"for value, key in ([1 -> 2]) continue; endfor",
 		"try return 1 / 0; except e (ANY) return e; finally 1; endtry",
 		"fork child (0) return 1; endfork return child;",
+		"suspend(0); fork (0) suspend(); endfork return {1, \"a\\\"\", [2 -> #-1], E_TYPE};",
 		"/* one *//* two */ return \"a\\\"b\\\\c\xff\";",
 		"return 9223372036854775807;", "return -9223372036854775808;",
 		"return 18446744073709551616;", "return 1e309;", "return 1e-400;",
