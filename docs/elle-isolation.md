@@ -140,6 +140,20 @@ reject the resulting append history with an anomaly witness:
 | `map-key-capture` | dependencies for maps captured before an index expression writes the entry | captured-map wave |
 | `commit-exclusion` | the commit mutex: one commit validating and publishing at a time, only during the held pair | write-skew pair |
 | `valid-reads` | the read a true `valid()` records on the object | valid/recycle pair |
+| `map-key-metadata` | owner and permission validation for keyed accesses | nonwizard map permission and ownership revocation pairs |
+| `map-key-presence` | validation of an absent map entry | missing-key read/insertion pair |
+| `map-key-whole-read` | promotion to a whole-property read after a keyed write | whole-map observation after writing another entry |
+
+Eight additional held pairs exercise keyed reads against whole-map replacement,
+whole-map reads against keyed writes, whole reads after keyed writes, missing
+entries, inherited map entries, clear overrides, and nonwizard reads across
+property permission or ownership changes. Each pair owns a separate map and
+marker. Its observed row changes once from `{}` to a unique-token list; the
+writer reads the marker before publishing and the held reader then appends to
+the marker. Removing the reader's dependency exposes a cycle through values both
+tasks actually observed. Missing-key `E_RANGE` and denied-read `E_PERM` are
+recorded as the selected scenario's state, while other errors remain native
+failures. The manifest requires committed reads and appends for every pair row.
 
 A fault run is the preflight, the waves, the held pairs and the final read, with
 no random rounds and no coverage requirement. The witness is then the anomaly
