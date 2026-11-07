@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
@@ -53,32 +54,48 @@ func executeFuzzSource(t *testing.T, source string, mustCompile bool) {
 			t.Error(err)
 		}
 	}()
-	store := dbstore.NewStore()
-	tasks := &sourceFuzzTasks{nextID: 2}
-	machine := newSourceFuzzVM(store, session, 1, sourceFuzzTicks)
-	// Errors and tick exhaustion are results; a Go panic fails the case.
-	result := tasks.run(t, machine, machine.Run(program))
-	spent := machine.Ticks
-	if result.Flow == types.FlowReturn {
-		checkLiteralRoundTrip(t, store, session, result.Val)
+	tasks := &sourceFuzzTasks{nextID: 2, store: dbstore.NewStore(), session: session}
+	results := tasks.runAll(t, program)
+	if results[0].Flow == types.FlowReturn {
+		checkLiteralRoundTrip(t, tasks.store, session, results[0].Val)
 	}
+}
+
+// sourceFuzzTasks numbers forked children and queues them to run.
+type sourceFuzzTasks struct {
+	nextID  int64
+	forks   []sourceFuzzFork
+	store   *dbstore.Store
+	session *builtins.Session
+	// checkpoint, when set, replaces each task suspended by suspend() with
+	// one restored from a checkpoint, and returns the store the remaining
+	// execution uses. suspends counts the replacements.
+	checkpoint func(t *testing.T, machine *VM, store *dbstore.Store) (*VM, *dbstore.Store)
+	suspends   int
+}
+
+// runAll runs program as task 1 and then its forked children, and returns
+// every run task's terminal result in run order. Errors and tick exhaustion
+// are results; a Go panic fails the case.
+func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []types.Result {
+	t.Helper()
+	machine := newSourceFuzzVM(tasks.store, tasks.session, 1, sourceFuzzTicks)
+	result, machine := tasks.run(t, machine, machine.Run(program))
+	results := []types.Result{result}
+	spent := machine.Ticks
 	// Forked children run after their creator, in creation order, on the
 	// ticks the earlier tasks left. A child that would start with none left
 	// is not run. Children fork further children onto the same queue.
 	for len(tasks.forks) > 0 && spent < sourceFuzzTicks {
 		fork := tasks.forks[0]
 		tasks.forks = tasks.forks[1:]
-		child := NewForkVM(store, session, fork.id, fork.info, ForkBodyProgram(fork.info), sourceFuzzTicks-spent)
+		child := NewForkVM(tasks.store, tasks.session, fork.id, fork.info, ForkBodyProgram(fork.info), sourceFuzzTicks-spent)
 		attachSourceFuzzTask(child, fork.id)
-		tasks.run(t, child, child.ExecuteLoop())
+		result, child = tasks.run(t, child, child.ExecuteLoop())
+		results = append(results, result)
 		spent += child.Ticks
 	}
-}
-
-// sourceFuzzTasks numbers forked children and queues them to run.
-type sourceFuzzTasks struct {
-	nextID int64
-	forks  []sourceFuzzFork
+	return results
 }
 
 type sourceFuzzFork struct {
@@ -115,7 +132,9 @@ func attachSourceFuzzTask(machine *VM, id int64) {
 // charges at least one tick, as in Toast, where OP_FORK, OP_FORK_WITH_ID and
 // OP_BI_FUNC_CALL each cost one (src/include/opcode.h:44-50, COUNT_TICK at
 // opcode.h:129), so a task cannot yield more often than its budget allows.
-func (tasks *sourceFuzzTasks) run(t *testing.T, machine *VM, result types.Result) types.Result {
+// It returns the result and the VM that produced it, which tasks.checkpoint
+// may have replaced.
+func (tasks *sourceFuzzTasks) run(t *testing.T, machine *VM, result types.Result) (types.Result, *VM) {
 	t.Helper()
 	before := int64(-1)
 	for result.Flow == types.FlowFork || result.Flow == types.FlowSuspend {
@@ -133,6 +152,9 @@ func (tasks *sourceFuzzTasks) run(t *testing.T, machine *VM, result types.Result
 			tasks.forks = append(tasks.forks, sourceFuzzFork{id: tasks.nextID, info: result.ForkInfo})
 			machine.SetForkResult(tasks.nextID)
 			tasks.nextID++
+		} else if tasks.checkpoint != nil {
+			machine, tasks.store = tasks.checkpoint(t, machine, tasks.store)
+			tasks.suspends++
 		}
 		result = machine.Resume()
 	}
@@ -142,7 +164,7 @@ func (tasks *sourceFuzzTasks) run(t *testing.T, machine *VM, result types.Result
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowException {
 		t.Fatalf("task ended with flow %v, want a return or an exception", result.Flow)
 	}
-	return result
+	return result, machine
 }
 
 // checkLiteralRoundTrip requires toliteral(value), compiled and evaluated
