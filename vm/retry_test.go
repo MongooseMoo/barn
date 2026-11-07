@@ -99,13 +99,13 @@ func TestRetryCheckpointDetachesMutableFrameStorage(t *testing.T) {
 	frame := machine.CurrentFrame()
 	frame.LoopStack = []bytecode.LoopState{{Iterator: types.NewInt(7)}}
 	frame.ExceptStack = []bytecode.Handler{{Codes: []types.ErrorCode{types.E_TYPE}}}
-	frame.PendingError = &VMException{Code: types.E_INVARG, Value: types.NewInt(9)}
+	frame.PendingReasons = []pendingReason{{Kind: task.PendingError, Error: &VMException{Code: types.E_INVARG, Value: types.NewInt(9)}}}
 	frame.MoveContinuation = &task.MoveContinuationSnapshot{Stage: 3, What: types.NewObj(7)}
 	frame.RecycleContinuation = &recycleContinuation{request: builtins.RecycleLifecycleRequest{OldParents: []types.ObjID{1}}}
 	checkpoint := machine.CheckpointForRetry()
 	frame.LoopStack[0].Iterator = types.NewInt(8)
 	frame.ExceptStack[0].Codes[0] = types.E_ARGS
-	frame.PendingError.(*VMException).Value = types.NewInt(10)
+	frame.PendingReasons[0].Error.(*VMException).Value = types.NewInt(10)
 	frame.MoveContinuation.Stage = 99
 	frame.RecycleContinuation.request.OldParents[0] = 99
 	machine.popFrame() // recycle and clear the original frame's backing storage
@@ -114,7 +114,7 @@ func TestRetryCheckpointDetachesMutableFrameStorage(t *testing.T) {
 	if frame == nil {
 		t.Fatal("restore did not install an active frame")
 	}
-	if frame.LoopStack[0].Iterator.(types.Value).Int() != 7 || frame.ExceptStack[0].Codes[0] != types.E_TYPE || frame.PendingError.(*VMException).Value.Int() != 9 || frame.MoveContinuation.Stage != 3 || frame.RecycleContinuation.request.OldParents[0] != 1 {
+	if frame.LoopStack[0].Iterator.(types.Value).Int() != 7 || frame.ExceptStack[0].Codes[0] != types.E_TYPE || frame.PendingReasons[0].Error.(*VMException).Value.Int() != 9 || frame.MoveContinuation.Stage != 3 || frame.RecycleContinuation.request.OldParents[0] != 1 {
 		t.Fatal("checkpoint aliased the abandoned attempt")
 	}
 }

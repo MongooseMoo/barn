@@ -1,0 +1,49 @@
+name: suspended_call_checkpoint
+description: A suspended nested call resumes once with its caller operand intact after restart.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: suspended_call_checkpoint_roundtrip
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_suspended_call_checkpoint", o, {player, ""});
+          for name in ({"before", "after", "result", "finished"}) add_property(o, name, 0, {player, ""}); endfor
+          add_verb(o, {player, "rxd", "pause"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "pause", {"this.before = this.before + 1;", "suspend(20);", "this.after = this.after + 1;", "return 73;"});
+          if (errors) raise(E_INVARG, "pause compile failed", errors); endif
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"this.result = 100 + this:pause();", "this.finished = this.finished + 1;"});
+          if (errors) raise(E_INVARG, "start compile failed", errors); endif
+          fork (0) o:start(); endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_suspended_call_checkpoint;
+          return {o.before, o.after, o.finished};
+        expect:
+          value: [1, 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_suspended_call_checkpoint;
+          return {o.before, o.after, o.result, o.finished};
+        expect:
+          value: [1, 1, 173, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_suspended_call_checkpoint;
+          delete_property(#1, "conformance_suspended_call_checkpoint");
+          recycle(o);
+          return 0;

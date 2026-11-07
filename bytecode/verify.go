@@ -180,7 +180,7 @@ func stackHeights(codeLength int, instructions []decodedInstruction) ([]int, err
 		pending = pending[:len(pending)-1]
 		instruction := instructions[index[ip]]
 		height := heights[ip]
-		pops, pushes, err := stackEffect(instruction)
+		pops, pushes, err := InstructionStackEffect(instruction.op, instruction.operands)
 		if err != nil {
 			return nil, fmt.Errorf("bytecode at %d (%s): %w", ip, instruction.op, err)
 		}
@@ -207,7 +207,7 @@ func successors(instruction decodedInstruction, height, after int) []flowEdge {
 	switch op := instruction.op; op {
 	case OP_RETURN, OP_RETURN_NONE:
 		return nil
-	case OP_JUMP, OP_JUMP_WIDE, OP_LOOP, OP_LOOP_WIDE, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_NEXT_WIDE:
+	case OP_JUMP, OP_JUMP_WIDE, OP_LOOP, OP_LOOP_WIDE, OP_FOR_RANGE_NEXT, OP_FOR_RANGE_NEXT_WIDE, OP_UNWIND_JUMP:
 		return []flowEdge{{branchTarget(instruction), after}}
 	case OP_JUMP_IF_FALSE, OP_JUMP_IF_FALSE_WIDE, OP_JUMP_IF_TRUE, OP_JUMP_IF_TRUE_WIDE,
 		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_LIST_CHECK_WIDE:
@@ -234,12 +234,11 @@ func successors(instruction decodedInstruction, height, after int) []flowEdge {
 	return []flowEdge{next}
 }
 
-// stackEffect is how many values instruction pops and pushes on its ordinary
+// InstructionStackEffect is how many values an instruction pops and pushes on its ordinary
 // path, as implemented by vm.Execute and the dispatch fast paths in vm/vm.go.
 // A call's push is its result: the callee frame's return pushes it onto the
 // caller's stack (vm/stack.go Return).
-func stackEffect(instruction decodedInstruction) (pops, pushes int, err error) {
-	op, operand := instruction.op, instruction.operands
+func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err error) {
 	if IsImmediateInt(op) {
 		return 0, 1, nil
 	}
@@ -261,7 +260,7 @@ func stackEffect(instruction decodedInstruction) (pops, pushes int, err error) {
 		return 1, 0, nil
 	case OP_DUP:
 		return 1, 2, nil
-	case OP_RETURN_NONE, OP_JUMP, OP_JUMP_WIDE, OP_LOOP, OP_LOOP_WIDE,
+	case OP_RETURN_NONE, OP_JUMP, OP_JUMP_WIDE, OP_LOOP, OP_LOOP_WIDE, OP_UNWIND_JUMP,
 		OP_FOR_RANGE_CHECK, OP_FOR_RANGE_CHECK_WIDE, OP_FOR_LIST_CHECK_WIDE,
 		OP_FOR_RANGE_NEXT, OP_FOR_RANGE_NEXT_WIDE, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
 		OP_FOR_LIST_LOAD_COLUMNS, OP_FOR_LIST_LOAD_VALUE, OP_SCATTER_TAKE,
@@ -472,6 +471,8 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		return target(branchTarget(instruction))
 	case OP_TRY_FINALLY, OP_TRY_FINALLY_WIDE:
 		return handler(branchTarget(instruction))
+	case OP_UNWIND_JUMP:
+		return target(branchTarget(instruction))
 	case OP_FORK, OP_FORK_WIDE, OP_FORK_LOCAL_WIDE:
 		return verifyFork(program, instruction, boundaries)
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
@@ -499,6 +500,9 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 // loop forms) and finally targets are absolute (vm/control.go).
 func branchTarget(instruction decodedInstruction) int {
 	operand := instruction.operands
+	if instruction.op == OP_UNWIND_JUMP {
+		return int(binary.BigEndian.Uint32(operand[:4]))
+	}
 	switch instruction.op {
 	case OP_TRY_FINALLY, OP_END_FINALLY:
 		return int(binary.BigEndian.Uint16(operand))

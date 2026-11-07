@@ -38,6 +38,17 @@ func (s *Runtime) enterInput(player types.ObjID, system bool) (*admission.Scope,
 func (s *Runtime) CloseInputAdmission()            { s.closeInputAdmission() }
 func (s *Runtime) AdmissionStats() admission.Stats { return s.admission.Snapshot() }
 
+// Successful runtime shared acquisitions are visible under their task or hook.
+// An admitted owner excludes the wait from its principal's execution service.
+func sharedCommitWaitObserver(scope *admission.Scope, id metrics.Identity) func(time.Duration) {
+	return func(wait time.Duration) {
+		metrics.ObserveRuntime(metrics.SharedCommitGate, id, wait, 0)
+		if scope != nil {
+			scope.Waited(wait)
+		}
+	}
+}
+
 // WithCheckpointBarrier captures tasks and store state at one cooperative
 // boundary. The callback must not execute MOO hooks. Mutable WAIF graphs require
 // retaining this barrier until serialization has consumed the snapshots.

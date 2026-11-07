@@ -212,12 +212,17 @@ const (
 	OP_SET_PROP_KEYED                                              // writeback of obj.prop[key] = v (OP_PUT_PROP): pop obj, key, value; set obj.prop
 )
 
+// Loop exits carry an absolute target and the number of enclosing handlers
+// retained at that target. Ordinary branches keep their historical meaning.
+const OP_UNWIND_JUMP OpCode = OP_SET_PROP_KEYED + 1
+
 // TicksUnchecked marks an OP_TICKS charge that, like a Toast extended opcode
 // at or above EOP_CATCH, decrements the budget without testing it.
 const TicksUnchecked byte = 0x80
 
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
+	OP_UNWIND_JUMP:           "UNWIND_JUMP",
 	OP_PUSH:                  "PUSH",
 	OP_POP:                   "POP",
 	OP_DUP:                   "DUP",
@@ -358,6 +363,8 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 	case OP_FORK_WIDE, OP_FOR_LIST_LOAD_COLUMNS:
 		return 5
 	case OP_FORK_LOCAL_WIDE:
+		return 6
+	case OP_UNWIND_JUMP:
 		return 6
 	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV,
 		OP_SCATTER_TAKE:

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -29,9 +30,11 @@ func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	}
 }
 
-func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
-	for _, saved := range suspended {
+func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) error {
+	var failures []error
+	for index, saved := range suspended {
 		if saved == nil || saved.Snapshot.ID <= 0 || saved.Snapshot.VM == nil {
+			failures = append(failures, fmt.Errorf("suspended task record %d is incomplete", index))
 			continue
 		}
 		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
@@ -42,8 +45,10 @@ func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
 				slog.Int64("this", int64(saved.Snapshot.This)),
 				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
 				slog.Any("err", err))
+			failures = append(failures, fmt.Errorf("suspended task %d: %w", saved.Snapshot.ID, err))
 		}
 	}
+	return errors.Join(failures...)
 }
 
 func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
@@ -82,6 +87,9 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 		return err
 	}
 	machine.Task = &t.State
+	// Native import can produce a different root program from the raw saved
+	// frame. Keep the task's program consistent with its installed executable VM.
+	t.Program = machine.Frames[0].Program
 	t.SetVM(machine)
 
 	if saved.State == task.TaskQueued {

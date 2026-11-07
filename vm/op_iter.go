@@ -14,29 +14,13 @@ import (
 // persistence use the same mechanisms as other compiler temporaries.
 func (vm *VM) executeIterPrepColumns() error {
 	container := vm.Pop()
-	keys := types.NewInt(0)
-	var values types.Value
-	switch container.Type() {
-	case types.TYPE_LIST:
-		values = container
-	case types.TYPE_MAP:
-		valueColumn, keyColumn := container.MapColumns()
-		values = types.NewList(valueColumn)
-		// Keys remain roots even in a value-only loop, just as they did in
-		// the pair representation. Dropping them could finalize WAIF/anon keys.
-		keys = types.NewList(keyColumn)
-	case types.TYPE_STR:
-		chars := types.SplitChars(container.Str())
-		elements := make([]types.Value, len(chars))
-		for i, c := range chars {
-			elements[i] = types.NewStr(c)
-		}
-		values = types.NewList(elements)
-	default:
+	values, keys, code := container.IterationColumns()
+	if code != types.E_NONE {
 		if frame := vm.CurrentFrame(); frame == nil || frame.VerbDebug {
 			return newMooError(types.E_TYPE, "for loop requires list, map, or string")
 		}
 		values = types.NewList(nil)
+		keys = types.NewInt(0)
 	}
 	vm.Push(values)
 	vm.Push(keys)

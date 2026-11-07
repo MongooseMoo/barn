@@ -42,33 +42,27 @@ func TestMoveLifecycleContinuationSurvivesVMSnapshot(t *testing.T) {
 }
 
 func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
-	store := dbstore.NewStore()
-	session := builtins.NewSession(builtins.NewRegistry(), builtins.NoHost())
-	machine := NewVM(store, session)
-	machine.pushFrame(&StackFrame{
-		Program:          &bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}},
-		PendingReturn:    types.NewInt(73),
-		HasPendingReturn: true,
-		RecycleContinuation: &recycleContinuation{request: builtins.RecycleLifecycleRequest{
-			Object:      types.NewObj(12),
-			OldParents:  []types.ObjID{1, 2},
-			OldChildren: []types.ObjID{3},
-			OldContents: []types.ObjID{4, 5},
-			OldLocation: 6,
-		}},
-	})
+	machine := retryTestVM(t, `try return 73; finally suspend(); endtry`)
+	store, session := machine.Store, machine.Builtins
+	machine.CurrentFrame().RecycleContinuation = &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+		Object:      types.NewObj(12),
+		OldParents:  []types.ObjID{1, 2},
+		OldChildren: []types.ObjID{3},
+		OldContents: []types.ObjID{4, 5},
+		OldLocation: 6,
+	}}
 	machine.yielded = true
 
 	snapshot := machine.PersistenceVMSnapshot()
-	machine.CurrentFrame().PendingReturn = types.NewInt(99)
+	machine.CurrentFrame().PendingReasons[0].Value = types.NewInt(99)
 	machine.CurrentFrame().RecycleContinuation.request.OldParents[0] = 99
 	restored, err := RestoreVMSnapshot(snapshot, store, session, task.NewContext())
 	if err != nil {
 		t.Fatalf("RestoreVMSnapshot: %v", err)
 	}
 	frame := restored.CurrentFrame()
-	if !frame.HasPendingReturn || !frame.PendingReturn.Equal(types.NewInt(73)) {
-		t.Fatalf("restored pending return = (%t, %v), want (true, 73)", frame.HasPendingReturn, frame.PendingReturn)
+	if len(frame.PendingReasons) != 1 || !frame.PendingReasons[0].Value.Equal(types.NewInt(73)) {
+		t.Fatalf("restored pending return = %#v, want 73", frame.PendingReasons)
 	}
 	if frame.RecycleContinuation == nil {
 		t.Fatal("restored recycle continuation is nil")

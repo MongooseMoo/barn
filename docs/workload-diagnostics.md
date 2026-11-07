@@ -25,6 +25,40 @@ Determine the actual hook and effective programmer before changing property or
 builtin checks. Confirm uncertain behavior through managed WSL Toast conformance
 with capability admission; see [mongoose-conformance.md](mongoose-conformance.md).
 
+## TCP player-command harness
+
+Use `scripts/bench_players.py` when measuring decoded input to first socket output.
+It logs in real roster players and runs the native look/say/inventory/who/home
+mix against a disposable world. Supply the real sound catalog; its source and
+copy hashes are saved with the checkpoint hashes in `run.json`.
+
+```powershell
+$env:BARN_RUNTIME_DIAGNOSTICS = '1'
+uv run --project C:\Users\Q\src\lambdamoo-db-py python scripts/bench_players.py --engine barn --players 1,4,16 --db C:\fixtures\mongoose.db --sound C:\fixtures\sound.sqlite --barn-exe C:\build\barn.exe --out C:\new-evidence --keep-db
+```
+
+The diagnostic opt-in also selects debug logging for Barn. Read the command
+records in `logs/` with `barn_logs -runtime -command ID`. The harness's terminal
+latencies include an out-of-band completion probe and its scheduling delay;
+use the command's `first_output` stage for time to first response. Inspect native
+tracebacks and broken connections before accepting any throughput comparison.
+The harness creates private accounts offline using the documented Mongoose
+Toast build; it does not need live player credentials.
+
+That bootstrap loads and saves the whole checkpoint through Toast. It now
+requires current `lambdamoo-db-py` in the Python environment and uses its reader
+to compare saved task identities, deadlines and native VM function IDs before replacing the
+input copy. A mismatch aborts preparation and retains the original copy, rejected
+`.boot` output and `bootstrap-schedule.json`. Supplying an existing login avoids
+this bootstrap. An old installed reader without `read_v17_header` is rejected.
+
+Toast is not schedule preserving for far-future queued tasks: the Mongoose task
+1787475465 changed from Unix seconds 109290153959993 to 416145977. A reduced
+stock-Toast checkpoint/restart probe also ran a future fork immediately. Do not
+use bootstrap-based runs as evidence for the original checkpoint's scheduling
+or as a clean Barn/Toast comparison. Preserve both checkpoint hashes and task
+headers when investigating this discrepancy.
+
 ## In-process command harness
 
 The harness drives normal command dispatch and waits for terminal output
@@ -32,6 +66,19 @@ acknowledgement. Run Go tests from the repository root with `./engine`; a prebui
 test executable must run from `engine/`. Its file sandbox switches to the repository
 root. Use an isolated worktree: setup copies the catalog into `files/sqlite/`.
 No source checkpoint is opened for writing.
+
+The harness restores queued and suspended tasks after preparing its host and
+boot caches, before starting dispatch, using the same runtime loaders as the
+server. It reports restored/input counts. Native restore warnings remain in
+the JSON log. Unsupported or invalid suspended continuations now fail startup
+and the harness before dispatch, rather than accepting a partial world. The old
+loader rejected all 49 suspended/interrupted tasks in the November 5 checkpoint
+with empty bytecode frames. The native importer now translates saved positions,
+locals and control state without replaying source effects; focused verification
+restored all 49 and preserved all 1080 queued deadlines. Native builtin
+continuations, pending native-finally reasons and incompatible byte-string
+iteration remain explicit unsupported errors. Detailed diagnostics go to JSON without
+duplicating every record on stderr, leaving cohort results readable.
 
 For a diagnostic run, set these alongside the ordinary workload knobs:
 
@@ -96,6 +143,31 @@ goroutine stacks before adding instrumentation. CPU profiles omit off-CPU waits.
 MOO wall samples describe active execution intervals, not suspension/admission
 latency or pure CPU time. A leased running timeout needs execution/lock evidence;
 a queued or suspended timeout needs readiness/completion evidence.
+
+`shared_commit_gate` records successful ordinary and task-row-only shared
+acquisitions for runtime tasks and standalone hooks. Records carry the task,
+hook and command identities available at that entry; standalone system hooks
+can have task ID zero and no command ID. `commit_gate` records exclusive
+acquisitions. Admitted work charges both waits to admission gate-wait accounting
+rather than execution service; sweep hooks have no admission scope. Canceled
+acquisitions are not included in these shared records.
+Earlier captures omitted task-row-only shared waits from counters and admission
+accounting; their absence is not proof that a yielded command did not wait.
+For example, a restored Mongoose `say` traversed 174 slices and the Go trace
+attributed about 321ms to task-row commit blocking while the old task records
+showed only 5.5ms of exclusive acquisition. Keep trace-derived blocking separate
+from active VM wall durations and sampled CPU.
+
+On Windows with Go 1.27.1, do not enable mutex profiling for a capture. The Go
+runtime's asynchronous preemption can deadlock during GC while mutex profiling
+is enabled ([upstream issue](https://github.com/golang/go/issues/80982)). Use
+Go 1.27.2 or newer for mutex collection, or execution traces and block profiles
+on this toolchain. The real-world harness rejects enabled mutex profiling on
+Windows Go 1.27.0/1. Preserve stalled captures;
+their missing terminal results are failures, not latency samples. For an external
+Delve attachment, use a persistent interactive terminal or an explicit command
+file that captures stacks and detaches; an attachment with immediate EOF cannot
+establish the requested stacks.
 
 Before proposing a fix, report the exact failure frames and relevant profile
 rows, identify the evidence still missing, and choose a deterministic regression

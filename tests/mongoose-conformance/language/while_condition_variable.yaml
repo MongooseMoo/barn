@@ -1,0 +1,14 @@
+name: while_condition_variable
+description: A named while loop stores every condition result in its variable, including the false exit value.
+tests:
+  - name: named_while_stores_condition_and_exit_value
+    permission: wizard
+    statement: |
+      x = 99;
+      seen = {};
+      while x (length(seen) < 2 ? length(seen) + 1 | 0)
+        seen = {@seen, x};
+      endwhile
+      return {seen, x};
+    expect:
+      value: [[1, 2], 0]

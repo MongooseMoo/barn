@@ -26,15 +26,13 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 		TaskLocal:     anon(202),
 		CallStack:     []types.ActivationFrame{{ThisValue: anon(998)}},
 		VM: &VMSnapshot{Frames: []VMFrameSnapshot{{
-			Program:          bytecode.Program{Constants: []types.Value{anon(203), anon(204)}},
-			Locals:           []types.Value{anon(205)},
-			Stack:            []types.Value{anon(206)},
-			ThisValue:        anon(207),
-			Args:             []types.Value{anon(208)},
-			PendingError:     VMErrorSnapshot{Present: true, Value: anon(209)},
-			PendingReturn:    anon(210),
-			HasPendingReturn: true,
-			SavedThisValue:   anon(211),
+			Program:        bytecode.Program{Constants: []types.Value{anon(203), anon(204)}},
+			Locals:         []types.Value{anon(205)},
+			Stack:          []types.Value{anon(206)},
+			ThisValue:      anon(207),
+			Args:           []types.Value{anon(208)},
+			PendingReasons: []PendingReasonSnapshot{{Kind: PendingError, Error: VMErrorSnapshot{Present: true, Value: anon(209)}}, {Kind: PendingReturn, Value: anon(210)}, {Kind: PendingJump, Stack: []types.Value{anon(216)}}},
+			SavedThisValue: anon(211),
 			MoveContinuation: &MoveContinuationSnapshot{
 				What: anon(212), Where: anon(213), OldLocation: anon(214),
 			},
@@ -62,7 +60,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 	suspended.TransformPersistenceValues(transform)
 	interrupted.TransformPersistenceValues(transform)
 
-	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 301, 302} {
+	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 301, 302} {
 		if got := visited[id]; got != 1 {
 			t.Errorf("serialized value #%d visited %d times, want once", id, got)
 		}
@@ -78,7 +76,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 	if got, want := suspended.VM.Frames[0].SavedThisValue.ID(), types.ObjID(1211); got != want {
 		t.Errorf("rewritten saved-this id = %d, want %d", got, want)
 	}
-	if got, want := suspended.VM.Frames[0].PendingReturn.ID(), types.ObjID(1210); got != want {
+	if got, want := suspended.VM.Frames[0].PendingReasons[1].Value.ID(), types.ObjID(1210); got != want {
 		t.Errorf("rewritten pending-return id = %d, want %d", got, want)
 	}
 	if got, want := suspended.VM.Frames[0].RecycleContinuation.Object.ID(), types.ObjID(1215); got != want {

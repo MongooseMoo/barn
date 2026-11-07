@@ -287,6 +287,10 @@ func (s *Runtime) acquireTaskExecution(t *Task) bool {
 }
 
 func (s *Runtime) releaseTaskExecution(taskID int64) {
+	// Readiness scans can be long. Wait for them before taking the runtime
+	// mutex, so this handoff cannot stall unrelated VM starts and GC roots.
+	s.scheduler.mu.Lock()
+	defer s.scheduler.mu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if count := s.lifecycle.ExecutingTasks[taskID]; count > 1 {
@@ -294,7 +298,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 	} else {
 		delete(s.lifecycle.ExecutingTasks, taskID)
 		if t := s.leasedTasks[taskID]; t != nil {
-			s.scheduler.ReleaseExecution(t)
+			t.SetExecutionActive(false)
 		}
 		delete(s.leasedTasks, taskID)
 		s.taskManager.NotifyScheduleChange()

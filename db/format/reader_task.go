@@ -236,43 +236,41 @@ func (database *Database) readSuspendedTasks(r *bufio.Reader) error {
 	return nil
 }
 
-// skipSuspendedTask skips over a complete suspended task in the database file.
-// A suspended task contains a VM with multiple activations (stack frames),
-// each terminated by a period. We must parse the VM header to know how many
-// activations to skip.
-// skipActivation skips over a single activation (stack frame) in a suspended task.
-// skipBiFuncData skips the built-in-function name and, if applicable, the
-// saved state written for it by Toast's write_bi_func_data.
-func (database *Database) skipBiFuncData(r *bufio.Reader) error {
+// readNativeBuiltin retains the builtin name and the state which Toast's
+// write_bi_func_data serialized. Conversion validates each builtin's state.
+func (database *Database) readNativeBuiltin(r *bufio.Reader) (*task.NativeBuiltinSnapshot, error) {
 	name, err := readLine(r)
 	if err != nil {
-		return fmt.Errorf("read bi_func name: %w", err)
+		return nil, fmt.Errorf("read bi_func name: %w", err)
 	}
-	return database.skipBiFuncDataFor(r, strings.TrimSpace(name))
+	return database.readNativeBuiltinFor(r, strings.TrimSpace(name))
 }
 
-// skipBiFuncDataFor skips the saved state written by write_bi_func_data for
-// the named built-in function. Only create, recreate, recycle, move, and
-// call_function register read/write handlers (see functions.cc); every
-// other built-in writes nothing extra. call_function nests recursively
-// since it can itself be suspended while calling another built-in.
-func (database *Database) skipBiFuncDataFor(r *bufio.Reader, name string) error {
+func (database *Database) readNativeBuiltinFor(r *bufio.Reader, name string) (*task.NativeBuiltinSnapshot, error) {
+	saved := &task.NativeBuiltinSnapshot{Name: name}
 	switch name {
 	case "create", "recreate", "recycle", "move":
-		if _, err := r.ReadString('\n'); err != nil {
-			return fmt.Errorf("read %s bi_func data: %w", name, err)
-		}
-	case "call_function":
-		line, err := r.ReadString('\n')
+		line, err := readLine(r)
 		if err != nil {
-			return fmt.Errorf("read call_function bi_func data: %w", err)
+			return nil, fmt.Errorf("read %s bi_func data: %w", name, err)
+		}
+		saved.State = line
+	case "call_function":
+		line, err := readLine(r)
+		if err != nil {
+			return nil, fmt.Errorf("read call_function bi_func data: %w", err)
 		}
 		const prefix = "bf_call_function data: fname = "
-		inner := strings.TrimSpace(line)
-		inner = strings.TrimPrefix(inner, prefix)
-		return database.skipBiFuncDataFor(r, inner)
+		if !strings.HasPrefix(line, prefix) {
+			return nil, fmt.Errorf("malformed call_function bi_func data")
+		}
+		saved.State = line
+		saved.Inner, err = database.readNativeBuiltinFor(r, strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+		if err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	return saved, nil
 }
 
 // readInterruptedTasks reads interrupted tasks
@@ -332,15 +330,15 @@ func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, 
 	if n, scanErr := fmt.Sscanf(vmHeader, "%d %d %d %d", &top, &rootVector, &functionID, &maxStack); scanErr != nil || n != 4 {
 		return nil, fmt.Errorf("parse interrupted VM header %q", vmHeader)
 	}
-	_ = rootVector
-	_ = functionID
 	if top < 0 || top == math.MaxInt {
 		return nil, fmt.Errorf("invalid interrupted top activation %d", top)
 	}
 
 	vmSnapshot := &task.VMSnapshot{
-		MaxStackDepth: maxStack,
-		Frames:        make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
+		MaxStackDepth:    maxStack,
+		Frames:           make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
+		NativeRootVector: rootVector,
+		NativeFunctionID: functionID,
 	}
 	callStack := make([]types.ActivationFrame, 0, min(top+1, maxTrustedCount))
 	for i := 0; i <= top; i++ {

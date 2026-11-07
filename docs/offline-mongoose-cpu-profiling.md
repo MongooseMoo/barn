@@ -10,11 +10,24 @@ network namespace with loopback only. It verifies that namespace, database hash,
 executable hash and `$prod()==0` before starting a diagnostic window. The source
 checkpoint is copied and hash checked; it is never opened by a server for writing.
 
+The shared account bootstrap checks task schedules using current
+`lambdamoo-db-py`. Prepare its Linux environment before entering the network
+namespace (adjust the reader checkout path for another workspace):
+
+```powershell
+wsl --list --quiet
+wsl -d Debian --exec bash -lc 'set -euo pipefail; UV_PROJECT_ENVIRONMENT=/root/.cache/mongoose-workload-reader-linux uv sync --project /mnt/c/Users/Q/src/lambdamoo-db-py'
+```
+
+The capture command uses that environment with `--no-sync`, so dependency setup
+does not need network access inside the namespace. Changed scheduling aborts
+bootstrap and retains the input, rejected output and task census.
+
 From PowerShell, verify the installed WSL distribution first. For Debian:
 
 ```powershell
 wsl --list --quiet
-wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; python3 /mnt/c/Users/Q/code/barn-gameplay-workloads/scripts/profile_offline_mongoose.py --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --source-parent d80a17ca1d51f91a1938a9e4c1e88d52457deac7 --source-commit 45f4f613c3ab64378f292ef835e1c21c5cfb67ac --out /mnt/c/Users/Q/code/barn-gameplay-workloads/.tmp/offline-mongoose-cpu-next --seconds 10 --hz 100 --metadata-mode definitions --warmup-seconds 30 --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4'
+wsl -d Debian --exec unshare --net -- bash -lc 'set -euo pipefail; ip link set lo up; UV_PROJECT_ENVIRONMENT=/root/.cache/mongoose-workload-reader-linux uv run --project /mnt/c/Users/Q/src/lambdamoo-db-py --no-sync python /mnt/c/Users/Q/code/barn-gameplay-workloads/scripts/profile_offline_mongoose.py --db /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-12T2349 --db-sha256 FAB6957ACFFA1DB8BC1C4B911FB53A8E8D6E605F4DE2A31B9F8E4FA874C3200D --moo /root/build/toaststunt-profiler-retention-refresh-order-20261013/moo --moo-sha256 f96c79de3ac701557c7fe71e2a9be42816c188d6d085afba1a7b4b3c4e7c7a01 --source-parent d80a17ca1d51f91a1938a9e4c1e88d52457deac7 --source-commit 45f4f613c3ab64378f292ef835e1c21c5cfb67ac --out /mnt/c/Users/Q/code/barn-gameplay-workloads/.tmp/offline-mongoose-cpu-next --seconds 10 --hz 100 --metadata-mode definitions --warmup-seconds 30 --sound-db /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.barn395396-20261011T0348 --sound-db-sha256 BA15182E25C60E9795C10F8F9479095FF4D22EA9BF2A03D7D061446CFCA241E4'
 ```
 
 Use a fresh `--out` directory for every cohort. Supply the actual candidate hash;

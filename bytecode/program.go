@@ -207,6 +207,63 @@ type Handler struct {
 	Codes      []types.ErrorCode // Errors to catch (except); empty is ANY; see CodesLocal
 	VarIndex   int               // Variable for error (except, -1 if none)
 	StackDepth int               // Operand stack depth to restore on unwind
+	ExceptBase int               // One-based first sibling handler; zero for older snapshots
+}
+
+// FinallyContains reports whether target is inside a particular cleanup body.
+// Its matching END_FINALLY carries the same absolute handler identity.
+func (program *Program) FinallyContains(finallyIP, target int) bool {
+	if finallyIP <= 0 || target < finallyIP || target >= len(program.Code) {
+		return false
+	}
+	for ip := finallyIP; ip < len(program.Code); {
+		op := OpCode(program.Code[ip])
+		start := ip
+		ip++
+		count := instructionOperandCount(op, program.Code[ip:])
+		if count > len(program.Code)-ip {
+			return false
+		}
+		if (op == OP_END_FINALLY_WIDE && count == 4 && int(decodeAbsoluteWide(program.Code[ip:ip+4])) == finallyIP) ||
+			(op == OP_END_FINALLY && count == 2 && decodeAbsoluteShort(program.Code[ip], program.Code[ip+1]) == finallyIP) {
+			return target <= start
+		}
+		ip += count
+	}
+	return false
+}
+
+// FinallyOwnersAt returns cleanup identities whose bodies contain target.
+func (program *Program) FinallyOwnersAt(target int) []int {
+	var owners []int
+	for ip := 0; ip < len(program.Code); {
+		op := OpCode(program.Code[ip])
+		ip++
+		count := instructionOperandCount(op, program.Code[ip:])
+		if count > len(program.Code)-ip {
+			return nil
+		}
+		owner := 0
+		if op == OP_END_FINALLY_WIDE && count == 4 {
+			owner = int(decodeAbsoluteWide(program.Code[ip : ip+4]))
+		}
+		if op == OP_END_FINALLY && count == 2 {
+			owner = decodeAbsoluteShort(program.Code[ip], program.Code[ip+1])
+		}
+		if program.FinallyContains(owner, target) {
+			found := false
+			for _, existing := range owners {
+				if existing == owner {
+					found = true
+				}
+			}
+			if !found {
+				owners = append(owners, owner)
+			}
+		}
+		ip += count
+	}
+	return owners
 }
 
 // ExceptCodesInLocal marks an except clause whose codes are not all error
@@ -250,7 +307,7 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	// at 0, so they must be rebased or identify the wrong handler in the
 	// sub-program.
 	// Relative operands (OP_JUMP family) need no adjustment.
-	if !rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP) {
+	if !rebaseAbsoluteIPs(code[:bodyLen], bodyIP) {
 		return nil
 	}
 
@@ -322,13 +379,12 @@ func instructionRangeHasBoundaries(code []byte, start, end int) bool {
 	return foundStart && foundEnd
 }
 
-// rebaseAbsoluteHandlerIPs walks the instruction stream and subtracts bodyIP
-// from every absolute handler target: the per-clause handler IP of
-// OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY / OP_END_FINALLY. Nested
+// rebaseAbsoluteIPs walks the instruction stream and subtracts bodyIP from
+// absolute handler targets and unwind-jump destinations. Nested
 // fork bodies in the range are rebased into this program's coordinates too; a
 // later extraction of the nested body subtracts its own bodyIP, which composes
 // to the correct final coordinates.
-func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
+func rebaseAbsoluteIPs(code []byte, bodyIP int) bool {
 	for ip := 0; ip < len(code); {
 		op := OpCode(code[ip])
 		ip++
@@ -337,6 +393,10 @@ func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
 			operandCount = len(code) - ip
 		}
 		switch op {
+		case OP_UNWIND_JUMP:
+			if !rebaseWide(code, ip, bodyIP) {
+				return false
+			}
 		case OP_TRY_FINALLY, OP_END_FINALLY:
 			if operandCount == 2 {
 				if !rebaseShort(code, ip, bodyIP) {

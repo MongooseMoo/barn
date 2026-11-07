@@ -59,8 +59,10 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 }
 
 func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
-	if !frame.PendingError.ValidExceptionReason() {
-		return fmt.Errorf("invalid pending error reason")
+	for _, reason := range frame.PendingReasons {
+		if !reason.Error.ValidExceptionReason() {
+			return fmt.Errorf("invalid pending error reason")
+		}
 	}
 	if len(frame.Program.Source) == 0 {
 		return fmt.Errorf("activation has no source program")
@@ -249,7 +251,7 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		lineInfoValue(frame.Program.LineInfo),
 		types.NewInt(int64(frame.Program.NumLocals)),
 		handlersValue(frame.ExceptStack),
-		pendingErrorValue(frame.PendingError),
+		pendingErrorValue(task.VMErrorSnapshot{}), // fixed legacy slot, no duplicate reason state
 		types.NewList([]types.Value{
 			types.NewBool(frame.VerbDebug),
 			types.NewBool(frame.DiscardReturn),
@@ -265,13 +267,27 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		types.NewStr(frame.SavedVerb),
 		types.NewObj(frame.SavedProgrammer),
 		moveContinuationValue(frame.MoveContinuation),
-		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
+		pendingReturnValue(types.None, false), // fixed legacy slot
 		recycleContinuationValue(frame.RecycleContinuation),
 		internalLocalsValue(frame),
 		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
 		types.NewList(frame.CommandEnvironment[:]),
 		types.NewInt(int64(frame.ReturnLocal)),
 		types.NewList([]types.Value{types.NewStr(frame.BuiltinCaller), types.NewInt(int64(frame.BuiltinPC))}),
+		pendingControlValue(frame),
+	})
+}
+
+func pendingControlValue(frame task.VMFrameSnapshot) types.Value {
+	reasons := make([]types.Value, len(frame.PendingReasons))
+	for index, pending := range frame.PendingReasons {
+		reasons[index] = types.NewList([]types.Value{
+			types.NewInt(int64(pending.Kind)), types.NewInt(int64(pending.FinallyIP)), pending.Value,
+			pendingErrorValue(pending.Error), types.NewInt(int64(pending.TargetIP)), types.NewInt(int64(pending.HandlerDepth)), types.NewList(pending.Stack),
+		})
+	}
+	return types.NewList([]types.Value{
+		types.NewStr("pending-reasons-v1"), types.NewList(reasons),
 	})
 }
 
@@ -375,6 +391,7 @@ func handlersValue(handlers []bytecode.Handler) types.Value {
 			types.NewList(codes),
 			types.NewInt(int64(handler.VarIndex)),
 			types.NewInt(int64(handler.StackDepth)),
+			types.NewInt(int64(handler.ExceptBase)),
 		})
 	}
 	return types.NewList(result)

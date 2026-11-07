@@ -233,9 +233,7 @@ type StackFrame struct {
 	Args               []types.Value        // Original args passed to this verb (for pass() inheritance)
 	LoopStack          []bytecode.LoopState // Nested loop state
 	ExceptStack        []bytecode.Handler   // Exception handlers
-	PendingError       error                // Error saved during finally execution
-	PendingReturn      types.Value          // Return value saved during finally execution
-	HasPendingReturn   bool                 // Distinguishes pending integer zero from no return
+	PendingReasons     []pendingReason      // Owner-scoped unwind reasons, outermost first
 	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
 	DiscardReturn      bool                 // Caller consumes this verb only for side effects
 	ReturnLocal        int                  // One-based caller local receiving a WAIF setter result
@@ -1300,6 +1298,11 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_LOOP, bytecode.OP_LOOP_WIDE:
 		offset := vm.readControlFlowOperand(op == bytecode.OP_LOOP_WIDE)
 		vm.CurrentFrame().IP -= offset
+	case bytecode.OP_UNWIND_JUMP:
+		target, depth := int(vm.ReadWide()), int(vm.ReadShort())
+		frame := vm.CurrentFrame()
+		stack := append([]types.Value(nil), vm.Stack[frame.BasePointer:vm.SP]...)
+		return vm.unwindJump(target, depth, stack)
 
 	case bytecode.OP_FOR_RANGE_CHECK, bytecode.OP_FOR_RANGE_CHECK_WIDE, bytecode.OP_FOR_LIST_CHECK_WIDE:
 		// Range-for condition, fused: if Locals[valueVar] > Locals[endVar], jump to exit.
@@ -1308,6 +1311,12 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		endIdx := vm.FetchByte()
 		offset := vm.readControlFlowOperand(op != bytecode.OP_FOR_RANGE_CHECK)
 		frame := vm.CurrentFrame()
+		if op != bytecode.OP_FOR_LIST_CHECK_WIDE {
+			from, to := frame.Locals[valueIdx], frame.Locals[endIdx]
+			if (to.Type() != types.TYPE_INT && to.Type() != types.TYPE_OBJ) || from.Type() != to.Type() {
+				return newMooError(types.E_TYPE, "range bounds must both be integers or both objects")
+			}
+		}
 		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx], vm.promoting())
 		if err != nil {
 			return err
@@ -1566,14 +1575,17 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 			handler := frame.ExceptStack[i]
 
 			if handler.Type == bytecode.HandlerFinally {
+				vm.abandonPendingTo(handler.HandlerIP)
 				// Finally handler: run the finally block, then re-raise the error.
 				// Pop this handler and everything above it.
 				frame.ExceptStack = frame.ExceptStack[:i]
-				// Save the pending error so after finally runs, we re-raise it
-				frame.PendingError = err
+				// This cleanup owns the new error; an enclosing cleanup's reason
+				// remains below it until control actually leaves that cleanup.
+				pendingError := err
 				if exceptionValue.Type() == types.TYPE_LIST && exceptionValue.Len() == 4 {
-					frame.PendingError = VMException{Code: errCode, Value: exceptionValue, Reason: reason}
+					pendingError = VMException{Code: errCode, Value: exceptionValue, Reason: reason}
 				}
+				frame.PendingReasons = append(frame.PendingReasons, pendingReason{Kind: task.PendingError, FinallyIP: handler.HandlerIP, Error: pendingError})
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 				return true, exceptionValue, reason
@@ -1581,7 +1593,12 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 
 			if vm.handlerMatches(frame, &handler, code) {
 				// Found matching except handler - jump to it
-				frame.ExceptStack = frame.ExceptStack[:i]
+				vm.abandonPendingTo(handler.HandlerIP)
+				base := i
+				if handler.ExceptBase != 0 {
+					base = handler.ExceptBase - 1
+				}
+				frame.ExceptStack = frame.ExceptStack[:base]
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 
