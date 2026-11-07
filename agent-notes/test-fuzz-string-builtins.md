@@ -36,4 +36,4 @@ json.cc:457-458 (int), 490-504 (list, bool), 203-229 (bool and integer parse), 3
 Toast bounds pcre_match with PCRE2 match/depth counters plus JIT (10,000,000 match steps and depth 10,000, `/root/src/toaststunt/src/pcre_moo.cc:51,53`; `pcre2_jit_compile` at :113), while Barn uses a two-second regexp2 timeout, so results can differ near the limit. Engine parity is separate work.
 
 ## Next step
-Commit named paths, push, open the PR against master, watch CI, fix red, leave unmerged.
+PR #615 is open against master. Every CI check passed on the first push: Build & unit tests, MOO conformance suite, and Serializable histories and negative control. Left unmerged for the coordinator.
