@@ -31,8 +31,10 @@ removed the repeatable two-parent slowdown. Short empty-store timing changes
 vary in sign across campaigns; retain them but make no small-case speed claim.
 Final CPU/allocation/in-use profiles and all raw samples are preserved under
 `experiments/object-lifecycle/`, with methods, rejected samples and limitations
-in its README. Source and performance work is complete. Full CI, PR publication
-and normal merge are the remaining delivery steps. Branch:
+in its README. Source and performance work is complete. PR #651 is open. Its
+first build job reported QF1003 on the benchmark's untimed operation-selection
+conditional. Replaced it with a tagged switch; the generated MOO workloads and
+production code are unchanged. Current-head CI and normal merge remain. Branch:
 `perf/object-lifecycle`.
 
 Read `AGENTS.md`, `docs/workload-diagnostics.md`, `docs/elle-isolation.md`,

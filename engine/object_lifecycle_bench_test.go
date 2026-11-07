@@ -38,11 +38,12 @@ func BenchmarkObjectLifecycleVM(b *testing.B) {
 							}
 							create := fmt.Sprintf("v = {}; for i in [1..%d] v = {@v, create(#1, %d)}; endfor #0.held = v; return length(v);", batch, anonymous)
 							code := create
-							if operation == "Recycle" {
+							switch operation {
+							case "Recycle":
 								code = "n = 0; for o in (#0.held) recycle(o); n = n + !valid(o); endfor #0.held = 0; return n;"
-							} else if operation == "Pair" {
+							case "Pair":
 								code = fmt.Sprintf("n = 0; for i in [1..%d] o = create(#1, %d); recycle(o); n = n + !valid(o); endfor return n;", batch, anonymous)
-							} else if operation == "Collect" {
+							case "Collect":
 								code = "#0.held = 0; run_gc(); return #0.recycled;"
 							}
 							for name, body := range map[string]string{"setup": create, "measure": code} {
