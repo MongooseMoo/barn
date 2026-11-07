@@ -116,6 +116,20 @@ rounds each, plus one run of the first seed under each deliberate fault.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.
+The existing `Elle isolation` workflow also accepts `seeds` and `rounds` on a
+manual dispatch. For example, run a bounded larger campaign with:
+
+```sh
+gh workflow run elle.yml --ref master \
+  -f 'seeds=412 395 396 397 398 399 400 401' -f rounds=200
+```
+
+PR and merge-queue runs retain the three-seed, 40-round defaults. Manual runs
+use the same pinned checker, negative controls and evidence archive; no recurring
+campaign is scheduled. Choose a bounded campaign size within the workflow's
+25-minute limit and preserve a failed run's evidence before changing that size.
+Manual runs do not record a tested-tree pass for the standard PR configuration.
+
 Direct generation needs `BARN_ELLE_OUTPUT`, `GOMAXPROCS=4` and `-tags elle`:
 
 ```sh
