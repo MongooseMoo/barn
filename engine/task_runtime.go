@@ -577,6 +577,9 @@ retryAttempt:
 	}
 	s.store.NoteSliceAttempts(attempt+1, executedTicks, rerunTicks) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
+	// Replay uses captured effect inputs, not this attempt's read cache. Release
+	// its timestamp before blocked output can hold back the history floor.
+	ctx.StoreTxn.Release()
 	if committed {
 		t.CreatedForks = nil
 		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
@@ -584,11 +587,8 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 	}
-	// This slice no longer needs its read cache, including private WAIF roots.
-	// Retaining a read-only cache here would keep dropped locals alive during
-	// finalization. Cleanup hooks get a fresh usable transaction; suspended tasks
+	// Cleanup hooks get a fresh usable transaction after replay; suspended tasks
 	// take their next execution snapshot when the scheduler resumes them.
-	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
