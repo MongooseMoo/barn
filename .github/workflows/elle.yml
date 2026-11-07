@@ -47,6 +47,9 @@ jobs:
   record:
     name: Record pass
     needs: isolation
+    # Manual campaigns may select less work than the required PR configuration.
+    # They must not populate its tested-tree pass record.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

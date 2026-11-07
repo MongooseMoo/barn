@@ -19,6 +19,9 @@ The primary checkout's unrelated work remains outside this campaign.
 - Add manual seed/round inputs to the existing workflow so larger campaigns use
   the same pinned checker and retained-artifact path as PR checks.
 - Keep ordinary PR defaults unchanged. Do not add recurring schedules.
+- Private review found that custom manual inputs could record a standard
+  tested-tree pass. The existing record job now excludes workflow_dispatch,
+  mechanically preventing a smaller manual run from skipping required PR work.
 - Workflow actionlint completed; offline zizmor's high/medium findings were
   repaired by pinning existing action major versions and disabling checkout
   credential persistence. Two low advisory findings remain for the existing

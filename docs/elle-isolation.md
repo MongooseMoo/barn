@@ -128,6 +128,7 @@ PR and merge-queue runs retain the three-seed, 40-round defaults. Manual runs
 use the same pinned checker, negative controls and evidence archive; no recurring
 campaign is scheduled. Choose a bounded campaign size within the workflow's
 25-minute limit and preserve a failed run's evidence before changing that size.
+Manual runs do not record a tested-tree pass for the standard PR configuration.
 
 Direct generation needs `BARN_ELLE_OUTPUT`, `GOMAXPROCS=4` and `-tags elle`:
 
