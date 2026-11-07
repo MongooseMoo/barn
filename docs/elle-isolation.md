@@ -190,6 +190,14 @@ then read the anomaly's transaction edges in the `.txt` witness and inspect
 its SVG. Preserve native errors; do not catch them or weaken the model to
 obtain a green result.
 
+Map byte quotas are a separate semantic invariant: a serializable merge of
+disjoint keys can still exceed the task's value limit. The
+`TestKeyedMapRebaseRespectsTaskValueQuota` regression in `vm/map_key_test.go`
+stages real VM property assignments from the same snapshot. It checks preservation
+of both updates below the limit, validation loss without publication at or above
+the limit, and E_QUOTA when the rejected assignment is rerun against the committed
+map. These outcomes are not Elle dependency-graph witnesses.
+
 This is a bounded isolation corpus. It provides no performance or liveness
 claim and does not close the Mongoose home-command timeout investigation.
 
