@@ -856,10 +856,6 @@ func listenerDescriptorEqual(left, right listener.Descriptor) bool {
 
 // notify(player, message [, no_flush [, no_newline]]) -> int
 func builtinNotify(ctx *Execution, args []types.Value) types.Result {
-	if hostOf(ctx).ConnManager == nil {
-		return types.Err(types.E_INVARG)
-	}
-
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -869,6 +865,9 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	message := args[1].Str()
+	if !ctx.IsWizard && player != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
 
 	noFlush := false
 	if len(args) >= 3 {
@@ -898,14 +897,14 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 			Kind:         taskpkg.PendingEffectNotification,
 			Notification: note,
 		})
-		return types.Ok(types.NewInt(0))
+		return types.Ok(types.NewInt(1))
 	}
 
 	trace.Notify(player)
 	if err := conn.SendNotification(note); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewInt(1))
 }
 
 // listeners([find]) -> list of listener maps.
