@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_differ import REPO, TOAST, build_barn_linux, moo_str, run_lanes  # noqa: E402
+from bench_differ import REPO, TOAST, build_barn_linux, moo_str, run_lanes, run_wsl  # noqa: E402
 
 FG_TICKS = 30000
 FG_SECONDS = 2
@@ -188,6 +188,14 @@ def main() -> int:
 
     keyed = [("F%05d" % i, source, origin) for i, (source, origin) in enumerate(programs.items(), 1)]
     inputs = [(line, ";;" + line) for line in [PREAMBLE] + [probe(k, s) for k, s, _ in keyed]]
+    # The nightly job builds its own Toast from the pinned ref, so the report
+    # names the exact binary: sha256 and its -v version line. Toast's -v
+    # prints to stderr and exits 1 (server.cc main, case 'v').
+    ident = run_wsl(f"set -euo pipefail; sha256sum {args.toast} | cut -d' ' -f1; {args.toast} -v 2>&1 || true", 60)
+    toast_sha, toast_version = (ident.stdout.splitlines() + ["", ""])[:2]
+    if ident.returncode != 0 or not toast_version.startswith("ToastStunt version "):
+        print(f"cannot identify toast binary: {ident.stdout.strip()} {ident.stderr.strip()}", file=sys.stderr)
+        return 2
     lanes = run_lanes(args.db, barn_bin, args.toast, inputs, args.out, args.timeout)
     records = {lane: results(stdout) for lane, (stdout, _) in lanes.items()}
     for lane, got in records.items():
@@ -220,7 +228,8 @@ def main() -> int:
         "# Barn vs Toast fuzz differential", "",
         f"- programs compared: {len(rows)}; results: {json.dumps(counts, sort_keys=True)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
-        f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; db `{args.db}`; toast `{args.toast}`", "",
+        f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; db `{args.db}`",
+        f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`", "",
     ]
     for kind in ("divergence", "aborted on barn", "aborted on toast"):
         listed = [r for r in rows if r["kind"] == kind]

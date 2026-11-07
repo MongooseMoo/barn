@@ -70,7 +70,10 @@ class FuzzReportTests(unittest.TestCase):
         result = report(log, "./scripts", "ToastDifferential", "commit")
         self.assertEqual(result["kind"], "divergence")
         self.assertEqual(result["first_error"],
-                         "## divergence (16)\n- toast: `compile 0`\n- barn: `raised E_TYPE`")
+                         "## divergence (16)\n- toast: `compile 0`\n- barn: `raised E_TYPE`\n"
+                         "- toast binary: `/root/src/toaststunt/build-release/moo` sha256 "
+                         "`72fb1cf96cb303647a8ee72808e7c1ff62a491ecf44f547e6757e71ba2402bde` "
+                         "version `ToastStunt version 2.7.3_5`")
         self.assertEqual(result["input_path"], "0ede3170ad3ee915")
         self.assertEqual(result["input_text"], "{\"\"/@`A!ANY=>{}'};")
         self.assertIsNone(result["repro"])

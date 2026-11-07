@@ -1,14 +1,15 @@
 go version go1.27.1 linux/amd64
 corpus directory missing: vm/testdata/fuzz/FuzzSourceExecution
 ==> running toast lane (803 inputs)
-    toast: exit 0 in 0.2s
+    toast: exit 0 in 0.1s
 ==> running barn lane (803 inputs)
     barn: exit 0 in 0.5s
 # Barn vs Toast fuzz differential
 
 - programs compared: 802; results: {"divergence": 16, "match": 786}
 - excluded: {"fork": 8, "longer than one emergency-mode line": 7, "non-ASCII or control character": 256, "seconds_left(): tick budget": 6, "ticks_left(): tick budget": 10}
-- bounds: fg_ticks 30000, fg_seconds 2; db `/mnt/c/Users/Q/code/barn-fuzz-differential/Test_conf.db`; toast `/root/src/toaststunt/build-release/moo`
+- bounds: fg_ticks 30000, fg_seconds 2; db `/mnt/c/Users/Q/code/barn-fuzz-differential/Test_conf.db`
+- toast binary: `/root/src/toaststunt/build-release/moo` sha256 `72fb1cf96cb303647a8ee72808e7c1ff62a491ecf44f547e6757e71ba2402bde` version `ToastStunt version 2.7.3_5`
 
 ## divergence (16)
 
