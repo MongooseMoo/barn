@@ -34,6 +34,18 @@ cmd/barn binary at .tmp/player-lag-barn-fixed.exe for the next actual-player run
 No new flag/queue/lock. This fixes the capture/login defect introduced by
 read-ahead; the original reported lag still needs player-cohort evidence.
 
+The second run .tmp/player-lag-reader-fixed logged in successfully, then failed
+Control's bracketed look. The log classifies all three bracket/look inputs as
+login at 20:37:36.424 before the switch to player #2 in that same millisecond.
+Actual $account:login_as_player prints Welcome before end_login_music (which can
+suspend), record_connection and switch_player. The harness wrongly treats that
+early text as player readiness. Reuse its existing prefix/suffix/look exchange
+as bounded synchronization: retry it within the existing 30s deadline until an
+actual prefix followed by suffix arrives. Do not add a login protocol or alter
+MOO login behavior. Added a regression with one dropped exchange, failing on the
+old arm_bracket. HTTP captures attempted after this failed run ended were refused;
+no valid Go/MOO profiles have been collected yet.
+
 ## Decisions and why
 
 Use scripts/bench_players.py: it already connects real players over TCP, selects
@@ -73,5 +85,5 @@ GOMAXPROCS=32, default 60s settle, 2s warmup and 30s measurement per level.
 
 ## Next step
 
-Resolve the queue conformance failure, finish the merge, verify two parents and
-fast-forward this branch; then capture the real player workload.
+Finish the existing bracket synchronization repair, then capture the real player
+cohorts with the fixed reader. Preserve both failed captures and their manifests.

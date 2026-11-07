@@ -462,8 +462,16 @@ def mongoose_login(
 
 
 def arm_bracket(conn: LineConn) -> None:
-    conn.send_line(f"OUTPUTPREFIX {PREFIX_TAG}")
-    conn.send_line(f"OUTPUTSUFFIX {SUFFIX_TAG}")
+    # Welcome precedes switch_player in Mongoose and can precede a suspension.
+    # Inputs sent in that gap are still login input. Synchronize with the native
+    # brackets rather than assuming the early welcome text means readiness.
+    deadline = time.monotonic() + 30.0
+    while (remaining := deadline - time.monotonic()) > 0:
+        conn.send_line(f"OUTPUTPREFIX {PREFIX_TAG}")
+        conn.send_line(f"OUTPUTSUFFIX {SUFFIX_TAG}")
+        if bracketed(conn, "look", min(1.0, remaining)) is not None:
+            return
+    raise TimeoutError("connection did not establish output brackets after login")
 
 
 def bracketed(conn: LineConn, line: str, timeout: float) -> list[str] | None:
@@ -481,7 +489,7 @@ def bracketed(conn: LineConn, line: str, timeout: float) -> list[str] | None:
             inside = True
             body = []
             continue
-        if got == SUFFIX_TAG:
+        if got == SUFFIX_TAG and inside:
             return body
         if inside:
             body.append(got)
@@ -529,9 +537,6 @@ class Control:
         self.conn = conn
         self._seq = 0
         arm_bracket(conn)
-        # Sync: the first bracketed command flushes any pre-bracket output.
-        if bracketed(conn, "look", 30.0) is None:
-            raise TimeoutError("control connection did not bracket `look`")
 
     def eval(self, code: str, timeout: float = 60.0, allow_no_result: bool = False):
         """Evaluate MOO statements whose LAST statement is `return EXPR;`.

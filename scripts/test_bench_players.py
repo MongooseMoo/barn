@@ -166,6 +166,16 @@ class ControlResultTests(unittest.TestCase):
         self.assertEqual(native, output)
 
 
+class LoginBracketTests(unittest.TestCase):
+    def test_welcome_before_switch_retries_dropped_bracket_commands(self):
+        conn = ScriptedConnection([None, bench.SUFFIX_TAG, bench.PREFIX_TAG, bench.SUFFIX_TAG])
+        bench.arm_bracket(conn)
+        self.assertEqual(conn.sent, [
+            f"OUTPUTPREFIX {bench.PREFIX_TAG}", f"OUTPUTSUFFIX {bench.SUFFIX_TAG}", "look",
+            f"OUTPUTPREFIX {bench.PREFIX_TAG}", f"OUTPUTSUFFIX {bench.SUFFIX_TAG}", "look",
+        ])
+
+
 class CommandCompletionTests(unittest.TestCase):
     # run_window fixes its deadline before the worker thread starts. The first
     # unacknowledged command stops the worker, so a long window costs nothing,
