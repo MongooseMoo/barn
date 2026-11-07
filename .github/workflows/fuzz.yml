@@ -353,6 +353,8 @@ jobs:
             go version
             python3 scripts/fuzz_differential.py --toast "$TOAST_BIN" --barn-linux bin/barn --out fuzz-differential \
               .fuzz/retained/vm/FuzzSourceExecution/inputs .fuzz/retained/compiler/FuzzCompileVerifiable/inputs \
+              .fuzz/retained/vm/FuzzStructuredSourceExecution/inputs .fuzz/retained/compiler/FuzzStructuredCompileVerifiable/inputs \
+              .fuzz/retained/parser/FuzzStructuredParseFormatRoundTrip/inputs \
               vm/testdata/fuzz/FuzzSourceExecution compiler/testdata/fuzz/FuzzCompileVerifiable
           } 2>&1 | tee "$logs/run-001.log"
 

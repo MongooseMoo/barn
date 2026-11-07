@@ -17,3 +17,10 @@ failed-check case, so that path uses an explicit synthetic test.
 
 The reporter reads existing committed corpus inputs where available; it does not
 copy them here. Missing input files remain explicit in its JSON.
+
+`FuzzStructuredSourceExecution/e58adbf989baa13f` and
+`FuzzStructuredCompileVerifiable/0c4d4bbfffc14e70` are byte-for-byte copies of
+records Go's fuzz cache held for those targets (written by Go's
+`internal/fuzz/encoding.go` `marshalCorpusFile` as `[]byte(%q)`).
+`test_fuzz_differential.py` decodes and renders them through
+`cmd/moo-fuzz-source -corpus`.
