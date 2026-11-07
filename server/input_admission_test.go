@@ -24,15 +24,23 @@ import (
 // the specified phase, so runtime admission probes exercise the production path.
 type checkpointProbe struct {
 	*dbformat.Checkpoint
+	beforeCapture   func()
 	beforeSerialize func()
 	beforePublish   func() error
 }
 
-func (p *checkpointProbe) Serialize(store *dbstore.Store, queued, suspended []task.Snapshot, connections []dbformat.ActiveConnection) error {
+func (p *checkpointProbe) Capture(store *dbstore.Store, queued, suspended []task.Snapshot, connections []dbformat.ActiveConnection) error {
+	if p.beforeCapture != nil {
+		p.beforeCapture()
+	}
+	return p.Checkpoint.Capture(store, queued, suspended, connections)
+}
+
+func (p *checkpointProbe) Serialize() error {
 	if p.beforeSerialize != nil {
 		p.beforeSerialize()
 	}
-	return p.Checkpoint.Serialize(store, queued, suspended, connections)
+	return p.Checkpoint.Serialize()
 }
 
 func (p *checkpointProbe) Publish() error {
@@ -44,13 +52,13 @@ func (p *checkpointProbe) Publish() error {
 	return p.Checkpoint.Publish()
 }
 
-func checkpointProbeFactory(beforeSerialize func(), beforePublish func() error) checkpointFactory {
+func checkpointProbeFactory(beforeCapture, beforeSerialize func(), beforePublish func() error) checkpointFactory {
 	return func(path string) (checkpointStage, error) {
 		stage, err := dbformat.BeginCheckpoint(path)
 		if err != nil {
 			return nil, err
 		}
-		return &checkpointProbe{Checkpoint: stage, beforeSerialize: beforeSerialize, beforePublish: beforePublish}, nil
+		return &checkpointProbe{Checkpoint: stage, beforeCapture: beforeCapture, beforeSerialize: beforeSerialize, beforePublish: beforePublish}, nil
 	}
 }
 
@@ -132,7 +140,7 @@ func TestCheckpointPreventsExecutionBetweenTaskAndStoreCapture(t *testing.T) {
 		checkpoint <- server.checkpointWith(checkpointProbeFactory(func() {
 			close(entered)
 			<-release
-		}, nil), true, checkpointRunning)
+		}, nil, nil), true, checkpointRunning)
 	}()
 	<-entered
 	finished := make(chan engine.EvalOutcome, 1)
@@ -166,6 +174,98 @@ func TestCheckpointPreventsExecutionBetweenTaskAndStoreCapture(t *testing.T) {
 	}
 }
 
+func TestCheckpointSerializationAllowsCommitAndRetainsFrozenAliases(t *testing.T) {
+	store := dbstore.NewStore()
+	addTestObject(t, store, 0, dbstore.FlagWizard|dbstore.FlagProgrammer)
+	shared := types.NewWaif(0, 0).SetProperty("count", types.NewInt(1))
+	for name, value := range map[string]types.Value{"committed": types.NewInt(0), "shared": shared, ":count": types.NewInt(0)} {
+		if code := store.DirectTxn().DefineProperty(0, name, dbstore.NewProperty(value, 0, dbstore.PropRead|dbstore.PropWrite, false, true)); code != types.E_NONE {
+			t.Fatal(code)
+		}
+	}
+	rt := engine.NewRuntimeWithOptions(store, config.Options{AdmissionLimit: 1})
+	defer rt.Stop()
+	if outcome := rt.Eval(0, []string{"held = #0.shared; alias = held; fork (3600) return {held, alias}; endfork return 1;"}); outcome.Result.Val.Int() != 1 {
+		t.Fatal(outcome)
+	}
+	server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "encoding.db")}
+	entered := make(chan struct{})
+	serializationReleased := make(chan struct{})
+	release := sync.OnceFunc(func() { close(serializationReleased) })
+	defer release()
+	checkpoint := make(chan error, 1)
+	go func() {
+		checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, func() {
+			close(entered)
+			<-serializationReleased
+		}, nil), true, checkpointRunning)
+	}()
+	select {
+	case <-entered:
+	case err := <-checkpoint:
+		t.Fatalf("checkpoint returned before encoding probe: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("checkpoint did not reach encoding probe")
+	}
+	finished := make(chan engine.EvalOutcome, 1)
+	go func() {
+		finished <- rt.Eval(0, []string{"#0.committed = 42; #0.shared.count = 2; return #0.committed;"})
+	}()
+	committedDuringEncoding := false
+	select {
+	case outcome := <-finished:
+		committedDuringEncoding = true
+		if outcome.Result.Flow != types.FlowReturn || outcome.Result.Val.Int() != 42 {
+			t.Error(outcome)
+		}
+	case <-time.After(time.Second):
+		t.Error("admitted Eval could not commit during checkpoint encoding")
+	}
+	release()
+	if err := <-checkpoint; err != nil {
+		t.Fatal(err)
+	}
+	if !committedDuringEncoding {
+		select {
+		case outcome := <-finished:
+			if outcome.Result.Flow != types.FlowReturn || outcome.Result.Val.Int() != 42 {
+				t.Error(outcome)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("checkpoint did not resume the waiting Eval")
+		}
+	}
+	if count, _ := shared.GetProperty("count"); count.Int() != 2 {
+		t.Fatalf("live WAIF count=%v, want post-capture value 2", count)
+	}
+	reloaded, err := dbformat.LoadDatabase(server.dbPath + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := reloaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value, code := restored.DirectTxn().PropertyValue(0, "committed"); code != types.E_NONE || value.Int() != 0 {
+		t.Fatalf("checkpoint included post-capture commit: value=%v code=%v", value, code)
+	}
+	frozen, code := restored.DirectTxn().PropertyValue(0, "shared")
+	if code != types.E_NONE || frozen.Type() != types.TYPE_WAIF || frozen.WaifIdentity() != shared.WaifIdentity() {
+		t.Fatalf("checkpoint WAIF identity changed: value=%v code=%v", frozen, code)
+	}
+	if count, _ := frozen.GetProperty("count"); count.Int() != 1 {
+		t.Fatalf("checkpoint WAIF count=%v, want pre-capture value 1", count)
+	}
+	if len(reloaded.QueuedTasks) != 1 {
+		t.Fatalf("checkpoint queued tasks=%d, want 1", len(reloaded.QueuedTasks))
+	}
+	for _, name := range []string{"held", "alias"} {
+		if value, ok := reloaded.QueuedTasks[0].Variables[name]; !ok || value != frozen {
+			t.Fatalf("queued %s does not share the frozen property WAIF: value=%v found=%v", name, value, ok)
+		}
+	}
+}
+
 func TestCheckpointPublicationAllowsRuntimeCommit(t *testing.T) {
 	store := dbstore.NewStore()
 	addTestObject(t, store, 0, dbstore.FlagWizard)
@@ -179,7 +279,7 @@ func TestCheckpointPublicationAllowsRuntimeCommit(t *testing.T) {
 	release := make(chan struct{})
 	checkpoint := make(chan error, 1)
 	go func() {
-		checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, func() error {
+		checkpoint <- server.checkpointWith(checkpointProbeFactory(nil, nil, func() error {
 			close(entered)
 			<-release
 			return nil
@@ -230,7 +330,7 @@ func TestCheckpointPublicationFailureRunsFailureHookAfterResume(t *testing.T) {
 	defer rt.Stop()
 	server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "failure.db")}
 	publishErr := errors.New("publication failed after admission resumed")
-	err := server.checkpointWith(checkpointProbeFactory(nil, func() error {
+	err := server.checkpointWith(checkpointProbeFactory(nil, nil, func() error {
 		finished := make(chan engine.EvalOutcome, 1)
 		go func() { finished <- rt.Eval(0, []string{"return 42;"}) }()
 		select {
@@ -298,7 +398,7 @@ func TestTerminalCheckpointPublicationHoldsBackgroundActivation(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				return &checkpointProbe{Checkpoint: stage, beforeSerialize: func() {
+				return &checkpointProbe{Checkpoint: stage, beforeCapture: func() {
 					// Pre-dispatch while admission is paused: the scheduler worker
 					// must already be waiting when publication starts.
 					if dispatched := rt.DispatchReady(); dispatched != 1 {
@@ -377,7 +477,7 @@ func TestTerminalCheckpointPublicationFailureReleasesBarrierBeforeFailureHook(t 
 	defer rt.Stop()
 	server := &Server{store: store, runtime: rt, connManager: NewConnectionManager(0), dbPath: filepath.Join(t.TempDir(), "terminal-failure.db")}
 	publishErr := errors.New("terminal publication failed")
-	err := server.checkpointWith(checkpointProbeFactory(nil, func() error { return publishErr }), true, checkpointTerminal)
+	err := server.checkpointWith(checkpointProbeFactory(nil, nil, func() error { return publishErr }), true, checkpointTerminal)
 	if !errors.Is(err, publishErr) {
 		t.Fatalf("checkpoint error=%v, want %v", err, publishErr)
 	}
