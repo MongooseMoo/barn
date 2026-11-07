@@ -93,7 +93,9 @@ Go 1.27.1 sources below. Implementing.
   ci/fuzz-keep-going; PR body drafted in the session scratchpad
   `keep-going/pr-body.md`.
 
+- Q then answered "Yes, open them" (relayed by the team lead). Rebased on
+  master after #613 merged, pushed, opened PR #618.
+
 ## Next step
 
-Team lead / Q decides whether this branch is pushed and the PR opened (and
-whether Q wants this item done by a Codex agent instead).
+Watch PR #618 checks to green and fix anything red. Do not merge.
