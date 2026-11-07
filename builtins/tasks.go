@@ -328,17 +328,7 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 			break
 		}
 
-		if includeLineNumbers {
-			result = append(result, frame.ToList())
-		} else {
-			// Omit line number (last element)
-			frameList := frame.ToList()
-			truncated := make([]types.Value, frameList.Len()-1)
-			for j := 0; j < frameList.Len()-1; j++ {
-				truncated[j] = frameList.Get(j + 1) // 1-based indexing
-			}
-			result = append(result, types.NewList(truncated))
-		}
+		result = append(result, frame.ToList(includeLineNumbers, false))
 	}
 
 	// Top-level eval compatibility: return two eval wrapper frames.
@@ -491,20 +481,7 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	result := make([]types.Value, 0, len(callStack))
 	for i := len(callStack) - 1; i >= 0; i-- {
 		frame := callStack[i]
-		frameList := frame.ToList()
-		values := make([]types.Value, 0, 7)
-		if includeLineNumbers {
-			values = append(values, frameList.Elements()...)
-		} else {
-			// Omit line number (6th element) → 5-element list
-			for j := 0; j < frameList.Len()-1; j++ {
-				values = append(values, frameList.Get(j+1))
-			}
-		}
-		if includeVariables {
-			values = append(values, frame.RuntimeVariableMap())
-		}
-		result = append(result, types.NewList(values))
+		result = append(result, frame.ToList(includeLineNumbers, includeVariables))
 	}
 
 	return types.Ok(types.NewList(result))

@@ -1,13 +1,80 @@
 package profile
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/vm"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestChecksumFile(t *testing.T) {
+	data := bytes.Repeat([]byte("manifest checksum\x00\xff"), 8192)
+	sum := sha256.Sum256(data)
+	for _, test := range []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"empty", nil, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		{"abc", []byte("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{"multiple chunks", data, hex.EncodeToString(sum[:])},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "input.db")
+			if err := os.WriteFile(path, test.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := checksumFile(path)
+			if err != nil || got != test.want {
+				t.Fatalf("checksumFile = %q, %v, want %q", got, err, test.want)
+			}
+		})
+	}
+	if got, err := checksumFile(filepath.Join(t.TempDir(), "missing.db")); got != "" || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing checksum = %q, %v, want native not-exist error", got, err)
+	}
+	if got, err := checksumFile(t.TempDir()); got != "" || err == nil {
+		t.Fatalf("directory checksum = %q, %v, want native read error", got, err)
+	} else {
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) {
+			t.Fatalf("directory error lost native path error: %v", err)
+		}
+	}
+}
+
+func BenchmarkChecksumFile(b *testing.B) {
+	for _, test := range []struct {
+		name string
+		data []byte
+	}{
+		{"config", []byte("OUTBOUND_NETWORK = 1\n")},
+		{"database", bytes.Repeat([]byte{0xa5}, 32<<20)},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			path := filepath.Join(b.TempDir(), "input")
+			if err := os.WriteFile(path, test.data, 0o600); err != nil {
+				b.Fatal(err)
+			}
+			sum := sha256.Sum256(test.data)
+			want := hex.EncodeToString(sum[:])
+			b.SetBytes(int64(len(test.data)))
+			b.ReportAllocs()
+			for b.Loop() {
+				got, err := checksumFile(path)
+				if err != nil || got != want {
+					b.Fatalf("checksumFile = %q, %v, want %q", got, err, want)
+				}
+			}
+		})
+	}
+}
 
 func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	dir := t.TempDir()

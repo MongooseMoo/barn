@@ -55,23 +55,35 @@ func (a *ActivationFrame) TracebackVerb() string {
 	return strings.Join(a.StoredVerbNames, " ")
 }
 
-// ToList converts an activation frame to a MOO list for callers().
-// Format: {this, verb_name, programmer, verb_loc, player, line_number}.
+// ToList converts an activation frame to a MOO list for stack observers.
+// Format: {this, verb_name, programmer, verb_loc, player [, line_number] [, variables]}.
 // For primitive/anonymous targets, ThisValue carries the real "this" value.
-func (a *ActivationFrame) ToList() Value {
+func (a *ActivationFrame) ToList(includeLineNumbers, includeVariables bool) Value {
 	thisVal := NewObj(a.This)
 	if !a.ThisValue.IsNone() {
 		thisVal = a.ThisValue
 	}
 
-	return NewList([]Value{
-		thisVal,
-		NewStr(a.Verb),
-		NewObj(a.Programmer),
-		NewObj(a.VerbLoc),
-		NewObj(a.Player),
-		NewInt(int64(a.LineNumber)),
-	})
+	size := 5
+	if includeLineNumbers {
+		size++
+	}
+	if includeVariables {
+		size++
+	}
+	values := make([]Value, size)
+	values[0] = thisVal
+	values[1] = NewStr(a.Verb)
+	values[2] = NewObj(a.Programmer)
+	values[3] = NewObj(a.VerbLoc)
+	values[4] = NewObj(a.Player)
+	if includeLineNumbers {
+		values[5] = NewInt(int64(a.LineNumber))
+	}
+	if includeVariables {
+		values[size-1] = a.RuntimeVariableMap()
+	}
+	return NewList(values)
 }
 
 // ToMap converts an activation frame to a MOO map for task_stack().

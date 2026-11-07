@@ -111,10 +111,10 @@ func inputReceipt(ctx *Execution) func() {
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {
-	// The no-argument form reports the default maximum output buffer size.
+	// The no-argument form reports the cached maximum output buffer size.
 	target := ctx.Player
 	if len(args) == 0 {
-		return types.Ok(types.NewInt(65536))
+		return types.Ok(types.NewInt(ctx.Session.maxQueuedOutputFor(ctx.Context)))
 	}
 	if len(args) == 1 {
 		if !isObjectRef(args[0]) {

@@ -1,0 +1,29 @@
+goos: linux
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                        │ reports/system-layering-frame-pinned-original.txt │ reports/system-layering-frame-pinned-refactored.txt │
+                                        │                      sec/op                       │           sec/op             vs base                │
+CallersFormatting/no_lines                                                     4.053µ ±  7%                   3.069µ ± 5%  -24.29% (p=0.000 n=10)
+CallersFormatting/lines                                                        3.131µ ±  5%                   3.223µ ± 6%        ~ (p=0.363 n=10)
+TaskStackFormatting/lines                                                      4.747µ ±  6%                   3.403µ ± 7%  -28.31% (p=0.000 n=10)
+TaskStackFormatting/lines_and_variables                                        4.827µ ± 23%                   3.642µ ± 5%  -24.54% (p=0.000 n=10)
+geomean                                                                        4.129µ                         3.327µ       -19.42%
+
+                                        │ reports/system-layering-frame-pinned-original.txt │ reports/system-layering-frame-pinned-refactored.txt │
+                                        │                       B/op                        │           B/op             vs base                  │
+CallersFormatting/no_lines                                                     7.188Ki ± 0%                5.875Ki ± 0%  -18.26% (p=0.000 n=10)
+CallersFormatting/lines                                                        5.984Ki ± 0%                5.984Ki ± 0%        ~ (p=1.000 n=10) ¹
+TaskStackFormatting/lines                                                      7.984Ki ± 0%                6.234Ki ± 0%  -21.92% (p=0.000 n=10)
+TaskStackFormatting/lines_and_variables                                        7.984Ki ± 0%                6.484Ki ± 0%  -18.79% (p=0.000 n=10)
+geomean                                                                        7.236Ki                     6.140Ki       -15.15%
+¹ all samples are equal
+
+                                        │ reports/system-layering-frame-pinned-original.txt │ reports/system-layering-frame-pinned-refactored.txt │
+                                        │                     allocs/op                     │         allocs/op          vs base                  │
+CallersFormatting/no_lines                                                       39.00 ± 0%                  25.00 ± 0%  -35.90% (p=0.000 n=10)
+CallersFormatting/lines                                                          25.00 ± 0%                  25.00 ± 0%        ~ (p=1.000 n=10) ¹
+TaskStackFormatting/lines                                                        44.00 ± 0%                  28.00 ± 0%  -36.36% (p=0.000 n=10)
+TaskStackFormatting/lines_and_variables                                          44.00 ± 0%                  28.00 ± 0%  -36.36% (p=0.000 n=10)
+geomean                                                                          37.07                       26.46       -28.62%
+¹ all samples are equal

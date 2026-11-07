@@ -13,6 +13,34 @@ Q approved execution with "Make it so!" on November 7. The whole-system plan
 below is active. Work is isolated on refactor/system-layering; preserve unrelated
 work and report each bounded slice with its actual evidence.
 
+## Owner cleanup analyst checkpoint
+
+State: actual PR #638 published source review is complete; no actionable
+defect found. The completed report is
+reports/system-layering-owner-cleanup-analyst.md. Decisions and why: inspect
+existing runtime/session and transaction owners directly, preserve the future
+file-grep edits, and use PR CI rather than local broad tests. Surprises: the
+standalone GC path replaces the transaction, making the late-bound release
+necessary. Next step: parent checks the delivered report and remaining coverage
+limits; conformance and isolation CI were pending at last inspection.
+
+## Resource semantics analyst checkpoint
+
+State: actual PR #639 source review found the native-catalog contract pin still
+reflected the old scan policies, causing its first unit job to fail. Exact source
+comparison proves fileioDescriptors is otherwise identical after removing only
+the two added Irreversible annotations. Catalog order/builders/enums are unchanged.
+Decisions and why: retain the existing whole-catalog check and reconcile its pin
+only after this exact delta proof; do not bypass it. No other production defect
+has been established in the bounded review. Surprises: the focused scan tests
+passed but the full required catalog pin caught the intended metadata change.
+Parent verified the old whole-catalog hash by temporarily normalizing only those
+two policies, removed that temporary diagnostic, then updated the pin/comment.
+The unchanged check body passes with the corrected pin. Next: publish the repair
+and collect new exact-head CI. Analyst report preserves the initial failure and
+delta proof. No local tests,
+builds, source repair or publication was performed by the analyst.
+
 ## Execution plan
 
 ### Outcome and authority
@@ -419,6 +447,22 @@ contracts are settled need not wait for a global bottleneck ranking.
 
 ## State
 
+PR #638 final-verifier checkpoint: published eval-resource and standalone-hook
+cleanup inspected independently of future uncommitted slices. All seven PR
+checks are terminal passes, including conformance. The pinned Elle artifact is
+preserved in .tmp/system-layering/elle-owner-pr/elle-evidence.tar.gz; direct
+parsing reports six healthy true and twenty fault-control false verdicts, with
+nonzero parallel, exclusive, renewal, fork, suspend and exception paths. Final
+bounded verdict is being recorded in the owner-cleanup verifier report.
+
+The bounded manifest-checksum slice is implemented with a fixed local 32 KiB
+read buffer. Exact digests and native open/read errors pass. The first io.Copy
+candidate was rejected for a measured small-config regression. The retained
+loop reports 328 B/op for both a 21-byte config and 32 MiB database fixture;
+benchstat against original reports -6.87% and -21.97% time respectively with ten
+samples. PR CI/review remain pending; no all-input/application-wide claim is
+made. Its full report is reports/system-layering-manifest-hash-coder.md.
+
 Q authorized execution with "Make it so!". The isolated refactor/system-layering
 worktree is based on remote master with subject Merge pull request #628 from
 MongooseMoo/test/elle-definitions. The other checkout's dirty files and worktrees
@@ -594,17 +638,70 @@ cache, immutable builtin IDs, shared sourcekey owner, compilation outside locks,
 retry versus persistence snapshots and immutable values/WAIF images. Two direct
 beauty candidates are consolidating optional activation-list fields in
 ActivationFrame.ToList and deleting the literal error forwarding wrapper.
-Exact-size frame construction must preserve lazy variables and redaction.
+The six-file cleanup is implemented locally: exact-size frame construction
+preserves lazy variables and caller redaction. The wrapper is deleted.
+Formatting/diff checks passed; no mirror tests or local test run were added.
 reports/system-layering-language-scout.md preserves the handoff.
 
 P8's persistence/finalization survey completed. The writer's emitted surfaces
 are detached after store/task capture and value rewriting; use the existing
 Checkpoint and Writer owners to split Capture from Serialize. Only running
 checkpoints may encode/publish after the capture barrier. Terminal checkpoints
-retain the whole barrier. Before implementation, finish current direct-caller
-inspection and write deterministic blocked-encoding/frozen-graph regressions.
+retain the whole barrier. Direct stage interface and WriteCheckpoint callers
+are inspected. Use Capture(current inputs), Serialize() and the retained
+existing Writer, clearing captured state on Serialize/Close. Write the
+deterministic blocked-encoding/frozen-graph regressions before the phase split.
 Preserve finalization roots, parking, path locks and recovery ownership. The
-handoff is reports/system-layering-persistence-scout.md. P9 survey is pending.
+handoff is reports/system-layering-persistence-scout.md. The phase split is
+implemented locally. Focused tests reproduce blocked Eval before the change,
+then allow commit during encoding while reload preserves captured scalar/WAIF
+values, identity and task aliases. Stage abort/state tests also pass.
+
+P9 survey completed: move startup-script input reads before server construction;
+stream database/config manifest hashes in their existing owner; close builtin
+session resources on listener-start failure after runtime shutdown. Keep the
+distinct panic-to-abort contract. Config, listener and diagnostic ownership
+received source-backed keep dispositions in
+reports/system-layering-composition-scout.md. Manifest hashing is in a measured
+baseline/candidate implementation slice. Focused startup RED regressions
+reproduced a missing script creating the profile manifest before failure and
+listener reservation leaving real file/SQLite handles valid after Start
+returned. Preserved pre-correction excerpts:
+
+```text
+missing script created profile manifest: <nil>
+file_name after failed Start: Error:E_NONE, want E_INVARG
+sqlite_info after failed Start: Error:E_NONE, want E_INVARG
+FAIL github.com/MongooseMoo/barn/internal/app 0.042s
+FAIL github.com/MongooseMoo/barn/server 0.030s
+```
+
+The bounded startup correction then passed its focused app/server regressions;
+exact selectors and evidence are in reports/system-layering-startup-coder.md. No
+blanket graceful/panic teardown change or Close facade is selected.
+
+The file-scan correction is implemented locally and its managed post-fix suite
+passed five cases including admission in 6.92 seconds. It repairs first-match
+read-ahead, supports stock-confirmed long lines and puts cursor mutation behind
+the existing irreversible boundary. Raw evidence: barn-file-scan-after.xml.
+PR #638's separate eval/session and standalone snapshot repairs passed full
+PR/queue CI and explicit Elle verdict/path checks, then merged and integrated
+locally on November 7. Companion byte suite PR #177 also merged after all Toast
+profiles and final review; its isolated checkout fast-forwarded to main.
+
+The dynamic capacity correction is implemented in the existing server-options
+snapshot/cache, with two focused regressions passing. It preserves task-private
+reloads and commit publication, signed-32 cache conversion and positive minimum
+clamping. A stock 64-bit research probe confirmed wrap-before-clamp; keep that
+wide-literal probe local rather than publishing it into 32-bit profiles.
+
+Manifest hashing's retained bounded-loop candidate measured 328 B/call for both
+21-byte config and 32 MiB inputs, versus 1016 B and about 33.56 MB originally.
+Ten-sample times improved on both measured sizes; rejected io.Copy had regressed
+the config path. No application-wide performance claim follows from this probe.
+Early script validation and listener-failure Session.Close are implemented;
+their real failure regressions pass. Source and timing evidence stay in their
+bounded coder reports; all these future slices still require PR delivery.
 Output acceptance and concurrent result semantics remain a P1 prerequisite for P3.
 
 First pass traced input, admission, background selection, task slices,
@@ -1139,23 +1236,26 @@ identity and settled workload outcomes are still needed for measurement.
 
 ## Next step
 
-Settlement consolidation is merged; continue with the next independent slice.
-Deliver the verified byte-accounting correction through PR CI and review.
-Preserve the generic oracle suite and raw red/green evidence. Then fix dynamic
-capacity and rejectable notify acceptance in their existing owners before P3
-changes physical draining. The P4 scout continues its independent source survey.
-Both baseline and candidate native binaries exist under .tmp/system-layering.
-The native matrix credential-source question is pending; continue independent
-work while awaiting it. Resolve output acceptance,
-overflow, no_flush and byte-length using the canonical managed oracle before
-selecting P3's implementation. Existing output-deadline tests alone do not
-establish isolation of unrelated progress.
+PR #638 is merged. Publish the verified file-scan/capacity and frame-format slices
+independently against current master, with exact-head CI and review.
+Finish checkpoint capture/encoding tests and implementation, manifest hash
+measurement and early-start failure repairs. Complete companion PR #177 merge
+and publish later oracle suites only after their Barn dependencies are fixed.
+Preserve raw histories, anomalies, oracle red/green captures and fixture identities.
 
-Further depth remains in native-builtin work/cancellation limits, full
-inheritance/dependency invalidation, mutable WAIF snapshot ownership, recycle
-hook producers and startup/shutdown fault paths. The second pass surveyed their
-owners and important boundaries; it did not exhaustively audit every builtin,
-opcode, store mutation or lifecycle error path.
+Dynamic output capacity and rejectable notify acceptance remain demonstrated
+defects. Resolve them in their existing owners before P3 changes physical
+draining; default commit-deferred notify and mid-slice irreversible boundaries
+must not be conflated. Existing output deadlines do not establish unrelated
+publication progress. No new effect sequencer or parallel task model is allowed.
+
+Both baseline and candidate binaries exist under .tmp/system-layering; the native
+matrix credential-source question remains pending. Continue independent work.
+
+P4-P9 bounded surveys and keep/change dispositions are now preserved in their
+reports. Exec shutdown and blocking stdin cancellation still need a real
+behavior/liveness reproduction before redesign. The source survey is broad,
+not a claim to exhaustively audit every builtin, opcode or possible world program.
 
 New workload captures, current failure frames, current Go/MOO profile rows,
 and measured bottleneck rankings remain absent. Existing instrumentation is

@@ -315,6 +315,17 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	var scriptLines []string
+	if cfg.StartScript != nil {
+		data, err := os.ReadFile(*cfg.StartScript)
+		if err != nil {
+			return fmt.Errorf("read startup script: %w", err)
+		}
+		scriptLines = []string{}
+		if len(data) > 0 {
+			scriptLines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		}
+	}
 	slog.Info("Barn MOO Server", slog.String("database", cfg.DatabasePath), slog.String("listeners", formatListenerSpecs(specs)))
 	if cfg.TraceEnabled {
 		filters := strings.Split(cfg.TraceFilter, ",")
@@ -372,17 +383,6 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	startMemWatch(watchCtx, srv.Runtime(), cfg.LogDir)
-	var scriptLines []string
-	if cfg.StartScript != nil {
-		data, err := os.ReadFile(*cfg.StartScript)
-		if err != nil {
-			return fmt.Errorf("read startup script: %w", err)
-		}
-		scriptLines = []string{}
-		if len(data) > 0 {
-			scriptLines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-		}
-	}
 	if cfg.StartScriptFirst && cfg.StartScript != nil {
 		srv.StartScripts = append(srv.StartScripts, scriptLines)
 	}
