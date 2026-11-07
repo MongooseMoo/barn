@@ -93,6 +93,13 @@ type taskCompletion struct {
 }
 
 func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+	defer func() {
+		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+			if ctx := t.ContextValue(); ctx != nil {
+				ctx.CommandDiagnostic.TaskFinished(t.ID, state.String())
+			}
+		}
+	}()
 	var completion taskCompletion
 	defer func() {
 		if retErr != nil {
@@ -927,7 +934,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 			handlerValue,
 			types.NewList(stackValues),
 			types.NewList(formattedValues),
-		}, t.Owner, "", nil, scope, true)
+		}, t.Owner, "", func(id int64) { s.BindCommandDiagnostic(id, t.Context.CommandDiagnostic) }, scope, true)
 		if handlerErr == nil {
 			handled = handlerResult.Flow == types.FlowSuspend || (handlerResult.Flow != types.FlowException && handlerResult.Val.Truthy())
 		}
@@ -942,10 +949,10 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		// wraps results as {status, result} — the task completes normally and
 		// never reaches this branch. Tick exhaustion keeps its friendlier line.
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.sendTaskLine(t.Owner, "Task ran out of ticks")
+			s.sendTaskLine(t.Owner, "Task ran out of ticks", t.Context.CommandDiagnostic)
 		} else {
 			result.CallStack = stack
-			s.SendTracebackToPlayer(t.Owner, result)
+			s.SendTracebackToPlayer(t.Owner, result, t.Context.CommandDiagnostic)
 		}
 	}
 	// Clean up call stack after traceback has been sent
@@ -1248,7 +1255,7 @@ func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource 
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
-	}, t.Owner, "", nil, scope, true)
+	}, t.Owner, "", func(id int64) { s.BindCommandDiagnostic(id, t.Context.CommandDiagnostic) }, scope, true)
 	return err == nil && (result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy()))
 }
 
@@ -1259,9 +1266,9 @@ func resultValueContains(value types.Value, text string) bool {
 	return strings.Contains(strings.ToLower(value.String()), strings.ToLower(text))
 }
 
-func (s *Runtime) sendTaskLine(player types.ObjID, line string) {
+func (s *Runtime) sendTaskLine(player types.ObjID, line string, diagnostic *metrics.Command) {
 	if s.taskLineSender != nil {
-		s.taskLineSender(player, line)
+		s.taskLineSender(player, line, diagnostic)
 	}
 }
 

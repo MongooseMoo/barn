@@ -13,7 +13,7 @@ func TestIntrinsicEvalHandsSuspendedVMToScheduler(t *testing.T) {
 	rt := NewRuntime(dbstore.NewStore())
 	defer rt.Stop()
 	completed := make(chan EvalOutcome, 1)
-	rt.StartEval(types.ObjNothing, []string{"suspend(0); return 7;"}, func(out EvalOutcome) { completed <- out })
+	rt.StartEval(types.ObjNothing, []string{"suspend(0); return 7;"}, func(out EvalOutcome) { completed <- out }, nil)
 	select {
 	case <-completed:
 		t.Fatal("input lane resumed its own suspended eval")
@@ -64,7 +64,7 @@ func TestEvalCompileCompletionCanReenterAdmission(t *testing.T) {
 			return
 		}
 		done <- rt.EvalCommandOutput(types.ObjNothing, "return 42;")
-	})
+	}, nil)
 	select {
 	case got := <-done:
 		if got != "{1, 42}" {

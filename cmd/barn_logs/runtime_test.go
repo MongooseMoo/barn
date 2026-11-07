@@ -16,7 +16,7 @@ func TestRuntimeSummaryFiltersTasksAndNeverPrintsPayload(t *testing.T) {
 		tracebackRecord,
 		`{"msg":"runtime phase","task_id":7,"phase":"vm_attempt","elapsed_ns":-1,"ticks":3}`,
 		`{"msg":"cut off`)
-	got, err := readRuntimeSummary(path, 7)
+	got, err := readRuntimeSummary(path, 7, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestRuntimeSummaryFiltersTasksAndNeverPrintsPayload(t *testing.T) {
 }
 
 func TestRuntimeSummaryReportsMissingMeasurements(t *testing.T) {
-	got, err := readRuntimeSummary(writeLog(t, infoRecord), -1)
+	got, err := readRuntimeSummary(writeLog(t, infoRecord), -1, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestTerminalExceptionSummaryFiltersAndBoundsVocabulary(t *testing.T) {
 		`{"msg":"terminal task exception","error":"E_INVARG","reason":"unknown","intrinsic_eval":false}`,
 		`{"msg":"terminal task exception","task_id":7,"error":"E_NONE","reason":"unknown","intrinsic_eval":false,"committed":true}`,
 		`{"msg":"terminal task exception","task_id":7,"error":"E_INVARG","reason":"seconds_budget","intrinsic_eval":false,"committed":true}`)
-	got, err := readRuntimeSummary(path, 7)
+	got, err := readRuntimeSummary(path, 7, -1)
 	if err != nil {
 		t.Fatal(err)
 	}

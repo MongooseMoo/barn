@@ -61,7 +61,7 @@ func (outcome EvalOutcome) CommandOutput() string {
 // StartEval runs the first slice on the input caller and hands every suspension
 // to the normal task scheduler. Completion is delivered once, after VM ownership
 // and admission have been released.
-func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome)) *Task {
+func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(EvalOutcome), onStart func(int64)) *Task {
 	var running *Task
 	var once sync.Once
 	finish := func(out EvalOutcome) {
@@ -108,6 +108,9 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 	})
 	running.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(running)
+	if onStart != nil {
+		onStart(running.ID)
+	}
 	if err := s.runTaskAdmitted(running, scope, true); err != nil {
 		finish(EvalOutcome{Panic: fmt.Errorf("%s", strings.TrimPrefix(err.Error(), "internal panic: "))})
 	}
@@ -118,7 +121,7 @@ func (s *Runtime) StartEval(player types.ObjID, source []string, complete func(E
 // while a synchronous API caller waits for the terminal result.
 func (s *Runtime) Eval(player types.ObjID, source []string) EvalOutcome {
 	done := make(chan EvalOutcome, 1)
-	running := s.StartEval(player, source, func(out EvalOutcome) { done <- out })
+	running := s.StartEval(player, source, func(out EvalOutcome) { done <- out }, nil)
 	var indefiniteSince time.Time
 	for {
 		select {

@@ -167,12 +167,12 @@ func (s *Server) LoadDatabase() error {
 	// Nothing is recycled before #0:server_started returns (see Start).
 	s.runtime.HoldFinalizationUntilStarted()
 	s.runtime.AdoptPendingFinalizations(s.store.TakePendingFinalizations())
-	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
+	s.runtime.SetTaskLineSender(func(player types.ObjID, line string, diagnostic *metrics.Command) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
-			_ = conn.Send(line)
+			_ = conn.(*Connection).sendCommandResponse(line, diagnostic)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, result types.Result) {
+	s.runtime.SetTracebackSender(func(player types.ObjID, result types.Result, diagnostic *metrics.Command) {
 		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
@@ -183,7 +183,7 @@ func (s *Server) LoadDatabase() error {
 			return
 		}
 		for _, line := range lines {
-			_ = conn.Send(line)
+			_ = conn.(*Connection).sendCommandResponse(line, diagnostic)
 		}
 	})
 	s.runtime.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {

@@ -199,7 +199,7 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 			slog.String("verb", verbName),
 			slog.Int64("player", int64(player)),
 			slog.String("error", types.NewErr(result.Error).String()))
-		s.runtime.SendTracebackToPlayer(player, result)
+		s.runtime.SendTracebackToPlayer(player, result, nil)
 	}
 }
 
