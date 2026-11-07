@@ -16,7 +16,7 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"; return;",
 		"return -(2 ^ 3) + 4 * 5;",
 		"return a ? b | (c ? d | e);",
-		"return {1, @{2, 3}, {4..6}};",
+		"return {1, @{2, 3}, {4, 5, 6}[1..3]};",
 		"return [\"key\" -> value, 2 -> other];",
 		"object.name = object.(property);",
 		"return (0).(0);",
