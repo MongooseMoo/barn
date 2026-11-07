@@ -14,9 +14,25 @@ Preserved queue artifacts under the diagnostics worktree's
 stock Toast check and Barn check plus five more Barn repetitions. The queue log
 shows a checkpoint hook read before the caller's hook definition was visible;
 separate PR #623 addresses that checkpoint ordering race. The queue-only timeout
-cause remains unverified. Resubmitted #614 through the full queue (CI run
-42333068808). This branch will fast-forward after merge, before measurements.
-No new workload capture or lag-cause verdict yet.
+cause remains unverified. The second queue run passed (CI 42333068808, Elle
+42333068721); #614 merged at 2026-11-07T03:25:55Z with two parents. Integrated
+the remote default branch into this branch and built cmd/barn successfully.
+Started the actual-player TCP harness under .tmp/player-lag-baseline with the
+fixture/settings below. Bootstrap completed, then control login failed with
+WinError 10054 before any cohort. Preserved run.json, checkpoint and logs.
+The login task waited 1.623622s for the commit gate, but the reset cause is being
+verified separately. Actual dump code $telnet:send_raw enables binary, sends raw
+Telnet bytes, then disables binary before login. That wakes the concurrent TCP
+reader by expiring its deadline; HandleConnection currently interprets any
+unauthenticated timeout as login expiry and returns. Added the exact sequence
+as a candidate managed regression. Stock Toast passed it with canonical admission
+(2 passed), evidence .tmp/prelogin-toast.xml and prelogin-toast-admission.json.
+The deterministic TestPreloginBinaryOutputDoesNotExpireLogin then failed with
+"binary output expired the prelogin reader: write pipe: i/o timeout". After the
+deadline comparison fix, its race run passed (ok server 1.259s). Built the fixed
+cmd/barn binary at .tmp/player-lag-barn-fixed.exe for the next actual-player run.
+No new flag/queue/lock. This fixes the capture/login defect introduced by
+read-ahead; the original reported lag still needs player-cohort evidence.
 
 ## Decisions and why
 

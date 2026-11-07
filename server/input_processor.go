@@ -150,13 +150,14 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		default:
 		}
 
+		var readDeadline time.Time
 		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
 			if conn.IsLoggedIn() {
 				_ = deadlineTransport.SetReadDeadline(time.Time{})
 			} else {
 				now := time.Now()
-				deadline := time.Unix(now.Unix()+int64(connectTimeout/time.Second)+1, 0)
-				_ = deadlineTransport.SetReadDeadline(deadline)
+				readDeadline = time.Unix(now.Unix()+int64(connectTimeout/time.Second)+1, 0)
+				_ = deadlineTransport.SetReadDeadline(readDeadline)
 			}
 		}
 
@@ -177,6 +178,11 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			line, err = conn.ReadLine()
 		}
 		if err != nil {
+			// Binary output can wake a reader even before authentication (Mongoose
+			// Telnet negotiation). Its early deadline is not a connect timeout.
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !readDeadline.IsZero() && time.Now().Before(readDeadline) {
+				continue
+			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
 				continue
 			}
