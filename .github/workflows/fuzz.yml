@@ -37,6 +37,7 @@ jobs:
           - { package: ./bytecode, target: FuzzVerifyProgram }
           - { package: ./command, target: FuzzCommandLine }
           - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
+          - { package: ./server, target: FuzzTCPReadInput }
     steps:
       - name: Check /dev/null is a device
         run: |
