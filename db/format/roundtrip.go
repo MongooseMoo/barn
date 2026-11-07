@@ -20,8 +20,11 @@ func CompareRoundTripStores(original, reloaded *store.Store) error {
 
 func compareRoundTripSnapshots(a, b store.Snapshot) error {
 	c := roundTripComparison{original: a, reloaded: b,
-		waifs:        make(map[types.WaifIdentity]types.WaifIdentity),
-		reverseWaifs: make(map[types.WaifIdentity]types.WaifIdentity)}
+		waifs:         make(map[types.WaifIdentity]types.WaifIdentity),
+		reverseWaifs:  make(map[types.WaifIdentity]types.WaifIdentity),
+		anons:         make(map[types.ObjID]types.ObjID),
+		reverseAnons:  make(map[types.ObjID]types.ObjID),
+		originalAnons: anonymousObjectsByID(a), reloadedAnons: anonymousObjectsByID(b)}
 	if a.MaxObject != b.MaxObject {
 		return fmt.Errorf("round-trip verification failed: max object #%d != #%d", a.MaxObject, b.MaxObject)
 	}
@@ -33,14 +36,6 @@ func compareRoundTripSnapshots(a, b store.Snapshot) error {
 			return err
 		}
 	}
-	if len(a.AnonymousObjects) != len(b.AnonymousObjects) {
-		return fmt.Errorf("round-trip verification failed: reachable anonymous objects %d != %d", len(a.AnonymousObjects), len(b.AnonymousObjects))
-	}
-	for i, obj := range a.AnonymousObjects {
-		if err := c.object(obj, b.AnonymousObjects[i], obj.ID); err != nil {
-			return err
-		}
-	}
 	if !c.values(a.PendingFinalizations, b.PendingFinalizations) {
 		return fmt.Errorf("round-trip verification failed: pending finalizations differ")
 	}
@@ -48,8 +43,18 @@ func compareRoundTripSnapshots(a, b store.Snapshot) error {
 }
 
 type roundTripComparison struct {
-	original, reloaded  store.Snapshot
-	waifs, reverseWaifs map[types.WaifIdentity]types.WaifIdentity
+	original, reloaded           store.Snapshot
+	waifs, reverseWaifs          map[types.WaifIdentity]types.WaifIdentity
+	anons, reverseAnons          map[types.ObjID]types.ObjID
+	originalAnons, reloadedAnons map[types.ObjID]*store.SnapshotObject
+}
+
+func anonymousObjectsByID(s store.Snapshot) map[types.ObjID]*store.SnapshotObject {
+	objects := make(map[types.ObjID]*store.SnapshotObject, len(s.AnonymousObjects))
+	for _, obj := range s.AnonymousObjects {
+		objects[obj.ID] = obj
+	}
+	return objects
 }
 
 func (c *roundTripComparison) object(a, b *store.SnapshotObject, id types.ObjID) error {
@@ -64,7 +69,7 @@ func (c *roundTripComparison) object(a, b *store.SnapshotObject, id types.ObjID)
 	if !live(a) {
 		return nil
 	}
-	if a.ID != b.ID || a.Anonymous != b.Anonymous {
+	if (!a.Anonymous && a.ID != b.ID) || a.Anonymous != b.Anonymous {
 		return fail("identity")
 	}
 	if a.Name != b.Name || a.Flags != b.Flags || a.Owner != b.Owner {
@@ -136,6 +141,26 @@ func (c *roundTripComparison) value(a, b types.Value) bool {
 		return false
 	}
 	switch a.Type() {
+	case types.TYPE_ANON:
+		ai, bi := a.Obj(), b.Obj()
+		if ai == types.ObjNothing || bi == types.ObjNothing {
+			return ai == bi
+		}
+		if mapped, ok := c.anons[ai]; ok {
+			return mapped == bi
+		}
+		if _, ok := c.reverseAnons[bi]; ok {
+			return false
+		}
+		ao, bo := c.originalAnons[ai], c.reloadedAnons[bi]
+		if ao == nil || bo == nil {
+			return false
+		}
+		// Snapshot reachability also sees WAIF overrides that writeWaif omits.
+		// Compare only anonymous objects reached by the persisted fields walked
+		// here; their serialization IDs may shift when omitted roots disappear.
+		c.anons[ai], c.reverseAnons[bi] = bi, ai
+		return c.object(ao, bo, ai) == nil
 	case types.TYPE_FLOAT:
 		// The text format preserves signed zero but has no NaN payload bits.
 		return a.Identical(b) || (math.IsNaN(a.Float()) && math.IsNaN(b.Float()))
