@@ -3,6 +3,8 @@ package format
 import (
 	"bufio"
 	"fmt"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 // parseV17 parses a version 17 database
@@ -52,7 +54,7 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	}
 	// Objects
 	for i := 0; i < objCount; i++ {
-		obj, err := database.readObject(r)
+		obj, err := database.readObjectCommon(r, true, types.ObjID(i))
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}

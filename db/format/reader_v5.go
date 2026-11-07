@@ -3,7 +3,7 @@ package format
 import (
 	"bufio"
 	"fmt"
-	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // parseV5 parses a version 5 database.
@@ -42,7 +42,8 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 
 	// Objects section
 	for i := 0; i < objCount; i++ {
-		obj, err := database.readObjectV5(r)
+		// Version 5 object bodies have no v17 last_move slot.
+		obj, err := database.readObjectCommon(r, false, types.ObjID(i))
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
@@ -77,15 +78,4 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 	database.resolveWaifProperties()
 
 	return database, nil
-}
-
-// readObjectV5 reads a version 5 object body.
-// Version 5 uses typed location/contents/parents/children fields but does not
-// include the v17 last_move slot.
-func (database *Database) readObjectV5(r *bufio.Reader) (*store.ObjectBuilder, error) {
-	obj, err := database.readObjectCommon(r, false)
-	if err != nil {
-		return nil, err
-	}
-	return obj, nil
 }
