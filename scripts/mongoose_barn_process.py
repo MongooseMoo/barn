@@ -1,4 +1,8 @@
-"""Owned Linux Barn lifecycle for the unchanged real Mongoose scenarios."""
+"""Owned Linux Barn lifecycle for a registered runtime profile.
+
+The unchanged real Mongoose scenarios use the default Mongoose profile; the
+Jepsen checkpoint workload uses the registered public Test.db profile.
+"""
 from __future__ import annotations
 
 import errno
@@ -119,15 +123,20 @@ class OwnedBarnServer:
     engine = "barn"
     host = "127.0.0.1"
 
-    def __init__(self, executable, db, run_dir, port, *, config=CONFIG, registry=REGISTRY):
+    def __init__(self, executable, db, run_dir, port, *, config=CONFIG, registry=REGISTRY, profile_id=PROFILE_ID):
         self.executable = executable.resolve(strict=True)
         self.db, self.run_dir, self.port = db.resolve(), run_dir.resolve(), port
         self.config, self.registry = config.resolve(strict=True), registry.resolve(strict=True)
         entries = json.loads(self.registry.read_text())["profiles"]
-        entry = next((item for item in entries if item["profile_id"] == PROFILE_ID), None)
+        entry = next((item for item in entries if item["profile_id"] == profile_id), None)
         if (entry is None or entry.get("runtime_os") != "linux" or
                 entry.get("config_file") != self.config.name or entry.get("support_status") != "supported"):
-            raise RuntimeError("registered Linux Mongoose Barn profile is unavailable")
+            raise RuntimeError(f"registered Linux Barn profile {profile_id} is unavailable")
+        self.profile_id = profile_id
+        # The same rule as profile/registry.go Validate: every registered
+        # expected feature must appear with that exact value in the manifest.
+        self.expected_features = dict(entry.get("expected_features") or {})
+        self.paused = False
         self.proc = self.log_file = self.pidfd = self.start_ticks = None
         self._ownership_established = False
         self._checkpoint_launch_verified = False
@@ -140,7 +149,7 @@ class OwnedBarnServer:
         log_level = "debug" if os.environ.get("BARN_RUNTIME_DIAGNOSTICS") == "1" else "info"
         self.command = [str(self.executable), "--db", str(self.db),
                         "--listen", f"tcp://{self.host}:{port}", "--checkpoint-interval", "0",
-                        "--config", str(self.config), "--profile-id", PROFILE_ID,
+                        "--config", str(self.config), "--profile-id", profile_id,
                         "--profile-manifest", str(self.profile_path),
                         "--log-dir", str(self.run_dir / "logs"), "--log-level", log_level,
                         "--debug-addr", "127.0.0.1:0", "--operator-addr", "127.0.0.1:0"]
@@ -148,7 +157,7 @@ class OwnedBarnServer:
                          "executable_sha256": bench.sha256_file(self.executable),
                          "config": str(self.config), "config_sha256": bench.sha256_file(self.config),
                          "profile_registry": str(self.registry), "profile_registry_sha256": bench.sha256_file(self.registry),
-                         "profile_id": PROFILE_ID, "command": self.command,
+                         "profile_id": profile_id, "command": self.command,
                          "profile_manifest": str(self.profile_path), "server_log": str(self.log_path),
                          "runtime_logs": str(self.run_dir / "logs"),
                          "runtime_log_level": log_level,
@@ -171,12 +180,14 @@ class OwnedBarnServer:
 
     def _validate_profile(self):
         row = json.loads(self.profile_path.read_text())
-        if (row.get("profile_id") != PROFILE_ID or row.get("implementation") != "barn" or
+        features = row.get("features")
+        if (row.get("profile_id") != self.profile_id or row.get("implementation") != "barn" or
                 row.get("runtime_os") != "linux" or
                 row.get("database_checksum") != self.identity["prepared_database_sha256"] or
                 row.get("config_checksum") != self.identity["config_sha256"] or
-                row.get("features", {}).get("option.OUTBOUND_NETWORK") is not True or
-                row.get("features", {}).get("option.PROMOTE_NUMBERS") is not True):
+                not isinstance(features, dict) or
+                any(key not in features or type(features[key]) is not type(value) or features[key] != value
+                    for key, value in self.expected_features.items())):
             raise RuntimeError("Barn runtime profile does not match the prepared input/configuration")
         self.identity["profile_manifest_sha256"] = bench.sha256_file(self.profile_path)
         self.identity["runtime_profile"] = row
@@ -366,6 +377,38 @@ class OwnedBarnServer:
                     final_checkpoint = self._final_checkpoint(boundary)
             return {"exit_code": self.proc.returncode if self.proc else None,
                     "shutdown": "owned Barn PID stopped", "forced": False, "final_checkpoint": final_checkpoint}
+        finally:
+            if self.pidfd is not None:
+                os.close(self.pidfd)
+                self.pidfd = None
+            if self.log_file:
+                self.log_file.close()
+
+    def _signal_running(self, number):
+        if self.proc is None or self.proc.poll() is not None:
+            raise RuntimeError("owned Barn process is not running")
+        self.verify_owned()
+        signal.pidfd_send_signal(self.pidfd, number)
+
+    def pause(self):
+        """Freeze the owned process (SIGSTOP); connections stay open."""
+        self._signal_running(signal.SIGSTOP)
+        self.paused = True
+
+    def resume(self):
+        """Continue a process frozen by pause() (SIGCONT)."""
+        self._signal_running(signal.SIGCONT)
+        self.paused = False
+
+    def crash(self):
+        """Kill the owned process without a final checkpoint (SIGKILL)."""
+        try:
+            self._signal_running(signal.SIGKILL)
+            self.proc.wait(timeout=10)
+            self.paused = False
+            return {"exit_code": self.proc.returncode, "shutdown": "owned SIGKILL crash", "forced": True,
+                    "final_checkpoint": {"status": "none", "verified": False,
+                                         "reason": "crash publishes no checkpoint"}}
         finally:
             if self.pidfd is not None:
                 os.close(self.pidfd)
