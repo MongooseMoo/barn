@@ -92,6 +92,11 @@ server disconnected success already returned 1. Permissions apply to both.
 
 ## Decisions and why
 
+Publication: [Barn PR #619](https://github.com/MongooseMoo/barn/pull/619) and
+[conformance PR #171](https://github.com/MongooseMoo/moo-conformance-tests/pull/171).
+Both are intentionally left open. Exact-head CI verdicts are recorded by the
+checks on these PRs; no merge is authorized.
+
 - Q's continuation explicitly authorizes execution of this plan. Q's original
   words were "figure what the actual problem is" and "those should codex
   agents". Q did not type "make it so"; the coordinating Stop hook ruled those
@@ -125,6 +130,5 @@ already passed. No dependency change is included.
 
 ## Next step
 
-Open separate Barn and conformance PRs, watch exact-head checks to green, and
-record their links. Leave both unmerged. Full-queue no_flush and emergency
+Leave both PRs unmerged after watching exact-head checks. Full-queue no_flush and emergency
 notification rendering remain unverified; no rendering mechanism was added.
