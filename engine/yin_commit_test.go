@@ -35,9 +35,7 @@ func newYinCommitStore(t *testing.T) *dbstore.Store {
 
 func newYinCommitRuntime(t *testing.T, store *dbstore.Store, descriptors ...builtins.Descriptor) *Runtime {
 	t.Helper()
-	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptors...)
-	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
-	return s
+	return newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, descriptors...)
 }
 
 // runYinTaskToCompletion runs the task's first slice, then drives the queue

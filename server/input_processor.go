@@ -921,7 +921,3 @@ func (p *InputProcessor) parseProgramTarget(player, location types.ObjID, spec s
 	}
 	return target, verbName, true
 }
-
-func (p *InputProcessor) YieldReadyTasks() int {
-	return p.runtime.ProcessReadyTasks()
-}

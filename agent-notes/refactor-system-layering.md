@@ -432,6 +432,9 @@ not selected as the current workload. Neither benchmark credential environment
 variable is present; the native matrix requires both, while the in-process
 workload has a separate credential-free path. Runner selection is already
 ["self-hosted","Linux","X64","barn"].
+Frozen binary/fixture/config identities are recorded in
+.tmp/system-layering/baseline-manifest.json. These are identities, not measured
+baseline results. The benchmark credential-source question remains pending.
 
 P1's managed stock WSL Toast session completed: 72 passed for admission,
 notify semantics/call shapes and buffered output length. Four additional
@@ -472,8 +475,10 @@ diff_check_exit=0
 
 The managed post-fix byte suite then reported five passes with no skipped cases
 in 7.29 seconds, including admission. barn-byte-after.xml and its admission JSON
-preserve the result. PR CI and analyst/verifier review remain pending. The
-implementation report records exact focused selectors and red/green evidence.
+preserve the result. PR #636 passed build/unit, managed conformance and pinned
+Elle CI, received analyst and final verifier clearance, and merged through the
+merge queue on November 7. Local integration fast-forwarded to that merge.
+The implementation report records exact focused selectors and red/green evidence.
 
 P2's first bounded slice is implemented in PR #634: consolidate duplicated
 command-output settlement in the existing Runtime.settleTaskResult owner,
@@ -491,11 +496,55 @@ the exact published diff. PR #634 merged through the required merge queue on
 November 7. All four review/implementation agents delivered and stopped.
 No throughput improvement or measured performance neutrality is claimed.
 
-The P4 readiness/admission scout is surveying actual producers and retained
-resources independently of the bounded byte-accounting implementation.
+The P4 readiness/admission scout completed its producer/lifetime survey. The
+unused required TaskYielder host capability and two forwarding methods are now
+deleted locally, together with startup wiring and three obsolete test
+assignments. The seven-Go-file source diff adds one line and removes twenty;
+the now-unnecessary Yin helper local is replaced with a direct constructor return.
+it preserves ProcessReadyTasks and its engine/eval.go caller. Raw checks:
 
-P3-P9 remain pending their bounded caller/contract surveys. Output acceptance
-and concurrent result semantics remain a P1 prerequisite for P3.
+```text
+gofmt_exit=0
+diff_check_exit=0
+removed_symbol_search_exit=1
+```
+
+The last result is the repository Go search for TaskYielder/YieldReadyTasks,
+with no matches. No local tests/build ran for this deletion-only slice. Its
+publication can now proceed independently against current master.
+Reservation, physical lease and dispatch slots have distinct producers and
+lifetimes and retain keep dispositions. The implementation report is
+reports/system-layering-task-yielder-coder.md.
+
+P3's acceptance design needs care: the existing irreversible-effect boundary
+can provide a real notify return before execution continues, but retains the
+exclusive gate for the remaining computation. Simply marking every notify
+irreversible may trade socket waiting for unnecessary serialization. No such
+change has been selected or implemented; preserve the observed rejection result
+without inventing speculative transaction machinery or claiming a speedup.
+
+P5's builtin lifetime scout has identified a dbtool EvalSession.Close teardown
+omission: it stops Runtime but does not close the builtin Session's handles.
+The direct correction belongs at EvalSession.Close with cleanup errors carried
+through EvalExpression, EvalFile and cmd/moo's existing error outputs.
+That four-file correction is implemented locally. Its focused regression opened
+real file/SQLite handles through eval, failed before cleanup delegation, then
+passed after it; repeated Close is safe. PR CI and review remain pending.
+file_count_lines/file_grep also change a shared cursor without an irreversible
+descriptor. Existing managed suites cover only presence/signatures/invalid
+handles, so valid-file cursor oracle cases are needed before that correction.
+The first candidate fixture was invalid: suite setup executes physical lines
+separately and ignores errors, so a multi-line program created an empty file.
+Preserve toast-file-scan.xml as a fixture non-verdict. The corrected single-
+program fixture passed all three scan cases plus admission on stock Toast;
+toast-file-scan-v2.xml records count/all-match cursor at EOF and first-match
+cursor immediately after the matching line. Barn comparison is next.
+SQL slot/row
+conversion, immutable worker inputs and generation-based resume have keep
+dispositions. Subprocess shutdown cancellation remains an unverified lifetime
+question. Findings and their limits live in
+reports/system-layering-builtins-scout.md. P6-P9 deeper surveys remain pending.
+Output acceptance and concurrent result semantics remain a P1 prerequisite for P3.
 
 First pass traced input, admission, background selection, task slices,
 transaction publication, external operations, output, checkpointing and GC.
