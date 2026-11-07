@@ -30,10 +30,13 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     check = re.search(r"^\s*\S+\.go:\d+: .+$", text, re.M)
     saved = re.search(r"Failing input written to (testdata/fuzz/[^\s]+)", text)
     setup = re.search(r"^.*\[(?:build|setup) failed\].*$", text, re.M)
-    if campaign_outcome != "failure" or signal or setup:
+    # A recorded input is a finding, even when its worker died from a signal.
+    if not saved and (campaign_outcome != "failure" or signal or setup):
         kind, error = "infrastructure", signal
     elif panic:
         kind, error = "panic", panic
+    elif saved and signal:
+        kind, error = "crash signal", signal
     elif hang:
         kind, error = "hang", hang
     elif saved or check:

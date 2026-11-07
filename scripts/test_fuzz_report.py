@@ -63,6 +63,37 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
+    def test_saved_crash_signal_is_a_finding(self):
+        # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:186
+        # formats "fuzzing process hung or terminated unexpectedly: %v".
+        # sys_posix.go:116-128 identifies SIGSEGV as a crash signal.
+        log = ("fuzzing process hung or terminated unexpectedly: signal: segmentation fault\n"
+               f"Failing input written to testdata/fuzz/{TARGET}/synthetic-crash\n")
+        result = report(log, "./vm", TARGET, "commit")
+        self.assertEqual(result["kind"], "crash signal")
+        self.assertIn("signal: segmentation fault", result["first_error"])
+        self.assertEqual(result["input_path"], f"vm/testdata/fuzz/{TARGET}/synthetic-crash")
+        self.assertEqual(result["repro"],
+                         f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/synthetic-crash'")
+
+    def test_non_crash_signal_without_saved_input_is_infrastructure(self):
+        # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:170-176
+        # formats "fuzzing process terminated by unexpected signal; no crash will be recorded: %v".
+        log = "fuzzing process terminated by unexpected signal; no crash will be recorded: signal: killed\n"
+        result = report(log, "./vm", TARGET, "commit")
+        self.assertEqual(result["kind"], "infrastructure")
+        self.assertEqual(result["first_error"], log.strip())
+        self.assertIsNone(result["input_path"])
+        self.assertIsNone(result["repro"])
+
+    def test_saved_input_overrides_infrastructure_markers(self):
+        for marker in ["signal: terminated", "FAIL ./vm [setup failed]", "FAIL ./vm [build failed]", ""]:
+            for outcome in ["failure", "skipped"]:
+                with self.subTest(marker=marker, outcome=outcome):
+                    log = marker + f"\nFailing input written to testdata/fuzz/{TARGET}/saved\n"
+                    self.assertNotEqual(report(log, "./vm", TARGET, "commit", outcome)["kind"],
+                                        "infrastructure")
+
     def test_setup_and_signals(self):
         for log in ["", "FAIL ./vm [setup failed]", "vm.go:42: undefined: missing\nFAIL ./vm [build failed]", "signal: killed",
                     "fuzzing process terminated by unexpected signal; no crash will be recorded: signal: terminated"]:
@@ -136,6 +167,13 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
             self.assertEqual([c["name"] for c in calls], ["create"])
             self.assertIn("infrastructure failure", calls[0]["title"])
             self.assertEqual(calls[0]["labels"], [])
+
+    def test_saved_crash_signal_dispatches_repair(self):
+        log = ("fuzzing process hung or terminated unexpectedly: signal: segmentation fault\n"
+               "Failing input written to testdata/fuzz/FuzzTarget/synthetic-crash\n")
+        calls = self.execute(report(log, "./vm", "FuzzTarget", "commit"))
+        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
+        self.assertEqual(calls[0]["labels"], ["claude-fix"])
 
     def test_body_keeps_corpus_fences_inside_code_block(self):
         result = report("panic: failure", "./vm", "FuzzTarget", "commit")
