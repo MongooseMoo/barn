@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,12 +20,55 @@ func CompareRoundTripStores(original, reloaded *store.Store) error {
 }
 
 func compareRoundTripSnapshots(a, b store.Snapshot) error {
-	c := roundTripComparison{original: a, reloaded: b,
+	return newRoundTripComparison(a, b).snapshots()
+}
+
+// persistedState is the portable state one checkpoint writes: a store snapshot
+// and the queued and suspended task snapshots whose values were rewritten by
+// the same anonymous serialization plan (snapshotWithTaskRoots).
+type persistedState struct {
+	snapshot          store.Snapshot
+	queued, suspended []task.Snapshot
+}
+
+// compareRoundTripPersistence compares store and task state under one identity
+// context, so an anonymous object or WAIF shared between an object property and
+// a task value (or between tasks) must keep that sharing after the reload.
+func compareRoundTripPersistence(a, b persistedState) error {
+	c := newRoundTripComparison(a.snapshot, b.snapshot)
+	if err := c.snapshots(); err != nil {
+		return err
+	}
+	if len(a.queued) != len(b.queued) {
+		return fmt.Errorf("round-trip verification failed: queued tasks %d != %d", len(a.queued), len(b.queued))
+	}
+	for i := range a.queued {
+		if field := c.queuedTask(a.queued[i], b.queued[i]); field != "" {
+			return fmt.Errorf("round-trip verification failed: queued task %d %s differs", a.queued[i].ID, field)
+		}
+	}
+	if len(a.suspended) != len(b.suspended) {
+		return fmt.Errorf("round-trip verification failed: suspended tasks %d != %d", len(a.suspended), len(b.suspended))
+	}
+	for i := range a.suspended {
+		if field := c.suspendedTask(a.suspended[i], b.suspended[i]); field != "" {
+			return fmt.Errorf("round-trip verification failed: suspended task %d %s differs", a.suspended[i].ID, field)
+		}
+	}
+	return nil
+}
+
+func newRoundTripComparison(a, b store.Snapshot) *roundTripComparison {
+	return &roundTripComparison{original: a, reloaded: b,
 		waifs:         make(map[types.WaifIdentity]types.WaifIdentity),
 		reverseWaifs:  make(map[types.WaifIdentity]types.WaifIdentity),
 		anons:         make(map[types.ObjID]types.ObjID),
 		reverseAnons:  make(map[types.ObjID]types.ObjID),
 		originalAnons: anonymousObjectsByID(a), reloadedAnons: anonymousObjectsByID(b)}
+}
+
+func (c *roundTripComparison) snapshots() error {
+	a, b := c.original, c.reloaded
 	if a.MaxObject != b.MaxObject {
 		return fmt.Errorf("round-trip verification failed: max object #%d != #%d", a.MaxObject, b.MaxObject)
 	}
@@ -237,4 +281,84 @@ func persistentWaifClass(s store.Snapshot, id types.ObjID) (types.ObjID, []strin
 		}
 	}
 	return id, names
+}
+
+// queuedTask returns the first differing field family of two queued (forked)
+// task snapshots, or "" when they match. StartTime is integral seconds on disk.
+func (c *roundTripComparison) queuedTask(a, b task.Snapshot) string {
+	switch {
+	case a.ID != b.ID || a.StartTime.Unix() != b.StartTime.Unix():
+		return "identity/time"
+	case a.This != b.This || a.Owner != b.Owner || a.Programmer != b.Programmer ||
+		a.VerbLoc != b.VerbLoc || a.VerbName != b.VerbName:
+		return "descriptor"
+	case (a.Fork == nil) != (b.Fork == nil):
+		return "fork program"
+	case a.Fork == nil:
+		return ""
+	case !slices.Equal(a.Fork.SourceLines, b.Fork.SourceLines):
+		return "source"
+	}
+	if len(a.Fork.Variables) != len(b.Fork.Variables) {
+		return "variables"
+	}
+	for name, av := range a.Fork.Variables {
+		bv, ok := b.Fork.Variables[name]
+		if !ok || !c.value(av, bv) {
+			return "variables"
+		}
+	}
+	return ""
+}
+
+// suspendedTask returns the first differing field family of two suspended VM
+// task snapshots, or "" when they match. It checks the category, identity and
+// time, wake and task-local values, the task and per-frame call descriptors,
+// frame source, IP, local names and values, and operand stacks. It does NOT
+// check other VM frame metadata: bytecode, constants, line info, local count,
+// builtin layout, handlers, pending error/return, flags and thread mode, saved
+// caller state, command environment, return local, builtin continuation, or
+// move/recycle continuations. Those survive or not without detection here.
+func (c *roundTripComparison) suspendedTask(a, b task.Snapshot) string {
+	interrupted := a.IsInterruptedForPersistence()
+	switch {
+	case a.State != b.State || interrupted != b.IsInterruptedForPersistence() ||
+		a.IsExecSuspended != b.IsExecSuspended || a.ExecCommandName != b.ExecCommandName:
+		return "category"
+	case a.ID != b.ID || a.StartTime.Unix() != b.StartTime.Unix():
+		return "identity/time"
+	case (!interrupted && !c.value(a.WakeValue, b.WakeValue)) || !c.value(a.TaskLocal, b.TaskLocal):
+		return "wake/task-local value"
+	case a.Owner != b.Owner || a.Programmer != b.Programmer || a.VerbLoc != b.VerbLoc ||
+		a.VerbName != b.VerbName || a.This != b.This:
+		return "task descriptor"
+	case (a.VM == nil) != (b.VM == nil):
+		return "VM presence"
+	case a.VM == nil:
+		return ""
+	case a.VM.MaxStackDepth != b.VM.MaxStackDepth || len(a.VM.Frames) != len(b.VM.Frames) ||
+		len(a.CallStack) != len(b.CallStack):
+		return "activation count"
+	}
+	for i := range a.VM.Frames {
+		af, bf := &a.VM.Frames[i], &b.VM.Frames[i]
+		var ap, bp types.ObjID
+		if i < len(a.CallStack) {
+			ap, bp = a.CallStack[i].Programmer, b.CallStack[i].Programmer
+		}
+		switch {
+		case !slices.Equal(af.Program.Source, bf.Program.Source) || af.IP != bf.IP ||
+			!slices.Equal(af.Program.VarNames, bf.Program.VarNames):
+			return fmt.Sprintf("frame %d source/IP/local names", i)
+		case !c.values(af.Locals, bf.Locals):
+			return fmt.Sprintf("frame %d locals", i)
+		case !c.values(af.Stack, bf.Stack):
+			return fmt.Sprintf("frame %d stack", i)
+		case af.This != bf.This || !c.value(af.ThisValue, bf.ThisValue) || af.Player != bf.Player ||
+			af.Verb != bf.Verb || af.StoredVerb != bf.StoredVerb || af.VerbLoc != bf.VerbLoc ||
+			af.Caller != bf.Caller || !c.values(af.Args, bf.Args) || ap != bp:
+			return fmt.Sprintf("frame %d call descriptor", i)
+		}
+	}
+	return ""
 }

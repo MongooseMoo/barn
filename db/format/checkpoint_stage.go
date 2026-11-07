@@ -67,6 +67,18 @@ func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTas
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
 	}
+	snapshot := snapshotWithTaskRoots(objectStore, queuedTasks, suspendedTasks)
+	writer := NewWriter(c.file, snapshot)
+	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
+	writer.SetActiveConnections(activeConnections)
+	c.writer = writer
+	return nil
+}
+
+// snapshotWithTaskRoots snapshots objectStore with every task-persisted value as
+// an anonymous reachability root, then rewrites those task values in place to
+// the snapshot's anonymous serialization IDs. The caller owns the task slices.
+func snapshotWithTaskRoots(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot) store.Snapshot {
 	taskRoots := make([]types.Value, 0)
 	collectRoot := func(value types.Value) types.Value {
 		taskRoots = append(taskRoots, value)
@@ -85,11 +97,7 @@ func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTas
 	for index := range suspendedTasks {
 		suspendedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
 	}
-	writer := NewWriter(c.file, snapshot)
-	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
-	writer.SetActiveConnections(activeConnections)
-	c.writer = writer
-	return nil
+	return snapshot
 }
 
 // Serialize consumes the captured view and flushes its portable writer.
