@@ -14,7 +14,8 @@ import sys
 FAULTS = ["property-reads", "scalar-reads", "verb-reads", "relationship-reads",
           "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture",
           "commit-exclusion", "valid-reads", "ring-reads", "map-key-metadata",
-          "map-key-presence", "map-key-whole-read"]
+          "map-key-presence", "map-key-whole-read", "hot-map-carry",
+          "hot-memo-guard"]
 
 
 def verdict(output, history):
