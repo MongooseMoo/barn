@@ -72,8 +72,17 @@ func (c *roundTripComparison) object(a, b *store.SnapshotObject, id types.ObjID)
 	if (!a.Anonymous && a.ID != b.ID) || a.Anonymous != b.Anonymous {
 		return fail("identity")
 	}
-	if a.Name != b.Name || a.Flags != b.Flags || a.Owner != b.Owner {
-		return fail("name/flags/owner")
+	mismatch := func(format string, args ...any) error {
+		return fmt.Errorf("round-trip verification failed: object #%d "+format, append([]any{id}, args...)...)
+	}
+	if a.Name != b.Name {
+		return mismatch("name %q != %q", a.Name, b.Name)
+	}
+	if a.Flags != b.Flags {
+		return mismatch("flags %v != %v", a.Flags, b.Flags)
+	}
+	if a.Owner != b.Owner {
+		return mismatch("owner #%d != #%d", a.Owner, b.Owner)
 	}
 	if a.Location != b.Location || !slices.Equal(a.Parents, b.Parents) ||
 		!slices.Equal(a.Children, b.Children) || !slices.Equal(a.Contents, b.Contents) {
