@@ -97,6 +97,9 @@ func BenchmarkObjectLifecycle(b *testing.B) {
 							for i := range ids {
 								ids[i] = create()
 							}
+							// Creation has different transient allocation costs in the
+							// two arms. Finish its GC before timing destruction alone.
+							runtime.GC()
 						}
 						b.StartTimer()
 						for i := range ids {
