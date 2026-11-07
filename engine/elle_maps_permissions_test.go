@@ -109,17 +109,25 @@ func elleMapPermissionHistories(t *testing.T, store *dbstore.Store, recorder *el
 			defer rt.Stop()
 			id := int64(900000 + i*10)
 			setup := fmt.Sprintf(`add_property(#0,%q,["a" -> {},"b" -> {}],{#0,"rw"}); add_property(#0,%q,{},{#0,"rw"});`, mapName, markerName)
-			elleDrain(t, rt, []*Task{elleTask(t, rt, id, setup+replace.Replace(scenario.setup))})
-			reader := elleTask(t, rt, id+1, replace.Replace(scenario.read)+
-				fmt.Sprintf(`elle_observe("r",%q,v); elle_map_step(1); m=#0.%s; elle_observe("r",%q,m); #0.%s={@m,%d}; elle_observe("append",%q,%d);`, row, markerName, marker, markerName, token+1, marker, token+1))
+			elleDrain(t, rt, []*Task{elleTask(t, rt, id, strings.Join([]string{setup, replace.Replace(scenario.setup)}, "\n"))})
+			reader := elleTask(t, rt, id+1, strings.Join([]string{
+				replace.Replace(scenario.read),
+				fmt.Sprintf(`elle_observe("r",%q,v); elle_map_step(1); m=#0.%s; elle_observe("r",%q,m); #0.%s={@m,%d}; elle_observe("append",%q,%d);`, row, markerName, marker, markerName, token+1, marker, token+1),
+			}, "\n"))
 			if scenario.ordinary {
 				reader.Owner, reader.Programmer = 47, 47
 				reader.Context.Player, reader.Context.Programmer, reader.Context.IsWizard = 47, 47, false
 			}
-			writer := elleTask(t, rt, id+2, fmt.Sprintf(`elle_map_step(0); m=#0.%s; elle_observe("r",%q,m);`, markerName, marker)+
-				replace.Replace(scenario.write)+fmt.Sprintf(`elle_observe("append",%q,%d); elle_map_step(2);`, row, token))
+			writer := elleTask(t, rt, id+2, strings.Join([]string{
+				fmt.Sprintf(`elle_map_step(0); m=#0.%s; elle_observe("r",%q,m);`, markerName, marker),
+				replace.Replace(scenario.write),
+				fmt.Sprintf(`elle_observe("append",%q,%d); elle_map_step(2);`, row, token),
+			}, "\n"))
 			elleDrain(t, rt, []*Task{reader, writer})
-			final := elleTask(t, rt, id+3, replace.Replace(scenario.read)+fmt.Sprintf(`elle_observe("r",%q,v); if (!equal(v,{%d})) raise(E_INVARG); endif elle_observe("r",%q,#0.%s);`, row, token, marker, markerName))
+			final := elleTask(t, rt, id+3, strings.Join([]string{
+				replace.Replace(scenario.read),
+				fmt.Sprintf(`elle_observe("r",%q,v); if (!equal(v,{%d})) raise(E_INVARG); endif elle_observe("r",%q,#0.%s);`, row, token, marker, markerName),
+			}, "\n"))
 			if scenario.ordinary {
 				final.Owner, final.Programmer = 47, 47
 				final.Context.Player, final.Context.Programmer, final.Context.IsWizard = 47, 47, false
