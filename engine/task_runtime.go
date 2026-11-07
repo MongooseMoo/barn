@@ -1355,18 +1355,6 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	// Run synchronously on the runtime goroutine.
 	err := s.runTaskAdmitted(t, scope, true)
-	if err != nil {
-		slog.Error("task error",
-			slog.Int64("task_id", t.ID),
-			slog.Int64("this", int64(t.This)),
-			slog.String("verb", t.VerbName),
-			slog.Any("err", err))
-	}
-
-	// Flush output buffer for the player
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, err)
 	return err
 }
