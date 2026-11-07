@@ -667,10 +667,6 @@ func (s *Runtime) settleTaskResult(t *Task, err error) {
 	}
 }
 
-func (s *Runtime) YieldReadyTasks() int {
-	return s.ProcessReadyTasks()
-}
-
 // collectAllGCRefs snapshots the anonymous-object and waif references held by every
 // live task's saved VM, for the deferred-GC flush. It is the flush-time analogue of
 // collectSiblingGCRefs, with one stricter requirement: the flush must see EVERY live

@@ -10,10 +10,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-type TaskYielder interface {
-	YieldReadyTasks() int
-}
-
 // Task management builtins - full implementation
 
 // builtinQueuedTasks: queued_tasks() → LIST

@@ -58,7 +58,6 @@ type TaskManager interface {
 type Host struct {
 	ConnManager      ConnectionManager
 	InputForcer      InputForcer
-	TaskYielder      TaskYielder
 	TaskManager      TaskManager
 	ProcessStdin     *ProcessStdin
 	RunGC            GCHook
@@ -82,7 +81,6 @@ func (h Host) Validate() error {
 	}{
 		{"connection manager", h.ConnManager != nil},
 		{"input forcer", h.InputForcer != nil},
-		{"task yielder", h.TaskYielder != nil},
 		{"task manager", h.TaskManager != nil},
 		{"process stdin", h.ProcessStdin != nil},
 		{"GC hook", h.RunGC != nil},

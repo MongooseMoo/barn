@@ -401,7 +401,6 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
 
 	owner := types.ObjID(7710)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -469,7 +468,6 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	var mutateSnapshotValueBuiltin, stageSnapshotValueBuiltin builtins.BuiltinFunc
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("mutate_snapshot_value", 0, 0, []int64{}, &mutateSnapshotValueBuiltin), testBuiltinSlot("stage_snapshot_value", 0, 0, []int64{}, &stageSnapshotValueBuiltin))
 	defer s.Stop()
-	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
 	mutateSnapshotValueBuiltin = func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)

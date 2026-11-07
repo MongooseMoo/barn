@@ -205,7 +205,6 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire the force_input() builtin to the runtime.
 	host.InputForcer = s.input
-	host.TaskYielder = s.runtime
 	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
 	// Like the Toast main loop, checkpoint requests run outside the requesting
