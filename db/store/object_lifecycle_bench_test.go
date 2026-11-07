@@ -12,15 +12,20 @@ import (
 func BenchmarkObjectLifecycle(b *testing.B) {
 	const count = 32
 	for _, anonymous := range []bool{false, true} {
-		for _, slots := range []int{0, 150} {
+		for _, fixture := range []struct{ slots, parents int }{{0, 1}, {150, 1}, {150, 2}} {
 			for _, operation := range []string{"Create", "Recycle", "Pair"} {
-				b.Run(fmt.Sprintf("anon=%t/slots=%d/%s", anonymous, slots, operation), func(b *testing.B) {
+				b.Run(fmt.Sprintf("anon=%t/slots=%d/%s/parents=%d", anonymous, fixture.slots, operation, fixture.parents), func(b *testing.B) {
 					b.ReportAllocs()
 					for b.Loop() {
 						b.StopTimer()
 						s := NewStore()
-						parent, _ := loadedClass(b, s, slots)
+						parent, _ := loadedClass(b, s, fixture.slots)
 						parents := []types.ObjID{parent}
+						if fixture.parents == 2 {
+							addLoaded(b, s, 3, nil, map[string]Property{"extra": NewProperty(types.NewInt(91), 1, PropRead, false, true)})
+							parents = append(parents, 3)
+							s.ShareLoadedPropertySlots(nil)
+						}
 						create := func() types.ObjID {
 							tx := s.BeginSnapshot(0)
 							id, ec := tx.CreateObject(parents, 1, anonymous)
