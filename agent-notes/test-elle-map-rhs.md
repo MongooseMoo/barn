@@ -10,7 +10,11 @@ No production changes and no local Barn tests. The original head passed all thre
 required PR checks. Integration with actual merged master retains both this RHS
 regression and the quota regression in the same existing VM test owner. The
 comment/note distinction from private review is retained. Combined-head CI remains
-required before normal merge.
+required before normal merge. The quota/RHS combined tree subsequently passed
+build/conformance workflow 42348380978 and Elle workflow 42348380975. The map
+transition PR then merged; this branch integrates that actual master too, keeping
+the two VM regressions and new map controls. These new combined results are
+pending and must not be inferred from the earlier passing tree.
 
 ## Decisions and why
 Reuse existing fixtures and keyed tracking; add no duplicate store helpers.

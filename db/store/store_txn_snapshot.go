@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -212,7 +213,7 @@ func (tx *StoreTxn) markPropertyReadKey(objID types.ObjID, key string, prop Prop
 		// other entries, which commit replaces with the live ones. Reading it any
 		// other way depends on all of them, so it is a whole read at the version
 		// the transaction saw.
-		if st := tx.mapKeys[rkey]; st != nil && len(st.written) > 0 {
+		if st := tx.mapKeys[rkey]; st != nil && len(st.written) > 0 && !isolationprobe.Fault("map-key-whole-read") {
 			if _, whole := tx.propertyReads[rkey]; !whole {
 				lazySet(&tx.propertyReads, rkey, st.version)
 			}
