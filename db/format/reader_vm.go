@@ -77,18 +77,19 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 	}
 	root := callStack[0]
 	return &SuspendedTask{Snapshot: task.Snapshot{
-		ID:         id,
-		Owner:      root.Player,
-		State:      state,
-		StartTime:  time.Unix(start, 0),
-		WakeValue:  wakeValue,
-		TaskLocal:  taskLocal,
-		CallStack:  callStack,
-		Programmer: root.Programmer,
-		VerbLoc:    root.VerbLoc,
-		VerbName:   root.Verb,
-		This:       root.This,
-		VM:         vmSnapshot,
+		ID:            id,
+		Owner:         root.Player,
+		State:         state,
+		StartTime:     time.Unix(start, 0),
+		WakeValue:     wakeValue,
+		TaskLocal:     taskLocal,
+		CallStack:     callStack,
+		Programmer:    root.Programmer,
+		VerbLoc:       root.VerbLoc,
+		VerbName:      root.Verb,
+		This:          root.This,
+		ReadingPlayer: types.ObjNothing,
+		VM:            vmSnapshot,
 	}}, nil
 }
 
