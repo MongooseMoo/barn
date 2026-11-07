@@ -36,13 +36,15 @@ func (s *Runtime) QueueTask(t *Task) int64 {
 // queueTask adds t, giving it its row now when withRow is set.
 func (s *Runtime) queueTask(t *Task, withRow bool) int64 {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
 		s.populateContextDependencies(ctx)
 	}
 	t.SetState(task.TaskQueued)
 	s.taskManager.registerTask(t, withRow)
+	s.mu.Unlock()
+	// The registered task is now a GC root. Do not retain the runtime mutex
+	// while waiting for a scheduler scan to finish and accept its heap entry.
 	s.scheduler.Enqueue(t)
 	// Registration can wake a selector before the heap insertion is visible.
 	// Publish another hint after insertion to close that lost-wakeup window.
