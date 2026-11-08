@@ -278,7 +278,9 @@ jobs:
     needs: [route, fuzz]
     # Even a native finding must preserve and replay the producers' artifacts.
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
-    name: ToastDifferential
+    # A name without a matrix expression gets the matrix values appended
+    # ("ToastDifferential (./scripts, ToastDifferential)"); accept matches it exactly.
+    name: ${{ matrix.target }}
     permissions:
       contents: read
       issues: write

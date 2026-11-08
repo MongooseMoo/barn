@@ -179,6 +179,14 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertNotIn(".fuzz/retained/${{ matrix.package }}", fuzz)
         self.assertEqual(fuzz.count(".fuzz/retained/**/${{ matrix.target }}/inputs"), 2)
 
+    def test_differential_job_name_is_exactly_its_target(self):
+        # Run 42424236943 named the job "ToastDifferential (./scripts,
+        # ToastDifferential)", so accept counted it as a lane and missed it.
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        differential = fuzz.split("\n  differential:\n")[1].split("\n  accept:\n")[0]
+        self.assertIn("\n    name: ${{ matrix.target }}\n", differential)
+        self.assertIn("target: ToastDifferential}", differential)
+
     def test_changed_dedicated_configuration_prevents_replenishment(self):
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})
         self.assertIn("error", result)
