@@ -171,6 +171,14 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("workflows: [Nightly fuzz]", controller)
         self.assertNotIn("name: Nightly fuzz\n", controller)
 
+    def test_fuzz_corpus_cache_paths_have_no_dot_segment(self):
+        # Every matrix package starts with ./; actions/cache rejected
+        # .fuzz/retained/./vm/... and saved nothing ("Cache save failed").
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        self.assertIn("package: ./vm,", fuzz)
+        self.assertNotIn(".fuzz/retained/${{ matrix.package }}", fuzz)
+        self.assertEqual(fuzz.count(".fuzz/retained/**/${{ matrix.target }}/inputs"), 2)
+
     def test_changed_dedicated_configuration_prevents_replenishment(self):
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})
         self.assertIn("error", result)
