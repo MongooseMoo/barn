@@ -148,7 +148,10 @@ func TestTaskRoundTripRetainsQueuedAndSuspendedTasks(t *testing.T) {
 	}
 }
 
-func TestTaskRoundTripReportsUnwritableEmptyQueuedBody(t *testing.T) {
+// An empty fork body ("fork (n) endfork") is a valid program, and Toast writes
+// it as the "." terminator alone (db_io.cc dbio_write_forked_program), so the
+// queued task must survive the checkpoint with an empty body.
+func TestTaskRoundTripRetainsEmptyQueuedBody(t *testing.T) {
 	raw := taskRoundTripRaw(t)
 	body := []byte("return a;\n.\n")
 	if bytes.Count(raw, body) != 1 {
@@ -158,8 +161,17 @@ func TestTaskRoundTripReportsUnwritableEmptyQueuedBody(t *testing.T) {
 	if len(database.QueuedTasks) != 1 || len(database.QueuedTasks[0].Code) != 0 {
 		t.Fatal("reader did not accept the empty queued body")
 	}
-	if _, _, err := checkpointTwice(database); err == nil || !strings.Contains(err.Error(), "no serializable fork program") {
-		t.Fatalf("empty queued body: got %v, want the writer's explicit rejection", err)
+	first, second, err := checkpointTwice(database)
+	if err != nil {
+		t.Fatalf("empty queued body: %v", err)
+	}
+	if err := compareRoundTripPersistence(first, second); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []persistedState{first, second} {
+		if len(state.queued) != 1 || state.queued[0].ID != 5 || state.queued[0].Fork == nil || len(state.queued[0].Fork.SourceLines) != 0 {
+			t.Fatalf("empty queued body not retained: %+v", state.queued)
+		}
 	}
 }
 
