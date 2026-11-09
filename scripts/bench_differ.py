@@ -49,7 +49,7 @@ TESTDB = Path("C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Tes
 TOAST = "/root/src/toaststunt/build-release/moo"
 # On the Windows workstation both lanes run inside WSL Debian; on Linux (the
 # self-hosted runners are already inside that distribution) they run directly.
-WSL = ["wsl", "-d", "Debian", "-u", "root", "-e", "bash", "-c"] if os.name == "nt" else ["bash", "-c"]
+WSL = ["wsl", "-d", "Debian", "-u", "root", "--exec", "bash", "-lc"] if os.name == "nt" else ["bash", "-lc"]
 
 # Same ten workloads as moo-conformance-tests/bench/bench.py so the two
 # harnesses can be cross-checked.
@@ -143,7 +143,7 @@ def run_lanes(db: Path, barn_bin: Path, toast: str, inputs: list[tuple[str, str]
     # A private directory per lane lets concurrent runs share a machine. Toast
     # creates its listener before emergency mode (server.cc main), so -p 0
     # binds an ephemeral port instead of the default one.
-    private = 'set -uo pipefail; d=$(mktemp -d); trap \'rm -rf "$d"\' EXIT; '
+    private = 'set -euo pipefail; d=$(mktemp -d); trap \'rm -rf "$d"\' EXIT; '
     lanes = {
         "toast": (
             f'{private}cp {to_wsl(db)} "$d/in.db" && '
@@ -164,6 +164,8 @@ def run_lanes(db: Path, barn_bin: Path, toast: str, inputs: list[tuple[str, str]
         print(f"    {lane}: exit {proc.returncode} in {wall:.1f}s", file=sys.stderr)
         (out / f"{lane}_raw.txt").write_text(
             proc.stdout + "\n--- STDERR ---\n" + proc.stderr, encoding="utf-8")
+        if proc.returncode != 0:
+            raise RuntimeError(f"{lane} exited {proc.returncode}; see {out / (lane + '_raw.txt')}")
         stdout[lane] = (proc.stdout, wall)
     return stdout
 
@@ -244,6 +246,8 @@ def main() -> int:
             "toast_n": len(t), "barn_n": len(b),
             "toast_value": sorted(tv), "barn_value": sorted(bv),
             "values_match": bool(tv) and tv == bv,
+            "evals_succeeded": bool(tv and bv) and all(
+                value.startswith("{1, ") and value.endswith("}") for value in tv | bv),
         }
         row["ratio"] = (row["barn_ms_median"] / row["toast_ms_median"]
                         if row["toast_ms_median"] and row["barn_ms_median"] else None)
@@ -267,7 +271,8 @@ def main() -> int:
         "",
         f"- db: `{args.db}` sha256 `{db_sha}`",
         f"- toast: `{TOAST}` (WSL Debian)",
-        f"- barn: linux/amd64 GOAMD64=v3 cross-build sha256 `{barn_sha}` from `{REPO}` @ {head}",
+        f"- barn binary: `{barn_bin}` sha256 `{barn_sha}`",
+        f"- driver checkout: `{REPO}` @ {head} (may differ from a supplied binary's source)",
         f"- repeats: {args.repeats} (interleaved); timing = in-MOO ftime(1) bookends around eval()",
         f"- lane wall clock: toast {wall['toast']:.1f}s, barn {wall['barn']:.1f}s",
         "",
@@ -282,6 +287,10 @@ def main() -> int:
     missing = [r["name"] for r in rows if r["toast_n"] < args.repeats or r["barn_n"] < args.repeats]
     if missing:
         print(f"WARNING: incomplete samples for {missing}; see *_raw.txt", file=sys.stderr)
+        return 1
+    invalid = [r["name"] for r in rows if not r["values_match"] or not r["evals_succeeded"]]
+    if invalid:
+        print(f"ERROR: failed evals or mismatched results for {invalid}; see *_raw.txt", file=sys.stderr)
         return 1
     return 0
 

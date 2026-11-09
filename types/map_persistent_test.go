@@ -227,7 +227,7 @@ func TestMapFinalizationScanDoesNotAllocate(t *testing.T) {
 		m := NewMap(pairs).goMap()
 		allocs := testing.AllocsPerRun(20, func() {
 			// Force the first scan, not the cheap cached follow-up.
-			m.finalizableOnce = sync.Once{}
+			m.finalizableResolved.Store(int32(finalizableUnknown))
 			if got := m.mayHoldFinalizable(); got != tainted {
 				t.Fatalf("finalizable=%v, want %v", got, tainted)
 			}

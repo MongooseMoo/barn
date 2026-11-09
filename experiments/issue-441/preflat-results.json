@@ -1,0 +1,256 @@
+{
+  "db": "C:\\Users\\Q\\code\\moo-conformance-tests\\src\\moo_conformance\\_db\\Test.db",
+  "db_sha256": "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+  "barn_sha256": "2bf5845fe5781be4e07b92a97c95290bab127e9556f25dbfa2f878e817d5d9a4",
+  "git_head": "5d2eb1db",
+  "repeats": 7,
+  "rows": [
+    {
+      "name": "map8_build_100k",
+      "code": "for i in [1..100000]; m = []; for j in [1..8]; m[j] = j; endfor; endfor; return m;",
+      "toast_ms_median": 119.65425603557378,
+      "toast_ms_min": 118.58081689570099,
+      "barn_ms_median": 328.4671120000002,
+      "barn_ms_min": 318.9432259999983,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8]}"
+      ],
+      "barn_value": [
+        "{1, [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8]}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.745135216104184
+    },
+    {
+      "name": "map12_iterate_200k",
+      "code": "m = []; for j in [1..12]; m[tostr(\"k\", j)] = j; endfor; x = 0; for i in [1..200000]; for v, k in (m); x = x + v; endfor; endfor; return x;",
+      "toast_ms_median": 98.94871595315635,
+      "toast_ms_min": 98.83143508341163,
+      "barn_ms_median": 269.75503700000127,
+      "barn_ms_min": 267.4666349999981,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 15600000}"
+      ],
+      "barn_value": [
+        "{1, 15600000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.7262105869843416
+    },
+    {
+      "name": "map6_literal_500k",
+      "code": "for i in [1..500000]; m = [\"a\" -> i, \"b\" -> 2, \"c\" -> 3, \"d\" -> 4, \"e\" -> 5, \"f\" -> 6]; endfor; return m;",
+      "toast_ms_median": 441.2482960615307,
+      "toast_ms_min": 436.4024850074202,
+      "barn_ms_median": 1075.3451539999999,
+      "barn_ms_min": 1059.1053230000007,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, [\"a\" -> 500000, \"b\" -> 2, \"c\" -> 3, \"d\" -> 4, \"e\" -> 5, \"f\" -> 6]}"
+      ],
+      "barn_value": [
+        "{1, [\"a\" -> 500000, \"b\" -> 2, \"c\" -> 3, \"d\" -> 4, \"e\" -> 5, \"f\" -> 6]}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.4370522528885785
+    },
+    {
+      "name": "map6_str_get_first_1M",
+      "code": "m = [\"name\" -> 1, \"owner\" -> 2, \"location\" -> 3, \"flags\" -> 4, \"desc\" -> 5, \"aliases\" -> 6]; x = 0; for i in [1..1000000]; x = x + m[\"name\"]; endfor; return x;",
+      "toast_ms_median": 50.28480407781899,
+      "toast_ms_min": 49.44082896690816,
+      "barn_ms_median": 112.201067,
+      "barn_ms_min": 111.61950600000026,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 1000000}"
+      ],
+      "barn_value": [
+        "{1, 1000000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.2313116071082146
+    },
+    {
+      "name": "map8_int_get_1M",
+      "code": "m = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8]; x = 0; for i in [1..1000000]; x = x + m[5]; endfor; return x;",
+      "toast_ms_median": 47.72515001241118,
+      "toast_ms_min": 47.413090942427516,
+      "barn_ms_median": 105.78392999999942,
+      "barn_ms_min": 105.16613600000113,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 5000000}"
+      ],
+      "barn_value": [
+        "{1, 5000000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.216523781957516
+    },
+    {
+      "name": "map4_str_set_500k",
+      "code": "m = [\"a\" -> 0, \"b\" -> 0, \"c\" -> 0, \"d\" -> 0]; for i in [1..500000]; m[\"c\"] = i; endfor; return m[\"c\"];",
+      "toast_ms_median": 88.94122205674648,
+      "toast_ms_min": 88.550289045088,
+      "barn_ms_median": 186.44417500000188,
+      "barn_ms_min": 184.7190360000006,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 500000}"
+      ],
+      "barn_value": [
+        "{1, 500000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.0962627979301467
+    },
+    {
+      "name": "map17_grow_and_shrink_100k",
+      "code": "for i in [1..100000]; m = []; for j in [1..17]; m[j] = j; endfor; m = mapdelete(m, 17); endfor; return m;",
+      "toast_ms_median": 351.5513410093263,
+      "toast_ms_min": 351.274662069045,
+      "barn_ms_median": 734.0420569999999,
+      "barn_ms_min": 725.067085,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10, 11 -> 11, 12 -> 12, 13 -> 13, 14 -> 14, 15 -> 15, 16 -> 16]}"
+      ],
+      "barn_value": [
+        "{1, [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10, 11 -> 11, 12 -> 12, 13 -> 13, 14 -> 14, 15 -> 15, 16 -> 16]}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 2.088008126757584
+    },
+    {
+      "name": "map6_str_get_1M",
+      "code": "m = [\"name\" -> 1, \"owner\" -> 2, \"location\" -> 3, \"flags\" -> 4, \"desc\" -> 5, \"aliases\" -> 6]; x = 0; for i in [1..1000000]; x = x + m[\"desc\"]; endfor; return x;",
+      "toast_ms_median": 65.95159298740327,
+      "toast_ms_min": 65.57011394761503,
+      "barn_ms_median": 111.87175799999993,
+      "barn_ms_min": 111.26460999999921,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 5000000}"
+      ],
+      "barn_value": [
+        "{1, 5000000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 1.696270748477105
+    },
+    {
+      "name": "map1000_get_1M",
+      "code": "m = []; for j in [1..1000]; m[j] = j; endfor; x = 0; for i in [1..1000000]; x = x + m[1 + (i % 1000)]; endfor; return x;",
+      "toast_ms_median": 92.10886200889945,
+      "toast_ms_min": 91.80573804769665,
+      "barn_ms_median": 145.32810499999994,
+      "barn_ms_min": 144.81778400000067,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 500500000}"
+      ],
+      "barn_value": [
+        "{1, 500500000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 1.5777863479190364
+    },
+    {
+      "name": "map16_str_get_last_1M",
+      "code": "m = []; for j in [1..16]; m[tostr(\"property_name_\", j)] = j; endfor; x = 0; for i in [1..1000000]; x = x + m[\"property_name_16\"]; endfor; return x;",
+      "toast_ms_median": 98.70137902908027,
+      "toast_ms_min": 98.18968293257058,
+      "barn_ms_median": 130.93916699999932,
+      "barn_ms_min": 129.62041800000003,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 16000000}"
+      ],
+      "barn_value": [
+        "{1, 16000000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 1.3266194280975634
+    },
+    {
+      "name": "map16_str_set_500k",
+      "code": "m = []; for j in [1..16]; m[tostr(\"property_name_\", j)] = j; endfor; for i in [1..500000]; m[\"property_name_9\"] = i; endfor; return m[\"property_name_9\"];",
+      "toast_ms_median": 176.07778299134225,
+      "toast_ms_min": 173.84831001982093,
+      "barn_ms_median": 205.12203500000226,
+      "barn_ms_min": 202.73477199999945,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 500000}"
+      ],
+      "barn_value": [
+        "{1, 500000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 1.1649512591267015
+    },
+    {
+      "name": "map8_has_miss_1M",
+      "code": "m = [\"a\" -> 1, \"b\" -> 2, \"c\" -> 3, \"d\" -> 4, \"e\" -> 5, \"f\" -> 6, \"g\" -> 7, \"h\" -> 8]; x = 0; for i in [1..1000000]; x = x + maphaskey(m, \"zz\"); endfor; return x;",
+      "toast_ms_median": 188.84220102336258,
+      "toast_ms_min": 186.7179760010913,
+      "barn_ms_median": 172.58824500000003,
+      "barn_ms_min": 171.1924069999995,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 0}"
+      ],
+      "barn_value": [
+        "{1, 0}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 0.9139283701668374
+    },
+    {
+      "name": "map1000_build_200",
+      "code": "for i in [1..200]; m = []; for j in [1..1000]; m[j] = j; endfor; endfor; return length(m);",
+      "toast_ms_median": 763.5924079222605,
+      "toast_ms_min": 755.0873189466074,
+      "barn_ms_median": 104.68514000000084,
+      "barn_ms_min": 99.69037599999986,
+      "toast_n": 7,
+      "barn_n": 7,
+      "toast_value": [
+        "{1, 1000}"
+      ],
+      "barn_value": [
+        "{1, 1000}"
+      ],
+      "values_match": true,
+      "evals_succeeded": true,
+      "ratio": 0.1370955746991379
+    }
+  ]
+}
