@@ -553,6 +553,12 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 		}
 	}()
+	// Setup failures must stop the same runtime/scheduler as a completed run.
+	defer s.Stop()
+	defer func() {
+		stopSched()
+		<-schedDone
+	}()
 	// Mirror server boot: this registry must load the snapshot it executes.
 	s.Session().LoadServerOptionsFromStore(store)
 	s.Session().LoadProtectedBuiltinsFromStore(store)
@@ -617,11 +623,19 @@ func TestMongooseRealWorkload(t *testing.T) {
 			"  endif",
 			"endfor",
 			"cloaked = `property_info(#36, \"cloaked\") ! E_PROPNF => add_property(#36, \"cloaked\", 0, {#36, \"r\"})';",
+			// The October checkpoint gives #71 a home at #62, whose inherited
+			// acceptable returns 0. Toast rejects that owner-driven move too.
+			// Repair this captured fixture defect to its designated player start.
+			"home_repaired = 0;",
+			"if (#71.home == #62 && !#62:acceptable(#71) && $player_start:acceptable(#71))",
+			"  #71.home = $player_start; home_repaired = 1;",
+			"endif",
 			"if (#2585.sql:is_open())",
 			"  sqlite_execute(#2585.sql.handle, \"CREATE TABLE IF NOT EXISTS assets (asset_location TEXT, duration REAL);\", {});",
 			"endif",
-			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
+			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked, {home_repaired, #71.home}};",
 		}, "\n")
+		t.Logf("snapshot home before repair: %s", s.EvalCommandOutput(2, "return #71.home;"))
 		var out string
 		for attempt := 0; attempt < 60; attempt++ {
 			out = s.EvalCommandOutput(2, repair)
@@ -630,14 +644,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
+		if !strings.HasPrefix(out, "{1, {1,") {
+			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
+		}
+		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked, home repair}: %s", out)
 	}
-	defer s.Stop()
-	defer func() {
-		stopSched()
-		<-schedDone
-	}()
-
 	totalWeight := 0
 	for _, sh := range realShapes {
 		totalWeight += sh.weight

@@ -190,9 +190,10 @@ final implementation.
 
 A global bounded intern would additionally need owned key bytes, a demonstrated
 working set, capacity/eviction and concurrency measurements. No such pool is
-selected. The optional runtime-intern consideration is resolved by retaining
-the existing code and recording the demonstrated tradeoff, without claiming
-that every possible intern design is unhelpful.
+selected. CORRECTION: the earlier statement that the optional runtime-intern
+consideration was resolved was premature. This rejects one direct-sharing
+prototype; it does not complete the bounded-intern assessment or the original
+execution plan. See the off-design handoff in the living task note.
 
 ## Acceptance limits
 

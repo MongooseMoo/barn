@@ -197,3 +197,67 @@ jobs:
           mode: record
           name: ci
           extra: ${{ needs.tested.outputs.suite }}
+
+  issue279_measure:
+    name: Issue 279 workload evidence
+    needs: record
+    if: github.head_ref == 'perf/279-memory-evidence'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      # Temporary experiment. Native copies with verified hashes keep the
+      # Windows/9p fixture transport outside the loaded workload process.
+      - name: Measure repaired original checkpoint
+        shell: bash
+        env:
+          BARN_MONGOOSE_BENCH: '1'
+          BARN_MONGOOSE_PLAYERS: '16'
+          BARN_MONGOOSE_WARMUP: 5s
+          BARN_MONGOOSE_MEASURE: 30s
+          BARN_MONGOOSE_GOGC: '400'
+          GOMAXPROCS: '32'
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/issue279-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          saved="/mnt/c/Users/Q/code/barn/.tmp/issue-279-ci/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$evidence" "$saved"
+          trap 'cp -R "$evidence"/. "$saved"/' EXIT
+          cp /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-10-10T0548 "$evidence/input.db"
+          cp /mnt/c/Users/Q/code/barn/.tmp/mongoose-account-20260917/sound.sqlite "$evidence/sound.sqlite"
+          export BARN_MONGOOSE_DB="$evidence/input.db" BARN_MONGOOSE_SOUND_DB="$evidence/sound.sqlite"
+          {
+            git rev-parse HEAD
+            go version
+            uname -a
+            getconf PAGESIZE
+            df -T "$evidence"
+            sha256sum "$BARN_MONGOOSE_DB" "$BARN_MONGOOSE_SOUND_DB"
+            env | sort | grep -E '^(BARN_MONGOOSE_|GOMAXPROCS=)'
+          } > "$evidence/manifest.txt"
+          printf '%s  %s\n' 12286fda9b50bffa826186e518f1ba14781bedbbfae7eae35197e9d8ebfc0d56 "$BARN_MONGOOSE_DB" 250b9b69fae2dad6788061a1abb029332f564b92e630514c93181030f7277ca9 "$BARN_MONGOOSE_SOUND_DB" | sha256sum -c -
+          go test -c -o "$evidence/engine.test" ./engine
+          sha256sum "$evidence/engine.test" >> "$evidence/manifest.txt"
+          cd engine
+          failed=0
+          for sample in 1 2 3 diagnostic; do
+            if [ "$sample" = diagnostic ]; then
+              export BARN_MONGOOSE_MEMSTATS=1 GODEBUG=gctrace=1
+              export BARN_MONGOOSE_CPUPROFILE="$evidence/runtime.cpu" BARN_MONGOOSE_MEMPROFILE="$evidence/runtime.heap"
+            fi
+            if "$evidence/engine.test" -test.run '^TestMongooseRealWorkload$' -test.v -test.count=1 -test.timeout=180s > "$evidence/sample-$sample.txt" 2>&1; then
+              echo "sample $sample: process exit 0"
+            else
+              code=$?
+              echo "sample $sample: process exit $code"
+              failed=1
+            fi
+            if grep -E 'cohort submitted=|players=16 goodput=|gc: cycles=|memory MiB after' "$evidence/sample-$sample.txt"; then :; else failed=1; fi
+            if grep -qE 'cohort submitted=.* failed=0 unsettled_at_return=0 ' "$evidence/sample-$sample.txt"; then :; else failed=1; fi
+          done
+          echo "Raw evidence: $saved"
+          exit "$failed"
