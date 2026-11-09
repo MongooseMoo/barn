@@ -192,10 +192,17 @@ func (r *slotResolver) layoutOf(obj *store.ObjectBuilder) *store.SlotLayout {
 // are such instances.
 func (r *slotResolver) layoutFor(obj *store.ObjectBuilder) *store.SlotLayout {
 	if parents := obj.Parents(); obj.PropDefsCount() == 0 && len(parents) == 1 {
-		parent := r.database.Objects[parents[0]]
+		parent := r.database.ancestor(parents[0])
 		if parent != nil && parent != obj && !r.visiting[parent.ID()] {
 			r.visiting[obj.ID()] = true
-			layout := r.layoutOf(parent)
+			var layout *store.SlotLayout
+			if r.database.Objects[parent.ID()] == parent {
+				layout = r.layoutOf(parent)
+			} else {
+				// Anonymous ids share numbers with the numbered space, so an
+				// anonymous parent's layout is not remembered by id.
+				layout = r.layoutFor(parent)
+			}
 			delete(r.visiting, obj.ID())
 			if layout.Slots() == obj.LoadedSlotCount() {
 				return layout
@@ -224,9 +231,28 @@ func (database *Database) slotNames(obj *store.ObjectBuilder) []string {
 // by walking up the parent chain and collecting raw propdefs.
 // Raw object state stores local propdefs in the first PropDefsCount entries.
 func (database *Database) rawPropertyNames(obj *store.ObjectBuilder) []string {
-	return propertyNamesSelfFirst(obj, func(id types.ObjID) *store.ObjectBuilder {
-		return database.Objects[id]
-	})
+	return propertyNamesSelfFirst(obj, database.ancestor)
+}
+
+// ancestor returns the object a parent id names during name resolution, the
+// way the loaded store resolves it (store.Store.liveObjectLocked, which also
+// names the slots a checkpoint writes): a valid numbered object, otherwise a
+// valid anonymous object loaded under that id. Resolving numbered objects
+// alone would name an anonymous parent's slots with placeholders on load
+// while the next checkpoint writes them under the parent's names as well,
+// adding slots on every round trip.
+func (database *Database) ancestor(id types.ObjID) *store.ObjectBuilder {
+	if obj := database.Objects[id]; validLoadedObject(obj) {
+		return obj
+	}
+	if obj := database.loadedAnonymous[id]; validLoadedObject(obj) {
+		return obj
+	}
+	return nil
+}
+
+func validLoadedObject(obj *store.ObjectBuilder) bool {
+	return obj != nil && !obj.Recycled() && !obj.Flags().Has(store.FlagInvalid)
 }
 
 func propertyNamesSelfFirst(obj *store.ObjectBuilder, parent func(types.ObjID) *store.ObjectBuilder) []string {

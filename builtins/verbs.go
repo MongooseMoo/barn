@@ -101,7 +101,7 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 		// Return {defining_object, verb_name}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
-			types.NewStr(strings.Join(verb.Names, " ")),
+			types.InternStr(strings.Join(verb.Names, " ")),
 		}))
 	}
 

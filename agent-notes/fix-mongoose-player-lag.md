@@ -355,5 +355,12 @@ using its old one-argument signature. Both now supply the fixture's entry PC,
 zero. The decoder retains shape validation and native pending-reason decoding;
 the existing vet check caught the integration defect before queue admission.
 
+All replacement PR checks passed, including conformance, pinned Elle and
+Jepsen. Raw Elle evidence is retained in .tmp/nov9-merge-elle. Before queue
+admission, the completed memory-evidence PR introduced a workload setup/cleanup
+conflict. Integrated it while retaining early host/options/continuation setup,
+placing runtime cleanup immediately after runtime construction, and retaining
+scheduler cleanup immediately after scheduler launch. Options are loaded once.
+
 Next: finish fresh PR checks and verify the normal merge queue actually merges this PR. Existing
 first-output evidence limits remain; this delivery does not claim a speedup.
