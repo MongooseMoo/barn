@@ -97,7 +97,7 @@ func resumeThroughCheckpoint(t *testing.T, source []string) types.Result {
 		t.Fatalf("initial result = %#v, want suspend inside the loop", result)
 	}
 
-	restored, _ := checkpointSuspendedVM(t, machine, store)
+	restored, _, _ := checkpointSuspendedVM(t, machine, store, nil)
 	result := restored.Resume()
 	for suspends := 0; result.Flow == types.FlowSuspend; suspends++ {
 		if suspends > 3 {

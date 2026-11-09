@@ -67,10 +67,12 @@ type sourceFuzzTasks struct {
 	forks   []sourceFuzzFork
 	store   *dbstore.Store
 	session *builtins.Session
+	ticks   int64 // zero selects the raw-source budget
+	wizard  bool  // the world-history fixture executes as its wizard #0
 	// checkpoint, when set, replaces each task suspended by suspend() with
 	// one restored from a checkpoint, and returns the store the remaining
 	// execution uses. suspends counts the replacements.
-	checkpoint func(t *testing.T, machine *VM, store *dbstore.Store) (*VM, *dbstore.Store)
+	checkpoint checkpointFunc
 	suspends   int
 }
 
@@ -79,18 +81,38 @@ type sourceFuzzTasks struct {
 // are results; a Go panic fails the case.
 func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []types.Result {
 	t.Helper()
-	machine := newSourceFuzzVM(tasks.store, tasks.session, 1, sourceFuzzTicks)
+	budget := tasks.ticks
+	if budget == 0 {
+		budget = sourceFuzzTicks
+	}
+	machine := newSourceFuzzVM(tasks.store, tasks.session, 1, budget)
+	machine.Context.IsWizard = tasks.wizard
+	if tasks.wizard {
+		machine.Context.Programmer = 0
+		machine.Context.Player = 0
+		machine.Context.ThisObj = 0
+		machine.Task.Owner = 0
+		machine.Task.Programmer = 0
+	}
 	result, machine := tasks.run(t, machine, machine.Run(program))
 	results := []types.Result{result}
 	spent := machine.Ticks
 	// Forked children run after their creator, in creation order, on the
 	// ticks the earlier tasks left. A child that would start with none left
 	// is not run. Children fork further children onto the same queue.
-	for len(tasks.forks) > 0 && spent < sourceFuzzTicks {
+	for len(tasks.forks) > 0 && spent < budget {
 		fork := tasks.forks[0]
 		tasks.forks = tasks.forks[1:]
-		child := NewForkVM(tasks.store, tasks.session, fork.id, fork.info, ForkBodyProgram(fork.info), sourceFuzzTicks-spent)
+		program := fork.program
+		if program == nil {
+			program = ForkBodyProgram(fork.info)
+		}
+		child := NewForkVM(tasks.store, tasks.session, fork.id, fork.info, program, budget-spent)
 		attachSourceFuzzTask(child, fork.id)
+		child.Context.Programmer = fork.programmer
+		child.Context.Player = fork.info.Player
+		child.Context.ThisObj = fork.info.ThisObj
+		child.Context.IsWizard = tasks.wizard
 		result, child = tasks.run(t, child, child.ExecuteLoop())
 		results = append(results, result)
 		spent += child.Ticks
@@ -99,8 +121,10 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 }
 
 type sourceFuzzFork struct {
-	id   int64
-	info *types.ForkInfo
+	id         int64
+	info       *types.ForkInfo
+	program    *bytecode.Program // recompiled body of a checkpoint-restored child
+	programmer types.ObjID
 }
 
 // newSourceFuzzVM returns a VM on store with its own task context and state.
@@ -149,11 +173,11 @@ func (tasks *sourceFuzzTasks) run(t *testing.T, machine *VM, result types.Result
 			if ForkBodyProgram(result.ForkInfo) == nil {
 				t.Fatalf("fork yield without a fork body: %+v", result.ForkInfo)
 			}
-			tasks.forks = append(tasks.forks, sourceFuzzFork{id: tasks.nextID, info: result.ForkInfo})
+			tasks.forks = append(tasks.forks, sourceFuzzFork{id: tasks.nextID, info: result.ForkInfo, programmer: machine.Context.Programmer})
 			machine.SetForkResult(tasks.nextID)
 			tasks.nextID++
 		} else if tasks.checkpoint != nil {
-			machine, tasks.store = tasks.checkpoint(t, machine, tasks.store)
+			machine, tasks.store, tasks.forks = tasks.checkpoint(t, machine, tasks.store, tasks.forks)
 			tasks.suspends++
 		}
 		result = machine.Resume()

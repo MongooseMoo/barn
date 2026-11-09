@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"testing"
@@ -26,7 +27,28 @@ func FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder(f *testing.F) {
 type mapHistoryOperation struct {
 	delete bool
 	key    int64
-	value  int64
+	upper  bool
+	value  Value
+}
+
+// A logical key ID determines an independent typed key. String spelling may
+// change on overwrite while its case-insensitive identity stays the same.
+func mapHistoryKey(id int64, upper bool) Value {
+	n := id / 4
+	switch id % 4 {
+	case 0:
+		return NewInt(n)
+	case 1:
+		prefix := "k"
+		if upper {
+			prefix = "K"
+		}
+		return NewStr(fmt.Sprintf("%s%d", prefix, n))
+	case 2:
+		return NewFloat(float64(n))
+	default:
+		return NewObj(ObjID(n))
+	}
 }
 
 // This single property runs under both Rapid's shrinking/replay runner and
@@ -37,9 +59,18 @@ func mapUpdatesPreserveSnapshotsAndInsertionOrder(t *rapid.T) {
 		op := mapHistoryOperation{
 			delete: rapid.SampledFrom([]bool{false, false, false, true}).Draw(t, "delete"),
 			key:    rapid.Int64Range(0, 119).Draw(t, "key"),
+			upper:  rapid.Bool().Draw(t, "uppercase key"),
 		}
 		if !op.delete {
-			op.value = rapid.Int64().Draw(t, "value")
+			value := NewInt(rapid.Int64().Draw(t, "value"))
+			switch rapid.IntRange(0, 2).Draw(t, "value shape") {
+			case 0:
+				op.value = value
+			case 1:
+				op.value = NewList([]Value{value, NewStr("nested")})
+			case 2:
+				op.value = NewMap([][2]Value{{NewStr("nested"), NewList([]Value{value})}})
+			}
 		}
 		return op
 	})
@@ -49,7 +80,8 @@ func mapUpdatesPreserveSnapshotsAndInsertionOrder(t *rapid.T) {
 	minimum := rapid.IntRange(1, 128).Draw(t, "minimum history length")
 	operations := rapid.SliceOfN(operation, minimum, 256).Draw(t, "operations")
 	m := NewEmptyMap()
-	reference := map[int64]int64{}
+	reference := map[int64]Value{}
+	spellings := map[int64]Value{}
 	var order []int64
 	snapshots := []Value{m}
 	expected := [][][2]Value{nil}
@@ -76,31 +108,34 @@ func mapUpdatesPreserveSnapshotsAndInsertionOrder(t *rapid.T) {
 	for i, op := range operations {
 		step = i
 		key := op.key
+		typedKey := mapHistoryKey(key, op.upper)
 		if op.delete {
-			t.Logf("op %d: delete(%d)", step, key)
-			m = m.MapDelete(NewInt(key))
+			t.Logf("op %d: delete(%s)", step, typedKey.String())
+			m = m.MapDelete(typedKey)
 			delete(reference, key)
+			delete(spellings, key)
 			for j, k := range order {
 				if k == key {
 					order = append(order[:j], order[j+1:]...)
 					break
 				}
 			}
-			if _, ok := m.MapGet(NewInt(key)); ok {
+			if _, ok := m.MapGet(typedKey); ok {
 				t.Fatalf("after op %d: deleted key %d remains", step, key)
 			}
 		} else {
 			value := op.value
-			t.Logf("op %d: set(%d, %d)", step, key, value)
+			t.Logf("op %d: set(%s, %s)", step, typedKey.String(), value.String())
 			if _, exists := reference[key]; !exists {
 				order = append(order, key)
 			}
 			reference[key] = value
-			m = m.MapSet(NewInt(key), NewInt(value))
+			spellings[key] = typedKey
+			m = m.MapSet(typedKey, value)
 		}
 		pairs := make([][2]Value, len(order))
 		for j, k := range order {
-			pairs[j] = [2]Value{NewInt(k), NewInt(reference[k])}
+			pairs[j] = [2]Value{spellings[k], reference[k]}
 		}
 		// Force the lazy Toast tree before later aliases change, as in the
 		// original fixed-seed test. Expected pairs come only from the model.

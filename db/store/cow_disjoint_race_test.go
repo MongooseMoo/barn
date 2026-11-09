@@ -250,26 +250,25 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		}(id, w)
 	}
 
-	// A second set of disjoint writers exercising property DELETE on a separate
-	// object set, so the property-delete builder is hit under -race.
-	// ClearPropertyOverride stages a propertyDeletes entry (decentralized-eligible:
-	// it touches neither propertyDefines nor propertyDefinitionDeletes). Each round
-	// re-defines "scratch" via the coarse store API (live mutation serialized by
-	// store.mu.Lock, which excludes the decentralized committers) so the next delete
-	// has a target to remove.
+	// Disjoint definition deletes overlap the ordinary value writers/readers.
+	// Clearing an inherited value retains its metadata slot and is not a
+	// definition deletion, so exercise the actual deletion producer here.
 	delIDs := ids[:4]
 	for _, id := range delIDs {
 		wg.Add(1)
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach/4; c++ {
-				_ = store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
+				if ec := store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+					t.Errorf("define scratch: %v", ec)
+					return
+				}
 				tx := store.BeginSnapshot(0)
-				if errCode := tx.ClearPropertyOverride(id, "scratch"); errCode != types.E_NONE {
+				if errCode := tx.DeleteDefinedProperty(id, "scratch"); errCode != types.E_NONE {
 					_ = tx.Commit()
 					continue
 				}
-				_ = tx.Commit() // decentralized property-delete publish
+				_ = tx.Commit()
 			}
 		}(id)
 	}

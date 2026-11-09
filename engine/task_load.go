@@ -3,7 +3,6 @@ package engine
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -152,44 +151,17 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	// use that program's names, not the enclosing parent's saved name table.
 	// Native reorder_rt_env leaves unmatched slots uninitialized, including
 	// implicit type constants; this is not a fresh verb's initialization.
-	t.ForkInfo.Variables = make(map[string]types.Value, len(prog.VarNames))
+	variables, err := task.RestoreForkEnvironment(prog, saved.Variables)
+	if err != nil {
+		return err
+	}
+	t.ForkInfo.Variables = variables
 	for slot, name := range prog.VarNames {
-		value := types.Unbound
-		matched := false
-		for savedName, savedValue := range saved.Variables {
-			if strings.EqualFold(savedName, name) {
-				// The reader's map has lost serialized order. Reject ambiguous
-				// spellings instead of guessing native's first-match value.
-				if matched {
-					return fmt.Errorf("ambiguous saved local %q", name)
-				}
-				value, matched = savedValue, true
-			}
-		}
-		frame.Locals[slot] = value
-		t.ForkInfo.Variables[name] = frame.Locals[slot]
+		frame.Locals[slot] = variables[name]
 	}
 	for _, name := range task.CommandVariableNames {
-		present := false
-		for _, sourceName := range prog.VarNames {
-			if strings.EqualFold(name, sourceName) {
-				present = true
-				break
-			}
-		}
-		if present {
-			continue
-		}
-		matched := false
-		for savedName, value := range saved.Variables {
-			if strings.EqualFold(savedName, name) {
-				if matched {
-					return fmt.Errorf("ambiguous saved local %q", name)
-				}
-				matched = true
-				vm.SetLocalByName(frame, prog, name, value)
-				t.ForkInfo.Variables[name] = value
-			}
+		if value, present := variables[name]; present {
+			vm.SetLocalByName(frame, prog, name, value)
 		}
 	}
 	t.SetVM(machine)

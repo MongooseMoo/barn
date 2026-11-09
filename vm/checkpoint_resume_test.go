@@ -55,7 +55,7 @@ func decodeChoices(t testing.TB, seed string) []byte {
 func TestCheckpointResumeSeedsReachCheckpoint(t *testing.T) {
 	for i, seed := range checkpointResumeSeeds {
 		source := fuzzseed.StructuredSource(t, decodeChoices(t, seed))
-		difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM)
+		difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
 		if skip != "" || difference != "" {
 			t.Errorf("seed %d: difference %q, skip %q; want neither\nsource:\n%s", i, difference, skip, source)
 		}
@@ -66,7 +66,7 @@ func TestCheckpointResumeSeedsReachCheckpoint(t *testing.T) {
 // reason, a case the property cannot check.
 func checkCheckpointResumeEquivalence(t *testing.T, source string) {
 	t.Helper()
-	difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM)
+	difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
 	if skip != "" {
 		t.Skip(skip)
 	}
@@ -78,7 +78,7 @@ func checkCheckpointResumeEquivalence(t *testing.T, source string) {
 // checkpointFunc replaces a task suspended by suspend() with one restored
 // from a checkpoint of it and store, and returns the store the rest of the
 // execution uses.
-type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store) (*VM, *dbstore.Store)
+type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store, queued []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork)
 
 // checkpointResumeDifference runs source twice from the same database: once
 // uninterrupted, and once with checkpoint applied at every suspend() yield of
@@ -93,10 +93,9 @@ type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store) (*VM, 
 //
 // Fork yields are not checkpoint boundaries: the runtime queues a forked
 // child before its parent continues (engine.Runtime.drainForks), so no
-// checkpoint sees a VM stopped at a fork. Children queued before a checkpoint
-// stay in memory here and run on the reloaded store; queued-task retention
-// through a checkpoint is not covered.
-func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc) (difference, skip string) {
+// checkpoint sees a VM stopped at a fork. Already queued children are written
+// with the suspended parent and reconstructed from the loaded code/environment.
+func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc, ticks int64, wizard bool) (difference, skip string) {
 	t.Helper()
 	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
 	if err != nil {
@@ -106,10 +105,13 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 	if len(diagnostics) != 0 {
 		t.Fatalf("program does not compile: %v\nsource:\n%s", diagnostics, source)
 	}
-	plain, plainState, _ := runCheckpointResumeCase(t, registry, program, nil)
-	resumed, resumedState, suspends := runCheckpointResumeCase(t, registry, program, checkpoint)
-	for _, results := range [][]types.Result{plain, resumed} {
+	plain, plainState, _ := runCheckpointResumeCase(t, registry, program, nil, ticks, wizard)
+	resumed, resumedState, suspends := runCheckpointResumeCase(t, registry, program, checkpoint, ticks, wizard)
+	for lane, results := range [][]types.Result{plain, resumed} {
 		for _, result := range results {
+			if wizard && result.Flow != types.FlowReturn {
+				t.Fatalf("world history lane %d did not complete: %s; frames=%v\n%s", lane, describeTaskResult(result), result.CallStack, source)
+			}
 			if result.Flow == types.FlowException && result.Reason == types.ExceptionReasonSecondsBudget {
 				return "", "a task hit the seconds budget, which depends on wall-clock time"
 			}
@@ -137,7 +139,7 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 // runCheckpointResumeCase runs program on a fresh copy of the property's
 // database with its own session, and returns the task results, the observed
 // persistent state, and the number of checkpoints taken.
-func runCheckpointResumeCase(t *testing.T, registry *builtins.Registry, program *bytecode.Program, checkpoint checkpointFunc) ([]types.Result, types.Value, int) {
+func runCheckpointResumeCase(t *testing.T, registry *builtins.Registry, program *bytecode.Program, checkpoint checkpointFunc, ticks int64, wizard bool) ([]types.Result, types.Value, int) {
 	t.Helper()
 	session := newTestSessionWithTaskManager(registry)
 	defer func() {
@@ -145,7 +147,7 @@ func runCheckpointResumeCase(t *testing.T, registry *builtins.Registry, program 
 			t.Error(err)
 		}
 	}()
-	tasks := &sourceFuzzTasks{nextID: 2, store: newCheckpointResumeStore(t), session: session, checkpoint: checkpoint}
+	tasks := &sourceFuzzTasks{nextID: 2, store: newCheckpointResumeStore(t), session: session, checkpoint: checkpoint, ticks: ticks, wizard: wizard}
 	results := tasks.runAll(t, program)
 	return results, observePersistentState(t, tasks.store, session), tasks.suspends
 }
@@ -160,7 +162,7 @@ func newCheckpointResumeStore(t *testing.T) *dbstore.Store {
 		builder := dbstore.NewObjectBuilder(id)
 		builder.SetOwner(2)
 		builder.SetLocation(types.ObjNothing)
-		builder.SetFlags(dbstore.FlagWizard | dbstore.FlagUser)
+		builder.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
 		if err := store.Add(builder.Build()); err != nil {
 			t.Fatalf("add object #%d: %v", id, err)
 		}
@@ -182,7 +184,10 @@ var persistentStateObserver = []string{
 	"  if (valid(o))",
 	"    v = {o, o.name, o.owner, o.location, o.contents, parent(o), o.wizard, o.programmer, o.r, o.w, o.f};",
 	"    for p in (properties(o))",
-	"      v = {@v, p, o.(p)};",
+	"      v = {@v, p, o.(p), property_info(o, p)};",
+	"    endfor",
+	"    for verb in (verbs(o))",
+	"      v = {@v, verb, verb_info(o, verb), verb_args(o, verb), verb_code(o, verb)};",
 	"    endfor",
 	"    r = {@r, v};",
 	"  endif",
@@ -221,8 +226,19 @@ func describeTaskResult(result types.Result) string {
 // engine.Runtime.loadSuspendedTask does. The restored VM keeps the task's
 // state and tick count: a snapshot carries no ticks, and the fuzz driver's
 // budget spans the whole task.
-func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store) (*VM, *dbstore.Store) {
+func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, forks []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
 	t.Helper()
+	queued := make([]task.Snapshot, len(forks))
+	for i, fork := range forks {
+		state := task.NewState(fork.id, fork.info.Player, machine.TickLimit, 1)
+		state.ForkInfo = fork.info
+		state.Program = fork.program
+		state.Programmer = fork.programmer
+		state.This = fork.info.ThisObj
+		state.VerbLoc = fork.info.VerbLoc
+		state.VerbName = fork.info.Verb
+		queued[i] = state.PersistenceSnapshotLocked()
+	}
 	suspended := []task.Snapshot{{
 		ID:            machine.Task.ID,
 		Owner:         machine.Task.Owner,
@@ -235,7 +251,7 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store) (*VM
 		VM:            machine.PersistenceVMSnapshot(),
 	}}
 	path := filepath.Join(t.TempDir(), "checkpoint.db")
-	if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
+	if err := dbformat.WriteCheckpoint(path, store, queued, suspended, nil); err != nil {
 		t.Fatalf("WriteCheckpoint failed: %v", err)
 	}
 	reloaded, err := dbformat.LoadDatabase(path + ".new")
@@ -244,6 +260,28 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store) (*VM
 	}
 	if got := len(reloaded.SuspendedTasks); got != 1 {
 		t.Fatalf("suspended tasks = %d, want 1", got)
+	}
+	if got := len(reloaded.QueuedTasks); got != len(forks) {
+		t.Fatalf("queued tasks = %d, want %d", got, len(forks))
+	}
+	restoredForks := make([]sourceFuzzFork, len(forks))
+	for i, saved := range reloaded.QueuedTasks {
+		program, diagnostics := machine.Builtins.Registry().Compiler().CompileMOO(saved.Code)
+		if len(diagnostics) != 0 {
+			t.Fatalf("queued child %d does not compile: %v", saved.ID, diagnostics)
+		}
+		if saved.ID != forks[i].id {
+			t.Fatalf("queued child %d changed ID/order to %d", forks[i].id, saved.ID)
+		}
+		variables, err := task.RestoreForkEnvironment(program, saved.Variables)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restoredForks[i] = sourceFuzzFork{id: saved.ID, program: program, programmer: saved.Programmer, info: &types.ForkInfo{
+			Variables: variables, SourceLines: saved.Code,
+			ThisObj: saved.This, ThisValue: types.None, Player: saved.Player,
+			Caller: saved.Player, Verb: saved.Verb, VerbLoc: saved.VerbLoc,
+		}}
 	}
 	reloadedStore, err := reloaded.NewStoreFromDatabase()
 	if err != nil {
@@ -262,30 +300,31 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store) (*VM
 	restored.Task = machine.Task
 	restored.TickLimit = machine.TickLimit
 	restored.Ticks = machine.Ticks
-	return restored, reloadedStore
+	if frame := restored.CurrentFrame(); frame == nil {
+		t.Fatal("restored suspended VM has no active frame")
+	}
+	return restored, reloadedStore, restoredForks
 }
 
 // The property fails, naming the task and the state, when a checkpoint
 // loses a persisted write.
 func TestCheckpointResumeEquivalenceDetectsDroppedWrite(t *testing.T) {
 	source := "#0.p = 5;\nsuspend();\nreturn #0.p;"
-	difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM)
+	difference, skip := checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
 	if difference != "" || skip != "" {
 		t.Fatalf("unperturbed checkpoint: difference %q, skip %q; want neither", difference, skip)
 	}
 
-	dropWrite := func(t *testing.T, machine *VM, store *dbstore.Store) (*VM, *dbstore.Store) {
-		restored, reloaded := checkpointSuspendedVM(t, machine, store)
+	dropWrite := func(t *testing.T, machine *VM, store *dbstore.Store, queued []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+		restored, reloaded, forks := checkpointSuspendedVM(t, machine, store, queued)
 		if code := reloaded.DirectTxn().SetPropertyValue(0, "p", types.NewInt(0)); code != types.E_NONE {
 			t.Fatalf("reset #0.p: %v", code)
 		}
-		return restored, reloaded
+		return restored, reloaded, forks
 	}
-	difference, skip = checkpointResumeDifference(t, source, dropWrite)
-	want := "task 1: uninterrupted return 5, checkpointed return 0; persistent state: " +
-		`uninterrupted {{#0, "", #2, #-1, {}, #-1, 1, 0, 0, 0, 0, "p", 5}, {#2, "", #2, #-1, {}, #-1, 1, 0, 0, 0, 0, "p", 0}}, ` +
-		`checkpointed {{#0, "", #2, #-1, {}, #-1, 1, 0, 0, 0, 0, "p", 0}, {#2, "", #2, #-1, {}, #-1, 1, 0, 0, 0, 0, "p", 0}}`
-	if skip != "" || difference != want {
+	difference, skip = checkpointResumeDifference(t, source, dropWrite, sourceFuzzTicks, false)
+	want := "task 1: uninterrupted return 5, checkpointed return 0; persistent state: "
+	if skip != "" || !strings.HasPrefix(difference, want) {
 		t.Fatalf("dropped write: difference\n%s\nskip %q; want difference\n%s", difference, skip, want)
 	}
 }
