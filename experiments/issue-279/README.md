@@ -4,7 +4,191 @@
 
 Complete the remaining evidence for the existing property and load-string sharing,
 and assess whether runtime short-string interning is justified. The three original
-implementation slices are present in current source. No new intern pool is assumed.
+implementation slices are present in current source. The retained runtime change
+is a producer-specific bounded owning intern. The historical failed experiment
+below is preserved separately from the completed valid comparison.
+
+## Repaired control and owning-intern candidate
+
+The captured checkpoint has `#71.home == #62`, whose inherited `acceptable` verb
+returns literal zero. Managed stock WSL Toast confirms that even an object's
+nonwizard owner gets E_NACC when the destination's accept returns zero. The
+existing explicit workload repair now assigns the designated accepting
+`$player_start` only for this captured bad-home condition. Repair readiness is
+fatal on failure. Command mix, 16 players, 5 s warmup, 30 s measure, GOGC=400,
+GOMAXPROCS=32 and the existing 10 s command deadline remain unchanged.
+
+Input copies are staged on native ext4 and checksum-verified before the workload
+process starts. Staging failures remain fatal; no retry was added. Workload tests
+now fail on failed commands as well as unsettled commands. This closes the old
+case where a test process passed despite an invalid cohort.
+
+[Repaired-control CI](https://github.com/MongooseMoo/barn/actions/runs/42661518475)
+completed successfully. Private evidence is under
+`C:/Users/Q/code/barn/.tmp/issue-279-ci/42661518475-1/`.
+
+| Control process | Submitted | Completed | Failed | Unsettled | Goodput/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 9395 | 9395 | 0 | 0 | 312 |
+| 2 | 10060 | 10060 | 0 | 0 | 334 |
+| 3 | 6636 | 6636 | 0 | 0 | 220 |
+| Diagnostic | 8499 | 8499 | 0 | 0 | 277 |
+
+The diagnostic process is separate from the uninstrumented controls. It retains
+clean gctrace, CPU and heap profiles. Three control observations alone do not
+establish a candidate speedup. The paired comparison alternates control/candidate
+order across six independent pairs and collects separate diagnostic processes.
+The saved control executable SHA-256 is
+`4d550c64ad13f4cb0c710723bcbc0e898362c88fe9b66fe6d750177b52130c59`.
+
+The input census in [verb-name-census.json](verb-name-census.json) finds 18,451
+definitions / 13,202 distinct canonical names; 18,381 definitions / 13,142
+distinct names are at most 64 bytes. The candidate calls `types.InternStr` only
+for `respond_to`'s canonical result. Its 16,384 fixed slots are partitioned among
+64 mutex-protected shards. Misses replace one slot with a representation owning
+cloned bytes; collisions never mutate returned Values. Empty/long strings use
+NewStr. The maximum owned representations/text occupy approximately 2 MiB plus
+128 KiB of slots/mutexes, independent of the unique-input count. This is a cache
+budget, not a total-process memory prediction.
+
+Focused tests cover byte identity, case, invalid UTF-8, Unicode character counts,
+append aliases, large backing ownership, eviction, concurrent access, bounded
+retention and zero-allocation warm hits. The race test passed. The canonical-name
+regression failed before implementation on all four cases. The owning candidate's
+four-byte response retention delta was -49,304 bytes, with no 16 MiB backing
+retained. Negative deltas mean unrelated fixture garbage was reclaimed.
+
+Fresh offline control/candidate observations (Go 1.27.1, original input):
+
+| Metric | Control | Candidate |
+| --- | ---: | ---: |
+| Windows heap_alloc, bytes | 399468400 | 399458800 |
+| Windows resident, bytes | 559501312 | 560046080 |
+| Linux heap_alloc, bytes | 399449536 | 399450400 |
+| Linux resident, 4096-byte pages | 133641 | 137994 |
+| Linux resident, bytes | 547393536 | 565219328 |
+
+These separate offline eval processes are below the 600,000,000-byte resident
+target; they do not measure busy-server residency. Linux control and candidate
+`-dump` commands both completed their built-in reload/store comparison. `cmp`
+returned zero, and both output dumps have SHA-256
+`544a3bcd3af50ca68fb02248cff19e5281aafc0ea27c94de9dc1e437e48400b3`.
+Private cold profiles/dumps remain under `/root/.cache/barn279-cold` in Debian WSL.
+
+## Completed paired comparison
+
+[Comparison CI](https://github.com/MongooseMoo/barn/actions/runs/42665898830)
+completed successfully. Private raw evidence is under
+`C:/Users/Q/code/barn/.tmp/issue-279-ci/42665898830-1/`: manifest, both exact
+executables, original inputs, twelve uninstrumented logs, two diagnostic logs and
+both CPU/heap profiles. All fourteen processes passed with zero failed commands
+and zero unsettled commands. Native background exception output remains in the
+raw logs; this statement concerns the measured command cohorts.
+
+Control source is `478ab9bfea1e9bb4970290995527693ede9411bd` (tree identical to
+the repaired pre-intern branch). Candidate source is
+`fe3db676e7673b2e4e42bf9d94d8080f0ebb7b4f`; its executable SHA-256 is
+`ecdaa1146216824cdae282d21655dea76c3f16b22bd4d513afbe7db4800620f6`.
+The candidate was built from the branch rather than the moving synthetic merge
+to exclude unrelated master changes from this comparison. Ordinary correctness
+CI tested the synthetic merge separately. The temporary experiment job and its
+checkout override are removed from the final workflow.
+
+Odd pairs ran control then candidate; even pairs reversed that order. Each table
+entry is `completed / goodput per second / allocations per completed command`.
+Every submitted command completed successfully; there are no excluded samples.
+
+| Pair | Control | Candidate |
+| --- | --- | --- |
+| 1 | 7413 / 246 / 27681 | 8800 / 293 / 26310 |
+| 2 | 9599 / 319 / 25742 | 8974 / 298 / 25971 |
+| 3 | 10776 / 357 / 25203 | 10565 / 350 / 25858 |
+| 4 | 7728 / 256 / 25593 | 8230 / 273 / 24867 |
+| 5 | 5634 / 184 / 30448 | 7272 / 224 / 26359 |
+| 6 | 8754 / 291 / 26169 | 7964 / 264 / 26649 |
+
+Goodput includes the actual measured interval and drain, not just the requested
+30 seconds. Mean of the six exact rates is 275.59/s control and 283.50/s candidate
+(+2.87%). Candidate wins three pairs and loses three; paired ratios range from
+0.908 to 1.218. This does not establish a general throughput speedup. There is no
+observed aggregate goodput regression in this set.
+
+Using completed-command counts as weights, the rounded harness allocation
+figures give approximately 26,497 versus 25,989 allocations/command (-1.92%) and
+2,778,016 versus 2,733,553 bytes/command (-1.60%). Allocation medians are 25,955.5
+versus 26,140.5, so the whole-program allocation results are also noisy. These
+aggregate figures include background work during the window.
+
+The separate allocation profiles directly verify the targeted producer:
+
+```text
+control builtinRespondTo:   cum alloc_objects 17406878
+  child types.NewStr:                        5636439
+candidate builtinRespondTo: cum alloc_objects 10938760
+  child types.NewStr:                        not reported
+```
+
+Profiles include startup/loading and are sampled; their raw totals are not
+window-only counts or a normalized application-speed comparison. The focused
+warm canonical-name benchmark independently changes 160 B/3 allocations to
+96 B/2 allocations (aliases: 176 B/4 to 112 B/3). Retain the owning intern for
+this verified allocation saving with a fixed retention budget and no observed
+aggregate goodput regression. Do not claim an overall GC or latency improvement.
+
+## Separate GC and busy-memory diagnostics
+
+Both diagnostic cohorts completed: control 9,943 and candidate 9,004 commands,
+zero failed/unsettled. These instrumented timings are not pooled with the twelve
+uninstrumented observations.
+
+| Measured-window diagnostic | Control | Candidate |
+| --- | ---: | ---: |
+| GC cycles | 7 | 7 |
+| GC CPU seconds | 13.16 | 13.56 |
+| GC share of busy CPU | 5.0% | 5.1% |
+| Total stop-the-world pause | 7.308389 ms | 6.240650 ms |
+| Post-window forced-GC heap_alloc | 611 MiB | 933 MiB |
+| Post-window forced-GC resident | 5393 MiB | 4125 MiB |
+
+Unforced concurrent-mark wall times after server startup through warmup and
+measurement, in trace order (milliseconds):
+
+```text
+control:   38 87 171 65 82 85 119 146 84 55   median 84.5
+candidate: 48 103 203 78 103 138 97 60 94 93 median 95.5
+```
+
+Forced cycles remain in the raw traces and are excluded from that series.
+Concurrent mark wall time, GC CPU and stop-the-world pause are distinct metrics.
+The candidate's observed mark median and GC CPU are higher; no per-cycle GC
+improvement is demonstrated. The busy heaps are different end states after
+different command cohorts; the cold-load target is not a busy-server RSS limit.
+The pool's owning text/reps are bounded independently of those multi-GiB runtime
+observations. These results complete the missing measurement; they are not a
+claim that all process memory or GC cost has been solved.
+
+## Correctness and acceptance
+
+The original load-time name/string sharing and compact property storage remain
+in their existing owners. The loader regression now asserts representation reuse.
+Cold resident memory is below 600,000,000 bytes on both named platforms, with the
+new runtime pool linked in. Dump round-trip checks complete and dump bytes match.
+The formerly invalid workload now has complete, valid paired observations.
+Bounded runtime interning has been evaluated and retained only at the measured
+producer; the unsafe direct-input alternative remains rejected.
+
+The comparison commit's PR checks passed: build/unit/types-race/store-race,
+managed conformance (zero failures/errors; 316 declared skips), all 18
+persistence-related rows, capability admission, Elle and checkpoint campaigns.
+Healthy Elle seeds 412/395/396 have both models true, no zero-coverage entries and
+parallel counts 805/800/806; hot-renewal counts are 9/7/4. All 20 injected-fault
+verdicts are false. Checkpoint generations have empty violation lists and true
+Elle verdicts with nonzero operations. Raw correctness archives remain under
+`C:/Users/Q/code/barn/.tmp/671-ci-candidate/`.
+
+The final workflow selects the authored false-accept witness in its existing
+local-conformance command. Final publication CI is tracked on PR 671; no
+experiment-only job or checkout override remains.
 
 ## Original checkpoint
 
@@ -66,7 +250,7 @@ Linux returns `/proc/self/statm` page counts (`builtins/resource_stats_linux.go`
 not bytes. `getconf PAGESIZE` returned `4096`; the second element is therefore
 542,609,408 resident bytes, below 600,000,000 bytes in this offline observation.
 
-## Workload experiment
+## Historical failed workload experiment
 
 PR experiment [42594936494](https://github.com/MongooseMoo/barn/actions/runs/42594936494)
 used the existing `TestMongooseRealWorkload` harness, three independent
@@ -77,8 +261,7 @@ the original checkpoint and the real sound catalog (481,214,464 bytes, SHA-256
 terminal inventories, failures, GC traces and profiles. Failed/unsettled cohorts
 do not establish valid application throughput. Instrumented timing is separate.
 
-The experiment failed. The temporary issue-specific workflow was removed after
-collection as planned; its failure is retained here, not reported as a passing
+The experiment failed. Its failure is retained here, not reported as a passing
 performance check. Raw evidence remains private beneath
 `C:/Users/Q/code/barn/.tmp/issue-279-ci/42594936494-1/`: manifest.txt, engine.test,
 sample-1.txt, sample-2.txt, sample-3.txt, sample-diagnostic.txt, runtime.cpu,
@@ -142,7 +325,7 @@ The test includes 4 KiB and 16 KiB Linux pages and the raw Windows byte reading.
 It passes after the correction. This changes test-harness reporting, not the
 MOO `memory_usage()` result. No corrected under-load RSS sample is claimed.
 
-## Runtime string decision
+## Historical rejected direct-input-sharing prototype
 
 The diagnostic heap profile includes startup and loading in allocation totals;
 it is useful for identifying producers, not for attributing the whole total to
@@ -188,18 +371,17 @@ the comparison above. The retained regression permits 1 MiB of measurement
 noise and distinguishes the 16 MiB retention. The prototype is absent from the
 final implementation.
 
-A global bounded intern would additionally need owned key bytes, a demonstrated
-working set, capacity/eviction and concurrency measurements. No such pool is
-selected. CORRECTION: the earlier statement that the optional runtime-intern
-consideration was resolved was premature. This rejects one direct-sharing
-prototype; it does not complete the bounded-intern assessment or the original
-execution plan. See the off-design handoff in the living task note.
+A bounded intern additionally needs owned key bytes, a demonstrated working set,
+capacity/eviction and concurrency measurements. The earlier statement that the
+optional runtime-intern consideration was resolved was premature: this rejected
+one direct-sharing prototype. The resumed owning candidate and its evidence are
+described above.
 
-## Acceptance limits
+## Historical acceptance correction
 
 The original file's offline resident target is met in the recorded Windows and
 Linux observations. Existing load-time sharing and compact slots remain in place;
 the loader test now checks actual representation reuse, rather than content
-equality alone. The full-mix before/after goodput and per-cycle GC improvement
-requirements remain unproved. This PR does not close issue 279 or claim that
-those requirements passed.
+equality alone. The first experiment did not prove full-mix before/after goodput
+or per-cycle GC behavior. Publishing its report was not completion of the
+authorized task. The resumed valid comparison must finish those measurements.

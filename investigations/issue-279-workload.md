@@ -5,7 +5,7 @@
 - Original checkpoint and catalog hashes are recorded in experiments/issue-279/README.md.
 - Initial run: native read ENOMEM while copying the catalog from a Windows-backed path. Later copies succeeded. Underlying allocation failure is unknown.
 - Full-mix runs contain home E_NACC for player 71 and one unsettled say continuation; raw frames and diagnostics remain in the private evidence directory named in the task note.
-- No performance comparison is valid yet.
+- Repaired control run 42661518475 has three valid uninstrumented cohorts and one valid diagnostic cohort (zero failed/unsettled commands). The original failures remain excluded from performance comparisons. Paired owning-intern comparison run 42665898830 completed successfully: twelve uninstrumented cohorts plus two diagnostic cohorts, all zero failed/unsettled. Private raw outputs, profiles, inputs and both executables are saved beneath C:/Users/Q/code/barn/.tmp/issue-279-ci/42665898830-1.
 
 ## Theories
 
@@ -25,4 +25,4 @@
 
 ## Next action
 
-Run the repaired fixture in PR CI after other CI jobs, with hashes verified on native filesystem copies and all original completion deadlines unchanged. Keep native errors and failures fatal. A native transport error during staging must still fail the job. Collect clean GC diagnostics separately from uninstrumented throughput.
+The validity defect is repaired in the harness and confirmed by complete cohorts. See experiments/issue-279/README.md for the full paired and GC results. No scheduler/permission change or catalog-copy retry was introduced. The old native ENOMEM remains an unreproduced setup error; the new verified staging separates that transport from the workload process. Final PR CI selects the managed false-accept witness alongside the existing local regressions.
