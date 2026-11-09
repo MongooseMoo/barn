@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -52,15 +53,15 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 		return nil, fmt.Errorf("parse VM header %q", vmHeader)
 	}
 	_ = rootVector
-	if top < 0 {
+	if top < 0 || top == math.MaxInt {
 		return nil, fmt.Errorf("invalid top activation %d", top)
 	}
 
 	vmSnapshot := &task.VMSnapshot{
 		MaxStackDepth: maxStack,
-		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
+		Frames:        make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
 	}
-	callStack := make([]types.ActivationFrame, 0, top+1)
+	callStack := make([]types.ActivationFrame, 0, min(top+1, maxTrustedCount))
 	for i := 0; i <= top; i++ {
 		frame, activation, err := database.readVMFrame(r)
 		if err != nil {
@@ -76,18 +77,19 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 	}
 	root := callStack[0]
 	return &SuspendedTask{Snapshot: task.Snapshot{
-		ID:         id,
-		Owner:      root.Player,
-		State:      state,
-		StartTime:  time.Unix(start, 0),
-		WakeValue:  wakeValue,
-		TaskLocal:  taskLocal,
-		CallStack:  callStack,
-		Programmer: root.Programmer,
-		VerbLoc:    root.VerbLoc,
-		VerbName:   root.Verb,
-		This:       root.This,
-		VM:         vmSnapshot,
+		ID:            id,
+		Owner:         root.Player,
+		State:         state,
+		StartTime:     time.Unix(start, 0),
+		WakeValue:     wakeValue,
+		TaskLocal:     taskLocal,
+		CallStack:     callStack,
+		Programmer:    root.Programmer,
+		VerbLoc:       root.VerbLoc,
+		VerbName:      root.Verb,
+		This:          root.This,
+		ReadingPlayer: types.ObjNothing,
+		VM:            vmSnapshot,
 	}}, nil
 }
 
@@ -126,12 +128,16 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	if _, err := fmt.Sscanf(stackHeader, "%d rt_stack slots in use", &stackCount); err != nil {
 		return frame, activation, fmt.Errorf("parse runtime stack header %q: %w", stackHeader, err)
 	}
-	frame.Stack = make([]types.Value, stackCount)
-	for i := range frame.Stack {
-		frame.Stack[i], err = database.readValue(r)
+	if stackCount < 0 {
+		return frame, activation, fmt.Errorf("invalid runtime stack count %d", stackCount)
+	}
+	frame.Stack = make([]types.Value, 0, min(stackCount, maxTrustedCount))
+	for i := 0; i < stackCount; i++ {
+		value, err := database.readValue(r)
 		if err != nil {
 			return frame, activation, fmt.Errorf("read runtime stack value %d: %w", i, err)
 		}
+		frame.Stack = append(frame.Stack, value)
 	}
 
 	if _, err := database.readValue(r); err != nil {
@@ -220,6 +226,12 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		}
 		frame.ThreadMode = threaded != 0
 	}
+	// Neither encoding stores built-in slots; derive them from the names the
+	// way the compiler does (compiler/lower_locals.go declareVariable, which
+	// lowercases the upper-cased canonical identifier).
+	for index, name := range frame.Program.VarNames {
+		frame.Program.BuiltinSlots.Set(strings.ToLower(strings.ToUpper(name)), index)
+	}
 	frame.Stack = runtimeStack
 	frame.Program.Source = source
 	frame.IP = pc
@@ -268,6 +280,8 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		LineNumber:       line,
 		RuntimeVariables: types.NewMap(variablePairs),
 		IsEvalFrame:      frame.IsEvalFrame,
+		BuiltinCaller:    frame.BuiltinCaller,
+		BuiltinPC:        frame.BuiltinPC,
 	}
 	return frame, activation, nil
 }
@@ -281,17 +295,22 @@ func (database *Database) readOrderedRtEnv(r *bufio.Reader) ([]string, []types.V
 	if _, err := fmt.Sscanf(header, "%d variables", &count); err != nil {
 		return nil, nil, fmt.Errorf("parse runtime environment header %q: %w", header, err)
 	}
-	names := make([]string, count)
-	values := make([]types.Value, count)
+	if count < 0 {
+		return nil, nil, fmt.Errorf("invalid runtime variable count %d", count)
+	}
+	names := make([]string, 0, min(count, maxTrustedCount))
+	values := make([]types.Value, 0, min(count, maxTrustedCount))
 	for i := 0; i < count; i++ {
-		names[i], err = readLine(r)
+		name, err := readLine(r)
 		if err != nil {
 			return nil, nil, err
 		}
-		values[i], err = database.readValue(r)
+		value, err := database.readValue(r)
 		if err != nil {
 			return nil, nil, err
 		}
+		names = append(names, name)
+		values = append(values, value)
 	}
 	return names, values, nil
 }
@@ -301,7 +320,37 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	if value.Type() != types.TYPE_LIST || value.Len() < 15 || value.Get(1).Type() != types.TYPE_STR || value.Get(1).Str() != barnVMFrameMarker {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
 	}
+	if err := checkVMFrameShape(value); err != nil {
+		return frame, err
+	}
 
+	for index := range frame.CommandEnvironment {
+		frame.CommandEnvironment[index] = types.NewStr("")
+		if index >= 4 {
+			frame.CommandEnvironment[index] = types.NewObj(types.ObjNothing)
+		}
+	}
+	if value.Len() >= 21 {
+		environment := value.Get(21)
+		if environment.Type() != types.TYPE_LIST || environment.Len() != len(frame.CommandEnvironment) {
+			return frame, fmt.Errorf("invalid command environment")
+		}
+		copy(frame.CommandEnvironment[:], environment.Elements())
+	}
+	if value.Len() >= 22 {
+		local := value.Get(22)
+		if local.Type() != types.TYPE_INT || local.Int() < 0 || local.Int() > bytecode.MaxLocals {
+			return frame, fmt.Errorf("invalid caller result local")
+		}
+		frame.ReturnLocal = int(local.Int())
+	}
+	if value.Len() >= 23 {
+		builtin := value.Get(23)
+		if builtin.Type() != types.TYPE_LIST || builtin.Len() != 2 || builtin.Get(1).Type() != types.TYPE_STR || builtin.Get(2).Type() != types.TYPE_INT {
+			return frame, fmt.Errorf("invalid builtin continuation")
+		}
+		frame.BuiltinCaller, frame.BuiltinPC = builtin.Get(1).Str(), int(builtin.Get(2).Int())
+	}
 	code := value.Get(2)
 	if value.Len() >= 20 {
 		encoded := value.Get(20)
@@ -382,10 +431,25 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	}
 
 	pending := value.Get(8)
+	// This list is Barn-private frame metadata, not a MOO exception tuple.
+	// Older checkpoints have three fields and leave the native origin unknown.
+	if pending.Type() != types.TYPE_LIST || (pending.Len() != 3 && pending.Len() != 4) {
+		return frame, fmt.Errorf("invalid pending error metadata")
+	}
 	frame.PendingError = task.VMErrorSnapshot{
 		Present: pending.Get(1).Truthy(),
 		Code:    types.ErrorCode(pending.Get(2).Int()),
 		Value:   pending.Get(3),
+	}
+	if pending.Len() == 4 {
+		reason := pending.Get(4)
+		if reason.Type() != types.TYPE_INT || reason.Int() < 0 || reason.Int() > int64(types.ExceptionReasonSecondsBudget) {
+			return frame, fmt.Errorf("invalid pending error reason")
+		}
+		frame.PendingError.Reason = types.ExceptionReason(reason.Int())
+	}
+	if !frame.PendingError.ValidExceptionReason() {
+		return frame, fmt.Errorf("invalid pending error reason")
 	}
 	flags := value.Get(9)
 	frame.VerbDebug = flags.Get(1).Truthy()
@@ -432,9 +496,70 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 				OldContents: objectIDsFromValue(recycleState.Get(4)),
 				OldLocation: recycleState.Get(5).Obj(),
 			}
+			if recycleState.Len() >= 6 {
+				frame.RecycleContinuation.ExitCallback = recycleState.Get(6).Truthy()
+			}
 		}
 	}
 	return frame, nil
+}
+
+// checkVMFrameShape rejects frame metadata whose fields decodeVMFrameMetadata
+// indexes without its own type check. Get, Elements and Str panic on a value of
+// another type, and Len counts a string's bytes or a map's entries, so each
+// field read element by element must be a list long enough for its reads.
+// value is a list of at least 15 elements.
+func checkVMFrameShape(value types.Value) error {
+	isList := func(v types.Value, minLen int) bool {
+		return v.Type() == types.TYPE_LIST && v.Len() >= minLen
+	}
+	eachList := func(v types.Value, ok func(types.Value) bool) bool {
+		if !isList(v, 0) {
+			return false
+		}
+		for _, element := range v.Elements() {
+			if !ok(element) {
+				return false
+			}
+		}
+		return true
+	}
+	checks := []struct {
+		field int
+		name  string
+		ok    func(types.Value) bool
+	}{
+		{2, "code", func(v types.Value) bool { return isList(v, 0) }},
+		{3, "constants", func(v types.Value) bool { return isList(v, 0) }},
+		{4, "variable names", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return e.Type() == types.TYPE_STR })
+		}},
+		{5, "line info", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return isList(e, 2) })
+		}},
+		{7, "handlers", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return isList(e, 6) && isList(e.Get(4), 0) })
+		}},
+		{9, "flags", func(v types.Value) bool { return isList(v, 5) }},
+		{11, "arguments", func(v types.Value) bool { return isList(v, 0) }},
+		{14, "verb", func(v types.Value) bool { return v.Type() == types.TYPE_STR }},
+	}
+	for _, check := range checks {
+		if !check.ok(value.Get(check.field)) {
+			return fmt.Errorf("suspended activation has invalid %s metadata", check.name)
+		}
+	}
+	if value.Len() >= 18 {
+		recycleState := value.Get(18)
+		if isList(recycleState, 5) {
+			for i := 2; i <= 4; i++ {
+				if !isList(recycleState.Get(i), 0) {
+					return fmt.Errorf("suspended activation has invalid recycle continuation metadata")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func objectIDsFromValue(value types.Value) []types.ObjID {

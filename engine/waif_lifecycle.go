@@ -1,16 +1,15 @@
 package engine
 
 import (
-	dbstore "github.com/MongooseMoo/barn/db/store"
+	"sort"
+	"sync"
+	"time"
+
 	"github.com/MongooseMoo/barn/engine/internal/finalization"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
-	"sort"
-	"sync"
-	"time"
 )
 
 func sameWaif(a, b types.Value) bool {
@@ -62,7 +61,7 @@ const (
 //
 // ownVM is the deferring task's own VM, walked here on the goroutine that owns it
 // so its references survive as roots after the VM is released.
-func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Value, ownVM *vm.VM) {
+func (s *Runtime) deferPendingWaifs(ctx *task.Context, pending []types.Value, ownVM *vm.VM) {
 	if len(pending) == 0 || ctx == nil {
 		return
 	}
@@ -89,7 +88,7 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 		return
 	}
 	for _, waif := range pending {
-		var owner *task.Task
+		var owner *task.State
 		if ownVM != nil {
 			owner = ownVM.Task
 		}
@@ -109,12 +108,12 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 // ownVM is the deferring task's own VM (nil when the task is suspending, since its
 // VM stays registered and the flush reads it directly). When non-nil it is walked
 // here, on the goroutine that owns it, so its references survive the VM's release.
-func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM *vm.VM) {
+func (s *Runtime) deferAnonGC(ctx *task.Context, minID types.ObjID, ownVM *vm.VM) {
 	if ctx == nil {
 		return
 	}
 	var ownRefs map[types.ObjID]struct{}
-	var owner *task.Task
+	var owner *task.State
 	if ownVM != nil {
 		ownRefs = make(map[types.ObjID]struct{})
 		vm.CollectAnonymousRefsFromVM(ownVM, ownRefs)
@@ -143,7 +142,7 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 // settleCompletedTaskFinalizations chooses exactly one owner for a terminal
 // task's roots. An explicit shutdown transfers them to the checkpoint domain;
 // generic cancellation and normal completion retain the ordinary GC path.
-func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec *vm.VM, minID types.ObjID, hasAnonymousCreations bool) bool {
+func (s *Runtime) settleCompletedTaskFinalizations(ctx *task.Context, exec *vm.VM, minID types.ObjID, hasAnonymousCreations, committed bool) bool {
 	if exec == nil {
 		return s.ShutdownRequested()
 	}
@@ -164,6 +163,11 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec
 		return true
 	}
 	s.deferPendingWaifs(ctx, exec.TakePendingWaifs(), exec)
+	// A failed publication did not release the property references it staged.
+	// Keep its cleanup limited to the original creation floor.
+	if committed {
+		minID, hasAnonymousCreations = exec.AnonymousGCFloor(minID, hasAnonymousCreations)
+	}
 	if hasAnonymousCreations {
 		s.deferAnonGC(ctx, minID, exec)
 	}
@@ -175,13 +179,13 @@ func (s *Runtime) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, exec
 // the :recycle writes joined the task's transaction and were committed with it,
 // but a deferred sweep runs after that transaction has committed and been
 // released — writing through it would silently discard the recycle's side effects
-// (a :recycle that bumps a counter would never be observed). Writing straight to
-// the live store instead is what callWaifRecycle already does for waifs.
+// (a :recycle that bumps a counter would never be observed). The sweep-owned
+// verb runner gives each finalizer its own transaction and resumable task.
 //
 // The task's own context is never mutated: the suspend path also defers, and that
 // task's transaction is still live.
-func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskContext {
-	gcCtx := kernel.NewTaskContext()
+func (s *Runtime) gcRecycleContext(parent *task.Context) *task.Context {
+	gcCtx := task.NewContext()
 	gcCtx.Player = parent.Player
 	gcCtx.Programmer = parent.Programmer
 	gcCtx.IsWizard = parent.IsWizard
@@ -199,7 +203,7 @@ func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskConte
 // against persistent state plus all live task VMs, so deferral only changes
 // WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
 // gcSweepInterval once they become expensive.
-func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0) }
+func (s *Runtime) flushDeferredGC() { s.flushDeferredGCBarrier(0, false) }
 
 // maintenanceBarrierPatience is how long the maintenance worker keeps trying
 // for the sweep barrier. A finishing task's flush holds it for the length of
@@ -224,11 +228,12 @@ func tryLockFor(mu *sync.Mutex, patience time.Duration) bool {
 // flushDeferredGCBarrier is flushDeferredGC for a caller that says how long it
 // may keep trying for the sweep barrier. A task boundary may not wait at all:
 // it can still hold an admission reservation. The maintenance worker holds
-// none and has paused admission, so it tries for maintenanceBarrierPatience. A
-// single try there loses, every time under load, to the opportunistic flushes
-// of the tasks that finished as the pause drained: each holds the barrier for
-// a moment and finds its siblings still executing, so nobody sweeps.
-func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
+// none, so it tries for maintenanceBarrierPatience. A single try there loses,
+// every time under load, to the opportunistic flushes of tasks finishing
+// beside it: each holds the barrier for a moment and finds its siblings still
+// executing, so nobody sweeps. With handshake, the caller also asks executing
+// VMs to park at their tick checkpoint and sweeps beside them.
+func (s *Runtime) flushDeferredGCBarrier(patience time.Duration, handshake bool) {
 	// Avoid contending on the sweep barrier when there is plainly no work.
 	s.lifecycle.Mu.Lock()
 	if s.lifecycle.ShutdownRequested || s.lifecycle.GCRunning || s.lifecycle.FinalizationHeld || (len(s.lifecycle.PendingWaifs) == 0 && len(s.lifecycle.PendingAnonGC) == 0) {
@@ -247,10 +252,25 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 		return
 	}
 	defer s.lifecycle.SweepMu.Unlock()
+	if handshake {
+		// Park first, then hold VM starts only for the walk and sweep. A lease
+		// that does not park in time (one holding the commit gate, or inside a
+		// builtin) fails the round closed, exactly as an unparked one below.
+		release := s.requestGCHandshake()
+		defer release()
+		if !s.awaitGCParked(patience) {
+			return
+		}
+	}
 	if !tryLockFor(&s.lifecycle.VMStartMu, patience) {
 		return
 	}
 	defer s.lifecycle.VMStartMu.Unlock()
+	// A VM that started between the wait above and VMStartMu gets the same
+	// patience to park; no further VM can start now.
+	if handshake && !s.awaitGCParked(patience) {
+		return
+	}
 
 	// Another flush may have settled the batch while this goroutine waited.
 	s.lifecycle.Mu.Lock()
@@ -265,12 +285,14 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 	}
 	s.lifecycle.Mu.Unlock()
 
-	// A VM that acquired its lease before vmStartMu cannot be inspected. Leave
-	// the batches queued; that VM's lifecycle release will retry the flush.
+	// A VM that acquired its lease before vmStartMu and is not parked cannot be
+	// inspected. Leave the batches queued; that VM's lifecycle release or the
+	// maintenance worker will retry the flush.
 	siblingAnon, siblingWaifs, quiescent := s.collectAllGCRefs()
 	if !quiescent {
 		return
 	}
+	siblingWaifs = s.addParkedHistoryRoots(siblingAnon, siblingWaifs)
 
 	s.lifecycle.Mu.Lock()
 	waifBatch := s.lifecycle.PendingWaifs
@@ -310,18 +332,27 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 		}
 		live := s.liveWaifs(roots)
 		for index, entry := range waifBatch {
-			if live.Has(entry.Waif) {
+			if live.Has(entry.Waif) || !entry.Waif.BeginWaifRecycle() {
 				continue
 			}
-			s.callWaifRecycle(entry.Ctx, entry.Task, entry.Waif)
+			_ = s.callVerbWithArgstr(entry.Waif, ":recycle", nil, types.ObjNothing, "", vmOwnershipSweep, 0, nil)
 			s.lifecycle.Mu.Lock()
 			shutdown := s.lifecycle.ShutdownRequested
 			if shutdown {
-				for _, remaining := range waifBatch[index:] {
-					if remaining.Ctx != nil && remaining.Task != nil {
-						roots := vm.CanonicalizePendingFinalizationValues(s.store, remaining.DirectRoots)
-						s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
+				for offset, remaining := range waifBatch[index:] {
+					direct := remaining.DirectRoots
+					if remaining.Task == nil {
+						// A suspended task pruned this WAIF from its ledger, so the
+						// entry is its only record. The current entry has recycled.
+						if offset == 0 {
+							continue
+						}
+						direct = vm.DirectFinalizationRoots{Waifs: []types.Value{remaining.Waif}}
+					} else if remaining.Ctx == nil {
+						continue
 					}
+					roots := vm.CanonicalizePendingFinalizationValues(s.store, direct)
+					s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 				}
 			}
 			s.lifecycle.Mu.Unlock()
@@ -332,7 +363,7 @@ func (s *Runtime) flushDeferredGCBarrier(patience time.Duration) {
 	}
 
 	if !s.ShutdownRequested() {
-		markedContexts := make(map[*kernel.TaskContext]struct{})
+		markedContexts := make(map[*task.Context]struct{})
 		for _, req := range anonBatch {
 			if req.Ctx == nil {
 				continue
@@ -415,11 +446,17 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	waifs := types.NewWaifSet(nil)
 	anons := make(map[types.ObjID]struct{})
 	for _, value := range values {
-		collectLoadedFinalizationRoots(value, waifs, anons)
+		value.VisitDirectFinalizationRefs(func(ref types.Value) {
+			if ref.IsAnonymous() {
+				anons[ref.ID()] = struct{}{}
+			} else {
+				waifs.Add(ref)
+			}
+		})
 	}
 	s.lifecycle.Mu.Lock()
 	for _, waif := range waifs.Values {
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
 		ctx.Store = s.store
@@ -428,7 +465,7 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{Waif: waif, Ctx: ctx})
 	}
 	for id := range anons {
-		ctx := kernel.NewTaskContext()
+		ctx := task.NewContext()
 		ctx.Store = s.store
 		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
@@ -437,76 +474,4 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	}
 	s.noteDeferredGCQueuedLocked()
 	s.lifecycle.Mu.Unlock()
-}
-
-func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, anons map[types.ObjID]struct{}) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			anons[value.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		waifs.Add(value)
-	case types.TYPE_LIST:
-		for _, element := range value.Elements() {
-			collectLoadedFinalizationRoots(element, waifs, anons)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range value.Pairs() {
-			collectLoadedFinalizationRoots(pair[0], waifs, anons)
-			collectLoadedFinalizationRoots(pair[1], waifs, anons)
-		}
-	}
-}
-
-func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *task.Task, waif types.Value) {
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
-	if err != nil {
-		return
-	}
-	if !verb.Perms.Has(dbstore.VerbExecute) {
-		return
-	}
-
-	prog, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
-	if len(diagnostics) > 0 {
-		return
-	}
-
-	player := parentCtx.Player
-	if player == types.ObjNothing {
-		player = parentCtx.Programmer
-	}
-	recycleCtx := kernel.NewTaskContext()
-	recycleCtx.Player = player
-	recycleCtx.Programmer = verb.Owner
-	recycleCtx.IsWizard = s.isWizard(verb.Owner)
-	recycleCtx.ThisObj = waif.Class()
-	recycleCtx.ThisValue = waif
-	recycleCtx.Verb = ":recycle"
-	recycleCtx.TaskID = parentCtx.TaskID
-	recycleCtx.Store = s.store
-	recycleCtx.RuntimeOptions = s.options
-	recycleCtx.DeferredGC = true
-
-	recycleVM := vm.NewVM(s.store, s.session)
-	recycleVM.Context = recycleCtx
-	recycleVM.Task = parentTask
-	recycleVM.TickLimit = 300000
-	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
-	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
-	vm.SetLocalByName(frame, prog, "this", waif)
-	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
-	vm.SetLocalByName(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))
-	vm.SetLocalByName(frame, prog, "verb", types.NewStr(":recycle"))
-	vm.SetLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
-	vm.SetLocalByName(frame, prog, "argstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
-	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
-	s.acquireSweepContext(recycleCtx)
-	defer s.releaseSweepContext(recycleCtx)
-	_ = recycleVM.ExecuteLoop()
 }

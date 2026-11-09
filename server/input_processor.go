@@ -13,6 +13,7 @@ import (
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -35,7 +36,7 @@ type InputProcessor struct {
 	workers   map[int64]*inputLane
 }
 
-// Transport readers await Done, so their backpressure is per connection.
+// Transport readers bound outstanding events independently of execution.
 // Forced input must never block the dispatcher behind a VM awaiting admission.
 type inputLane struct {
 	queue []command.InputEvent // guarded by workersMu
@@ -82,6 +83,9 @@ func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 	p.connManager = cm
 	if cm != nil {
 		cm.setConnectionHandler(p.HandleConnection)
+		cm.mu.Lock()
+		cm.connectionEventHandler = p.EnqueueInput
+		cm.mu.Unlock()
 	}
 }
 
@@ -103,6 +107,7 @@ func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 // Each connection's worker executes its input in order.
 func (p *InputProcessor) HandleConnection(conn *Connection) {
 	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID))
+	buffer := newTransportInputBuffer()
 
 	defer func() {
 		done := make(chan struct{})
@@ -155,15 +160,12 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			}
 		}
 
-		player := conn.GetPlayer()
-		if !conn.IsLoggedIn() {
-			player = types.ObjID(-conn.ID)
-		}
+		player := conn.inputPlayer()
 
 		var line string
 		var isOutOfBand bool
 		var err error
-		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(player, "binary") {
+		if conn.IsLoggedIn() && p.runtime.Session().ConnectionOptionTruthy(conn.ID, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
 				line, err = binaryTransport.ReadChunk()
 			} else {
@@ -196,15 +198,17 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			return
 		}
 
-		done := make(chan struct{})
+		received := time.Now()
+		diagnostic := metrics.NewCommand(conn.ID, int64(conn.inputPlayer()), received, p.commandContext)
+		size := len(line)
+		if !buffer.acquire(p.ctx, conn.ctx, size) {
+			diagnostic.FinishInput("discarded")
+			return
+		}
 		p.EnqueueInput(command.InputEvent{
-			ConnID:      conn.ID,
-			Player:      player,
-			Line:        line,
-			IsOutOfBand: isOutOfBand,
-			Done:        done,
+			ConnID: conn.ID, Player: player, Line: line, IsOutOfBand: isOutOfBand,
+			Diagnostic: diagnostic, OnProcessed: func() { buffer.release(size) },
 		})
-		<-done
 	}
 }
 
@@ -353,6 +357,15 @@ func (p *InputProcessor) connectionWorker(connID int64, ch *inputLane) {
 
 func (p *InputProcessor) processInput(input command.InputEvent) {
 	defer input.Complete()
+	defer input.Diagnostic.FinishInput("processed")
+	input.Diagnostic.Dequeued()
+	if input.UserHook != "" {
+		isUser, ec := p.store.DirectTxn().HasObjectFlag(input.Player, dbstore.FlagUser)
+		if ec == types.E_NONE && isUser {
+			p.callUserHook(input.Handler, input.UserHook, input.Player)
+		}
+		return
+	}
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
@@ -366,19 +379,30 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		p.forcePhantomLogin(input.Player, input.Line)
 		return
 	}
+	// Toast chooses do_login_task or do_command_task when the queued line runs,
+	// from the connection's player at that moment (tasks.cc run_ready_tasks),
+	// not when the line was read: a login slice that yielded can log the
+	// connection in after this line was read.
+	if cm := p.connManager; cm != nil {
+		if conn := cm.getConnectionByConnID(input.ConnID); conn != nil {
+			input.Player = conn.inputPlayer()
+		}
+	}
 	input.Line = unquoteInBandInput(input.Line)
 
 	oob := strings.HasPrefix(input.Line, "#$#")
-	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.Player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.ConnID, "disable-oob")
 	if input.IsOutOfBand || (oob && !disableOOB) {
+		input.Diagnostic.Classify("out_of_band")
 		if !disableOOB {
 			p.processOutOfBand(input)
 		}
 		return
 	}
 	if !oob || disableOOB {
-		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.Line, false)
+		handled, flushed := p.runtime.Session().HandleHeldInput(input.Player, input.ConnID, input.Line, false)
 		if handled {
+			input.Diagnostic.Classify("held_input")
 			if flushed != nil && p.connManager != nil {
 				if conn := p.connManager.getConnectionByConnID(input.ConnID); conn != nil {
 					_ = conn.Send(">> Flushing the following pending input:")
@@ -393,10 +417,12 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	if p.deliverToReadingTask(input.Player, input.Line) {
+		input.Diagnostic.Classify("read_delivery")
 		return
 	}
 
 	if input.Player < 0 {
+		input.Diagnostic.Classify("login")
 		p.processPreLogin(input)
 		return
 	}
@@ -421,6 +447,7 @@ func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
 		return
 	}
 	_ = conn.Send("*** Timed-out waiting for login. ***")
+	conn.setDisconnectHook("")
 	p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 }
 
@@ -440,9 +467,9 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
-	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		p.runtime.SendTracebackToPlayer(input.Player, result.Error, result.CallStack)
+	_, err := p.runtime.RunServerVerbTaskWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line, nil)
+	if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+		slog.Warn("out-of-band task dispatch failed", slog.Any("err", err))
 	}
 }
 
@@ -456,10 +483,16 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 }
 
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool, onProcessed func()) {
+	connID := int64(0)
+	if p.connManager != nil {
+		if conn := p.connManager.GetConnection(player); conn != nil {
+			connID = conn.ConnectionID()
+		}
+	}
 	oob := strings.HasPrefix(line, "#$#")
-	disableOOB := p.runtime.Session().ConnectionOptionTruthy(player, "disable-oob")
+	disableOOB := p.runtime.Session().ConnectionOptionTruthy(connID, "disable-oob")
 	if !oob || disableOOB {
-		handled, _ := p.runtime.Session().HandleHeldInput(player, line, atFront)
+		handled, _ := p.runtime.Session().HandleHeldInput(player, connID, line, atFront)
 		if handled {
 			if onProcessed != nil {
 				onProcessed()
@@ -475,14 +508,6 @@ func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront boo
 	// task inline inside the calling task's builtin; once the caller held the
 	// commit gate (its irreversible-effect boundary) and the resumed slice took
 	// the gate too, the server deadlocked and no connection could log in again.
-	connID := int64(0)
-	if p.connManager != nil {
-		if conn := p.connManager.GetConnection(player); conn != nil {
-			if c, ok := conn.(*Connection); ok {
-				connID = c.ID
-			}
-		}
-	}
 	if player < 0 && connID == 0 {
 		connID = int64(player)
 	}
@@ -535,6 +560,9 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	}
 	cm.mu.Unlock()
 
+	conn.cancel()
+	p.runtime.Session().ForgetConnectionOptions(conn.ID)
+
 	// Kill EVERY login task tied to this connection — the tracked one and any
 	// task left suspended on read() from this (negative) connID — so no orphan
 	// lingers to swallow input for a future connection that reuses this connID.
@@ -557,8 +585,11 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID))
 	}
 
-	if wasLoggedIn {
-		p.callUserHook(handler, "user_client_disconnected", player)
+	if hook := conn.getDisconnectHook(); hook != "" {
+		if !wasLoggedIn {
+			player = types.ObjID(-conn.ID)
+		}
+		p.callUserHook(handler, hook, player)
 	}
 
 	slog.Info("connection closed", slog.Int64("conn_id", conn.ID))
@@ -616,22 +647,15 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 // dispatchLoginCommand runs the listener's do_login_command as a registered,
 // resumable engine task. The login verb may call read() any number of times
 // (username, password, ...); each read() suspends and resumes the same task.
-// When the task finally returns, the completion callback interprets the result
-// and logs the player in. Falls back to the synchronous helper when there is no
-// do_login_command verb (or it cannot be dispatched).
+// Only a return before suspension can log in implicitly. A resumed task can
+// use switch_player(); its eventual return value is ignored.
 func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	handler := conn.ListenerObject()
 	if errCode := p.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return
 	}
 
-	// No login handler: preserve the existing synchronous fallback.
-	if !p.store.HasLocalVerb(handler, "do_login_command") {
-		maxBeforeLogin := p.store.DirectTxn().MaxObject()
-		player, _ := p.callDoLoginCommand(conn, line)
-		if player > 0 {
-			p.loginPlayer(conn, player, player > maxBeforeLogin)
-		}
+	if _, _, err := p.store.DirectTxn().FindCallableVerb(handler, "do_login_command"); err != nil {
 		return
 	}
 
@@ -643,11 +667,19 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	}
 
 	maxBeforeLogin := p.store.DirectTxn().MaxObject()
+	var loginTaskID int64
 	onStart := func(taskID int64) {
+		loginTaskID = taskID
 		conn.SetLoginTaskID(taskID)
 	}
 	onComplete := func(result types.Result) {
-		conn.SetLoginTaskID(0)
+		if conn.GetLoginTaskID() == loginTaskID {
+			conn.SetLoginTaskID(0)
+		}
+		completed := p.runtime.GetTask(loginTaskID)
+		if completed == nil || completed.SuspendGeneration() != 0 || result.Flow == types.FlowException {
+			return
+		}
 		// Don't log in a connection that has since disconnected (the live conn
 		// for this connID was removed/replaced): that would resurrect a dead
 		// connection or hijack a recycled connID.
@@ -693,11 +725,14 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	if p.processProgrammingInput(conn, input.Line) {
+	if p.processProgrammingInput(conn, input.Line, input.Diagnostic) {
+		input.Diagnostic.Classify("programming")
 		return
 	}
 
 	cmd := command.ParsePlayerCommand(p.store, player, location, input.Line)
+	cmd.Diagnostic = input.Diagnostic
+	input.Diagnostic.Classify("command")
 	if cmd.Verb == "" {
 		return
 	}
@@ -716,7 +751,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	if len(commandWords) == 0 {
 		commandWords = append([]string{cmd.Verb}, cmd.Args...)
 	}
-	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line, conn.SetLastInputTaskID)
+	handled, _ := p.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line, p.commandTaskStarted(conn, input.Diagnostic))
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
@@ -740,27 +775,27 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			return
 		}
 		conn.SetLastInputTaskID(0)
-		_ = conn.Send("I couldn't understand that.")
+		_ = conn.sendCommandResponse("I couldn't understand that.", cmd.Diagnostic)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return
 	}
 
-	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", match.Verb.Name))
+	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", strings.Join(match.Verb.Names, " ")))
 }
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
-	err := p.runtime.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, conn.SetLastInputTaskID)
+	err := p.runtime.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, p.commandTaskStarted(conn, cmd.Diagnostic))
 	if errors.Is(err, engine.ErrCommandVerbNoCode) {
-		_ = conn.Send(emptyMessage)
+		_ = conn.sendCommandResponse(emptyMessage, cmd.Diagnostic)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return
 	}
 	if err != nil {
-		_ = conn.Send(err.Error())
+		_ = conn.sendCommandResponse(err.Error(), cmd.Diagnostic)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
@@ -770,7 +805,7 @@ func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjI
 func (p *InputProcessor) executeBeforeDoCommandIntrinsic(conn *Connection, player, location types.ObjID, cmd *command.ParsedCommand) bool {
 	switch command.LookupIntrinsic(cmd.Verb, command.IntrinsicBeforeDoCommand) {
 	case command.IntrinsicProgram:
-		p.startProgrammingMode(conn, player, location, cmd.Argstr)
+		p.startProgrammingMode(conn, player, location, cmd.Argstr, cmd.Diagnostic)
 		return true
 	case command.IntrinsicPrefix:
 		conn.mu.Lock()
@@ -793,11 +828,11 @@ func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player 
 		code := strings.TrimSpace(cmd.Argstr)
 		if code != "" {
 			p.runtime.StartEval(player, strings.Split(code, "\n"), func(out engine.EvalOutcome) {
-				_ = conn.Send(out.CommandOutput())
+				_ = conn.sendCommandResponse(out.CommandOutput(), cmd.Diagnostic)
 				if outputSuffix != "" {
 					_ = conn.Send(outputSuffix)
 				}
-			})
+			}, func(id int64) { p.runtime.BindCommandDiagnostic(id, cmd.Diagnostic) })
 		} else if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
@@ -807,7 +842,7 @@ func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player 
 	}
 }
 
-func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) bool {
+func (p *InputProcessor) processProgrammingInput(conn *Connection, line string, diagnostic *metrics.Command) bool {
 	conn.mu.Lock()
 	mode := conn.programming
 	if mode == nil {
@@ -826,27 +861,27 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 	conn.mu.Unlock()
 
 	if !p.store.FindLocalVerbForProgramming(target, verbName) {
-		_ = conn.Send("Verb not found")
+		_ = conn.sendCommandResponse("Verb not found", diagnostic)
 		return true
 	}
 	_, diagnostics := p.runtime.Registry().Compiler().CompileMOO(lines)
 	if len(diagnostics) > 0 {
-		for _, diagnostic := range diagnostics {
-			_ = conn.Send(diagnostic.Error())
+		for _, problem := range diagnostics {
+			_ = conn.sendCommandResponse(problem.Error(), diagnostic)
 		}
 		return true
 	}
 	if errCode := p.store.DirectTxn().SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
-		_ = conn.Send("Verb not found")
+		_ = conn.sendCommandResponse("Verb not found", diagnostic)
 		return true
 	}
 	return true
 }
 
-func (p *InputProcessor) startProgrammingMode(conn *Connection, player, location types.ObjID, spec string) {
+func (p *InputProcessor) startProgrammingMode(conn *Connection, player, location types.ObjID, spec string, diagnostic *metrics.Command) {
 	target, verbName, ok := p.parseProgramTarget(player, location, spec)
 	if !ok {
-		_ = conn.Send("Verb not found")
+		_ = conn.sendCommandResponse("Verb not found", diagnostic)
 		return
 	}
 	conn.mu.Lock()
@@ -886,8 +921,4 @@ func (p *InputProcessor) parseProgramTarget(player, location types.ObjID, spec s
 		return types.ObjNothing, "", false
 	}
 	return target, verbName, true
-}
-
-func (p *InputProcessor) YieldReadyTasks() int {
-	return p.runtime.ProcessReadyTasks()
 }

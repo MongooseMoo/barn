@@ -1,14 +1,90 @@
 package engine
 
 import (
+	"runtime/debug"
 	"testing"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/kernel"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestCallVerbReleasesCurrentSnapshot(t *testing.T) {
+	// Finalizers must not conceal a snapshot retained after the hook returns.
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+	for _, entry := range []string{"argstr", "sweep hook"} {
+		t.Run(entry, func(t *testing.T) {
+			for _, test := range []struct {
+				name      string
+				code      string
+				wantValue int64
+				wantError types.ErrorCode
+				renew     bool
+			}{
+				{name: "read", code: "observe_hook_snapshot(); return #0.v;"},
+				{name: "write", code: "observe_hook_snapshot(); #0.v = 42; return #0.v;", wantValue: 42},
+				{name: "error", code: "observe_hook_snapshot(); #0.v = 7; raise(E_INVARG);", wantValue: 7, wantError: types.E_INVARG},
+				{name: "run_gc", code: "observe_hook_snapshot(); run_gc(); observe_hook_snapshot(); #0.v = 42; return #0.v;", wantValue: 42, renew: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					store := newConflictTestStore(t)
+					var observe builtins.BuiltinFunc
+					rt := newTestRuntimeWithBuiltins(t, store, testBuiltinSlot("observe_hook_snapshot", 0, 0, nil, &observe))
+					defer rt.Stop()
+					var snapshots []*dbstore.StoreTxn
+					observe = func(ctx *builtins.Execution, _ []types.Value) types.Result {
+						snapshots = append(snapshots, ctx.StoreTxn)
+						return types.Ok(types.NewInt(0))
+					}
+					admissionVerb(t, store, "snapshot_probe", test.code)
+					var result types.Result
+					if entry == "argstr" {
+						result = rt.CallVerbWithArgstr(0, "snapshot_probe", nil, 0, "probe")
+					} else {
+						ctx := task.NewContext()
+						ctx.Player = 0
+						ctx.StoreTxn = store.DirectTxn()
+						rt.lifecycle.SweepMu.Lock()
+						defer rt.lifecycle.SweepMu.Unlock()
+						rt.lifecycle.VMStartMu.Lock()
+						defer rt.lifecycle.VMStartMu.Unlock()
+						rt.acquireSweepContext(ctx)
+						defer rt.releaseSweepContext(ctx)
+						result = rt.session.CallVerb(0, "snapshot_probe", nil, rt.session.NewExecution(ctx, nil))
+					}
+					if test.wantError != types.E_NONE {
+						if result.Flow != types.FlowException || result.Error != test.wantError {
+							t.Fatalf("hook result = %+v, want exception %v", result, test.wantError)
+						}
+					} else if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != test.wantValue {
+						t.Fatalf("hook result = %+v, want return %d", result, test.wantValue)
+					}
+					if got := readRootV(t, store); got != test.wantValue {
+						t.Fatalf("published #0.v = %d, want %d", got, test.wantValue)
+					}
+					if len(snapshots) == 0 {
+						t.Fatal("hook did not observe its snapshot")
+					}
+					if test.renew {
+						if len(snapshots) != 2 {
+							t.Fatalf("observed snapshots = %d, want 2", len(snapshots))
+						}
+						// run_gc renews an ordinary hook, but is a no-op inside
+						// the sweep barrier whose lock is already held above.
+						if renewed := snapshots[0] != snapshots[1]; renewed != (entry == "argstr") {
+							t.Fatalf("snapshot renewed = %v for %s", renewed, entry)
+						}
+					}
+					if got := store.ActiveReadTransactions(); got != 0 {
+						t.Fatalf("active read transactions after hook = %d, want 0", got)
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestCallVerbForegroundBudget(t *testing.T) {
 	for _, entry := range []string{"direct", "argstr", "owned_hook", "sweep_hook"} {
@@ -37,24 +113,24 @@ func TestCallVerbForegroundBudget(t *testing.T) {
 			case "argstr":
 				result = rt.CallVerbWithArgstr(0, "budget_probe", nil, 0, "probe")
 			case "sweep_hook":
-				ctx := kernel.NewTaskContext()
+				ctx := task.NewContext()
 				ctx.Player = 0
 				ctx.StoreTxn = store.DirectTxn()
 				rt.acquireSweepContext(ctx)
 				defer rt.releaseSweepContext(ctx)
 				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, nil))
 			case "owned_hook":
-				owner := &task.Task{ID: 91001, Owner: 0}
+				owner := &Task{State: task.State{ID: 91001, Owner: 0}}
 				if !rt.acquireTaskExecution(owner) {
 					t.Fatal("could not acquire hook owner")
 				}
 				defer rt.releaseTaskExecution(owner.ID)
-				ctx := kernel.NewTaskContext()
+				ctx := task.NewContext()
 				ctx.Player = 0
 				ctx.StoreTxn = store.DirectTxn()
 				rt.acquireExecutionContext(ctx, owner.ID)
 				defer rt.releaseExecutionContext(ctx, owner.ID)
-				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, owner))
+				result = rt.session.CallVerb(0, "budget_probe", nil, rt.session.NewExecution(ctx, &owner.State))
 			}
 			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 2001000 {
 				t.Fatalf("finite hook result = %+v, want return 2001000", result)
@@ -93,7 +169,7 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 			rt := newTestRuntimeWithBuiltins(t, store)
 			defer rt.Stop()
 			admissionVerb(t, store, "nested_probe", "total = 0; for i in [1..2000] total = total + i; endfor return total;")
-			parent := &task.Task{Owner: 0}
+			parent := &Task{State: task.State{Owner: 0}}
 			anchor := time.Now()
 			parent.ResetExecutionBudget(40000, 2, anchor)
 			deadline := anchor.Add(2 * time.Second)
@@ -101,13 +177,13 @@ func TestCallVerbInContextPreservesParentBudget(t *testing.T) {
 				deadline = anchor.Add(-time.Second)
 			}
 			parent.SetExecutionDeadline(deadline)
-			ctx := kernel.NewTaskContext()
+			ctx := task.NewContext()
 			ctx.Store = store
 			ctx.StoreTxn = store.BeginSnapshot(0)
 			defer ctx.StoreTxn.Release()
 			ctx.Player = 0
 			ctx.TicksRemaining = 40000
-			result := rt.CallVerbInContext(0, "nested_probe", nil, rt.session.NewExecution(ctx, parent))
+			result := rt.CallVerbInContext(0, "nested_probe", nil, rt.session.NewExecution(ctx, &parent.State))
 			if expired {
 				if result.Flow != types.FlowException || result.Error != types.E_MAXREC || result.Val.Str() != "E_MAXREC: seconds limit exceeded" {
 					t.Fatalf("expired nested hook = %+v, want inherited seconds limit exceeded", result)

@@ -19,6 +19,11 @@ type Options struct {
 	// Page cache given to each sqlite_open() handle, in KiB. Zero selects
 	// DefaultSQLiteCacheKiB. It bounds memory per handle and changes no result.
 	SQLiteCacheKiB int
+	// ConflictCensus switches on conflict census tracking: each lost commit
+	// also records who wrote the version it lost on, where it read the key,
+	// whether the value had changed, and the ticks it threw away. It costs
+	// time and memory on every transaction and changes no result.
+	ConflictCensus bool
 	// Nil uses Barn's default build capabilities; a pointer to zero disables all.
 	BuiltinCapabilities *Capabilities
 }

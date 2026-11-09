@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -19,30 +17,28 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	// Boxed command-environment strings reused across verb calls (commandStr).
-	cmdStrSrc [4]string
-	cmdStrVal [4]types.Value
-	cmdStrSet [4]bool
-
-	Stack         []types.Value       // Operand stack
-	SP            int                 // Stack pointer
-	Frames        []*StackFrame       // Call stack
-	FP            int                 // Frame pointer
-	Store         *dbstore.Store      // Object store
-	Builtins      *builtins.Session   // Builtin dispatch and mutable session
-	Context       *kernel.TaskContext // Task context for builtins
-	Task          *task.Task          // Runtime task owning this execution
-	TickLimit     int64               // Maximum ticks before E_MAXREC
-	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
-	Ticks         int64               // Current tick count
+	Stack         []types.Value     // Operand stack
+	SP            int               // Stack pointer
+	Frames        []*StackFrame     // Call stack
+	FP            int               // Frame pointer
+	Store         *dbstore.Store    // Object store
+	Builtins      *builtins.Session // Builtin dispatch and mutable session
+	Context       *task.Context     // Task context for builtins
+	Task          *task.State       // Runtime task owning this execution
+	TickLimit     int64             // Maximum ticks before E_MAXREC
+	MaxStackDepth int               // Maximum VM call frames before E_MAXREC
+	Ticks         int64             // Current tick count
 	// Preempt is set only on a root VM whose owner may lend its admission
 	// reservation mid-slice. Nested VMs started by builtins leave it nil: they
-	// may run while their caller holds locks other invocations need.
-	Preempt func()
+	// may run while their caller holds locks other invocations need. It
+	// receives the VM so the owner can publish it while parked there.
+	Preempt func(*VM)
 	// Resumable is set only on the root VM the runtime saves and resumes when
 	// the task suspends. A nested VM started by a builtin drops a FlowSuspend,
 	// so a builtin running there must not suspend.
-	Resumable    bool
+	Resumable bool
+	yielded   bool // VM has yielded control (suspend/fork)
+
 	PendingWaifs []types.Value
 	// PendingFinalizations retains direct finalizable identities as frames leave
 	// scope. Ordinary GC still owns them during normal operation; shutdown uses
@@ -65,7 +61,6 @@ type VM struct {
 	// popped StackFrame structs (and their LoopStack/ExceptStack arrays).
 	localStack      []types.Value
 	framePool       []*StackFrame
-	yielded         bool         // VM has yielded control (suspend/fork)
 	yieldResult     types.Result // Why we yielded
 	resumeError     types.ErrorCode
 	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
@@ -85,7 +80,6 @@ func (vm *VM) popFrame() {
 	vm.collectPendingFinalizationsFromFrame(frame)
 	stackEnd := min(vm.SP, len(vm.Stack))
 	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
-		vm.collectDirectWaifsForGC(vm.Stack[i])
 		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
 	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
@@ -105,45 +99,88 @@ const maxFramePool = 64
 // len(Locals) slots. Growth reallocates the backing array; outer frames keep
 // their slices into the old array, which stays valid for them because every
 // access goes through frame.Locals, never through vm.localStack by index.
+//
+// Every slot of vm.localStack past its length is Unbound, so the slots are
+// handed out as they are: growth fills the new array's free tail, and
+// recycleFrame and reset write Unbound back into the slots they release.
 func (vm *VM) allocLocals(n int) []types.Value {
 	base := len(vm.localStack)
 	if cap(vm.localStack)-base < n {
 		grown := make([]types.Value, base, max(2*cap(vm.localStack), base+n, initialStackCap))
 		copy(grown, vm.localStack)
+		fillUnbound(grown[base:cap(grown)])
 		vm.localStack = grown
 	}
 	vm.localStack = vm.localStack[:base+n]
-	locals := vm.localStack[base : base+n : base+n]
-	for i := range locals {
-		locals[i] = types.Unbound
-	}
-	return locals
+	return vm.localStack[base : base+n : base+n]
 }
 
-// frameFrom returns a frame initialized to init, reusing a pooled StackFrame
-// and its LoopStack/ExceptStack backing arrays when one is available. init's
-// Locals must come from allocLocals with localsOnStack set, or be owned.
+func fillUnbound(values []types.Value) {
+	for i := range values {
+		values[i] = types.Unbound
+	}
+}
+
+// frameFrom returns a frame initialized to init, with the command variables
+// at their defaults ("" for the strings, #-1 for dobj and iobj) and the type
+// constants bound. It reuses a pooled StackFrame and its LoopStack/ExceptStack
+// backing arrays when one is available. init's Locals must come from
+// allocLocals with localsOnStack set, or be owned.
 func (vm *VM) frameFrom(init StackFrame) *StackFrame {
-	if init.Program != nil {
-		for _, constant := range init.Program.BuiltinSlots.TypeConstants {
-			init.Locals[constant.Slot-1] = types.NewInt(int64(constant.Type))
+	f := vm.frameWithoutCommandDefaults(init)
+	if f.Program != nil {
+		for index, slot := range commandSlots(f.Program) {
+			value := types.NewStr("")
+			if index >= 4 {
+				value = types.NewObj(types.ObjNothing)
+			}
+			if slot != 0 {
+				f.Locals[slot-1] = value
+			} else {
+				f.CommandEnvironment[index] = value
+			}
 		}
 	}
+	return f
+}
+
+// frameWithoutCommandDefaults is frameFrom for a caller that sets all six
+// command variables itself (copyCommandLocals), so it leaves them unset.
+func (vm *VM) frameWithoutCommandDefaults(init StackFrame) *StackFrame {
+	f := vm.takeFrame()
+	if init.LoopStack == nil {
+		init.LoopStack = f.LoopStack
+	}
+	if init.ExceptStack == nil {
+		init.ExceptStack = f.ExceptStack
+	}
+	*f = init
+	bindTypeConstants(f)
+	return f
+}
+
+// takeFrame returns a pooled StackFrame, or a new one. Every field is zero
+// except LoopStack and ExceptStack, which are empty slices over the pooled
+// frame's backing arrays (recycleFrame leaves it that way), so a caller that
+// fills the frame in place sets only the fields it needs.
+func (vm *VM) takeFrame() *StackFrame {
 	if n := len(vm.framePool); n > 0 {
 		f := vm.framePool[n-1]
 		vm.framePool = vm.framePool[:n-1]
-		if init.LoopStack == nil {
-			init.LoopStack = f.LoopStack[:0]
-		}
-		if init.ExceptStack == nil {
-			init.ExceptStack = f.ExceptStack[:0]
-		}
-		*f = init
 		return f
 	}
-	f := new(StackFrame)
-	*f = init
-	return f
+	return new(StackFrame)
+}
+
+// bindTypeConstants binds the type constants (and true/false) the frame's
+// program references, as every new frame must.
+func bindTypeConstants(f *StackFrame) {
+	if f.Program == nil {
+		return
+	}
+	for _, constant := range f.Program.BuiltinSlots.TypeConstants {
+		f.Locals[constant.Slot-1] = constant.Value
+	}
 }
 
 // recycleFrame returns a popped frame's resources to the VM: its locals slots
@@ -151,14 +188,27 @@ func (vm *VM) frameFrom(init StackFrame) *StackFrame {
 // after popFrame — Return and HandleError copy what they need first.
 func (vm *VM) recycleFrame(f *StackFrame) {
 	if f.localsOnStack {
-		clear(f.Locals)
 		if n := len(vm.localStack) - len(f.Locals); n >= 0 {
+			// The released slots are the stack's own top, which is f.Locals
+			// unless the stack grew while f was live and f.Locals stayed in
+			// the old array; then that copy is cleared too, so it pins nothing.
+			released := vm.localStack[n:]
+			if len(f.Locals) > 0 && &f.Locals[0] != &released[0] {
+				clear(f.Locals)
+			}
+			fillUnbound(released)
 			vm.localStack = vm.localStack[:n]
+		} else {
+			clear(f.Locals)
 		}
 	}
 	loops, handlers := f.LoopStack[:0], f.ExceptStack[:0]
+	// A popped loop entry stays in the backing array past len, and its
+	// Iterator/End can hold MOO values, so the whole array is cleared.
 	clear(f.LoopStack[:cap(f.LoopStack)])
-	clear(f.ExceptStack[:cap(f.ExceptStack)])
+	// A handler holds no MOO value, only its error-code slice, and every push
+	// overwrites an entry whole, so only the handlers still live are cleared.
+	clear(f.ExceptStack)
 	*f = StackFrame{LoopStack: loops, ExceptStack: handlers}
 	if len(vm.framePool) < maxFramePool {
 		vm.framePool = append(vm.framePool, f)
@@ -167,26 +217,30 @@ func (vm *VM) recycleFrame(f *StackFrame) {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program          *bytecode.Program    // Bytecode program
-	IP               int                  // Instruction pointer
-	BasePointer      int                  // Stack base for this frame
-	Locals           []types.Value        // Local variables
-	This             types.ObjID          // Current object
-	ThisValue        types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
-	Player           types.ObjID          // Player context
-	Verb             string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
-	StoredVerb       string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
-	StoredVerbNames  []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
-	Caller           types.ObjID          // Calling object
-	VerbLoc          types.ObjID          // Object where the current verb is defined (for pass())
-	Args             []types.Value        // Original args passed to this verb (for pass() inheritance)
-	LoopStack        []bytecode.LoopState // Nested loop state
-	ExceptStack      []bytecode.Handler   // Exception handlers
-	PendingError     error                // Error saved during finally execution
-	PendingReturn    types.Value          // Return value saved during finally execution
-	HasPendingReturn bool                 // Distinguishes pending integer zero from no return
-	VerbDebug        bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
-	DiscardReturn    bool                 // Caller consumes this verb only for side effects
+	Program            *bytecode.Program    // Bytecode program
+	IP                 int                  // Instruction pointer
+	BasePointer        int                  // Stack base for this frame
+	Locals             []types.Value        // Local variables
+	CommandEnvironment [6]types.Value       // Inherited values absent from source locals
+	This               types.ObjID          // Current object
+	ThisValue          types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
+	Player             types.ObjID          // Player context
+	Verb               string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb         string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
+	StoredVerbNames    []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
+	Caller             types.ObjID          // Calling object
+	VerbLoc            types.ObjID          // Object where the current verb is defined (for pass())
+	Args               []types.Value        // Original args passed to this verb (for pass() inheritance)
+	LoopStack          []bytecode.LoopState // Nested loop state
+	ExceptStack        []bytecode.Handler   // Exception handlers
+	PendingError       error                // Error saved during finally execution
+	PendingReturn      types.Value          // Return value saved during finally execution
+	HasPendingReturn   bool                 // Distinguishes pending integer zero from no return
+	VerbDebug          bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
+	DiscardReturn      bool                 // Caller consumes this verb only for side effects
+	ReturnLocal        int                  // One-based caller local receiving a WAIF setter result
+	BuiltinCaller      string
+	BuiltinPC          int
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
@@ -224,7 +278,7 @@ func NewVM(store *dbstore.Store, session *builtins.Session) *VM {
 
 func (vm *VM) checkFrameLimit() error {
 	if vm.MaxStackDepth > 0 && len(vm.Frames) >= vm.MaxStackDepth {
-		return MooError{Code: types.E_MAXREC}
+		return MooError{Code: types.E_MAXREC, Reason: types.ExceptionReasonFrameDepth}
 	}
 	return nil
 }
@@ -255,7 +309,7 @@ func (vm *VM) beginProgram(prog *bytecode.Program) {
 		localsOnStack: true,
 		This:          types.ObjNothing,
 		ThisValue:     types.None,
-		Player:        types.ObjNothing,
+		Player:        vm.Context.Player,
 		Verb:          "",
 		Caller:        types.ObjNothing,
 		VerbDebug:     true, // Default: errors propagate as exceptions
@@ -427,7 +481,7 @@ func (vm *VM) fastTickUnchecked() bool {
 func (vm *VM) tickCheckpoint() bool {
 	profiling := vm.profileCheckpoint()
 	if vm.Preempt != nil {
-		vm.Preempt()
+		vm.Preempt(vm)
 		if profiling {
 			// Time spent waiting to be readmitted is not billed.
 			vm.prof.time = time.Now()
@@ -558,13 +612,12 @@ func boolInt(b bool) int64 {
 func (vm *VM) releaseLocal(previous types.Value) {
 	if previous.MayHoldFinalizable() {
 		vm.collectPendingFinalizationsFromValue(previous)
-		vm.collectDirectWaifsForGC(previous)
 	}
 }
 
 func (vm *VM) ensureContextDependencies() {
 	if vm.Context == nil {
-		vm.Context = kernel.NewTaskContext()
+		vm.Context = task.NewContext()
 	}
 	vm.Context.Store = vm.Store
 	if vm.Context.StoreTxn == nil && vm.Store != nil {
@@ -615,6 +668,7 @@ func (vm *VM) IsYielded() bool {
 // Resume continues execution after a yield (suspend or fork).
 // The VM's PC and stack are still intact from the yield point.
 func (vm *VM) Resume() types.Result {
+	vm.ensureContextDependencies()
 	vm.profileEnter()
 	result := vm.resume()
 	vm.profileExit()
@@ -634,15 +688,16 @@ func (vm *VM) resume() types.Result {
 			}
 			return vm.executeLoop()
 		}
-		handled, exceptionValue := vm.HandleError(VMException{
+		handled, exceptionValue, reason := vm.handleErrorWithReason(VMException{
 			Code:  errCode,
 			Value: types.None,
 		})
 		if !handled {
 			return types.Result{
-				Flow:  types.FlowException,
-				Error: errCode,
-				Val:   exceptionValue,
+				Flow:   types.FlowException,
+				Error:  errCode,
+				Reason: outwardExceptionReason(errCode, reason),
+				Val:    exceptionValue,
 			}
 		}
 		if vm.yielded {
@@ -707,12 +762,13 @@ func (vm *VM) executeLoop() types.Result {
 	//     Guarded by TestFallOffEndReturnsZero, TestEmptyProgramReturnsZero, and
 	//     TestEveryCompiledProgramEndsWithTerminator.
 	for vm.frame != nil {
-		// Fetch the cached current frame once and dispatch the next opcode
-		// directly, avoiding repeated CurrentFrame lookups on the hottest path.
+		// Fetch the current frame and its code once per entry to the fast
+		// path. No fast-path case can change vm.frame, so code and ip stay
+		// valid in locals for the whole run of fast-path instructions.
 		cur := vm.frame
 		code := cur.Program.Code
 		ip := cur.IP
-		op := bytecode.OpCode(code[ip])
+		var op bytecode.OpCode
 		var err error
 
 		// DISPATCH FAST PATH. The opcodes below make up essentially every hot
@@ -722,11 +778,20 @@ func (vm *VM) executeLoop() types.Result {
 		// operand re-derivation through vm.frame on every instruction.
 		//
 		// Contract: a case only PEEKS operands until it is certain it handles
-		// the instruction completely; then it commits (cur.IP, stack, locals)
-		// and continues. On any guard failure it falls through untouched to the
-		// generic path, so every error, promotion, and edge case is still served
-		// by the one implementation in Execute. Shared bookkeeping (releaseLocal,
-		// fastTick, wideOperand) is factored so the two paths cannot drift.
+		// the instruction completely; then it commits (ip, stack, locals) and
+		// continues the inner loop. On any guard failure it falls through
+		// untouched to the generic path, so every error, promotion, and edge
+		// case is still served by the one implementation in Execute. Shared
+		// bookkeeping (releaseLocal, fastTick, wideOperand) is factored so the
+		// two paths cannot drift.
+		//
+		// IP WRITE-BACK: the fast path advances only the local ip; cur.IP is
+		// stale while it runs. Every way out of the inner loop is the generic
+		// path below, which stores ip into cur.IP before anything that could
+		// read it (Execute, tick and seconds limits, errors, yields, frame
+		// push/pop). No fast-path case reads cur.IP: the out-of-line helpers
+		// take ip as an argument. Guarded by the tests in
+		// interp_dispatch_prop_read_test.go.
 		//
 		// A ticking case charges its tick with fastTick only once its guard
 		// has passed, and before it mutates anything; fastTick declines when
@@ -737,142 +802,147 @@ func (vm *VM) executeLoop() types.Result {
 		// vm.yielded (only suspend/fork/builtin paths do), so the yield check
 		// is skipped safely. The compiler emits only the *_WIDE control-flow
 		// forms; narrow forms stay on the generic path.
-		switch fastKinds[op] {
-		case fkImm:
-			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
-			cur.IP = ip + 1
-			continue
-		case fkPushInt:
-			vm.Push(types.NewInt(int64(binary.BigEndian.Uint64(code[ip+1 : ip+9]))))
-			cur.IP = ip + 9
-			continue
-		case fkGetVar:
-			v := cur.Locals[code[ip+1]]
-			if !v.IsUnbound() {
-				vm.Push(v)
-				cur.IP = ip + 2
+		for {
+			op = bytecode.OpCode(code[ip])
+			switch fastKinds[op] {
+			case fkImm:
+				vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
+				ip++
 				continue
-			}
-		case fkPush:
-			vm.Push(cur.Program.Constants[code[ip+1]])
-			cur.IP = ip + 2
-			continue
-		case fkSetVar:
-			if vm.fastTick() {
+			case fkPushInt:
+				vm.Push(types.NewInt(int64(binary.BigEndian.Uint64(code[ip+1 : ip+9]))))
+				ip += 9
+				continue
+			case fkGetVar:
+				v := cur.Locals[code[ip+1]]
+				if !v.IsUnbound() {
+					vm.Push(v)
+					ip += 2
+					continue
+				}
+			case fkPush:
+				vm.Push(cur.Program.Constants[code[ip+1]])
+				ip += 2
+				continue
+			case fkSetVar:
+				if vm.fastTick() {
+					idx := code[ip+1]
+					vm.releaseLocal(cur.Locals[idx])
+					cur.Locals[idx] = vm.Pop()
+					ip += 2
+					continue
+				}
+			case fkSetLocal:
 				idx := code[ip+1]
 				vm.releaseLocal(cur.Locals[idx])
 				cur.Locals[idx] = vm.Pop()
-				cur.IP = ip + 2
+				ip += 2
 				continue
-			}
-		case fkSetLocal:
-			idx := code[ip+1]
-			vm.releaseLocal(cur.Locals[idx])
-			cur.Locals[idx] = vm.Pop()
-			cur.IP = ip + 2
-			continue
-		case fkAdd:
-			if vm.SP >= 2 {
-				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+			case fkAdd:
+				if vm.SP >= 2 {
+					a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+					if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+						if vm.fastTick() {
+							vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
+							vm.SP--
+							ip++
+							continue
+						}
+					} else if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
+						// Same finite-result rule as executeAdd; NaN/Inf falls
+						// through so the generic path raises E_FLOAT.
+						if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) && vm.fastTick() {
+							vm.Stack[vm.SP-2] = types.NewFloat(r)
+							vm.SP--
+							ip++
+							continue
+						}
+					}
+				}
+			case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
+				// Kept out of line: inlining these grew executeLoop's body enough
+				// to cost the core int loops 6-10% (layout, not frame size). A
+				// small call is still far cheaper than the trip through Execute.
+				if vm.fastTick() {
+					if vm.fastIntBinary(fastKinds[op]) {
+						ip++
+						continue
+					}
+					vm.Ticks--
+				}
+			case fkIndex:
+				if vm.fastTick() {
+					if vm.fastListIndex() {
+						ip++
+						continue
+					}
+					vm.Ticks--
+				}
+			case fkForListLoad:
+				if vm.fastForListLoad(cur, code, ip) {
+					ip += 5
+					continue
+				}
+			case fkForListLoadValue:
+				if vm.fastForListLoadValue(cur, code, ip) {
+					ip += 4
+					continue
+				}
+			case fkPop:
+				if vm.SP > 0 {
+					vm.SP--
+					ip++
+					continue
+				}
+			case fkJump:
+				ip += 5 + wideOperand(code, ip+1)
+				continue
+			case fkJumpIfFalse:
+				if vm.SP > 0 && vm.fastTick() {
+					vm.SP--
+					next := ip + 5
+					if !vm.Stack[vm.SP].Truthy() {
+						next += wideOperand(code, ip+1)
+					}
+					ip = next
+					continue
+				}
+			case fkForRangeCheck, fkForListCheck:
+				a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
 				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-					if vm.fastTick() {
-						vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
-						vm.SP--
-						cur.IP = ip + 1
+					ticked := false
+					if fastKinds[op] == fkForRangeCheck {
+						ticked = vm.fastTick()
+					} else {
+						ticked = vm.fastTickUnchecked()
+					}
+					if ticked {
+						next := ip + 7
+						if a.Int() > b.Int() {
+							next += wideOperand(code, ip+3)
+						}
+						ip = next
 						continue
 					}
-				} else if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
-					// Same finite-result rule as executeAdd; NaN/Inf falls
-					// through so the generic path raises E_FLOAT.
-					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) && vm.fastTick() {
-						vm.Stack[vm.SP-2] = types.NewFloat(r)
-						vm.SP--
-						cur.IP = ip + 1
-						continue
-					}
 				}
-			}
-		case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
-			// Kept out of line: inlining these grew executeLoop's body enough
-			// to cost the core int loops 6-10% (layout, not frame size). A
-			// small call is still far cheaper than the trip through Execute.
-			if vm.fastTick() {
-				if vm.fastIntBinary(fastKinds[op]) {
-					cur.IP = ip + 1
+			case fkForRangeNext:
+				// The MaxInt64 end-bound lowering and object ranges stay generic.
+				vi := code[ip+1]
+				if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
+					cur.Locals[vi] = types.NewInt(a.Int() + 1)
+					ip += 7 - wideOperand(code, ip+3)
 					continue
 				}
-				vm.Ticks--
-			}
-		case fkIndex:
-			if vm.fastTick() {
-				if vm.fastListIndex() {
-					cur.IP = ip + 1
-					continue
-				}
-				vm.Ticks--
-			}
-		case fkForListLoad:
-			if vm.fastForListLoad(cur, code, ip) {
-				cur.IP = ip + 5
+			case fkLoop:
+				ip += 5 - wideOperand(code, ip+1)
 				continue
 			}
-		case fkForListLoadValue:
-			if vm.fastForListLoadValue(cur, code, ip) {
-				cur.IP = ip + 4
-				continue
-			}
-		case fkPop:
-			if vm.SP > 0 {
-				vm.SP--
-				cur.IP = ip + 1
-				continue
-			}
-		case fkJump:
-			cur.IP = ip + 5 + wideOperand(code, ip+1)
-			continue
-		case fkJumpIfFalse:
-			if vm.SP > 0 && vm.fastTick() {
-				vm.SP--
-				next := ip + 5
-				if !vm.Stack[vm.SP].Truthy() {
-					next += wideOperand(code, ip+1)
-				}
-				cur.IP = next
-				continue
-			}
-		case fkForRangeCheck, fkForListCheck:
-			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
-			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-				ticked := false
-				if fastKinds[op] == fkForRangeCheck {
-					ticked = vm.fastTick()
-				} else {
-					ticked = vm.fastTickUnchecked()
-				}
-				if ticked {
-					next := ip + 7
-					if a.Int() > b.Int() {
-						next += wideOperand(code, ip+3)
-					}
-					cur.IP = next
-					continue
-				}
-			}
-		case fkForRangeNext:
-			// The MaxInt64 end-bound lowering and object ranges stay generic.
-			vi := code[ip+1]
-			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
-				cur.Locals[vi] = types.NewInt(a.Int() + 1)
-				cur.IP = ip + 7 - wideOperand(code, ip+3)
-				continue
-			}
-		case fkLoop:
-			cur.IP = ip + 5 - wideOperand(code, ip+1)
-			continue
+			break
 		}
 
-		// GENERIC PATH. An OP_TICKS prefix replaces the next instruction's
-		// default charge.
+		// GENERIC PATH. The instruction at ip was declined by the fast path;
+		// write the local ip back first (see IP WRITE-BACK above). An OP_TICKS
+		// prefix replaces the next instruction's default charge.
 		cur.IP = ip + 1
 		var checked, unchecked int64
 		if op == bytecode.OP_TICKS {
@@ -941,7 +1011,7 @@ func (vm *VM) executeLoop() types.Result {
 				}
 			}
 			// Handle error
-			handled, exceptionValue := vm.HandleError(err)
+			handled, exceptionValue, reason := vm.handleErrorWithReason(err)
 			if !handled {
 				// Extract error code, preferring the typed MooError
 				var errCode types.ErrorCode
@@ -958,6 +1028,7 @@ func (vm *VM) executeLoop() types.Result {
 				return types.Result{
 					Flow:      types.FlowException,
 					Error:     errCode,
+					Reason:    outwardExceptionReason(errCode, reason),
 					Val:       exceptionValue,
 					CallStack: stackSnapshot,
 				}
@@ -988,9 +1059,10 @@ func (vm *VM) executeLoop() types.Result {
 			line := vm.CurrentLine()
 			_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), line)
 			return types.Result{
-				Flow:  types.FlowException,
-				Error: types.E_MAXREC,
-				Val:   types.NewStr("E_MAXREC: tick limit exceeded"),
+				Flow:   types.FlowException,
+				Error:  types.E_MAXREC,
+				Reason: types.ExceptionReasonTickBudget,
+				Val:    types.NewStr("E_MAXREC: tick limit exceeded"),
 			}
 		}
 	}
@@ -1004,7 +1076,7 @@ func (vm *VM) executeLoop() types.Result {
 
 secondsLimit:
 	_ = vm.annotateError(newMooError(types.E_MAXREC, "seconds limit exceeded"), vm.CurrentLine())
-	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
+	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Reason: types.ExceptionReasonSecondsBudget, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
@@ -1107,7 +1179,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		val := frame.Locals[idx]
 		if val.IsUnbound() {
 			if int(idx) < len(frame.Program.VarNames) {
-				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx])
+				return newMooErrorf(types.E_VARNF, "Variable not found: %s", frame.Program.VarNames[idx]).withMessage()
 			}
 			return MooError{Code: types.E_VARNF}
 		}
@@ -1429,7 +1501,14 @@ func (vm *VM) CurrentLine() int {
 // frames if no handler is found. This supports cross-frame exception propagation
 // for native verb calls.
 func (vm *VM) HandleError(err error) (bool, types.Value) {
+	handled, value, _ := vm.handleErrorWithReason(err)
+	return handled, value
+}
+
+// The reason travels with this particular error, never with reusable VM state.
+func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.ExceptionReason) {
 	errCode := errorCode(err)
+	reason := exceptionReason(err)
 	exceptionValue := types.None
 	var vmErr VMException
 	if errors.As(err, &vmErr) {
@@ -1443,19 +1522,16 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		// Toast includes the eval'd-code activation in the traceback when the error
 		// is caught at (or unwinds to) the eval frame, but not when a verb above the
 		// eval frame catches it first. Decide which case we're in before unwinding.
-		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
-		traceback = vm.limitExceptionTraceback(traceback, errCode)
+		code := raisedCode(errCode, exceptionValue)
+		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(code))
+		traceback = vm.limitExceptionTraceback(traceback, code)
 
 		// Build or augment the 4-element exception value: {code, message, value, traceback}
 		if exceptionValue.IsNone() {
 			message := errCode.Message()
-			prefix := errCode.String() + ":"
-			if detail := err.Error(); strings.HasPrefix(detail, prefix) {
-				if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
-					if !strings.EqualFold(detail, message) {
-						message = detail
-					}
-				}
+			var native MooError
+			if errors.As(err, &native) && native.publicDetail {
+				message = native.detail()
 			}
 			exceptionValue = types.NewList([]types.Value{
 				types.NewErr(errCode),
@@ -1481,8 +1557,9 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 	for len(vm.Frames) > 0 {
 		frame := vm.CurrentFrame()
 		if frame == nil {
-			return false, exceptionValue
+			return false, exceptionValue, reason
 		}
+		code := raisedCode(errCode, exceptionValue)
 
 		// Search this frame's ExceptStack (innermost handler first)
 		for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
@@ -1495,14 +1572,14 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				// Save the pending error so after finally runs, we re-raise it
 				frame.PendingError = err
 				if exceptionValue.Type() == types.TYPE_LIST && exceptionValue.Len() == 4 {
-					frame.PendingError = VMException{Code: errCode, Value: exceptionValue}
+					frame.PendingError = VMException{Code: errCode, Value: exceptionValue, Reason: reason}
 				}
 				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 
-			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
+			if vm.handlerMatches(frame, &handler, code) {
 				// Found matching except handler - jump to it
 				frame.ExceptStack = frame.ExceptStack[:i]
 				vm.SP = handler.StackDepth
@@ -1519,7 +1596,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 					}
 				}
 
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 		}
 
@@ -1530,7 +1607,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				trace.Exception(frame.This, frame.Verb, errCode)
 			}
 			// This is the bottom frame — no more frames to unwind into
-			return false, exceptionValue
+			return false, exceptionValue, reason
 		}
 
 		// Eval frame boundary: catch the error and wrap as {0, error}.
@@ -1579,22 +1656,23 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		vm.SP = base
 		if recycleContinuation != nil {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
-				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
+				Flow: types.FlowException, Error: errCode, Val: exceptionValue, Reason: reason,
 			})
 			switch result.Flow {
 			case types.FlowException:
 				errCode = result.Error
 				exceptionValue = result.Val
+				reason = result.Reason
 			case types.FlowAbortAttempt:
 				// Stop unwinding: no handler may run on an abandoned attempt.
 				// Callers see the yield and return FlowAbortAttempt.
 				vm.abortAttempt()
-				return true, exceptionValue
+				return true, exceptionValue, reason
 			}
 		}
 		// Continue searching in the caller frame
 	}
 
 	// No frames left
-	return false, exceptionValue
+	return false, exceptionValue, reason
 }

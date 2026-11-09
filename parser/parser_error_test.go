@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -33,7 +33,7 @@ func TestParseErrorLiteral(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != verb.LiteralErr {
+			if lit.Kind != ir.LiteralErr {
 				t.Fatalf("literal kind = %v, want LiteralErr", lit.Kind)
 			}
 			if lit.ErrorName != tt.expected {

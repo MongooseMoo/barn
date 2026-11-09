@@ -4,16 +4,15 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestLineSyncDoesNotMaterializeRuntimeVariables(t *testing.T) {
-	taskValue := &task.Task{}
+	taskValue := &task.State{}
 	taskValue.PushFrame(types.ActivationFrame{Verb: "raise"})
 	machine := &VM{
-		Context: &kernel.TaskContext{},
+		Context: &task.Context{},
 		Task:    taskValue,
 		Frames: []*StackFrame{{
 			Program: &bytecode.Program{VarNames: []string{"local"}},
@@ -61,11 +60,11 @@ func TestCaughtErrorMaterializesObservedOrPendingValue(t *testing.T) {
 
 func TestTracebackRuntimeVariablesFollowServerOption(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
-		ctx := &kernel.TaskContext{PendingEffects: []kernel.PendingEffect{{
-			Kind:          kernel.PendingEffectServerOptions,
-			ServerOptions: &kernel.PendingServerOptions{IncludeRTVars: enabled},
+		ctx := &task.Context{PendingEffects: []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{IncludeRTVars: enabled},
 		}}}
-		taskValue := &task.Task{}
+		taskValue := &task.State{}
 		taskValue.PushFrame(types.ActivationFrame{Verb: "boom"})
 		machine := &VM{Context: ctx, Task: taskValue,
 			Builtins: newTestSessionWithTaskManager(BuildVMRegistry())}
@@ -93,7 +92,7 @@ func TestTracebackRuntimeVariablesFollowServerOption(t *testing.T) {
 }
 
 func TestRuntimeVariableSnapshotSurvivesResume(t *testing.T) {
-	taskValue := &task.Task{}
+	taskValue := &task.State{}
 	taskValue.PushFrame(types.ActivationFrame{Verb: "suspended"})
 	machine := &VM{Task: taskValue}
 	machine.pushFrame(&StackFrame{
@@ -123,9 +122,9 @@ func TestRuntimeVariableSnapshotSurvivesResume(t *testing.T) {
 
 func TestUncaughtStackCapturesOptionalRuntimeVariables(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
-		ctx := &kernel.TaskContext{PendingEffects: []kernel.PendingEffect{{
-			Kind:          kernel.PendingEffectServerOptions,
-			ServerOptions: &kernel.PendingServerOptions{IncludeRTVars: enabled},
+		ctx := &task.Context{PendingEffects: []task.PendingEffect{{
+			Kind:          task.PendingEffectServerOptions,
+			ServerOptions: &task.PendingServerOptions{IncludeRTVars: enabled},
 		}}}
 		machine := &VM{Context: ctx,
 			Builtins: newTestSessionWithTaskManager(BuildVMRegistry())}

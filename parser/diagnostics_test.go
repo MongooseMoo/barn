@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestProgramDiagnosticsNeverExposePartialProgram(t *testing.T) {
@@ -27,7 +27,7 @@ func TestProgramDiagnosticsNeverExposePartialProgram(t *testing.T) {
 
 func TestSemanticDiagnosticAtFinalTokenHasNoPhantomEOFLine(t *testing.T) {
 	_, diagnostics := NewParser("1 = 2;\n").ParseProgramWithDiagnostics(nil)
-	if len(diagnostics) != 1 || diagnostics[0].Position != (verb.Position{Line: 1, Column: 5, Offset: 4}) {
+	if len(diagnostics) != 1 || diagnostics[0].Position != (ir.Position{Line: 1, Column: 5, Offset: 4}) {
 		t.Fatalf("diagnostic must point at completed RHS: %+v", diagnostics)
 	}
 }

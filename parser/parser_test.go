@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestParseIntegerLiterals(t *testing.T) {
@@ -25,7 +25,7 @@ func TestParseIntegerLiterals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != verb.LiteralInt {
+			if lit.Kind != ir.LiteralInt {
 				t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 			}
 			if lit.IntValue != tt.want {
@@ -43,7 +43,7 @@ func TestParseMillionDigitIntegerWithoutPathologicalCost(t *testing.T) {
 	elapsed := time.Since(start)
 	t.Logf("parsed one-million-digit integer in %v", elapsed)
 
-	if lit.Kind != verb.LiteralInt {
+	if lit.Kind != ir.LiteralInt {
 		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 	if lit.IntValue != 0 {
@@ -88,7 +88,7 @@ func TestParseFloatLiterals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != verb.LiteralFloat {
+			if lit.Kind != ir.LiteralFloat {
 				t.Fatalf("literal kind = %v, want LiteralFloat", lit.Kind)
 			}
 			if lit.FloatValue != tt.want {

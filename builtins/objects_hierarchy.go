@@ -228,7 +228,7 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -267,7 +267,8 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		if !isObjectRef(elem) {
+		// Parents are OBJ values only (Toast is_obj_or_list_of_objs).
+		if elem.Type() != types.TYPE_OBJ {
 			return types.Err(types.E_TYPE)
 		}
 
@@ -357,7 +358,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -689,7 +690,7 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(obj.ID(), nil); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -698,6 +699,9 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 		return result
 	}
 
+	if ctx.PushInitialize != nil {
+		return ctx.PushInitialize(result.Val, nil, "recreate")
+	}
 	initResult := session.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult

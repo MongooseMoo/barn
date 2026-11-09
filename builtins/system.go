@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -12,11 +11,13 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-
 	"strings"
 	"time"
 
+	"github.com/MongooseMoo/barn/config"
+
 	"github.com/MongooseMoo/barn/internal/buildinfo"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -231,7 +232,7 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 
 	// Launch subprocess in background goroutine
 	go func() {
@@ -431,8 +432,8 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 	// Toast's Linux children never emit \r\n), then binary-encode: Toast
 	// returns exec output through raw_bytes_to_binary, so the MOO strings
 	// contain "~0A" text, not raw newlines (conformance exec_with_sleep_works).
-	stdoutStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stdout.String(), "\r\n", "\n")))
-	stderrStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stderr.String(), "\r\n", "\n")))
+	stdoutStr := EncodeRawToBinary([]byte(strings.ReplaceAll(stdout.String(), "\r\n", "\n")))
+	stderrStr := EncodeRawToBinary([]byte(strings.ReplaceAll(stderr.String(), "\r\n", "\n")))
 
 	// Return {exit_code, stdout, stderr}
 	result := []types.Value{
@@ -804,22 +805,39 @@ func builtinDbDiskSize(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(size))
 }
 
+// builtinDumpDatabase requests a checkpoint once the calling task's writes have
+// committed. Toast's bf_dump_database only sets checkpoint_requested; its main
+// loop runs #0:checkpoint_started and the dump after the task has returned, so
+// the hooks and the dump always follow the caller's writes. Barn's server loop
+// acts on a request at once, so the request is a commit-deferred effect: a
+// request sent mid-task let the checkpoint_started hook commit before the
+// caller, whose commit then lost validation with an uncatchable E_INVARG.
 func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	// The "CHECKPOINTING" wording is Toast's and is asserted by the conformance
-	// suite (server/dump_database.yaml): the message text is part of the contract,
-	// so the structured attrs are additive rather than a replacement.
-	slog.Info("CHECKPOINTING: dump_database() requested",
-		slog.Int64("programmer", int64(ctx.Programmer)))
-	if dump := hostOf(ctx).Checkpoint; dump != nil {
-		if err := dump(); err != nil {
-			slog.Error("dump_database() failed", slog.Any("err", err))
-			// MOO spec: dump_database() returns 0 on success
-			// On error, still return 0 (Toast behavior)
+	dump := hostOf(ctx).Checkpoint
+	programmer := ctx.Programmer
+	request := func() {
+		// The "CHECKPOINTING" wording is Toast's and is asserted by the conformance
+		// suite (server/dump_database.yaml): the message text is part of the contract,
+		// so the structured attrs are additive rather than a replacement.
+		slog.Info("CHECKPOINTING: dump_database() requested",
+			slog.Int64("programmer", int64(programmer)))
+		if dump != nil {
+			if err := dump(); err != nil {
+				slog.Error("dump_database() failed", slog.Any("err", err))
+			}
 		}
 	}
+	if txn := readTxn(ctx); txn == nil || txn.IsDirect() {
+		// A direct transaction (the dbtool eval path) has no commit boundary to
+		// defer to.
+		request()
+	} else {
+		enqueuePendingEffect(ctx, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: request})
+	}
+	// Toast returns 0 whether or not the checkpoint succeeds.
 	return types.Ok(types.NewInt(0))
 }
 
@@ -841,7 +859,7 @@ func builtinBackgroundTest(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	go func() {
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)
@@ -891,7 +909,7 @@ func builtinReadStdin(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	t.WakeErrorAsValue = true
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	if !stdin.ReadLineAsync(t) {
 		return types.Err(types.E_INVARG)
 	}
@@ -913,7 +931,7 @@ func systemDescriptors() []Descriptor {
 	return []Descriptor{
 		function("background_test", builtinBackgroundTest, 2, 2, 2, 0).plainArityError().withCapability(config.BackgroundTasks),
 		function("db_disk_size", builtinDbDiskSize, 0, 0),
-		function("dump_database", builtinDumpDatabase, 0, 0).withEffect(CommitGateReentrant),
+		function("dump_database", builtinDumpDatabase, 0, 0),
 		function("getenv", builtinGetenv, 1, 1, 2),
 		function("read_stdin", builtinReadStdin, 0, 0).hidden().withEffect(Irreversible).withCapability(config.ProcessStdin),
 		function("spellcheck", builtinSpellcheck, 1, 1, 2),

@@ -44,7 +44,7 @@ func TestUncaughtHandlerBeforeYieldedParent(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("fork did not reach the uncaught-error handler")
 	}
-	var child *task.Task
+	var child *Task
 	for _, candidate := range rt.taskManager.Snapshot() {
 		if candidate.IsForked {
 			child = candidate

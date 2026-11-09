@@ -21,7 +21,7 @@ func TestRenumberTransfersStagedObjectWritesWithoutPublishingPrivateView(t *test
 			if err := s.Recycle(1); err != nil {
 				t.Fatal(err)
 			}
-			if _, ec := s.AddVerb(2, NewVerb("probe", []string{"probe", "alias"}, 0,
+			if _, ec := s.AddVerb(2, NewVerb([]string{"probe", "alias"}, 0,
 				VerbRead|VerbWrite|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"},
 				[]string{"return 1;"})); ec != types.E_NONE {
 				t.Fatal(ec)

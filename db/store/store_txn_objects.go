@@ -3,6 +3,7 @@ package store
 import (
 	"slices"
 
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -16,30 +17,43 @@ type objectScalarWrite struct {
 }
 
 func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
-	if tx.direct {
-		return tx.store.objectExists(objID)
-	}
+	_, ec := tx.existingObject(objID)
+	return ec
+}
+
+// existingObject is ObjectExists returning the transaction's view of objID
+// when it exists, so a caller that goes on to read the object need not fetch
+// it again.
+func (tx *StoreTxn) existingObject(objID types.ObjID) (*Object, types.ErrorCode) {
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
-		return types.E_NONE
+		tx.markExistenceRead(objID, obj)
+		return obj, types.E_NONE
 	}
 	if obj != nil && obj.recycled {
-		return types.E_INVARG
+		return nil, types.E_INVARG
 	}
-	return types.E_INVIND
+	return nil, types.E_INVIND
 }
 
 func (tx *StoreTxn) Valid(objID types.ObjID) bool {
-	if tx.direct {
-		return tx.store.valid(objID)
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return false
 	}
-	return validLiveObject(tx.object(objID))
+	tx.markExistenceRead(objID, obj)
+	return true
+}
+
+// markExistenceRead records that a result depends on live obj staying live; the
+// scalar read fails validation if a concurrent commit recycles it.
+func (tx *StoreTxn) markExistenceRead(objID types.ObjID, obj *Object) {
+	if !isolationprobe.Fault("valid-reads") {
+		tx.markObjectScalarRead(objID, obj)
+	}
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectName(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
@@ -52,9 +66,6 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 // when the name is written and shared by every reader, so `.name` does not
 // allocate per read.
 func (tx *StoreTxn) ObjectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectNameValue(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.None, types.E_INVIND
@@ -64,9 +75,6 @@ func (tx *StoreTxn) ObjectNameValue(objID types.ObjID) (types.Value, types.Error
 }
 
 func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectOwner(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -76,9 +84,6 @@ func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode
 }
 
 func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectFlags(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
@@ -88,9 +93,6 @@ func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode
 }
 
 func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasObjectFlag(objID, flag)
-	}
 	flags, errCode := tx.ObjectFlags(objID)
 	if errCode != types.E_NONE {
 		return false, errCode
@@ -99,9 +101,6 @@ func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, ty
 }
 
 func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectIsAnonymous(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -112,7 +111,7 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 
 func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectName(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectName(objID, name) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -129,7 +128,7 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 
 func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectOwner(objID, owner)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectOwner(objID, owner) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -146,7 +145,7 @@ func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.E
 
 func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectFlag(objID, flag, enabled)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectFlag(objID, flag, enabled) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -172,13 +171,20 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 // footprint), records a PRISTINE base image in createdObjects (commit rebuilds from a
 // clone + this id's staged self-writes, so published memory never aliases txn state),
 // caches it for read-your-writes, and stages a commutative children-add on each parent.
-// Anonymous creation stays coarse (out-of-band, no slot) — callers must not route it
-// here. Retry-safe: on retry the whole txn is dropped and a fresh id is allocated (the
-// abandoned id is wasted, never a live slot).
+// Anonymous creation is coarse from any txn (out-of-band, no slot: a staged create is
+// published into the numbered directory). Retry-safe: on retry the whole txn is dropped
+// and a fresh id is allocated (the abandoned id is wasted, never a live slot).
 func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous ...bool) (types.ObjID, types.ErrorCode) {
-	isAnonymous := len(anonymous) > 0 && anonymous[0]
-	if tx.direct || isAnonymous {
-		return tx.store.createObject(parents, owner, isAnonymous)
+	if len(anonymous) > 0 && anonymous[0] {
+		return tx.store.createAnonymous(parents, owner)
+	}
+	if tx.direct {
+		var newID types.ObjID
+		errCode := tx.store.writeNow(func(w *StoreTxn) (errCode types.ErrorCode) {
+			newID, errCode = w.CreateObject(parents, owner)
+			return errCode
+		})
+		return newID, errCode
 	}
 	newID := tx.store.allocateID()
 	if owner == types.ObjNothing {
@@ -188,7 +194,8 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 
 	obj := NewObject(newID, owner)
 	obj.parents = append([]types.ObjID(nil), parents...)
-	obj.properties = tx.copyInheritedProperties(parents)
+	obj.properties = tx.copyInheritedProperties(parents, owner)
+	tx.store.shareCreatedProperties(obj.properties)
 	// Placeholder versions; the commit build re-stamps every version to the commit ts
 	// (a brand-new object is entirely at its creation version).
 	stampObjectAll(obj, tx.readTS)
@@ -198,17 +205,14 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 	}
 	tx.createdObjects[newID] = cloneObjectForReadTxn(obj)
 	tx.objects[newID] = obj
-	if tx.owned == nil {
-		tx.owned = make(map[types.ObjID]bool)
-	}
-	tx.owned[newID] = true
+	lazySet(&tx.owned, newID, facetsAll)
 
 	// Add the new object to each parent's children (commutative setadd — two creates
 	// under one parent commute; no read dep on the parent beyond copyInheritedProperties'
 	// property-scan). Also update the cached parent for read-your-writes.
 	for _, parentID := range parents {
 		if p := tx.object(parentID); validLiveObject(p) {
-			m := tx.mutableObject(parentID)
+			m := tx.mutableFacets(parentID, facetChildren)
 			if !slices.Contains(m.children, newID) {
 				m.children = append(m.children, newID)
 			}
@@ -223,13 +227,14 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 }
 
 // MaxObject returns the highest non-anonymous id visible to this txn, including its own
-// staged creates (read-your-writes for max_object()).
+// staged creates (read-your-writes for max_object()). For the direct txn that is the
+// store's highest numbered id now, recycled ids included.
 func (tx *StoreTxn) MaxObject() types.ObjID {
-	if tx.direct {
-		return tx.store.maxObject()
-	}
 	if tx == nil {
 		return -1
+	}
+	if tx.direct {
+		return tx.store.maxObjectID()
 	}
 	return tx.maxObjID
 }
@@ -238,10 +243,10 @@ func (tx *StoreTxn) MaxObject() types.ObjID {
 // on the decentralized path: it removes the object from its location's contents and its
 // parents' children (commutative deltas) and stages the recycled tombstone. It records a
 // relationship read on the object — the conflict guard: a concurrent move-into or
-// create-under it must conflict this recycle (do NOT ForgetObject, Fable P1-1). Returns
+// create-under it must conflict this recycle (so do NOT ForgetObject). Returns
 // handled=false for a COMPLEX object (has children or contents), so the caller falls
 // back to the coarse store.Recycle (which reparents children). Anonymous objects are not
-// routed here. recycledID is appended at commit time (under RLock), not here.
+// routed here. ids.recycled is appended at commit time (under RLock), not here.
 func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorCode) {
 	if tx.direct {
 		return false, types.E_NONE
@@ -281,22 +286,20 @@ func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorC
 	m.contents = []types.ObjID{}
 	m.location = types.ObjNothing
 	m.properties = newPropTable(0)
-	m.verbs = make(map[string]*Verb)
 	m.recycled = true
 	m.flags = m.flags.Set(FlagRecycled | FlagInvalid)
 	return true, types.E_NONE
 }
 
-// IsRecycled reports whether id resolves to a recycled tombstone in this txn's view —
-// including a recycle this task staged decentrally but has not yet committed. Mirrors
-// Store.IsRecycled, which sees only committed live state.
+// IsRecycled reports whether id resolves to a recycled numbered tombstone in this txn's
+// view, including a recycle this task staged decentrally but has not yet committed. A
+// recycled anonymous object is not a recycled id: Toast's recycled_objects() lists only
+// numbered ids (bf_recycled_objects, objects.cc:1258-1276), and an anonymous create does
+// not take one (db_make_anonymous, db_objects.cc:425-437).
 func (tx *StoreTxn) IsRecycled(id types.ObjID) bool {
-	if tx.direct {
-		return tx.store.isRecycled(id)
-	}
 	if tx.recycleWrites[id] {
 		return true
 	}
 	obj := tx.object(id)
-	return obj != nil && obj.recycled
+	return obj != nil && obj.recycled && !obj.anonymous
 }

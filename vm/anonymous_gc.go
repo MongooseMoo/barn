@@ -6,49 +6,9 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
-
-// CollectAnonymousRefsFromValue includes references nested in waif properties.
-// The caller must exclude concurrent mutation, as for VM root collection.
-func CollectAnonymousRefsFromValue(v types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousRefsForGC(v, out)
-}
-
-// collectAnonymousRefsForGC finds anonymous object references inside value trees.
-func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousRefsForGCVisited(v, out, nil)
-}
-
-func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}) {
-	switch v.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if v.IsAnonymous() {
-			out[v.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		identity := v.WaifIdentity()
-		if _, seen := visitedWaifs[identity]; seen {
-			return
-		}
-		if visitedWaifs == nil {
-			visitedWaifs = make(map[types.WaifIdentity]struct{})
-		}
-		visitedWaifs[identity] = struct{}{}
-		v.VisitRetainedWaifValues(func(prop types.Value) { collectAnonymousRefsForGCVisited(prop, out, visitedWaifs) })
-	case types.TYPE_LIST:
-		for _, elem := range v.Elements() {
-			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range v.Pairs() {
-			collectAnonymousRefsForGCVisited(pair[0], out, visitedWaifs)
-			collectAnonymousRefsForGCVisited(pair[1], out, visitedWaifs)
-		}
-	}
-}
 
 // CollectAnonymousRefsFromVM gathers the anonymous-object IDs reachable from a VM's
 // frames and stack into out. It touches only VM state (no Store lock), so callers may
@@ -64,37 +24,19 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	}
 	exec.visitValues(func(value types.Value, kind valueRootKind) {
 		if kind == valueRootLive {
-			collectAnonymousRefsForGC(value, out)
+			types.CollectAnonymousRefs(value, out, true)
 		}
 	})
 }
 
 func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			refs[value.ID()] = struct{}{}
+	value.VisitDirectFinalizationRefs(func(ref types.Value) {
+		if ref.IsAnonymous() {
+			refs[ref.ID()] = struct{}{}
+		} else if !pendingFinalizationValueInList(ref, *waifs) {
+			*waifs = append(*waifs, ref)
 		}
-	case types.TYPE_WAIF:
-		if !pendingFinalizationValueInList(value, *waifs) {
-			*waifs = append(*waifs, value)
-		}
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectDirectFinalizationRoots(elem, refs, waifs)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectDirectFinalizationRoots(pair[0], refs, waifs)
-			collectDirectFinalizationRoots(pair[1], refs, waifs)
-		}
-	}
+	})
 }
 
 func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
@@ -232,7 +174,7 @@ func canonicalWaifRoots(candidates []types.Value, persistent *types.WaifSet) []t
 			continue
 		}
 		closure := types.NewWaifSet(nil)
-		collectWaifsInto(candidate, closure, false)
+		closure.AddReachable(candidate, false)
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure.Values, order: index})
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -289,7 +231,6 @@ func releasePendingFinalizationScratch(scratch *pendingFinalizationScratch) {
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	var scratch *pendingFinalizationScratch
 	frame.visitFinalizableCandidates(func(value types.Value) {
-		vm.collectDirectWaifsForGC(value)
 		if scratch == nil {
 			scratch = pendingFinalizationScratchPool.Get().(*pendingFinalizationScratch)
 		}
@@ -301,6 +242,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	}
 }
 
+// collectPendingFinalizationsFromValue records both pending lists from one walk.
 func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
 	if !value.MayHoldFinalizable() {
 		return
@@ -345,12 +287,27 @@ func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waif
 		}
 	}
 	for _, value := range waifs {
+		vm.recordPendingWaif(value)
 		id := value.WaifIdentity()
 		if _, exists := vm.pendingFinalizationWaifIDs[id]; !exists {
 			vm.pendingFinalizationWaifIDs[id] = struct{}{}
 			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
 		}
 	}
+}
+
+// AnonymousGCFloor includes released references from earlier tasks, which can
+// precede the current slice's creation floor. Reachability is checked at sweep.
+func (vm *VM) AnonymousGCFloor(floor types.ObjID, needed bool) (types.ObjID, bool) {
+	for _, value := range vm.PendingFinalizations {
+		if value.IsAnonymous() {
+			needed = true
+			if value.ID() < floor {
+				floor = value.ID()
+			}
+		}
+	}
+	return floor, needed
 }
 
 // TakePendingFinalizationValues returns the canonical roots retained across
@@ -364,6 +321,26 @@ func (vm *VM) TakePendingFinalizationValues() []types.Value {
 	vm.pendingFinalizationWaifIDs = nil
 	vm.pendingFinalizationAnonIDs = nil
 	return values
+}
+
+// PruneSuspendedPendingFinalizations drops the ledger entries a suspend no
+// longer needs: every WAIF, since each was also recorded in PendingWaifs and
+// handed to the deferred finalizer, and every anonymous object already
+// recycled. Only call it when that hand-off was not a shutdown one. The new
+// slice leaves the retry checkpoint's backing array untouched.
+func (vm *VM) PruneSuspendedPendingFinalizations() {
+	var kept []types.Value
+	for _, value := range vm.PendingFinalizations {
+		if value.Type() != types.TYPE_ANON {
+			continue
+		}
+		if view, ok := vm.Store.Get(value.ID()); ok && view.Anonymous {
+			kept = append(kept, value)
+		}
+	}
+	vm.PendingFinalizations = kept
+	vm.pendingFinalizationWaifIDs = nil
+	vm.pendingFinalizationAnonIDs = nil
 }
 
 func pendingFinalizationValueInList(needle types.Value, values []types.Value) bool {
@@ -391,7 +368,7 @@ func pendingFinalizationValueInList(needle types.Value, values []types.Value) bo
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
-func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Session, ctx *kernel.TaskContext) {
+func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Session, ctx *task.Context) {
 	AutoRecycleOrphanAnonymousSince(store, session, session.NewExecution(ctx, nil), 0, nil)
 }
 
@@ -403,8 +380,8 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Sess
 // walked then; capturing the ids up front keeps them as roots without retaining
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
-	Ctx       *kernel.TaskContext
-	Task      *task.Task
+	Ctx       *task.Context
+	Task      *task.State
 	MinID     types.ObjID
 	OwnRefs   map[types.ObjID]struct{}
 	TaskOwned bool
@@ -502,10 +479,10 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 // engine lock, so they were snapshotted without racing those tasks). localVMs are
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
 func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, session *builtins.Session, execution *builtins.Execution, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
-	if execution == nil || execution.TaskContext == nil || store == nil || session == nil {
+	if execution == nil || execution.Context == nil || store == nil || session == nil {
 		return
 	}
-	ctx := execution.TaskContext
+	ctx := execution.Context
 
 	// Fast path: recycle candidates are restricted to anonymous objects with
 	// ids >= minID, so when the finished task created none the reachability

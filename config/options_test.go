@@ -51,6 +51,26 @@ func TestSQLiteCacheConfiguration(t *testing.T) {
 	}
 }
 
+func TestConflictCensusConfiguration(t *testing.T) {
+	if DefaultOptions().ConflictCensus {
+		t.Fatal("default CONFLICT_CENSUS should be disabled")
+	}
+	for value, want := range map[string]bool{"0": false, "1": true} {
+		options, err := Parse(strings.NewReader("CONFLICT_CENSUS = "+value+"\n"), "census.conf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if options.ConflictCensus != want {
+			t.Fatalf("CONFLICT_CENSUS = %s parsed as %v", value, options.ConflictCensus)
+		}
+	}
+	for _, value := range []string{"true", "yes", "2"} {
+		if _, err := Parse(strings.NewReader("CONFLICT_CENSUS = "+value), "census.conf"); err == nil {
+			t.Fatalf("accepted %q", value)
+		}
+	}
+}
+
 func TestFeatureMap(t *testing.T) {
 	on := Options{OutboundNetwork: true, PromoteNumbers: true}.FeatureMap()
 	if on[FeatureOutboundNetwork] != true {

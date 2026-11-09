@@ -12,7 +12,7 @@ import (
 )
 
 func TestCheckpointStageAbortReleasesFilesAndPath(t *testing.T) {
-	for _, phase := range []string{"begin", "invalid-store", "writer-failed", "serialized", "sync-failed", "sidecar-failed"} {
+	for _, phase := range []string{"begin", "invalid-store", "captured", "writer-failed", "serialized", "sync-failed", "sidecar-failed"} {
 		t.Run(phase, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "abort.db")
 			checkpoint, err := BeginCheckpoint(path)
@@ -20,16 +20,35 @@ func TestCheckpointStageAbortReleasesFilesAndPath(t *testing.T) {
 				t.Fatal(err)
 			}
 			if phase == "invalid-store" {
-				if err := checkpoint.Serialize(nil, nil, nil, nil); err == nil {
+				if err := checkpoint.Capture(nil, nil, nil, nil); err == nil {
 					t.Fatal("nil store accepted")
 				}
-			} else if phase == "writer-failed" {
-				if err := checkpoint.Serialize(store.NewStore(), nil, []task.Snapshot{{ID: 12, State: task.TaskSuspended}}, nil); err == nil {
-					t.Fatal("lossy suspended task accepted")
+				if err := checkpoint.Capture(store.NewStore(), nil, nil, nil); err == nil {
+					t.Fatal("repeated capture after failure accepted")
 				}
 			} else if phase != "begin" {
-				if err := checkpoint.Serialize(store.NewStore(), nil, nil, nil); err != nil {
+				var suspended []task.Snapshot
+				if phase == "writer-failed" {
+					suspended = []task.Snapshot{{ID: 12, State: task.TaskSuspended}}
+				}
+				if err := checkpoint.Capture(store.NewStore(), nil, suspended, nil); err != nil {
 					t.Fatal(err)
+				}
+				if checkpoint.writer == nil {
+					t.Fatal("capture did not retain its frozen writer")
+				}
+				if phase != "captured" {
+					err := checkpoint.Serialize()
+					if phase == "writer-failed" {
+						if err == nil {
+							t.Fatal("lossy suspended task accepted")
+						}
+					} else if err != nil {
+						t.Fatal(err)
+					}
+					if checkpoint.writer != nil {
+						t.Fatal("serialization retained its captured writer")
+					}
 				}
 			}
 			if phase == "sync-failed" {
@@ -50,6 +69,9 @@ func TestCheckpointStageAbortReleasesFilesAndPath(t *testing.T) {
 				}
 			}
 			closeErr := checkpoint.Close()
+			if checkpoint.writer != nil {
+				t.Fatal("Close retained its captured writer")
+			}
 			if closeErr != nil && (phase != "sync-failed" || !errors.Is(closeErr, os.ErrClosed)) {
 				t.Fatal(closeErr)
 			}
@@ -82,10 +104,22 @@ func TestCheckpointStageRejectsOutOfOrderAndRepeatedCalls(t *testing.T) {
 	if err := checkpoint.Publish(); err == nil {
 		t.Fatal("published before serialization")
 	}
-	if err := checkpoint.Serialize(store.NewStore(), nil, nil, nil); err != nil {
+	if err := checkpoint.Serialize(); err == nil {
+		t.Fatal("serialized before capture")
+	}
+	if err := checkpoint.Capture(store.NewStore(), nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkpoint.Serialize(store.NewStore(), nil, nil, nil); err == nil {
+	if err := checkpoint.Capture(store.NewStore(), nil, nil, nil); err == nil {
+		t.Fatal("repeated capture accepted")
+	}
+	if err := checkpoint.Publish(); err == nil {
+		t.Fatal("published captured state before serialization")
+	}
+	if err := checkpoint.Serialize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkpoint.Serialize(); err == nil {
 		t.Fatal("repeated serialization accepted")
 	}
 	if err := checkpoint.Publish(); err != nil {
@@ -97,7 +131,10 @@ func TestCheckpointStageRejectsOutOfOrderAndRepeatedCalls(t *testing.T) {
 	if err := checkpoint.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkpoint.Serialize(store.NewStore(), nil, nil, nil); err == nil {
+	if err := checkpoint.Capture(store.NewStore(), nil, nil, nil); err == nil {
+		t.Fatal("captured after Close")
+	}
+	if err := checkpoint.Serialize(); err == nil {
 		t.Fatal("serialized after Close")
 	}
 	if err := checkpoint.Publish(); err == nil {
@@ -119,7 +156,10 @@ func TestCheckpointStageClosePreservesFailedPublicationRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkpoint.Serialize(objectStore, nil, nil, nil); err != nil {
+	if err := checkpoint.Capture(objectStore, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkpoint.Serialize(); err != nil {
 		t.Fatal(err)
 	}
 	publicationFailed := false

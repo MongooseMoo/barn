@@ -2,6 +2,8 @@ package format
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -151,11 +153,18 @@ func (w *Writer) writeObject(obj *store.SnapshotObject) error {
 
 // writeObjectList writes a list of object IDs as a MOO list value
 func (w *Writer) writeObjectList(ids []types.ObjID) error {
-	elements := make([]types.Value, len(ids))
-	for i, id := range ids {
-		elements[i] = types.NewObj(id)
+	if err := w.writeInt(TypeList); err != nil {
+		return err
 	}
-	return w.writeValue(types.NewList(elements))
+	if err := w.writeInt(len(ids)); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := w.writeValue(types.NewObj(id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeParents writes parents - single OBJ if one, list if multiple, #-1 if none
@@ -166,18 +175,14 @@ func (w *Writer) writeParents(parents []types.ObjID) error {
 	case 1:
 		return w.writeValue(types.NewObj(parents[0]))
 	default:
-		elements := make([]types.Value, len(parents))
-		for i, id := range parents {
-			elements[i] = types.NewObj(id)
-		}
-		return w.writeValue(types.NewList(elements))
+		return w.writeObjectList(parents)
 	}
 }
 
 // writeVerbMetadata writes verb metadata (not code)
 func (w *Writer) writeVerbMetadata(verb store.VerbView) error {
 	// Verb name (all names joined by space)
-	if err := w.writeString(verb.Name); err != nil {
+	if err := w.writeString(strings.Join(verb.Names, " ")); err != nil {
 		return err
 	}
 
@@ -276,62 +281,51 @@ func (w *Writer) writeProperty(view store.PropertyView) error {
 
 // writeVerbCodeSections writes all verb code sections
 func (w *Writer) writeVerbCodeSections() error {
-	// Collect all verbs with code
-	type verbRef struct {
-		objID   types.ObjID
-		verbIdx int
-		code    []string
-	}
-	var verbs []verbRef
-
-	objects := make([]*store.SnapshotObject, 0, len(w.snapshot.AllObjects)+len(w.snapshot.AnonymousObjects))
-	objects = append(objects, w.snapshot.AllObjects...)
-	objects = append(objects, w.snapshot.AnonymousObjects...)
-
-	// Iterate permanent and anonymous objects to collect verbs.
-	for _, obj := range objects {
-		if obj == nil || obj.Recycled {
-			continue
-		}
-		for idx, view := range obj.VerbList {
-			// Emit a verb-program entry for every verb that has a program, even
-			// if its source is empty. Toast (v17) writes one #obj:verbidx entry
-			// per programmed verb regardless of whether the program is empty; a
-			// verb that was never set_verb_code'd (HasProgram false) has no entry.
-			// Gating on len(view.Code)>0 would drop empty-but-present programs
-			// (B6: canonical #10:special_action), undercounting by one.
-			if view.HasProgram {
-				verbs = append(verbs, verbRef{
-					objID:   obj.ID,
-					verbIdx: idx,
-					code:    view.Code,
-				})
+	objects := [2][]*store.SnapshotObject{w.snapshot.AllObjects, w.snapshot.AnonymousObjects}
+	count := 0
+	for _, group := range objects {
+		for _, obj := range group {
+			if obj == nil || obj.Recycled {
+				continue
+			}
+			for _, view := range obj.VerbList {
+				// Empty-but-present programs still need an entry; verbs that
+				// were never programmed do not.
+				if view.HasProgram {
+					count++
+				}
 			}
 		}
 	}
 
 	// Write verb count
-	if err := w.writeInt(len(verbs)); err != nil {
+	if err := w.writeInt(count); err != nil {
 		return err
 	}
 
-	// Write each verb program
-	for _, v := range verbs {
-		// Verb location: #objnum:verbindex
-		if err := w.writeString(fmt.Sprintf("#%d:%d", v.objID, v.verbIdx)); err != nil {
-			return err
-		}
-
-		// Code lines
-		for _, line := range v.code {
-			if err := w.writeString(line); err != nil {
-				return err
+	// Traverse the snapshot again instead of retaining a reference per program.
+	for _, group := range objects {
+		for _, obj := range group {
+			if obj == nil || obj.Recycled {
+				continue
 			}
-		}
-
-		// End marker
-		if err := w.writeString("."); err != nil {
-			return err
+			for idx, view := range obj.VerbList {
+				if !view.HasProgram {
+					continue
+				}
+				// Verb location: #objnum:verbindex
+				if err := w.writeString(fmt.Sprintf("#%d:%d", obj.ID, idx)); err != nil {
+					return err
+				}
+				for _, line := range view.Code {
+					if err := w.writeString(line); err != nil {
+						return err
+					}
+				}
+				if err := w.writeString("."); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

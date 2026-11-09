@@ -52,19 +52,23 @@ func vmDescriptors() []builtins.Descriptor {
 			code := joinLines(lines)
 			prog, diagnostics := ctx.Registry.Compiler().CompileMOO(strings.Split(code, "\n"))
 			if len(diagnostics) > 0 {
+				errors := make([]types.Value, len(diagnostics))
+				for i, diagnostic := range diagnostics {
+					errors[i] = types.NewStr(diagnostic.Error())
+				}
 				return types.Ok(types.NewList([]types.Value{
 					types.NewInt(0),
-					types.NewList([]types.Value{types.NewStr(diagnostics[0].Error())}),
+					types.NewList(errors),
 				}))
 			}
 
 			if ctx.PushEval == nil {
 				evalVM := NewVM(store, ctx.Session)
-				evalVM.Context = ctx.TaskContext
+				evalVM.Context = ctx.Context
 				evalVM.Task = ctx.Task
 				// No scheduler is running (inspection tools); honor the session's
 				// foreground tick budget the way the engine path does.
-				evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
+				evalVM.TickLimit, _ = ctx.Session.TaskLimitsFor(ctx.Context, false)
 				frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
 				SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
 				SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))

@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -30,16 +30,16 @@ func TestParseUnaryMinus(t *testing.T) {
 			}
 
 			if tt.expectUnary {
-				unary, ok := expr.(*verb.UnaryExpr)
+				unary, ok := expr.(*ir.UnaryExpr)
 				if !ok {
 					t.Fatalf("expected UnaryExpr for %s, got %T", tt.description, expr)
 				}
-				if unary.Operator != verb.UnaryNegate {
+				if unary.Operator != ir.UnaryNegate {
 					t.Errorf("expected operator MINUS, got %s", unary.Operator)
 				}
 			} else {
 				// Should be a literal with negative value
-				lit, ok := expr.(*verb.LiteralExpr)
+				lit, ok := expr.(*ir.LiteralExpr)
 				if !ok {
 					t.Fatalf("expected LiteralExpr for %s, got %T", tt.description, expr)
 				}
@@ -67,12 +67,12 @@ func TestParseLogicalNot(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			unary, ok := expr.(*verb.UnaryExpr)
+			unary, ok := expr.(*ir.UnaryExpr)
 			if !ok {
 				t.Fatalf("expected UnaryExpr, got %T", expr)
 			}
 
-			if unary.Operator != verb.UnaryNot {
+			if unary.Operator != ir.UnaryNot {
 				t.Errorf("expected operator NOT, got %s", unary.Operator)
 			}
 		})
@@ -96,12 +96,12 @@ func TestParseBitwiseNot(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			unary, ok := expr.(*verb.UnaryExpr)
+			unary, ok := expr.(*ir.UnaryExpr)
 			if !ok {
 				t.Fatalf("expected UnaryExpr, got %T", expr)
 			}
 
-			if unary.Operator != verb.UnaryBitwiseNot {
+			if unary.Operator != ir.UnaryBitwiseNot {
 				t.Errorf("expected operator BITNOT, got %s", unary.Operator)
 			}
 		})
@@ -128,13 +128,13 @@ func TestUnaryOperatorPrecedence(t *testing.T) {
 			}
 
 			// Should be a binary expression
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
 
 			if tt.hasUnary {
-				_, ok = binary.Left.(*verb.UnaryExpr)
+				_, ok = binary.Left.(*ir.UnaryExpr)
 				if !ok {
 					t.Errorf("expected left operand to be UnaryExpr, got %T", binary.Left)
 				}
@@ -150,12 +150,12 @@ func TestParseIntegerLiteralExpr(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	lit, ok := expr.(*verb.LiteralExpr)
+	lit, ok := expr.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("expected LiteralExpr, got %T", expr)
 	}
 
-	if lit.Kind != verb.LiteralInt {
+	if lit.Kind != ir.LiteralInt {
 		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 
@@ -171,7 +171,7 @@ func TestParseIdentifierExpr(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	ident, ok := expr.(*verb.IdentifierExpr)
+	ident, ok := expr.(*ir.IdentifierExpr)
 	if !ok {
 		t.Fatalf("expected IdentifierExpr, got %T", expr)
 	}
@@ -202,15 +202,15 @@ func TestParenthesesDoNotCreateSemanticNodes(t *testing.T) {
 
 			switch tt.want {
 			case "literal":
-				if _, ok := expr.(*verb.LiteralExpr); !ok {
+				if _, ok := expr.(*ir.LiteralExpr); !ok {
 					t.Fatalf("expected semantic literal, got %T", expr)
 				}
 			case "identifier":
-				if _, ok := expr.(*verb.IdentifierExpr); !ok {
+				if _, ok := expr.(*ir.IdentifierExpr); !ok {
 					t.Fatalf("expected semantic identifier, got %T", expr)
 				}
 			case "binary":
-				if _, ok := expr.(*verb.BinaryExpr); !ok {
+				if _, ok := expr.(*ir.BinaryExpr); !ok {
 					t.Fatalf("expected semantic binary expression, got %T", expr)
 				}
 			}
@@ -220,7 +220,7 @@ func TestParenthesesDoNotCreateSemanticNodes(t *testing.T) {
 
 func TestParenthesesPreserveContainedExpressionLocation(t *testing.T) {
 	expr := parseExprForTest(t, "(42)")
-	literal, ok := expr.(*verb.LiteralExpr)
+	literal, ok := expr.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("expected semantic literal, got %T", expr)
 	}

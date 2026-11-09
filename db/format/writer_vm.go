@@ -59,9 +59,12 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 }
 
 func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
-	if len(frame.Program.Source) == 0 {
-		return fmt.Errorf("activation has no source program")
+	if !frame.PendingError.ValidExceptionReason() {
+		return fmt.Errorf("invalid pending error reason")
 	}
+	// An empty source is an empty program, which Toast writes as the "."
+	// terminator alone (execute.cc write_activ -> dbio_write_program).
+	// Restore executes the bytecode in vmFrameMetadata, not the source.
 	if err := w.writeString("language version 17"); err != nil {
 		return err
 	}
@@ -266,6 +269,9 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		recycleContinuationValue(frame.RecycleContinuation),
 		internalLocalsValue(frame),
 		types.NewStr(hex.EncodeToString(frame.Program.BuiltinLayout[:])),
+		types.NewList(frame.CommandEnvironment[:]),
+		types.NewInt(int64(frame.ReturnLocal)),
+		types.NewList([]types.Value{types.NewStr(frame.BuiltinCaller), types.NewInt(int64(frame.BuiltinPC))}),
 	})
 }
 
@@ -316,6 +322,7 @@ func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Val
 		objectIDsValue(state.OldChildren),
 		objectIDsValue(state.OldContents),
 		types.NewObj(state.OldLocation),
+		types.NewBool(state.ExitCallback),
 	})
 }
 
@@ -378,5 +385,6 @@ func pendingErrorValue(pending task.VMErrorSnapshot) types.Value {
 		types.NewBool(pending.Present),
 		types.NewInt(int64(pending.Code)),
 		pending.Value,
+		types.NewInt(int64(pending.Reason)),
 	})
 }

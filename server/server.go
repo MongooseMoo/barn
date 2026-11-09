@@ -19,7 +19,6 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -28,7 +27,9 @@ import (
 
 // Server represents the MOO server
 type Server struct {
+	StartScripts        [][]string
 	store               *dbstore.Store
+	loadedStore         atomic.Pointer[dbstore.Store]
 	runtime             *engine.Runtime
 	registry            *builtins.Registry
 	input               *InputProcessor
@@ -66,6 +67,13 @@ func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle 
 
 // BuiltinRegistry is the immutable registry used by this server's runtime.
 func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
+
+// Runtime is the engine LoadDatabase built; nil before then.
+func (s *Server) Runtime() *engine.Runtime { return s.runtime }
+
+// Store is the store LoadDatabase built; nil before then. It is safe to call
+// from any goroutine, such as a debug endpoint started before the load.
+func (s *Server) Store() *dbstore.Store { return s.loadedStore.Load() }
 
 var ErrPanicShutdown = errors.New("panic shutdown")
 
@@ -117,6 +125,8 @@ func (s *Server) LoadDatabase() error {
 	if err != nil {
 		return fmt.Errorf("construct store from database: %w", err)
 	}
+	s.store.SetConflictCensusTracking(s.options.ConflictCensus)
+	s.loadedStore.Store(s.store)
 	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
@@ -157,23 +167,23 @@ func (s *Server) LoadDatabase() error {
 	// Nothing is recycled before #0:server_started returns (see Start).
 	s.runtime.HoldFinalizationUntilStarted()
 	s.runtime.AdoptPendingFinalizations(s.store.TakePendingFinalizations())
-	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
+	s.runtime.SetTaskLineSender(func(player types.ObjID, line string, diagnostic *metrics.Command) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
-			_ = conn.Send(line)
+			_ = conn.(*Connection).sendCommandResponse(line, diagnostic)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
-		lines := task.FormatTraceback(stack, err)
+	s.runtime.SetTracebackSender(func(player types.ObjID, result types.Result, diagnostic *metrics.Command) {
+		lines := task.FormatTraceback(result.CallStack, result.ErrorMessage())
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
 			slog.Error("traceback undeliverable (no connection)",
 				slog.Int64("player", int64(player)),
-				slog.String("error", types.NewErr(err).String()),
+				slog.String("error", types.NewErr(result.Error).String()),
 				slog.String("traceback", strings.Join(lines, "\n")))
 			return
 		}
 		for _, line := range lines {
-			_ = conn.Send(line)
+			_ = conn.(*Connection).sendCommandResponse(line, diagnostic)
 		}
 	})
 	s.runtime.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {
@@ -195,7 +205,6 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire the force_input() builtin to the runtime.
 	host.InputForcer = s.input
-	host.TaskYielder = s.runtime
 	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
 	// Like the Toast main loop, checkpoint requests run outside the requesting
@@ -203,10 +212,10 @@ func (s *Server) LoadDatabase() error {
 	host.Checkpoint = func() error { return s.requestCheckpoint() }
 	host.DatabaseDiskSize = s.databaseDiskSize
 	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
-		var ctx *kernel.TaskContext
+		var ctx *task.Context
 		var callerRoots []types.Value
 		if execution != nil {
-			ctx = execution.TaskContext
+			ctx = execution.Context
 			if !ctx.DeferredGC && execution.PendingFinalizations != nil {
 				callerRoots = execution.PendingFinalizations()
 			}
@@ -319,9 +328,27 @@ func (s *Server) Start() error {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
-		return fmt.Errorf("listen failed: %w", err)
+		return errors.Join(fmt.Errorf("listen failed: %w", err), s.runtime.Session().Close())
 	}
 
+	for _, lines := range s.StartScripts {
+		args := make([]types.Value, len(lines))
+		for i, line := range lines {
+			var clean strings.Builder
+			for j := 0; j < len(line); j++ {
+				if line[j] >= 0x20 && line[j] <= 0x7e {
+					clean.WriteByte(line[j])
+				}
+			}
+			args[i] = types.NewStr(clean.String())
+		}
+		result, err := s.runtime.RunServerVerbTask(0, "do_start_script", args, types.ObjNothing)
+		if err != nil && !errors.Is(err, engine.ErrServerVerbNotFound) {
+			slog.Warn("startup script failed", slog.Any("err", err))
+		} else {
+			slog.Info("startup script finished", slog.Any("flow", result.Flow))
+		}
+	}
 	s.callCheckpointedConnectionHooks()
 
 	// Call #0:server_started()
@@ -410,7 +437,8 @@ func (s *Server) checkpoint() error {
 }
 
 type checkpointStage interface {
-	Serialize(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Capture(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Serialize() error
 	Publish() error
 	Close() error
 }
@@ -476,12 +504,15 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 	if err := s.runtime.WithCheckpointBarrier(func() error {
 		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 		activeConnections := s.connManager.CheckpointConnections()
-		if err := checkpoint.Serialize(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+		if err := checkpoint.Capture(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 			return err
 		}
 		if mode == checkpointTerminal {
 			// Closing input does not stop already dispatched background tasks.
 			// Keep terminal snapshots protected until durable publication finishes.
+			if err := checkpoint.Serialize(); err != nil {
+				return err
+			}
 			return checkpoint.Publish()
 		}
 		return nil
@@ -489,6 +520,9 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 		return err
 	}
 	if mode == checkpointRunning {
+		if err := checkpoint.Serialize(); err != nil {
+			return err
+		}
 		return checkpoint.Publish()
 	}
 	return nil
@@ -497,7 +531,9 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 // Shutdown initiates graceful shutdown.
 func (s *Server) Shutdown(message string) {
 	s.mu.Lock()
-	if !s.running {
+	// A live context also belongs to a server that has not entered Start yet.
+	// Retain its shutdown request; only an already stopped server is a no-op.
+	if !s.running && s.ctx.Err() != nil {
 		s.mu.Unlock()
 		return
 	}
@@ -614,28 +650,28 @@ func (s *Server) callCheckpointedConnectionHooks() {
 
 // callServerStarted calls #0:server_started()
 func (s *Server) callServerStarted() error {
-	if !s.store.HasLocalVerb(0, "server_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
 // callCheckpointStarted calls #0:checkpoint_started()
 func (s *Server) callCheckpointStarted() error {
-	if !s.store.HasLocalVerb(0, "checkpoint_started") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
 // callCheckpointFinished calls #0:checkpoint_finished(success)
 func (s *Server) callCheckpointFinished(success bool) error {
-	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, types.ObjNothing)
+	if errors.Is(err, engine.ErrServerVerbNotFound) {
 		return nil
 	}
-	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 

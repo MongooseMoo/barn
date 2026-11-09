@@ -27,13 +27,13 @@ func markLiveStoreMutated(ctx *Execution) {
 // could not undo: an irreversible external effect or a direct live-store
 // mutation. It reports whether the act may proceed. False means the runtime is
 // abandoning this attempt at its irreversible-effect boundary (see
-// kernel.TaskContext.BeforeIrreversibleEffect) and the builtin returns
+// task.Context.BeforeIrreversibleEffect) and the builtin returns
 // abortedAttempt() having done nothing.
 func beginIrreversible(ctx *Execution) bool {
-	if ctx == nil || ctx.TaskContext == nil {
+	if ctx == nil || ctx.Context == nil {
 		return true
 	}
-	tc := ctx.TaskContext
+	tc := ctx.Context
 	if tc.ConflictRetryRequested {
 		return false
 	}

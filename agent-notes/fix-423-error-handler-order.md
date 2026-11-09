@@ -4,6 +4,21 @@
 Diagnose issue 423 in this isolated worktree. Establish Toast behavior, capture a deterministic Barn failure, publish red CI, then make the smallest fix and establish green CI. Complete 20 managed conformance runs under load. Evaluate an explicit Elle negative control for the demonstrated defect.
 
 ## State
+Current delivery, November 9: Q requested merging every open Barn PR except WASM.
+This supersedes the historical publication-only hold below. GitHub records this
+PR's earlier queue removal as failed_checks, and current master conflicts in
+ci.yml and task/task.go. Preserve the loaded managed repetitions and artifacts,
+merge the current CI structure, and attach the checker-only fault to the existing
+task.State.SettledLocked method using Status. No scheduling behavior changes in
+ordinary builds. Updated the regression's child pointer to engine.Task, its
+current owner. actionlint accepted both resolved workflows. Offline zizmor
+reports five low self-repository syntax suggestions on unchanged local-action
+references inherited from master; no medium or high findings. Removed the
+duplicate permissions key caught by actionlint after the automatic merge.
+Fresh remote PR checks are next, followed by the normal merge queue and merge
+verification.
+
+The remaining State entries below describe historical investigation evidence.
 Q authorized fixing both CI failures. Saved artifact 12330781347 proves the commit-exclusion fault hit an invalid-WAIF-publication-timestamp panic in an unrelated wave (task 100028), leaving info:1. Integrated master 704a1b20 (PR #483) in merge commit b4c5e79f: its source enables the commit-exclusion fault only around the held pair and reserves game sockets before optional HTTP endpoints. Previous DefaultConfig used ephemeral debug/operator ports; internal/app/listener_reservation_test.go forces that same-address collision. Removed our overlapping skip-waves change and closed redundant companion moo-conformance-tests#133. All healthy/fault waves and lifecycle coverage remain. Historical port occupant remains unknown; the saved log does not identify it. Final exact-head PR CI is pending; query PR #482 for current run IDs.
 Audit-correction head a7359df1 passed both complete CI workflows: runs 39707954838 (CI) and 39707954657 (Elle). Loaded managed session 20/20 logged 2 passed, 63 deselected. This is acceptance evidence, not proof the intermittent infrastructure failures were repaired.
 Q requested addressing audit findings. Both workflows now pin verified action commits and disable checkout credential persistence; ci.yml explicitly grants contents: read. actionlint exited 0; zizmor --offline exited 0: "No findings to report. Good job! (23 suppressed)". No new suppressions added. setup-uv v5 is annotated; verified dereferenced commit d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86.

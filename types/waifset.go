@@ -69,3 +69,39 @@ func (s *WaifSet) Has(v Value) bool {
 
 // Len returns the number of distinct waifs recorded.
 func (s *WaifSet) Len() int { return len(s.Values) }
+
+// AddReachable records waifs reachable through lists, maps and waif properties.
+// Already-present waifs (including the overlay base) are not expanded again.
+// retained selects all retained property images instead of current properties.
+func (s *WaifSet) AddReachable(v Value, retained bool) {
+	switch v.Type() {
+	case TYPE_WAIF:
+		if !s.Add(v) {
+			return
+		}
+		if retained {
+			v.VisitRetainedWaifValues(func(prop Value) { s.AddReachable(prop, true) })
+		} else {
+			for _, name := range v.PropertyNames() {
+				if prop, ok := v.GetProperty(name); ok {
+					s.AddReachable(prop, false)
+				}
+			}
+		}
+	case TYPE_LIST:
+		if !v.MayHoldFinalizable() {
+			return
+		}
+		for _, elem := range v.Elements() {
+			s.AddReachable(elem, retained)
+		}
+	case TYPE_MAP:
+		if !v.MayHoldFinalizable() {
+			return
+		}
+		for _, pair := range v.Pairs() {
+			s.AddReachable(pair[0], retained)
+			s.AddReachable(pair[1], retained)
+		}
+	}
+}

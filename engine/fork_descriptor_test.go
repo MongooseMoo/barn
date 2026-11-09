@@ -7,15 +7,14 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestCreateForkedTaskRejectsNilParentProgram(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
-	parent := task.NewTaskFull(8800, 0, nil, 1000, 1)
-	if got := s.CreateForkedTask(parent, &types.ForkInfo{
+	parent := NewTaskFull(8800, 0, nil, 1000, 1)
+	if got := s.CreateForkedTask(&parent.State, &types.ForkInfo{
 		Body: &bytecode.ForkBody{},
 	}); got != 0 {
 		t.Fatalf("invalid parent program created task %d, want zero", got)
@@ -30,7 +29,7 @@ func (metadataOnlyForkBody) FirstLine() int          { return 1 }
 func TestCreateForkedTaskRejectsInvalidExecutionDescriptors(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
-	parent := task.NewTaskFull(8801, 0, nil, 1000, 1)
+	parent := NewTaskFull(8801, 0, nil, 1000, 1)
 	var typedNil *bytecode.ForkBody
 	for _, test := range []struct {
 		name string
@@ -43,7 +42,7 @@ func TestCreateForkedTaskRejectsInvalidExecutionDescriptors(t *testing.T) {
 		{"invalid range", &types.ForkInfo{Body: &bytecode.ForkBody{Parent: &bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}}, Offset: 0, Length: 2}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := s.CreateForkedTask(parent, test.info); got != 0 {
+			if got := s.CreateForkedTask(&parent.State, test.info); got != 0 {
 				t.Fatalf("invalid execution descriptor created task %d", got)
 			}
 		})

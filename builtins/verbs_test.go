@@ -65,6 +65,10 @@ func TestVerbCodeReturnsCompoundStatementAsSeparateLines(t *testing.T) {
 func TestSetVerbCodeStoresToastCanonicalProgramText(t *testing.T) {
 	ctx, store := newReviewCtx(t)
 	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
+	// set_verb_code requires is_programmer(progr) (Toast src/verbs.cc:532).
+	if ec := store.DirectTxn().SetObjectFlag(ctx.Programmer, dbstore.FlagProgrammer, true); ec != types.E_NONE {
+		t.Fatalf("SetObjectFlag programmer on #%d: %s", ctx.Programmer, ec)
+	}
 	mustAddVerb(t, store, obj, "canonical_set", 0, dbstore.VerbRead|dbstore.VerbWrite)
 	source := []types.Value{
 		types.NewStr("waif = 1;"),

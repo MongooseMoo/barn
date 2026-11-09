@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestDetailedRuntimeLogsRequireOptInAndContainOnlyMetadata(t *testing.T) {
@@ -63,6 +65,25 @@ func TestPhaseCounterConcurrentAccounting(t *testing.T) {
 	}
 }
 
+func TestPhaseStatsSubIsTheWindow(t *testing.T) {
+	var counter phaseCounter
+	counter.observe(time.Second, 5) // before the window, and its maximum
+	prior := counter.snapshot()
+	counter.observe(time.Millisecond, 2)
+	counter.observe(50*time.Microsecond, 1)
+	got := counter.snapshot().Sub(prior)
+	if got.Count != 2 || got.TotalNS != int64(time.Millisecond+50*time.Microsecond) || got.Ticks != 3 || got.MaxNS != 0 {
+		t.Fatalf("window = %+v", got)
+	}
+	want := make([]int64, len(durationBounds)+1)
+	want[2], want[3] = 1, 1
+	for i := range want {
+		if got.Buckets[i] != want[i] {
+			t.Fatalf("window buckets = %v, want %v", got.Buckets, want)
+		}
+	}
+}
+
 func BenchmarkRuntimeObservation(b *testing.B) {
 	id := Identity{TaskID: 1, This: 2, Verb: "say"}
 	b.RunParallel(func(pb *testing.PB) {
@@ -70,4 +91,41 @@ func BenchmarkRuntimeObservation(b *testing.B) {
 			ObserveRuntime(VMAttempt, id, time.Millisecond, 100)
 		}
 	})
+}
+
+func TestTerminalExceptionOptInAndFixedMetadata(t *testing.T) {
+	prior := detailedRuntime.Swap(false)
+	priorLogger := slog.Default()
+	t.Cleanup(func() { detailedRuntime.Store(prior); slog.SetDefault(priorLogger) })
+	var out bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	id := Identity{TaskID: 71, This: 42, Verb: "weave"}
+	TerminalException(id, types.E_MAXREC, types.ExceptionReasonSecondsBudget, false, true)
+	if out.Len() != 0 {
+		t.Fatal("terminal exception logged without opt-in")
+	}
+	detailedRuntime.Store(true)
+	TerminalException(id, types.E_MAXREC, types.ExceptionReasonSecondsBudget, false, true)
+	var rec map[string]any
+	if err := json.Unmarshal(out.Bytes(), &rec); err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"time": true, "level": true, "msg": true, "task_id": true, "this": true, "verb": true, "error": true, "reason": true, "intrinsic_eval": true, "committed": true}
+	if len(rec) != len(allowed) {
+		t.Fatalf("unexpected fields: %v", rec)
+	}
+	for key := range rec {
+		if !allowed[key] {
+			t.Fatalf("unexpected field %q", key)
+		}
+	}
+	if rec["task_id"] != float64(71) || rec["error"] != "E_MAXREC" || rec["reason"] != "seconds_budget" || rec["intrinsic_eval"] != false || rec["committed"] != true {
+		t.Fatalf("wrong metadata: %v", rec)
+	}
+	out.Reset()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&out, nil)))
+	TerminalException(id, types.E_MAXREC, types.ExceptionReasonSecondsBudget, false, true)
+	if out.Len() != 0 {
+		t.Fatal("terminal exception logged without debug level")
+	}
 }

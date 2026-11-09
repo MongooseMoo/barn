@@ -9,7 +9,7 @@ import (
 )
 
 // threadedCtx is a wizard execution on a task's root VM with thread mode on.
-func threadedCtx() (*Execution, *task.Task) {
+func threadedCtx() (*Execution, *task.State) {
 	ctx, taskValue := sqliteAsyncCtx()
 	ctx.RuntimeOptions = config.Options{OutboundNetwork: true}
 	ctx.BeforeIrreversibleEffect = func() bool {

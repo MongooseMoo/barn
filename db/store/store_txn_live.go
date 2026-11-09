@@ -1,8 +1,6 @@
 package store
 
 import (
-	"strings"
-
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -12,7 +10,7 @@ import (
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
-		// The live op has already moved verbShapeChangeTS, so the memo's clock
+		// The live op has already moved dispatch.shapeChangeTS, so the memo's clock
 		// check can no longer tell this txn's own change from a concurrent one.
 		// Callers reach PrepareLiveMutation first; this is the safety net.
 		tx.materializeVerbMemoMarks()
@@ -48,7 +46,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	}
 	tx.objects[objID] = cloneObjectForReadTxn(live)
 	// Anonymous objects do not participate in max_object() (CreateObject /
-	// insertObjectLocked bump only highWaterID for anon); mirror that here.
+	// insertObjectLocked bump only ids.highWater for anon); mirror that here.
 	if !live.anonymous && objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}
@@ -63,7 +61,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		return types.E_NONE
 	}
 	tx.invalidateResolveCaches()
-	// obj.verbList/obj.verbs are rebuilt in place below, so obj must be a txn-private
+	// obj.verbList is rebuilt in place below, so obj must be a txn-private
 	// copy. mutableObject is called BEFORE the store.mu.RLock, so its own RLock does
 	// not nest.
 	obj := tx.mutableObject(objID)
@@ -86,26 +84,15 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		return types.E_INVIND
 	}
 
-	verbClones := make(map[*Verb]*Verb, len(live.verbList))
 	obj.verbList = make([]*Verb, 0, len(live.verbList))
 	for _, verb := range live.verbList {
-		verbClone := cloneVerbForReadTxn(verb)
-		verbClones[verb] = verbClone
-		obj.verbList = append(obj.verbList, verbClone)
-	}
-	obj.verbs = make(map[string]*Verb, len(live.verbs))
-	for name, verb := range live.verbs {
-		if verbClone, ok := verbClones[verb]; ok {
-			obj.verbs[name] = verbClone
-			continue
-		}
-		obj.verbs[name] = cloneVerbForReadTxn(verb)
+		obj.verbList = append(obj.verbList, cloneVerbForReadTxn(verb))
 	}
 	for key, write := range tx.verbWrites {
 		if key.objID != objID {
 			continue
 		}
-		verb := obj.verbs[key.name]
+		verb := obj.verbByID(key.id)
 		if verb == nil {
 			continue
 		}
@@ -113,12 +100,13 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	}
 	obj.verbIdx = live.verbIdx // same aliases in the same order as live
 	obj.verbVersion = live.verbVersion
-	tx.verbScans[objID] = live.verbVersion
+	tx.owned[objID] |= facetVerbs // a fresh list of fresh nodes
+	lazySet(&tx.verbScans, objID, live.verbVersion)
 	for key := range tx.verbReads {
 		if key.objID != objID {
 			continue
 		}
-		if verb := live.verbs[key.name]; verb != nil {
+		if verb := live.verbByID(key.id); verb != nil {
 			tx.verbReads[key] = verb.version
 			continue
 		}
@@ -159,7 +147,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		obj := tx.objects[objID]
 		if obj == nil {
 			obj = tx.privatizeCached(objID, live)
-		} else if !tx.owned[objID] {
+		} else if tx.owned[objID] == 0 {
 			obj = tx.privatizeCached(objID, obj)
 		}
 		obj.location = live.location
@@ -171,8 +159,9 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		for id, tracked := range live.chparentChildren {
 			obj.chparentChildren[id] = tracked
 		}
+		tx.owned[objID] |= facetContents | facetChildren // fresh slices
 		obj.relationshipVersion = live.relationshipVersion
-		tx.relationshipReads[objID] = live.relationshipVersion
+		lazySet(&tx.relationshipReads, objID, live.relationshipVersion)
 	}
 	return types.E_NONE
 }
@@ -204,6 +193,11 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	for key := range tx.propertyDefinitionDeletes {
 		if key.objID == objID {
 			delete(tx.propertyDefinitionDeletes, key)
+		}
+	}
+	for key := range tx.propertyRenames {
+		if key.objID == objID {
+			delete(tx.propertyRenames, key)
 		}
 	}
 	for key := range tx.propertyWrites {
@@ -274,6 +268,14 @@ func (tx *StoreTxn) MoveStagedObjectWrites(oldID, newID types.ObjID) {
 		key.objID = newID
 		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
 	}
+	for key, rename := range tx.propertyRenames {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyRenames, key)
+		key.objID = newID
+		lazySet(&tx.propertyRenames, key, rename)
+	}
 	for key, write := range tx.propertyWrites {
 		if key.objID != oldID {
 			continue
@@ -292,7 +294,12 @@ func (tx *StoreTxn) MoveStagedObjectWrites(oldID, newID types.ObjID) {
 	}
 }
 
-// ApplyStagedObjectWrites restores read-your-writes after adopting a live image.
+// ApplyStagedObjectWrites restores read-your-writes after adopting a live image:
+// it replays the object's staged writes on the txn's private view with the
+// commit's applier. The view keeps the object versions it adopted, because later
+// reads record those and the commit validates them against the live image. The
+// slot and verb versions the replay stamps are never recorded: a read of a
+// staged slot or verb records no version (markPropertyReadKey, markVerbRead).
 func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	if tx == nil || tx.direct {
 		return
@@ -302,77 +309,25 @@ func (tx *StoreTxn) ApplyStagedObjectWrites(objID types.ObjID) {
 	if !validLiveObject(obj) {
 		return
 	}
-	// obj.properties/propOrder are mutated in place below; privatize first so an
+	writes := tx.writesByObject()
+	w := writes.get(objID)
+	if w == nil {
+		return
+	}
+	// The replay writes every facet of the view in place; privatize first so an
 	// aliased shared image is never written. Lock-free: no store.mu held here.
-	if !tx.owned[objID] {
+	if tx.owned[objID] == 0 {
 		obj = tx.privatizeCached(objID, obj)
 	}
-	if write, ok := tx.scalarWrites[objID]; ok {
-		if write.nameSet {
-			obj.setName(write.name)
-		}
-		if write.ownerSet {
-			obj.owner = write.owner
-		}
-		if write.flagsSet {
-			obj.flags = write.flags
-		}
-	}
-	for key, write := range tx.verbWrites {
-		if key.objID == objID {
-			if verb := obj.verbs[key.name]; verb != nil {
-				verb.setCodeCopy(write.code)
-			}
-		}
-	}
-	for key, def := range tx.propertyDefines {
-		if key.objID != objID {
-			continue
-		}
-		if actualName, _, ok := obj.properties.find(def.name); ok {
-			obj.properties.remove(actualName)
-		}
-		obj.properties.put(propertyNameKey(def.name), def.prop)
-		foundOrder := false
-		for _, name := range obj.propOrder {
-			if strings.EqualFold(name, def.name) {
-				foundOrder = true
-				break
-			}
-		}
-		if !foundOrder {
-			pos := obj.propDefsCount
-			if pos > len(obj.propOrder) {
-				pos = len(obj.propOrder)
-			}
-			obj.propOrder = append(obj.propOrder, "")
-			copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-			obj.propOrder[pos] = def.name
-			obj.propDefsCount++
-		}
-	}
-	for key, write := range tx.propertyWrites {
-		if key.objID != objID {
-			continue
-		}
-		obj.properties.put(propertyNameKey(write.name), write.prop)
-	}
-	for key, actualName := range tx.propertyDefinitionDeletes {
-		if key.objID != objID {
-			continue
-		}
-		if liveActual, _, ok := obj.properties.find(actualName); ok {
-			obj.properties.remove(liveActual)
-		}
-	}
-	for key, actualName := range tx.propertyDeletes {
-		if key.objID != objID {
-			continue
-		}
-		if liveActual, _, ok := obj.properties.find(actualName); ok {
-			obj.properties.remove(liveActual)
-		}
-	}
+	tx.ownFacets(objID, obj, facetsAll)
+	adopted := *obj
+	applyHeadWrites(obj, w, tx.renamesOf(objID), tx.readTS)
+	tx.applyTailWrites(obj, w, tx.readTS, true)
+	obj.scalarVersion = adopted.scalarVersion
+	obj.relationshipVersion = adopted.relationshipVersion
+	obj.propertyVersion = adopted.propertyVersion
+	obj.propertyShapeVersion = adopted.propertyShapeVersion
+	obj.verbVersion = adopted.verbVersion
 }
 
 // FlushStagedToLive applies this txn's staged decentralized writes to the LIVE store
@@ -407,6 +362,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	// A flush publishes the staged values as they are; a keyed write publishes
 	// its whole view, as any staged write does here.
 	tx.degradeMapKeys()
+	writes := tx.writesByObject()
 	tx.store.mu.Lock()
 	if len(tx.waifs) != 0 {
 		if errCode := tx.validateReadsLocked(); errCode != types.E_NONE {
@@ -415,7 +371,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 			return errCode
 		}
 	}
-	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(&writes); errCode != types.E_NONE {
 		tx.store.mu.Unlock()
 		return tx.markTerminal(errCode)
 	}
@@ -427,22 +383,12 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	for id := range tx.recycleWrites {
 		recycledByFlush[id] = true
 	}
-	ec := tx.applyStagedToLiveLocked()
+	tx.publishStagedLocked(&writes, tx.store.clock.Load()+1, true)
 	tx.store.mu.Unlock()
-	if ec != types.E_NONE {
-		return tx.markTerminal(ec)
-	}
 
-	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
-	// triggered the flush still records reads afterward (markVerbScan, etc.), so niling
-	// them would panic on the next read.
-	tx.scalarReads = make(map[types.ObjID]uint64)
-	tx.relationshipReads = make(map[types.ObjID]uint64)
-	tx.propertyReads = make(map[propertyReadKey]uint64)
-	tx.propertyScans = make(map[types.ObjID]uint64)
-	tx.propertyShapeScans = make(map[types.ObjID]uint64)
-	tx.verbReads = make(map[verbReadKey]uint64)
-	tx.verbScans = make(map[types.ObjID]uint64)
+	// Drop pre-flush dependencies together. Subsequent reads allocate only the
+	// maps they need through lazySet.
+	tx.objectReadSet = objectReadSet{}
 	tx.verbMemoSeen = nil
 
 	// Drop the object cache too: the flush advanced live (a staged property define bumped
@@ -470,12 +416,9 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.store.mu.RLock()
 	for id, cached := range tx.objects {
 		// Anonymous objects live out-of-band in s.anonObjects with NO numbered slot, so
-		// s.load can't resolve them (it walks the numbered directory only). They are also
-		// never part of a decentralized flush — the whole decentralized path routes any
-		// anon-touching commit onto the coarse exclusive path (writeFootprintHasAnon), so
-		// the flush never republished them and their cached snapshot is not stale on its
-		// account. Leave anon entries untouched; refreshing via s.load would wrongly drop
-		// them and make a live anonymous object read as invalid mid-task.
+		// s.load can't resolve them (it walks the numbered directory only). Leave anon
+		// entries untouched; refreshing via s.load would wrongly drop them and make a
+		// live anonymous object read as invalid mid-task.
 		if cached != nil && cached.anonymous {
 			continue
 		}
@@ -499,6 +442,6 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 		}
 	}
 	tx.store.mu.RUnlock()
-	tx.owned = make(map[types.ObjID]bool)
+	tx.owned = make(map[types.ObjID]objectFacets)
 	return types.E_NONE
 }

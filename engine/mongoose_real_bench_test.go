@@ -66,12 +66,12 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/internal/mooprof"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/metrics"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
@@ -83,18 +83,24 @@ import (
 // db code calling idle_seconds()/connected_seconds() (@who, room renders) gets
 // answers instead of E_INVARG (network.go resolveConnection nil → E_INVARG).
 type benchConnection struct {
+	id          int64
 	connectedAt time.Time
 	lastActive  atomic.Int64 // unix seconds
 }
 
-func (c *benchConnection) Send(string) error                                 { return nil }
-func (c *benchConnection) SendNotification(kernel.PendingNotification) error { return nil }
-func (c *benchConnection) Buffer(string)                                     {}
-func (c *benchConnection) Flush() error                                      { return nil }
-func (c *benchConnection) RemoteAddr() string                                { return "bench-harness" }
-func (c *benchConnection) GetOutputPrefix() string                           { return "" }
-func (c *benchConnection) GetOutputSuffix() string                           { return "" }
-func (c *benchConnection) BufferedOutputLength() int                         { return 0 }
+func (c *benchConnection) ConnectionID() int64 { return c.id }
+
+// Simulated benchmark players remain connected throughout the workload.
+func (c *benchConnection) Done() <-chan struct{} { return nil }
+
+func (c *benchConnection) Send(string) error                                  { return nil }
+func (c *benchConnection) SendNotification(taskpkg.PendingNotification) error { return nil }
+func (c *benchConnection) Buffer(string)                                      {}
+func (c *benchConnection) Flush() error                                       { return nil }
+func (c *benchConnection) RemoteAddr() string                                 { return "bench-harness" }
+func (c *benchConnection) GetOutputPrefix() string                            { return "" }
+func (c *benchConnection) GetOutputSuffix() string                            { return "" }
+func (c *benchConnection) BufferedOutputLength() int                          { return 0 }
 func (c *benchConnection) ConnectedSeconds() int64 {
 	return int64(time.Since(c.connectedAt).Seconds())
 }
@@ -120,8 +126,8 @@ type benchConnManager struct {
 func newBenchConnManager(players []types.ObjID) *benchConnManager {
 	m := &benchConnManager{players: players, conns: make(map[types.ObjID]*benchConnection, len(players))}
 	now := time.Now()
-	for _, p := range players {
-		c := &benchConnection{connectedAt: now}
+	for index, p := range players {
+		c := &benchConnection{id: int64(index + 1), connectedAt: now}
 		c.touch()
 		m.conns[p] = c
 	}
@@ -203,7 +209,7 @@ func defaultRealShapes() []realShape {
 // terminal result. Retain the task before it runs, including across cleanup.
 type realCommandCompletion struct {
 	runtime *Runtime
-	task    *task.Task
+	task    *Task
 	result  chan types.Result
 }
 
@@ -235,12 +241,12 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	catalog := c.runtime.taskManager.Snapshot()
 	var out []string
 	seen := map[int64]bool{c.task.ID: true}
-	held := []*task.Task{c.task}
+	held := []*Task{c.task}
 	for len(held) != 0 {
 		target := held[0]
 		held = held[1:]
 		for _, other := range catalog {
-			if other == nil || other.PendingReadier(now) != target {
+			if other == nil || other.PendingReadier(now) != &target.State {
 				continue
 			}
 			c.runtime.mu.Lock()
@@ -251,7 +257,7 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 			if len(stack) != 0 {
 				top = fmt.Sprintf("%s:%d", stack[len(stack)-1].Verb, stack[len(stack)-1].LineNumber)
 			}
-			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.BytecodeVMValue() != nil, other.VerbName, top))
+			out = append(out, fmt.Sprintf("{task=%d holds=%d state=%s ready=%v lease=%d saved=%v verb=%s top=%s}", other.ID, target.ID, other.GetState(), !other.ReadyDeadline(now).IsZero(), lease, other.VM() != nil, other.VerbName, top))
 			if !seen[other.ID] {
 				seen[other.ID] = true
 				held = append(held, other)
@@ -286,13 +292,26 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			status, _ := json.Marshal(c.runtime.AdmissionStats())
 			admissionStatus = string(status)
 		}
-		saved := c.task.BytecodeVMValue() != nil
+		saved := c.task.VM() != nil
+		// The task whose fork or resume() readied this one; while that readier's
+		// execution is active this task stays queued (task.State.awaitingReadier).
+		readierStatus := "none"
+		if readier := c.task.Readier(); readier != nil {
+			snapshot := readier.ReadinessSnapshot()
+			readierLease := 0
+			if c.runtime != nil {
+				c.runtime.mu.Lock()
+				readierLease = c.runtime.lifecycle.ExecutingTasks[readier.ID]
+				c.runtime.mu.Unlock()
+			}
+			readierStatus = fmt.Sprintf("{task=%d state=%s execution_active=%v lease=%d}", readier.ID, snapshot.State, snapshot.ExecutionActive, readierLease)
+		}
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
 			return false, "timeout:" + ctx.Err().Error()
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, blockers, readiness, admissionStatus)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s readier=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, readierStatus, blockers, readiness, admissionStatus)
 		}
 	}
 	select {
@@ -724,8 +743,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var m0 runtime.MemStats
 		runtime.ReadMemStats(&m0)
 		store.ResetConflictCensus()
+		s.ResetGateHolds()
 		renewed0, refused0, declined0 := store.HotReadStats()
 		before := sampleCommitCounters(store)
+		waits0 := sampleWaitCounters(s, store)
 		uncaught0 := metrics.UncaughtExceptions.Value()
 		var samples []memSample
 		var held []string
@@ -761,6 +782,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		<-sampled
 		cpu1 := readGCCPU()
 		delta := sampleCommitCounters(store).sub(before)
+		waits := sampleWaitCounters(s, store)
 		census := store.ConflictCensus()
 		renewed, refused, declined := store.HotReadStats()
 		var m1 runtime.MemStats
@@ -849,6 +871,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		t.Logf("  commits: attempts=%d successes=%d conflicts=%d retries=%d hot_read_renewed=%d hot_read_refused=%d hot_read_declined=%d",
 			delta.attempts, delta.successes, delta.conflicts, delta.retries,
 			renewed-renewed0, refused-refused0, declined-declined0)
+		logWaitCounters(t, waits0, waits, s.GateHolds())
 		logConflictCensus(t, census, committed, censusTop, staleReads)
 		// Idle probe: with NO commands running, do background tasks (forks
 		// spawned by earlier commands) keep committing? Distinguishes a
@@ -1045,6 +1068,8 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		switch row.Kind {
 		case dbstore.ConflictProperty:
 			key = fmt.Sprintf("#%d.%s", row.ObjID, row.Name)
+		case dbstore.ConflictMapKey:
+			key = fmt.Sprintf("#%d.%s[]", row.ObjID, row.Name)
 		case dbstore.ConflictVerb:
 			key = fmt.Sprintf("#%d:%s", row.ObjID, row.Name)
 		case dbstore.ConflictVerbShape:
@@ -1072,5 +1097,137 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 		t.Logf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s per_command=%.2f by=[%s]",
 			row.Kind, key, row.Lost, share(row.Lost, census.LostTxns), row.Sole, row.Refused,
 			stale, perCommand, strings.Join(by, " "))
+		if staleReads {
+			logConflictDiag(t, row)
+		}
+	}
+	if staleReads {
+		var hist []string
+		var slices, totalAttempts uint64
+		for i, n := range census.SliceAttempts {
+			if n == 0 {
+				continue
+			}
+			label := fmt.Sprintf("%d", i+1)
+			if i == len(census.SliceAttempts)-1 {
+				label = fmt.Sprintf(">%d", i)
+			}
+			hist = append(hist, fmt.Sprintf("%s:%d", label, n))
+			slices += n
+			totalAttempts += n * uint64(i+1)
+		}
+		mean := 0.0
+		if slices > 0 {
+			mean = float64(totalAttempts) / float64(slices)
+		}
+		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f total_ticks=%d wasted_ticks=%d wasted_share=%.1f%% hist=[%s]",
+			slices, mean, census.TotalTicks, census.WastedTicks, census.WastedShare(), strings.Join(hist, " "))
+		e := census.EarlyDetection
+		t.Logf("  diag early_detection checks=%d detected=%d detected_lost=%d detected_not_lost=%d savable_ticks=%d savable_share=%.1f%% undetected_lost=%d undetected_tracked=%d",
+			e.Checks, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
+			e.UndetectedLost, e.UndetectedTracked)
+	}
+}
+
+// waitCounters holds the cumulative wall-time counters read around a measured
+// window: every runtime phase (metrics/runtime.go), the shared commit gate
+// waits of ordinary commits (store), and admission's totals.
+type waitCounters struct {
+	phases           [metrics.PhaseCount]metrics.PhaseStats
+	sharedGateWaits  uint64
+	sharedGateWaited time.Duration
+	admission        admission.Stats
+}
+
+func sampleWaitCounters(s *Runtime, store *dbstore.Store) waitCounters {
+	var w waitCounters
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		w.phases[p] = metrics.RuntimePhaseStats(p)
+	}
+	w.sharedGateWaits, w.sharedGateWaited = store.SharedGateWait()
+	w.admission = s.AdmissionStats()
+	return w
+}
+
+// logWaitCounters prints where the window's wall time went. Phase intervals
+// overlap (slice contains vm_attempt, which contains readmission); a phase's
+// max is the upper bound of the highest bucket that grew in the window. Gate
+// holds were reset at the start of the window, so they are the window's own.
+func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold) {
+	var b strings.Builder
+	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
+		d := after.phases[p].Sub(before.phases[p])
+		if d.Count == 0 {
+			continue
+		}
+		bound := ">10s"
+		for i := len(d.Buckets) - 1; i >= 0; i-- {
+			if d.Buckets[i] > 0 {
+				if i < len(d.UpperNS) {
+					bound = "<=" + time.Duration(d.UpperNS[i]).String()
+				}
+				break
+			}
+		}
+		fmt.Fprintf(&b, " %s=%d/%s/max%s", p, d.Count, time.Duration(d.TotalNS).Round(time.Microsecond), bound)
+	}
+	t.Logf("  wall phases (count/total/max):%s", b.String())
+
+	var holdCount int64
+	var holdTotal, holdMax time.Duration
+	var top []string
+	for i, h := range holds {
+		holdCount += h.Count
+		holdTotal += h.Total
+		holdMax = max(holdMax, h.Max)
+		if i < 8 {
+			top = append(top, fmt.Sprintf("#%d:%s by %s n=%d total=%s max=%s", h.This, h.Verb, h.Cause, h.Count, latStr(h.Total), latStr(h.Max)))
+		}
+	}
+	t.Logf("  exclusive gate holds: count=%d total=%s max=%s top=[%s]", holdCount, latStr(holdTotal), latStr(holdMax), strings.Join(top, ", "))
+
+	sharedN := after.sharedGateWaits - before.sharedGateWaits
+	sharedWait := after.sharedGateWaited - before.sharedGateWaited
+	sharedMean := time.Duration(0)
+	if sharedN > 0 {
+		sharedMean = sharedWait / time.Duration(sharedN)
+	}
+	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (exclusive acquire wait is the commit_gate phase)",
+		sharedN, latStr(sharedWait), latStr(sharedMean))
+
+	a0, a1 := before.admission, after.admission
+	readmit := after.phases[metrics.Readmission].Sub(before.phases[metrics.Readmission])
+	// The engine observes Readmission only when Yield's wait is nonzero
+	// (task_runtime.go), so preemptions can exceed the readmission count.
+	t.Logf("  admission: preemptions=%d readmission_nonzero_waits=%d readmission_total=%s service=%s gate_wait=%s (shared+exclusive, clipped per segment) at_end active=%d queued=%d preempted=%d",
+		a1.Preemptions-a0.Preemptions, readmit.Count, latStr(time.Duration(readmit.TotalNS)),
+		latStr(a1.Service-a0.Service), latStr(a1.GateWait-a0.GateWait), a1.Active, a1.Queued, a1.Preempted)
+}
+
+// logConflictDiag prints what tracking recorded about one census row: who
+// wrote the version the losers read stale, where the losers first read the key
+// and how far into the slice, how many losses were on an unchanged value, and
+// the slice ticks thrown away by losses on the key (each loss's ticks are
+// counted in full on every key it was stale on).
+func logConflictDiag(t *testing.T, row dbstore.ConflictCount) {
+	d := row.Diag
+	site := func(s dbstore.ConflictSite) string {
+		if s.Obj == types.ObjNothing && s.Verb == "" {
+			return "?"
+		}
+		return fmt.Sprintf("#%d:%s@%d", s.Obj, s.Verb, s.Line)
+	}
+	unchanged := "n/a"
+	if d.ValueCompared > 0 {
+		unchanged = fmt.Sprintf("%d/%d", d.ValueUnchanged, d.ValueCompared)
+	}
+	t.Logf("      diag unchanged_value=%s wasted_ticks=%d detected_losses=%d savable_ticks=%d unknown_writer=%d other_writers=%d unknown_read_site=%d other_read_sites=%d",
+		unchanged, d.WastedTicks, d.DetectedLosses, d.SavableTicks, d.UnknownWriters, d.OtherWriters, d.UnknownReadSites, d.OtherReadSites)
+	for _, w := range d.Writers {
+		t.Logf("      writer root=#%d:%s at=%s lost=%d", w.Label.Obj, w.Label.Verb, site(w.Site), w.Lost)
+	}
+	for _, r := range d.ReadSites {
+		t.Logf("      read   at=%s lost=%d mean_read_tick=%.0f mean_loss_tick=%.0f",
+			site(r.Site), r.Lost, float64(r.ReadTicks)/float64(r.Lost), float64(r.LossTicks)/float64(r.Lost))
 	}
 }

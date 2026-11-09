@@ -85,7 +85,6 @@ func addCommandTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, na
 func addCommandTestVerb(t *testing.T, store *dbstore.Store, objID types.ObjID, name string) {
 	t.Helper()
 	_, err := store.AddVerb(objID, dbstore.NewVerb(
-		name,
 		[]string{name},
 		2,
 		dbstore.VerbRead|dbstore.VerbExecute,

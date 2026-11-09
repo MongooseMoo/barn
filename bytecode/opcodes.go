@@ -507,7 +507,9 @@ func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
 	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
 		// Each arm with an explicit code list builds it (one checked
 		// MAKE_SINGLETON_LIST or CHECK_LIST_FOR_SPLICE; ANY is a free
-		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks unchecked.
+		// immediate), then EOP_TRY_EXCEPT / EOP_CATCH ticks unchecked. An
+		// ExceptCodesInLocal arm's list was built, and charged, by the
+		// instructions that evaluated it.
 		varBytes, ipBytes := 1, 2
 		if op != OP_TRY_EXCEPT {
 			ipBytes = 4
@@ -520,7 +522,7 @@ func DynamicTicks(op OpCode, code []byte, ip int) (checked, unchecked int64) {
 		pos++
 		for clause := 0; clause < clauses; clause++ {
 			codes := int(code[pos])
-			if codes != 0 {
+			if codes != 0 && !clauseCodesInLocal(code[pos:]) {
 				checked++
 			}
 			pos += 1 + codes + varBytes + ipBytes

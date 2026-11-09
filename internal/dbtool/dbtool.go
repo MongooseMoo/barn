@@ -211,7 +211,7 @@ type EvalSession struct {
 }
 
 // NewEvalSession starts a runtime over store. Evaluation mutates the store in
-// memory only; the caller must Close the session to stop the runtime.
+// memory only; Close stops the runtime and releases builtin-session resources.
 func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession, error) {
 	wizard, ok := firstWizard(store)
 	if !ok {
@@ -222,7 +222,10 @@ func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession,
 	return &EvalSession{runtime: runtime, wizard: wizard}, nil
 }
 
-func (s *EvalSession) Close() { s.runtime.Stop() }
+func (s *EvalSession) Close() error {
+	s.runtime.Stop()
+	return s.runtime.Session().Close()
+}
 
 // LoadStore reads the database at path without changing any file and builds
 // its store as the server does, compiling calls to builtins missing from the
@@ -331,13 +334,18 @@ func (s *EvalSession) Print(out, diagOut io.Writer, source []string) (compiled, 
 
 // EvalExpression evaluates one MOO input (a statement list, or an expression)
 // as the database's first wizard and prints its result line.
-func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
+func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) (err error) {
 	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.Close()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	if compiled, _ := session.Print(out, errOut, []string{expr}); !compiled {
 		return errors.New("inspection failed")
 	}
@@ -350,7 +358,7 @@ func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 // "-- skipped" so line counts stay aligned with the input for differential
 // drivers. One session serves the whole file, so load_server_options() on an
 // early line governs later lines, as in a Toast emergency-mode session.
-func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) error {
+func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) (err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
@@ -361,7 +369,12 @@ func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options 
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.Close()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	for _, line := range SourceLines(data) {
 		input := strings.TrimSpace(line)
 		if input == "" || strings.HasPrefix(input, "##") {
@@ -439,7 +452,7 @@ func DumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			continue
 		}
 		fmt.Fprintf(out, "  [%d] %q (names=%d, owner=#%d, code=%d lines)\n",
-			i, view.Name, len(view.Names), view.Owner, len(view.Code))
+			i, strings.Join(view.Names, " "), len(view.Names), view.Owner, len(view.Code))
 	}
 
 	verbNames, _ := store.DirectTxn().VerbNames(objID)
@@ -558,7 +571,6 @@ func VerbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 	}
 
 	fmt.Fprintf(out, "\nVerb details:\n")
-	fmt.Fprintf(out, "  Name:    %s\n", verb.Name)
 	fmt.Fprintf(out, "  Names:   %s\n", strings.Join(verb.Names, " "))
 	fmt.Fprintf(out, "  Owner:   #%d\n", verb.Owner)
 	fmt.Fprintf(out, "  Perms:   %s\n", verb.Perms.String())
@@ -673,52 +685,5 @@ func dumpDatabase(source, target string, load databaseLoader) error {
 	if err != nil {
 		return fmt.Errorf("construct reloaded store: %w", err)
 	}
-	return compareRoundTripStores(store, reloadedStore)
-}
-
-func compareRoundTripStores(original, reloaded *dbstore.Store) error {
-	originalMax := original.DirectTxn().MaxObject()
-	reloadedMax := reloaded.DirectTxn().MaxObject()
-	mismatches := make([]string, 0)
-	if originalMax != reloadedMax {
-		mismatches = append(mismatches, fmt.Sprintf("max object #%d != #%d", originalMax, reloadedMax))
-	}
-	if originalPlayers, reloadedPlayers := len(original.Players()), len(reloaded.Players()); originalPlayers != reloadedPlayers {
-		mismatches = append(mismatches, fmt.Sprintf("players %d != %d", originalPlayers, reloadedPlayers))
-	}
-	if originalObjects, reloadedObjects := len(original.All()), len(reloaded.All()); originalObjects != reloadedObjects {
-		mismatches = append(mismatches, fmt.Sprintf("objects %d != %d", originalObjects, reloadedObjects))
-	}
-
-	for id := types.ObjID(0); id <= originalMax; id++ {
-		originalObject, originalOK := original.GetUnsafe(id)
-		reloadedObject, reloadedOK := reloaded.GetUnsafe(id)
-		if originalOK != reloadedOK {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d existence differs", id))
-			continue
-		}
-		if !originalOK {
-			continue
-		}
-		if originalObject.Name != reloadedObject.Name {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d name %q != %q", id, originalObject.Name, reloadedObject.Name))
-		}
-		if originalObject.Flags != reloadedObject.Flags {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d flags %v != %v", id, originalObject.Flags, reloadedObject.Flags))
-		}
-		if originalObject.Owner != reloadedObject.Owner {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d owner #%d != #%d", id, originalObject.Owner, reloadedObject.Owner))
-		}
-		if originalObject.VerbCount != reloadedObject.VerbCount {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d verbs %d != %d", id, originalObject.VerbCount, reloadedObject.VerbCount))
-		}
-		if originalObject.PropertyCount != reloadedObject.PropertyCount {
-			mismatches = append(mismatches, fmt.Sprintf("object #%d properties %d != %d", id, originalObject.PropertyCount, reloadedObject.PropertyCount))
-		}
-	}
-
-	if len(mismatches) != 0 {
-		return fmt.Errorf("round-trip verification failed: %s", strings.Join(mismatches, "; "))
-	}
-	return nil
+	return dbformat.CompareRoundTripStores(store, reloadedStore)
 }

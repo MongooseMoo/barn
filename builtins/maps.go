@@ -77,7 +77,7 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 			}
 			result = result.MapDelete(key)
 		}
-		if err := ctx.Session.CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+		if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
@@ -96,7 +96,7 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 	result := m.MapDelete(key)
 
 	// Check the map limit, independently of the list value byte limit.
-	if err := ctx.Session.CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 

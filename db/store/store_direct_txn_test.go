@@ -64,7 +64,7 @@ func TestDirectTxnReseedPreservesLiveInheritedProperties(t *testing.T) {
 	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {
 		t.Fatalf("LocalProperty before reseed: ok=%v err=%s", ok, errCode)
 	}
-	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+	if errCode := tx.ReseedInheritedProperties(child, []types.ObjID{0}); errCode != types.E_NONE {
 		t.Fatalf("ReseedInheritedProperties: %s", errCode)
 	}
 	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {
@@ -95,10 +95,10 @@ func TestStoreDoesNotMirrorTransactionRuntimeSurface(t *testing.T) {
 		"IsRecycled", "LastMove", "LocalProperty", "Location", "MaxObject", "MoveObject",
 		"ObjectByteEstimate", "ObjectExists", "ObjectFlags", "ObjectIsAnonymous", "ObjectName",
 		"ObjectOwner", "Parent", "Parents", "PropertyClearState", "PropertyValue",
-		"PropertyValues", "ReadTimestamp", "ResolveVerbByIndex", "ResolveVerbOnObject",
+		"ReadTimestamp", "ResolveVerbByIndex", "ResolveVerbOnObject",
 		"SetObjectFlag", "SetObjectLocationRaw", "SetObjectName", "SetObjectOwner",
 		"SetPropertyInfo", "SetPropertyValue", "SetVerbCode", "SetVerbCodeByIndex",
-		"TruthyPropertiesWithPrefixInAncestry", "Valid", "VerbByIndex", "VerbNames",
+		"TruthyPropertiesWithPrefixInAncestry", "Valid", "VerbByIndex", "VerbNames", "VisitPropertyValues",
 	}
 
 	for _, name := range mirrored {
@@ -107,6 +107,11 @@ func TestStoreDoesNotMirrorTransactionRuntimeSurface(t *testing.T) {
 		}
 		if _, ok := storeType.MethodByName(name); ok {
 			t.Errorf("Store still mirrors StoreTxn.%s", name)
+		}
+	}
+	for _, typ := range []reflect.Type{storeType, txnType} {
+		if _, ok := typ.MethodByName("PropertyValues"); ok {
+			t.Errorf("%s retains the removed slice-returning PropertyValues API", typ)
 		}
 	}
 }

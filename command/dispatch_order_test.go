@@ -9,7 +9,7 @@ import (
 
 func addDispatchTestVerb(t *testing.T, store *dbstore.Store, objID types.ObjID, names string, args dbstore.VerbArgs, code string) {
 	t.Helper()
-	_, err := store.AddVerb(objID, dbstore.NewVerb(names, []string{names}, 2,
+	_, err := store.AddVerb(objID, dbstore.NewVerb([]string{names}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute, args, []string{code}))
 	if err != types.E_NONE {
 		t.Fatalf("add verb #%d:%s: %v", objID, names, err)
@@ -52,7 +52,7 @@ func TestFindVerbPrefersTheVerbDefinedFirst(t *testing.T) {
 		if match == nil {
 			t.Fatal("`ab` found no verb")
 		}
-		if got := match.Verb.Name; got != "a*bc" {
+		if got := match.Verb.Names[0]; got != "a*bc" {
 			t.Fatalf("attempt %d matched %q, want the first verb a*bc", attempt, got)
 		}
 	}

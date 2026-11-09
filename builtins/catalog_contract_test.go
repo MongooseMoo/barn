@@ -10,7 +10,13 @@ import (
 func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// Captured independently from d6d396e's centralized table. Pin both the
 	// whole native order (including its appended tail) and every policy column.
-	const expected = "a524c2e564e4889ec0101d7df08910ea30e91df48828a52b76ffe9f90408646e"
+	// Since then kill_task (ImplementationOwned) and resume (Irreversible) became
+	// Transactional: they stage the target task's store row in the caller's
+	// transaction. dump_database (CommitGateReentrant) became Transactional too:
+	// it queues its checkpoint request as a commit-deferred effect.
+	// file_count_lines and file_grep became Irreversible because their scans
+	// move the shared file cursor, just like file_readline and file_seek.
+	const expected = "1c65ff23ae88787b06c0a2fdb3baaf7d8bdd89d252e10b2f39ff20313e47d4e3"
 	type contract struct {
 		Name       string
 		Signature  *Signature

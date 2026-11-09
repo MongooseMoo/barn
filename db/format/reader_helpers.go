@@ -9,9 +9,31 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
+
+// readPlayers reads the player list shared by all supported database versions.
+func (database *Database) readPlayers(r *bufio.Reader) error {
+	// Format: nplayers, player[0], player[1], ...
+	count, err := readInt(r)
+	if err != nil {
+		return err
+	}
+
+	if count < 0 {
+		return fmt.Errorf("invalid player count %d", count)
+	}
+	database.Players = make([]types.ObjID, 0, min(count, maxTrustedCount))
+	for i := 0; i < count; i++ {
+		objID, err := readObjID(r)
+		if err != nil {
+			return err
+		}
+		database.Players = append(database.Players, objID)
+	}
+	return nil
+}
 
 // readInt reads an integer from the next line
 func readInt(r *bufio.Reader) (int, error) {
@@ -58,10 +80,11 @@ func readLineBytes(r *bufio.Reader) ([]byte, error) {
 	return long, err
 }
 
-// readLine reads a line and returns it without the newline
+// readLine returns a line without the newline, accepting a nonempty final line
+// without a delimiter. Once no bytes remain, preserve EOF for required readers.
 func readLine(r *bufio.Reader) (string, error) {
 	line, err := r.ReadString('\n')
-	if err != nil && err != io.EOF {
+	if err != nil && (err != io.EOF || len(line) == 0) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\n\r"), nil
@@ -94,7 +117,7 @@ func argSpecToCode(spec string) int {
 }
 
 func prepFromCode(prep int) string {
-	if value, ok := verb.PrepositionFromCode(prep); ok {
+	if value, ok := preposition.FromCode(prep); ok {
 		if canonical, ok := value.Canonical(); ok {
 			return canonical
 		}
@@ -103,7 +126,7 @@ func prepFromCode(prep int) string {
 }
 
 func prepToCode(prep string) int {
-	if value, ok := verb.ParsePreposition(prep); ok {
+	if value, ok := preposition.Parse(prep); ok {
 		if code, ok := value.Code(); ok {
 			return code
 		}
@@ -120,9 +143,10 @@ func prepToCode(prep string) int {
 // objects are resolved one at a time, in any order, and each object's table is
 // built once, already shared.
 func (database *Database) resolvePropertyNames() {
+	database.propPool = store.NewPropSharePool()
 	resolver := slotResolver{
 		database: database,
-		pool:     store.NewPropSharePool(),
+		pool:     database.propPool,
 		layouts:  make(map[types.ObjID]*store.SlotLayout, len(database.Objects)),
 		visiting: make(map[types.ObjID]bool),
 	}
@@ -235,7 +259,10 @@ func propertyNamesSelfFirstRecursive(obj *store.ObjectBuilder, parent func(types
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
 func (database *Database) resolveWaifProperties() {
 	namesByClass := make(map[types.ObjID][]string)
-	for _, wd := range database.savedWaifs {
+	for i, wd := range database.savedWaifs {
+		// Retain the definition for Store registration; only the indexed
+		// property scratch map is loading-only. wd keeps it for this pass.
+		database.savedWaifs[i].propsByIndex = nil
 		classObj := database.Objects[wd.waif.Class()]
 		if classObj == nil {
 			continue
@@ -259,9 +286,6 @@ func (database *Database) resolveWaifProperties() {
 			}
 		}
 	}
-
-	// Free the loading-only data.
-	database.savedWaifs = nil
 }
 
 // collectWaifPropNames returns an ordered list of ":" prefixed property names

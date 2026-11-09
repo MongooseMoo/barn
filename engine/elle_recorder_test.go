@@ -11,7 +11,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -23,9 +22,9 @@ func TestElleRecorderCommitsSuspendedAndExceptionSlices(t *testing.T) {
 	rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 2,
 		testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe))
 	defer rt.Stop()
-	tk := task.NewTaskFull(412, 0, compileTestProgram(t, rt.registry,
+	tk := NewTaskFull(412, 0, compileTestProgram(t, rt.registry,
 		`#0.write_value = 7; elle_observe("w", "x", 7); suspend(0); #0.write_value = 9; elle_observe("w", "x", 9); raise(E_DIV);`), 1000000, 30)
-	rt.populateTaskContextDependencies(tk.Context)
+	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
 	tk.StartTime = time.Now().Add(-time.Second)
@@ -69,7 +68,7 @@ func TestElleRecorderDiscardsRetryAndSplitsIrreversiblePublication(t *testing.T)
 		testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), bump, slot)
 	defer rt.Stop()
 	tk := elleTask(t, rt, 413, `v=#0.read_value; elle_observe("r","y",v); bump_read_value_live_once(); #0.write_value=7; elle_observe("w","x",7); elle_effect(); #0.write_value=9; elle_observe("w","x",9);`)
-	elleDrain(t, rt, []*task.Task{tk})
+	elleDrain(t, rt, []*Task{tk})
 	counts, err := recorder.write(filepath.Join(t.TempDir(), "history.edn"))
 	if err != nil {
 		t.Fatal(err)
@@ -123,14 +122,14 @@ func TestElleRecorderTerminalCommitFailureIsNotPublished(t *testing.T) {
 func TestElleRecorderRetainsUnconfirmedAttemptAfterEarlierPublication(t *testing.T) {
 	// A publication for this task is insufficient to classify a later attempt.
 	recorder := newElleRecorder()
-	tk := task.NewTaskFull(415, 0, nil, 1000, 30)
-	ctx := &builtins.Execution{TaskContext: tk.Context, Task: tk}
+	tk := NewTaskFull(415, 0, nil, 1000, 30)
+	ctx := &builtins.Execution{Context: tk.Context, Task: &tk.State}
 	args := []types.Value{types.NewStr("w"), types.NewStr("x"), types.NewInt(7)}
 	if result := recorder.observe(ctx, args); result.Flow == types.FlowException {
 		t.Fatal(result)
 	}
 	for _, effect := range ctx.PendingEffects {
-		if effect.Kind == kernel.PendingEffectAsyncStart {
+		if effect.Kind == task.PendingEffectAsyncStart {
 			effect.Start()
 		}
 	}

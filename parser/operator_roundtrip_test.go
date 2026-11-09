@@ -5,54 +5,50 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
-	"github.com/MongooseMoo/barn/verb"
 )
 
-func TestFormatMOOPreservesEverySamePrecedenceBinaryTree(t *testing.T) {
-	groups := [][]verb.BinaryOperator{
-		{verb.BinaryOr, verb.BinaryAnd},
-		{verb.BinaryBitOr, verb.BinaryBitAnd, verb.BinaryBitXor},
-		{verb.BinaryEqual, verb.BinaryNotEqual, verb.BinaryLess, verb.BinaryLessEqual, verb.BinaryGreater, verb.BinaryGreaterEqual, verb.BinaryIn},
-		{verb.BinaryShiftLeft, verb.BinaryShiftRight},
-		{verb.BinaryAdd, verb.BinarySubtract},
-		{verb.BinaryMultiply, verb.BinaryDivide, verb.BinaryModulo},
-		{verb.BinaryPower},
-	}
-
-	for _, group := range groups {
-		for _, parent := range group {
-			for _, child := range group {
-				for _, childOnLeft := range []bool{true, false} {
-					name := parent.String() + "/" + child.String()
-					if childOnLeft {
-						name += "/left"
-					} else {
-						name += "/right"
-					}
-					t.Run(name, func(t *testing.T) {
-						childExpr := binary(child, identifier("a"), identifier("b"))
-						var root *verb.BinaryExpr
-						if childOnLeft {
-							root = binary(parent, childExpr, identifier("c"))
-						} else {
-							root = binary(parent, identifier("a"), childExpr)
-						}
-						assertDirectProgramFormatRoundTrip(t, expressionProgram(root))
-					})
+func TestFormatMOOPreservesEveryBinaryTree(t *testing.T) {
+	for parent := ir.BinaryAdd; parent <= ir.BinaryShiftRight; parent++ {
+		for child := ir.BinaryAdd; child <= ir.BinaryShiftRight; child++ {
+			for _, childOnLeft := range []bool{true, false} {
+				name := parent.String() + "/" + child.String()
+				if childOnLeft {
+					name += "/left"
+				} else {
+					name += "/right"
 				}
+				t.Run(name, func(t *testing.T) {
+					childExpr := binary(child, identifier("a"), identifier("b"))
+					var root *ir.BinaryExpr
+					if childOnLeft {
+						root = binary(parent, childExpr, identifier("c"))
+					} else {
+						root = binary(parent, identifier("a"), childExpr)
+					}
+					assertDirectProgramFormatRoundTrip(t, expressionProgram(root))
+				})
 			}
 		}
 	}
 }
 
-func assertDirectProgramFormatRoundTrip(t *testing.T, program *verb.Program) {
+func assertDirectProgramFormatRoundTrip(t *testing.T, program *ir.Program) {
 	t.Helper()
 	want := withoutPositions(reflect.ValueOf(program)).Interface()
-	canonical := strings.Join(parser.FormatMOO(program), "\n")
+	lines, err := parser.FormatMOOChecked(program)
+	if err != nil {
+		t.Fatalf("FormatMOOChecked() error = %v", err)
+	}
+	canonical := strings.Join(lines, "\n")
 	assertFormattedProgram(t, canonical, want, canonical)
 
-	fullyParenthesized := strings.Join(parser.FormatMOOFullyParenthesized(program), "\n")
+	lines, err = parser.FormatMOOFullyParenthesizedChecked(program)
+	if err != nil {
+		t.Fatalf("FormatMOOFullyParenthesizedChecked() error = %v", err)
+	}
+	fullyParenthesized := strings.Join(lines, "\n")
 	assertFormattedProgram(t, fullyParenthesized, want, canonical)
 }
 
@@ -71,12 +67,12 @@ func assertFormattedProgram(t *testing.T, source string, want any, wantCanonical
 	}
 }
 
-func expressionProgram(expr verb.Expr) *verb.Program {
-	return &verb.Program{Statements: []verb.Stmt{&verb.ExprStmt{Expr: expr}}}
+func expressionProgram(expr ir.Expr) *ir.Program {
+	return &ir.Program{Statements: []ir.Stmt{&ir.ExprStmt{Expr: expr}}}
 }
 
-func binary(operator verb.BinaryOperator, left, right verb.Expr) *verb.BinaryExpr {
-	return &verb.BinaryExpr{Left: left, Operator: operator, Right: right}
+func binary(operator ir.BinaryOperator, left, right ir.Expr) *ir.BinaryExpr {
+	return &ir.BinaryExpr{Left: left, Operator: operator, Right: right}
 }
 
-func identifier(name string) *verb.IdentifierExpr { return &verb.IdentifierExpr{Name: name} }
+func identifier(name string) *ir.IdentifierExpr { return &ir.IdentifierExpr{Name: name} }

@@ -1,11 +1,11 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
-func parseExprForTest(t *testing.T, input string) verb.Expr {
+func parseExprForTest(t *testing.T, input string) ir.Expr {
 	t.Helper()
 	p := NewParser(input)
 	expr, err := p.ParseExpression(PREC_LOWEST)
@@ -18,10 +18,10 @@ func parseExprForTest(t *testing.T, input string) verb.Expr {
 	return expr
 }
 
-func parseLiteralForTest(t *testing.T, input string) *verb.LiteralExpr {
+func parseLiteralForTest(t *testing.T, input string) *ir.LiteralExpr {
 	t.Helper()
 	expr := parseExprForTest(t, input)
-	lit, ok := expr.(*verb.LiteralExpr)
+	lit, ok := expr.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("ParseExpression(%q) returned %T, want *LiteralExpr", input, expr)
 	}

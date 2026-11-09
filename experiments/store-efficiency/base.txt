@@ -1,0 +1,220 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   22804	      7260 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     21328 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2380	     91303 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   33145	      5790 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   88250	      3032 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  273796	       873.2 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1404806	       123.3 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  662967	       384.4 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  474345	       480.0 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1906476	       117.0 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  264292	       838.1 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   16497	     11044 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1821334	       125.0 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  185454	      2270 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    2958	    120418 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1497475	       103.9 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   17995	      9193 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39223	      4622 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     25577 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2632	     88534 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   28947	      5565 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  103545	      2388 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  695947	       382.9 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1752252	       113.5 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  667333	       346.2 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  458026	       566.7 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1669618	       124.6 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  377547	       801.7 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   18008	      8378 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 2330047	        86.54 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	   88938	      1740 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    2391	     81921 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1713423	       102.9 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   30325	      9627 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   34630	      5340 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	    9866	     21996 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2152	     95246 ns/op	   98770 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   33258	      5275 ns/op	    4879 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  114517	      2501 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  566785	       315.3 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1870167	       104.6 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  557793	       459.8 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  440690	       653.8 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 2580832	       100.2 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  387337	       472.7 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   17402	     11243 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1995102	        80.89 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  247150	      1174 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    1794	     94269 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1779946	       105.8 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   10000	     18834 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   35137	      5911 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18603 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2636	     98114 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   38209	      5030 ns/op	    4879 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   83925	      2858 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  818367	       396.3 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1850824	       115.4 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  701754	       802.9 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  507900	       570.7 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1000000	       153.7 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  325868	       694.7 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   24792	      8408 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1801159	       141.5 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	   82533	      2529 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    3174	    145004 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1269375	       119.1 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   10000	     15809 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40520	      4258 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18232 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2510	     73945 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   32800	      4724 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  108016	      2728 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  693346	       810.2 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1926568	        82.53 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  387292	       405.7 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  507556	       528.6 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1208733	       149.0 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  300801	       573.9 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   17163	     13688 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1690573	        98.81 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  207398	      1302 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    3244	     83455 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1844600	       132.2 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   15912	     13047 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   32769	      4988 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     23652 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2362	     90235 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   34218	      5571 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   52210	      3270 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  770151	       637.9 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1627358	        92.34 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  598462	       776.0 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  382644	       664.2 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1760790	        91.07 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  406963	       930.0 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   17125	     14065 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1000000	       151.1 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  227790	      1498 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    2444	     76148 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1458927	       107.3 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   22544	     14454 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39806	      5267 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     20825 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2587	     82361 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   27340	      5614 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  109438	      2446 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  799964	       351.5 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1598002	       115.7 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  689892	       497.9 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  420570	       612.7 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 2303695	        84.89 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  367939	       966.8 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   17484	     14262 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1922647	       106.0 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  139689	      1639 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    2007	     91741 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1900838	       118.2 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   22513	      9724 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   36858	      6522 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     19199 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2439	     88330 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   35234	      5573 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  108285	      2722 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  693614	       517.1 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1483887	       106.2 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  512484	       809.2 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  351891	       690.4 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 2032687	        88.92 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  295881	       779.8 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   23181	      8326 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 2274948	       111.1 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  141874	      1196 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    3112	     84250 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 2084269	        97.50 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   16632	      9164 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   34356	      5071 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     20473 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2617	     95786 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   30643	      5991 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   82554	      2732 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  625803	       546.9 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 2280229	        97.97 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  780572	       470.2 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  485907	       562.9 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1983930	        81.87 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  204626	       848.8 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   21649	     10796 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1818519	        88.02 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  222724	      1861 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    1870	     82435 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1751935	        89.98 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   25622	      9951 ns/op	   17312 B/op	       6 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39560	      4704 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     21654 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2108	    101527 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   31615	      6442 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  111291	      2026 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkPropTableClone/Map/slots1-4         	  853120	       410.4 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1-4 	 1793794	       139.5 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1-4         	  713634	       498.3 ns/op	     736 B/op	       4 allocs/op
+BenchmarkPropTableClone/Map/slots8-4                   	  452989	       786.6 ns/op	     672 B/op	       3 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots8-4           	 1506576	       151.2 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots8-4         	  365103	       857.6 ns/op	    1040 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots128-4                 	   14474	     11574 ns/op	   18568 B/op	       5 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots128-4         	 1510080	       106.6 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots128-4       	  113472	      1473 ns/op	    2976 B/op	       6 allocs/op
+BenchmarkPropTableClone/Map/slots1024-4                	    1726	    116369 ns/op	  147632 B/op	       7 allocs/op
+BenchmarkPropTableClone/LoadedClear/slots1024-4        	 1739775	       138.4 ns/op	      96 B/op	       2 allocs/op
+BenchmarkPropTableClone/LoadedPrivate/slots1024-4      	   22999	      8449 ns/op	   17312 B/op	       6 allocs/op
+PASS

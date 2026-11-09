@@ -43,7 +43,6 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -107,7 +106,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 	defInt(playerGenID, "last_activity", dbstore.PropRead|dbstore.PropWrite)
 
 	addVerb := func(id types.ObjID, name string, code []string) {
-		v := dbstore.NewVerb(name, []string{name}, wizardID,
+		v := dbstore.NewVerb([]string{name}, wizardID,
 			dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 			dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
 		if _, ec := store.AddVerb(id, v); ec != types.E_NONE {
@@ -262,9 +261,9 @@ func compileShapes(t *testing.T, reg *builtins.Registry, fx *mongooseFixture, pl
 // buildLiveTask constructs a fresh, ready-to-run task around a precompiled
 // program — the cheap allocation-only path (no MOO parsing), mirroring
 // buildBenchTask minus the *testing.T.
-func buildLiveTask(s *Runtime, id int64, wizardID types.ObjID, prog *bytecode.Program) *task.Task {
-	tk := task.NewTaskFull(id, wizardID, prog, 1<<50, 1e9)
-	s.populateTaskContextDependencies(tk.Context)
+func buildLiveTask(s *Runtime, id int64, wizardID types.ObjID, prog *bytecode.Program) *Task {
+	tk := NewTaskFull(id, wizardID, prog, 1<<50, 1e9)
+	s.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.Programmer = wizardID
 	tk.Context.Programmer = wizardID

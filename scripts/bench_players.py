@@ -5,7 +5,8 @@ Issue #265. Drives N logged-in TCP connections through the same weighted
 command mix the in-process Barn harness uses (engine/mongoose_real_bench_test.go:
 look 35 / say 30 / i 10 / @who 10 / home 15), closed-loop per connection
 (each connection waits for its command to finish before sending the next),
-2 s warm-up then 8 s measurement per player level, and reports completions/s,
+60 s settle after each level's logins, 2 s warm-up then 8 s measurement per
+player level, and reports completions/s,
 p50, p99, p99.9 and max latency. The same code path targets either engine so
 the two numbers are apples to apples.
 
@@ -514,6 +515,13 @@ def completed_command(conn: LineConn, line: str, timeout: float) -> list[str] | 
             body.append(got)
 
 
+class ControlEvalError(RuntimeError):
+    """A failed eval retains all native output, including before background noise."""
+    def __init__(self, message, output):
+        super().__init__(message)
+        self.native_output = list(output)
+
+
 class Control:
     """A logged-in wizard connection used for eval."""
 
@@ -534,7 +542,9 @@ class Control:
         makes the server print the OUTPUTSUFFIX at suspension and the `=> `
         result line afterwards, outside the bracket; the nonce lets us wait for
         exactly this call's result and ignore stale ones. Eval output lines are
-        truncated by the server around 6000 chars, so keep results compact.
+        truncated by the world's formatter (observed near 1000 chars in the
+        gameplay checkpoint), so keep results compact. Invalid or truncated
+        literals raise ControlEvalError with the complete received output.
         Returns (value, lines) where value is None only when allow_no_result
         and the eval raised (Mongoose's #0:handle_uncaught_error swallows the
         traceback, so a failed eval is an empty bracket).
@@ -565,12 +575,15 @@ class Control:
         if result_line is None:
             if allow_no_result:
                 return None, body
-            raise RuntimeError(f"eval produced no result: {flat[:80]!r} -> {body[-8:]}")
+            raise ControlEvalError(f"eval produced no result: {flat[:80]!r} -> {body[-8:]}", body)
         try:
             tagged = parse_moo(result_line[3:])
             return tagged[1], body
-        except (ValueError, IndexError, TypeError):
-            return result_line[3:], body
+        except (ValueError, IndexError, TypeError) as error:
+            raise ControlEvalError(
+                f"eval result could not be parsed ({type(error).__name__}); "
+                "the server may have truncated it; use smaller result values", body
+            ) from None
 
     def close(self) -> None:
         self.conn.close()
@@ -834,14 +847,17 @@ ROSTER_PAGE = 50  # players per eval; the first wizard's eval output is cut near
 def compute_roster(ctl: Control) -> list[dict]:
     """Players with location > #0 (the Barn harness rule), ascending by objnum.
     Fetched compactly ({obj, wizard} pairs, paged); names and locations are
-    filled in later only for the players the run actually uses."""
+    filled in later only for the players the run actually uses. players() can
+    shrink between pages while the world runs, so each page clamps its range
+    to its own snapshot and entries are de-duplicated by object."""
     count, _ = ctl.eval("return length(players());")
-    entries: list[dict] = []
+    entries: dict[int, dict] = {}
     for start in range(1, int(count) + 1, ROSTER_PAGE):
-        stop = min(start + ROSTER_PAGE - 1, int(count))
+        stop = start + ROSTER_PAGE - 1
         code = f"""
         r = {{}};
-        for p in (players()[{start}..{stop}])
+        ps = players();
+        for p in ({start} <= length(ps) ? ps[{start}..min({stop}, length(ps))] | {{}})
           loc = `p.location ! ANY => #-1';
           if (toint(loc) > 0)
             r = {{@r, {{p, p.wizard}}}};
@@ -853,9 +869,8 @@ def compute_roster(ctl: Control) -> list[dict]:
         if not isinstance(value, list):
             raise RuntimeError(f"roster eval returned {value!r}")
         for p, wiz in value:
-            entries.append({"obj": int(p), "wizard": bool(wiz)})
-    entries.sort(key=lambda e: e["obj"])
-    return entries
+            entries[int(p)] = {"obj": int(p), "wizard": bool(wiz)}
+    return [entries[obj] for obj in sorted(entries)]
 
 
 def describe_players(ctl: Control, entries: list[dict]) -> None:
@@ -1054,7 +1069,10 @@ def main() -> int:
     ap.add_argument("--banner-wait", type=float, default=1.5,
                     help="--proxy auto: seconds to wait for the username prompt before sending the PROXY prelude")
     ap.add_argument("--cmd-timeout", type=float, default=30.0, help="per-command completion timeout")
-    ap.add_argument("--settle", type=float, default=2.0, help="seconds to let post-login forks settle before warm-up")
+    ap.add_argument("--settle", type=float, default=60.0,
+                    help="seconds between a level's logins and its warm-up (default 60): Toast spends its"
+                         " first seconds after boot on the database's catch-up work, and a 1-player level"
+                         " measured then reads 2-4/s instead of ~70/s")
     ap.add_argument("--keep-db", action="store_true", help="keep the disposable database copy after the run")
     args = ap.parse_args()
 

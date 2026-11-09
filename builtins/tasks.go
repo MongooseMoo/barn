@@ -10,10 +10,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-type TaskYielder interface {
-	YieldReadyTasks() int
-}
-
 // Task management builtins - full implementation
 
 // builtinQueuedTasks: queued_tasks() → LIST
@@ -49,6 +45,10 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	}
 	snapshots := make([]queuedTaskSnapshot, 0, len(tasks))
 	for _, queuedTask := range tasks {
+		// Toast's caller is the current task, in no queue (tasks.cc bf_queued_tasks).
+		if isCallingTask(ctx, queuedTask) {
+			continue
+		}
 		startTime, queueSeq, id, info := queuedTask.QueuedTaskSnapshot(includeVariables)
 		snapshots = append(snapshots, queuedTaskSnapshot{startTime, queueSeq, id, info})
 	}
@@ -89,9 +89,20 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
+// liveTaskRow reads task id's store row through the calling task's
+// transaction, reporting whether it names a live task.
+func liveTaskRow(ctx *Execution, id int64) (dbstore.TaskRow, bool) {
+	if ctx.Context == nil || ctx.StoreTxn == nil {
+		return dbstore.TaskRow{}, false
+	}
+	row, ok := ctx.StoreTxn.ReadTaskRow(id)
+	return row, ok && row.Live()
+}
+
 // builtinKillTask: kill_task(task_id) → none
-// Kills the specified task
-// Requires permission: must be task owner or wizard
+// Kills the specified task: it stages the task's row as killed, and the
+// runtime stops the task once that commits (tasks.cc kill_task). Requires
+// permission: must be task owner or wizard.
 func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	taskID := args[0].Int()
 
@@ -99,30 +110,15 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if ctx.TaskID == taskID {
 		return types.Err(types.E_INTRPT)
 	}
-
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
+	row, ok := liveTaskRow(ctx, taskID)
+	if !ok {
 		return types.Err(types.E_INVARG)
 	}
-
-	// Only a kill that will happen is irreversible. A refused kill has no effect
-	// (LambdaCore's $code_utils:task_valid probes existence this way as $no_one),
-	// so it must not end the attempt's retryability or take the commit gate.
-	if errCode := mgr.CheckKill(taskID, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if row.Owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
-	if ctx.TaskContext != nil {
-		if !beginIrreversible(ctx) {
-			return abortedAttempt()
-		}
-		ctx.IrreversibleSideEffect = true
-	}
-	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	ctx.Session.CancelHTTPReadTask(taskID)
-
+	row.Status, row.Value, row.By = dbstore.TaskRowKilled, types.None, ctx.TaskID
+	ctx.StoreTxn.StageTaskRow(taskID, row)
 	return types.Ok(types.NewInt(0))
 }
 
@@ -165,7 +161,7 @@ func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, seconds)
+	t.SuspendSeconds(seconds)
 
 	// Return FlowSuspend so the engine knows to pause execution.
 	// The task will be resumed later via resume() builtin
@@ -176,6 +172,10 @@ func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 // Resumes a suspended task with the given value
 // The value (or 0 if not specified) is returned from suspend()
 // Requires permission: must be task owner or wizard
+// Like Toast's do_resume (tasks.cc), it reaches a task waiting in suspend(),
+// which it queues with the value, and a task resumed but not yet run, whose
+// value it replaces. It stages the task's row; the runtime readies the task
+// once that commits.
 func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	taskID := args[0].Int()
 
@@ -185,15 +185,15 @@ func builtinResume(ctx *Execution, args []types.Value) types.Result {
 		value = args[1]
 	}
 
-	mgr := taskManagerOf(ctx)
-	if mgr == nil {
+	row, ok := liveTaskRow(ctx, taskID)
+	if !ok || taskID == ctx.TaskID || (row.Status != dbstore.TaskRowSuspended && row.Status != dbstore.TaskRowQueued) {
 		return types.Err(types.E_INVARG)
 	}
-	errCode := mgr.ResumeTask(taskID, value, ctx.Programmer, ctx.IsWizard, ctx.Task)
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
+	if row.Owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
-
+	row.Status, row.Value, row.By = dbstore.TaskRowQueued, value, ctx.TaskID
+	ctx.StoreTxn.StageTaskRow(taskID, row)
 	return types.Ok(types.NewInt(0))
 }
 
@@ -260,7 +260,7 @@ func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 	// top-level command verb has no caller permissions object (Toast returns
 	// #-1), whereas a top-level eval inherits the player's permissions.
 	if frames < 2 {
-		if t.FromCommand {
+		if t.FromCommand || ctx.ServerInitiated {
 			return types.Ok(types.NewObj(types.ObjNothing))
 		}
 		return types.Ok(types.NewObj(t.Programmer))
@@ -297,7 +297,7 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Get the call stack
-	stack := t.GetCallStack()
+	stack := types.ExpandBuiltinFrames(t.GetCallStack())
 
 	// callers() returns the call stack EXCLUDING the current frame,
 	// ordered most-recent-first (immediate caller first).
@@ -328,17 +328,7 @@ func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 			break
 		}
 
-		if includeLineNumbers {
-			result = append(result, frame.ToList())
-		} else {
-			// Omit line number (last element)
-			frameList := frame.ToList()
-			truncated := make([]types.Value, frameList.Len()-1)
-			for j := 0; j < frameList.Len()-1; j++ {
-				truncated[j] = frameList.Get(j + 1) // 1-based indexing
-			}
-			result = append(result, types.NewList(truncated))
-		}
+		result = append(result, frame.ToList(includeLineNumbers, false))
 	}
 
 	// Top-level eval compatibility: return two eval wrapper frames.
@@ -452,16 +442,26 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	t := mgr.GetTask(taskID)
+	t := mgr.FindTaskState(taskID)
 	if t == nil {
 		return types.Err(types.E_INVARG)
 	}
 
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+	// Toast's find_suspended_task (tasks.cc) finds no fork that has not started.
+	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled || t.ForkNotStarted() {
 		return types.Err(types.E_INVARG)
 	}
-	// Permission check: must be task owner or wizard
-	if t.Owner != ctx.Programmer && !ctx.IsWizard {
+
+	// Get call stack
+	callStack := types.ExpandBuiltinFrames(t.GetCallStack())
+
+	// Permission: a wizard, or the programmer of the task's current verb
+	// (Toast bf_task_stack, progr_of_cur_verb).
+	owner := t.Owner
+	if len(callStack) > 0 {
+		owner = callStack[len(callStack)-1].Programmer
+	}
+	if owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 
@@ -476,28 +476,12 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 		includeVariables = args[2].Truthy()
 	}
 
-	// Get call stack
-	callStack := t.GetCallStack()
-
 	// Convert to list of lists: {this, verb_name, programmer, verb_loc, player [, line]}
 	// Order: innermost frame first (most recently called verb first), matching Toast.
 	result := make([]types.Value, 0, len(callStack))
 	for i := len(callStack) - 1; i >= 0; i-- {
 		frame := callStack[i]
-		frameList := frame.ToList()
-		values := make([]types.Value, 0, 7)
-		if includeLineNumbers {
-			values = append(values, frameList.Elements()...)
-		} else {
-			// Omit line number (6th element) → 5-element list
-			for j := 0; j < frameList.Len()-1; j++ {
-				values = append(values, frameList.Get(j+1))
-			}
-		}
-		if includeVariables {
-			values = append(values, frame.RuntimeVariableMap())
-		}
-		result = append(result, types.NewList(values))
+		result = append(result, frame.ToList(includeLineNumbers, includeVariables))
 	}
 
 	return types.Ok(types.NewList(result))
@@ -510,6 +494,11 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 // Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
 // min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
 // least one argument is supplied.
+// yinCommitTicks is how long a command's slice runs before a yin() commits it.
+// Chosen on the Mongoose workload (16 players: 239/s against master's 138/s;
+// 1000 and 100000 did worse).
+const yinCommitTicks = 10000
+
 func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	seconds := 0.0
 	if len(args) >= 1 {
@@ -542,7 +531,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) >= 1 {
 		// Toast validates against the live fg_ticks/fg_seconds, so a reload
 		// earlier in this task counts even before the task commits.
-		fgTicks, fgSeconds := ctx.Session.TaskLimitsFor(ctx.TaskContext, false)
+		fgTicks, fgSeconds := ctx.Session.TaskLimitsFor(ctx.Context, false)
 		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
 			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
 			return types.Err(types.E_INVARG)
@@ -555,6 +544,17 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
+		// A yield is always Toast-legal here, so a root-VM task that has run
+		// yinCommitTicks in this slice yields for 0 seconds and commits: a long
+		// command becomes short transactions that rarely lose. The root VM's
+		// TickLimit is t.TicksLimit and its Ticks start at 0 per slice.
+		// Forked tasks keep one slice: the database's background jobs write the
+		// same few hot properties, and split at every yin they overlap and keep
+		// losing to each other (1p: 91% of ticks wasted).
+		if ctx.CanSuspend && t.Kind != task.TaskForked && t.TicksLimit-ctx.TicksRemaining >= yinCommitTicks {
+			t.SuspendSeconds(0)
+			return types.Suspend(0)
+		}
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -562,7 +562,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, seconds)
+	t.SuspendSeconds(seconds)
 	return types.Suspend(seconds)
 }
 
@@ -609,7 +609,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 		if target != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
-		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
+		return types.Ok(types.NewInt(countBackgroundTasksFor(ctx, mgr, target)))
 	}
 
 	connected := 0
@@ -628,15 +628,20 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("player"), types.NewObj(target)},
 		{types.NewStr("connected"), types.NewInt(int64(connected))},
-		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(ctx, mgr, target))},
 		{types.NewStr("last_input_task_id"), types.NewInt(lastInputTaskID)},
 	}))
 }
 
-func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
+// isCallingTask reports whether t is the task running this builtin.
+func isCallingTask(ctx *Execution, t *task.State) bool {
+	return (ctx.Task != nil && t == ctx.Task) || (ctx.Context != nil && ctx.TaskID != 0 && t.ID == ctx.TaskID)
+}
+
+func countBackgroundTasksFor(ctx *Execution, tasks TaskLister, player types.ObjID) int64 {
 	count := int64(0)
 	for _, t := range tasks.GetQueuedTasks() {
-		if t.Owner == player {
+		if t.Owner == player && !isCallingTask(ctx, t) {
 			count++
 		}
 	}
@@ -721,10 +726,10 @@ func tasksDescriptors() []Descriptor {
 		function("thread_pool", builtinThreadPool, 2, 3, 2, 2, 0),
 		function("threads", builtinThreads, 0, 0),
 		function("queued_tasks", builtinQueuedTasks, 0, 2, 0, 0),
-		function("kill_task", builtinKillTask, 1, 1, 0).withEffect(ImplementationOwned),
+		function("kill_task", builtinKillTask, 1, 1, 0),
 		function("task_stack", builtinTaskStack, 1, 3, 0, -1, -1).withLineSync(),
 		function("suspend", builtinSuspend, 0, 1, -2),
-		function("resume", builtinResume, 1, 2, 0, -1).withEffect(Irreversible),
+		function("resume", builtinResume, 1, 2, 0, -1),
 		function("callers", builtinCallers, 0, 1, -1).withLineSync(),
 		function("set_task_perms", builtinSetTaskPerms, 1, 1, 1),
 		function("caller_perms", builtinCallerPerms, 0, 0),

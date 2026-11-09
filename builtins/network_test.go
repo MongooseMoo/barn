@@ -6,7 +6,7 @@ import (
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -14,7 +14,7 @@ func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 	player := types.ObjID(424242)
 	r := NewSession(NewRegistry(), NoHost())
 
-	r.setConnectionOption(player, "binary", types.NewInt(0))
+	r.setConnectionOption(int64(player), nil, "binary", types.NewInt(0))
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 	workers.Add(2)
@@ -22,14 +22,14 @@ func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 		defer workers.Done()
 		<-start
 		for i := 0; i < 10000; i++ {
-			_ = r.getConnectionOptions(player)
+			_ = r.getConnectionOptions(int64(player))
 		}
 	}()
 	go func() {
 		defer workers.Done()
 		<-start
 		for i := 0; i < 10000; i++ {
-			r.setConnectionOption(player, "binary", types.NewInt(int64(i&1)))
+			r.setConnectionOption(int64(player), nil, "binary", types.NewInt(int64(i&1)))
 		}
 	}()
 	close(start)
@@ -48,6 +48,7 @@ func ctxWithConnManager(cm ConnectionManager) *Execution {
 }
 
 type stubConn struct {
+	id              int64
 	remote          string
 	listenerPort    int64
 	listenerPortSet bool
@@ -59,11 +60,17 @@ type stubConn struct {
 	lastInputTaskID int64
 }
 
+func (c *stubConn) ConnectionID() int64 { return c.id }
+
+// Recording connections remain live for their fixture; cancellation tests
+// override Done with a controlled lifetime channel.
+func (c *stubConn) Done() <-chan struct{} { return nil }
+
 func (c *stubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
 	return nil
 }
-func (c *stubConn) SendNotification(note kernel.PendingNotification) error {
+func (c *stubConn) SendNotification(note task.PendingNotification) error {
 	if note.NoFlush {
 		c.Buffer(note.Message)
 		return nil
@@ -157,11 +164,66 @@ func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool)
 	return "lookup", nil
 }
 
+func TestNotifyReturnAndProgrammerPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		connected  bool
+		deferred   bool
+		wizard     bool
+		programmer types.ObjID
+		wantError  types.ErrorCode
+	}{
+		{name: "connected self", connected: true, programmer: 7},
+		{name: "connected wizard", connected: true, wizard: true, programmer: 3},
+		{name: "deferred self", connected: true, deferred: true, programmer: 7},
+		{name: "connected other programmer", connected: true, programmer: 3, wantError: types.E_PERM},
+		{name: "deferred other programmer", connected: true, deferred: true, programmer: 3, wantError: types.E_PERM},
+		{name: "disconnected self", programmer: 7},
+		{name: "disconnected wizard", wizard: true, programmer: 3},
+		{name: "disconnected other programmer", programmer: 3, wantError: types.E_PERM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &stubConn{id: 7}
+			var manager ConnectionManager
+			if tc.connected {
+				manager = &stubConnManager{conn: conn}
+			}
+			ctx := ctxWithConnManager(manager)
+			ctx.Player = 7 // Authority must follow Programmer, even on this player's socket.
+			ctx.Programmer = tc.programmer
+			ctx.IsWizard = tc.wizard
+			if tc.deferred {
+				ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+			}
+			res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
+			if res.Error != tc.wantError {
+				t.Fatalf("notify error = %v, want %v", res.Error, tc.wantError)
+			}
+			if tc.wantError != types.E_NONE {
+				if len(conn.sent) != 0 || len(ctx.PendingEffects) != 0 {
+					t.Fatal("denied notification produced output or pending effects")
+				}
+				return
+			}
+			if res.Val.Type() != types.TYPE_INT || res.Val.Int() != 1 {
+				t.Fatalf("notify = %v, want integer 1", res.Val)
+			}
+			if tc.connected {
+				FlushPendingEffects(ctx)
+				if len(conn.sent) != 1 || conn.sent[0] != "hello" {
+					t.Fatalf("sent = %#v, want hello", conn.sent)
+				}
+			}
+		})
+	}
+}
+
 func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
-	conn := &stubConn{}
+	conn := &stubConn{id: 7}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
@@ -171,7 +233,7 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	if len(conn.sent) != 0 {
 		t.Fatalf("sent before flush = %#v, want none", conn.sent)
 	}
-	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectNotification {
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != task.PendingEffectNotification {
 		t.Fatalf("pending effects = %#v, want one notification", ctx.PendingEffects)
 	}
 
@@ -185,44 +247,60 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 }
 
 func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
-	conn := &stubConn{}
-	store := dbstore.NewStore()
-	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
-	ctx.Player = -8
-	ctx.IsWizard = true
-	ctx.StoreTxn = store.BeginSnapshot(0)
-
-	before := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
-	if before.IsError() {
-		t.Fatalf("buffered_output_length before notify failed: %v", before.Error)
-	}
-	beforeValue := before.Val.Int()
-
-	for i := 0; i < 5; i++ {
-		res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(-8), types.NewStr("buffered_output_length probe")})
-		if res.IsError() {
-			t.Fatalf("notify %d failed: %v", i, res.Error)
-		}
-	}
-
-	after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
-	if after.IsError() {
-		t.Fatalf("buffered_output_length after notify failed: %v", after.Error)
-	}
-	afterValue := after.Val.Int()
-	if afterValue <= beforeValue {
-		t.Fatalf("buffered_output_length after pending notifications = %d, want > %d", afterValue, beforeValue)
-	}
-	if len(conn.sent) != 0 {
-		t.Fatalf("sent before transaction flush = %#v, want none", conn.sent)
+	for _, test := range []struct {
+		name      string
+		message   string
+		noNewline int64
+		binary    int64
+		wantBytes int64
+	}{
+		{name: "CRLF", message: "abc", wantBytes: 5},
+		{name: "no newline", message: "abc", noNewline: 1, wantBytes: 3},
+		{name: "UTF-8 bytes", message: "\u00e9", wantBytes: 4},
+		{name: "empty line", wantBytes: 2},
+		{name: "empty unframed", noNewline: 1},
+		{name: "decoded binary", message: "~41~42", binary: 1, wantBytes: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn := &stubConn{id: 7}
+			ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+			ctx.Player = -8
+			ctx.IsWizard = true
+			ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+			ctx.Session.setConnectionOption(conn.ConnectionID(), nil, "binary", types.NewInt(test.binary))
+			for i := int64(1); i <= 2; i++ {
+				res := admitTestBuiltin("notify", ctx, []types.Value{
+					types.NewObj(-8), types.NewStr(test.message), types.NewInt(1), types.NewInt(test.noNewline),
+				})
+				if res.IsError() {
+					t.Fatalf("notify %d failed: %v", i, res.Error)
+				}
+				after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
+				if after.IsError() || after.Val.Int() != i*test.wantBytes {
+					t.Fatalf("buffered_output_length after notify %d = %v, error %v, want %d", i, after.Val, after.Error, i*test.wantBytes)
+				}
+			}
+			ctx.Session.setConnectionOption(conn.ConnectionID(), nil, "binary", types.NewInt(0))
+			if res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(-9), types.NewStr("other player")}); res.IsError() {
+				t.Fatalf("other-player notify failed: %v", res.Error)
+			}
+			after := admitTestBuiltin("buffered_output_length", ctx, []types.Value{types.NewObj(-8)})
+			if after.IsError() || after.Val.Int() != 2*test.wantBytes {
+				t.Fatalf("buffered_output_length after option change and other-player notify = %v, error %v, want %d", after.Val, after.Error, 2*test.wantBytes)
+			}
+			if len(conn.sent) != 0 || len(conn.buffered) != 0 {
+				t.Fatalf("output before transaction flush: sent=%q buffered=%q", conn.sent, conn.buffered)
+			}
+		})
 	}
 }
 
 func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
-	conn := &stubConn{}
+	conn := &stubConn{id: 7}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
@@ -243,10 +321,11 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 }
 
 func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
-	conn := &stubConn{}
+	conn := &stubConn{id: 7}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
 	ctx.Player = 7
+	ctx.Programmer = 7
 	ctx.StoreTxn = store.BeginSnapshot(0)
 
 	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})
@@ -264,7 +343,7 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 }
 
 func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
-	conn := &stubConn{}
+	conn := &stubConn{id: 7}
 	manager := &stubConnManager{conn: conn}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(manager)
@@ -298,7 +377,7 @@ func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
 }
 
 func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
-	manager := &stubConnManager{conn: &stubConn{}}
+	manager := &stubConnManager{conn: &stubConn{id: 7}}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
@@ -311,7 +390,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	if len(manager.switches) != 0 {
 		t.Fatalf("switches before flush = %#v, want none", manager.switches)
 	}
-	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectConnectionSwitch {
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != task.PendingEffectConnectionSwitch {
 		t.Fatalf("pending effects = %#v, want one switch", ctx.PendingEffects)
 	}
 
@@ -328,7 +407,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 }
 
 func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
-	manager := &stubConnManager{conn: &stubConn{}}
+	manager := &stubConnManager{conn: &stubConn{id: 7}}
 	store := dbstore.NewStore()
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
@@ -351,7 +430,7 @@ func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
 func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
 	// switch_player requires the old player to have a live connection (it swaps
 	// the player bound to that connection), so the stub must resolve one.
-	manager := &stubConnManager{conn: &stubConn{}}
+	manager := &stubConnManager{conn: &stubConn{id: 7}}
 
 	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
@@ -376,7 +455,7 @@ func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
 
 func TestConnectionNameFormats(t *testing.T) {
 	ctx := ctxWithConnManager(&stubConnManager{
-		conn: &stubConn{
+		conn: &stubConn{id: 7,
 			remote:          "[::1]:4567",
 			listenerPort:    7777,
 			listenerPortSet: true,
@@ -461,7 +540,7 @@ func TestConnectionMetadataDistinguishesExplicitZeroListenerPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := ctxWithConnManager(&stubConnManager{
-				conn: &stubConn{
+				conn: &stubConn{id: 7,
 					remote:          "127.0.0.1:4567",
 					listenerPort:    0,
 					listenerPortSet: tt.listenerPortSet,
@@ -713,7 +792,7 @@ func TestUnlistenSecondArgumentSelectsIPv6Descriptor(t *testing.T) {
 
 func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
 	ctx := ctxWithConnManager(&stubConnManager{
-		conn: &stubConn{
+		conn: &stubConn{id: 7,
 			remote:      "127.0.0.1:60000",
 			outbound:    true,
 			source:      "127.0.0.1:60000",
@@ -787,17 +866,17 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 
 func TestFlushCommandMatchesCaseInsensitivelyAndClearsPendingCommands(t *testing.T) {
 	player := types.ObjID(424243)
-	r := NewSession(NewRegistry(), NoHost())
+	r := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: int64(player)}}).Session
 
-	r.setConnectionOption(player, "hold-input", types.NewInt(1))
-	r.setConnectionOption(player, "flush-command", types.NewStr(".flush"))
-	if handled, _ := r.HandleHeldInput(player, "auditflush first", false); !handled {
+	r.setConnectionOption(int64(player), nil, "hold-input", types.NewInt(1))
+	r.setConnectionOption(int64(player), nil, "flush-command", types.NewStr(".flush"))
+	if handled, _ := r.HandleHeldInput(player, int64(player), "auditflush first", false); !handled {
 		t.Fatal("first command was not held")
 	}
-	if handled, _ := r.HandleHeldInput(player, "auditflush second", false); !handled {
+	if handled, _ := r.HandleHeldInput(player, int64(player), "auditflush second", false); !handled {
 		t.Fatal("second command was not held")
 	}
-	handled, flushed := r.HandleHeldInput(player, ".FlUsH", false)
+	handled, flushed := r.HandleHeldInput(player, int64(player), ".FlUsH", false)
 	if !handled {
 		t.Fatal("mixed-case flush command was not handled")
 	}

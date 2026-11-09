@@ -71,8 +71,9 @@ func TestLexerKeywords(t *testing.T) {
 		{"while", TOKEN_WHILE},
 		{"for", TOKEN_FOR},
 		{"return", TOKEN_RETURN},
-		{"true", TOKEN_TRUE},
-		{"false", TOKEN_FALSE},
+		// Built-in variables, not keywords (Toast sym_table.cc SLOT_TRUE/SLOT_FALSE).
+		{"true", TOKEN_IDENTIFIER},
+		{"false", TOKEN_IDENTIFIER},
 	}
 
 	for _, tt := range tests {

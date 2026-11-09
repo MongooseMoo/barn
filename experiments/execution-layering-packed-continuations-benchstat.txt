@@ -1,0 +1,55 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                                 sec/op                                 │              sec/op               vs base               │
+ThreadedContinuations/players=1/writes=false-4                                                              198.9µ ±  4%                       204.9µ ± 11%       ~ (p=0.052 n=10)
+ThreadedContinuations/players=1/writes=true-4                                                               237.6µ ±  6%                       253.6µ ± 13%  +6.70% (p=0.003 n=10)
+ThreadedContinuations/players=16/writes=false-4                                                             1.370m ± 18%                       1.285m ± 11%       ~ (p=0.143 n=10)
+ThreadedContinuations/players=16/writes=true-4                                                              2.700m ±  3%                       2.739m ±  3%       ~ (p=0.631 n=10)
+geomean                                                                                                     646.6µ                             653.9µ        +1.13%
+
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                               commands/s                               │            commands/s             vs base               │
+ThreadedContinuations/players=1/writes=false-4                                                              5.029k ±  4%                       4.880k ± 10%       ~ (p=0.052 n=10)
+ThreadedContinuations/players=1/writes=true-4                                                               4.208k ±  6%                       3.944k ± 11%  -6.27% (p=0.003 n=10)
+ThreadedContinuations/players=16/writes=false-4                                                             11.68k ± 16%                       12.45k ± 10%       ~ (p=0.143 n=10)
+ThreadedContinuations/players=16/writes=true-4                                                              5.926k ±  3%                       5.842k ±  4%       ~ (p=0.631 n=10)
+geomean                                                                                                     6.186k                             6.117k        -1.12%
+
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                          escalations/command                           │      escalations/command        vs base                 │
+ThreadedContinuations/players=1/writes=false-4                                                              0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=1/writes=true-4                                                               0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=false-4                                                             0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=true-4                                                              0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                                                                ²                                   +0.00%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                            retries/command                             │        retries/command          vs base                 │
+ThreadedContinuations/players=1/writes=false-4                                                              0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=1/writes=true-4                                                               0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=false-4                                                             0.000 ± 0%                         0.000 ± 0%       ~ (p=1.000 n=10) ¹
+ThreadedContinuations/players=16/writes=true-4                                                              2.508 ± 2%                         2.471 ± 4%       ~ (p=0.078 n=10)
+geomean                                                                                                                ²                                   -0.37%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                                  B/op                                  │               B/op                vs base               │
+ThreadedContinuations/players=1/writes=false-4                                                              49.56Ki ± 0%                       49.57Ki ± 0%  +0.03% (p=0.030 n=10)
+ThreadedContinuations/players=1/writes=true-4                                                               70.81Ki ± 0%                       70.84Ki ± 0%  +0.04% (p=0.001 n=10)
+ThreadedContinuations/players=16/writes=false-4                                                             765.8Ki ± 0%                       765.7Ki ± 0%       ~ (p=0.190 n=10)
+ThreadedContinuations/players=16/writes=true-4                                                              1.514Mi ± 0%                       1.510Mi ± 0%       ~ (p=0.075 n=10)
+geomean                                                                                                     254.1Ki                            253.9Ki       -0.06%
+
+                                                │ experiments/execution-layering-ownership-base-repeat-continuations.txt │ experiments/execution-layering-packed-continuations.txt │
+                                                │                               allocs/op                                │            allocs/op              vs base               │
+ThreadedContinuations/players=1/writes=false-4                                                                422.0 ± 0%                         424.0 ± 1%  +0.47% (p=0.002 n=10)
+ThreadedContinuations/players=1/writes=true-4                                                                 549.0 ± 0%                         553.0 ± 1%  +0.73% (p=0.000 n=10)
+ThreadedContinuations/players=16/writes=false-4                                                              6.004k ± 0%                        6.005k ± 0%       ~ (p=0.150 n=10)
+ThreadedContinuations/players=16/writes=true-4                                                               11.75k ± 0%                        11.72k ± 1%       ~ (p=0.066 n=10)
+geomean                                                                                                      2.011k                             2.015k       +0.23%

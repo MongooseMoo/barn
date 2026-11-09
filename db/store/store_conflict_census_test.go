@@ -11,7 +11,7 @@ import (
 
 // conflictFixture returns a store with two objects, each holding the integer
 // properties p and q and the verb look.
-func conflictFixture(t *testing.T) (s *Store, a, b types.ObjID) {
+func conflictFixture(t testing.TB) (s *Store, a, b types.ObjID) {
 	t.Helper()
 	s, ids := immutFixture(t, 2)
 	a, b = ids[0], ids[1]
@@ -21,7 +21,7 @@ func conflictFixture(t *testing.T) (s *Store, a, b types.ObjID) {
 				t.Fatalf("DefineProperty #%d.%s: %v", id, name, ec)
 			}
 		}
-		if _, ec := s.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); ec != types.E_NONE {
+		if _, ec := s.AddVerb(id, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); ec != types.E_NONE {
 			t.Fatalf("AddVerb #%d:look: %v", id, ec)
 		}
 	}
@@ -161,7 +161,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 		},
 		"verb": {
 			read: func(t *testing.T, tx *StoreTxn, a types.ObjID) uint64 {
-				verb := tx.object(a).verbs["look"]
+				verb := tx.object(a).verbList[0] // "look"
 				tx.markVerbRead(a, verb)
 				return verb.version
 			},
@@ -171,7 +171,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				}
 			},
 			want: func(s *Store, a types.ObjID) ReadConflict {
-				return ReadConflict{Kind: ConflictVerb, ObjID: a, Name: "look", Live: s.load(a).verbs["look"].version}
+				return ReadConflict{Kind: ConflictVerb, ObjID: a, Name: "look", Live: s.load(a).verbList[0].version}
 			},
 		},
 		"verb-scan": {
@@ -180,7 +180,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				return tx.object(a).verbVersion
 			},
 			change: func(t *testing.T, s *Store, a, _ types.ObjID) {
-				if _, ec := s.AddVerb(a, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+				if _, ec := s.AddVerb(a, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 					t.Fatalf("AddVerb: %v", ec)
 				}
 			},
@@ -195,7 +195,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 			},
 			change: func(t *testing.T, s *Store, _, _ types.ObjID) { s.noteVerbShapeChanged() },
 			want: func(s *Store, _ types.ObjID) ReadConflict {
-				return ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Live: s.verbShapeChangeTS.Load()}
+				return ReadConflict{Kind: ConflictVerbShape, ObjID: types.ObjNothing, Live: s.dispatch.shapeChangeTS.Load()}
 			},
 		},
 		"waif": {
@@ -211,7 +211,7 @@ func TestValidationRecordsEachKindOfConflict(t *testing.T) {
 				}
 			},
 			want: func(s *Store, _ types.ObjID) ReadConflict {
-				live, _ := waif.WaifImageAt(s.waifDomain, s.readTimestamp())
+				live, _ := waif.WaifImageAt(s.waifs.domain, s.readTimestamp())
 				return ReadConflict{Kind: ConflictWaif, ObjID: types.ObjNothing, Name: waif.WaifIdentity().String(), Live: live.Timestamp()}
 			},
 		},
@@ -283,7 +283,7 @@ func TestValidationRecordsEveryConflict(t *testing.T) {
 	if ec := s.DirectTxn().SetObjectName(a, "renamed"); ec != types.E_NONE {
 		t.Fatalf("SetObjectName: %v", ec)
 	}
-	if _, ec := s.AddVerb(b, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+	if _, ec := s.AddVerb(b, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 		t.Fatalf("AddVerb: %v", ec)
 	}
 
@@ -337,7 +337,7 @@ func TestValidationKeepsReturnCodePrecedence(t *testing.T) {
 		defer tx.Release()
 		tx.markObjectRelationshipRead(b, tx.object(b))
 		tx.markVerbScan(a, tx.object(a))
-		if _, ec := s.AddVerb(a, NewVerb("wave", []string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
+		if _, ec := s.AddVerb(a, NewVerb([]string{"wave"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); ec != types.E_NONE {
 			t.Fatalf("AddVerb: %v", ec)
 		}
 		if err := s.Recycle(b); err != nil {
@@ -376,7 +376,7 @@ func TestCleanValidationDoesNotAllocate(t *testing.T) {
 	tx.markObjectRelationshipRead(a, tx.object(a))
 	tx.markPropertyScan(b, tx.object(b))
 	tx.markVerbScan(a, tx.object(a))
-	tx.markVerbRead(a, tx.object(a).verbs["look"])
+	tx.markVerbRead(a, tx.object(a).verbList[0])
 
 	allocs := testing.AllocsPerRun(200, func() {
 		if ec := tx.validateReads(); ec != types.E_NONE {

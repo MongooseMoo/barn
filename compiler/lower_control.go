@@ -2,9 +2,10 @@ package compiler
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 // loopContext tracks loop compilation state.
@@ -73,7 +74,7 @@ func (c *lowerer) findLoopByTarget(name string) *loopContext {
 	return nil
 }
 
-func (c *lowerer) compileIf(n *verb.IfStmt) error {
+func (c *lowerer) compileIf(n *ir.IfStmt) error {
 	// Compile condition
 	if err := c.compileNode(n.Condition); err != nil {
 		return err
@@ -102,7 +103,7 @@ func (c *lowerer) compileIf(n *verb.IfStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileWhile(n *verb.WhileStmt) error {
+func (c *lowerer) compileWhile(n *ir.WhileStmt) error {
 	// Declare temp variable for loop result (break expr value or default 0)
 	resultVar := c.declareInternalVariable(c.tempVar("loop_result"))
 	// Initialize to 0 (default loop result when no break expr)
@@ -153,7 +154,7 @@ func (c *lowerer) compileWhile(n *verb.WhileStmt) error {
 
 // compileRangeLoop compiles: for x in [start..end] ... endfor
 // Compiles to equivalent while loop pattern.
-func (c *lowerer) compileRangeLoop(n *verb.RangeLoopStmt) error {
+func (c *lowerer) compileRangeLoop(n *ir.RangeLoopStmt) error {
 	// Hidden variable for end bound
 	endVar := c.declareInternalVariable(c.tempVar("end"))
 	valueVar := c.declareVariable(n.Value)
@@ -221,7 +222,7 @@ func (c *lowerer) compileRangeLoop(n *verb.RangeLoopStmt) error {
 // compileCollectionLoop compiles: for x in (expr) ... endfor
 // Values and optional map keys are separate snapshots. List/string indexes
 // come from the cursor; no per-element pair lists are needed.
-func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
+func (c *lowerer) compileCollectionLoop(n *ir.CollectionLoopStmt) error {
 	hasIndex := n.Index != ""
 
 	// Hidden variables (unique per loop to support nesting)
@@ -322,7 +323,7 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileBreak(n *verb.BreakStmt) error {
+func (c *lowerer) compileBreak(n *ir.BreakStmt) error {
 	// Mirror compileContinue: an explicit loop name must resolve to an
 	// enclosing loop, otherwise raise "Invalid loop name" (ToastStunt
 	// parser.y:1205-1206, check_loop_name LOOP_BREAK).
@@ -343,7 +344,7 @@ func (c *lowerer) compileBreak(n *verb.BreakStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileContinue(n *verb.ContinueStmt) error {
+func (c *lowerer) compileContinue(n *ir.ContinueStmt) error {
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
 		//lint:ignore ST1005 This diagnostic matches Toast's externally visible compiler text.
@@ -370,7 +371,7 @@ func (c *lowerer) compileContinue(n *verb.ContinueStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileReturn(n *verb.ReturnStmt) error {
+func (c *lowerer) compileReturn(n *ir.ReturnStmt) error {
 	if n.Value != nil {
 		// Compile return value
 		if err := c.compileNode(n.Value); err != nil {
@@ -384,7 +385,36 @@ func (c *lowerer) compileReturn(n *verb.ReturnStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileTry(n *verb.TryStmt) error {
+// prepareExceptCodes returns an except clause's OP_TRY_EXCEPT code bytes,
+// count first. ANY has no codes, and a list of error literals is encoded
+// inline. Any other list is evaluated here, before the try is entered, as
+// Toast evaluates every arm's codes (code_gen.cc generate_codes), into a
+// compiler temporary that the clause names with ExceptCodesInLocal.
+func (c *lowerer) prepareExceptCodes(isAny bool, codes []ir.Expr) ([]byte, error) {
+	if isAny {
+		return []byte{0}, nil
+	}
+	errorCodes, literal, err := literalErrorCodes(codes)
+	if err != nil {
+		return nil, err
+	}
+	if literal && len(errorCodes) <= math.MaxUint8 {
+		encoded := make([]byte, 0, 1+len(errorCodes))
+		encoded = append(encoded, byte(len(errorCodes)))
+		for _, code := range errorCodes {
+			encoded = append(encoded, byte(code))
+		}
+		return encoded, nil
+	}
+	if err := c.compileList(&ir.ListExpr{Pos: codes[0].Position(), Elements: codes}); err != nil {
+		return nil, err
+	}
+	slot := c.declareInternalVariable(c.tempVar("except_codes"))
+	c.emitStoreLocal(slot)
+	return []byte{2, bytecode.ExceptCodesInLocal, byte(slot)}, nil
+}
+
+func (c *lowerer) compileTry(n *ir.TryStmt) error {
 	finallyIPPatch := -1
 	if n.Finalizer != nil {
 		c.emit(bytecode.OP_TRY_FINALLY_WIDE)
@@ -398,23 +428,21 @@ func (c *lowerer) compileTry(n *verb.TryStmt) error {
 		}
 	} else {
 		numHandlers := len(n.Handlers)
+		clauseCodes := make([][]byte, numHandlers)
+		for i, handler := range n.Handlers {
+			codes, err := c.prepareExceptCodes(handler.IsAny, handler.Codes)
+			if err != nil {
+				return err
+			}
+			clauseCodes[i] = codes
+		}
+
 		c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
 		c.emitByte(byte(numHandlers))
 
 		handlerOffsetPatches := make([]int, numHandlers)
 		for i, handler := range n.Handlers {
-			if handler.IsAny {
-				c.emitByte(0)
-			} else {
-				codes, err := lowerErrorNames(handler.Codes)
-				if err != nil {
-					return err
-				}
-				c.emitByte(byte(len(codes)))
-				for _, code := range codes {
-					c.emitByte(byte(code))
-				}
-			}
+			c.program.Code = append(c.program.Code, clauseCodes[i]...)
 
 			if handler.Variable != "" {
 				idx := c.declareVariable(handler.Variable)
@@ -471,7 +499,7 @@ func (c *lowerer) compileTry(n *verb.TryStmt) error {
 	return nil
 }
 
-func (c *lowerer) compileFork(n *verb.ForkStmt) error {
+func (c *lowerer) compileFork(n *ir.ForkStmt) error {
 	// Fork statement: fork [name] (delay) body endfork
 	//
 	// Bytecode layout:
@@ -514,16 +542,16 @@ func (c *lowerer) compileFork(n *verb.ForkStmt) error {
 }
 
 // isLoopStmt returns true if a statement node is a loop (pushes a result value).
-func isLoopStmt(stmt verb.Stmt) bool {
+func isLoopStmt(stmt ir.Stmt) bool {
 	switch stmt.(type) {
-	case *verb.WhileStmt, *verb.CollectionLoopStmt, *verb.RangeLoopStmt:
+	case *ir.WhileStmt, *ir.CollectionLoopStmt, *ir.RangeLoopStmt:
 		return true
 	default:
 		return false
 	}
 }
 
-func (c *lowerer) compileBlock(stmts []verb.Stmt) error {
+func (c *lowerer) compileBlock(stmts []ir.Stmt) error {
 	for _, stmt := range stmts {
 		if err := c.compileNode(stmt); err != nil {
 			return err

@@ -5,12 +5,14 @@ import "strings"
 // ActivationFrame represents a single verb call on the call stack.
 // This is what callers() returns.
 type ActivationFrame struct {
-	This                    ObjID                    // Object this verb is called on (prototype for primitives)
-	ThisValue               Value                    // For primitive prototype calls: the actual primitive value
-	Player                  ObjID                    // Player who initiated this task
-	Programmer              ObjID                    // Programmer (for permissions)
-	Caller                  ObjID                    // Object that called this verb
-	Verb                    string                   // Verb name as invoked (callers()/task_stack())
+	This                    ObjID  // Object this verb is called on (prototype for primitives)
+	ThisValue               Value  // For primitive prototype calls: the actual primitive value
+	Player                  ObjID  // Player who initiated this task
+	Programmer              ObjID  // Programmer (for permissions)
+	Caller                  ObjID  // Object that called this verb
+	Verb                    string // Verb name as invoked (callers()/task_stack())
+	BuiltinCaller           string // Builtin whose continuation invoked this activation
+	BuiltinPC               int
 	StoredVerb              string                   // Verb's stored name spec incl. wildcards; used by printed tracebacks
 	StoredVerbNames         []string                 // Lazy form used by live frames; immutable verb storage owns the backing array
 	VerbLoc                 ObjID                    // Object where verb is defined
@@ -23,6 +25,27 @@ type ActivationFrame struct {
 	IsEvalFrame             bool                     // True if this is an eval() infrastructure frame (excluded from tracebacks)
 }
 
+// ExpandBuiltinFrames inserts native continuation entries below their callback
+// activations for language-visible stacks. The input remains the verb stack.
+func ExpandBuiltinFrames(stack []ActivationFrame) []ActivationFrame {
+	result := make([]ActivationFrame, 0, len(stack))
+	for index, frame := range stack {
+		if index > 0 && frame.BuiltinCaller != "" {
+			result = append(result, ActivationFrame{
+				This: ObjNothing, ThisValue: None, Programmer: ObjNothing,
+				VerbLoc: ObjNothing, Player: frame.Player,
+				Verb: frame.BuiltinCaller, StoredVerb: frame.BuiltinCaller,
+				LineNumber:              frame.BuiltinPC,
+				RuntimeVariables:        frame.RuntimeVariables,
+				RuntimeVariableSnapshot: frame.RuntimeVariableSnapshot,
+			})
+		}
+		frame.BuiltinCaller, frame.BuiltinPC = "", 0
+		result = append(result, frame)
+	}
+	return result
+}
+
 // TracebackVerb returns the stored verb name spec without requiring callers to
 // know whether the frame came from live execution or a persisted checkpoint.
 func (a *ActivationFrame) TracebackVerb() string {
@@ -32,23 +55,35 @@ func (a *ActivationFrame) TracebackVerb() string {
 	return strings.Join(a.StoredVerbNames, " ")
 }
 
-// ToList converts an activation frame to a MOO list for callers().
-// Format: {this, verb_name, programmer, verb_loc, player, line_number}.
+// ToList converts an activation frame to a MOO list for stack observers.
+// Format: {this, verb_name, programmer, verb_loc, player [, line_number] [, variables]}.
 // For primitive/anonymous targets, ThisValue carries the real "this" value.
-func (a *ActivationFrame) ToList() Value {
+func (a *ActivationFrame) ToList(includeLineNumbers, includeVariables bool) Value {
 	thisVal := NewObj(a.This)
 	if !a.ThisValue.IsNone() {
 		thisVal = a.ThisValue
 	}
 
-	return NewList([]Value{
-		thisVal,
-		NewStr(a.Verb),
-		NewObj(a.Programmer),
-		NewObj(a.VerbLoc),
-		NewObj(a.Player),
-		NewInt(int64(a.LineNumber)),
-	})
+	size := 5
+	if includeLineNumbers {
+		size++
+	}
+	if includeVariables {
+		size++
+	}
+	values := make([]Value, size)
+	values[0] = thisVal
+	values[1] = NewStr(a.Verb)
+	values[2] = NewObj(a.Programmer)
+	values[3] = NewObj(a.VerbLoc)
+	values[4] = NewObj(a.Player)
+	if includeLineNumbers {
+		values[5] = NewInt(int64(a.LineNumber))
+	}
+	if includeVariables {
+		values[size-1] = a.RuntimeVariableMap()
+	}
+	return NewList(values)
 }
 
 // ToMap converts an activation frame to a MOO map for task_stack().

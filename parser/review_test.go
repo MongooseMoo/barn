@@ -4,7 +4,7 @@ package parser
 // These are RED tests — they expose confirmed bugs.
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"strings"
 	"testing"
 )
@@ -86,20 +86,20 @@ func TestReview_BreakLabelAsIdentExpr(t *testing.T) {
 		t.Fatalf("parse error for continue src: %v", err)
 	}
 
-	bWhile, ok := bStmts.Statements[0].(*verb.WhileStmt)
+	bWhile, ok := bStmts.Statements[0].(*ir.WhileStmt)
 	if !ok {
 		t.Fatalf("expected WhileStmt, got %T", bStmts.Statements[0])
 	}
-	bk, ok := bWhile.Body[0].(*verb.BreakStmt)
+	bk, ok := bWhile.Body[0].(*ir.BreakStmt)
 	if !ok {
 		t.Fatalf("expected BreakStmt, got %T", bWhile.Body[0])
 	}
 
-	cWhile, ok := cStmts.Statements[0].(*verb.WhileStmt)
+	cWhile, ok := cStmts.Statements[0].(*ir.WhileStmt)
 	if !ok {
 		t.Fatalf("expected WhileStmt, got %T", cStmts.Statements[0])
 	}
-	ck, ok := cWhile.Body[0].(*verb.ContinueStmt)
+	ck, ok := cWhile.Body[0].(*ir.ContinueStmt)
 	if !ok {
 		t.Fatalf("expected ContinueStmt, got %T", cWhile.Body[0])
 	}

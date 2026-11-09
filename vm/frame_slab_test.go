@@ -110,4 +110,68 @@ func TestFrameSlabGrowthKeepsOuterLocals(t *testing.T) {
 	if len(machine.localStack) != 0 {
 		t.Fatalf("localStack len %d after full unwind", len(machine.localStack))
 	}
+	requireFreshLocalsUnbound(t, machine, "after growth and unwind", 200*4)
+}
+
+// requireFreshLocalsUnbound allocates n locals and requires every one Unbound.
+func requireFreshLocalsUnbound(t *testing.T, machine *VM, what string, n int) {
+	t.Helper()
+	for i, local := range machine.allocLocals(n) {
+		if local != types.Unbound {
+			t.Fatalf("%s: fresh local %d = %v, want Unbound", what, i, local)
+		}
+	}
+}
+
+// Locals handed out again are Unbound however their slots were last used: by
+// a popped frame, by a frame whose locals were left in the array the stack
+// grew out of, by a frame killed with its VM reset for the pool, and by a
+// retry checkpoint restored over the VM.
+func TestFreshLocalsAreUnboundAfterEveryRelease(t *testing.T) {
+	prog := &bytecode.Program{NumLocals: 4}
+	push := func(machine *VM) *StackFrame {
+		f := machine.frameFrom(StackFrame{Program: prog, Locals: machine.allocLocals(prog.NumLocals), localsOnStack: true})
+		for i := range f.Locals {
+			f.Locals[i] = types.NewInt(int64(100 + i))
+		}
+		machine.pushFrame(f)
+		return f
+	}
+
+	machine := NewVM(nil, nil)
+	push(machine)
+	machine.popFrame()
+	requireFreshLocalsUnbound(t, machine, "after a pop", prog.NumLocals)
+	machine.localStack = machine.localStack[:0]
+
+	// The outer frame's slots are copied into the grown array; its locals
+	// stay in the old one. Popping it must still leave the grown array's
+	// slots Unbound.
+	machine = NewVM(nil, nil)
+	outer := push(machine)
+	before := &machine.localStack[:1][0]
+	inner := machine.frameFrom(StackFrame{Program: prog, Locals: machine.allocLocals(initialStackCap * 2), localsOnStack: true})
+	machine.pushFrame(inner)
+	if &machine.localStack[0] == before || &outer.Locals[0] != before {
+		t.Fatal("the inner frame did not grow the locals stack")
+	}
+	machine.popFrame()
+	machine.popFrame()
+	requireFreshLocalsUnbound(t, machine, "after popping a frame left in the old array", initialStackCap*2+prog.NumLocals)
+
+	machine = NewVM(nil, nil)
+	push(machine)
+	push(machine)
+	machine.reset()
+	requireFreshLocalsUnbound(t, machine, "after reset", 2*prog.NumLocals)
+
+	machine = NewVM(nil, nil)
+	push(machine)
+	machine.yielded = true // only a yielded VM takes a retry checkpoint
+	checkpoint := machine.CheckpointForRetry()
+	push(machine)
+	checkpoint.Restore(machine)
+	push(machine)
+	machine.popFrame()
+	requireFreshLocalsUnbound(t, machine, "after a retry restore", 2*prog.NumLocals)
 }

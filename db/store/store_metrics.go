@@ -2,6 +2,7 @@ package store
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,37 +38,38 @@ func (s *Store) PropertySlotCensus() (objects, slots, clearSlots, privateSlots i
 // on each slot point at one base and keep privately only the slots they set.
 // What any object's properties read as does not change.
 //
+// The store keeps pool, the one the loader built shared tables through, or
+// its own when pool is nil, so objects created afterwards find the same bases.
+//
 // Call it once, after the last loaded object is added and before the store is
-// served. Objects created afterwards are not shared.
-func (s *Store) ShareLoadedPropertySlots() {
+// served.
+func (s *Store) ShareLoadedPropertySlots(pool *PropSharePool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.propPool.mu.Lock()
+	defer s.propPool.mu.Unlock()
 
-	pool := newPropSharePool()
+	if pool != nil {
+		s.propPool.pool = pool
+	}
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj != nil && !obj.recycled {
-			obj.properties.share(pool)
+			obj.properties.share(s.propPool.pool)
 		}
 		return true
 	})
 }
 
-func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return 0, types.E_INVIND
-	}
-	return calculateObjectBytes(obj), types.E_NONE
+// shareCreatedProperties moves a new object's table onto a shared base. The
+// table must not yet be visible to any other goroutine.
+func (s *Store) shareCreatedProperties(props propTable) {
+	s.propPool.mu.Lock()
+	defer s.propPool.mu.Unlock()
+	props.share(s.propPool.pool)
 }
 
 func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.objectByteEstimate(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
@@ -85,12 +87,11 @@ func calculateObjectBytes(obj *Object) int {
 
 	count += len(obj.name) + 1
 
-	for _, verb := range obj.verbs {
+	for _, verb := range obj.verbList {
 		count += 32
-		count += len(verb.name) + 1
-		// NOTE (verbcache spike): the AST (verb.Program) no longer lives on the
-		// verb, so the AST-size term is dropped here. A full landing would query
-		// the relocated bytecode cache for an accurate estimate.
+		count += len(strings.Join(verb.names, " ")) + 1
+		// Compiled programs are cached outside the verb (package bytecode), so
+		// the estimate leaves them out.
 	}
 
 	for name, prop := range obj.properties.all() {
@@ -136,43 +137,32 @@ func calculateValueBytes(v types.Value) int {
 	return size
 }
 
-// Players returns all objects with the player flag set
+// verbCacheCleared is the bit of Store.verbCacheStats that records a cache
+// clear in the current interval; the bits below it count misses.
+const verbCacheCleared = uint64(1) << 63
 
+// NoteVerbCacheClear records a verb cache clear for verb_cache_stats(). A clear
+// starts a fresh interval for miss accounting.
 func (s *Store) NoteVerbCacheClear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verbCacheClears++
-	// A cache clear starts a fresh interval for miss accounting.
-	s.verbCacheMisses = 0
+	s.verbCacheStats.Store(verbCacheCleared)
 }
 
-// NoteVerbCacheMiss increments the compatibility miss counter used by verb_cache_stats().
-
+// NoteVerbCacheMiss counts a verb cache miss for verb_cache_stats().
 func (s *Store) NoteVerbCacheMiss() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.verbCacheMisses++
+	s.verbCacheStats.Add(1)
 }
 
-// ConsumeVerbCacheStats returns a 17-element stats vector and resets interval counters.
-// Slot [1] tracks cache clears, slot [2] tracks misses; remaining slots are reserved.
-
+// ConsumeVerbCacheStats returns a 17-element stats vector and starts a new
+// interval. Slot [0] is 1 if the cache was cleared in the interval, slot [1]
+// counts misses since the last clear; the remaining slots are always 0.
 func (s *Store) ConsumeVerbCacheStats() []int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	stats := s.verbCacheStatsLocked()
-	s.verbCacheClears = 0
-	s.verbCacheMisses = 0
-	return stats
+	return verbCacheStatsVector(s.verbCacheStats.Swap(0))
 }
 
-// VerbCacheStatsSnapshot reads the current observation window without resetting
-// it. The returned vector is owned by the caller.
+// VerbCacheStatsSnapshot reads the current interval without resetting it. The
+// returned vector is owned by the caller.
 func (s *Store) VerbCacheStatsSnapshot() []int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.verbCacheStatsLocked()
+	return verbCacheStatsVector(s.verbCacheStats.Load())
 }
 
 // LogVerbCacheStats emits real counters using the caller's task-scoped logger.
@@ -183,20 +173,18 @@ func (s *Store) LogVerbCacheStats(logger *slog.Logger) {
 		slog.Int64("clear", stats[0]), slog.Int64("misses", stats[1]), slog.Any("stats", stats))
 }
 
-func (s *Store) verbCacheStatsLocked() []int64 {
+func verbCacheStatsVector(word uint64) []int64 {
 	stats := make([]int64, 17)
 	// Compatibility behavior: expose clear activity as a 0/1 interval flag.
 	// This avoids cross-test accumulation noise and matches conformance expectations.
-	if s.verbCacheClears > 0 {
+	if word&verbCacheCleared != 0 {
 		stats[0] = 1
 	}
-	stats[1] = s.verbCacheMisses
-
+	stats[1] = int64(word &^ verbCacheCleared)
 	return stats
 }
 
 // ResetMaxObject recomputes max_object() and allocation high-water marks from live objects.
-
 func (s *Store) ResetMaxObject() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,6 +206,6 @@ func (s *Store) ResetMaxObject() {
 		return true
 	})
 
-	s.highWaterID.Store(int64(maxAny))
-	s.maxObjID.Store(int64(maxNonAnon))
+	s.ids.highWater.Store(int64(maxAny))
+	s.ids.max.Store(int64(maxNonAnon))
 }

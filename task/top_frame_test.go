@@ -8,7 +8,7 @@ import (
 )
 
 func TestCallStackProgrammer(t *testing.T) {
-	task := &Task{}
+	task := &State{}
 	if who, frames := task.CallStackProgrammer(0); who != types.ObjNothing || frames != 0 {
 		t.Fatalf("empty stack gave (#%d, %d), want (#-1, 0)", who, frames)
 	}
@@ -25,7 +25,7 @@ func TestCallStackProgrammer(t *testing.T) {
 }
 
 func TestSetTopFrameProgrammer(t *testing.T) {
-	task := &Task{}
+	task := &State{}
 	if task.SetTopFrameProgrammer(types.ObjID(7)) {
 		t.Fatal("SetTopFrameProgrammer succeeded with an empty call stack")
 	}
@@ -40,7 +40,7 @@ func TestSetTopFrameProgrammer(t *testing.T) {
 }
 
 func TestSetTopFrameProgrammerConcurrentWithFrameGrowth(t *testing.T) {
-	task := &Task{CallStack: make([]types.ActivationFrame, 1)}
+	task := &State{CallStack: make([]types.ActivationFrame, 1)}
 
 	const iterations = 1000
 	var wg sync.WaitGroup

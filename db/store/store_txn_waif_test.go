@@ -174,15 +174,15 @@ func TestWaifHistoryReleasedAfterLastOldReader(t *testing.T) {
 	if ec := s.DirectTxn().SetWaifProperty(w, "n", types.NewInt(1)); ec != types.E_NONE {
 		t.Fatal(ec)
 	}
-	if len(s.waifHistory) != 1 {
-		t.Fatalf("history tracked = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 1 {
+		t.Fatalf("history tracked = %d", len(s.waifs.history))
 	}
 	waifNumber(t, tx, w, 0)
 	tx.Release()
-	if len(s.waifHistory) != 0 {
-		t.Fatalf("history remains after release = %d", len(s.waifHistory))
+	if len(s.waifs.history) != 0 {
+		t.Fatalf("history remains after release = %d", len(s.waifs.history))
 	}
-	if _, ok := w.WaifImageAt(s.waifDomain, 0); ok {
+	if _, ok := w.WaifImageAt(s.waifs.domain, 0); ok {
 		t.Fatal("obsolete version retained")
 	}
 }
@@ -292,7 +292,7 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 
 	// Stop the publisher after it samples the reader's shard, but before its
 	// floor scan finishes. No production hook or timing delay is needed.
-	lastShard := &s.readTSShards[readTSShardCount-1]
+	lastShard := &s.readers.shards[readTSShardCount-1]
 	lastShard.mu.Lock()
 	shardLocked := true
 	t.Cleanup(func() {
@@ -337,9 +337,9 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 		}
 		return blockedIn("(*StoreTxn).release(")
 	})
-	s.readTSShards[0].mu.Lock()
-	remainingReaders := s.readTSShards[0].counts[readerTS]
-	s.readTSShards[0].mu.Unlock()
+	s.readers.shards[0].mu.Lock()
+	remainingReaders := s.readers.shards[0].counts[readerTS]
+	s.readers.shards[0].mu.Unlock()
 	if remainingReaders != 0 || !reader.released.Load() {
 		t.Fatal("reader did not deregister while the publisher's floor was stale")
 	}
@@ -359,11 +359,11 @@ func TestWaifPublicationDoesNotMissLastReaderRelease(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("reader release did not finish")
 	}
-	if _, found := w.WaifImageAt(s.waifDomain, readerTS); found {
+	if _, found := w.WaifImageAt(s.waifs.domain, readerTS); found {
 		t.Error("last reader released, but its obsolete WAIF image remains")
 	}
-	if len(s.waifHistory) != 0 || s.waifHistoryPending.Load() {
-		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifHistory), s.waifHistoryPending.Load())
+	if len(s.waifs.history) != 0 || s.waifs.pending.Load() {
+		t.Errorf("last reader released, but history registry has %d entries, pending=%v", len(s.waifs.history), s.waifs.pending.Load())
 	}
 }
 
@@ -426,7 +426,7 @@ func TestWaifDependentValueWriteKeepsVerbShape(t *testing.T) {
 			if ec := s.DirectTxn().DefineProperty(0, "p", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 				t.Fatal(ec)
 			}
-			verbShape := s.verbShapeChangeTS.Load()
+			verbShape := s.dispatch.shapeChangeTS.Load()
 			w := types.NewWaif(0, 0).SetProperty("n", types.NewInt(0))
 			tx := s.BeginSnapshot(0)
 			defer tx.Release()
@@ -438,8 +438,8 @@ func TestWaifDependentValueWriteKeepsVerbShape(t *testing.T) {
 			if ec := tx.Commit(); ec != types.E_NONE {
 				t.Fatal(ec)
 			}
-			if got := s.verbShapeChangeTS.Load(); got != verbShape {
-				t.Fatalf("verbShapeChangeTS moved %d -> %d on a value write", verbShape, got)
+			if got := s.dispatch.shapeChangeTS.Load(); got != verbShape {
+				t.Fatalf("dispatch.shapeChangeTS moved %d -> %d on a value write", verbShape, got)
 			}
 		})
 	}

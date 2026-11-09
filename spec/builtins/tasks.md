@@ -98,16 +98,24 @@ callers(1)
 
 ### 2.2 task_stack (ToastStunt)
 
-**Signature:** `task_stack(task_id [, include_vars [, include_temp_vars]]) → LIST`
+**Signature:** `task_stack(task_id [, line_numbers [, include_vars]]) → LIST`
 
-**Description:** Returns detailed stack for specified task.
+**Description:** Returns the stack of a task waiting in suspend() (including
+one already resumed and not yet run), in read() or read_http(), or on exec() (Toast
+execute.cc bf_task_stack, tasks.cc find_suspended_task).
 
 **Parameters:**
 - `task_id` (INT): Task ID to inspect (required)
-- `include_vars` (ANY, optional): Include local variables if truthy
-- `include_temp_vars` (ANY, optional): Include temporary variables if truthy
+- `line_numbers` (ANY, optional): Include each frame's line number if truthy
+- `include_vars` (ANY, optional): Include each frame's variables if truthy
 
 **Returns:** List of frames with more detail than callers().
+
+**Errors:**
+- E_INVARG: No such task among those above (including the current task and a
+  forked task that has not yet started)
+- E_PERM: Caller is neither a wizard nor the programmer of the task's current
+  verb
 
 ---
 
@@ -197,7 +205,8 @@ val = suspend();   // Wait for resume
 
 **Signature:** `resume(task_id [, value]) → none`
 
-**Description:** Resumes a suspended task.
+**Description:** Makes a task waiting in suspend() runnable now, or replaces
+the pending value of one already resumed. See [tasks.md §6.2](../tasks.md).
 
 **Parameters:**
 - `task_id`: Task to resume
@@ -209,8 +218,12 @@ resume(other_task, "wake up!");
 ```
 
 **Errors:**
-- E_INVARG: Task not suspended
-- E_PERM: Not owner or wizard
+- E_INVARG: No task waiting in suspend() or already resumed has this ID
+  (including the current task, a task in read() or read_http(), and a forked
+  task not yet
+  started)
+- E_PERM: Caller is neither a wizard nor the programmer of the verb the task
+  is suspended in
 
 ---
 
@@ -218,11 +231,15 @@ resume(other_task, "wake up!");
 
 **Signature:** `kill_task(task_id) → none`
 
-**Description:** Terminates a task.
+**Description:** Terminates a task. See [tasks.md §7.1](../tasks.md).
 
 **Permissions:**
-- Can kill own tasks
 - Wizards can kill any task
+- Otherwise the caller must be the programmer the task is checked against: the
+  forking programmer for a fork not yet started, the programmer of the verb a
+  suspended task is suspended in, the queue's programmer for a task waiting in
+  a background queue, or the connection's player for a task in read() or
+  read_http()
 
 **Examples:**
 ```moo
@@ -231,7 +248,8 @@ kill_task(runaway_task);
 
 **Errors:**
 - E_INVARG: Invalid task ID
-- E_PERM: Not owner or wizard
+- E_PERM: Caller is neither a wizard nor the programmer the task is checked
+  against
 
 ---
 

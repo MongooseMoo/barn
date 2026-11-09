@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -20,7 +20,7 @@ func TestParseTernary(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			ternary, ok := expr.(*verb.TernaryExpr)
+			ternary, ok := expr.(*ir.TernaryExpr)
 			if !ok {
 				t.Fatalf("expected TernaryExpr, got %T", expr)
 			}
@@ -47,13 +47,13 @@ func TestTernaryRightAssociative(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	outer, ok := expr.(*verb.TernaryExpr)
+	outer, ok := expr.(*ir.TernaryExpr)
 	if !ok {
 		t.Fatalf("expected TernaryExpr at root, got %T", expr)
 	}
 
 	// The then branch should be another ternary
-	inner, ok := outer.ThenExpr.(*verb.TernaryExpr)
+	inner, ok := outer.ThenExpr.(*ir.TernaryExpr)
 	if !ok {
 		t.Errorf("expected ThenExpr to be TernaryExpr for right-associativity, got %T", outer.ThenExpr)
 	} else {
@@ -82,13 +82,13 @@ func TestTernaryPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			ternary, ok := expr.(*verb.TernaryExpr)
+			ternary, ok := expr.(*ir.TernaryExpr)
 			if !ok {
 				t.Fatalf("%s - expected TernaryExpr at root, got %T", tt.desc, expr)
 			}
 
 			// Condition should be a binary expression
-			_, ok = ternary.Condition.(*verb.BinaryExpr)
+			_, ok = ternary.Condition.(*ir.BinaryExpr)
 			if !ok {
 				t.Errorf("%s - expected condition to be BinaryExpr, got %T", tt.desc, ternary.Condition)
 			}
@@ -114,14 +114,14 @@ func TestParenthesesOverridePrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*verb.BinaryExpr)
+			binary, ok := expr.(*ir.BinaryExpr)
 			if !ok {
 				t.Fatalf("%s - expected BinaryExpr at root, got %T", tt.desc, expr)
 			}
 
 			// Parentheses affect grouping but do not survive as semantic nodes.
-			if _, leftGrouped := binary.Left.(*verb.BinaryExpr); !leftGrouped {
-				if _, rightGrouped := binary.Right.(*verb.BinaryExpr); !rightGrouped {
+			if _, leftGrouped := binary.Left.(*ir.BinaryExpr); !leftGrouped {
+				if _, rightGrouped := binary.Right.(*ir.BinaryExpr); !rightGrouped {
 					t.Errorf("%s - expected grouped binary child", tt.desc)
 				}
 			}
@@ -137,7 +137,7 @@ func TestNestedParentheses(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	if _, ok := expr.(*verb.LiteralExpr); !ok {
+	if _, ok := expr.(*ir.LiteralExpr); !ok {
 		t.Errorf("expected nested parentheses to produce a literal, got %T", expr)
 	}
 }
@@ -148,11 +148,11 @@ func TestCatchDefaultContainsConditional(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caught, ok := expr.(*verb.CatchExpr)
+	caught, ok := expr.(*ir.CatchExpr)
 	if !ok {
 		t.Fatalf("expected catch expression, got %T", expr)
 	}
-	if _, ok := caught.Default.(*verb.TernaryExpr); !ok {
+	if _, ok := caught.Default.(*ir.TernaryExpr); !ok {
 		t.Fatalf("expected conditional inside catch default, got %T", caught.Default)
 	}
 }

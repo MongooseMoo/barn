@@ -83,7 +83,7 @@ func TestRunTaskRetriesStaleReadsBeforeFirstIrreversibleEffect(t *testing.T) {
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3101, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3101, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 server_log("irreversible-once");
@@ -115,6 +115,49 @@ return before;
 	assertCommitGateReleased(t, store)
 }
 
+// A slice that takes the exclusive gate at its irreversible-effect boundary
+// records the hold under its task verb, timed until the gate is released.
+func TestRunTaskRecordsExclusiveGateHoldByVerb(t *testing.T) {
+	store := newBoundaryTestStore(t)
+	const held = 30 * time.Millisecond
+	var sleep builtins.BuiltinFunc = func(*builtins.Execution, []types.Value) types.Result {
+		time.Sleep(held)
+		return types.Ok(types.NewInt(0))
+	}
+	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1, testBuiltinSlot("hold_gate_sleep", 0, 0, []int64{}, &sleep))
+	defer s.Stop()
+	// The irreversible builtin is called from a nested verb, so the hold's
+	// cause (#0:caller) differs from the task's root verb (#7:hold).
+	if _, e := store.AddVerb(0, dbstore.NewVerb([]string{"caller"}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{`server_log("take the gate");`, "hold_gate_sleep();"})); e != types.E_NONE {
+		t.Fatalf("AddVerb: %v", e)
+	}
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
+	queued := NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
+#0:caller();
+#0.write_value = 1;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	queued.Context.Log = slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	queued.This, queued.VerbName = 7, "hold"
+	if holds := s.GateHolds(); len(holds) != 0 {
+		t.Fatalf("holds before the task = %+v", holds)
+	}
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	holds := s.GateHolds()
+	if len(holds) != 1 || holds[0].This != 7 || holds[0].Verb != "hold" || holds[0].Cause != "#0:caller" ||
+		holds[0].Count != 1 || holds[0].Total < held || holds[0].Max != holds[0].Total {
+		t.Fatalf("holds = %+v, want one #7:hold hold by #0:caller of at least %s", holds, held)
+	}
+	assertCommitGateReleased(t, store)
+	s.ResetGateHolds()
+	if holds := s.GateHolds(); len(holds) != 0 {
+		t.Fatalf("holds after reset = %+v", holds)
+	}
+}
+
 func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	descriptor, _ := bumpReadValueLiveOnce(t, store)
@@ -124,7 +167,7 @@ func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *te
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	owner := types.ObjID(7711)
-	queued := task.NewTaskFull(3102, owner, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3102, owner, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 server_log("irreversible-once");
@@ -162,7 +205,7 @@ func TestRunTaskIrreversibleEffectWithFreshReadsRunsOnce(t *testing.T) {
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3103, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 server_log("irreversible-once");
 #0.write_value = before + 10;
@@ -197,7 +240,7 @@ func TestRunTaskRetriesStaleReadsBeforeFirstCoarseBuiltin(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 add_verb(#0, {#0, "rxd", "coarse_probe"}, {"this", "none", "this"});
@@ -231,7 +274,7 @@ return {before, verbs(#0)};
 // outer VM unwinds at its next builtin boundary. The effect runs exactly once.
 func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T) {
 	store := newBoundaryTestStore(t)
-	initialize := dbstore.NewVerb("initialize", []string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
+	initialize := dbstore.NewVerb([]string{"initialize"}, 0, dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{`server_log("nested-once");`, "return 1;"})
 	if _, ec := store.AddVerb(0, initialize); ec != types.E_NONE {
 		t.Fatalf("AddVerb initialize: %v", ec)
@@ -242,7 +285,7 @@ func TestRunTaskRetriesStaleReadsAtIrreversibleEffectInsideNestedVM(t *testing.T
 
 	var logs bytes.Buffer
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	queued := task.NewTaskFull(3105, 0, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(3105, 0, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 c = create(#0);
@@ -283,12 +326,12 @@ func TestRefusedKillTaskKeepsAttemptRetryable(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	other := task.NewTaskFull(4201, 77, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	other := NewTaskFull(4201, 77, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
 	other.SetState(task.TaskSuspended)
 	s.taskManager.RegisterTask(other)
 	defer s.taskManager.RemoveTaskIf(other.ID, other)
 
-	queued := task.NewTaskFull(4202, 5, compileTestProgram(t, s.registry, `
+	queued := NewTaskFull(4202, 5, compileTestProgram(t, s.registry, `
 before = #0.read_value;
 bump_read_value_live_once();
 missing = `+"`kill_task(999999) ! ANY'"+`;
@@ -316,18 +359,20 @@ return {before, missing, foreign};
 	}
 }
 
-func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
+// A kill stages the victim's row in the killer's transaction, so it takes no
+// gate: a lost commit re-runs the killer like any other write.
+func TestKillTaskTakesNoGate(t *testing.T) {
 	store := newBoundaryTestStore(t)
 	s := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{}, 1)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	victim := task.NewTaskFull(4301, 5, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
+	victim := NewTaskFull(4301, 5, compileTestProgram(t, s.registry, "return 0;"), ticks, seconds)
 	victim.SetState(task.TaskSuspended)
 	s.taskManager.RegisterTask(victim)
 	defer s.taskManager.RemoveTaskIf(victim.ID, victim)
 
-	killer := task.NewTaskFull(4302, 5, compileTestProgram(t, s.registry, "return kill_task(4301);"), ticks, seconds)
+	killer := NewTaskFull(4302, 5, compileTestProgram(t, s.registry, "return kill_task(4301);"), ticks, seconds)
 	killer.Context.Programmer = 5
 	if err := s.runTask(killer); err != nil {
 		t.Fatalf("runTask failed: %v", err)
@@ -338,7 +383,7 @@ func TestKillTaskCrossesBoundaryWhenItKills(t *testing.T) {
 	if victim.GetState() != task.TaskKilled {
 		t.Fatalf("victim state = %v, want killed", victim.GetState())
 	}
-	if got := store.CommitEscalations(); got == 0 {
-		t.Fatal("a kill that happens must cross the irreversible boundary")
+	if got := store.CommitEscalations(); got != 0 {
+		t.Fatalf("commit escalations = %d, want 0: a kill takes no gate", got)
 	}
 }

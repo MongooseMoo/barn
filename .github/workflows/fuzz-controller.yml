@@ -1,0 +1,49 @@
+name: Nightly fuzz controller
+
+# Submits the next dedicated-continuous fuzz cycle when one completes. This is
+# its own workflow because GitHub rejects a workflow_run trigger that names its
+# own workflow. It reads no artifacts and runs no candidate code: workflow_run
+# runs this file and its checkout from the default branch.
+on:
+  workflow_run:
+    workflows: [Nightly fuzz]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-fuzz-controller
+  cancel-in-progress: false
+
+jobs:
+  replenish:
+    # Only a source dispatch whose Accept discovery cycle job passed can
+    # replenish, findings or not; fuzz_compute.cjs checks that and the rest.
+    if: >-
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&
+      contains(fromJSON('["Nightly fuzz / dedicated-continuous","Nightly fuzz / dedicated-continuous / native-only"]'), github.event.workflow_run.display_title) &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.FUZZ_CONTINUOUS_ENABLED == 'true'
+    # The dedicated group admits only fuzz.yml, so this dispatch-only job uses
+    # the ordinary CI selector, as fuzz.yml's routing job does.
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').replenish({github, context, core});

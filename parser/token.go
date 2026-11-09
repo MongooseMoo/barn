@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/MongooseMoo/barn/verb"
+import "github.com/MongooseMoo/barn/ir"
 
 // TokenType represents different types of lexical tokens
 type TokenType int
@@ -37,8 +37,6 @@ const (
 	TOKEN_FINALLY
 	TOKEN_ENDTRY
 	TOKEN_ANY
-	TOKEN_TRUE
-	TOKEN_FALSE
 	TOKEN_IN
 
 	// Identifiers
@@ -100,7 +98,7 @@ type Token struct {
 	Type     TokenType
 	Value    string
 	Literal  string // Decoded string value (for TOKEN_STRING)
-	Position verb.Position
+	Position ir.Position
 }
 
 // String returns a string representation of the token type
@@ -158,10 +156,6 @@ func (t TokenType) String() string {
 		return "ENDTRY"
 	case TOKEN_ANY:
 		return "ANY"
-	case TOKEN_TRUE:
-		return "TRUE"
-	case TOKEN_FALSE:
-		return "FALSE"
 	case TOKEN_IN:
 		return "IN"
 	case TOKEN_IDENTIFIER:
@@ -275,8 +269,6 @@ var keywords = map[string]TokenType{
 	"finally":  TOKEN_FINALLY,
 	"endtry":   TOKEN_ENDTRY,
 	"any":      TOKEN_ANY,
-	"true":     TOKEN_TRUE,
-	"false":    TOKEN_FALSE,
 	"in":       TOKEN_IN,
 }
 

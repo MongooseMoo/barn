@@ -20,7 +20,7 @@ func listText(count int) string {
 }
 
 func TestReadValueListsCarryNoSpareCapacity(t *testing.T) {
-	for _, count := range []int{1, 3, 5, 33, maxTrustedListCount, maxTrustedListCount + 1, 3 * maxTrustedListCount} {
+	for _, count := range []int{1, 3, 5, 33, maxTrustedCount, maxTrustedCount + 1, 3 * maxTrustedCount} {
 		database := &Database{Version: 17}
 		value, err := database.readValue(bufio.NewReader(strings.NewReader(listText(count))))
 		if err != nil {

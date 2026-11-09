@@ -7,12 +7,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MongooseMoo/barn/types"
 )
 
 // Protocol identifies a listener transport protocol.
 type Protocol string
+
+// HTTPReadHeaderTimeout bounds HTTP setup without limiting response or session lifetimes.
+const HTTPReadHeaderTimeout = 5 * time.Second
 
 const (
 	ProtocolTCP             Protocol = "tcp"

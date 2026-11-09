@@ -174,23 +174,6 @@ func filterTextMode(data []byte) string {
 	return b.String()
 }
 
-func encodeBinaryBytes(data []byte) string {
-	var b strings.Builder
-	for _, ch := range data {
-		encodeByte(&b, ch)
-	}
-	return b.String()
-}
-
-// EncodeRawToBinary converts raw bytes to MOO binary-string text (~XX for
-// non-printables, ~7E for '~'), Toast's raw_bytes_to_binary. Capture
-// boundaries that hand raw external bytes to MOO code (telnet OOB commands,
-// exec output) must encode with this — MOO strings store the ENCODED text;
-// toliteral emits string bytes raw and must not re-encode.
-func EncodeRawToBinary(data []byte) string {
-	return encodeBinaryBytes(data)
-}
-
 func builtinFileOpen(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -332,7 +315,7 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 	}
 	data := buf[:count]
 	if h.binary {
-		return types.Ok(types.NewStr(encodeBinaryBytes(data)))
+		return types.Ok(types.NewStr(EncodeRawToBinary(data)))
 	}
 	return types.Ok(types.NewStr(filterTextMode(data)))
 }
@@ -418,7 +401,7 @@ func builtinFileReadline(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_FILE)
 	}
 	if h.binary {
-		return types.Ok(types.NewStr(encodeBinaryBytes(buf)))
+		return types.Ok(types.NewStr(EncodeRawToBinary(buf)))
 	}
 	trimmed := bytes.TrimRight(buf, "\r\n")
 	return types.Ok(types.NewStr(filterTextMode(trimmed)))
@@ -469,7 +452,7 @@ func builtinFileReadlines(ctx *Execution, args []types.Value) types.Result {
 			lineNo++
 			if lineNo >= start {
 				if h.binary {
-					out = append(out, types.NewStr(encodeBinaryBytes(line)))
+					out = append(out, types.NewStr(EncodeRawToBinary(line)))
 				} else {
 					out = append(out, types.NewStr(filterTextMode(line)))
 				}
@@ -1022,15 +1005,27 @@ func builtinFileCountLines(ctx *Execution, args []types.Value) types.Result {
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
-	scanner := bufio.NewScanner(h.file)
+	reader := bufio.NewReader(h.file)
 	count := int64(0)
-	for scanner.Scan() {
-		count++
+	pendingLine := false
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		pendingLine = pendingLine || len(fragment) > 0
+		switch err {
+		case nil:
+			count++
+			pendingLine = false
+		case bufio.ErrBufferFull:
+			continue
+		case io.EOF:
+			if pendingLine {
+				count++
+			}
+			return types.Ok(types.NewInt(count))
+		default:
+			return types.Err(types.E_FILE)
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return types.Err(types.E_FILE)
-	}
-	return types.Ok(types.NewInt(count))
 }
 
 func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
@@ -1060,11 +1055,18 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	}
 	matchAll := len(args) == 3 && args[2].Truthy()
 	needle := args[1].Str()
-	scanner := bufio.NewScanner(h.file)
+	reader := bufio.NewReader(h.file)
 	out := make([]types.Value, 0)
 	lineNum := int64(0)
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return types.Err(types.E_FILE)
+		}
+		if len(line) == 0 {
+			break
+		}
+		line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 		lineNum++
 		if strings.Contains(line, needle) {
 			out = append(out, types.NewList([]types.Value{
@@ -1072,12 +1074,15 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 				types.NewInt(lineNum),
 			}))
 			if !matchAll {
+				if _, seekErr := h.file.Seek(-int64(reader.Buffered()), io.SeekCurrent); seekErr != nil {
+					return types.Err(types.E_FILE)
+				}
 				break
 			}
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return types.Err(types.E_FILE)
+		if err == io.EOF {
+			break
+		}
 	}
 	return types.Ok(types.NewList(out))
 }
@@ -1111,7 +1116,7 @@ func fileioDescriptors() []Descriptor {
 		function("file_chmod", builtinFileChmod, 2, 2, 2, 2).withEffect(Irreversible),
 		function("file_list", builtinFileList, 1, 2, 2, -1),
 		function("file_handles", builtinFileHandles, 0, 0),
-		function("file_count_lines", builtinFileCountLines, 1, 1, 0),
-		function("file_grep", builtinFileGrep, 2, 3, 0, 2, 0),
+		function("file_count_lines", builtinFileCountLines, 1, 1, 0).withEffect(Irreversible),
+		function("file_grep", builtinFileGrep, 2, 3, 0, 2, 0).withEffect(Irreversible),
 	}
 }

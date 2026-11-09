@@ -41,7 +41,7 @@ func (h cacheStatsHandler) Handle(_ context.Context, record slog.Record) error {
 func (h cacheStatsHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 func (h cacheStatsHandler) WithGroup(string) slog.Handler      { return h }
 
-func TestVerbCacheLoggingCallsHandlerAfterReleasingStoreLock(t *testing.T) {
+func TestVerbCacheLoggingHandlerMayUpdateCounters(t *testing.T) {
 	store := NewStore()
 	store.NoteVerbCacheMiss()
 	done := make(chan int64, 1)
@@ -64,7 +64,7 @@ func TestVerbCacheLoggingCallsHandlerAfterReleasingStoreLock(t *testing.T) {
 			t.Fatalf("snapshot/reentrant update mismatch: logged %d, current %v", count, store.VerbCacheStatsSnapshot())
 		}
 	case <-time.After(time.Second):
-		t.Fatal("logging handler blocked on a store lock retained by logging")
+		t.Fatal("logging handler blocked updating the counters")
 	}
 }
 

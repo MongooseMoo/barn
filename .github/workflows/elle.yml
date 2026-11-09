@@ -6,17 +6,64 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      seeds:
+        description: Space-separated integer seeds
+        type: string
+        default: '412 395 396'
+      rounds:
+        description: Random rounds per healthy seed (8-10000)
+        type: string
+        default: '40'
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: elle-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Skip the required job when a run of this repository already passed on
+  # this exact tree (see .github/actions/tested-tree). A manual dispatch
+  # always runs.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: tree
+        if: github.event_name != 'workflow_dispatch'
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: elle
+
+  record:
+    name: Record pass
+    needs: isolation
+    # Manual campaigns may select less work than the required PR configuration.
+    # They must not populate its tested-tree pass record.
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: elle
+
   isolation:
     name: Serializable histories and negative control
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 25
     steps:
@@ -33,34 +80,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Install checker dependencies
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          if command -v lein >/dev/null && command -v dot >/dev/null; then
-            exit 0
-          fi
-          sudo -n apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y leiningen graphviz
       - name: Build pinned checker
-        env:
-          ELLE_COMMIT: 9c2a18b3719f573dab06ae05c955c9c9d5225673
-        run: |
-          set -euo pipefail
-          checker="$RUNNER_TEMP/elle-cli-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          git clone https://github.com/ligurio/elle-cli.git "$checker"
-          git -C "$checker" checkout --detach "$ELLE_COMMIT"
-          test "$(git -C "$checker" rev-parse HEAD)" = "$ELLE_COMMIT"
-          export JAVA_CMD="$JAVA_HOME/bin/java"
-          cd "$checker"
-          lein uberjar
-          echo "ELLE_JAR=$checker/target/elle-cli-0.1.11-standalone.jar" >> "$GITHUB_ENV"
+        uses: ./.github/actions/elle-cli
       - name: Check histories
+        env:
+          ELLE_SEEDS: ${{ inputs.seeds || '412 395 396' }}
+          ELLE_ROUNDS: ${{ inputs.rounds || '40' }}
         run: |
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_check_elle.py' -v
           go test -tags elle ./engine -run '^TestElleRecorder' -count=1
-          python3 scripts/check_elle.py --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" --output elle-evidence
+          read -r -a seeds <<< "$ELLE_SEEDS"
+          python3 scripts/check_elle.py --jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" --output elle-evidence --seeds "${seeds[@]}" --rounds "$ELLE_ROUNDS"
       - name: Archive raw evidence
         if: always()
         run: |

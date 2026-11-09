@@ -5,9 +5,6 @@ import (
 )
 
 func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDuplicateDefinedPropertyAmong(ids)
-	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
 		obj := tx.object(id)
@@ -30,9 +27,6 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 }
 
 func (tx *StoreTxn) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.definedPropertyNamesInAncestry(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -71,9 +65,6 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 }
 
 func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyConflictWithAncestry(objID, parentIDs)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -95,9 +86,6 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 }
 
 func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.hasChparentDescendantPropertyConflict(objID, names)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -132,106 +120,162 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 	return check(obj), types.E_NONE
 }
 
-func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
+// ReseedInheritedProperties brings the txn's view of objID, whose parents were
+// oldParents, and of every descendant of objID up to the live reseed that
+// Store.ChangeParents has done. Each takes its live property table, and the
+// slots this txn wrote or deleted are replayed on it where the reseed kept
+// them; the rest are dropped. The commit publishes only those.
+func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID, oldParents []types.ObjID) types.ErrorCode {
 	if tx.direct {
 		return types.E_NONE
-	}
-	obj := tx.mutableObject(objID)
-	if !validLiveObject(obj) {
-		return types.E_INVIND
 	}
 	if tx.store == nil {
 		return types.E_INVARG
 	}
-
-	newProps := tx.copyInheritedProperties(obj.parents)
-	for name, prop := range obj.properties.all() {
-		if prop.defined {
-			newProps.put(name, prop)
+	tx.invalidateResolveCaches()
+	object := func(id types.ObjID) *Object {
+		if o := tx.object(id); validLiveObject(o) {
+			return o
 		}
+		return nil
 	}
-	obj.properties = newProps
-
+	// The subtree the live reseed rewrote, walked without caching it in the txn.
 	tx.store.mu.RLock()
-	live := tx.store.liveObjectLocked(objID)
-	if !validLiveObject(live) {
-		tx.store.mu.RUnlock()
-		return types.E_INVIND
-	}
-	obj.propertyVersion = live.propertyVersion
-	obj.propertyShapeVersion = live.propertyShapeVersion
-	liveVersion := live.propertyVersion
-	liveShapeVersion := live.propertyShapeVersion
+	subtree, inSubtree := inheritanceSubtree(objID, func(id types.ObjID) *Object {
+		if o := tx.store.liveObjectLocked(id); validLiveObject(o) {
+			return o
+		}
+		return nil
+	})
 	tx.store.mu.RUnlock()
-
-	tx.propertyScans[objID] = liveVersion
-	tx.propertyShapeScans[objID] = liveShapeVersion
+	staged := make(map[types.ObjID]*objectWrites)
+	at := func(id types.ObjID) *objectWrites {
+		if staged[id] == nil {
+			staged[id] = &objectWrites{}
+		}
+		return staged[id]
+	}
 	for key := range tx.propertyReads {
-		if key.objID == objID {
+		if inSubtree[key.objID] {
 			delete(tx.propertyReads, key)
 		}
 	}
 	for key := range tx.propertyWrites {
-		if key.objID == objID {
-			delete(tx.propertyWrites, key)
+		if inSubtree[key.objID] {
+			at(key.objID).props = append(at(key.objID).props, key)
 		}
 	}
-	for key := range tx.propertyDeletes {
-		if key.objID == objID {
-			delete(tx.propertyDeletes, key)
+	for key, actualName := range tx.propertyDeletes {
+		if inSubtree[key.objID] {
+			at(key.objID).propDeletes = append(at(key.objID).propDeletes, actualName)
 		}
 	}
-	for name, prop := range obj.properties.all() {
-		if prop.defined {
+
+	for _, id := range subtree {
+		tx.store.mu.RLock()
+		live := tx.store.liveObjectLocked(id)
+		if !validLiveObject(live) {
+			tx.store.mu.RUnlock()
+			return types.E_INVIND
+		}
+		obj, cached := tx.objects[id]
+		if cached && obj != nil && (tx.owned[id] != 0 || live.anonymous || !sameOutsideProperties(obj, live)) {
+			// The txn's view of an object it has read keeps its other facets
+			// and takes the live slots; its staged writes are replayed below,
+			// and they change only the properties.
+			if tx.owned[id] == 0 {
+				obj = tx.privatizeCached(id, obj)
+			}
+			obj.properties = live.properties.clone()
+			tx.owned[id] |= facetProperties
+			obj.propertyVersion = live.propertyVersion
+			obj.propertyShapeVersion = live.propertyShapeVersion
+		} else if live.anonymous {
+			// Anonymous images are mutated in place, so a txn reads a clone
+			// (objectLocked).
+			obj = cloneObjectForReadTxn(live)
+			tx.objects[id] = obj
+		} else {
+			// Published images are immutable, so the txn reads the live one
+			// directly, as objectLocked does. A view it had read differs from
+			// it only in its properties.
+			obj = live
+			tx.objects[id] = obj
+		}
+		tx.store.mu.RUnlock()
+		lazySet(&tx.propertyScans, id, obj.propertyVersion)
+		lazySet(&tx.propertyShapeScans, id, obj.propertyShapeVersion)
+
+		w := staged[id]
+		if w == nil {
 			continue
 		}
-		key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-		lazySet(&tx.propertyWrites, key, propertyWrite{
-			name:  name,
-			value: prop.value,
-			prop:  prop,
-		})
+		tx.dropStagedSlotsNotKept(obj, w, objID, oldParents, object)
+		// The replay stamps versions a read of a staged slot never records; the
+		// view keeps the live ones it adopted (as ApplyStagedObjectWrites does).
+		version, shapeVersion := obj.propertyVersion, obj.propertyShapeVersion
+		tx.applyTailWrites(obj, w, tx.readTS, true)
+		obj.propertyVersion, obj.propertyShapeVersion = version, shapeVersion
 	}
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) propTable {
-	result := newPropTable(0)
-	visited := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), parents...)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := tx.object(currentID)
-		if !validLiveObject(current) {
-			continue
-		}
-		tx.markPropertyScan(currentID, current)
-		for name, prop := range current.properties.all() {
-			if _, _, exists := result.find(name); exists {
-				continue
-			}
-			result.put(name, Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: prop.version,
-			})
-		}
-		queue = append(queue, current.parents...)
-	}
-
-	return result
+// sameOutsideProperties reports whether a and b are the same image of an object
+// apart from its properties.
+func sameOutsideProperties(a, b *Object) bool {
+	return a.scalarVersion == b.scalarVersion && a.relationshipVersion == b.relationshipVersion && a.verbVersion == b.verbVersion
 }
 
+// dropStagedSlotsNotKept removes from w, and from the txn, the staged writes and
+// deletes of obj's slots that the reseed did not keep: obj keeps the slots it
+// defines and those of ancestors in both its old and new ancestry.
+func (tx *StoreTxn) dropStagedSlotsNotKept(obj *Object, w *objectWrites, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object) {
+	kept := keptInheritedNames(obj.id, moved, movedOldParents, object)
+	keeps := func(key string) bool {
+		if prop, ok := obj.properties.lookup(key); ok && prop.defined {
+			return true
+		}
+		return kept[key]
+	}
+	props := w.props[:0]
+	for _, key := range w.props {
+		if keeps(key.name) {
+			props = append(props, key)
+		} else {
+			delete(tx.propertyWrites, key)
+		}
+	}
+	w.props = props
+	deletes := w.propDeletes[:0]
+	for _, actualName := range w.propDeletes {
+		key := propertyWriteKey{objID: obj.id, name: propertyNameKey(actualName)}
+		if keeps(key.name) {
+			deletes = append(deletes, actualName)
+		} else {
+			delete(tx.propertyDeletes, key)
+		}
+	}
+	w.propDeletes = deletes
+}
+
+func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.ObjID) propTable {
+	return copyInheritedProperties(parents, owner, func(id types.ObjID) *Object {
+		current := tx.object(id)
+		if validLiveObject(current) {
+			tx.markPropertyScan(id, current)
+		}
+		return current
+	})
+}
+
+// propagateDefinedProperty stages the inherited slot a define gives each
+// descendant, and changes the txn's private view of it. The writeNow writer has
+// no view to keep and publishes under the lock it read under, so the store's own
+// walk gives the descendants their slots (publishStagedLocked).
 func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, prop Property) {
+	if tx.locked {
+		return
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -247,9 +291,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child is mutated in place below (reseed inherited slot), so it must be
-			// a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			// child's properties are changed in place below (reseed inherited slot),
+			// so they must be a txn-private copy's own, not a shared alias.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -263,30 +307,48 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
-			override := Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				defined: false,
-			}
+			override := inheritedSlot(prop, child.owner)
 			child.properties.put(propertyNameKey(name), override)
 			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
 				name:  name,
-				value: prop.value,
+				value: override.value,
 				prop:  override,
 			})
 			queue = append(queue, childID)
+		}
+		// Anonymous children get the slot too (Toast insert_prop_recursively,
+		// db_properties.cc:162-166, :176-179). The staged write puts the anon id
+		// in the write set, which routes the commit to the exclusive path.
+		for _, anonID := range current.anonymousChildren {
+			anon := tx.object(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, existing, ok := anon.properties.find(name); ok {
+				tx.markPropertyRead(anonID, actualName, existing)
+				if existing.defined {
+					continue
+				}
+				tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
+			} else {
+				tx.markPropertyScan(anonID, anon)
+			}
+			override := inheritedSlot(prop, anon.owner)
+			tx.mutableFacets(anonID, facetProperties).properties.put(propertyNameKey(name), override)
+			key := propertyWriteKey{objID: anonID, name: propertyNameKey(name)}
+			delete(tx.propertyDeletes, key)
+			lazySet(&tx.propertyWrites, key, propertyWrite{
+				name:  name,
+				value: override.value,
+				prop:  override,
+			})
 		}
 	}
 }
 
 func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
-	if tx.direct {
-		return tx.store.hasDefinedPropertyInDescendants(objID, name)
-	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -322,9 +384,9 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 
 func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.deleteDefinedProperty(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DeleteDefinedProperty(objID, name) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -339,7 +401,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	}
 
 	obj.properties.remove(actualName)
-	obj.propOrder = removeString(obj.propOrder, actualName)
+	obj.propOrder = removeStringFold(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
 	}
@@ -350,14 +412,53 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	delete(tx.propertyWrites, key)
 	delete(tx.propertyDeletes, key)
 	if !stagedDefine {
-		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
+		// A property this txn renamed is deleted under its published name.
+		published, publishedKey := actualName, key
+		if rename, renamed := tx.propertyRenames[key]; renamed {
+			delete(tx.propertyRenames, key)
+			published = rename.from
+			publishedKey = propertyWriteKey{objID: objID, name: propertyNameKey(published)}
+		}
+		lazySet(&tx.propertyDefinitionDeletes, publishedKey, published)
 	}
 
 	tx.removeInheritedProperty(objID, actualName)
+	tx.moveWaifValues(objID, actualName, "")
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
+// renameInheritedProperty stages the move of each descendant's inherited slot
+// for a rename: the slot under from is deleted and one under to written with
+// its value, owner, perms and clear state. A descendant with no slot under from
+// (this txn cleared it) gets none under to either. As in
+// propagateDefinedProperty, the writeNow writer leaves the descendants to the
+// store's walk.
+func (tx *StoreTxn) renameInheritedProperty(objID types.ObjID, from, to string) {
+	if tx.locked {
+		return
+	}
+	move := func(id types.ObjID, obj *Object) {
+		oldKey := propertyWriteKey{objID: id, name: propertyNameKey(from)}
+		newKey := propertyWriteKey{objID: id, name: propertyNameKey(to)}
+		actualName, slot, ok := obj.properties.find(from)
+		if !ok {
+			tx.markPropertyScan(id, obj)
+			delete(tx.propertyWrites, newKey)
+			lazySet(&tx.propertyDeletes, newKey, to)
+			return
+		}
+		tx.markPropertyRead(id, actualName, slot)
+		if slot.defined {
+			return
+		}
+		obj = tx.mutableFacets(id, facetProperties)
+		obj.properties.remove(actualName)
+		obj.properties.put(newKey.name, slot)
+		delete(tx.propertyWrites, oldKey)
+		lazySet(&tx.propertyDeletes, oldKey, actualName)
+		delete(tx.propertyDeletes, newKey)
+		lazySet(&tx.propertyWrites, newKey, propertyWrite{name: to, value: slot.value, prop: slot})
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -373,9 +474,48 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			// child.properties is mutated in place below when it holds an inherited
-			// (non-defined) slot, so it must be a txn-private copy, not a shared alias.
-			child := tx.mutableObject(childID)
+			if child := tx.object(childID); validLiveObject(child) {
+				move(childID, child)
+				queue = append(queue, childID)
+			}
+		}
+		// Anonymous children's slots move too (Toast keeps every slot by
+		// position, so it renames the definition only). The staged writes put
+		// the anon ids in the write footprint, which routes the commit to the
+		// exclusive path.
+		for _, anonID := range current.anonymousChildren {
+			if anon := tx.object(anonID); validLiveObject(anon) {
+				move(anonID, anon)
+			}
+		}
+	}
+}
+
+// removeInheritedProperty stages the delete of each descendant's inherited slot
+// for a definition delete. As in propagateDefinedProperty, the writeNow writer
+// leaves the descendants to the store's walk.
+func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
+	if tx.locked {
+		return
+	}
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markObjectRelationshipRead(currentID, current)
+		for _, childID := range current.children {
+			// child.properties is changed in place below when it holds an inherited
+			// (non-defined) slot, so it must be a txn-private copy's own.
+			child := tx.mutableFacets(childID, facetProperties)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -386,12 +526,36 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 					key := propertyWriteKey{objID: childID, name: propertyNameKey(actualName)}
 					delete(tx.propertyDefines, key)
 					delete(tx.propertyWrites, key)
-					delete(tx.propertyDeletes, key)
+					// The decentralized commit removes the definition from the definer
+					// only; each descendant's slot goes through its own staged delete.
+					lazySet(&tx.propertyDeletes, key, actualName)
 				}
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
 			queue = append(queue, childID)
+		}
+		// Anonymous children lose the slot too (Toast remove_prop_recursively,
+		// db_properties.cc:325-328, :340-341). The staged delete puts the anon id
+		// in the write footprint, which routes the commit to the coarse path.
+		for _, anonID := range current.anonymousChildren {
+			anon := tx.object(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			actualName, prop, ok := anon.properties.find(name)
+			if !ok {
+				tx.markPropertyScan(anonID, anon)
+				continue
+			}
+			tx.markPropertyRead(anonID, actualName, prop)
+			if prop.defined {
+				continue
+			}
+			tx.mutableFacets(anonID, facetProperties).properties.remove(actualName)
+			key := propertyWriteKey{objID: anonID, name: propertyNameKey(actualName)}
+			delete(tx.propertyWrites, key)
+			lazySet(&tx.propertyDeletes, key, actualName)
 		}
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"math"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,6 +19,7 @@ const (
 	defaultMaxStringConcat    = 64537861
 	defaultMaxListValueBytes  = 64537861
 	defaultMaxMapValueBytes   = 64537861
+	defaultMaxQueuedOutput    = 65536
 	defaultFgTicks            = 60000
 	defaultBgTicks            = 30000
 	defaultFgSeconds          = 5.0
@@ -29,13 +30,14 @@ const (
 	minStringConcatLimit      = 1021
 	minListValueBytesLimit    = 1021
 	minMapValueBytesLimit     = 1021
+	minQueuedOutputLimit      = 2048
 	maxStringConcatLimit      = math.MaxInt32 - minStringConcatLimit
 	maxListValueBytesLimit    = math.MaxInt32 - minListValueBytesLimit
 	maxMapValueBytesLimit     = math.MaxInt32 - minMapValueBytesLimit
 )
 
 // IncludeRTVars reports the cached include_rt_vars flag, disabled by default.
-func (r *Session) IncludeRTVars(ctx *kernel.TaskContext) bool {
+func (r *Session) IncludeRTVars(ctx *task.Context) bool {
 	if snapshot := pendingServerOptions(ctx); snapshot != nil {
 		return snapshot.IncludeRTVars
 	}
@@ -46,7 +48,7 @@ func (r *Session) IncludeRTVars(ctx *kernel.TaskContext) bool {
 }
 
 // GetMaxStringConcat returns the cached max_string_concat limit.
-// Returns -1 if not set (use default from TaskContext).
+// Returns -1 if not set (use default from Context).
 func (r *Session) GetMaxStringConcat() int {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
@@ -108,11 +110,12 @@ func (r *Session) cacheServerOptionsDefaults() {
 	r.applyServerOptionsSnapshot(&snapshot)
 }
 
-func defaultServerOptionsSnapshot() kernel.PendingServerOptions {
-	return kernel.PendingServerOptions{
+func defaultServerOptionsSnapshot() task.PendingServerOptions {
+	return task.PendingServerOptions{
 		MaxStringConcat:    defaultMaxStringConcat,
 		MaxListValueBytes:  defaultMaxListValueBytes,
 		MaxMapValueBytes:   defaultMaxMapValueBytes,
+		MaxQueuedOutput:    defaultMaxQueuedOutput,
 		FgTicks:            defaultFgTicks,
 		BgTicks:            defaultBgTicks,
 		FgSeconds:          defaultFgSeconds,
@@ -123,7 +126,7 @@ func defaultServerOptionsSnapshot() kernel.PendingServerOptions {
 	}
 }
 
-func (r *Session) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptions) {
+func (r *Session) applyServerOptionsSnapshot(snapshot *task.PendingServerOptions) {
 	if snapshot == nil {
 		r.cacheServerOptionsDefaults()
 		return
@@ -133,6 +136,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptio
 	state.maxStringConcat = snapshot.MaxStringConcat
 	state.maxListValueBytes = snapshot.MaxListValueBytes
 	state.maxMapValueBytes = snapshot.MaxMapValueBytes
+	state.maxQueuedOutput = snapshot.MaxQueuedOutput
 	state.fgTicks = snapshot.FgTicks
 	state.bgTicks = snapshot.BgTicks
 	state.fgSeconds = snapshot.FgSeconds
@@ -144,7 +148,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptio
 	state.mu.Unlock()
 }
 
-func collectServerOptions(findProperty propertyReader, findDefined propertyReader) kernel.PendingServerOptions {
+func collectServerOptions(findProperty propertyReader, findDefined propertyReader) task.PendingServerOptions {
 	// Reset to defaults on every load, matching Toast's cache refresh behavior.
 	snapshot := defaultServerOptionsSnapshot()
 
@@ -169,6 +173,19 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	if prop, ok := findDefined(serverOptsID, "include_rt_vars"); ok {
 		snapshot.IncludeRTVars = prop.Value.Truthy()
 		snapshot.Loaded++
+	}
+
+	if prop, ok := findDefined(serverOptsID, "max_queued_output"); ok {
+		if prop.Value.Type() == types.TYPE_INT {
+			// The cached server option is a signed 32-bit value even when
+			// MOO integers are wider; clamp only after that conversion.
+			value := int64(int32(prop.Value.Int()))
+			if value > 0 && value < minQueuedOutputLimit {
+				value = minQueuedOutputLimit
+			}
+			snapshot.MaxQueuedOutput = value
+			snapshot.Loaded++
+		}
 	}
 
 	// Read max_string_concat (searching inheritance chain)
@@ -290,7 +307,7 @@ func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 			return prop, true
 		},
 	)
-	if ctx.StoreTxn.HasWrites() || pendingServerOptions(ctx.TaskContext) != nil {
+	if ctx.StoreTxn.HasWrites() || pendingServerOptions(ctx.Context) != nil {
 		// The new limits came from uncommitted writes, so other tasks must not
 		// see them yet; the loading task does, at once, through its own view.
 		// Once a reload has been deferred, every later reload in the task is
@@ -308,7 +325,7 @@ func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 // TaskLimitsFor is GetTaskLimits as seen by the task running ctx: a task that
 // reloaded $server_options before committing sees its own fg/bg limits, the
 // way Toast's yin() reads the live fg_ticks and fg_seconds.
-func (r *Session) TaskLimitsFor(ctx *kernel.TaskContext, background bool) (int64, float64) {
+func (r *Session) TaskLimitsFor(ctx *task.Context, background bool) (int64, float64) {
 	if view := pendingServerOptions(ctx); view != nil {
 		if background {
 			return view.BgTicks, view.BgSeconds
@@ -319,11 +336,21 @@ func (r *Session) TaskLimitsFor(ctx *kernel.TaskContext, background bool) (int64
 }
 
 // maxStringConcatFor is GetMaxStringConcat as seen by the task running ctx.
-func (r *Session) maxStringConcatFor(ctx *kernel.TaskContext) int {
+func (r *Session) maxStringConcatFor(ctx *task.Context) int {
 	if view := pendingServerOptions(ctx); view != nil {
 		return view.MaxStringConcat
 	}
 	return r.GetMaxStringConcat()
+}
+
+func (r *Session) maxQueuedOutputFor(ctx *task.Context) int64 {
+	if view := pendingServerOptions(ctx); view != nil {
+		return view.MaxQueuedOutput
+	}
+	state := &r.runtime.serverOptions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.maxQueuedOutput
 }
 
 func numericSeconds(value types.Value) (float64, bool) {
@@ -347,10 +374,10 @@ func canonicalizeLimit(value, min, max int) int {
 	return value
 }
 
-// UpdateContextLimits updates a TaskContext with current cached limits from load_server_options().
+// UpdateContextLimits updates a Context with current cached limits from load_server_options().
 // This should be called by string-producing builtins before creating output.
 // If no cached limit is set, the context's default limit is used.
-func (r *Session) UpdateContextLimits(ctx *kernel.TaskContext) {
+func (r *Session) UpdateContextLimits(ctx *task.Context) {
 	cachedLimit := r.maxStringConcatFor(ctx)
 	if cachedLimit > 0 {
 		ctx.MaxStringConcat = cachedLimit
@@ -410,14 +437,14 @@ func (r *Session) CheckListLimit(list types.Value) types.ErrorCode {
 // ListValueLimitForTask is the max_list_value_bytes limit CheckListLimitForTask
 // applies to ctx's task: a value of that many bytes or more is E_QUOTA. Zero or
 // less means no limit.
-func (r *Session) ListValueLimitForTask(ctx *kernel.TaskContext) int {
+func (r *Session) ListValueLimitForTask(ctx *task.Context) int {
 	if pending := pendingServerOptions(ctx); pending != nil {
 		return pending.MaxListValueBytes
 	}
 	return r.GetMaxListValueBytes()
 }
 
-func (r *Session) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
+func (r *Session) CheckListLimitForTask(ctx *task.Context, list types.Value) types.ErrorCode {
 	limit := r.ListValueLimitForTask(ctx)
 	if limit > 0 && ValueBytes(list) >= limit {
 		return types.E_QUOTA
@@ -437,7 +464,7 @@ func (r *Session) CheckMapLimit(m types.Value) types.ErrorCode {
 
 // CheckMapLimitForTask checks a map against the task's pending server options,
 // falling back to the currently cached max_map_value_bytes limit.
-func (r *Session) CheckMapLimitForTask(ctx *kernel.TaskContext, m types.Value) types.ErrorCode {
+func (r *Session) CheckMapLimitForTask(ctx *task.Context, m types.Value) types.ErrorCode {
 	limit := r.GetMaxMapValueBytes()
 	if pending := pendingServerOptions(ctx); pending != nil {
 		limit = pending.MaxMapValueBytes
@@ -467,7 +494,7 @@ func (r *Session) CheckStringLimit(s string) types.ErrorCode {
 // CheckStringLengthForTask is CheckStringLength against the limit the task
 // running ctx sees: its own reloaded max_string_concat before commit, else
 // the session-wide cache.
-func (r *Session) CheckStringLengthForTask(ctx *kernel.TaskContext, length int) types.ErrorCode {
+func (r *Session) CheckStringLengthForTask(ctx *task.Context, length int) types.ErrorCode {
 	limit := r.maxStringConcatFor(ctx)
 	if limit > 0 && length > limit {
 		return types.E_QUOTA
@@ -476,7 +503,7 @@ func (r *Session) CheckStringLengthForTask(ctx *kernel.TaskContext, length int) 
 }
 
 // CheckStringLimitForTask is CheckStringLimit against the task's own limit.
-func (r *Session) CheckStringLimitForTask(ctx *kernel.TaskContext, s string) types.ErrorCode {
+func (r *Session) CheckStringLimitForTask(ctx *task.Context, s string) types.ErrorCode {
 	return r.CheckStringLengthForTask(ctx, len(s))
 }
 

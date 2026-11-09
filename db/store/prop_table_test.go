@@ -151,6 +151,34 @@ func TestPropTableCopyAliasesAndCloneDoesNot(t *testing.T) {
 	}
 }
 
+func TestPropTableCloneCopiesExistingPrivateState(t *testing.T) {
+	table, want := classTable(map[string]Property{"p01": {value: types.NewInt(1), owner: 2, perms: PropRead}})
+	table.share(newPropSharePool())
+	table.remove("p02")
+	delete(want, "p02")
+	added := Property{value: types.NewInt(2), owner: 2, perms: PropRead}
+	table.put("added", added)
+	want["added"] = added
+	copied := table.clone()
+
+	// Exercise the already-populated set, overflow and removed-slot state.
+	copied.put("p01", added)
+	copied.put("p02", added)
+	copied.remove("added")
+	requireTableMatches(t, table, want, "original after clone writes")
+	table.put("p03", added)
+	table.remove("p04")
+	if prop, ok := copied.lookup("p03"); !ok || !sameProperty(prop, want["p03"]) {
+		t.Fatal("original write changed clone's set slots")
+	}
+	if _, ok := copied.lookup("p04"); !ok {
+		t.Fatal("original removal changed clone's removed slots")
+	}
+	if _, ok := copied.lookup("added"); ok {
+		t.Fatal("original overflow entry reappeared in clone")
+	}
+}
+
 func TestPropTableFindFoldsCase(t *testing.T) {
 	for _, shared := range []bool{false, true} {
 		table, want := classTable(map[string]Property{"mixed": {value: types.NewInt(1), owner: 2, perms: PropRead}})
@@ -368,11 +396,11 @@ func TestShareLoadedPropertySlotsKeepsEveryObjectsProperties(t *testing.T) {
 		got := make(map[string]reading)
 		for _, id := range []types.ObjID{parent, first, second} {
 			for _, name := range []string{"color", "size"} {
-				view, ec := s.findProperty(id, name)
+				view, ec := s.DirectTxn().FindProperty(id, name)
 				if ec != types.E_NONE {
 					t.Fatalf("#%d.%s: %v", id, name, ec)
 				}
-				clear, ec := s.propertyClearState(id, name)
+				clear, ec := s.DirectTxn().PropertyClearState(id, name)
 				if ec != types.E_NONE {
 					t.Fatalf("#%d.%s clear state: %v", id, name, ec)
 				}
@@ -384,7 +412,7 @@ func TestShareLoadedPropertySlotsKeepsEveryObjectsProperties(t *testing.T) {
 	before := read()
 	_, slotsBefore, clearBefore, privateBefore := s.PropertySlotCensus()
 
-	s.ShareLoadedPropertySlots()
+	s.ShareLoadedPropertySlots(nil)
 
 	after := read()
 	for key, want := range before {

@@ -88,8 +88,8 @@ func (s *Store) pendingFinalizationsForSnapshotLocked(taskRoots []types.Value) [
 	taskWaifs := types.NewWaifSet(nil)
 	anonRefs := make(map[types.ObjID]struct{})
 	for _, root := range taskRoots {
-		collectWaifsInto(root, taskWaifs, false)
-		collectAnonymousObjectRefs(root, anonRefs)
+		taskWaifs.AddReachable(root, false)
+		types.CollectAnonymousRefs(root, anonRefs, false)
 	}
 	taskAnonymous := make(map[types.ObjID]struct{}, len(anonRefs))
 	queue := make([]types.ObjID, 0, len(anonRefs))
@@ -138,13 +138,13 @@ func finalizationValueInList(needle types.Value, values []types.Value) bool {
 
 func (s *Store) appendPendingWaifRootLocked(root types.Value) bool {
 	newClosure := types.NewWaifSet(nil)
-	collectWaifsInto(root, newClosure, false)
+	newClosure.AddReachable(root, false)
 	for _, existing := range s.pendingFinalizations {
 		if existing.Type() != types.TYPE_WAIF {
 			continue
 		}
 		existingClosure := types.NewWaifSet(nil)
-		collectWaifsInto(existing, existingClosure, false)
+		existingClosure.AddReachable(existing, false)
 		if existingClosure.Has(root) {
 			return false
 		}
@@ -174,7 +174,7 @@ func (s *Store) pendingAnonymousCoverageLocked(values []types.Value) map[types.O
 	queue := make([]types.ObjID, 0)
 	for _, value := range values {
 		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
+		types.CollectAnonymousRefs(value, refs, false)
 		for id := range refs {
 			queue = append(queue, id)
 		}

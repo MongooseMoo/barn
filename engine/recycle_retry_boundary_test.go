@@ -6,7 +6,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,7 +20,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newConflictTestStore(t)
-			verb := dbstore.NewVerb("recycle", []string{"recycle"}, 0,
+			verb := dbstore.NewVerb([]string{"recycle"}, 0,
 				dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 				dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{hook})
 			if _, ec := store.AddVerb(0, verb); ec != types.E_NONE {
@@ -50,7 +49,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
 			program := compileTestProgram(t, s.registry,
 				`o = create(#0); try recycle(o); except (ANY) probe(); endtry probe(); return valid(o);`)
-			tk := task.NewTaskFull(5701, 0, program, ticks, seconds)
+			tk := NewTaskFull(5701, 0, program, ticks, seconds)
 			tk.Context.IsWizard = true
 			s.taskManager.RegisterTask(tk)
 			if err := s.runTask(tk); err != nil {

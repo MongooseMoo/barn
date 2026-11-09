@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/sourcekey"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestIndependentCompilationDiagnostics(t *testing.T) {
@@ -73,7 +73,7 @@ func TestCompilationDiagnosticRetainsFullOffendingPosition(t *testing.T) {
 		offset := strings.Index(tc.source, tc.marker)
 		line := 1 + strings.Count(tc.source[:offset], "\n")
 		column := offset - strings.LastIndex(tc.source[:offset], "\n")
-		want := verb.Position{Line: line, Column: column, Offset: offset}
+		want := ir.Position{Line: line, Column: column, Offset: offset}
 		if !reflect.DeepEqual(diagnostics[0].Position, want) || diagnostics[0].Stage != tc.stage {
 			t.Errorf("%q: diagnostic %+v; want position %+v, stage %v", tc.source, diagnostics[0], want, tc.stage)
 		}

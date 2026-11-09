@@ -12,6 +12,7 @@ require (
 	golang.org/x/text v0.32.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.39.1
+	pgregory.net/rapid v1.3.0
 )
 
 require (

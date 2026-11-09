@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -114,9 +114,9 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.Append(value))
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -132,9 +132,9 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.InsertAt(1, value))
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -150,9 +150,9 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.InsertAt(list.Len()+1, value))
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}
@@ -168,9 +168,9 @@ func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewList([]types.Value{types.NewInt(2)})
 	limit := ValueBytes(list.Set(1, value))
-	ctx.PendingEffects = []kernel.PendingEffect{{
-		Kind: kernel.PendingEffectServerOptions,
-		ServerOptions: &kernel.PendingServerOptions{
+	ctx.PendingEffects = []task.PendingEffect{{
+		Kind: task.PendingEffectServerOptions,
+		ServerOptions: &task.PendingServerOptions{
 			MaxListValueBytes: limit,
 		},
 	}}

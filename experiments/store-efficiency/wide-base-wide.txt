@@ -1,0 +1,220 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   36658	      5359 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     19073 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2602	     85784 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   35889	      4841 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   86972	      2917 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   40866	      4785 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   50574	      4560 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   32402	      5746 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   39704	      5388 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   37905	      5660 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   41739	      5434 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   31918	      6846 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   31860	      6066 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	    9399	     34261 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     33830 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     42687 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     51212 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   36288	      5978 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     21802 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2152	    115113 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   26774	      6916 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   75769	      2118 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   37628	      5655 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   38782	      4340 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   32557	      5928 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   32594	      5130 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   30051	      5781 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   39783	      6651 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   30801	      7882 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   29528	      6681 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     38117 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     37047 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     57900 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     47460 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39940	      5066 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     19638 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2472	     75602 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   30734	      5066 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  110920	      3017 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   53070	      4107 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   45174	      4388 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   37670	      4425 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   35972	      5369 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   34489	      6943 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   35256	      4932 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   26715	      8576 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   20505	      7549 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     35917 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     31403 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     45024 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     49837 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   38332	      4996 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     17747 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2416	     89970 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   32738	      5592 ns/op	    4879 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   51342	      3860 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   45465	      4787 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   47416	      3808 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   41524	      4549 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   39984	      5817 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   42409	      4281 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   32865	      5363 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   22572	      6824 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   24849	      7838 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     32109 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     33944 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     45958 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     45181 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40712	      4798 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18545 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2152	     73957 ns/op	   98770 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   39025	      5268 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   64299	      3055 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   39921	      3843 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   39306	      3892 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   38308	      5086 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   33057	      5005 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   33188	      4604 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   39030	      4445 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   28962	      6205 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   29949	      6181 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     44660 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     43002 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	    9284	     52116 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     40646 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   39080	      5089 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     16581 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2502	     74162 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   31389	      5456 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  111283	      3037 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   46347	      4321 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   47186	      3662 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   39908	      5182 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   37377	      5634 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   34747	      5693 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   37858	      5440 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   28951	      7690 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   25618	      9153 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     33380 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     27104 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     38825 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     42652 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   37902	      5967 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     24572 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2379	    102536 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   33398	      5586 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  115573	      1789 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   44550	      3882 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   51121	      3733 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   35458	      5265 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   35550	      4937 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   35713	      5480 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   37398	      5487 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   30222	      7114 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   20558	      8231 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	    9930	     34873 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     26752 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	    9379	     45662 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     44730 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   32060	      4759 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     18079 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2535	     83440 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   35372	      6162 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   79418	      2803 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   42086	      3678 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   31536	      5595 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   40783	      4583 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   33184	      5133 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   37713	      5678 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   32451	      6005 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   21480	      9110 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   20803	      7240 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     33787 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     24041 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     47132 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	   10000	     49616 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   37004	      5166 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     17538 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2617	     85587 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   36045	      5948 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	  109984	      2134 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   50380	      4388 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   42196	      4002 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   40257	      5973 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   36091	      4969 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   33326	      5042 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   40750	      5238 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   33594	      7211 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   20612	     10720 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	   10000	     41803 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     45854 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	   10000	     52876 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	    9346	     51283 ns/op	   52895 B/op	      34 allocs/op
+PASS
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCommitScratch/objects1-4   	   40953	      4724 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkCommitScratch/objects8-4   	   10000	     17952 ns/op	   23000 B/op	     116 allocs/op
+BenchmarkCommitScratch/objects32-4  	    2486	     73121 ns/op	   98769 B/op	     436 allocs/op
+BenchmarkTxnPropertyWriteCommit-4   	   30416	      6225 ns/op	    4880 B/op	      32 allocs/op
+BenchmarkTxnReadOnlyCommit-4        	   91948	      2756 ns/op	    2864 B/op	      17 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readerfalse-4         	   43087	      4325 ns/op	    3752 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertyfalse/readertrue-4          	   42339	      4851 ns/op	    3766 B/op	      29 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readerfalse-4          	   44054	      4879 ns/op	    4080 B/op	      34 allocs/op
+BenchmarkWidePublication/slots8/propertytrue/readertrue-4           	   42180	      5269 ns/op	    4094 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readerfalse-4       	   33553	      4558 ns/op	    7608 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertyfalse/readertrue-4        	   40996	      6608 ns/op	    7622 B/op	      29 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readerfalse-4        	   28070	      7036 ns/op	    9872 B/op	      34 allocs/op
+BenchmarkWidePublication/slots128/propertytrue/readertrue-4         	   22028	      9160 ns/op	    9886 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readerfalse-4      	    9984	     22483 ns/op	   36280 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertyfalse/readertrue-4       	   10000	     30725 ns/op	   36295 B/op	      29 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readerfalse-4       	    8419	     30135 ns/op	   52880 B/op	      34 allocs/op
+BenchmarkWidePublication/slots1024/propertytrue/readertrue-4        	    9954	     41079 ns/op	   52895 B/op	      34 allocs/op
+PASS

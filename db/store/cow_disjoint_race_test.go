@@ -152,8 +152,9 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 // TestCOWDisjointMixedKindCommitsRaceFree extends the Phase-0 race gate to the
 // Phase-1 decentralized write kinds. Each disjoint writer goroutine owns its own
 // object and commits, via the decentralized COW path, a MIX of the new kinds in one
-// txn — scalar (name + flag), relationship (location), property-value, property
-// DELETE, and verb-code — while raw readers hammer the txn==nil reader funnel
+// txn — scalar (name + flag), relationship (location), property-value and
+// verb-code. Separate definition-deletion writers run alongside them while raw
+// readers hammer the txn==nil reader funnel
 // (ObjectName / ObjectFlags / Location / PropertyValue / FindVerb / Parents) on the
 // SAME objects. Under COW every commit publishes a NEW immutable image and never
 // mutates the old one a reader Loaded, so this MUST be clean under -race.
@@ -180,25 +181,22 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		t.Fatalf("CreateObject locB failed: %v", errCode)
 	}
 
-	ids := make([]types.ObjID, nObjects)
-	for i := 0; i < nObjects; i++ {
+	// The four definition writers must own separate objects: their property
+	// scans otherwise conflict legitimately with the ordinary value writers.
+	ids := make([]types.ObjID, nObjects+4)
+	for i := range ids {
 		id, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
-		// counter: rewritten by property-value commits. doomed: deleted by a
-		// property-delete commit then redefined each round (define is coarse, but it
-		// is a live-store mutation done outside the timed disjoint commit; here we
-		// simply pre-define a "keep" prop and delete-and-redefine via the store API
-		// between rounds is overkill — instead we delete a property that the writer
-		// re-stages each commit via a value write, see below).
+		// Stable reader targets plus a scratch definition for the deletion lane.
 		if errCode := store.DirectTxn().DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty counter failed: %v", errCode)
 		}
 		if errCode := store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty scratch failed: %v", errCode)
 		}
-		if _, errCode := store.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
+		if _, errCode := store.AddVerb(id, NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
 			t.Fatalf("AddVerb failed: %v", errCode)
 		}
 		ids[i] = id
@@ -240,8 +238,8 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 					t.Errorf("SetVerbCode failed: %v", errCode)
 					return
 				}
-				// Mixed footprint of ONLY decentralized kinds, !liveMutated =>
-				// commitDecentralized publishes new immutable images.
+				// No anonymous target and !liveMutated => the shared-lock
+				// route publishes new immutable images.
 				if errCode := tx.Commit(); errCode != types.E_NONE {
 					t.Errorf("Commit failed: %v", errCode)
 					return
@@ -250,26 +248,31 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		}(id, w)
 	}
 
-	// A second set of disjoint writers exercising property DELETE on a separate
-	// object set, so the property-delete builder is hit under -race.
-	// ClearPropertyOverride stages a propertyDeletes entry (decentralized-eligible:
-	// it touches neither propertyDefines nor propertyDefinitionDeletes). Each round
-	// re-defines "scratch" via the coarse store API (live mutation serialized by
-	// store.mu.Lock, which excludes the decentralized committers) so the next delete
-	// has a target to remove.
-	delIDs := ids[:4]
+	// Separate definition deletes run concurrently with value writers/readers.
+	// Clearing an inherited value retains its metadata slot and is not a
+	// definition deletion, so exercise the actual deletion producer here.
+	delIDs := ids[nObjects:]
 	for _, id := range delIDs {
 		wg.Add(1)
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach/4; c++ {
-				_ = store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
 				tx := store.BeginSnapshot(0)
-				if errCode := tx.ClearPropertyOverride(id, "scratch"); errCode != types.E_NONE {
-					_ = tx.Commit()
-					continue
+				if errCode := tx.DeleteDefinedProperty(id, "scratch"); errCode != types.E_NONE {
+					tx.Release()
+					t.Errorf("delete scratch: %v", errCode)
+					return
 				}
-				_ = tx.Commit() // decentralized property-delete publish
+				errCode := tx.Commit()
+				tx.Release()
+				if errCode != types.E_NONE {
+					t.Errorf("commit scratch deletion: %v", errCode)
+					return
+				}
+				if ec := store.DirectTxn().DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+					t.Errorf("redefine scratch: %v", ec)
+					return
+				}
 			}
 		}(id)
 	}
@@ -280,7 +283,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		go func(seed int) {
 			defer wg.Done()
 			for i := 0; i < readsEach && !stop.Load(); i++ {
-				id := ids[(seed+i)%nObjects]
+				id := ids[(seed+i)%len(ids)]
 				_, _ = store.DirectTxn().ObjectName(id)
 				_, _ = store.DirectTxn().ObjectFlags(id)
 				_, _ = store.DirectTxn().Location(id)
@@ -306,13 +309,14 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 }
 
 // TestCOWSameObjectCommitsSerialize exercises the OTHER serialization edge: many
-// writers committing property-value writes to the SAME object. They must serialize
-// on commitMu (no torn image, no panic, no lost slot), and a final
-// read must see one of the committed values. Under -race this must be clean.
+// writers each incrementing one property of the SAME object, retrying a commit
+// that loses validation. Every increment must land exactly once, so the final
+// value is the number of increments; a lost update leaves it short. Under -race
+// this must be clean.
 func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	const (
-		nWriters    = 32
-		commitsEach = 100
+		nWriters    = 16
+		commitsEach = 50
 	)
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -329,24 +333,45 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	var wg sync.WaitGroup
 	for w := 0; w < nWriters; w++ {
 		wg.Add(1)
-		go func(base int) {
+		go func() {
 			defer wg.Done()
 			for c := 0; c < commitsEach; c++ {
-				tx := store.BeginSnapshot(0)
-				// SetPropertyValue records a property read of the prop, so concurrent
-				// same-object committers may conflict (E_INVARG) — that is the correct
-				// optimistic-validation contract, not a failure. Tolerate it.
-				if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(int64(base*1000+c))); errCode != types.E_NONE {
-					t.Errorf("SetPropertyValue failed: %v", errCode)
-					return
+				for {
+					tx := store.BeginSnapshot(0)
+					value, errCode := tx.PropertyValue(id, "counter")
+					if errCode != types.E_NONE {
+						t.Errorf("PropertyValue failed: %v", errCode)
+						tx.Release()
+						return
+					}
+					if errCode := tx.SetPropertyValue(id, "counter", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
+						t.Errorf("SetPropertyValue failed: %v", errCode)
+						tx.Release()
+						return
+					}
+					errCode = tx.Commit()
+					lost := tx.ValidationFailed()
+					tx.Release()
+					if errCode == types.E_NONE {
+						break
+					}
+					// Losing validation to a concurrent same-object committer is the
+					// optimistic contract; retry from a fresh snapshot.
+					if !lost {
+						t.Errorf("Commit failed: %v", errCode)
+						return
+					}
 				}
-				_ = tx.Commit()
 			}
-		}(w)
+		}()
 	}
 	wg.Wait()
 
-	if _, errCode := store.DirectTxn().PropertyValue(id, "counter"); errCode != types.E_NONE {
+	value, errCode := store.DirectTxn().PropertyValue(id, "counter")
+	if errCode != types.E_NONE {
 		t.Fatalf("post-run PropertyValue failed: %v", errCode)
+	}
+	if got, want := value.Int(), int64(nWriters*commitsEach); got != want {
+		t.Fatalf("counter = %d after %d committed increments, want %d", got, want, want)
 	}
 }

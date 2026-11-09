@@ -18,7 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -40,7 +39,7 @@ func elleObject(kind int) int {
 func elleWorld(t *testing.T) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
-	for _, id := range []int{0, 11, 12, 13, 14, 15, 16, 17, 18, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47} {
+	for _, id := range []int{0, 11, 12, 13, 14, 15, 16, 17, 18, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47, 50} {
 		b := dbstore.NewObjectBuilder(types.ObjID(id))
 		b.SetOwner(0)
 		b.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagFertile)
@@ -155,21 +154,22 @@ for dead in (#0.recycled)
  for p in ({#0, #46, #47}) if (dead in children(p)) raise(E_INVARG); endif endfor
 endfor
 return 1;`, "\n"))
+	elleDefinitionWorld(t, store)
 	return store
 }
 
 func elleAddVerb(t *testing.T, store *dbstore.Store, id types.ObjID, name string, code []string) {
 	t.Helper()
-	v := dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
+	v := dbstore.NewVerb([]string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, code)
 	if _, err := store.AddVerb(id, v); err != types.E_NONE {
 		t.Fatal(err)
 	}
 }
 
-func elleTask(t *testing.T, rt *Runtime, id int64, code string) *task.Task {
+func elleTask(t *testing.T, rt *Runtime, id int64, code string) *Task {
 	t.Helper()
-	tk := task.NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
-	rt.populateTaskContextDependencies(tk.Context)
+	tk := NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
+	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
 	tk.ForkCreator = rt
@@ -177,7 +177,7 @@ func elleTask(t *testing.T, rt *Runtime, id int64, code string) *task.Task {
 	return tk
 }
 
-func elleDrain(t *testing.T, rt *Runtime, tasks []*task.Task) {
+func elleDrain(t *testing.T, rt *Runtime, tasks []*Task) {
 	t.Helper()
 	for _, tk := range tasks {
 		rt.QueueTask(tk)
@@ -203,8 +203,9 @@ var elleExpectedExceptions = map[int64]bool{}
 
 // elleFaults are the BARN_ELLE_FAULT values. Each removes one protection that a
 // part of the workload makes Elle reject every run: a synchronized wave for
-// each validation stage, and the write-skew pair for commit exclusion.
-var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion"}
+// each validation stage, the write-skew pair for commit exclusion, and the
+// valid/recycle pair for the read a true valid() records.
+var elleFaults = []string{"property-reads", "scalar-reads", "verb-reads", "relationship-reads", "waif-reads", "map-key-reads", "map-key-rebase", "map-key-capture", "commit-exclusion", "valid-reads", "ring-reads", "map-key-metadata", "map-key-presence", "map-key-whole-read", "hot-map-carry", "hot-memo-guard", "property-scans", "property-shapes", "verb-scans", "verb-memo"}
 
 // elleWaves are the read / barrier / append bodies, one per validation stage:
 // property value, object scalar (name), verb code, relationship (contents),
@@ -227,7 +228,7 @@ var elleWaves = []string{
 }
 
 func elleRegisterReads() string {
-	return `elle_observe("r","property",#30.data); elle_observe("r","name",toint(#32.name)); lines=verb_code(#31,1); line=lines[1]; elle_observe("r","verb-code",toint(line[1..$-1]));`
+	return elleRegisterRead(0) + elleRegisterRead(1) + elleRegisterRead(2)
 }
 
 func elleAppend(kind int, n int) string {
@@ -365,7 +366,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				return types.Err(types.E_QUOTA)
 			}
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(hotCommitted) }})
 			return types.Ok(types.NewInt(0))
 		}
 		// elle_torn(step) sequences the torn-snapshot pair. 0: the reader waits
@@ -381,7 +382,30 @@ func TestElleIsolationHistories(t *testing.T) {
 				tornReadOnce.Do(func() { close(tornRead) })
 				wait = tornPublished
 			case 2:
-				ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { close(tornPublished) }})
+				return types.Ok(types.NewInt(0))
+			}
+			select {
+			case <-wait:
+				return types.Ok(types.NewInt(0))
+			case <-time.After(10 * time.Second):
+				return types.Err(types.E_QUOTA)
+			}
+		}
+		// elle_valid(step) sequences the valid/recycle pair. 0: the recycler waits
+		// until the checker has read valid(#50). 1: the checker has read; it waits
+		// until the recycle has published. 2: the recycler announces its
+		// publication through a commit effect.
+		validRead, validPublished := make(chan struct{}), make(chan struct{})
+		var validReadOnce, validPublishedOnce sync.Once
+		var validStep builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
+			wait := validRead
+			switch args[0].Int() {
+			case 1:
+				validReadOnce.Do(func() { close(validRead) })
+				wait = validPublished
+			case 2:
+				ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() { validPublishedOnce.Do(func() { close(validPublished) }) }})
 				return types.Ok(types.NewInt(0))
 			}
 			select {
@@ -393,7 +417,7 @@ func TestElleIsolationHistories(t *testing.T) {
 		}
 		var invariantMark builtins.BuiltinFunc = func(ctx *builtins.Execution, args []types.Value) types.Result {
 			ops := args[0].Elements()
-			ctx.PendingEffects = append(ctx.PendingEffects, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: func() {
+			ctx.PendingEffects = append(ctx.PendingEffects, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: func() {
 				for _, op := range ops {
 					isolationprobe.Note("operation/" + op.Str())
 				}
@@ -431,15 +455,20 @@ func TestElleIsolationHistories(t *testing.T) {
 				return types.Err(types.E_QUOTA)
 			}
 		}
+		definitions := &elleDefinitions{}
+		var definitionStep builtins.BuiltinFunc = definitions.step
 		rt := newTestRuntimeWithWorkersAndBuiltins(t, store, config.Options{AdmissionLimit: 4}, 4,
-			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot,
+			testBuiltinSlot("elle_observe", 3, 3, []int64{2, 2, -1}, &observe), effectSlot, elleRenewalStepSlot(),
 			testBuiltinSlot("elle_barrier", 1, 1, []int64{int64(types.TYPE_INT)}, &barrier),
 			testBuiltinSlot("elle_torn", 1, 1, []int64{int64(types.TYPE_INT)}, &torn),
+			testBuiltinSlot("elle_valid", 1, 1, []int64{int64(types.TYPE_INT)}, &validStep),
+			testBuiltinSlot("elle_definition", 1, 1, []int64{int64(types.TYPE_INT)}, &definitionStep),
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
 			testBuiltinSlot("elle_hot_release", 0, 0, nil, &hotRelease),
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
 		func() {
 			defer rt.Stop()
+			var mapPermissionKeys []string
 			defer func() {
 				counts, err := recorder.write(filepath.Join(out, model+".edn"))
 				paths := isolationprobe.Snapshot()
@@ -463,6 +492,11 @@ func TestElleIsolationHistories(t *testing.T) {
 						t.Errorf("missing committed %s%s", operation, key)
 					}
 				}
+				for _, key := range mapPermissionKeys {
+					if counts["r/"+key] == 0 || counts["append/"+key] == 0 {
+						t.Errorf("missing committed map/permission history: %s", key)
+					}
+				}
 			}()
 			isolationprobe.Reset()
 			id := int64(100000)
@@ -470,15 +504,15 @@ func TestElleIsolationHistories(t *testing.T) {
 			// recorded reads must contain exactly the declared append tokens in order.
 			if model == "list-append" {
 				// One WAIF, held by a property, carries the "waif" row for the run.
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`)})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, `w=#0:make_waif(); w.data={}; #0.elle_waif=w;`)})
 				id++
 				for kind := range elleRows {
 					source := elleAppend(kind, kind*2+1) + elleAppend(kind, kind*2+2) + fmt.Sprintf(`if (!equal(#0:read_row(%d,#%d), {%d,%d})) raise(E_INVARG); endif`, kind, elleObject(kind), kind*2+1, kind*2+2)
-					elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, source)})
+					elleDrain(t, rt, []*Task{elleTask(t, rt, id, source)})
 					id++
 				}
 			} else {
-				elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, `#30.data=0; #32.name="0"; set_verb_code(#31,1,{"0;"}); elle_observe("w","property",0); elle_observe("w","name",0); elle_observe("w","verb-code",0);`)})
 				id++
 			}
 			// Per wave, four first attempts read the same value before any may
@@ -486,7 +520,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			// removes that row's validation deterministically loses their appends.
 			if model == "list-append" && paths["parallel"] {
 				for wave, source := range elleWaves {
-					var batch []*task.Task
+					var batch []*Task
 					for worker := 0; worker < 4; worker++ {
 						token := 100 + wave*10 + worker
 						batch = append(batch, elleTask(t, rt, id, strings.NewReplacer("WAVE", strconv.Itoa(wave), "TOKEN", strconv.Itoa(token)).Replace(source)))
@@ -494,6 +528,9 @@ func TestElleIsolationHistories(t *testing.T) {
 					}
 					elleDrain(t, rt, batch)
 				}
+				// Extend both observed prefixes so lost suffixes conflict with append order.
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id, elleAppend(9, 180)+elleAppend(10, 181))})
+				id++
 				// Write skew: each task reads the row the other appends to. Both are
 				// held after validation until both have validated. A healthy commit
 				// excludes the second for as long as the first is held, so the first
@@ -523,7 +560,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				func() {
 					isolationprobe.SetCommitExclusionPair(true)
 					defer isolationprobe.SetCommitExclusionPair(false)
-					elleDrain(t, rt, []*task.Task{
+					elleDrain(t, rt, []*Task{
 						elleTask(t, rt, id, `v=#0:read_row(7,#18); elle_observe("r","inherited-property",v);`+elleAppend(0, 190)),
 						elleTask(t, rt, id+1, `v=#0:read_row(0,#11); elle_observe("r","property",v);`+elleAppend(7, 191)),
 					})
@@ -551,7 +588,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				// The reader's second slice must start while the writer is still
 				// held, so this pair is dispatched without waiting for the batch,
 				// as the server loop does; elleDrain then checks how it settled.
-				pair := []*task.Task{
+				pair := []*Task{
 					elleTask(t, rt, id, elleAppend(0, 195)+elleAppend(7, 196)+`elle_torn(2);`),
 					elleTask(t, rt, id+1, `elle_torn(0); suspend(0); v=#0:read_row(0,#11); elle_observe("r","property",v); elle_torn(1); w=#0:read_row(7,#18); elle_observe("r","inherited-property",w);`),
 				}
@@ -581,45 +618,90 @@ func TestElleIsolationHistories(t *testing.T) {
 				elleDrain(t, rt, nil)
 				isolationprobe.SetPause(nil)
 				id += 2
+				// Valid/recycle skew: the "valid" row reads {} while #50 is valid
+				// and {50} once it is recycled; recycling it appends 50. The checker
+				// reads that row through valid() and appends to "property"; the
+				// recycler reads "property" after the checker's read and publishes
+				// first. A healthy checker then loses validation on #50 and retries.
+				// Under the valid-reads fault both commit, each missing the other.
+				elleDrain(t, rt, []*Task{
+					elleTask(t, rt, id, `v=valid(#50) ? {} | {50}; elle_observe("r","valid",v); elle_valid(1);`+elleAppend(0, 197)),
+					elleTask(t, rt, id+1, `elle_valid(0); v=#0:read_row(0,#11); elle_observe("r","property",v); recycle(#50); elle_observe("append","valid",50); elle_valid(2);`),
+				})
+				elleDrain(t, rt, []*Task{elleTask(t, rt, id+2, `elle_observe("r","valid",valid(#50) ? {} | {50});`)})
+				id += 3
+			}
+			if model == "list-append" && paths["parallel"] {
+				definitions.run(t, rt, &id)
+				mapPermissionKeys = elleMapPermissionHistories(t, store, recorder)
 			}
 			if model == "list-append" && paths["hot_renewal"] {
+				id = elleRenewalPairs(t, rt, store, id)
 				// Hold an old reader until a newer hot-key publication has completed.
-				elleDrain(t, rt, []*task.Task{
+				elleDrain(t, rt, []*Task{
 					elleTask(t, rt, id, `elle_hot_wait();`+elleReadAll()),
 					elleTask(t, rt, id+1, elleAppend(0, 200)+`elle_hot_release();`),
 				})
 				id += 2
 			}
+			if model == "list-append" && paths["parallel"] {
+				id = elleRing(t, rt, id)
+			}
+			// Keep random writes disjoint from the fixed tokens in held schedules.
+			nextToken := 1 << 40
+			token := func() int {
+				n := nextToken
+				nextToken++
+				return n
+			}
 			for round := 0; round < rounds; round++ {
-				var batch []*task.Task
+				var batch []*Task
 				for worker := 0; worker < 4; worker++ {
 					var source string
-					for slice := 0; slice < 2; slice++ {
+					slices := 1 + (round+worker)%4
+					for slice := 0; slice < slices; slice++ {
 						if round%4 == 0 && paths["exclusive_gate"] {
 							source += `elle_effect();`
 						}
 						if model == "list-append" {
 							kind := rng.Intn(len(elleRows))
-							token := 1000 + round*100 + worker*10 + slice
-							source += elleAppend(kind, token)
-							source += elleAppend(rng.Intn(len(elleRows)), 2000000+token)
+							operations := 1 + rng.Intn(4)
+							for operation := 0; operation < operations; operation++ {
+								source += elleAppend(kind, token())
+								if rng.Intn(2) == 0 {
+									kind = rng.Intn(len(elleRows))
+								}
+							}
 							if round%5 == 0 && paths["exclusive"] {
 								source += `w=#0:make_waif(); w.data=1; #0.waif=w;`
 							}
-							source += elleReadAll()
-						} else {
-							token := 1000 + round*100 + worker*10 + slice
-							switch rng.Intn(3) {
-							case 0:
-								source += fmt.Sprintf(`#30.data=%d; elle_observe("w","property",%d);`, token, token)
-							case 1:
-								source += fmt.Sprintf(`#32.name="%d"; elle_observe("w","name",%d);`, token, token)
-							case 2:
-								source += fmt.Sprintf(`set_verb_code(#31,1,{"%d;"}); elle_observe("w","verb-code",%d);`, token, token)
+							if (round+worker+slice)%4 == 0 {
+								source += elleReadAll()
+								source += `elle_invariant_mark({"append_full"});`
+							} else {
+								source += `elle_invariant_mark({"append_sparse"});`
 							}
-							source += elleRegisterReads()
+						} else {
+							kind := rng.Intn(3)
+							switch (round + worker + slice) % 5 {
+							case 0: // Blind write, without an observation of the overwritten value.
+								source += elleRegisterWrite(kind, token())
+								source += `elle_invariant_mark({"register_blind"});`
+							case 1: // Read-only transaction, including a repeated read.
+								source += elleRegisterRead(kind) + elleRegisterRead((kind+1)%3) + elleRegisterRead(kind)
+								source += `elle_invariant_mark({"register_read_only"});`
+							case 2: // Read a different key before writing.
+								source += elleRegisterRead((kind+1)%3) + elleRegisterWrite(kind, token())
+								source += `elle_invariant_mark({"register_read_write"});`
+							case 3: // Observe our own intermediate and final writes.
+								source += elleRegisterWrite(kind, token()) + elleRegisterRead(kind) + elleRegisterWrite(kind, token()) + elleRegisterRead(kind)
+								source += `elle_invariant_mark({"register_intermediate"});`
+							case 4:
+								source += elleRegisterReads() + elleRegisterWrite(kind, token()) + elleRegisterReads()
+								source += `elle_invariant_mark({"register_full"});`
+							}
 						}
-						if slice == 0 && paths["suspend"] {
+						if slice < slices-1 && paths["suspend"] {
 							source += `suspend(0);`
 						}
 					}
@@ -647,7 +729,7 @@ func TestElleIsolationHistories(t *testing.T) {
 					id++
 				}
 				if round%3 == 0 && model == "list-append" && paths["fork"] {
-					source := fmt.Sprintf(`fork (0) %s endfork return 1;`, elleAppend(0, 4000000+round))
+					source := fmt.Sprintf(`fork (0) %s endfork return 1;`, elleAppend(0, token()))
 					batch = append(batch, elleTask(t, rt, id, source))
 					id++
 				}
@@ -659,7 +741,7 @@ func TestElleIsolationHistories(t *testing.T) {
 			} else {
 				final = elleRegisterReads() + final
 			}
-			elleDrain(t, rt, []*task.Task{elleTask(t, rt, id, final)})
+			elleDrain(t, rt, []*Task{elleTask(t, rt, id, final)})
 		}()
 	}
 	manifest["coverage"] = coverage
@@ -674,6 +756,11 @@ func TestElleIsolationHistories(t *testing.T) {
 	for _, key := range []string{"native_exception", "read_only", "operation/move", "operation/chparent", "operation/create", "operation/recycle", "operation/delete_property", "operation/delete_verb", "operation/clear_property", "operation/flags", "operation/owner", "operation/permissions", "operation/invariant"} {
 		if coverage[key] == 0 {
 			t.Errorf("missing actual coverage: %s", key)
+		}
+	}
+	for _, shape := range []string{"append_full", "append_sparse", "register_blind", "register_read_only", "register_read_write", "register_intermediate", "register_full"} {
+		if coverage["operation/"+shape] == 0 {
+			t.Errorf("missing committed history shape: %s", shape)
 		}
 	}
 }

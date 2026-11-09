@@ -11,7 +11,6 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -30,15 +29,20 @@ func configureVMStackLimit(machine *vm.VM, session *builtins.Session) {
 }
 
 // QueueTask adds a task to the execution runtime.
-func (s *Runtime) QueueTask(t *task.Task) int64 {
+func (s *Runtime) QueueTask(t *Task) int64 {
+	return s.queueTask(t, true)
+}
+
+// queueTask adds t, giving it its row now when withRow is set.
+func (s *Runtime) queueTask(t *Task, withRow bool) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
-		s.populateTaskContextDependencies(ctx)
+		s.populateContextDependencies(ctx)
 	}
 	t.SetState(task.TaskQueued)
-	s.taskManager.RegisterTask(t)
+	s.taskManager.registerTask(t, withRow)
 	s.scheduler.Enqueue(t)
 	// Registration can wake a selector before the heap insertion is visible.
 	// Publish another hint after insertion to close that lost-wakeup window.
@@ -51,8 +55,8 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(taskID, player, program, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give the task access to the runtime for forks.
 	// Set wizard flag based on player
@@ -98,7 +102,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 		}
 		defer scope.Finish()
 	}
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w: %w", verbName, objID, ErrServerVerbNotFound, err)
 	}
@@ -113,8 +117,8 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(taskID, player, program, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
 	t.Context.Programmer = verb.Owner
@@ -137,10 +141,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 	if err := s.runTaskAdmitted(t, scope, ownsScope); err != nil {
 		return t.Result, err
 	}
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, nil)
 	return t.Result, nil
 }
 
@@ -168,7 +169,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		return 0, admissionErr
 	}
 	defer scope.Finish()
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
@@ -180,8 +181,8 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(taskID, player, program, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Login task runs with verb-owner permissions, matching the throwaway
 	// CallVerbWithArgstr path it replaces (programmer = verb owner).
@@ -223,8 +224,8 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
 	taskID := s.newTaskID()
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(taskID, player, program, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give the task access to the runtime for forks.
 	// Set wizard flag based on player
@@ -233,64 +234,20 @@ func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Pro
 }
 
 // Fork creates a forked task with a delay
-func (s *Runtime) Fork(ctx *kernel.TaskContext, program *bytecode.Program, delay time.Duration) int64 {
+func (s *Runtime) Fork(ctx *task.Context, program *bytecode.Program, delay time.Duration) int64 {
 	return s.CreateBackgroundTask(ctx.Player, program, delay)
-}
-
-// forkBodyProgram extracts the fork body sub-program described by a bytecode
-// fork record, or returns nil when forkInfo does not carry one.
-func forkBodyProgram(forkInfo *types.ForkInfo) *bytecode.Program {
-	if forkInfo == nil {
-		return nil
-	}
-	body, ok := forkInfo.Body.(*bytecode.ForkBody)
-	if !ok {
-		return nil
-	}
-	return body.ExtractProgram()
-}
-
-// newForkVM builds the pre-configured VM a forked child's first run executes:
-// the extracted fork body with the parent's variables copied in. It is a pure
-// function of forkInfo, which is what lets a first run that loses its commit be
-// re-executed from scratch (see forkFirstRunRebuilder) exactly like a fresh task.
-func (s *Runtime) newForkVM(taskID int64, forkInfo *types.ForkInfo, forkProg *bytecode.Program, ticks int64) *vm.VM {
-	childVM := vm.NewVM(s.store, s.session)
-	childVM.TickLimit = ticks
-	configureVMStackLimit(childVM, s.session)
-
-	// Set up the child frame with inherited variables
-	frame := childVM.PrepareVerbFrame(forkProg,
-		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
-		forkInfo.Verb, forkInfo.VerbLoc, nil)
-	// Mark as verb-call so syncTaskLineNumbers includes this frame
-	// when syncing line numbers to the task's CallStack.
-	frame.IsVerbCall = true
-	// Inherit verb debug flag from the parent verb
-	if forkVerb, _, vErr := s.store.DirectTxn().FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
-		frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
-	}
-
-	// Copy inherited variable values from the parent
-	for varName, varVal := range forkInfo.Variables {
-		vm.SetLocalByName(frame, forkProg, varName, varVal)
-	}
-	if forkInfo.VarName != "" {
-		vm.SetLocalByName(frame, forkProg, forkInfo.VarName, types.NewInt(taskID))
-	}
-	return childVM
 }
 
 // CreateForkedTask creates a forked child task from a bytecode VM fork yield.
 // Implements task.ForkCreator interface.
-func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
+func (s *Runtime) CreateForkedTask(parent *task.State, forkInfo *types.ForkInfo) int64 {
 	taskID := s.newTaskID()
 	programmer := parent.Programmer
 	if parent.Context != nil {
 		programmer = parent.Context.Programmer
 	}
 
-	forkProg := forkBodyProgram(forkInfo)
+	forkProg := vm.ForkBodyProgram(forkInfo)
 	if forkProg == nil {
 		return 0 // Unknown or invalid fork body
 	}
@@ -300,9 +257,9 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	}
 
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
-	t.SetBytecodeVM(s.newForkVM(taskID, forkInfo, forkProg, ticks))
+	t := NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
+	s.populateContextDependencies(t.Context)
+	t.SetVM(vm.NewForkVM(s.store, s.session, taskID, forkInfo, forkProg, ticks))
 
 	t.StartTime = time.Now().Add(forkInfo.Delay)
 	t.Kind = task.TaskForked
@@ -324,8 +281,8 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	t.Context.Programmer = programmer
 	t.Context.Verb = forkInfo.Verb
 	t.Context.IsWizard = s.isWizard(programmer)
-	if childVM, ok := t.BytecodeVMValue().(*vm.VM); ok {
-		childVM.Task = t
+	if childVM := t.VM(); childVM != nil {
+		childVM.Task = &t.State
 	}
 
 	// Push initial activation frame for the fork body.
@@ -343,7 +300,18 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	})
 
 	t.SetReadier(parent)
-	childID := s.QueueTask(t)
+	// The child's row is written by the parent's commit, so no other task finds
+	// the child before the parent's slice is published, and a parent attempt
+	// that is discarded leaves no row behind. Until it starts, kill_task()
+	// checks the programmer that forked it (Toast forked.a.progr).
+	var parentTxn *dbstore.StoreTxn
+	if parent != nil && parent.Context != nil {
+		parentTxn = parent.Context.StoreTxn
+	}
+	if parentTxn != nil {
+		parentTxn.StageTaskRow(taskID, dbstore.TaskRow{Owner: programmer, Status: dbstore.TaskRowRunning, By: parent.ID})
+	}
+	childID := s.queueTask(t, parentTxn == nil)
 	if parent != nil {
 		parent.CreatedForks = append(parent.CreatedForks, childID)
 	}
@@ -390,7 +358,7 @@ func (s *Runtime) KillTask(taskID int64, killerID types.ObjID) error {
 func (s *Runtime) CancelLoginTasksFor(connID types.ObjID) {
 	// Collect candidates: tasks owned by this connID (login-hook tasks run with
 	// Owner == connID) and any task currently reading from this connID.
-	var victims []*task.Task
+	var victims []*Task
 	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
@@ -441,10 +409,7 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 			slog.String("verb", t.VerbName),
 			slog.Any("err", err))
 	}
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, nil)
 	return true
 }
 
@@ -460,6 +425,9 @@ func (s *Runtime) CleanupFinishedTasks() {
 		}
 		st := t.GetState()
 		if st == task.TaskCompleted || st == task.TaskKilled {
+			if ctx := t.ContextValue(); ctx != nil {
+				ctx.CommandDiagnostic.TaskFinished(t.ID, st.String())
+			}
 			s.taskManager.RemoveTaskIf(t.ID, t)
 		}
 	}
@@ -481,7 +449,7 @@ func (s *Runtime) IsTaskLive(taskID int64) bool {
 }
 
 // GetTask retrieves a task by ID
-func (s *Runtime) GetTask(taskID int64) *task.Task {
+func (s *Runtime) GetTask(taskID int64) *Task {
 	return s.taskManager.GetTask(taskID)
 }
 

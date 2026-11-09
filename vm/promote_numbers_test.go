@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/config"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -24,13 +24,13 @@ func requirePromoteFloat(t *testing.T, result types.Result, want float64) {
 }
 
 // strictCtx returns a default (strict) task context.
-func strictCtx() *kernel.TaskContext {
-	return kernel.NewTaskContext()
+func strictCtx() *task.Context {
+	return task.NewContext()
 }
 
 // promoteCtx returns a task context with PromoteNumbers enabled.
-func promoteCtx() *kernel.TaskContext {
-	ctx := kernel.NewTaskContext()
+func promoteCtx() *task.Context {
+	ctx := task.NewContext()
 	ctx.RuntimeOptions = config.Options{OutboundNetwork: true, PromoteNumbers: true}
 	return ctx
 }

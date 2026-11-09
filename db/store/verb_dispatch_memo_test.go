@@ -11,8 +11,8 @@ import (
 // resetVerbDispatchMemoForTest empties the store-level dispatch memo so a test
 // can observe a first-call walk.
 func (s *Store) resetVerbDispatchMemoForTest() {
-	s.verbDispatchMemo.Store(&sync.Map{})
-	s.verbDispatchMemoSize.Store(0)
+	s.dispatch.memo.Store(&sync.Map{})
+	s.dispatch.size.Store(0)
 }
 
 func memoHas(s *Store, objID types.ObjID, name string) bool {
@@ -49,7 +49,7 @@ func TestVerbDispatchMemoPreservesDuplicateAliasWinner(t *testing.T) {
 				}
 			}
 			check("return 1;")
-			if ec := s.setVerbCodeByIndex(0, 1, []string{"return 2;"}); ec != types.E_NONE {
+			if ec := s.DirectTxn().SetVerbCodeByIndex(0, 1, []string{"return 2;"}); ec != types.E_NONE {
 				t.Fatalf("edit second verb: %v", ec)
 			}
 			check("return 2;")
@@ -94,7 +94,7 @@ func TestVerbDispatchMemoHitSkipsAncestryScans(t *testing.T) {
 	if len(second.verbScans) != 0 {
 		t.Fatalf("memo hit recorded ancestry scans: %v", second.verbScans)
 	}
-	if _, ok := second.verbReads[verbReadKey{objID: 0, name: v1.mapKey()}]; !ok {
+	if _, ok := second.verbReads[verbKey{objID: 0, id: v1.id}]; !ok {
 		t.Fatalf("memo hit did not mark the resolved verb read: %v", second.verbReads)
 	}
 	if ec := second.Commit(); ec != types.E_NONE {
@@ -244,7 +244,7 @@ func TestVerbDispatchMemoRepeatHitKeepsVerbReadMark(t *testing.T) {
 	s, user := memoUserTxn(t)
 	first, _ := lookTimes(t, user, 1)
 	want := snapshotReadSet(user)
-	if _, marked := want.verbReads[verbReadKey{objID: 0, name: first.mapKey()}]; !marked {
+	if _, marked := want.verbReads[verbKey{objID: 0, id: first.id}]; !marked {
 		t.Fatalf("first hit left no read mark: %v", want.verbReads)
 	}
 	if again, definer := lookTimes(t, user, 50); again != first || definer != 0 {
@@ -252,7 +252,7 @@ func TestVerbDispatchMemoRepeatHitKeepsVerbReadMark(t *testing.T) {
 	}
 	requireSameReadSet(t, "repeat hits", want, snapshotReadSet(user))
 
-	if ec := s.setVerbCodeByIndex(0, 0, []string{"return 2;"}); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetVerbCodeByIndex(0, 0, []string{"return 2;"}); ec != types.E_NONE {
 		t.Fatalf("concurrent code edit: %v", ec)
 	}
 	if again, _ := lookTimes(t, user, 1); again != first || again.code[0] != "return 1;" {
@@ -349,7 +349,7 @@ func TestVerbDispatchMemoRepeatHitSeesOwnStagedVerbChanges(t *testing.T) {
 	s, user := memoUserTxn(t)
 	shared, _ := lookTimes(t, user, 10)
 
-	if ec := user.SetVerbCode(2, "look", []string{"return 2;"}); ec != types.E_NONE {
+	if ec := user.SetVerbCode(0, "look", []string{"return 2;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)
 	}
 	private, definer := lookTimes(t, user, 10)
@@ -357,7 +357,7 @@ func TestVerbDispatchMemoRepeatHitSeesOwnStagedVerbChanges(t *testing.T) {
 		t.Fatalf("after staged code write: shared=%v definer=#%d code=%v", private == shared, definer, private.code)
 	}
 	// #0 is private now, so this write replaces no binding in the txn.
-	if ec := user.SetVerbCode(2, "look", []string{"return 3;"}); ec != types.E_NONE {
+	if ec := user.SetVerbCode(0, "look", []string{"return 3;"}); ec != types.E_NONE {
 		t.Fatalf("second SetVerbCode: %v", ec)
 	}
 	if again, _ := lookTimes(t, user, 10); again.code[0] != "return 3;" {
@@ -511,6 +511,34 @@ func TestVerbDispatchMemoSkipsAnonymousAndCachesMisses(t *testing.T) {
 	defer tx3.Release()
 	if _, d, err := tx3.findVerb(2, "nosuch", false); err != nil || d != 2 {
 		t.Fatalf("after add, nosuch = %v definer=#%d", err, d)
+	}
+}
+
+// A memoized miss answers every later transaction with the error the producing
+// walk built: the same text, and no new error value per transaction.
+func TestVerbDispatchMemoMissReusesWalkError(t *testing.T) {
+	s := testChainStore(t)
+	s.resetVerbDispatchMemoForTest()
+	walk := s.BeginSnapshot(0)
+	_, _, walkErr := walk.findVerb(2, "NoSuch", true)
+	walk.Release()
+	if walkErr == nil || walkErr.Error() != "verb not found: NoSuch" {
+		t.Fatalf("walk error = %v", walkErr)
+	}
+	var first error
+	for i := 0; i < 3; i++ {
+		tx := s.BeginSnapshot(0)
+		_, definer, err := tx.findVerb(2, "NoSuch", true)
+		used := tx.usedVerbMemo
+		tx.Release()
+		if !used || definer != types.ObjNothing || err == nil || err.Error() != "verb not found: NoSuch" {
+			t.Fatalf("txn %d: used=%v definer=#%d err=%v", i, used, definer, err)
+		}
+		if i == 0 {
+			first = err
+		} else if err != first {
+			t.Fatalf("txn %d built a new error value for a memoized miss", i)
+		}
 	}
 }
 

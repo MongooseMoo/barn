@@ -3,6 +3,7 @@ package builtins
 import (
 	"strings"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -93,14 +94,13 @@ func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 }
 
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
-// info can be {owner, perms}, just perms string, or just owner ObjValue
+// where info is {owner, perms [, new-name]}.
 func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
-	if args[0].Type() == types.TYPE_WAIF {
-		return types.Err(types.E_INVARG)
-	}
-
+	// Toast set_prop_info (src/property.cc:149-188) checks the object (E_TYPE
+	// unless a numbered object, E_INVARG unless valid), then the whole info list,
+	// then looks the property up (E_PROPNF), then checks permission (E_PERM).
 	objVal := args[0]
-	if !isObjectRef(objVal) {
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -111,6 +111,11 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
+	}
+
+	owner, perms, renamed, errCode := validatePropInfo(ctx, args[2])
+	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -123,77 +128,97 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PROPNF)
 	}
 
-	// Only the property's owner or a wizard may change its {owner, perms}
-	// metadata (Toast: E_PERM otherwise).
-	if !ctx.IsWizard && ctx.Programmer != prop.Owner {
+	// Toast db_property_allows(h, progr, PF_WRITE) (src/db_properties.cc:747-752):
+	// the property's w flag, its owner or a wizard. Only a wizard may change the
+	// owner (src/property.cc:174-176).
+	if (!prop.Perms.Has(dbstore.PropWrite) && !ctx.IsWizard && ctx.Programmer != prop.Owner) ||
+		(!ctx.IsWizard && owner != prop.Owner) {
 		return types.Err(types.E_PERM)
 	}
 
-	// Parse info argument
-	switch args[2].Type() {
-	case types.TYPE_STR:
-		// Just permissions string
-		perms, err := parsePerms(args[2].Str())
-		if err != types.E_NONE {
-			return types.Err(err)
-		}
-		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, nil, &perms)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		// Just owner (leave perms unchanged)
-		owner := args[2].ID()
-		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, nil)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-
-	case types.TYPE_LIST:
-		// {owner, perms}
-		elements := args[2].Elements()
-		if len(elements) != 2 {
+	// Toast renames the property here (src/property.cc:178-183). db_rename_propdef
+	// (src/db_properties.cc:251-280) renames only a property the object defines,
+	// and unless the name changes only its case, not to a built-in property name
+	// or one defined on the object, an ancestor or a descendant. A refused rename
+	// is E_INVARG and changes nothing.
+	if renamed {
+		newName := args[2].Get(3).Str()
+		if !prop.Defined {
 			return types.Err(types.E_INVARG)
 		}
-
-		ownerVal := elements[0]
-		if !isObjectRef(ownerVal) {
-			return types.Err(types.E_TYPE)
+		if !strings.EqualFold(newName, propName) {
+			if bytecode.IsBuiltinPropertyName(newName) {
+				return types.Err(types.E_INVARG)
+			}
+			_, exists, err := localPropertyForRead(ctx, objID, newName)
+			if err != types.E_NONE {
+				return types.Err(err)
+			}
+			if _, ancestorErr := findPropertyForRead(ctx, objID, newName); exists || ancestorErr == types.E_NONE ||
+				readTxn(ctx).HasDefinedPropertyInDescendants(objID, newName) {
+				return types.Err(types.E_INVARG)
+			}
 		}
-
-		permsVal := elements[1]
-		if permsVal.Type() != types.TYPE_STR {
-			return types.Err(types.E_TYPE)
-		}
-
-		perms, err := parsePerms(permsVal.Str())
-		if err != types.E_NONE {
-			return types.Err(err)
-		}
-		owner := ownerVal.ID()
-		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, &perms)
-		if errCode != types.E_NONE {
+		if errCode := readTxn(ctx).RenameProperty(objID, propName, newName); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		propName = newName
+	}
 
-	default:
-		return types.Err(types.E_TYPE)
+	errCode = readTxn(ctx).SetPropertyInfo(objID, propName, &owner, &perms)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
 }
 
+// validatePropInfo mirrors Toast validate_prop_info (src/property.cc:109-146):
+// a list of a numbered-object owner, a perms string and an optional new-name
+// string (else E_TYPE); a valid owner and rwc perms (else E_INVARG). renamed
+// reports whether the new-name element is present.
+func validatePropInfo(ctx *Execution, info types.Value) (types.ObjID, dbstore.PropertyPerms, bool, types.ErrorCode) {
+	n := 0
+	if info.Type() == types.TYPE_LIST {
+		n = info.Len()
+	}
+	if n != 2 && n != 3 {
+		return 0, 0, false, types.E_TYPE
+	}
+	owner, perms := info.Get(1), info.Get(2)
+	if owner.Type() != types.TYPE_OBJ || perms.Type() != types.TYPE_STR ||
+		(n == 3 && info.Get(3).Type() != types.TYPE_STR) {
+		return 0, 0, false, types.E_TYPE
+	}
+	if !validForRead(ctx, owner.ID()) {
+		return 0, 0, false, types.E_INVARG
+	}
+	parsed, errCode := parsePerms(perms.Str())
+	if errCode != types.E_NONE {
+		return 0, 0, false, errCode
+	}
+	return owner.ID(), parsed, n == 3, types.E_NONE
+}
+
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
 func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
-	objVal := args[0]
-	if !isObjectRef(objVal) {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
+	// Toast bf_add_prop (src/property.cc:206-237) validates the info list first;
+	// then a new-name element or anything but a numbered object is E_TYPE, an
+	// invalid object E_INVARG, and a programmer who may not write the object or
+	// name another owner E_PERM. Only then does db_add_propdef refuse a name in
+	// use (E_INVARG).
+	owner, perms, renamed, errCode := validatePropInfo(ctx, args[3])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	objVal := args[0]
+	if renamed || objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -215,10 +240,24 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// Check permissions: only wizard can set owner to someone else
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
+	if !isWizard && owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
+
 	propName := nameVal.Str()
 
 	// Check if property name is built-in
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -241,67 +280,6 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 	// Check if property exists in any descendant
 	if readTxn(ctx).HasDefinedPropertyInDescendants(objID, propName) {
 		return types.Err(types.E_INVARG)
-	}
-
-	// Parse info argument (same as set_property_info)
-	var owner types.ObjID
-	var perms dbstore.PropertyPerms
-
-	switch args[3].Type() {
-	case types.TYPE_STR:
-		// Just permissions string
-		owner = ctx.Programmer // Default to caller
-		var errCode types.ErrorCode
-		perms, errCode = parsePerms(args[3].Str())
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-
-	case types.TYPE_LIST:
-		// {owner, perms}
-		elements := args[3].Elements()
-		if len(elements) != 2 {
-			return types.Err(types.E_INVARG)
-		}
-
-		ownerVal := elements[0]
-		if !isObjectRef(ownerVal) {
-			return types.Err(types.E_TYPE)
-		}
-
-		permsVal := elements[1]
-		if permsVal.Type() != types.TYPE_STR {
-			return types.Err(types.E_TYPE)
-		}
-
-		owner = ownerVal.ID()
-		var errCode2 types.ErrorCode
-		perms, errCode2 = parsePerms(permsVal.Str())
-		if errCode2 != types.E_NONE {
-			return types.Err(errCode2)
-		}
-
-	default:
-		return types.Err(types.E_TYPE)
-	}
-
-	// Validate owner is a valid object
-	if !validForRead(ctx, owner) {
-		return types.Err(types.E_INVARG)
-	}
-
-	// Check permissions: only wizard can set owner to someone else
-	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
-	isWizard := errCode == types.E_NONE && hasWizard
-	if !isWizard && owner != ctx.Programmer {
-		return types.Err(types.E_PERM)
-	}
-	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if !allowed {
-		return types.Err(types.E_PERM)
 	}
 
 	prop := dbstore.NewProperty(value, owner, perms, false, true)
@@ -383,7 +361,7 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return E_PERM
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -451,7 +429,7 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return 0
-	if IsBuiltinProperty(propName) {
+	if bytecode.IsBuiltinPropertyName(propName) {
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -483,20 +461,6 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 }
 
 // Helper functions
-
-// IsBuiltinProperty checks if a property name is a built-in property
-// Built-in properties: name, owner, location, contents, last_move, programmer, wizard, r, w, f, a.
-// parent/parents/children/player are NOT properties -- they have dedicated accessor built-in
-// functions (parent(), parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
-func IsBuiltinProperty(name string) bool {
-	switch strings.ToLower(name) {
-	case "name", "owner", "location", "contents", "last_move",
-		"programmer", "wizard", "r", "w", "f", "a":
-		return true
-	default:
-		return false
-	}
-}
 
 // parsePerms converts a permission string like "rw" to PropertyPerms flags
 // Returns error code if invalid characters found

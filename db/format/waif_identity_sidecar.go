@@ -114,15 +114,20 @@ func writeWaifIdentitySidecarFile(path string, digest [sha256.Size]byte, identit
 	if err != nil {
 		return fmt.Errorf("create WAIF identity sidecar: %w", err)
 	}
-	if _, err := fmt.Fprintf(file, "barn-waif-identities-v1 %x\n", digest); err != nil {
+	writer := bufio.NewWriter(file)
+	if _, err := fmt.Fprintf(writer, "barn-waif-identities-v1 %x\n", digest); err != nil {
 		file.Close()
 		return fmt.Errorf("write WAIF identity sidecar header: %w", err)
 	}
 	for _, identity := range identities {
-		if _, err := fmt.Fprintln(file, identity); err != nil {
+		if _, err := fmt.Fprintln(writer, identity); err != nil {
 			file.Close()
 			return fmt.Errorf("write WAIF identity sidecar: %w", err)
 		}
+	}
+	if err := writer.Flush(); err != nil {
+		file.Close()
+		return fmt.Errorf("flush WAIF identity sidecar: %w", err)
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()

@@ -90,6 +90,8 @@ func Parse(r io.Reader, source string) (Options, error) {
 			options.OutboundNetwork = parsed
 		case "PROMOTE_NUMBERS":
 			options.PromoteNumbers = parsed
+		case "CONFLICT_CENSUS":
+			options.ConflictCensus = parsed
 		default:
 			return Options{}, parseError(source, lineNumber, fmt.Sprintf("unknown option %s", key))
 		}

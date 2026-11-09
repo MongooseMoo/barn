@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -59,7 +59,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 }
 
 func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
-	manager := &stubConnManager{conn: &stubConn{}}
+	manager := &stubConnManager{conn: &stubConn{id: 7}}
 
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
@@ -85,7 +85,7 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 	if len(manager.boots) != 0 {
 		t.Fatalf("boots before flush = %#v, want none", manager.boots)
 	}
-	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectBootPlayer || ctx.PendingEffects[0].BootPlayer != obj {
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != task.PendingEffectBootPlayer || ctx.PendingEffects[0].BootPlayer != obj {
 		t.Fatalf("pending effects = %#v, want boot of %d", ctx.PendingEffects, obj)
 	}
 

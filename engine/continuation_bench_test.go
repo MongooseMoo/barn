@@ -8,7 +8,6 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -53,10 +52,10 @@ func BenchmarkThreadedContinuations(b *testing.B) {
 				defer func() { close(stop); <-stopped }()
 				b.ReportAllocs()
 				for b.Loop() {
-					cohort := make([]*task.Task, players)
+					cohort := make([]*Task, players)
 					for i := range cohort {
 						ticks, seconds := foregroundTaskLimits(rt.session)
-						queued := task.NewTaskFull(rt.newTaskID(), types.ObjID(i+1), program, ticks, seconds)
+						queued := NewTaskFull(rt.newTaskID(), types.ObjID(i+1), program, ticks, seconds)
 						queued.Context.IsWizard = true
 						queued.Done = make(chan struct{})
 						cohort[i] = queued

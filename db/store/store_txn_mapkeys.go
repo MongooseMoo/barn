@@ -99,6 +99,9 @@ func (tx *StoreTxn) mapKeyStateFor(objID types.ObjID, actualName string, prop Pr
 	if st == nil {
 		st = &mapKeyState{owner: prop.owner, perms: prop.perms, version: prop.version, name: actualName, baseline: prop.value}
 		lazySet(&tx.mapKeys, rkey, st)
+		if tx.diag != nil {
+			tx.diag.noteRead(rkey, nil)
+		}
 	}
 	return st
 }
@@ -203,7 +206,7 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 		}
 		return types.E_NONE
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -229,11 +232,15 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 // degradeMapKeys turns every keyed dependency into a whole read of its slot at
 // the version the transaction first saw. A path that cannot validate per key or
 // apply entries to the live map (live mutation, flush, the irreversible-effect
-// boundary, renewal) then behaves exactly as it does for any property read.
+// boundary) then behaves exactly as it does for any property read.
 func (tx *StoreTxn) degradeMapKeys() {
 	for rkey, st := range tx.mapKeys {
 		if _, whole := tx.propertyReads[rkey]; !whole {
-			tx.propertyReads[rkey] = st.version
+			lazySet(&tx.propertyReads, rkey, st.version)
+			if tx.diag != nil {
+				// The whole read is at st.version, whose value is the baseline.
+				tx.diag.noteRead(rkey, &Property{value: st.baseline})
+			}
 		}
 	}
 	tx.mapKeys = nil
@@ -261,12 +268,17 @@ func (tx *StoreTxn) validateMapKeysLocked(first *types.ErrorCode) {
 		switch {
 		case !ok:
 			c.Missing = true
-		case prop.clear || prop.owner != st.owner || prop.perms != st.perms || prop.value.Type() != types.TYPE_MAP:
+		case prop.clear || prop.value.Type() != types.TYPE_MAP:
+			c.Live = prop.version
+		case !isolationprobe.Fault("map-key-metadata") && (prop.owner != st.owner || prop.perms != st.perms):
 			c.Live = prop.version
 		case !mapEntriesUnchanged(prop.value, st.reads):
 			c.Live = prop.version
 		default:
 			continue
+		}
+		if tx.diag != nil {
+			tx.diagnoseMapKeyConflictLocked(&c, rkey, st, prop, ok)
 		}
 		tx.noteConflict(first, errCode, c)
 	}
@@ -274,6 +286,9 @@ func (tx *StoreTxn) validateMapKeysLocked(first *types.ErrorCode) {
 
 func mapEntriesUnchanged(live types.Value, reads []mapKeyRead) bool {
 	for _, r := range reads {
+		if !r.present && isolationprobe.Fault("map-key-presence") {
+			continue
+		}
 		v, present := live.MapGet(r.key)
 		if present != r.present || (present && !v.Identical(r.value)) {
 			return false

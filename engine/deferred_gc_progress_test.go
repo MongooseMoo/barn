@@ -13,7 +13,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -40,7 +40,7 @@ func TestDeferredGCProgressAfterThrottledRuntimeBecomesIdle(t *testing.T) {
 	rt.lifecycle.LastGCCost = cheapGCSweep
 	rt.lifecycle.LastGCSweep = time.Now().Add(-gcSweepInterval + 100*time.Millisecond)
 	rt.lifecycle.Mu.Unlock()
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.IsWizard = true
 	rt.deferAnonGC(ctx, candidate, nil)
@@ -98,7 +98,7 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 	if code != types.E_NONE {
 		t.Fatal(code)
 	}
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	ctx.IsWizard = true
 	// Already due, so maintenance must exclude fresh owners rather than
@@ -111,6 +111,7 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 	probeCtx, cancel := context.WithCancel(rt.ctx)
 	defer cancel()
 	probeDone := make(chan struct{})
+	var background atomic.Int64
 	go func() {
 		defer close(probeDone)
 		for {
@@ -119,6 +120,7 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 				return
 			}
 			scope.Finish()
+			background.Add(1)
 			rt.flushDeferredGC()
 		}
 	}()
@@ -138,28 +140,31 @@ func TestDeferredGCProgressDrainsOverlappingExecution(t *testing.T) {
 		}
 	}()
 	defer func() { cancel(); <-probeDone; <-inputDone }()
-	// Two live owners leave two admission slots free. A queued background probe
-	// proves maintenance is withholding fresh background grants, not ordinary
-	// capacity pressure.
-	deadline := time.Now().Add(3 * time.Second)
-	for rt.AdmissionStats().Queued == 0 {
+	// The two VMs are inside a builtin, where they cannot park, and may be for
+	// seconds. The overdue collection must not hold admission for them: input
+	// and fresh background work keep flowing through repeated attempts.
+	admitted, started := commands.Load(), background.Load()
+	for deadline := time.Now().Add(3 * time.Second); commands.Load() < admitted+20 || background.Load() < started+20; {
 		if time.Now().After(deadline) {
-			t.Fatal("overdue collection never excluded fresh admissions to drain overlapping VMs")
+			t.Fatalf("admitted %d inputs and %d background segments beside overdue collection, want both to keep flowing", commands.Load()-admitted, background.Load()-started)
 		}
 		time.Sleep(time.Millisecond)
 	}
-	// The two VMs are still executing and may be for seconds. Input must not
-	// wait for them.
-	admitted := commands.Load()
-	for deadline := time.Now().Add(3 * time.Second); commands.Load() < admitted+20; {
-		if time.Now().After(deadline) {
-			t.Fatalf("input admitted %d times while maintenance drained background VMs, want it to keep flowing", commands.Load()-admitted)
+	// Wait for a rendezvous to meet the unparked VMs and fail closed.
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(time.Millisecond) {
+		rt.lifecycle.Mu.Lock()
+		retry := rt.lifecycle.RetryAfter
+		rt.lifecycle.Mu.Unlock()
+		if !retry.IsZero() {
+			break
 		}
-		time.Sleep(time.Millisecond)
+		if time.Now().After(deadline) {
+			t.Fatal("overdue collection never attempted a rendezvous")
+		}
 	}
 	select {
 	case <-recycled:
-		t.Fatal("collection ran before the active VMs released their execution leases")
+		t.Fatal("collection ran while VMs that cannot park held execution leases")
 	default:
 	}
 	unblock()

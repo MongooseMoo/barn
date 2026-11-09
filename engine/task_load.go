@@ -2,13 +2,14 @@ package engine
 
 import (
 	"fmt"
+	"log/slog"
+	"sync/atomic"
+	"time"
+
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
-	"log/slog"
-	"sync/atomic"
-	"time"
 )
 
 func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
@@ -35,6 +36,10 @@ func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
 		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
 			slog.Warn("failed to restore suspended task",
 				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.String("verb", saved.Snapshot.VerbName),
+				slog.Int64("verbloc", int64(saved.Snapshot.VerbLoc)),
+				slog.Int64("this", int64(saved.Snapshot.This)),
+				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
 				slog.Any("err", err))
 		}
 	}
@@ -46,8 +51,8 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	}
 	rootProgram := saved.VM.Frames[0].Program
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = saved.StartTime
 	t.QueueTime = saved.StartTime
 	t.WakeValue = saved.WakeValue
@@ -75,8 +80,8 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	machine.Task = t
-	t.SetBytecodeVM(machine)
+	machine.Task = &t.State
+	t.SetVM(machine)
 
 	if saved.State == task.TaskQueued {
 		s.QueueTask(t)
@@ -104,8 +109,8 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	}
 
 	ticks, seconds := backgroundTaskLimits(s.session)
-	t := task.NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 
 	start := time.Unix(saved.StartTime, 0)
 	if saved.StartTime <= 0 {
@@ -123,7 +128,6 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	t.ForkCreator = s
 	t.ForkInfo = &types.ForkInfo{
 		SourceLines: append([]string(nil), saved.Code...),
-		Variables:   copyValueMap(saved.Variables),
 		ThisObj:     saved.This,
 		Player:      saved.Player,
 		Caller:      saved.Player,
@@ -139,14 +143,28 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 
 	machine := vm.NewVM(s.store, s.session)
 	machine.Context = t.Context
-	machine.Task = t
+	machine.Task = &t.State
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine, s.session)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
-	for name, value := range saved.Variables {
-		vm.SetLocalByName(frame, prog, name, value)
+	// A restored fork runs the recompiled isolated body. Its environment must
+	// use that program's names, not the enclosing parent's saved name table.
+	// Native reorder_rt_env leaves unmatched slots uninitialized, including
+	// implicit type constants; this is not a fresh verb's initialization.
+	variables, err := task.RestoreForkEnvironment(prog, saved.Variables)
+	if err != nil {
+		return err
 	}
-	t.SetBytecodeVM(machine)
+	t.ForkInfo.Variables = variables
+	for slot, name := range prog.VarNames {
+		frame.Locals[slot] = variables[name]
+	}
+	for _, name := range task.CommandVariableNames {
+		if value, present := variables[name]; present {
+			vm.SetLocalByName(frame, prog, name, value)
+		}
+	}
+	t.SetVM(machine)
 
 	t.PushFrame(types.ActivationFrame{
 		This:       saved.This,
@@ -170,15 +188,4 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		}
 	}
 	return nil
-}
-
-func copyValueMap(values map[string]types.Value) map[string]types.Value {
-	if len(values) == 0 {
-		return nil
-	}
-	copied := make(map[string]types.Value, len(values))
-	for key, value := range values {
-		copied[key] = value
-	}
-	return copied
 }

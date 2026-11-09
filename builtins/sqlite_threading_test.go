@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -118,7 +117,7 @@ func TestSqliteThreadedStartIsDeferredToCommit(t *testing.T) {
 	defer sqliteCloseAllHandles(ctx)
 	h := types.NewInt(handle)
 	// A task-less execution on the same session runs statements inline.
-	inline := ctx.Session.NewExecution(kernel.NewTaskContext(), nil)
+	inline := ctx.Session.NewExecution(task.NewContext(), nil)
 	inline.IsWizard = true
 	sqliteMustResult(t, builtinSqliteQuery(inline, []types.Value{h, types.NewStr("CREATE TABLE t(x INTEGER)")}))
 

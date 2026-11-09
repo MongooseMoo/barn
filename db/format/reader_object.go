@@ -20,12 +20,21 @@ func asObjID(v types.Value) (types.ObjID, bool) {
 	return 0, false
 }
 
-// readObject reads a single object
+// labelID tells readObjectCommon to identify the object by its "#N" label.
+// Toast's ng_read_object (db_file.cc) uses the label only for anonymous
+// objects (dbpriv_find_object(oid)); numbered objects take the next slot.
+const labelID types.ObjID = -1
+
+// readObject reads a single object identified by its label (anonymous objects).
 func (database *Database) readObject(r *bufio.Reader) (*store.ObjectBuilder, error) {
-	return database.readObjectCommon(r, true)
+	return database.readObjectCommon(r, true, labelID)
 }
 
-func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.ObjectBuilder, error) {
+// readObjectCommon reads one object record. A numbered object is placed at
+// slot, its record position, and its label is ignored, matching Toast's
+// ng_read_object -> dbpriv_new_object(-1) and dbpriv_new_recycled_object.
+// Pass labelID to use the label instead.
+func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool, slot types.ObjID) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -51,6 +60,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, fmt.Errorf("parse object ID: %w", err)
 	}
 	objID = types.ObjID(id)
+	if slot != labelID {
+		objID = slot
+	}
 
 	if recycled {
 		// Recycled object - track for reuse but don't create full object
@@ -179,6 +191,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid object verb count %d", verbCount)
+	}
 
 	// Read verb metadata
 	for i := 0; i < verbCount; i++ {
@@ -219,7 +234,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			That: argSpecFromCode(iobj),
 		}
 
-		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
+		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions
@@ -228,20 +243,27 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, err
 	}
 
-	propDefs := make([]string, propDefCount)
+	if propDefCount < 0 {
+		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
+	}
+	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		propDefs[i], err = r.ReadString('\n')
+		name, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
+		name = strings.TrimSuffix(name, "\n")
+		name = strings.TrimSuffix(name, "\r") // Handle Windows line endings
+		propDefs = append(propDefs, name)
 	}
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)
 	if err != nil {
 		return nil, err
+	}
+	if totalPropCount < 0 {
+		return nil, fmt.Errorf("invalid property value count %d", totalPropCount)
 	}
 
 	// Store PropDefsCount for later name resolution
@@ -323,6 +345,9 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 			// End of anonymous objects
 			break
 		}
+		if count < 0 {
+			return fmt.Errorf("invalid anonymous object count %d", count)
+		}
 		for i := 0; i < count; i++ {
 			obj, err := database.readObject(r)
 			if err != nil {
@@ -331,6 +356,10 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 			if obj != nil {
 				obj.SetAnonymous(true)
 				database.AnonymousObjs = append(database.AnonymousObjs, obj)
+				if database.loadedAnonymous == nil {
+					database.loadedAnonymous = make(map[types.ObjID]*store.ObjectBuilder)
+				}
+				database.loadedAnonymous[obj.ID()] = obj
 			}
 		}
 	}
@@ -378,6 +407,11 @@ func (database *Database) readVerbCode(r *bufio.Reader) error {
 
 	// Store code in verb using the builder's ordered verb list for proper indexing
 	obj := database.Objects[types.ObjID(objID)]
+	if obj == nil {
+		// Recycled numbered slots have no builder, so an anonymous object
+		// using such a saved ID also resolves through this separate index.
+		obj = database.loadedAnonymous[types.ObjID(objID)]
+	}
 	if obj != nil {
 		obj.SetVerbCodeByIndex(verbIndex, codeLines)
 	}

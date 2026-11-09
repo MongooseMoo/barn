@@ -75,7 +75,7 @@ func applyContentsDeltas(contents []types.ObjID, deltas []contentsDelta) []types
 
 func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setObjectLocationRaw(objID, location)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetObjectLocationRaw(objID, location) })
 	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
@@ -113,15 +113,21 @@ func (tx *StoreTxn) stageChildrenDelta(objID types.ObjID, d contentsDelta) {
 // on the rooms — so two moves into the same room both commit and merely take their
 // turn to publish, instead of one aborting and re-running the whole verb. It mutates the txn's cached images for read-your-writes. Retry-safe.
 //
-// Mirrors store.MoveObject's imperative order (remove from old, set location, insert
-// into new) so a same-location move re-orders identically.
+// A destination that is not valid in the txn's view is E_INVARG, so no move can
+// publish a location naming a recycled object; a destination recycled by a
+// concurrent commit fails this one's preflight, since the move writes its contents.
+// The order is remove from old, set location, insert into new, so a same-location move
+// re-orders.
 func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) types.ErrorCode {
 	if tx.direct {
-		return tx.store.moveObject(whatID, whereID, position)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.MoveObject(whatID, whereID, position) })
 	}
 	what := tx.object(whatID)
 	if !validLiveObject(what) {
 		return types.E_INVIND
+	}
+	if whereID != types.ObjNothing && !validLiveObject(tx.object(whereID)) {
+		return types.E_INVARG
 	}
 	oldLocID := what.location
 	tx.markObjectRelationshipRead(whatID, what)
@@ -153,11 +159,9 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	// Insert `what` into the new location's contents at the MOO position (commutative
 	// delta; no room read).
 	if whereID != types.ObjNothing {
-		if where := tx.object(whereID); validLiveObject(where) {
-			mw := tx.mutableObject(whereID)
-			mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
-			tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
-		}
+		mw := tx.mutableFacets(whereID, facetContents)
+		mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
+		tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
 	}
 	return types.E_NONE
 }
@@ -167,9 +171,6 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 // on every object walked so a concurrent move that would change the answer conflicts
 // this txn (preventing two concurrent moves from each creating a containment cycle).
 func (tx *StoreTxn) HasContentDescendant(objID, targetID types.ObjID) bool {
-	if tx.direct {
-		return tx.store.hasContentDescendant(objID, targetID)
-	}
 	if objID == targetID {
 		return true
 	}
@@ -195,9 +196,6 @@ func (tx *StoreTxn) HasContentDescendant(objID, targetID types.ObjID) bool {
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.parent(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -210,9 +208,6 @@ func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.parents(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -222,9 +217,6 @@ func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) 
 }
 
 func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.children(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -235,13 +227,9 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 
 // Ancestors returns objID's ancestors in breadth-first parent order, resolving each hop
 // through the txn (read-your-writes) so a chain built by this task's own decentralized
-// creates is visible before commit. Mirrors Store.Ancestors, which walks live only and
-// therefore misses staged creates. An invalid start object is E_INVIND; an ancestor that
-// becomes invalid mid-walk is still listed but not descended through (as in the store).
+// creates is visible before commit. An invalid start object is E_INVIND; an ancestor
+// that is invalid is still listed but not descended through.
 func (tx *StoreTxn) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.ancestors(objID, includeSelf)
-	}
 	parents, ec := tx.Parents(objID)
 	if ec != types.E_NONE {
 		return nil, ec
@@ -270,9 +258,6 @@ func (tx *StoreTxn) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjI
 
 // Descendants is the child-direction counterpart of Ancestors (read-your-writes).
 func (tx *StoreTxn) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.descendants(objID, includeSelf)
-	}
 	children, ec := tx.Children(objID)
 	if ec != types.E_NONE {
 		return nil, ec
@@ -301,11 +286,8 @@ func (tx *StoreTxn) Descendants(objID types.ObjID, includeSelf bool) ([]types.Ob
 
 // HasAncestor reports whether ancestorID is objID itself or reachable by walking objID's
 // parents through the txn (read-your-writes), so an inheritance chain this task staged with
-// decentralized creates is honored before commit. Mirrors Store.HasAncestor.
+// decentralized creates is honored before commit.
 func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
-	if tx.direct {
-		return tx.store.hasAncestor(objID, ancestorID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) || !validLiveObject(tx.object(ancestorID)) {
 		return false
@@ -335,15 +317,6 @@ func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
 }
 
 func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		tx.store.mu.RLock()
-		defer tx.store.mu.RUnlock()
-		obj := tx.store.liveObjectLocked(objID)
-		if !validLiveObject(obj) {
-			return nil, types.E_INVIND
-		}
-		return append([]types.ObjID(nil), obj.anonymousChildren...), types.E_NONE
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -353,9 +326,6 @@ func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.E
 }
 
 func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.contents(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -365,9 +335,6 @@ func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 }
 
 func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.location(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -377,9 +344,6 @@ func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.lastMove(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.None, types.E_INVIND

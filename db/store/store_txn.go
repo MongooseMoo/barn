@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -10,35 +11,50 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// objectReadSet owns the object-version dependencies discarded together at a
+// successful coarse flush. Its zero value is empty; reads allocate nil maps on demand.
+type objectReadSet struct {
+	scalarReads        map[types.ObjID]uint64
+	relationshipReads  map[types.ObjID]uint64
+	propertyReads      map[propertyReadKey]uint64
+	propertyScans      map[types.ObjID]uint64
+	propertyShapeScans map[types.ObjID]uint64
+	verbReads          map[verbKey]uint64
+	verbScans          map[types.ObjID]uint64
+}
+
 type StoreTxn struct {
-	readTS                    uint64
-	store                     *Store
-	direct                    bool
+	objectReadSet
+	readTS uint64
+	store  *Store
+	direct bool
+	// locked is set on the private writer of writeNow, whose caller holds
+	// store.mu.Lock for the writer's whole life.
+	locked                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
 	gateWait                  func(time.Duration)
 	commitContext             context.Context
 	objects                   map[types.ObjID]*Object
-	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
-	relationshipReads         map[types.ObjID]uint64
 	relationshipWrites        map[types.ObjID]objectRelationshipWrite
-	propertyReads             map[propertyReadKey]uint64
-	propertyScans             map[types.ObjID]uint64
-	propertyShapeScans        map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
+	propertyRenames           map[propertyWriteKey]propertyRename
 	propertyWrites            map[propertyWriteKey]propertyWrite
 	propertyDeletes           map[propertyWriteKey]string
-	verbReads                 map[verbReadKey]uint64
-	verbScans                 map[types.ObjID]uint64
-	verbWrites                map[verbWriteKey]verbWrite
+	verbWrites                map[verbKey]verbWrite
 	verbDeletes               []verbDelete
-	validationFail            bool
-	waifs                     map[types.WaifIdentity]*waifTxnImage
+	// taskReads holds the version of each task row read (0 for a missing row)
+	// and taskWrites the rows staged for publication (store_task_rows.go).
+	// Unlike the object reads, renewal carries taskReads forward.
+	taskReads      map[int64]uint64
+	taskWrites     map[int64]TaskRow
+	validationFail bool
+	waifs          map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
 	// dispatch memo, so it carries no per-ancestor verb-scan marks for that
-	// resolution and must instead fail validation if verbShapeChangeTS moved
+	// resolution and must instead fail validation if dispatch.shapeChangeTS moved
 	// past its snapshot. verbMemoHits lists those resolutions so that, before
 	// the txn's first live mutation moves the clock itself, they can be
 	// re-walked on the still-pristine snapshot into ordinary scan marks
@@ -61,12 +77,14 @@ type StoreTxn struct {
 	// reached through keyed access (store_txn_mapkeys.go). A slot with a
 	// whole read in propertyReads is validated by that read instead.
 	mapKeys map[propertyReadKey]*mapKeyState
-	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
-	// than aliases of a shared immutable published image. Reads (tx.object) may cache
-	// an alias; the first staged write to an object must materialize a private copy
-	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
-	// through to a shared image. Left nil until the first write, like the write maps.
-	owned map[types.ObjID]bool
+	// owned marks which entries in `objects` are txn-PRIVATE copies rather than
+	// aliases of a shared immutable published image, and which of each copy's
+	// facets are its own. Reads (tx.object) may cache an alias; the first staged
+	// write to an object must materialize a private copy (mutableFacets,
+	// copy-on-write) naming the facets it writes, so no staging code ever writes
+	// through to a shared image. Any non-zero value means the object is private.
+	// Left nil until the first write, like the write maps.
+	owned map[types.ObjID]objectFacets
 	// createdObjects holds the PRISTINE creation-time base image of each object created
 	// in this txn (decentralized create). It is separate from the `objects` cache (which
 	// also holds the object for read-your-writes and may accumulate the txn's own
@@ -77,11 +95,11 @@ type StoreTxn struct {
 	createdObjects map[types.ObjID]*Object
 	// recycleWrites marks numbered objects to be turned into recycled tombstones by
 	// this commit (decentralized recycle of a SIMPLE object — no children, no
-	// contents). The commit build applies buildImageRecycled LAST for these ids.
+	// contents). The commit applies the tombstone LAST for these ids (applyTailWrites).
 	recycleWrites map[types.ObjID]bool
 	maxObjID      types.ObjID
 	highWaterID   types.ObjID
-	// released guards the readTS deregistration (Phase 4 history GC) so the floor
+	// released guards the readTS deregistration (history GC) so the floor
 	// registration is removed exactly once whether by the runtime's explicit
 	// Release or the runtime-finalizer backstop. See store_history_gc.go.
 	released atomic.Bool
@@ -94,6 +112,14 @@ type StoreTxn struct {
 	parentWalk  plainScratch
 	verbResolve map[verbResolveKey]verbResolveEntry
 	propResolve map[propResolveKey]propResolveEntry
+	// verbResolveGen moves on every write that can change a record verbResolve
+	// already holds: overwriting a key, dropping the map or replacing it. A
+	// record filed under a new key leaves it unchanged.
+	// verbSites holds, per call site, a copy of a verbResolve record and the
+	// generation it was copied at; while the generation is unchanged the copy
+	// is what the map holds (store_verb_call_site.go).
+	verbResolveGen uint64
+	verbSites      *[verbSiteSlots]verbSiteRecord
 
 	// trackNewReads is set for the one lookup FindPropertyRenewing makes;
 	// newReads then lists the property slots that lookup read for the first
@@ -111,13 +137,16 @@ type StoreTxn struct {
 	conflictLabel    ConflictLabel
 	sampleReadClocks bool
 	readClocks       map[propertyReadKey]uint64
+	// diag records sites and values for the census; it is set only on a
+	// transaction begun with tracking on (store_conflict_diag.go).
+	diag *txnConflictDiag
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
-// write-staging maps on StoreTxn are left nil by BeginSnapshot and stay nil for
-// read-only tasks; only an actual stage allocates. A nil map is indistinguishable
-// from an empty one for read/range/delete/len/validate/commit, so only inserts
-// need this guard.
+// write-staging and read-dependency maps on StoreTxn are left nil by
+// BeginSnapshot; only an actual stage or read mark allocates. A nil map is
+// indistinguishable from an empty one for read/range/delete/len/validate/commit,
+// so only inserts need this guard.
 func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -139,27 +168,103 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 	// deregistration is StoreTxn.Release (called by the runtime), with a finalizer
 	// backstop so a dropped-without-Release txn cannot leak its registration forever.
 	tx := &StoreTxn{
-		readTS:             readTS,
-		store:              s,
-		objects:            make(map[types.ObjID]*Object),
-		scalarReads:        make(map[types.ObjID]uint64),
-		relationshipReads:  make(map[types.ObjID]uint64),
-		propertyReads:      make(map[propertyReadKey]uint64),
-		propertyScans:      make(map[types.ObjID]uint64),
-		propertyShapeScans: make(map[types.ObjID]uint64),
-		verbReads:          make(map[verbReadKey]uint64),
-		verbScans:          make(map[types.ObjID]uint64),
+		readTS:  readTS,
+		store:   s,
+		objects: make(map[types.ObjID]*Object),
+		// Read-dependency maps are allocated on their first mark (see lazySet).
 		// scalarWrites, relationshipWrites, propertyDefines,
-		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
+		// propertyDefinitionDeletes, propertyRenames, propertyWrites,
+		// propertyDeletes, and verbWrites
 		// are left nil and lazily allocated on first stage (see lazySet).
 		maxObjID:    s.maxObjectID(),
 		highWaterID: s.highWater(),
 		// readClocks is left nil and allocated by the first sampled read.
 		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
-		sampleReadClocks: s.conflictTracking.Load(),
+		sampleReadClocks: s.conflicts.tracking.Load(),
+	}
+	if tx.sampleReadClocks {
+		tx.diag = &txnConflictDiag{}
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
+}
+
+// writerKeepLimit bounds what the store's writeNow writer keeps between writes.
+// Maps never shrink, so a writer that staged more entries or cached more objects
+// than this is dropped after its write instead of reused: one wide write does
+// not pin its maps for the life of the store. An ordinary direct write touches one to three objects.
+const writerKeepLimit = 256
+
+// lockedWriter resets the store's one writeNow writer and returns it. The caller
+// holds store.mu.Lock until the writer is done, so the writer is never in use
+// twice. It reads the store as it is now and registers no read timestamp,
+// because it is never validated or released. The reset names everything it
+// keeps (emptied maps and walk scratch); every other field starts at its zero
+// value, so nothing staged by an earlier write survives.
+func (s *Store) lockedWriter() *StoreTxn {
+	w := &s.writer
+	objects, owned := w.objects, w.owned
+	clear(objects)
+	clear(owned)
+	if objects == nil {
+		objects = make(map[types.ObjID]*Object)
+	}
+	*w = StoreTxn{
+		readTS:                    math.MaxUint64,
+		store:                     s,
+		locked:                    true,
+		objects:                   objects,
+		owned:                     owned,
+		scalarWrites:              w.scalarWrites,
+		relationshipWrites:        w.relationshipWrites,
+		propertyDefines:           w.propertyDefines,
+		propertyDefinitionDeletes: w.propertyDefinitionDeletes,
+		propertyRenames:           w.propertyRenames,
+		propertyWrites:            w.propertyWrites,
+		propertyDeletes:           w.propertyDeletes,
+		verbWrites:                w.verbWrites,
+		verbDeletes:               w.verbDeletes,
+		createdObjects:            w.createdObjects,
+		recycleWrites:             w.recycleWrites,
+		verbWalk:                  w.verbWalk,
+		propWalk:                  w.propWalk,
+		parentWalk:                w.parentWalk,
+		maxObjID:                  s.maxObjectID(),
+		highWaterID:               s.highWater(),
+		conflictLabel:             ConflictLabel{Obj: types.ObjNothing},
+	}
+	w.clearStagedWrites()
+	return w
+}
+
+// writeNow is how the direct transaction writes: op runs on the store's writer,
+// which reads the live store under store.mu.Lock, and what it staged is
+// published before the lock is released. Nothing else can run between the reads
+// and the publication, so there is nothing to validate. A failed op publishes
+// nothing.
+func (s *Store) writeNow(op func(w *StoreTxn) types.ErrorCode) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.lockedWriter()
+	errCode := op(w)
+	wide := w.stagedEntries() > writerKeepLimit || len(w.objects) > writerKeepLimit
+	if errCode == types.E_NONE && w.hasStagedWrites() {
+		// The writer staged each definition on its definer only; the store walks
+		// the definer's children as they are now, under this lock.
+		writes := w.writesByObject()
+		w.publishStagedLocked(&writes, s.clock.Load()+1, true)
+	}
+	if wide {
+		s.writer = StoreTxn{}
+	}
+	return errCode
+}
+
+// live reports whether tx reads the store as it is now: the shared direct
+// transaction, or a writeNow writer. Neither is validated, so neither records
+// reads or memoizes resolutions.
+func (tx *StoreTxn) live() bool {
+	return tx.direct || tx.locked
 }
 
 func (tx *StoreTxn) ReadTimestamp() uint64 {
@@ -181,12 +286,14 @@ func (tx *StoreTxn) IsDirect() bool {
 
 // HasStagedTopology reports whether the txn has staged TOPOLOGY writes that a coarse
 // builtin would read stale from the live store mid-task: created objects (absent from
-// live), relationship writes (location/contents/children), or verb-list deletions.
-// Property/scalar/verb-CODE writes are not included. A verb-list deletion crosses
-// this boundary through CommitAndRenew; the legacy unvalidated flush remains only
-// for the other coarse-immediate topology.
+// live), relationship writes (location/contents/children), verb-list deletions, or
+// property definitions and their deletions (the slot names a coarse create, chparent
+// or recycle copies from live parents). Property-value, scalar and verb-CODE writes
+// are not included. A verb-list deletion crosses this boundary through
+// CommitAndRenew; the legacy unvalidated flush remains only for the other
+// coarse-immediate topology.
 func (tx *StoreTxn) HasStagedTopology() bool {
-	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0)
+	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0)
 }
 
 // HasStagedVerbDeletes reports whether a coarse builtin must cross a normal
@@ -200,7 +307,12 @@ func (tx *StoreTxn) HasWrites() bool {
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
-	return tx != nil && (tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (tx.hasObjectWrites() || len(tx.taskWrites) > 0)
+}
+
+// hasObjectWrites reports staged writes other than task rows.
+func (tx *StoreTxn) hasObjectWrites() bool {
+	return tx.hasWaifWrites() || len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyRenames) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0
 }
 
 // markTerminal records an operation/apply failure that cannot become valid by
@@ -252,6 +364,13 @@ func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
 	if tx != nil {
 		tx.gateWait = waited
 	}
+}
+
+func (tx *StoreTxn) commitContextOrBackground() context.Context {
+	if tx.commitContext == nil {
+		return context.Background()
+	}
+	return tx.commitContext
 }
 
 // SetCommitContext permits cancellation while waiting for shared admission.

@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -36,6 +35,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			Program:             cloneProgram(frame.Program),
 			IP:                  frame.IP,
 			Locals:              append([]types.Value(nil), frame.Locals...),
+			CommandEnvironment:  frame.CommandEnvironment,
 			Stack:               append([]types.Value(nil), vm.Stack[frame.BasePointer:stackEnd]...),
 			This:                frame.This,
 			ThisValue:           frame.ThisValue,
@@ -50,6 +50,9 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			HasPendingReturn:    frame.HasPendingReturn,
 			VerbDebug:           frame.VerbDebug,
 			DiscardReturn:       frame.DiscardReturn,
+			ReturnLocal:         frame.ReturnLocal,
+			BuiltinCaller:       frame.BuiltinCaller,
+			BuiltinPC:           frame.BuiltinPC,
 			IsVerbCall:          frame.IsVerbCall,
 			IsEvalFrame:         frame.IsEvalFrame,
 			ThreadMode:          activationThreadMode(vm.Frames, i, vm.Context),
@@ -63,6 +66,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 		}
 		if frame.PendingError != nil {
 			saved.PendingError.Present = true
+			saved.PendingError.Reason = exceptionReason(frame.PendingError)
 			switch pending := frame.PendingError.(type) {
 			case VMException:
 				saved.PendingError.Code = pending.Code
@@ -81,7 +85,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 // activationThreadMode reports frame i's own thread mode. The context holds the
 // running activation's mode; each lower activation's mode is what the nearest
 // context-saving frame above it saved when it was pushed.
-func activationThreadMode(frames []*StackFrame, i int, ctx *kernel.TaskContext) bool {
+func activationThreadMode(frames []*StackFrame, i int, ctx *task.Context) bool {
 	for above := i + 1; above < len(frames); above++ {
 		if savesContext(frames[above]) {
 			return frames[above].SavedThreadMode
@@ -107,7 +111,7 @@ func RestoreVMSnapshot(
 	snapshot *task.VMSnapshot,
 	store *dbstore.Store,
 	session *builtins.Session,
-	ctx *kernel.TaskContext,
+	ctx *task.Context,
 ) (*VM, error) {
 	if err := validateVMSnapshot(snapshot); err != nil {
 		return nil, err
@@ -135,6 +139,7 @@ func RestoreVMSnapshot(
 			IP:                  saved.IP,
 			BasePointer:         base,
 			Locals:              append([]types.Value(nil), saved.Locals...),
+			CommandEnvironment:  saved.CommandEnvironment,
 			This:                saved.This,
 			ThisValue:           saved.ThisValue,
 			Player:              saved.Player,
@@ -148,6 +153,9 @@ func RestoreVMSnapshot(
 			HasPendingReturn:    saved.HasPendingReturn,
 			VerbDebug:           saved.VerbDebug,
 			DiscardReturn:       saved.DiscardReturn,
+			ReturnLocal:         saved.ReturnLocal,
+			BuiltinCaller:       saved.BuiltinCaller,
+			BuiltinPC:           saved.BuiltinPC,
 			IsVerbCall:          saved.IsVerbCall,
 			IsEvalFrame:         saved.IsEvalFrame,
 			SavedThisObj:        saved.SavedThisObj,
@@ -164,8 +172,9 @@ func RestoreVMSnapshot(
 		}
 		if saved.PendingError.Present {
 			frame.PendingError = VMException{
-				Code:  saved.PendingError.Code,
-				Value: saved.PendingError.Value,
+				Code:   saved.PendingError.Code,
+				Value:  saved.PendingError.Value,
+				Reason: saved.PendingError.Reason,
 			}
 		}
 		machine.Frames = append(machine.Frames, frame)
@@ -205,14 +214,34 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	stackBase := 0
 	for frameIndex := range snapshot.Frames {
 		saved := &snapshot.Frames[frameIndex]
-		if err := bytecode.VerifyProgram(&saved.Program); err != nil {
+		if !saved.PendingError.ValidExceptionReason() {
+			return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+		}
+		heights, err := bytecode.StackHeights(&saved.Program)
+		if err != nil {
 			return fmt.Errorf("frame %d: %w", frameIndex, err)
 		}
 		if !saved.Program.IsInstructionBoundary(saved.IP) {
 			return fmt.Errorf("frame %d: saved IP %d is not an instruction boundary", frameIndex, saved.IP)
 		}
+		if heights[saved.IP] < 0 {
+			return fmt.Errorf("frame %d: saved IP %d is unreachable", frameIndex, saved.IP)
+		}
+		// A caller's saved IP follows its call, whose result the callee's
+		// return pushes, if it pushes one, onto the saved stack.
+		resumeHeight := len(saved.Stack)
+		if frameIndex+1 < len(snapshot.Frames) && returnPushesResult(&snapshot.Frames[frameIndex+1]) {
+			resumeHeight++
+		}
+		if heights[saved.IP] != resumeHeight {
+			return fmt.Errorf("frame %d: stack height %d at saved IP %d, where the program has %d",
+				frameIndex, resumeHeight, saved.IP, heights[saved.IP])
+		}
 		if len(saved.Locals) < saved.Program.NumLocals {
 			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
+		}
+		if saved.ReturnLocal < 0 || (saved.ReturnLocal != 0 && (frameIndex == 0 || saved.ReturnLocal > len(snapshot.Frames[frameIndex-1].Locals))) {
+			return fmt.Errorf("frame %d: invalid caller result local", frameIndex)
 		}
 		stackEnd := stackBase + len(saved.Stack)
 		for handlerIndex, handler := range saved.ExceptStack {
@@ -231,10 +260,23 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 			if handler.StackDepth < stackBase || handler.StackDepth > stackEnd {
 				return fmt.Errorf("frame %d handler %d: stack depth %d outside [%d,%d]", frameIndex, handlerIndex, handler.StackDepth, stackBase, stackEnd)
 			}
+			// Unwinding sets SP to StackDepth and jumps to HandlerIP.
+			if depth := handler.StackDepth - stackBase; depth != heights[handler.HandlerIP] {
+				return fmt.Errorf("frame %d handler %d: stack depth %d, where handler %d has %d", frameIndex, handlerIndex, depth, handler.HandlerIP, heights[handler.HandlerIP])
+			}
 		}
 		stackBase = stackEnd
 	}
 	return nil
+}
+
+// returnPushesResult reports whether callee's return pushes a value onto its
+// caller's stack (vm/stack.go Return): an eval frame always pushes its
+// wrapped result, a move or recycle continuation pushes the builtin's result
+// or starts the next hook (whose return does), and any other frame pushes
+// unless its caller discards the result.
+func returnPushesResult(callee *task.VMFrameSnapshot) bool {
+	return callee.IsEvalFrame || callee.MoveContinuation != nil || callee.RecycleContinuation != nil || !callee.DiscardReturn
 }
 
 func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveContinuationSnapshot {
@@ -251,11 +293,12 @@ func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContin
 	}
 	request := state.request
 	return &task.RecycleContinuationSnapshot{
-		Object:      request.Object,
-		OldParents:  append([]types.ObjID(nil), request.OldParents...),
-		OldChildren: append([]types.ObjID(nil), request.OldChildren...),
-		OldContents: append([]types.ObjID(nil), request.OldContents...),
-		OldLocation: request.OldLocation,
+		ExitCallback: state.exitCallback,
+		Object:       request.Object,
+		OldParents:   append([]types.ObjID(nil), request.OldParents...),
+		OldChildren:  append([]types.ObjID(nil), request.OldChildren...),
+		OldContents:  append([]types.ObjID(nil), request.OldContents...),
+		OldLocation:  request.OldLocation,
 	}
 }
 
@@ -263,7 +306,7 @@ func restoreRecycleContinuation(state *task.RecycleContinuationSnapshot) *recycl
 	if state == nil {
 		return nil
 	}
-	return &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+	return &recycleContinuation{exitCallback: state.ExitCallback, request: builtins.RecycleLifecycleRequest{
 		Object:      state.Object,
 		OldParents:  append([]types.ObjID(nil), state.OldParents...),
 		OldChildren: append([]types.ObjID(nil), state.OldChildren...),
@@ -287,6 +330,8 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		Source:        append([]string(nil), program.Source...),
 		BuiltinSlots:  slots,
 		BuiltinLayout: program.BuiltinLayout,
+		// Immutable once the compiler fills it, like Constants' values.
+		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
 	}
 }
 

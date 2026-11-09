@@ -201,8 +201,9 @@ Request flow: `server` (connections, login, input) → `engine.Runtime`
 
 - **Source to execution:** `parser` (lexer, AST, unparser) → `compiler` (owns
   complete source compilation, with a cache keyed by `sourcekey`) → `bytecode`
-  (opcodes, verifier, disassembler) → `vm`. `verb` holds the
-  language-neutral verb IR. `command` does player command parsing and
+  (opcodes, verifier, disassembler) → `vm`. `ir` holds the
+  semantic program IR. `preposition` owns the shared preposition vocabulary.
+  `command` does player command parsing and
   verb/object matching.
 - **State:** `db/store` is an MVCC store. Tasks read at a snapshot timestamp and
   stage writes, and commits validate their read sets. A stale read aborts, and
@@ -252,8 +253,11 @@ disposable database behavior, login-script environment mechanism, required run
 record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
 `plans/barn-toast-mongoose-convergence-workstreams.md`.
 
-Manual reproduction is exceptional and requires the user's explicit approval,
-as specified in `AGENTS.md`.
+Manual reproduction (launching a Barn or Toast server yourself) is exceptional
+and requires the user's explicit approval, as specified in `AGENTS.md`.
+Investigating Barn needs no approval: read the code, write a Go test, run
+`bin/moo` or `barn -eval`, or use a debugger. "That would need a manual repro"
+is never a reason to stop at "I don't know".
 
 ## Reviewing What Happened On A Run
 
@@ -270,14 +274,29 @@ go build -o bin/ ./cmd/barn_logs
 ./bin/barn_logs -run list        # available runs
 ```
 
-An uncaught MOO error is **one** log record carrying the rendered traceback, the
-structured frames (verb, object, line, **source line**), and the error code. A
-recovered panic carries a Go stack. `barn_logs` prints those indented under the
-failure. The files are line-delimited JSON, so `jq` works too:
+Every uncaught task exception is **one** `uncaught exception` record carrying the
+rendered traceback, the structured frames (verb, object, line, **source line**), the
+error code, `error_msg` (the `raise()` message when one was given), `forked`, and
+`handled`. Forked tasks and failures of `#0:handle_uncaught_error` itself are
+included. An error a database hook handled (`#0:handle_uncaught_error` returned
+true or suspended, or `handle_task_timeout` took it) logs at WARN; an unhandled one
+at ERROR, so `-level error` still means "nothing caught it". A recovered panic
+carries a Go stack. `barn_logs` prints those indented under the failure. The files
+are line-delimited JSON, so `jq` works too:
 
 ```bash
 jq -c 'select(.level=="ERROR")' logs/latest.jsonl
+jq -c 'select(.msg=="uncaught exception" and .handled)' logs/latest.jsonl
 ```
+
+**Heap growth.** A watchdog reads live heap (`/gc/heap/live:bytes`) every 5 s
+against the reading after database load. At 2x, then each further doubling, it logs
+one WARN `heap growth` record (`live_bytes`, `baseline_bytes`, `tasks_live`,
+`unfinished_tasks`, and up to 20 unfinished `tasks` with id, verb, this,
+programmer, state). With a log directory it then writes
+`heap-<unix>.pprof`, `goroutine-<unix>.pprof` and a 5 s `moo-<unix>.pprof` there
+and names them in a `heap growth profiles` record (the MOO profile is skipped,
+with a note, while another MOO profile session is running).
 
 **Caveat:** `Test.db` has genuinely broken object refs, so every boot logs ~30
 `src=startup_repair` warnings (Toast repairs them too — conformance *asserts* these
@@ -291,16 +310,31 @@ messages). Use `-level error` to see what actually broke.
 | `-log-dir` | `logs` | Empty disables the JSON file sink |
 | `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
 
-The debug endpoint binds an **ephemeral port**; find the real address in the log:
+The debug endpoint binds an **ephemeral port**; its bound address is written to
+`debug.addr` in the log directory (servers sharing a log directory overwrite it;
+the `debug endpoint listening` record has it too):
 
 ```bash
-ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
+ADDR=$(cat logs/debug.addr)
 curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
 curl -s "http://$ADDR/debug/pprof/heap" > heap.out
 curl -s "http://$ADDR/debug/pprof/moo?seconds=30" > moo.pprof  # MOO verb stacks, not Go functions
 go tool pprof -top moo.pprof                                    # values: ticks, wall; label moo.verb
 curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
+curl -s "http://$ADDR/debug/conflict-census" | jq '.Keys[:5]'  # what lost commits were stale on
 ```
+
+`/debug/conflict-census` serves the store's MVCC conflict census as JSON: lost
+commits per key, sole and refused counts, and the labels that lost. With
+`CONFLICT_CENSUS = 1` in the `--config` file, tracking is on and each property and
+map-key row also names the writer (label, verb and line) of the version the loser
+went stale on, the loser's first-read site and slice ticks, how many losses were on
+an unchanged value, and the ticks thrown away; `SliceAttempts` is a histogram of
+attempts per task slice. `EarlyDetection` counts what an early abort would save:
+at each 1024-tick checkpoint a task with staged writes checks whether a hot property
+it read has since been rewritten (count only, execution is unchanged), and
+`SavableTicks` sums the ticks from that detection to the loss (per key too). Tracking
+costs time and memory on every transaction, so it is off by default.
 
 Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
 `barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,

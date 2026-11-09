@@ -9,11 +9,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"os/exec"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
@@ -56,7 +59,10 @@ func logLevelHandler(w http.ResponseWriter, r *http.Request) {
 // for its side effects, because that only populates http.DefaultServeMux — and
 // exposing pprof on a mux the rest of the program might serve publicly is how it
 // ends up on the open internet.
-func debugMux() *http.ServeMux {
+//
+// store returns the loaded store, or nil before the load; the conflict census
+// route reads it.
+func debugMux(store func() *dbstore.Store) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/debug/vars", expvar.Handler())
 	mux.HandleFunc("/debug/loglevel", logLevelHandler)
@@ -66,6 +72,7 @@ func debugMux() *http.ServeMux {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.HandleFunc("/debug/pprof/moo", mooProfileHandler)
+	mux.HandleFunc("/debug/conflict-census", conflictCensusHandler(store))
 
 	return mux
 }
@@ -102,23 +109,53 @@ func formatListenerSpecs(specs []listener.Spec) string {
 }
 
 func gitImplementationRef() string {
-	commit, err := gitOutput("rev-parse", "HEAD")
-	if err != nil {
+	// Optional provenance must not indefinitely delay loading or listening.
+	// Both commands consume this one budget, including time spent reading HEAD.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	commit, err := gitOutput(ctx, "rev-parse", "HEAD")
+	if err != nil || !validGitCommit(commit) {
 		return "unknown tracked_dirty=unknown"
 	}
-	dirty := "false"
-	if err := exec.Command("git", "diff", "--quiet", "--").Run(); err != nil {
-		dirty = "true"
+	dirty := "unknown"
+	cmd := exec.CommandContext(ctx, "git", "diff", "--quiet", "--")
+	cmd.WaitDelay = 100 * time.Millisecond
+	err = cmd.Run()
+	if ctx.Err() == nil {
+		if err == nil {
+			dirty = "false"
+		} else {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				dirty = "true"
+			}
+		}
 	}
 	return fmt.Sprintf("%s tracked_dirty=%s", commit, dirty)
 }
 
-func gitOutput(args ...string) (string, error) {
-	out, err := exec.Command("git", args...).Output()
+func gitOutput(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	// A child can exit while a descendant still holds its output pipe open.
+	cmd.WaitDelay = 100 * time.Millisecond
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func validGitCommit(commit string) bool {
+	if len(commit) != 40 && len(commit) != 64 {
+		return false
+	}
+	for i := range len(commit) {
+		c := commit[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func printProfiles(out, errOut io.Writer, registry profile.Registry) {
@@ -145,6 +182,8 @@ type Config struct {
 	TraceFilter                                                                string
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
 	EvalFile                                                                   string
+	StartLine, StartScript                                                     *string
+	StartScriptFirst                                                           bool
 	DumpPath                                                                   string
 	MemoryReport                                                               bool
 	MemoryProfile                                                              string
@@ -276,6 +315,17 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	var scriptLines []string
+	if cfg.StartScript != nil {
+		data, err := os.ReadFile(*cfg.StartScript)
+		if err != nil {
+			return fmt.Errorf("read startup script: %w", err)
+		}
+		scriptLines = []string{}
+		if len(data) > 0 {
+			scriptLines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		}
+	}
 	slog.Info("Barn MOO Server", slog.String("database", cfg.DatabasePath), slog.String("listeners", formatListenerSpecs(specs)))
 	if cfg.TraceEnabled {
 		filters := strings.Split(cfg.TraceFilter, ",")
@@ -307,11 +357,14 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	defer releaseListeners()
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux(srv.Store))
 		if err != nil {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {
 			defer debugSrv.shutdown()
+			if cfg.LogDir != "" {
+				writeDebugAddr(cfg.LogDir, debugSrv.addr)
+			}
 		}
 	}
 	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
@@ -326,6 +379,18 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if err := srv.LoadDatabase(); err != nil {
 		state.Failed()
 		return fmt.Errorf("load database: %w", err)
+	}
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	startMemWatch(watchCtx, srv.Runtime(), cfg.LogDir)
+	if cfg.StartScriptFirst && cfg.StartScript != nil {
+		srv.StartScripts = append(srv.StartScripts, scriptLines)
+	}
+	if cfg.StartLine != nil {
+		srv.StartScripts = append(srv.StartScripts, []string{*cfg.StartLine})
+	}
+	if !cfg.StartScriptFirst && cfg.StartScript != nil {
+		srv.StartScripts = append(srv.StartScripts, scriptLines)
 	}
 	done := make(chan struct{})
 	go func() {

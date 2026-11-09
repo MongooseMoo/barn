@@ -3,8 +3,8 @@ package builtins
 import (
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -12,7 +12,11 @@ func runtimeIdentity(ctx *Execution) metrics.Identity {
 	if ctx.Task == nil {
 		return metrics.Identity{}
 	}
-	return metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+	id := metrics.Identity{TaskID: ctx.Task.ID, This: int64(ctx.Task.This), Verb: ctx.Task.VerbName}
+	if ctx.CommandDiagnostic != nil {
+		id.CommandID = ctx.CommandDiagnostic.ID
+	}
+	return id
 }
 
 // Threaded builtins mirror ToastStunt's background_thread() (background.cc).
@@ -25,7 +29,7 @@ func runtimeIdentity(ctx *Execution) metrics.Identity {
 // value included, is returned as is.
 //
 // Barn suspends only where the suspension is honored: a builtin called from a
-// nested VM (create()'s :initialize, for example) runs its work inline instead.
+// synchronous host VM runs its work inline instead.
 
 // threadedCall reports whether a threaded builtin called now suspends the task.
 func threadedCall(ctx *Execution) bool {
@@ -39,7 +43,7 @@ func backgroundValue(ctx *Execution, work func() types.Value) types.Result {
 		return runInBackground(ctx, func() types.Result { return types.Ok(work()) })
 	}
 	value := work()
-	if ctx.TaskContext != nil && !ctx.ThreadMode {
+	if ctx.Context != nil && !ctx.ThreadMode {
 		return types.Ok(value)
 	}
 	// Toast would suspend here but this call cannot, so it gets what the
@@ -75,7 +79,7 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 	gen := t.SuspendGeneration()
 	id := runtimeIdentity(ctx) // Capture before the task can resume on another goroutine.
 	start := func() {
@@ -103,7 +107,7 @@ func runInBackground(ctx *Execution, operation func() types.Result) types.Result
 		// start now, exactly as notify() sends immediately on this path.
 		start()
 	} else {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{Kind: kernel.PendingEffectAsyncStart, Start: start})
+		enqueuePendingEffect(ctx, task.PendingEffect{Kind: task.PendingEffectAsyncStart, Start: start})
 	}
 	return types.Suspend(-1)
 }

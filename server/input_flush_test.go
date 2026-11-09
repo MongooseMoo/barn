@@ -7,7 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -29,7 +29,7 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 		t.Fatalf("switch player: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
@@ -59,12 +59,18 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 
 	processor.processInput(command.InputEvent{ConnID: conn.ID, Player: player, Line: "auditflush first"})
 	processor.processInput(command.InputEvent{ConnID: conn.ID, Player: player, Line: "auditflush second"})
+	processed := false
+	processor.ForceInput(player, "auditflush forced", false, func() { processed = true })
+	if !processed {
+		t.Fatal("held forced input did not complete its receipt")
+	}
 	processor.processInput(command.InputEvent{ConnID: conn.ID, Player: player, Line: ".FlUsH"})
 
 	want := []string{
 		">> Flushing the following pending input:",
 		">>     auditflush first",
 		">>     auditflush second",
+		">>     auditflush forced",
 		">> (Done flushing)",
 	}
 	if got := transport.writtenLines(); !reflect.DeepEqual(got, want) {
@@ -93,7 +99,7 @@ func TestSupersededConnectionDisconnectPreservesReplacementHeldInput(t *testing.
 		t.Fatalf("switch replacement connection: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = true
@@ -112,13 +118,13 @@ func TestSupersededConnectionDisconnectPreservesReplacementHeldInput(t *testing.
 			t.Fatalf("set %s: ok=%v result=%+v", option.name, ok, result)
 		}
 	}
-	if handled, _ := rt.Session().HandleHeldInput(player, "queued after reconnect", false); !handled {
+	if handled, _ := rt.Session().HandleHeldInput(player, replacement.ID, "queued after reconnect", false); !handled {
 		t.Fatal("replacement input was not held")
 	}
 
 	processor.processDisconnect(command.InputEvent{ConnID: oldConn.ID})
 
-	handled, flushed := rt.Session().HandleHeldInput(player, ".flush", false)
+	handled, flushed := rt.Session().HandleHeldInput(player, replacement.ID, ".flush", false)
 	if !handled || !reflect.DeepEqual(flushed, []string{"queued after reconnect"}) {
 		t.Fatalf("flush after stale disconnect = handled %v, lines %q", handled, flushed)
 	}

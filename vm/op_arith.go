@@ -77,7 +77,7 @@ func (vm *VM) executeAdd() error {
 			return nil
 		}
 		if b.Type() == types.TYPE_INT {
-			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)")
+			return newMooError(types.E_TYPE, "Type mismatch (expected string; got integer)").withMessage()
 		}
 	}
 

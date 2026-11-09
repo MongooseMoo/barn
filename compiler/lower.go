@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 // UnknownBuiltinError is returned by the compiler when a verb references a
@@ -14,7 +14,7 @@ import (
 // as ToastStunt does: "Line N:  Unknown built-in function: NAME".
 type UnknownBuiltinError struct {
 	Name     string
-	Position verb.Position
+	Position ir.Position
 }
 
 func (e *UnknownBuiltinError) Error() string {
@@ -28,7 +28,6 @@ type lowerer struct {
 	variables            map[string]int       // Source variable name -> index mapping
 	internalVariables    map[string]int       // Compiler-only local name -> index mapping
 	loops                []loopContext        // Loop context stack for break/continue
-	scopes               []scope              // Variable scope stack
 	tempCount            int                  // Counter for unique temporary variable names
 	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
 	registry             map[string]int       // Immutable builtin name-to-ID view
@@ -50,7 +49,6 @@ func newLowerer(registry map[string]int) *lowerer {
 		variables:         make(map[string]int),
 		internalVariables: make(map[string]int),
 		loops:             make([]loopContext, 0, 8),
-		scopes:            make([]scope, 0, 8),
 		registry:          registry,
 		indexContextVar:   -1,
 	}
@@ -61,12 +59,11 @@ func newLowerer(registry map[string]int) *lowerer {
 // return 0 by default). When the last statement is a loop, its result value
 // (from break expr or default 0) is used as the implicit return value.
 // VarNames is populated from the compiler's variable table.
-func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, error) {
-	if err := verb.Validate(program); err != nil {
+func (c *lowerer) compileProgram(program *ir.Program) (*bytecode.Program, error) {
+	if err := ir.Validate(program); err != nil {
 		return nil, err
 	}
 	stmts := program.Statements
-	c.beginScope()
 
 	if len(stmts) > 0 {
 		// Compile all but the last statement using compileBlock (which pops loop results)
@@ -98,8 +95,6 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 		c.emit(bytecode.OP_RETURN_NONE)
 	}
 
-	c.endScope()
-
 	// VarNames is already populated by declareVariable via compileBlock,
 	// but ensure the mapping is complete by building from the variables map.
 	// The compiler's declareVariable already appends to program.VarNames in order,
@@ -110,12 +105,14 @@ func (c *lowerer) compileProgram(program *verb.Program) (*bytecode.Program, erro
 			return nil, err
 		}
 	}
+	c.program.ClassifyPropertyConstants()
+	c.program.CallSites = bytecode.NewCallSites(len(c.program.Constants))
 
 	return c.program, nil
 }
 
 // compileNode dispatches compilation based on node type
-func (c *lowerer) compileNode(node verb.Node) error {
+func (c *lowerer) compileNode(node ir.Node) error {
 	// Bail out early if an overflow error has been recorded
 	if c.err != nil {
 		return c.err
@@ -131,63 +128,63 @@ func (c *lowerer) compileNode(node verb.Node) error {
 
 	switch n := node.(type) {
 	// Expressions
-	case *verb.LiteralExpr:
+	case *ir.LiteralExpr:
 		return c.compileLiteral(n)
-	case *verb.IdentifierExpr:
+	case *ir.IdentifierExpr:
 		return c.compileIdentifier(n)
-	case *verb.UnaryExpr:
+	case *ir.UnaryExpr:
 		return c.compileUnary(n)
-	case *verb.BinaryExpr:
+	case *ir.BinaryExpr:
 		return c.compileBinary(n)
-	case *verb.TernaryExpr:
+	case *ir.TernaryExpr:
 		return c.compileTernary(n)
-	case *verb.AssignExpr:
+	case *ir.AssignExpr:
 		return c.compileAssign(n)
-	case *verb.BuiltinCallExpr:
+	case *ir.BuiltinCallExpr:
 		return c.compileBuiltinCall(n)
-	case *verb.IndexExpr:
+	case *ir.IndexExpr:
 		return c.compileIndex(n)
-	case *verb.RangeExpr:
+	case *ir.RangeExpr:
 		return c.compileRange(n)
-	case *verb.IndexBoundaryExpr:
+	case *ir.IndexBoundaryExpr:
 		return c.compileIndexBoundary(n)
-	case *verb.PropertyExpr:
+	case *ir.PropertyExpr:
 		return c.compileProperty(n)
-	case *verb.VerbCallExpr:
+	case *ir.VerbCallExpr:
 		return c.compileVerbCall(n)
-	case *verb.SpliceExpr:
+	case *ir.SpliceExpr:
 		return c.compileSplice(n)
-	case *verb.CatchExpr:
+	case *ir.CatchExpr:
 		return c.compileCatch(n)
-	case *verb.ListExpr:
+	case *ir.ListExpr:
 		return c.compileList(n)
-	case *verb.ListRangeExpr:
+	case *ir.ListRangeExpr:
 		return c.compileListRange(n)
-	case *verb.MapExpr:
+	case *ir.MapExpr:
 		return c.compileMap(n)
 
 	// Statements
-	case *verb.EmptyStmt:
+	case *ir.EmptyStmt:
 		return nil
-	case *verb.ExprStmt:
+	case *ir.ExprStmt:
 		return c.compileExprStmt(n)
-	case *verb.IfStmt:
+	case *ir.IfStmt:
 		return c.compileIf(n)
-	case *verb.WhileStmt:
+	case *ir.WhileStmt:
 		return c.compileWhile(n)
-	case *verb.CollectionLoopStmt:
+	case *ir.CollectionLoopStmt:
 		return c.compileCollectionLoop(n)
-	case *verb.RangeLoopStmt:
+	case *ir.RangeLoopStmt:
 		return c.compileRangeLoop(n)
-	case *verb.BreakStmt:
+	case *ir.BreakStmt:
 		return c.compileBreak(n)
-	case *verb.ContinueStmt:
+	case *ir.ContinueStmt:
 		return c.compileContinue(n)
-	case *verb.ReturnStmt:
+	case *ir.ReturnStmt:
 		return c.compileReturn(n)
-	case *verb.TryStmt:
+	case *ir.TryStmt:
 		return c.compileTry(n)
-	case *verb.ForkStmt:
+	case *ir.ForkStmt:
 		return c.compileFork(n)
 
 	default:

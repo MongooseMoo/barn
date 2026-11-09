@@ -2,12 +2,11 @@ package engine
 
 import (
 	"context"
+	"time"
+
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/metrics"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
-	"time"
 )
 
 func inputAdmissionKey(player types.ObjID) admission.Key {
@@ -16,7 +15,7 @@ func inputAdmissionKey(player types.ObjID) admission.Key {
 	}
 	return admission.Key{Principal: int64(player), Class: admission.Input}
 }
-func backgroundAdmissionKey(t *task.Task) admission.Key {
+func backgroundAdmissionKey(t *Task) admission.Key {
 	programmer, frames := t.CallStackProgrammer(0)
 	if frames == 0 {
 		programmer = t.Programmer
@@ -40,8 +39,8 @@ func (s *Runtime) CloseInputAdmission()            { s.closeInputAdmission() }
 func (s *Runtime) AdmissionStats() admission.Stats { return s.admission.Snapshot() }
 
 // WithCheckpointBarrier captures tasks and store state at one cooperative
-// boundary. The callback must not execute MOO hooks. Mutable WAIF graphs require
-// retaining this barrier until serialization has consumed the snapshots.
+// boundary. The callback must not execute MOO hooks. Mutable WAIF graphs must
+// be frozen during capture before file encoding can proceed outside the barrier.
 func (s *Runtime) WithCheckpointBarrier(write func() error) error {
 	resume, err := s.admission.Pause(s.ctx)
 	if err != nil {
@@ -57,7 +56,7 @@ func (s *Runtime) WithCheckpointBarrier(write func() error) error {
 
 // enterBackground is called on an unclaimed task. Kill publishes cancellation
 // before the wait and a final state check prevents resurrection at the lease.
-func (s *Runtime) enterBackground(t *task.Task) (*admission.Scope, context.Context, context.CancelFunc, error) {
+func (s *Runtime) enterBackground(t *Task) (*admission.Scope, context.Context, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	t.SetCancelFunc(cancel)
 	started := time.Now()
@@ -96,11 +95,11 @@ func (r *admissionRoot) release() {
 func (s *Runtime) collectAdmissionRoots(anon map[types.ObjID]struct{}, waifs *types.WaifSet) {
 	for _, values := range s.admissionRoots {
 		for _, value := range values {
-			vm.CollectAnonymousRefsFromValue(value, anon)
-			if waifs != nil {
-				var found []types.Value
-				vm.CollectWaifsFromValue(value, &found)
-				for _, w := range found {
+			types.CollectAnonymousRefs(value, anon, true)
+			if waifs != nil && value.MayHoldFinalizable() {
+				found := types.NewWaifSet(nil)
+				found.AddReachable(value, true)
+				for _, w := range found.Values {
 					waifs.Add(w)
 				}
 			}

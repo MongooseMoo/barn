@@ -34,6 +34,17 @@ type Frame struct {
 	Line int64  // MOO source line
 }
 
+// Parent supplies the live sampling state of the interpreter that started a
+// nested execution. Calls run on that execution's goroutine, while its parent
+// is paused. Charging a child advances ancestor baselines because the caller
+// will absorb the child's ticks when it returns.
+type Parent interface {
+	ProfileTime(*Session) (time.Time, bool)
+	ResetProfileTime(time.Time)
+	ChargeProfileChild(*Session, int64, time.Time)
+	AppendProfileFrames([]Frame) []Frame
+}
+
 type sample struct {
 	stack []Frame
 	label string

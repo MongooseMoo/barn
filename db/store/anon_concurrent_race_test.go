@@ -16,7 +16,7 @@ import (
 // Anonymous objects live out-of-band in s.anonObjects as a plain map[ObjID]*Object
 // with NO COW slot (see store_core.go liveObjectLocked).
 // The anonfix routes any commit whose write footprint includes an anon id onto the
-// COARSE exclusive store.mu.Lock path (writeFootprintHasAnon), where the anon is
+// COARSE exclusive store.mu.Lock path (writesTouchAnon), where the anon is
 // mutated IN PLACE. The claim under test: that exclusive lock fully serializes anon
 // writes, so concurrent committers neither (a) trip -race on the unsynchronized
 // in-place mutation the scout warned about in §5, nor (b) lose updates.

@@ -2,12 +2,61 @@ package vm
 
 import (
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
 	"strings"
 	"time"
 )
+
+// ForkBodyProgram extracts the fork body sub-program described by a bytecode
+// fork record, or returns nil when forkInfo does not carry one.
+func ForkBodyProgram(forkInfo *types.ForkInfo) *bytecode.Program {
+	if forkInfo == nil {
+		return nil
+	}
+	body, ok := forkInfo.Body.(*bytecode.ForkBody)
+	if !ok {
+		return nil
+	}
+	return body.ExtractProgram()
+}
+
+// NewForkVM builds the pre-configured VM a forked child's first run executes:
+// the extracted fork body with the parent's variables copied in. It is a pure
+// function of forkInfo, which is what lets a first run that loses its commit be
+// re-executed from scratch exactly like a fresh task. The caller attaches the
+// child's Context and Task and starts it with ExecuteLoop.
+func NewForkVM(store *dbstore.Store, session *builtins.Session, taskID int64, forkInfo *types.ForkInfo, forkProg *bytecode.Program, ticks int64) *VM {
+	childVM := NewVM(store, session)
+	childVM.TickLimit = ticks
+	childVM.MaxStackDepth = session.GetMaxStackDepth(store)
+
+	// Set up the child frame with inherited variables
+	frame := childVM.PrepareVerbFrame(forkProg,
+		forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
+		forkInfo.Verb, forkInfo.VerbLoc, nil)
+	frame.ThisValue = forkInfo.ThisValue
+	// Mark as verb-call so syncTaskLineNumbers includes this frame
+	// when syncing line numbers to the task's CallStack.
+	frame.IsVerbCall = true
+	// Inherit verb debug flag from the parent verb
+	if forkVerb, _, vErr := store.DirectTxn().FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
+		frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
+	}
+
+	// Copy inherited variable values from the parent
+	for varName, varVal := range forkInfo.Variables {
+		SetLocalByName(frame, forkProg, varName, varVal)
+	}
+	if forkInfo.VarName != "" {
+		SetLocalByName(frame, forkProg, forkInfo.VarName, types.NewInt(taskID))
+	}
+	return childVM
+}
 
 // executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
@@ -81,15 +130,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	playerObj := frame.Player
 	callerObj := frame.Caller
 	verbStr := frame.Verb
-	if vm.Context != nil {
-		if vm.Context.Player != types.ObjNothing {
-			playerObj = vm.Context.Player
-		}
-	}
-	thisValue := types.None
-	if vm.Context != nil {
-		thisValue = vm.Context.ThisValue
-	}
+	thisValue := frame.ThisValue
 
 	forkInfo := &types.ForkInfo{
 		Delay:       time.Duration(delaySeconds * float64(time.Second)),
@@ -112,6 +153,20 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 
 	// Yield to the execution engine.
+	for index, value := range frame.commandEnvironment() {
+		name := task.CommandVariableNames[index]
+		present := false
+		for _, sourceName := range frame.Program.VarNames {
+			if strings.EqualFold(name, sourceName) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			forkInfo.Variables[name] = value
+		}
+	}
+
 	vm.yielded = true
 	vm.yieldResult = types.Result{
 		Flow:     types.FlowFork,
@@ -174,6 +229,16 @@ func oneLineForkBody(source string) string {
 	return body
 }
 
+// singleExceptCodes holds the codes list of a one-code clause, except (E_TYPE),
+// for each code byte, so entering such a try allocates nothing. Handlers only
+// read their codes; persistence copies them.
+var singleExceptCodes = func() (table [256][1]types.ErrorCode) {
+	for i := range table {
+		table[i][0] = types.ErrorCode(i)
+	}
+	return table
+}()
+
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
 func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 	frame := vm.CurrentFrame()
@@ -184,9 +249,14 @@ func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.FetchByte())
-		codes := make([]types.ErrorCode, numCodes)
-		for j := 0; j < numCodes; j++ {
-			codes[j] = types.ErrorCode(vm.FetchByte())
+		var codes []types.ErrorCode
+		if numCodes == 1 {
+			codes = singleExceptCodes[vm.FetchByte()][:]
+		} else {
+			codes = make([]types.ErrorCode, numCodes)
+			for j := 0; j < numCodes; j++ {
+				codes[j] = types.ErrorCode(vm.FetchByte())
+			}
 		}
 
 		var varOperand int

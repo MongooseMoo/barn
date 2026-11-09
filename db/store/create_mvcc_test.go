@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -40,7 +41,7 @@ func TestTxnCreateDecentralized(t *testing.T) {
 	if len(obj.parents) != 1 || obj.parents[0] != parent {
 		t.Errorf("new object parents = %v, want [%v]", obj.parents, parent)
 	}
-	if !containsObjID(s.load(parent).children, newID) {
+	if !slices.Contains(s.load(parent).children, newID) {
 		t.Errorf("parent #%d children = %v, missing new object #%d", parent, s.load(parent).children, newID)
 	}
 	if s.DirectTxn().MaxObject() < newID {
@@ -64,7 +65,7 @@ func TestTxnRecycleSimpleDecentralized(t *testing.T) {
 		t.Fatalf("setup commit: %v", ec)
 	}
 	tx0.Release()
-	if !containsObjID(s.load(parent).children, obj) {
+	if !slices.Contains(s.load(parent).children, obj) {
 		t.Fatalf("setup: parent should contain obj")
 	}
 
@@ -85,7 +86,7 @@ func TestTxnRecycleSimpleDecentralized(t *testing.T) {
 	if o == nil || !o.recycled {
 		t.Errorf("obj #%d should be a recycled tombstone, got %v", obj, o)
 	}
-	if containsObjID(s.load(parent).children, obj) {
+	if slices.Contains(s.load(parent).children, obj) {
 		t.Errorf("parent children still contains recycled obj #%d", obj)
 	}
 }
@@ -155,7 +156,7 @@ func TestTxnCreateConcurrentSameParentBothCommit(t *testing.T) {
 	}
 
 	c := s.load(parent).children
-	if !containsObjID(c, id1) || !containsObjID(c, id2) {
+	if !slices.Contains(c, id1) || !slices.Contains(c, id2) {
 		t.Errorf("parent children = %v, want both #%d and #%d", c, id1, id2)
 	}
 	if !validLiveObject(s.load(id1)) || !validLiveObject(s.load(id2)) {

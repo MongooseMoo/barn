@@ -47,7 +47,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 TESTDB = Path("C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db")
 TOAST = "/root/src/toaststunt/build-release/moo"
-WSL = ["wsl", "-d", "Debian", "-u", "root", "-e", "bash", "-c"]
+# On the Windows workstation both lanes run inside WSL Debian; on Linux (the
+# self-hosted runners are already inside that distribution) they run directly.
+WSL = ["wsl", "-d", "Debian", "-u", "root", "--exec", "bash", "-lc"] if os.name == "nt" else ["bash", "-lc"]
 
 # Same ten workloads as moo-conformance-tests/bench/bench.py so the two
 # harnesses can be cross-checked.
@@ -89,6 +91,8 @@ def probe(key: int, code: str) -> str:
 
 def to_wsl(p: Path) -> str:
     p = p.resolve()
+    if os.name != "nt":
+        return p.as_posix()
     return "/mnt/" + p.drive[0].lower() + p.as_posix()[2:]
 
 
@@ -122,6 +126,48 @@ def build_barn_linux(dest: Path) -> None:
 def run_wsl(script: str, timeout: int) -> subprocess.CompletedProcess:
     return subprocess.run(WSL + [script], capture_output=True, text=True, encoding="utf-8",
                           errors="replace", timeout=timeout)
+
+
+def run_lanes(db: Path, barn_bin: Path, toast: str, inputs: list[tuple[str, str]], out: Path,
+              timeout: int) -> dict[str, tuple[str, float]]:
+    """Run each (barn input, toast input) line pair through both engines, one
+    process per engine, on private copies of db. Returns lane -> (stdout,
+    wall seconds) and
+    writes the inputs and raw transcripts under out. Toast inputs carry their
+    emergency-mode prefix (";" expression, ";;" statements)."""
+    barn_in = out / "barn_in.txt"
+    barn_in.write_text("".join(b + "\n" for b, _ in inputs), encoding="utf-8", newline="\n")
+    toast_in = out / "toast_in.txt"
+    toast_in.write_text("".join(t + "\n" for _, t in inputs) + "quit\n", encoding="utf-8", newline="\n")
+
+    # A private directory per lane lets concurrent runs share a machine. Toast
+    # creates its listener before emergency mode (server.cc main), so -p 0
+    # binds an ephemeral port instead of the default one.
+    private = 'set -euo pipefail; d=$(mktemp -d); trap \'rm -rf "$d"\' EXIT; '
+    lanes = {
+        "toast": (
+            f'{private}cp {to_wsl(db)} "$d/in.db" && '
+            f'{toast} -e -p 0 "$d/in.db" "$d/out.db" < {to_wsl(toast_in)}'
+        ),
+        "barn": (
+            f'{private}cp {to_wsl(db)} "$d/in.db" && cp {to_wsl(barn_bin)} "$d/barn" && '
+            f'chmod +x "$d/barn" && cd "$d" && ./barn -db in.db -log-dir= '
+            f"-debug-addr off -eval-file {to_wsl(barn_in)}"
+        ),
+    }
+    stdout = {}
+    for lane, script in lanes.items():
+        print(f"==> running {lane} lane ({len(inputs)} inputs)", file=sys.stderr)
+        t0 = time.perf_counter()
+        proc = run_wsl(script, timeout)
+        wall = time.perf_counter() - t0
+        print(f"    {lane}: exit {proc.returncode} in {wall:.1f}s", file=sys.stderr)
+        (out / f"{lane}_raw.txt").write_text(
+            proc.stdout + "\n--- STDERR ---\n" + proc.stderr, encoding="utf-8")
+        if proc.returncode != 0:
+            raise RuntimeError(f"{lane} exited {proc.returncode}; see {out / (lane + '_raw.txt')}")
+        stdout[lane] = (proc.stdout, wall)
+    return stdout
 
 
 def parse(stdout: str) -> dict[str, tuple[float, str]]:
@@ -177,36 +223,12 @@ def main() -> int:
 
     probes = [probe(int(key[1:]), code) for key, _, code in order]
     preamble_line = "eval(%s)" % moo_str(PREAMBLE)
-
-    barn_in = args.out / "barn_in.txt"
-    barn_in.write_text(preamble_line + "\n" + "\n".join(probes) + "\n", encoding="utf-8", newline="\n")
-    toast_in = args.out / "toast_in.txt"
-    toast_in.write_text(";" + preamble_line + "\n" + "".join(";" + p + "\n" for p in probes) + "quit\n",
-                        encoding="utf-8", newline="\n")
-
-    db_wsl, barn_wsl = to_wsl(args.db), to_wsl(barn_bin)
-    lanes = {
-        "toast": (
-            f"set -uo pipefail; cp {db_wsl} /tmp/bd_toast.db && "
-            f"{TOAST} -e /tmp/bd_toast.db /tmp/bd_toast_out.db < {to_wsl(toast_in)} 2>/tmp/bd_toast.err"
-        ),
-        "barn": (
-            f"set -uo pipefail; cp {db_wsl} /tmp/bd_barn.db && cp {barn_wsl} /tmp/bd_barn && "
-            f"chmod +x /tmp/bd_barn && cd /tmp && /tmp/bd_barn -db /tmp/bd_barn.db -log-dir= "
-            f"-debug-addr off -eval-file {to_wsl(barn_in)} 2>/tmp/bd_barn.err"
-        ),
-    }
-    results, wall = {}, {}
-    for lane, script in lanes.items():
-        print(f"==> running {lane} lane ({len(probes)} probes)", file=sys.stderr)
-        t0 = time.perf_counter()
-        proc = run_wsl(script, args.timeout)
-        wall[lane] = time.perf_counter() - t0
-        (args.out / f"{lane}_raw.txt").write_text(
-            proc.stdout + "\n--- STDERR ---\n" + proc.stderr, encoding="utf-8")
-        results[lane] = parse(proc.stdout)
-        print(f"    {lane}: {len(results[lane])}/{len(probes)} probes parsed in {wall[lane]:.1f}s",
-              file=sys.stderr)
+    inputs = [(line, ";" + line) for line in [preamble_line] + probes]
+    lanes = run_lanes(args.db, barn_bin, TOAST, inputs, args.out, args.timeout)
+    results = {lane: parse(stdout) for lane, (stdout, _) in lanes.items()}
+    wall = {lane: seconds for lane, (_, seconds) in lanes.items()}
+    for lane in results:
+        print(f"    {lane}: {len(results[lane])}/{len(probes)} probes parsed", file=sys.stderr)
 
     rows = []
     for name, code in workloads:
@@ -224,6 +246,8 @@ def main() -> int:
             "toast_n": len(t), "barn_n": len(b),
             "toast_value": sorted(tv), "barn_value": sorted(bv),
             "values_match": bool(tv) and tv == bv,
+            "evals_succeeded": bool(tv and bv) and all(
+                value.startswith("{1, ") and value.endswith("}") for value in tv | bv),
         }
         row["ratio"] = (row["barn_ms_median"] / row["toast_ms_median"]
                         if row["toast_ms_median"] and row["barn_ms_median"] else None)
@@ -247,7 +271,8 @@ def main() -> int:
         "",
         f"- db: `{args.db}` sha256 `{db_sha}`",
         f"- toast: `{TOAST}` (WSL Debian)",
-        f"- barn: linux/amd64 GOAMD64=v3 cross-build sha256 `{barn_sha}` from `{REPO}` @ {head}",
+        f"- barn binary: `{barn_bin}` sha256 `{barn_sha}`",
+        f"- driver checkout: `{REPO}` @ {head} (may differ from a supplied binary's source)",
         f"- repeats: {args.repeats} (interleaved); timing = in-MOO ftime(1) bookends around eval()",
         f"- lane wall clock: toast {wall['toast']:.1f}s, barn {wall['barn']:.1f}s",
         "",
@@ -262,6 +287,10 @@ def main() -> int:
     missing = [r["name"] for r in rows if r["toast_n"] < args.repeats or r["barn_n"] < args.repeats]
     if missing:
         print(f"WARNING: incomplete samples for {missing}; see *_raw.txt", file=sys.stderr)
+        return 1
+    invalid = [r["name"] for r in rows if not r["values_match"] or not r["evals_succeeded"]]
+    if invalid:
+        print(f"ERROR: failed evals or mismatched results for {invalid}; see *_raw.txt", file=sys.stderr)
         return 1
     return 0
 

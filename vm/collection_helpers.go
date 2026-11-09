@@ -3,7 +3,7 @@ package vm
 import (
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -15,7 +15,7 @@ func isObjLike(v types.Value) bool {
 	return v.Type() == types.TYPE_OBJ || v.Type() == types.TYPE_ANON
 }
 
-func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
+func setAtIndex(session *builtins.Session, ctx *task.Context, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {

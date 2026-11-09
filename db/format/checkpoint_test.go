@@ -45,7 +45,7 @@ func TestWriteCheckpointPreservesWaifIdentityWithoutChangingPortableDump(t *test
 	objectStore := dbstore.NewStore()
 	waif := types.NewWaif(9, 3)
 	other := types.NewWaif(9, 3)
-	objectStore.SetPendingFinalizations([]types.Value{waif, other})
+	objectStore.SetPendingFinalizations([]types.Value{waif, other, waif})
 	path := filepath.Join(t.TempDir(), "waif-identity.db")
 	if err := WriteCheckpoint(path, objectStore, nil, nil, nil); err != nil {
 		t.Fatalf("WriteCheckpoint: %v", err)
@@ -74,6 +74,18 @@ func TestWriteCheckpointPreservesWaifIdentityWithoutChangingPortableDump(t *test
 	}
 	if reloaded.PendingFinalizations[0].WaifIdentity() == reloaded.PendingFinalizations[1].WaifIdentity() {
 		t.Fatal("distinct WAIFs became identical after checkpoint")
+	}
+	if reloaded.PendingFinalizations[2].WaifIdentity() != waif.WaifIdentity() {
+		t.Fatal("repeated WAIF reference lost its identity")
+	}
+	for i := 0; i < 2; i++ {
+		loadedStore, err := reloaded.NewStoreFromDatabase()
+		if err != nil {
+			t.Fatalf("construct store %d: %v", i, err)
+		}
+		if got := loadedStore.WaifCount(); got != 2 {
+			t.Fatalf("store %d WAIF count = %d, want 2 distinct definitions", i, got)
+		}
 	}
 }
 

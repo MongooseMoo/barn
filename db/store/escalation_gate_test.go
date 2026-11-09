@@ -66,6 +66,40 @@ func TestEscalationGateBlocksOrdinaryCommit(t *testing.T) {
 	}
 }
 
+// SharedGateWait counts each ordinary commit's wait for the shared gate, and
+// not the commit made under the exclusive hold.
+func TestSharedGateWaitCountsOrdinaryCommits(t *testing.T) {
+	store := newGateTestStore(t)
+	grant, _ := store.AcquireExclusive(context.Background())
+	exempt := store.BeginSnapshot(0)
+	exempt.BindExclusiveGrant(grant)
+	if errCode := exempt.SetPropertyValue(0, "a", types.NewInt(3)); errCode != types.E_NONE {
+		t.Fatalf("exempt SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := exempt.Commit(); errCode != types.E_NONE {
+		t.Fatalf("exempt Commit = %v", errCode)
+	}
+	if count, total := store.SharedGateWait(); count != 0 || total != 0 {
+		t.Fatalf("exempt commit counted: count=%d total=%s", count, total)
+	}
+	ordinary := store.BeginSnapshot(0)
+	if errCode := ordinary.SetPropertyValue(0, "a", types.NewInt(4)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	done := make(chan types.ErrorCode, 1)
+	go func() { done <- ordinary.Commit() }()
+	const held = 50 * time.Millisecond
+	time.Sleep(held)
+	grant.Release()
+	if code := <-done; code != types.E_NONE {
+		t.Fatalf("ordinary Commit = %v", code)
+	}
+	count, total := store.SharedGateWait()
+	if count != 1 || total < held/2 {
+		t.Fatalf("SharedGateWait = (%d, %s), want (1, >=%s)", count, total, held/2)
+	}
+}
+
 // A txn snapshotted AND committed under the exclusive gate can never lose
 // validation to commit-based writers, no matter how hot the contention.
 func TestEscalatedAttemptCannotLose(t *testing.T) {

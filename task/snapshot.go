@@ -1,11 +1,58 @@
 package task
 
 import (
+	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/types"
 )
+
+// CommandVariableNames are inherited even by verbs that do not reference them.
+var CommandVariableNames = [...]string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"}
+
+// RestoreForkEnvironment reorders the saved parent environment for a recompiled
+// isolated fork body. Unmatched program locals remain unbound; unused parent
+// locals disappear, while the implicit command environment is retained.
+func RestoreForkEnvironment(program *bytecode.Program, saved map[string]types.Value) (map[string]types.Value, error) {
+	lookup := func(name string) (types.Value, bool, error) {
+		value, matched := types.Unbound, false
+		for savedName, savedValue := range saved {
+			if strings.EqualFold(savedName, name) {
+				// Serialized order is unavailable in the reader's map. Do not
+				// guess which ambiguous spelling native's first match would use.
+				if matched {
+					return types.None, false, fmt.Errorf("ambiguous saved local %q", name)
+				}
+				value, matched = savedValue, true
+			}
+		}
+		return value, matched, nil
+	}
+	variables := make(map[string]types.Value, len(program.VarNames))
+	for _, name := range program.VarNames {
+		value, _, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		variables[name] = value
+	}
+	for _, name := range CommandVariableNames {
+		if slices.ContainsFunc(program.VarNames, func(sourceName string) bool { return strings.EqualFold(name, sourceName) }) {
+			continue
+		}
+		value, present, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		if present {
+			variables[name] = value
+		}
+	}
+	return variables, nil
+}
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {
@@ -56,11 +103,12 @@ type MoveContinuationSnapshot struct {
 // RecycleContinuationSnapshot is the persistent native state retained while
 // an object's recycle verb is suspended on the owning VM.
 type RecycleContinuationSnapshot struct {
-	Object      types.Value
-	OldParents  []types.ObjID
-	OldChildren []types.ObjID
-	OldContents []types.ObjID
-	OldLocation types.ObjID
+	ExitCallback bool
+	Object       types.Value
+	OldParents   []types.ObjID
+	OldChildren  []types.ObjID
+	OldContents  []types.ObjID
+	OldLocation  types.ObjID
 }
 
 // VMFrameSnapshot is one activation and its operand-stack segment.
@@ -68,6 +116,7 @@ type VMFrameSnapshot struct {
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
+	CommandEnvironment  [6]types.Value
 	Stack               []types.Value
 	This                types.ObjID
 	ThisValue           types.Value
@@ -83,6 +132,9 @@ type VMFrameSnapshot struct {
 	HasPendingReturn    bool
 	VerbDebug           bool
 	DiscardReturn       bool
+	ReturnLocal         int
+	BuiltinCaller       string
+	BuiltinPC           int
 	IsVerbCall          bool
 	IsEvalFrame         bool
 	ThreadMode          bool // this activation's own set_thread_mode() state; Toast persists it as the threaded flag
@@ -100,6 +152,14 @@ type VMErrorSnapshot struct {
 	Present bool
 	Code    types.ErrorCode
 	Value   types.Value
+	Reason  types.ExceptionReason
+}
+
+// ValidExceptionReason rejects metadata that cannot originate at these guards.
+// Legacy or manually raised errors have an unknown reason, for any error code.
+func (s VMErrorSnapshot) ValidExceptionReason() bool {
+	return s.Reason <= types.ExceptionReasonSecondsBudget &&
+		(s.Reason == types.ExceptionReasonUnknown || (s.Present && s.Code == types.E_MAXREC))
 }
 
 // IsInterruptedForPersistence reports whether the database writer emits this
@@ -145,6 +205,9 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 			frame.Stack[index] = transform(value)
 		}
 		frame.ThisValue = transform(frame.ThisValue)
+		for index, value := range frame.CommandEnvironment {
+			frame.CommandEnvironment[index] = transform(value)
+		}
 		for index, value := range frame.Args {
 			frame.Args[index] = transform(value)
 		}
@@ -164,20 +227,14 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 	}
 }
 
-type vmSnapshotter interface {
-	PersistenceVMSnapshot() *VMSnapshot
-}
-
-// PersistenceSnapshot copies the task fields needed for checkpoint output while
-// holding the task lock.
-func (t *Task) PersistenceSnapshot() Snapshot {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
+// PersistenceSnapshotLocked copies task metadata for checkpoint output. The
+// caller holds Mu or owns unpublished state; the engine captures its saved
+// interpreter under the same lock.
+func (t *State) PersistenceSnapshotLocked() Snapshot {
 	snapshot := Snapshot{
 		ID:                  t.ID,
 		Owner:               t.Owner,
-		State:               t.State,
+		State:               t.Status,
 		StartTime:           t.StartTime,
 		WakeValue:           t.WakeValue,
 		TaskLocal:           t.TaskLocal,
@@ -191,7 +248,7 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ExecCommandName:     t.ExecCommandName,
 		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
-	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+	if t.Status == TaskSuspended && !t.WakeTime.IsZero() {
 		snapshot.StartTime = t.WakeTime
 	}
 	if t.ForkInfo != nil {
@@ -204,15 +261,17 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 			variableNames = append(variableNames, body.VariableNames()...)
 			firstLine = body.FirstLine()
 		}
+		for _, name := range CommandVariableNames {
+			if _, ok := t.ForkInfo.Variables[name]; ok && !slices.Contains(variableNames, name) {
+				variableNames = append(variableNames, name)
+			}
+		}
 		snapshot.Fork = &ForkSnapshot{
 			Variables:     cloneValueMap(t.ForkInfo.Variables),
 			VariableNames: variableNames,
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
 		}
-	}
-	if machine, ok := t.BytecodeVM.(vmSnapshotter); ok && machine != nil {
-		snapshot.VM = machine.PersistenceVMSnapshot()
 	}
 	return snapshot
 }

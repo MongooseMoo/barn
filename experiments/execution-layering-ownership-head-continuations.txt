@@ -1,0 +1,46 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1585	    213285 ns/op	      4689 commands/s	         0 escalations/command	         0 retries/command	   50891 B/op	     426 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1843	    208464 ns/op	      4797 commands/s	         0 escalations/command	         0 retries/command	   50831 B/op	     424 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1482	    208660 ns/op	      4792 commands/s	         0 escalations/command	         0 retries/command	   50831 B/op	     425 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1855	    195439 ns/op	      5117 commands/s	         0 escalations/command	         0 retries/command	   50809 B/op	     423 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1663	    220038 ns/op	      4545 commands/s	         0 escalations/command	         0 retries/command	   50852 B/op	     428 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1587	    223616 ns/op	      4472 commands/s	         0 escalations/command	         0 retries/command	   50851 B/op	     428 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1584	    223795 ns/op	      4468 commands/s	         0 escalations/command	         0 retries/command	   50855 B/op	     428 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1527	    238451 ns/op	      4194 commands/s	         0 escalations/command	         0 retries/command	   50883 B/op	     432 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1404	    262453 ns/op	      3810 commands/s	         0 escalations/command	         0 retries/command	   50915 B/op	     436 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=false-4         	    1447	    261863 ns/op	      3819 commands/s	         0 escalations/command	         0 retries/command	   50914 B/op	     436 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1140	    283713 ns/op	      3525 commands/s	         0 escalations/command	         0 retries/command	   72636 B/op	     557 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1383	    260275 ns/op	      3842 commands/s	         0 escalations/command	         0 retries/command	   72607 B/op	     553 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1408	    264425 ns/op	      3782 commands/s	         0 escalations/command	         0 retries/command	   72611 B/op	     553 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1218	    293264 ns/op	      3410 commands/s	         0 escalations/command	         0 retries/command	   72653 B/op	     558 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1168	    309348 ns/op	      3233 commands/s	         0 escalations/command	         0 retries/command	   72673 B/op	     561 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1194	    297377 ns/op	      3363 commands/s	         0 escalations/command	         0 retries/command	   72651 B/op	     559 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1228	    285238 ns/op	      3506 commands/s	         0 escalations/command	         0 retries/command	   72646 B/op	     558 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1417	    268861 ns/op	      3719 commands/s	         0 escalations/command	         0 retries/command	   72620 B/op	     555 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1248	    305075 ns/op	      3278 commands/s	         0 escalations/command	         0 retries/command	   72668 B/op	     561 allocs/op
+BenchmarkThreadedContinuations/players=1/writes=true-4          	    1260	    379030 ns/op	      2638 commands/s	         0 escalations/command	         0 retries/command	   72715 B/op	     565 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     210	   1709138 ns/op	      9361 commands/s	         0 escalations/command	         0 retries/command	  785377 B/op	    6002 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     229	   1511858 ns/op	     10583 commands/s	         0 escalations/command	         0 retries/command	  785364 B/op	    6003 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     232	   1492337 ns/op	     10721 commands/s	         0 escalations/command	         0 retries/command	  785180 B/op	    6003 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     256	   1361724 ns/op	     11750 commands/s	         0 escalations/command	         0 retries/command	  785123 B/op	    6004 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     268	   1328904 ns/op	     12040 commands/s	         0 escalations/command	         0 retries/command	  785189 B/op	    6005 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     265	   1378075 ns/op	     11610 commands/s	         0 escalations/command	         0 retries/command	  785156 B/op	    6004 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     265	   1292598 ns/op	     12378 commands/s	         0 escalations/command	         0 retries/command	  785037 B/op	    6004 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     258	   1354077 ns/op	     11816 commands/s	         0 escalations/command	         0 retries/command	  785173 B/op	    6005 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     258	   1317397 ns/op	     12145 commands/s	         0 escalations/command	         0 retries/command	  785082 B/op	    6005 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=false-4        	     265	   1309871 ns/op	     12215 commands/s	         0 escalations/command	         0 retries/command	  785132 B/op	    6004 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     126	   2890579 ns/op	      5535 commands/s	         0 escalations/command	         2.447 retries/command	 1581323 B/op	   11692 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     120	   2953033 ns/op	      5418 commands/s	         0 escalations/command	         2.387 retries/command	 1575183 B/op	   11643 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     128	   2808654 ns/op	      5697 commands/s	         0 escalations/command	         2.420 retries/command	 1578233 B/op	   11666 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     126	   2838310 ns/op	      5637 commands/s	         0 escalations/command	         2.418 retries/command	 1575791 B/op	   11646 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     122	   2878925 ns/op	      5558 commands/s	         0 escalations/command	         2.432 retries/command	 1579919 B/op	   11679 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     127	   2795201 ns/op	      5724 commands/s	         0 escalations/command	         2.519 retries/command	 1590780 B/op	   11770 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     122	   2901706 ns/op	      5514 commands/s	         0 escalations/command	         2.447 retries/command	 1581651 B/op	   11696 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     120	   2962335 ns/op	      5401 commands/s	         0 escalations/command	         2.280 retries/command	 1568209 B/op	   11579 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     123	   2862446 ns/op	      5590 commands/s	         0 escalations/command	         2.448 retries/command	 1584088 B/op	   11715 allocs/op
+BenchmarkThreadedContinuations/players=16/writes=true-4         	     130	   2755167 ns/op	      5807 commands/s	         0 escalations/command	         2.472 retries/command	 1584001 B/op	   11717 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/engine	17.172s

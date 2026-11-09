@@ -33,7 +33,7 @@ func testChainStore(t *testing.T) *Store {
 
 func addVerbT(t *testing.T, s *Store, objID types.ObjID, names []string, perms VerbPerms) {
 	t.Helper()
-	v := NewVerb(names[0], names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+	v := NewVerb(names, 0, perms, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
 	if _, ec := s.AddVerb(objID, v); ec != types.E_NONE {
 		t.Fatalf("AddVerb #%d %v: %v", objID, names, ec)
 	}
@@ -43,7 +43,7 @@ type readSetSnapshot struct {
 	propertyReads      map[propertyReadKey]uint64
 	propertyScans      map[types.ObjID]uint64
 	propertyShapeScans map[types.ObjID]uint64
-	verbReads          map[verbReadKey]uint64
+	verbReads          map[verbKey]uint64
 	verbScans          map[types.ObjID]uint64
 }
 
@@ -572,5 +572,25 @@ func TestFindParentVerbScratchWalk(t *testing.T) {
 	}
 	if _, _, err := tx.FindParentVerb(0, "look"); err == nil {
 		t.Fatal("FindParentVerb from the root resolved, want not found")
+	}
+}
+
+// pass() matches the parent verb the way verb calls do (Toast's
+// db_find_callable_verb with verbcasecmp): wildcards and case-insensitively.
+func TestFindParentVerbMatchesWildcardAndCase(t *testing.T) {
+	for _, parentName := range []string{"gr*eet", "GREET"} {
+		s := testChainStore(t)
+		addVerbT(t, s, 0, []string{parentName}, VerbRead|VerbExecute)
+		addVerbT(t, s, 1, []string{"greet"}, VerbRead|VerbExecute)
+
+		tx := s.BeginSnapshot(0)
+		v, d, err := tx.FindParentVerb(1, "greet")
+		tx.Release()
+		if err != nil {
+			t.Fatalf("FindParentVerb(greet) with parent %q: %v", parentName, err)
+		}
+		if d != 0 || v.Names[0] != parentName {
+			t.Fatalf("FindParentVerb(greet) = %q on #%d, want %q on #0", v.Names[0], d, parentName)
+		}
 	}
 }

@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 )
 
 func TestFormatMOORejectsNULWithoutOutput(t *testing.T) {
 	for _, value := range []string{"\x00", "nul\x00byte", "\x00\x00"} {
-		bad := &verb.LiteralExpr{Kind: verb.LiteralString, StringValue: value}
-		for _, expr := range []verb.Expr{bad, &verb.ListExpr{Elements: []verb.Expr{bad}},
-			&verb.MapExpr{Pairs: []verb.MapPair{{Key: &verb.LiteralExpr{Kind: verb.LiteralString, StringValue: "key"}, Value: &verb.ListExpr{Elements: []verb.Expr{bad}}}}}} {
-			program := &verb.Program{Statements: []verb.Stmt{
-				&verb.ReturnStmt{Value: &verb.LiteralExpr{Kind: verb.LiteralInt, IntValue: 1}},
-				&verb.IfStmt{Condition: &verb.LiteralExpr{Kind: verb.LiteralInt, IntValue: 1}, Body: []verb.Stmt{&verb.ReturnStmt{Value: expr}}},
+		bad := &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: value}
+		for _, expr := range []ir.Expr{bad, &ir.ListExpr{Elements: []ir.Expr{bad}},
+			&ir.MapExpr{Pairs: []ir.MapPair{{Key: &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: "key"}, Value: &ir.ListExpr{Elements: []ir.Expr{bad}}}}}} {
+			program := &ir.Program{Statements: []ir.Stmt{
+				&ir.ReturnStmt{Value: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 1}},
+				&ir.IfStmt{Condition: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: 1}, Body: []ir.Stmt{&ir.ReturnStmt{Value: expr}}},
 			}}
 			for _, fully := range []bool{false, true} {
 				lines, err := formatMOOChecked(program, fully)
@@ -36,13 +36,16 @@ func TestFormatMOORejectsNULWithoutOutput(t *testing.T) {
 	}
 }
 
-func TestFormatMOOPreservesAllNonNULBytes(t *testing.T) {
+func TestFormatMOOPreservesAllRepresentableStringBytes(t *testing.T) {
 	var bytes []byte
 	for i := 1; i <= 255; i++ {
+		if i == '\n' {
+			continue // A source string cannot cross its source line.
+		}
 		bytes = append(bytes, byte(i))
 	}
 	value := string(bytes)
-	program := &verb.Program{Statements: []verb.Stmt{&verb.ReturnStmt{Value: &verb.LiteralExpr{Kind: verb.LiteralString, StringValue: value}}}}
+	program := &ir.Program{Statements: []ir.Stmt{&ir.ReturnStmt{Value: &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: value}}}}
 	for _, fully := range []bool{false, true} {
 		lines, err := formatMOOChecked(program, fully)
 		if err != nil {
@@ -52,13 +55,26 @@ func TestFormatMOOPreservesAllNonNULBytes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := reparsed.Statements[0].(*verb.ReturnStmt).Value.(*verb.LiteralExpr).StringValue
+		got := reparsed.Statements[0].(*ir.ReturnStmt).Value.(*ir.LiteralExpr).StringValue
 		if got != value {
 			t.Fatalf("byte preservation failed: got %q want %q", got, value)
 		}
 		again, err := formatMOOChecked(reparsed, fully)
 		if err != nil || strings.Join(again, "\n") != strings.Join(lines, "\n") {
 			t.Fatalf("byte-preserving formatter is not idempotent: first %q, second %q, error %v", lines, again, err)
+		}
+	}
+}
+
+func TestFormatMOORejectsStringNewlinesWithoutOutput(t *testing.T) {
+	for _, value := range []string{"\n", "line1\nline2", "escaped\\\nline"} {
+		literal := &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: value}
+		program := &ir.Program{Statements: []ir.Stmt{&ir.ReturnStmt{Value: literal}}}
+		for _, fully := range []bool{false, true} {
+			lines, err := formatMOOChecked(program, fully)
+			if lines != nil || err == nil || err.Error() != "newline is not representable in a MOO string literal" {
+				t.Fatalf("fully=%t lines=%q error=%v", fully, lines, err)
+			}
 		}
 	}
 }

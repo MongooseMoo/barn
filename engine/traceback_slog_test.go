@@ -55,9 +55,9 @@ func sampleStack() []types.ActivationFrame {
 // and the stack cannot be reassembled from the log afterwards.
 func TestLogTracebackEmitsSingleRecord(t *testing.T) {
 	s := &Runtime{}
-	tk := &task.Task{ID: 42, This: 10, VerbName: "look_self", CallStack: sampleStack()}
+	tk := &Task{State: task.State{ID: 42, This: 10, VerbName: "look_self", CallStack: sampleStack()}}
 
-	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
+	records := captureRecords(t, func() { s.logTraceback(tk, types.Result{Error: types.E_TYPE}, tk.CallStack, false) })
 
 	if len(records) != 1 {
 		t.Fatalf("want exactly 1 record for a traceback, got %d", len(records))
@@ -72,6 +72,39 @@ func TestLogTracebackEmitsSingleRecord(t *testing.T) {
 	if rec["error"] != "E_TYPE" {
 		t.Errorf("error = %v, want E_TYPE", rec["error"])
 	}
+	if rec["handled"] != false || rec["forked"] != false {
+		t.Errorf("handled/forked = %v/%v, want false/false", rec["handled"], rec["forked"])
+	}
+}
+
+// A handled error (the database's handler took it) is still logged, but at WARN,
+// so `barn_logs -level error` keeps meaning "something went unhandled". The
+// raise() message replaces the error code's default text.
+func TestLogTracebackHandledForkedCustomMessage(t *testing.T) {
+	s := &Runtime{}
+	tk := &Task{State: task.State{ID: 7, This: 10, VerbName: "look_self", IsForked: true, CallStack: sampleStack()}}
+	result := types.Result{
+		Error: types.E_INVARG,
+		Val: types.NewList([]types.Value{
+			types.NewErr(types.E_INVARG), types.NewStr("custom message"), types.NewInt(0),
+		}),
+	}
+
+	records := captureRecords(t, func() { s.logTraceback(tk, result, tk.CallStack, true) })
+
+	if len(records) != 1 {
+		t.Fatalf("want exactly 1 record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec["level"] != "WARN" || rec["msg"] != "uncaught exception" {
+		t.Errorf("unexpected level/msg: %#v", rec)
+	}
+	if rec["handled"] != true || rec["forked"] != true {
+		t.Errorf("handled/forked = %v/%v, want true/true", rec["handled"], rec["forked"])
+	}
+	if rec["error_msg"] != "custom message" {
+		t.Errorf("error_msg = %v, want the raise() message", rec["error_msg"])
+	}
 }
 
 // The logged text must be the same traceback the player sees, so the two can be
@@ -79,9 +112,9 @@ func TestLogTracebackEmitsSingleRecord(t *testing.T) {
 func TestLoggedTracebackMatchesPlayerFormatting(t *testing.T) {
 	s := &Runtime{}
 	stack := sampleStack()
-	tk := &task.Task{ID: 1, This: 10, VerbName: "look_self", CallStack: stack}
+	tk := &Task{State: task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: stack}}
 
-	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
+	records := captureRecords(t, func() { s.logTraceback(tk, types.Result{Error: types.E_TYPE}, tk.CallStack, false) })
 
 	want := task.FormatTracebackString(stack, types.E_TYPE)
 	if got := records[0]["traceback"]; got != want {
@@ -93,9 +126,9 @@ func TestLoggedTracebackMatchesPlayerFormatting(t *testing.T) {
 // chain from it without parsing rendered text.
 func TestTracebackFramesCarryStructuredStack(t *testing.T) {
 	s := &Runtime{}
-	tk := &task.Task{ID: 1, This: 10, VerbName: "look_self", CallStack: sampleStack()}
+	tk := &Task{State: task.State{ID: 1, This: 10, VerbName: "look_self", CallStack: sampleStack()}}
 
-	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
+	records := captureRecords(t, func() { s.logTraceback(tk, types.Result{Error: types.E_TYPE}, tk.CallStack, false) })
 
 	frames, ok := records[0]["frames"].([]any)
 	if !ok || len(frames) != 2 {
@@ -128,9 +161,9 @@ func TestTracebackFramesUseStoredVerbNames(t *testing.T) {
 		{This: 2, VerbLoc: 2, Verb: "eval", StoredVerb: "eval*-d", LineNumber: 1},
 		{This: 2, VerbLoc: 2, Verb: "", LineNumber: 1, IsEvalFrame: true},
 	}
-	tk := &task.Task{ID: 1, CallStack: stack}
+	tk := &Task{State: task.State{ID: 1, CallStack: stack}}
 
-	records := captureRecords(t, func() { s.logTraceback(tk, types.E_TYPE, tk.CallStack) })
+	records := captureRecords(t, func() { s.logTraceback(tk, types.Result{Error: types.E_TYPE}, tk.CallStack, false) })
 
 	frames := records[0]["frames"].([]any)
 	if got := frames[0].(map[string]any)["verb"]; got != "Input to EVAL" {

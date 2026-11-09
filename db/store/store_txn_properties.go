@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/MongooseMoo/barn/types"
@@ -42,32 +43,48 @@ type propertyDefine struct {
 	prop Property
 }
 
+// propertyRename is a staged rename of a property its object defines, keyed by
+// the new name: from is the name in the published image, to the new name in
+// display case.
+type propertyRename struct {
+	from, to string
+}
+
 // propertyDefinesByObject groups staged defines by object in each object's
 // property order, so several defines on one object apply in insertion order.
-// Only objects that carry a define are walked.
+// Only objects that carry a define are walked. A define missing from the view's
+// order (renumber replaced the view with the live image) follows the others.
 func (tx *StoreTxn) propertyDefinesByObject() map[types.ObjID][]propertyDefine {
 	if len(tx.propertyDefines) == 0 {
 		return nil
 	}
 	grouped := make(map[types.ObjID][]propertyDefine)
+	ordered := 0
 	for key := range tx.propertyDefines {
 		if _, seen := grouped[key.objID]; seen {
 			continue
 		}
 		grouped[key.objID] = nil
-		obj := tx.objects[key.objID]
-		if obj == nil {
-			continue
-		}
-		for _, name := range obj.propOrder {
-			if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: propertyNameKey(name)}]; ok {
-				grouped[key.objID] = append(grouped[key.objID], def)
+		if obj := tx.objects[key.objID]; obj != nil {
+			for _, name := range obj.propOrder {
+				// A name can appear in the order more than once (a defined slot
+				// removed without its order entry); its define applies once.
+				lower := propertyNameKey(name)
+				if slices.ContainsFunc(grouped[key.objID], func(d propertyDefine) bool { return propertyNameKey(d.name) == lower }) {
+					continue
+				}
+				if def, ok := tx.propertyDefines[propertyWriteKey{objID: key.objID, name: lower}]; ok {
+					grouped[key.objID] = append(grouped[key.objID], def)
+					ordered++
+				}
 			}
 		}
 	}
-	for objID, defs := range grouped {
-		if len(defs) == 0 {
-			delete(grouped, objID)
+	if ordered < len(tx.propertyDefines) {
+		for key, def := range tx.propertyDefines {
+			if !slices.ContainsFunc(grouped[key.objID], func(d propertyDefine) bool { return propertyNameKey(d.name) == key.name }) {
+				grouped[key.objID] = append(grouped[key.objID], def)
+			}
 		}
 	}
 	return grouped
@@ -107,12 +124,12 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Prop
 		orig:    orig,
 		hasOrig: hasOrig,
 	})
+	if tx.diag != nil {
+		tx.diag.noteWrite(key)
+	}
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.findProperty(objID, name)
-	}
 	prop, actualName, errCode := tx.findProperty(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
@@ -120,17 +137,38 @@ func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, 
 	return prop.View(actualName), types.E_NONE
 }
 
+// FindLiveProperty is ObjectExists(objID) and then, when objID exists,
+// FindProperty(objID, name), with one fetch of objID for both. A missing or
+// recycled objID returns ObjectExists's code; a property it lacks, E_PROPNF.
+func (tx *StoreTxn) FindLiveProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
+	obj, ec := tx.existingObject(objID)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec
+	}
+	prop, actualName, ec := tx.findPropertyFrom(objID, obj, name)
+	if ec != types.E_NONE {
+		return PropertyView{}, ec
+	}
+	return prop.View(actualName), types.E_NONE
+}
+
 func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode) {
+	return tx.findPropertyFrom(objID, nil, name)
+}
+
+// findPropertyFrom is findProperty given root, the transaction's view of objID
+// as an existence check just fetched it, or nil to fetch it here.
+func (tx *StoreTxn) findPropertyFrom(objID types.ObjID, root *Object, name string) (Property, string, types.ErrorCode) {
 	cacheable := tx.resolveCacheActive()
 	key := propResolveKey{objID: objID, name: name}
 	if cacheable {
-		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps) {
+		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps, root) {
 			tx.replayPropSteps(entry.steps)
 			return entry.prop, entry.name, entry.ec
 		}
 	}
 
-	prop, actualName, ec, steps := tx.walkProperty(objID, name)
+	prop, actualName, ec, steps := tx.walkProperty(objID, root, name)
 	if cacheable {
 		tx.storePropResolve(key, steps, prop, actualName, ec)
 	}
@@ -141,10 +179,17 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, stri
 // resolution plus the ordered record of every object it visited (which the memo
 // stores so a later hit can reproduce the identical read set). The scratch it
 // walks on is reused across calls; a (currently impossible) reentrant call
-// falls back to a private scratch rather than corrupting the outer walk.
-func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode, []propWalkStep) {
+// falls back to a private scratch rather than corrupting the outer walk. The
+// direct transaction, which goroutines share, walks on a pooled scratch. root,
+// when not nil, is the transaction's view of objID, used instead of fetching
+// it again.
+func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, name string) (Property, string, types.ErrorCode, []propWalkStep) {
 	sc := &tx.propWalk
-	if sc.inUse {
+	switch {
+	case tx.direct:
+		sc = directPropScratch.Get().(*propScratch)
+		defer directPropScratch.Put(sc)
+	case sc.inUse:
 		sc = &propScratch{}
 	}
 	sc.inUse = true
@@ -170,7 +215,11 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 			continue
 		}
 
-		current := tx.object(currentID)
+		// The walk starts at objID, so root can only stand for the first step.
+		current := root
+		if head != 0 || current == nil {
+			current = tx.object(currentID)
+		}
 		if !validLiveObject(current) {
 			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current})
 			continue
@@ -209,13 +258,13 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 
 	sc.queue = queue[:0]
 	sc.inUse = false
+	if tx.direct {
+		return resultProp, resultName, resultErr, nil
+	}
 	return resultProp, resultName, resultErr, sc.steps
 }
 
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyValue(objID, name)
-	}
 	prop, errCode := tx.FindProperty(objID, name)
 	if errCode != types.E_NONE {
 		return types.None, errCode
@@ -223,28 +272,23 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 	return prop.Value, types.E_NONE
 }
 
-func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyValues(objID)
-	}
+// VisitPropertyValues reads every local slot and records the same dependencies
+// as an ordinary value read, without materializing an intermediate slice.
+func (tx *StoreTxn) VisitPropertyValues(objID types.ObjID, visit func(types.Value)) types.ErrorCode {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
-		return nil, types.E_INVIND
+		return types.E_INVIND
 	}
 	tx.markPropertyScan(objID, obj)
 
-	values := make([]types.Value, 0, obj.properties.count())
 	for pname, prop := range obj.properties.all() {
 		tx.markPropertyRead(objID, pname, prop)
-		values = append(values, prop.value)
+		visit(prop.value)
 	}
-	return values, types.E_NONE
+	return types.E_NONE
 }
 
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.localProperty(objID, name)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
@@ -259,9 +303,6 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 }
 
 func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.definedPropertyNames(objID)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -278,9 +319,6 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 }
 
 func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.truthyPropertiesWithPrefixInAncestry(objID, prefix)
-	}
 	if !validLiveObject(tx.object(objID)) {
 		return nil, types.E_INVIND
 	}
@@ -325,9 +363,6 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 }
 
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	if tx.direct {
-		return tx.store.propertyClearState(objID, name)
-	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -346,7 +381,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 
 func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setPropertyValue(objID, name, value)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetPropertyValue(objID, name, value) })
 	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
@@ -368,7 +403,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		}
 		return types.E_NONE
 	}
-	obj = tx.mutableObject(objID)
+	obj = tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -379,7 +414,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
-		// within this txn (e.g. PropertyValues) see the staged change.
+		// within this txn (e.g. VisitPropertyValues) see the staged change.
 		obj.properties.put(actualName, prop)
 		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
@@ -404,9 +439,9 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 
 func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
 	if tx.direct {
-		return tx.store.setPropertyInfo(objID, name, owner, perms)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.SetPropertyInfo(objID, name, owner, perms) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -440,9 +475,9 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 
 func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	if tx.direct {
-		return tx.store.defineProperty(objID, name, prop)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.DefineProperty(objID, name, prop) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -454,6 +489,9 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 
 	prop.defined = true
 	prop.clear = false
+	if prop.perms.Has(PropChown) {
+		prop.owner = obj.owner
+	}
 
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)
@@ -473,11 +511,97 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 	return types.E_NONE
 }
 
+// RenameProperty renames the property objID defines from `from` to `to`. The
+// slot keeps its value, owner, perms and place in the definition order, and
+// each descendant's slot moves to the new name (Toast db_rename_propdef,
+// db_properties.cc:251-280). It is E_PROPNF unless objID defines from, and
+// E_INVARG when objID has another slot named to; the caller refuses the other
+// names Toast does (built-in, or defined by an ancestor or a descendant).
+func (tx *StoreTxn) RenameProperty(objID types.ObjID, from, to string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.RenameProperty(objID, from, to) })
+	}
+	// Keyed map dependencies and writes are kept by slot name; they become
+	// whole before the slot changes its name.
+	tx.degradeMapKeys()
+	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	actualName, prop, ok := obj.properties.find(from)
+	if !ok {
+		tx.markPropertyScan(objID, obj)
+		return types.E_PROPNF
+	}
+	tx.markPropertyRead(objID, actualName, prop)
+	if !prop.defined {
+		return types.E_PROPNF
+	}
+	oldKey := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
+	newKey := propertyWriteKey{objID: objID, name: propertyNameKey(to)}
+	if newKey != oldKey {
+		if existingName, existing, ok := obj.properties.find(to); ok {
+			tx.markPropertyRead(objID, existingName, existing)
+			return types.E_INVARG
+		}
+		tx.markPropertyScan(objID, obj)
+	}
+	renameSlots(obj, []propertyRename{{from: actualName, to: to}}, false, 0)
+
+	if def, staged := tx.propertyDefines[oldKey]; staged {
+		// A property this txn defined is published under its new name.
+		delete(tx.propertyDefines, oldKey)
+		def.name = to
+		lazySet(&tx.propertyDefines, newKey, def)
+	} else {
+		published := actualName
+		if earlier, renamed := tx.propertyRenames[oldKey]; renamed {
+			delete(tx.propertyRenames, oldKey)
+			published = earlier.from
+		}
+		lazySet(&tx.propertyRenames, newKey, propertyRename{from: published, to: to})
+		if write, staged := tx.propertyWrites[oldKey]; staged {
+			delete(tx.propertyWrites, oldKey)
+			write.name = to
+			lazySet(&tx.propertyWrites, newKey, write)
+		}
+	}
+
+	tx.renameInheritedProperty(objID, actualName, to)
+	tx.moveWaifValues(objID, actualName, to)
+	return types.E_NONE
+}
+
+// renamesOf returns the renames staged on id.
+func (tx *StoreTxn) renamesOf(id types.ObjID) []propertyRename {
+	if len(tx.propertyRenames) == 0 {
+		return nil
+	}
+	var renames []propertyRename
+	for key, rename := range tx.propertyRenames {
+		if key.objID == id {
+			renames = append(renames, rename)
+		}
+	}
+	return renames
+}
+
+// renamedAway reports whether a staged rename moves the published slot key
+// names to another name.
+func (tx *StoreTxn) renamedAway(key propertyWriteKey) bool {
+	for newKey, rename := range tx.propertyRenames {
+		if newKey.objID == key.objID && newKey.name != key.name && propertyNameKey(rename.from) == key.name {
+			return true
+		}
+	}
+	return false
+}
+
 func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
 	if tx.direct {
-		return tx.store.clearPropertyOverride(objID, name)
+		return tx.store.writeNow(func(w *StoreTxn) types.ErrorCode { return w.ClearPropertyOverride(objID, name) })
 	}
-	obj := tx.mutableObject(objID)
+	obj := tx.mutableFacets(objID, facetProperties)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -487,10 +611,16 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 		return types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
-	obj.properties.remove(actualName)
+	if prop.defined {
+		return types.E_INVARG
+	}
+	// Clearing changes only the value's source. The inherited slot still owns
+	// per-object permissions/ownership, which property_info and checkpoints need.
+	prop.value = types.None
+	prop.clear = true
+	obj.properties.put(actualName, prop)
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
-	delete(tx.propertyWrites, key)
-	delete(tx.propertyDefines, key)
-	lazySet(&tx.propertyDeletes, key, actualName)
+	delete(tx.propertyDeletes, key)
+	lazySet(&tx.propertyWrites, key, propertyWrite{name: actualName, value: prop.value, prop: prop})
 	return types.E_NONE
 }

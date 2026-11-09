@@ -10,7 +10,6 @@ import (
 func addMoveHookTestVerb(t *testing.T, store *dbstore.Store, object types.ObjID, name string, code ...string) {
 	t.Helper()
 	if _, errCode := store.AddVerb(object, dbstore.NewVerb(
-		name,
 		[]string{name},
 		2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,

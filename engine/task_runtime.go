@@ -9,7 +9,9 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -18,7 +20,6 @@ import (
 	"github.com/MongooseMoo/barn/internal/admission"
 	"github.com/MongooseMoo/barn/internal/commitgate"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -45,12 +46,29 @@ const maxConflictRetryAttempts = 64
 // attempt) throughput and tail match no-gate within noise while keeping the
 // cannot-lose guarantee. Escalation is correctness insurance, not a second
 // commit path.
+//
+// A second rule escalates sooner by wasted work instead of by count: see
+// escalateAfterWastedTicks. Either rule (or a slice with no restorable state)
+// takes the gate.
 const escalateAfterAttempts = 63
+
+// escalateAfterWastedTicks escalates a slice to the exclusive commit gate on
+// its next attempt once a single lost attempt executed at least this many
+// ticks (the same per-attempt count the conflict census sums as wasted ticks).
+// An expensive slice therefore loses at most once to a hot writer, while
+// short tasks keep retrying optimistically up to escalateAfterAttempts.
+// Escalating every task at its second attempt serialized the 16p mix
+// (experiments/2026-09-01-escalate-at-2.md), so the threshold sits above
+// ordinary commands. Starting value: on the 1p real Mongoose workload,
+// ordinary commands were seen around 141k ticks per slice and the long
+// scheduled jobs that fall into abort storms around 240k-470k; 200k is between
+// them. To be tuned against the real-workload gate.
+const escalateAfterWastedTicks = 200_000
 
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
-func (s *Runtime) runTask(t *task.Task) (retErr error) {
+func (s *Runtime) runTask(t *Task) (retErr error) {
 	defer t.ReleaseAdmission()
 	scope, _, cancel, err := s.enterBackground(t)
 	defer cancel()
@@ -74,7 +92,14 @@ type taskCompletion struct {
 	roots    *admissionRoot
 }
 
-func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope bool) (retErr error) {
+	defer func() {
+		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+			if ctx := t.ContextValue(); ctx != nil {
+				ctx.CommandDiagnostic.TaskFinished(t.ID, state.String())
+			}
+		}
+	}()
 	var completion taskCompletion
 	defer func() {
 		if retErr != nil {
@@ -115,7 +140,7 @@ func (s *Runtime) runTaskAdmitted(t *task.Task, scope *admission.Scope, ownsScop
 	return retErr
 }
 
-func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
+func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScope bool, completion *taskCompletion) (retErr error) {
 	if ownsScope {
 		defer scope.Finish()
 	}
@@ -131,7 +156,9 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	var bcVM *vm.VM
 	var sliceTicks int64
 	var executedTicks int64
-	var gate sliceGate
+	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
+	var rerunTicks int64
+	gate := sliceGate{holds: &s.gateHolds, key: GateHolder{This: t.This, Verb: t.VerbName}}
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
@@ -153,7 +180,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	if ownsScope {
 		scope.Start()
 	}
-	var executionCtx *kernel.TaskContext
+	var executionCtx *task.Context
 	defer func() {
 		// This is the singular runTask lifecycle boundary for every caller:
 		// publish all task/VM state first, release the physical execution lease,
@@ -191,7 +218,7 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 
 	retryState := s.captureTaskRetryState(t)
 	defer func() {
-		if machine, ok := t.BytecodeVMValue().(*vm.VM); ok {
+		if machine := t.VM(); machine != nil {
 			machine.ReleaseRetryCheckpoint()
 		}
 		if ctx := t.ContextValue(); ctx != nil {
@@ -200,6 +227,9 @@ func (s *Runtime) runTaskSliceAdmitted(t *task.Task, scope *admission.Scope, own
 	}()
 	attempt := 0
 	var sliceEntryTicks int64
+	// lostAttemptTicks is the ticks the previous attempt executed before it
+	// lost, or 0 on the first attempt.
+	var lostAttemptTicks int64
 	// Backstop for every early return (suspend hand-off, deadline, panic): the
 	// gate must never outlive this invocation. The common path releases it
 	// explicitly right after the attempt's commit resolves.
@@ -215,8 +245,22 @@ retryAttempt:
 	// slice that cannot retry has exactly one defence against a lost commit —
 	// making the loss impossible — because the alternative is handing MOO code
 	// a frameless E_INVARG no serial execution produces (issue #296).
-	if (attempt >= escalateAfterAttempts || !retryState.canRetry) && !gate.held() {
-		gateWait, err := gate.acquire(taskCtx, s.store)
+	// A forked task's slice whose last attempt lost after wasting
+	// escalateAfterWastedTicks takes the gate too, so it does not lose that
+	// much work again. Player commands are left out: at 16 players heavy
+	// commands that escalated this way serialized the server (goodput 215/s
+	// -> 149/s), while the slices that fall into 1-player abort storms are
+	// forked background jobs.
+	wastedWork := t.IsForked && attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks
+	if (attempt >= escalateAfterAttempts || !retryState.canRetry || wastedWork) && !gate.held() {
+		cause := gateCauseRetryBudget
+		switch {
+		case !retryState.canRetry:
+			cause = gateCauseNotRestorable
+		case attempt < escalateAfterAttempts:
+			cause = gateCauseWastedWork
+		}
+		gateWait, err := gate.acquire(taskCtx, s.store, cause)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
 		if err != nil {
@@ -266,6 +310,17 @@ retryAttempt:
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	ctx.StoreTxn.SetCommitContext(taskCtx)
+	// The task's own row: a kill that committed since the last slice stops it,
+	// and a resume's value is what its suspend() returns. The attempt's commit
+	// validates the version read here.
+	ownRow, hasOwnRow := s.readOwnRow(t, ctx.StoreTxn)
+	switch {
+	case hasOwnRow && ownRow.Status == dbstore.TaskRowKilled:
+		t.Kill()
+		return context.Canceled
+	case hasOwnRow && ownRow.Status == dbstore.TaskRowQueued:
+		t.SetWakeValue(ownRow.Value)
+	}
 	if gate.held() {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
 		// can interleave before this attempt's own commit, so it cannot lose
@@ -300,7 +355,8 @@ retryAttempt:
 		if gate.held() {
 			return false
 		}
-		gateWait, err := gate.acquire(taskCtx, s.store)
+		// The running frame is the verb that called the irreversible builtin.
+		gateWait, err := gate.acquire(taskCtx, s.store, fmt.Sprintf("#%d:%s", ctx.ThisObj, ctx.Verb))
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		if err != nil {
 			ctx.ConflictRetryRequested = true
@@ -332,7 +388,7 @@ retryAttempt:
 			// Mirrors the suspend-time commit: the forks and effects recorded so far
 			// are now durable, so a later discard must not touch them.
 			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+			builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 		}
 		return false
 	}
@@ -343,13 +399,14 @@ retryAttempt:
 	// against the execution budget. Reset both the tick and second budgets (and
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
-	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); attempt == 0 && ok && savedVM.IsYielded() {
+	if savedVM := t.VM(); attempt == 0 && savedVM != nil && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits(s.session)
 		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
+		t.NoteResumedSlice()
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
 	}
-	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); attempt == 0 && ok {
+	if savedVM := t.VM(); attempt == 0 && savedVM != nil {
 		sliceEntryTicks = savedVM.Ticks
 	}
 
@@ -373,17 +430,27 @@ retryAttempt:
 	// The VM owns the seconds deadline so commit-gate waits can extend it.
 	// Cancellation separately handles shutdown and explicit task kills.
 
-	// A root slice lends its reservation at tick checkpoints while others wait.
-	// Never while escalated: a readmission-waiting task holding the exclusive
-	// commit gate would deadlock every admitted committer. A borrowed scope is
-	// its owner's to lend.
-	preempt := func() {
-		if !ownsScope || gate.held() {
+	// A root slice lends its reservation at tick checkpoints while others wait,
+	// and parks there while a deferred sweep walks it (parkForGC). Never while
+	// escalated: a readmission-waiting task holding the exclusive commit gate
+	// would deadlock every admitted committer, and a sweep's :recycle hooks
+	// commit. A borrowed scope is its owner's to lend.
+	preempt := func(machine *vm.VM) {
+		if gate.held() {
 			return
 		}
-		if wait := scope.Yield(); wait > 0 {
-			metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
-			t.ExcludeExecutionWait(wait)
+		s.parkForGC(t.ID, machine)
+		if ownsScope {
+			if wait := scope.Yield(); wait > 0 {
+				metrics.ObserveRuntime(metrics.Readmission, id, wait, 0)
+				t.ExcludeExecutionWait(wait)
+			}
+		}
+		// Count-only early-abort check for the conflict census; it does nothing
+		// unless tracking is on. After the yield, so commits that landed during
+		// a readmission wait are seen.
+		if ctx.StoreTxn != nil {
+			ctx.StoreTxn.NoteSupersededHotRead()
 		}
 	}
 
@@ -395,9 +462,17 @@ retryAttempt:
 	anonFloor := s.store.AnonCreationCount()
 
 	var launchErr error
+	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName}
 	vmStarted := time.Now()
-	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt)
+	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo)
 	vmElapsed := time.Since(vmStarted)
+	if launchErr == nil {
+		t.Result = result
+		// Handle fork yields: create child tasks and resume parent. The parent
+		// runs on after each fork here, so the attempt's ticks are read after.
+		result = s.drainForks(&t.State, bcVM, result)
+		t.Result = result
+	}
 	var attemptTicks int64
 	if bcVM != nil {
 		attemptTicks = max(bcVM.Ticks-sliceEntryTicks, 0)
@@ -407,12 +482,6 @@ retryAttempt:
 	if launchErr != nil {
 		return launchErr
 	}
-
-	t.Result = result
-
-	// Handle fork yields: create child tasks and resume parent
-	result = s.drainForks(t, bcVM, result)
-	t.Result = result
 
 	if ctx.ConflictRetryRequested {
 		// The attempt stopped itself at its first irreversible effect because its
@@ -426,17 +495,39 @@ retryAttempt:
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
 		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+		rerunTicks += attemptTicks
+		lostAttemptTicks = attemptTicks
 		gate.release(ctx.StoreTxn)
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 		s.store.NoteCommitRetry()
 		attempt++
 		goto retryAttempt
 	}
 
+	if hasOwnRow {
+		// Read the row again: a commit boundary inside the slice started a new
+		// transaction, which has not read it. A kill_task() that committed since
+		// the slice began stops the task here, publishing nothing.
+		if row, ok := s.readOwnRow(t, ctx.StoreTxn); ok && row.Status == dbstore.TaskRowKilled {
+			s.discardCreatedForks(t)
+			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+			t.Kill()
+			return context.Canceled
+		}
+		ctx.StoreTxn.StageTaskRow(t.ID, ownEndRow(t, ownRow, result))
+	}
 	committed := true
 	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			if hasOwnRow && ctx.StoreTxn.ValidationFailed() && s.ownRowKilled(t) {
+				// kill_task() of this task committed during the slice: it stops
+				// here, publishing nothing.
+				s.discardCreatedForks(t)
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+				t.Kill()
+				return context.Canceled
+			}
 			// A conflict surfaces as E_INVARG (a read-set version moved) OR E_INVIND (a
 			// read-set object was recycled/renumbered out from under us since the
 			// snapshot). Both set validationFail, and only the read-set validators set
@@ -447,8 +538,10 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+				rerunTicks += attemptTicks
+				lostAttemptTicks = attemptTicks
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				if os.Getenv("BARN_DEBUG_RETRY") != "" {
 					slog.Warn("DEBUG-RETRY",
@@ -482,19 +575,20 @@ retryAttempt:
 			isolationprobe.MarkFailed(ctx)
 		}
 	}
+	s.store.NoteSliceAttempts(attempt+1, executedTicks, rerunTicks) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
+	// Replay uses captured effect inputs, not this attempt's read cache. Release
+	// its timestamp before blocked output can hold back the history floor.
+	ctx.StoreTxn.Release()
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 	}
-	// This slice no longer needs its read cache, including private WAIF roots.
-	// Retaining a read-only cache here would keep dropped locals alive during
-	// finalization. Cleanup hooks get a fresh usable transaction; suspended tasks
+	// Cleanup hooks get a fresh usable transaction after replay; suspended tasks
 	// take their next execution snapshot when the scheduler resumes them.
-	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
@@ -507,11 +601,15 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
+		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed)
 		t.SetState(task.TaskKilled)
-		t.SetBytecodeVM(nil)
+		t.SetVM(nil)
 		return taskCtx.Err()
 	default:
+	}
+
+	if committed {
+		s.reportLaggingTask(t, scope, result, vmElapsed, lagInfo)
 	}
 
 	// Handle suspend
@@ -519,6 +617,10 @@ retryAttempt:
 		isolationprobe.Note("suspend")
 		s.handOffSuspended(t, ctx, scope, bcVM, anonGCFloor, anonFloor, &gate)
 		return nil
+	}
+
+	if result.Flow == types.FlowException {
+		metrics.TerminalException(id, result.Error, result.Reason, t.IntrinsicEval, committed)
 	}
 
 	// Intrinsic eval reports exceptions in its result record, without invoking
@@ -542,7 +644,7 @@ retryAttempt:
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
 	// only after an explicit shutdown request. Generic cancellation still runs
 	// ordinary finalization rather than fabricating pending checkpoint roots.
-	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor, committed) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -557,15 +659,15 @@ retryAttempt:
 				t.Result = result
 				t.SetState(task.TaskKilled)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 			} else {
-				builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+				builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 			}
 		}
 
 	}
 
-	t.SetBytecodeVM(nil) // Release VM after completion
+	t.SetVM(nil) // Release VM after completion
 
 	return nil
 }
@@ -574,8 +676,8 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM, preempt func(), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time) (_ *vm.VM, result types.Result, err error) {
-	if savedVM := t.BytecodeVMValue(); savedVM != nil {
+func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(*vm.VM), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
+	if savedVM := t.VM(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
 			slog.Debug("external task resumed", slog.Int64("task_id", t.ID),
@@ -583,23 +685,20 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 				slog.Duration("ready_to_vm", time.Since(execReadyAt)))
 		}
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
-		var ok bool
-		bcVM, ok = savedVM.(*vm.VM)
-		if !ok {
-			t.SetState(task.TaskKilled)
-			return bcVM, result, errors.New("invalid saved VM state")
-		}
+		bcVM = savedVM
 		// Attach task context (may have been updated since VM was created)
 		bcVM.Context = ctx
-		bcVM.Task = t
+		bcVM.Task = &t.State
 		bcVM.Preempt = preempt
 		bcVM.Resumable = true
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		if attempt > 0 {
 			bcVM.TickLimit = t.TicksLimit
 			// Failed attempts are unpublished. Replay the same logical instruction
 			// budget, while the seconds deadline remains anchored to this slice.
 			bcVM.Ticks = sliceEntryTicks
 		}
+		lagInfo.capture(bcVM.CurrentFrame())
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -621,7 +720,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 			return bcVM, result, errors.New("task has no compiled program")
 		}
 
-		// Update TaskContext for permissions and builtins
+		// Update Context for permissions and builtins
 		if t.VerbName != "" {
 			ctx.Player = t.Owner
 			ctx.Programmer = t.Programmer
@@ -645,13 +744,14 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 		// Create bytecode VM
 		bcVM = vm.NewVM(s.store, s.session)
 		bcVM.Context = ctx
-		bcVM.Task = t
+		bcVM.Task = &t.State
 		bcVM.Preempt = preempt
 		bcVM.Resumable = true
 		bcVM.TickLimit = t.TicksLimit
 		if attempt > 0 {
 			bcVM.Ticks = sliceEntryTicks
 		}
+		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		configureVMStackLimit(bcVM, s.session)
 
 		if t.IntrinsicEval {
@@ -694,6 +794,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 
 			// Start execution
+			lagInfo.capture(frame)
 			result = bcVM.ExecuteLoop()
 		} else {
 			// Simple eval task (no verb context)
@@ -707,7 +808,7 @@ func (s *Runtime) launchSlice(t *task.Task, ctx *kernel.TaskContext, bcVM *vm.VM
 // slice's garbage for the next flush, commits what the slice wrote since its
 // main commit, and saves the VM for the scheduler to resume. A failed commit
 // kills the task instead.
-func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
+func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.Scope, bcVM *vm.VM, anonGCFloor types.ObjID, anonFloor uint64, gate *sliceGate) {
 	// A suspend is a waif liveness boundary as well as an anonymous-object
 	// boundary. Values overwritten before the yield are no longer live in the
 	// saved VM, so queue them now; the flush-time scan of the registered VM
@@ -716,12 +817,10 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 	// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 	// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 	// deferred to the next quiescent flush; the suspended task's VM is registered
-	// below (SetBytecodeVM), so the flush-time root scan still sees its locals.
-	// Fast path retained: if no anonymous object was created since this task's
-	// floor, the candidate set (anon ids >= floor) is provably empty and there is
-	// nothing to enqueue.
-	if s.store.AnonCreationCount() != anonFloor {
-		s.deferAnonGC(ctx, anonGCFloor, nil)
+	// below (SetVM), so the flush-time root scan still sees its locals.
+	// Released references may belong to objects created before this slice.
+	if floor, needed := bcVM.AnonymousGCFloor(anonGCFloor, s.store.AnonCreationCount() != anonFloor); needed {
+		s.deferAnonGC(ctx, floor, nil)
 	}
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.
@@ -730,10 +829,10 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 			result := types.Err(errCode)
 			t.Result = result
 			t.SetState(task.TaskKilled)
-			t.SetBytecodeVM(nil)
+			t.SetVM(nil)
 			s.discardCreatedForks(t)
 			isolationprobe.MarkFailed(ctx)
-			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 			gate.release(ctx.StoreTxn)
 			return
 		}
@@ -741,19 +840,27 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 		// Leaving them on the task would let a later conflict-retry discard forks
 		// that are already durable (yin() suspends mid-verb, so a retry can follow).
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	}
+	// Outside shutdown, the WAIFs queued above and the store's committed
+	// anonymous objects cover the ledger, which otherwise grows on every
+	// slice. ShutdownRequested never reverts, so false here means
+	// deferPendingWaifs queued them; under shutdown the ledger is their only
+	// record. Pruning follows the commit so this slice's anonymous objects exist.
+	if !s.ShutdownRequested() {
+		bcVM.PruneSuspendedPendingFinalizations()
+	}
 	// Save VM state for later Resume() via the thread-safe setter, so a
 	// concurrently running sibling scanning saved VMs for orphan GC never races
 	// the write. The s.mu critical section additionally guards the suspend(0)-
 	// style heap re-queue below; lock order is s.mu then the task lock taken
-	// inside SetBytecodeVM, matching collectSiblingGCRefs's read path.
+	// inside SetVM, matching collectSiblingGCRefs's read path.
 	s.mu.Lock()
-	t.SetBytecodeVM(bcVM)
+	t.SetVM(bcVM)
 	if t.GetState() == task.TaskQueued {
 		// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
 		// Stamp it with the suspend moment so the task's ready time reflects
@@ -772,13 +879,17 @@ func (s *Runtime) handOffSuspended(t *task.Task, ctx *kernel.TaskContext, scope 
 // #0:handle_uncaught_error, then the fallback traceback. The slice's own
 // writes are already committed and the commit gate released by the time it
 // runs.
-func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, result types.Result) {
+func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, result types.Result) {
 	t.SetState(task.TaskKilled)
 	handled := false
-	if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-		handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
-	} else if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
-		handled = s.callTaskTimeoutHook(t, "seconds", types.NewStr("Task ran out of seconds"))
+	timedOut := false
+	isDatabaseHandler := t.Context.ServerInitiated && t.This == 0 && (t.VerbName == "handle_uncaught_error" || t.VerbName == "handle_task_timeout")
+	if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "ticks")
+	} else if !isDatabaseHandler && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "seconds limit exceeded") {
+		timedOut = true
+		handled = s.callTaskTimeoutHook(t, scope, "seconds")
 	}
 	// Prefer the activation stack snapshotted at raise time (carried on the
 	// result): the live call stack has already unwound, so it would report the
@@ -786,7 +897,7 @@ func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, 
 	// no source lines. The log and the player see the same stack.
 	stack := result.CallStack
 	if len(stack) == 0 {
-		stack = t.GetCallStack()
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
 
 	// Toast gives #0:handle_uncaught_error the first opportunity to handle
@@ -794,61 +905,23 @@ func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, 
 	// suppresses the fallback traceback. The handler itself runs with database
 	// traceback dispatch disabled, so an error there falls back to the original
 	// task's traceback instead of recursively invoking the same hook.
-	isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
-	if !handled && !isUncaughtHandler {
+	if !handled && !isDatabaseHandler && !timedOut {
 		// Count every uncaught task exception here, before #0:handle_uncaught_error
 		// gets its chance: a handled error is still an uncaught one, and on the real
 		// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
 		metrics.UncaughtExceptions.Add(1)
-		if os.Getenv("BARN_DEBUG_RETRY") != "" {
-			top := ""
-			if len(stack) > 0 {
-				f := stack[len(stack)-1]
-				top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
-			}
-			caller := ""
-			if len(stack) > 1 {
-				f := stack[len(stack)-2]
-				caller = fmt.Sprintf("#%d:%s line %d (this=%d)", f.VerbLoc, f.Verb, f.LineNumber, f.This)
-			}
-			msg := result.Error.Message()
-			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-				if m := result.Val.Get(2); m.Type() == types.TYPE_STR {
-					msg = m.Str()
-				}
-			}
-			full := ""
-			if result.Error == types.E_PROPNF {
-				full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
-			}
-			slog.Warn("DEBUG-UNCAUGHT",
-				slog.String("msg", msg),
-				slog.String("full", full),
-				slog.String("caller_frame", caller),
-				slog.String("error", types.NewErr(result.Error).String()),
-				slog.String("task_verb", t.VerbName),
-				slog.String("top_frame", top),
-				slog.Int("frames", len(stack)))
-		}
 		stackValues := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {
-			frame := stack[i].ToList()
-			if s.session.IncludeRTVars(t.Context) {
-				frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-			}
-			stackValues = append(stackValues, frame)
+			stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 		}
-		formattedLines := task.FormatTraceback(stack, result.Error)
+		formattedLines := task.FormatTraceback(stack, result.ErrorMessage())
 		formattedValues := make([]types.Value, 0, len(formattedLines))
 		for _, line := range formattedLines {
 			formattedValues = append(formattedValues, types.NewStr(line))
 		}
-		handlerMessage := types.NewStr(result.Error.Message())
+		handlerMessage := types.NewStr(result.ErrorMessage())
 		handlerValue := types.NewInt(0)
 		if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
-			if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
-				handlerMessage = message
-			}
 			handlerValue = result.Val.Get(3)
 		}
 		handlerResult, handlerErr := s.runServerVerbTask(0, "handle_uncaught_error", []types.Value{
@@ -857,25 +930,25 @@ func (s *Runtime) reportUncaughtException(t *task.Task, scope *admission.Scope, 
 			handlerValue,
 			types.NewList(stackValues),
 			types.NewList(formattedValues),
-		}, t.Owner, "", nil, scope, true)
+		}, t.Owner, "", func(id int64) { s.BindCommandDiagnostic(id, t.Context.CommandDiagnostic) }, scope, true)
 		if handlerErr == nil {
-			handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+			handled = handlerResult.Flow == types.FlowSuspend || (handlerResult.Flow != types.FlowException && handlerResult.Val.Truthy())
 		}
 	}
 
-	if !handled && !isUncaughtHandler {
-		// Preserve the existing structured task log for foreground failures.
-		// Toast does not write forked-task tracebacks directly to stderr.
-		if !t.IsForked {
-			s.logTraceback(t, result.Error, stack)
-		}
+	// Every uncaught task exception gets one log record, forked or not, and
+	// whether or not a database hook handled it (including a failure of the hook
+	// task itself). This record is Barn's own; what the player sees is below.
+	s.logTraceback(t, result, stack, handled)
+	if !handled {
 		// When a database's eval verb catches the error itself — e.g. Test.db
 		// wraps results as {status, result} — the task completes normally and
 		// never reaches this branch. Tick exhaustion keeps its friendlier line.
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.sendTaskLine(t.Owner, "Task ran out of ticks")
+			s.sendTaskLine(t.Owner, "Task ran out of ticks", t.Context.CommandDiagnostic)
 		} else {
-			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+			result.CallStack = stack
+			s.SendTracebackToPlayer(t.Owner, result, t.Context.CommandDiagnostic)
 		}
 	}
 	// Clean up call stack after traceback has been sent
@@ -890,21 +963,101 @@ type sliceGate struct {
 	// everHeld records that the slice held the gate at some point, for the
 	// slow-slice log.
 	everHeld bool
+	// holds, when set, records each hold under key, timed from heldSince.
+	holds     *gateHoldStats
+	key       GateHolder
+	heldSince time.Time
+}
+
+// GateHolder names the task verb that held the exclusive commit gate and why
+// the slice took it: the verb that called an irreversible builtin
+// ("#123:verb"), or one of the escalation causes below.
+type GateHolder struct {
+	This  types.ObjID
+	Verb  string
+	Cause string
+}
+
+const (
+	gateCauseRetryBudget   = "retry budget spent"
+	gateCauseNotRestorable = "no restorable state"
+	gateCauseWastedWork    = "wasted work"
+)
+
+// GateHold is the cumulative exclusive commit gate hold of one task verb.
+type GateHold struct {
+	GateHolder
+	Count      int64
+	Total, Max time.Duration
+}
+
+// gateHoldStats accumulates exclusive gate holds. It is touched only when a
+// slice releases a gate it held.
+type gateHoldStats struct {
+	mu    sync.Mutex
+	holds map[GateHolder]*GateHold
+}
+
+func (h *gateHoldStats) observe(key GateHolder, held time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.holds == nil {
+		h.holds = make(map[GateHolder]*GateHold)
+	}
+	entry := h.holds[key]
+	if entry == nil {
+		entry = &GateHold{GateHolder: key}
+		h.holds[key] = entry
+	}
+	entry.Count++
+	entry.Total += held
+	entry.Max = max(entry.Max, held)
+}
+
+// ResetGateHolds forgets the holds recorded so far, starting a new window.
+func (s *Runtime) ResetGateHolds() {
+	s.gateHolds.mu.Lock()
+	s.gateHolds.holds = nil
+	s.gateHolds.mu.Unlock()
+}
+
+// GateHolds returns the cumulative exclusive commit gate holds taken by task
+// slices, one entry per task verb, largest total first.
+func (s *Runtime) GateHolds() []GateHold {
+	s.gateHolds.mu.Lock()
+	out := make([]GateHold, 0, len(s.gateHolds.holds))
+	for _, entry := range s.gateHolds.holds {
+		out = append(out, *entry)
+	}
+	s.gateHolds.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Total != out[j].Total {
+			return out[i].Total > out[j].Total
+		}
+		if out[i].This != out[j].This {
+			return out[i].This < out[j].This
+		}
+		return out[i].Verb < out[j].Verb
+	})
+	return out
 }
 
 func (g *sliceGate) held() bool { return g.grant != nil }
 
 // acquire takes the gate and reports how long that took, whether or not it
 // succeeded.
-func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store) (time.Duration, error) {
+// The hold is recorded under cause.
+func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause string) (time.Duration, error) {
 	waitStart := time.Now()
 	grant, err := store.AcquireExclusive(ctx)
 	wait := time.Since(waitStart)
 	if err != nil {
 		return wait, err
 	}
+	g.key.Cause = cause
 	g.grant = grant
 	g.everHeld = true
+	g.heldSince = time.Now()
 	return wait, nil
 }
 
@@ -931,6 +1084,9 @@ func (g *sliceGate) drop() {
 	}
 	g.grant.Release()
 	g.grant = nil
+	if g.holds != nil {
+		g.holds.observe(g.key, time.Since(g.heldSince))
+	}
 }
 
 type taskRetryState struct {
@@ -948,13 +1104,12 @@ type taskRetryState struct {
 // The runtime's own retry decision is wider than this scheduling predicate: a
 // forked task that has not yet run is also re-executable (forkFirstRunRebuilder),
 // but it keeps its solo batch here so co-scheduling behaviour is unchanged.
-func taskIsConflictRetryable(t *task.Task) bool {
+func taskIsConflictRetryable(t *Task) bool {
 	if t == nil {
 		return false
 	}
-	if saved := t.BytecodeVMValue(); saved != nil {
-		machine, ok := saved.(*vm.VM)
-		return ok && machine.IsYielded()
+	if saved := t.VM(); saved != nil {
+		return saved.IsYielded()
 	}
 	return !t.IsForked && t.ForkInfo == nil && t.Program != nil
 }
@@ -974,11 +1129,11 @@ type forkLane struct {
 //
 // The scheduler asks this for every ready task on every scan, so it must not
 // extract the fork body: CreateForkedTask already refused a fork without one.
-func forkFirstRunLane(t *task.Task) any {
+func forkFirstRunLane(t *Task) any {
 	if t == nil || !t.IsForked || t.ForkInfo == nil {
 		return nil
 	}
-	if saved, ok := t.BytecodeVMValue().(*vm.VM); !ok || saved == nil || saved.IsYielded() {
+	if saved := t.VM(); saved == nil || saved.IsYielded() {
 		return nil
 	}
 	return forkLane{this: t.ForkInfo.ThisObj, verb: t.ForkInfo.Verb}
@@ -991,39 +1146,39 @@ func forkFirstRunLane(t *task.Task) any {
 // children instead use an in-memory continuation checkpoint. Without this,
 // every `fork (0) ... endfork` body that lost a
 // commit surfaced a frameless E_INVARG to MOO code (issue #296).
-func (s *Runtime) forkFirstRunRebuilder(t *task.Task, ticks int64) func() *vm.VM {
+func (s *Runtime) forkFirstRunRebuilder(t *Task, ticks int64) func() *vm.VM {
 	if t == nil || !t.IsForked || t.ForkInfo == nil {
 		return nil
 	}
-	saved, ok := t.BytecodeVMValue().(*vm.VM)
-	if !ok || saved == nil || saved.IsYielded() {
+	saved := t.VM()
+	if saved == nil || saved.IsYielded() {
 		return nil
 	}
-	forkProg := forkBodyProgram(t.ForkInfo)
+	forkProg := vm.ForkBodyProgram(t.ForkInfo)
 	if forkProg == nil {
 		return nil
 	}
 	forkInfo := t.ForkInfo
 	taskID := t.ID
 	return func() *vm.VM {
-		child := s.newForkVM(taskID, forkInfo, forkProg, ticks)
-		child.Task = t
+		child := vm.NewForkVM(s.store, s.session, taskID, forkInfo, forkProg, ticks)
+		child.Task = &t.State
 		return child
 	}
 }
 
-func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
+func (s *Runtime) captureTaskRetryState(t *Task) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
 	saved := t.RetryStateSnapshot()
-	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.Context = cloneContextForRetry(saved.Context)
 	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
 	state := taskRetryState{
 		canRetry: taskIsConflictRetryable(t),
 		saved:    saved,
 	}
-	if machine, ok := t.BytecodeVMValue().(*vm.VM); ok && machine.IsYielded() {
+	if machine := t.VM(); machine != nil && machine.IsYielded() {
 		checkpoint := machine.CheckpointForRetry()
 		checkpoint.RetainWakeValue(saved.WakeValue)
 		state.rebuildVM = func() *vm.VM { checkpoint.Restore(machine); return machine }
@@ -1034,17 +1189,17 @@ func (s *Runtime) captureTaskRetryState(t *task.Task) taskRetryState {
 	return state
 }
 
-func (state taskRetryState) restore(t *task.Task) {
+func (state taskRetryState) restore(t *Task) {
 	if t == nil || !state.canRetry {
 		return
 	}
 	if state.rebuildVM != nil {
-		t.SetBytecodeVM(state.rebuildVM())
+		t.SetVM(state.rebuildVM())
 	} else {
-		t.SetBytecodeVM(nil)
+		t.SetVM(nil)
 	}
 	saved := state.saved
-	saved.Context = cloneTaskContextForRetry(saved.Context)
+	saved.Context = cloneContextForRetry(saved.Context)
 	saved.CallStack = cloneActivationFramesForRetry(saved.CallStack)
 	if saved.Context != nil {
 		saved.Context.TaskID = t.ID
@@ -1052,7 +1207,7 @@ func (state taskRetryState) restore(t *task.Task) {
 	t.RestoreRetryState(saved)
 }
 
-func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
+func cloneContextForRetry(ctx *task.Context) *task.Context {
 	if ctx == nil {
 		return nil
 	}
@@ -1074,29 +1229,26 @@ func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.Activ
 	return cloned
 }
 
-func (s *Runtime) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) bool {
-	stack := t.GetCallStack()
-	stackValues := make([]types.Value, 0, len(stack))
-	for _, frame := range stack {
-		stackValues = append(stackValues, frame.ToList())
+func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource string) bool {
+	stack := t.Result.CallStack
+	if len(stack) == 0 {
+		stack = types.ExpandBuiltinFrames(t.GetCallStack())
 	}
-	traceLines := task.FormatTraceback(stack, t.Result.Error)
+	stackValues := make([]types.Value, 0, len(stack))
+	for i := len(stack) - 1; i >= 0; i-- {
+		stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
+	}
+	traceLines := task.FormatTraceback(stack, "Task ran out of "+resource)
 	traceValues := make([]types.Value, 0, len(traceLines))
-	for i, line := range traceLines {
-		if i == 0 {
-			line = "Task ran out of " + resource
-		}
+	for _, line := range traceLines {
 		traceValues = append(traceValues, types.NewStr(line))
 	}
-	if len(traceValues) == 0 {
-		traceValues = append(traceValues, message)
-	}
-	result := s.callVerbWithArgstr(0, "handle_task_timeout", []types.Value{
+	result, err := s.runServerVerbTask(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
-	}, t.Owner, "", vmOwnershipExecution, t.ID, t.ContextValue().Admission)
-	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
+	}, t.Owner, "", func(id int64) { s.BindCommandDiagnostic(id, t.Context.CommandDiagnostic) }, scope, true)
+	return err == nil && (result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy()))
 }
 
 func resultValueContains(value types.Value, text string) bool {
@@ -1106,13 +1258,13 @@ func resultValueContains(value types.Value, text string) bool {
 	return strings.Contains(strings.ToLower(value.String()), strings.ToLower(text))
 }
 
-func (s *Runtime) sendTaskLine(player types.ObjID, line string) {
+func (s *Runtime) sendTaskLine(player types.ObjID, line string, diagnostic *metrics.Command) {
 	if s.taskLineSender != nil {
-		s.taskLineSender(player, line)
+		s.taskLineSender(player, line, diagnostic)
 	}
 }
 
-func (s *Runtime) discardCreatedForks(parent *task.Task) {
+func (s *Runtime) discardCreatedForks(parent *Task) {
 	if parent == nil || len(parent.CreatedForks) == 0 {
 		return
 	}
@@ -1129,7 +1281,7 @@ func (s *Runtime) discardCreatedForks(parent *task.Task) {
 
 // drainForks handles FlowFork yields from the VM by creating child tasks
 // and resuming the parent until no more forks are pending.
-func (s *Runtime) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) types.Result {
+func (s *Runtime) drainForks(t *task.State, bcVM *vm.VM, result types.Result) types.Result {
 	for result.Flow == types.FlowFork {
 		var childID int64
 		if result.ForkInfo != nil {
@@ -1164,8 +1316,8 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits(s.session)
-	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
+	t := NewTaskFull(taskID, player, program, ticks, seconds)
+	s.populateContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
 	t.Context.Programmer = match.Verb.Owner
@@ -1195,18 +1347,6 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	// Run synchronously on the runtime goroutine.
 	err := s.runTaskAdmitted(t, scope, true)
-	if err != nil {
-		slog.Error("task error",
-			slog.Int64("task_id", t.ID),
-			slog.Int64("this", int64(t.This)),
-			slog.String("verb", t.VerbName),
-			slog.Any("err", err))
-	}
-
-	// Flush output buffer for the player
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, err)
 	return err
 }

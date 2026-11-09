@@ -38,7 +38,7 @@ func TestRecycleParentAfterAnonymousCycleCollectionCompletes(t *testing.T) {
 		`run_gc(); recycle(o); run_gc(); return 1; ` +
 		`finally if (valid(p)) recycle(p); endif if (valid(o)) recycle(o); endif endtry`
 	if _, errCode := store.AddVerb(3, dbstore.NewVerb(
-		"anonymous-cycle-probe", []string{"anonymous-cycle-probe"}, 3,
+		[]string{"anonymous-cycle-probe"}, 3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{code},
 	)); errCode != types.E_NONE {

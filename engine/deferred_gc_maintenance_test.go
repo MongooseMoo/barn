@@ -32,10 +32,21 @@ func TestDeferredGCMaintenanceCancellationReleasesAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer owner.Finish()
+	// An execution lease that never reaches a tick checkpoint, as a VM inside
+	// a builtin: every rendezvous meets it unparked.
+	rt.mu.Lock()
+	rt.lifecycle.ExecutingTasks[99] = 1
+	rt.mu.Unlock()
+	defer func() {
+		rt.mu.Lock()
+		delete(rt.lifecycle.ExecutingTasks, 99)
+		rt.mu.Unlock()
+	}()
 	queueDueAnonymousGC(t, rt)
 	probeCtx, cancelProbe := context.WithCancel(context.Background())
 	defer cancelProbe()
 	probeDone := make(chan struct{})
+	var probes atomic.Int64
 	go func() {
 		defer close(probeDone)
 		for {
@@ -44,18 +55,35 @@ func TestDeferredGCMaintenanceCancellationReleasesAdmission(t *testing.T) {
 				return
 			}
 			scope.Finish()
+			probes.Add(1)
 		}
 	}()
 	defer func() { cancelProbe(); <-probeDone }()
-	waitAdmission(t, rt, 1)
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		rt.lifecycle.Mu.Lock()
+		retry := rt.lifecycle.RetryAfter
+		rt.lifecycle.Mu.Unlock()
+		if !retry.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("maintenance never attempted the overdue collection")
+		}
+	}
+	if probes.Load() == 0 {
+		t.Fatal("input admission did not flow beside the owner and maintenance")
+	}
 	rt.cancel()
 	select {
 	case <-rt.lifecycle.MaintenanceDone:
 	case <-time.After(time.Second):
-		t.Fatal("maintenance waited for its admission drain after cancellation")
+		t.Fatal("maintenance waited for an unparked lease after cancellation")
 	}
-	// Use a separate context to prove the pause was released, independently of
-	// the runtime's cancellation of ordinary input admission.
+	if rt.gcHandshake.Load() {
+		t.Fatal("cancelled maintenance left running VMs asked to park")
+	}
+	// Use a separate context to prove admission is open, independently of the
+	// runtime's cancellation of ordinary input admission.
 	checkCtx, cancelCheck := context.WithTimeout(context.Background(), time.Second)
 	defer cancelCheck()
 	scope, err := rt.admission.Enter(checkCtx, inputAdmissionKey(2))

@@ -2,6 +2,7 @@ package store
 
 import (
 	"github.com/MongooseMoo/barn/types"
+	"slices"
 	"testing"
 )
 
@@ -161,6 +162,34 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 	}
 }
 
+// Anonymous objects take no object number in ToastStunt (db_renumber_object scans
+// only objects[], db_objects.cc:550-552), so LowestFreeID must never offer the id
+// of a live or recycled anonymous object to renumber().
+func TestLowestFreeIDSkipsAnonymousObjectIDs(t *testing.T) {
+	for _, recycleAnon := range []bool{false, true} {
+		store := NewStore()
+		if err := store.Add(NewObject(0, -1)); err != nil {
+			t.Fatalf("Add root failed: %v", err)
+		}
+		anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, true)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject(anonymous) failed: %v", errCode)
+		}
+		if recycleAnon {
+			if err := store.Recycle(anon); err != nil {
+				t.Fatalf("Recycle(anonymous) failed: %v", err)
+			}
+		}
+		obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+		if errCode != types.E_NONE {
+			t.Fatalf("CreateObject failed: %v", errCode)
+		}
+		if next := store.LowestFreeID(); next <= obj {
+			t.Errorf("recycled anon %v: LowestFreeID = %d, want above #%d (anon is #%d)", recycleAnon, next, obj, anon)
+		}
+	}
+}
+
 func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(9, 9)); err != nil {
@@ -254,8 +283,8 @@ func TestNewObject(t *testing.T) {
 		t.Errorf("Properties len = %d, want 0", obj.properties.count())
 	}
 
-	if len(obj.verbs) != 0 {
-		t.Errorf("Verbs len = %d, want 0", len(obj.verbs))
+	if len(obj.verbList) != 0 {
+		t.Errorf("Verbs len = %d, want 0", len(obj.verbList))
 	}
 
 	// Check default flags (not readable or writable per MOO semantics)
@@ -378,5 +407,83 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	}
 	if _, errCode := store.DirectTxn().FindProperty(0, "caseprobe"); errCode != types.E_PROPNF {
 		t.Fatalf("FindProperty() after delete = %v, want E_PROPNF", errCode)
+	}
+}
+
+// Toast db_change_parents (db_objects.cc:1086-1115) moves an anonymous object
+// between its parents' anonymous_objects entries and never touches children.
+func TestChangeParentsAnonymousMovesAnonymousChildren(t *testing.T) {
+	s, ids := immutFixture(t, 2)
+	p, q := ids[0], ids[1]
+	anon, ec := s.DirectTxn().CreateObject([]types.ObjID{p}, 0, true)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+
+	if ec := s.ChangeParents(anon, []types.ObjID{q}); ec != types.E_NONE {
+		t.Fatalf("ChangeParents: %v", ec)
+	}
+
+	tx := s.DirectTxn()
+	for _, id := range []types.ObjID{p, q} {
+		children, ec := tx.Children(id)
+		if ec != types.E_NONE {
+			t.Fatalf("Children(#%d): %v", id, ec)
+		}
+		if len(children) != 0 {
+			t.Errorf("Children(#%d) = %v, want none", id, children)
+		}
+	}
+	if got, _ := tx.AnonymousChildren(p); len(got) != 0 {
+		t.Errorf("AnonymousChildren(old parent) = %v, want none", got)
+	}
+	if got, _ := tx.AnonymousChildren(q); !slices.Equal(got, []types.ObjID{anon}) {
+		t.Errorf("AnonymousChildren(new parent) = %v, want [%v]", got, anon)
+	}
+}
+
+// TestSnapshotIncludesRuntimeAnonymousObject checks that an anonymous object
+// created at runtime and referenced from a numbered object's property is in
+// the store's Snapshot, and that the reference is not rewritten to NOTHING.
+// Without it a checkpoint would lose the object.
+func TestSnapshotIncludesRuntimeAnonymousObject(t *testing.T) {
+	s := NewStore()
+
+	// #0: a regular object that will hold a reference to the anonymous object
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+
+	// Create an anonymous object at runtime (as the VM would do)
+	anonID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+
+	// Store a reference to the anon object in #0's property so it is
+	// reference-reachable from a non-anonymous object (required for serialisation).
+	anonRef := types.NewAnon(anonID)
+	if ec := s.DirectTxn().DefineProperty(0, "anon_ref", NewProperty(anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty anon_ref: %v", ec)
+	}
+
+	snap := s.Snapshot()
+
+	if len(snap.AnonymousObjects) == 0 {
+		t.Errorf("runtime-created anonymous object #%d is absent from snapshot (data loss at checkpoint); AnonymousObjects=%v",
+			anonID, snap.AnonymousObjects)
+	}
+
+	so, ok := snap.Objects[0]
+	if !ok {
+		t.Fatal("snapshot missing #0")
+	}
+	refProp, hasProp := so.Properties["anon_ref"]
+	if !hasProp {
+		t.Fatal("snapshot #0 missing anon_ref property")
+	}
+	rv := refProp.Value
+	if (rv.Type() != types.TYPE_OBJ && rv.Type() != types.TYPE_ANON) || rv.ID() == types.ObjNothing {
+		t.Errorf("snapshot rewrote anon_ref to NOTHING; got %v", refProp.Value)
 	}
 }

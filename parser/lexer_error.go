@@ -1,11 +1,11 @@
 package parser
 
-import "github.com/MongooseMoo/barn/verb"
+import "github.com/MongooseMoo/barn/ir"
 
 // readErrorLiteral reads an error literal (E_TYPE, E_DIV, etc.)
 func (l *Lexer) readErrorLiteral() Token {
 	tok := Token{
-		Position: verb.Position{
+		Position: ir.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,

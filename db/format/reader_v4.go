@@ -16,11 +16,17 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
+	if objCount < 0 {
+		return nil, fmt.Errorf("invalid object count %d", objCount)
+	}
 
 	// Line 2: total verbs
 	verbCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid verb count %d", verbCount)
 	}
 	database.DeclaredPrograms = verbCount
 
@@ -30,13 +36,13 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	}
 
 	// Players section
-	if err := database.readPlayersV4(r); err != nil {
+	if err := database.readPlayers(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 
 	// Objects section
 	for i := 0; i < objCount; i++ {
-		obj, err := database.readObjectV4(r)
+		obj, err := database.readObjectV4(r, types.ObjID(i))
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
@@ -79,27 +85,9 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	return database, nil
 }
 
-// readPlayersV4 reads the players list for version 4 format
-func (database *Database) readPlayersV4(r *bufio.Reader) error {
-	// Format: nplayers, player[0], player[1], ...
-	count, err := readInt(r)
-	if err != nil {
-		return err
-	}
-
-	database.Players = make([]types.ObjID, count)
-	for i := 0; i < count; i++ {
-		objID, err := readObjID(r)
-		if err != nil {
-			return err
-		}
-		database.Players[i] = objID
-	}
-	return nil
-}
-
-// readObjectV4 reads a single object in version 4 format
-func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, error) {
+// readObjectV4 reads the record expected at slot. Like Toast's v4_read_object
+// (db_file.cc), it rejects a label that is not the next consecutive ID.
+func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -125,6 +113,13 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 		return nil, fmt.Errorf("parse object ID: %w", err)
 	}
 	objID = types.ObjID(id)
+	if objID != slot {
+		// Toast's text, a conformance contract: read_db_file logs
+		// "READ_DB_FILE: Bad object #%d.\n" with i - 1, the 0-based record
+		// index, when v4_read_object fails (db_file.cc:920). The label
+		// follows so the message does not end in punctuation (ST1005).
+		return nil, fmt.Errorf("READ_DB_FILE: Bad object #%d. (label #%d)", slot, objID)
+	}
 
 	if recycled {
 		database.RecycledObjs = append(database.RecycledObjs, objID)
@@ -200,6 +195,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 	if err != nil {
 		return nil, err
 	}
+	if verbCount < 0 {
+		return nil, fmt.Errorf("invalid object verb count %d", verbCount)
+	}
 
 	// Read verb metadata
 	for i := 0; i < verbCount; i++ {
@@ -240,7 +238,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			That: argSpecFromCode(iobj),
 		}
 
-		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
+		obj.AppendVerb(store.NewVerb(names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions
@@ -249,20 +247,27 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 		return nil, err
 	}
 
-	propDefs := make([]string, propDefCount)
+	if propDefCount < 0 {
+		return nil, fmt.Errorf("invalid property definition count %d", propDefCount)
+	}
+	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		propDefs[i], err = r.ReadString('\n')
+		name, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
-		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
+		name = strings.TrimSuffix(name, "\n")
+		name = strings.TrimSuffix(name, "\r") // Handle Windows line endings
+		propDefs = append(propDefs, name)
 	}
 
 	// Read total property count (including inherited)
 	totalPropCount, err := readInt(r)
 	if err != nil {
 		return nil, err
+	}
+	if totalPropCount < 0 {
+		return nil, fmt.Errorf("invalid property value count %d", totalPropCount)
 	}
 
 	// Store PropDefsCount for later name resolution

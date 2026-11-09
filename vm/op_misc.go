@@ -14,11 +14,12 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 	execution := vm.builtinExec
 	if execution == nil {
 		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
-		execution.CallingVM = vm
+		execution.ProfileParent = vm
 		execution.PushEval = vm.pushEval
 		execution.PushProtectedVerb = vm.pushProtectedVerb
 		execution.PushMoveLifecycle = vm.startMoveLifecycle
 		execution.PushRecycleLifecycle = vm.startRecycleLifecycle
+		execution.PushInitialize = vm.pushInitialize
 		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
 			CollectAnonymousRefsFromVM(vm, out)
 		}
@@ -39,7 +40,11 @@ func (vm *VM) builtinExecution() *builtins.Execution {
 }
 
 // executeCallBuiltin runs OP_CALL_BUILTIN and OP_CALL_BUILTIN_WIDE once the
-// caller has fetched the function ID operand.
+// caller has fetched the function ID operand. Deliberately not inlined: when a
+// PGO profile made it hot enough to inline into Execute, every builtin call
+// (typeof x1M in BenchmarkVM) ran 9% slower than with it out of line.
+//
+//go:noinline
 func (vm *VM) executeCallBuiltin(funcID int) error {
 	argc := vm.FetchByte()
 
@@ -50,10 +55,7 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced builtin args")
 		}
-		args = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			args[i-1] = listVal.Get(i)
-		}
+		args = splicedArgs(listVal)
 	} else {
 		n := int(argc)
 		if vm.SP < n {
@@ -86,11 +88,11 @@ func (vm *VM) executeCallBuiltin(funcID int) error {
 	if result.Flow == types.FlowException {
 		// Propagate builtin exceptions to executeLoop() so traceback capture
 		// happens before any stack unwinding.
-		return VMException{Code: result.Error, Value: result.Val}
+		return VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
 	}
 
 	// The runtime is abandoning this attempt at its irreversible-effect boundary
-	// (see TaskContext.BeforeIrreversibleEffect): unwind without running any
+	// (see Context.BeforeIrreversibleEffect): unwind without running any
 	// handler. Nothing the attempt did is kept. The flag also catches a stop
 	// that happened inside a nested verb-call VM, whose result went back to the
 	// builtin that ran it rather than to the runtime.

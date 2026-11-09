@@ -1,0 +1,132 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/engine
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                                                      │ experiments/object-lifecycle/base-vm.txt │ experiments/object-lifecycle/candidate-vm.txt │
+                                                      │                  sec/op                  │        sec/op          vs base                │
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=1-4                                   202.8µ ± 29%            230.6µ ± 24%        ~ (p=0.218 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=32-4                                  375.8µ ± 16%            326.9µ ± 19%        ~ (p=0.247 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=1-4                                  157.9µ ± 11%            158.8µ ±  6%        ~ (p=0.971 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=32-4                                 362.9µ ±  9%            358.0µ ± 12%        ~ (p=0.684 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=1-4                                     281.8µ ± 22%            241.8µ ± 29%        ~ (p=0.190 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=32-4                                    679.0µ ± 12%            653.2µ ±  9%        ~ (p=0.089 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=1-4                                 293.5µ ± 10%            229.2µ ± 14%  -21.89% (p=0.001 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=32-4                                2.845m ±  8%            1.022m ± 13%  -64.08% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=1-4                                257.4µ ± 18%            214.8µ ±  6%  -16.54% (p=0.007 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=32-4                               1.451m ± 18%            1.265m ± 10%  -12.81% (p=0.001 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=1-4                                   434.2µ ± 34%            376.1µ ± 18%  -13.40% (p=0.029 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=32-4                                  4.084m ±  7%            2.478m ±  7%  -39.33% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=1-4                                   258.8µ ± 13%            228.0µ ± 25%        ~ (p=0.280 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=32-4                                  483.9µ ± 24%            510.9µ ± 16%        ~ (p=0.579 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=1-4                                  196.4µ ± 13%            205.1µ ± 12%        ~ (p=0.247 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=32-4                                 390.6µ ±  7%            414.9µ ±  5%        ~ (p=0.089 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=1-4                                     287.7µ ± 24%            330.1µ ± 22%        ~ (p=0.075 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=32-4                                    615.5µ ± 14%            631.4µ ± 14%        ~ (p=0.912 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=1-4                                  546.7µ ±  9%            595.6µ ± 11%        ~ (p=0.280 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=32-4                                 758.3µ ±  5%            789.7µ ± 13%        ~ (p=0.063 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=1-4                                 321.0µ ± 15%            314.0µ ± 12%        ~ (p=0.315 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=32-4                                2.933m ±  8%            1.512m ± 18%  -48.46% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=1-4                                236.2µ ±  9%            259.6µ ± 27%        ~ (p=0.165 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=32-4                               1.474m ± 12%            1.313m ± 18%        ~ (p=0.105 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=1-4                                   471.0µ ± 13%            381.2µ ± 12%  -19.07% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=32-4                                  4.292m ± 14%            2.359m ±  6%  -45.05% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=1-4                                609.1µ ± 11%            655.5µ ± 11%        ~ (p=0.089 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=32-4                               1.615m ±  5%            1.643m ± 12%        ~ (p=0.436 n=10)
+geomean                                                                             577.7µ                  508.9µ        -11.90%
+
+                                                      │ experiments/object-lifecycle/base-vm.txt │ experiments/object-lifecycle/candidate-vm.txt │
+                                                      │                objects/op                │      objects/op       vs base                 │
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=1-4                                     1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=32-4                                    32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=1-4                                    1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=32-4                                   32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=1-4                                       1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=32-4                                      32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=1-4                                   1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=32-4                                  32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=1-4                                  1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=32-4                                 32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=1-4                                     1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=32-4                                    32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=1-4                                     1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=32-4                                    32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=1-4                                    1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=32-4                                   32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=1-4                                       1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=32-4                                      32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=1-4                                    1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=32-4                                   32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=1-4                                   1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=32-4                                  32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=1-4                                  1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=32-4                                 32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=1-4                                     1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=32-4                                    32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=1-4                                  1.000 ± 0%             1.000 ± 0%       ~ (p=1.000 n=10) ¹
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=32-4                                 32.00 ± 0%             32.00 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                                                               5.657                  5.657       +0.00%
+¹ all samples are equal
+
+                                                      │ experiments/object-lifecycle/base-vm.txt │ experiments/object-lifecycle/candidate-vm.txt │
+                                                      │                   B/op                   │         B/op           vs base                │
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=1-4                                   52.19Ki ± 1%            52.17Ki ± 0%        ~ (p=0.971 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=32-4                                  136.8Ki ± 0%            136.8Ki ± 0%        ~ (p=0.353 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=1-4                                  68.97Ki ± 0%            68.78Ki ± 1%        ~ (p=0.640 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=32-4                                 139.8Ki ± 0%            139.8Ki ± 0%        ~ (p=0.210 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=1-4                                     72.65Ki ± 0%            72.66Ki ± 0%        ~ (p=0.837 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=32-4                                    253.4Ki ± 0%            253.4Ki ± 0%        ~ (p=0.684 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=1-4                                117.12Ki ± 0%            77.00Ki ± 0%  -34.25% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=32-4                               1847.9Ki ± 0%            561.7Ki ± 0%  -69.61% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=1-4                               103.14Ki ± 0%            98.96Ki ± 0%   -4.05% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=32-4                               715.9Ki ± 0%            586.5Ki ± 0%  -18.08% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=1-4                                   171.7Ki ± 0%            127.5Ki ± 0%  -25.76% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=32-4                                  2.827Mi ± 0%            1.446Mi ± 0%  -48.85% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=1-4                                   56.24Ki ± 1%            56.21Ki ± 0%        ~ (p=0.739 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=32-4                                  189.0Ki ± 0%            188.9Ki ± 0%        ~ (p=0.305 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=1-4                                  67.62Ki ± 0%            67.72Ki ± 1%        ~ (p=0.239 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=32-4                                 136.9Ki ± 1%            136.4Ki ± 0%        ~ (p=0.165 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=1-4                                     67.01Ki ± 0%            67.02Ki ± 0%        ~ (p=0.837 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=32-4                                    201.0Ki ± 0%            200.9Ki ± 0%        ~ (p=0.469 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=1-4                                  64.29Ki ± 1%            64.31Ki ± 0%        ~ (p=0.895 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=32-4                                 203.5Ki ± 0%            203.3Ki ± 0%        ~ (p=0.089 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=1-4                                121.26Ki ± 0%            81.12Ki ± 0%  -33.10% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=32-4                               2268.3Ki ± 0%            982.2Ki ± 0%  -56.70% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=1-4                               101.73Ki ± 0%            97.80Ki ± 0%   -3.86% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=32-4                               683.7Ki ± 0%            554.1Ki ± 0%  -18.96% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=1-4                                   165.9Ki ± 0%            121.7Ki ± 0%  -26.61% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=32-4                                  2.759Mi ± 0%            1.378Mi ± 0%  -50.07% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=1-4                                98.52Ki ± 1%            94.29Ki ± 1%   -4.30% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=32-4                               749.8Ki ± 0%            620.6Ki ± 0%  -17.24% (p=0.000 n=10)
+geomean                                                                             210.7Ki                 172.8Ki       -17.99%
+
+                                                      │ experiments/object-lifecycle/base-vm.txt │ experiments/object-lifecycle/candidate-vm.txt │
+                                                      │                allocs/op                 │       allocs/op        vs base                │
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=1-4                                     341.5 ± 0%              342.0 ± 1%        ~ (p=0.843 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Create/batch=32-4                                   1.192k ± 0%             1.192k ± 0%        ~ (p=0.321 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=1-4                                    424.0 ± 0%              423.0 ± 1%        ~ (p=0.697 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Recycle/batch=32-4                                  1.172k ± 0%             1.171k ± 0%        ~ (p=0.240 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=1-4                                       493.0 ± 0%              493.0 ± 0%        ~ (p=0.648 n=10)
+ObjectLifecycleVM/anon=0/slots=0/Pair/batch=32-4                                     2.505k ± 0%             2.504k ± 0%        ~ (p=0.689 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=1-4                                   369.0 ± 0%              353.5 ± 1%   -4.20% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Create/batch=32-4                                 2.030k ± 0%             1.516k ± 0%  -25.34% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=1-4                                  439.0 ± 1%              437.5 ± 0%   -0.34% (p=0.008 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Recycle/batch=32-4                                1.304k ± 0%             1.265k ± 0%   -2.99% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=1-4                                     536.5 ± 0%              519.0 ± 0%   -3.26% (p=0.000 n=10)
+ObjectLifecycleVM/anon=0/slots=150/Pair/batch=32-4                                   3.526k ± 0%             2.980k ± 0%  -15.50% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=1-4                                     395.5 ± 1%              396.0 ± 1%        ~ (p=0.952 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Create/batch=32-4                                   1.639k ± 0%             1.637k ± 0%        ~ (p=0.327 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=1-4                                    425.5 ± 0%              426.5 ± 1%        ~ (p=0.367 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Recycle/batch=32-4                                  1.071k ± 0%             1.067k ± 0%        ~ (p=0.075 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=1-4                                       476.0 ± 0%              475.5 ± 0%        ~ (p=0.308 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Pair/batch=32-4                                     2.033k ± 0%             2.033k ± 0%        ~ (p=0.643 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=1-4                                    414.5 ± 1%              414.0 ± 0%        ~ (p=0.897 n=10)
+ObjectLifecycleVM/anon=1/slots=0/Collect/batch=32-4                                  1.302k ± 0%             1.300k ± 0%        ~ (p=0.426 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=1-4                                   424.0 ± 0%              409.0 ± 0%   -3.54% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Create/batch=32-4                                 2.541k ± 0%             2.026k ± 0%  -20.27% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=1-4                                  440.0 ± 1%              440.0 ± 1%        ~ (p=0.942 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Recycle/batch=32-4                                1.192k ± 0%             1.153k ± 0%   -3.35% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=1-4                                     517.0 ± 0%              501.0 ± 0%   -3.09% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Pair/batch=32-4                                   3.051k ± 0%             2.501k ± 0%  -18.03% (p=0.000 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=1-4                                  430.0 ± 0%              426.5 ± 1%   -0.81% (p=0.022 n=10)
+ObjectLifecycleVM/anon=1/slots=150/Collect/batch=32-4                                1.421k ± 0%             1.383k ± 0%   -2.67% (p=0.000 n=10)
+geomean                                                                               864.6                   830.2        -3.98%

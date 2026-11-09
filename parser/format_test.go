@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
-	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
@@ -16,9 +16,17 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"; return;",
 		"return -(2 ^ 3) + 4 * 5;",
 		"return a ? b | (c ? d | e);",
-		"return {1, @{2, 3}, {4..6}};",
+		"return {1, @{2, 3}, {4, 5, 6}[1..3]};",
 		"return [\"key\" -> value, 2 -> other];",
 		"object.name = object.(property);",
+		"return (0).(0);",
+		"return (1).name; (1).name = 2;",
+		"return (-1)[1];",
+		"return (-1).name; (-1).name = 2;",
+		"return {@(0 % 0)};",
+		"return {@{1}[1]};",
+		"return {@(1 + 2)};",
+		"return {@(0 ? 1 | 2)};",
 		"items[^] = value; items[2..$] = replacement;",
 		"{required, ?missing, ?optional = 2, @rest} = values;",
 		"if (a) return 1; elseif (b) return 2; else return 3; endif",
@@ -28,6 +36,11 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 		"try value = risky(); except detail (E_TYPE, E_DIV) return detail; finally cleanup(); endtry",
 		"fork task_id (delay) notify(player, \"done\"); endfork",
 		"return `value / divisor ! E_DIV => 0';",
+		"try risky(); except detail (\"E_CUSTOM\", code, @more, E_DIV) return detail; except (E_TYPE) endtry",
+		"return `risky() ! 1, @codes => result = 5';",
+		"return `risky() ! E_DIV => a ? b | c';",
+		"x = {@ret = {1, 2}}; f(@ret = {3}, @(a ? b | c));",
+		"x = true = {}; return {true, false};",
 		"return object:(verb_name)(arg, @args);",
 	}
 
@@ -49,6 +62,12 @@ func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
 	for _, value := range values {
 		t.Run(strconv.Quote(value), func(t *testing.T) {
 			source := "return " + mooStringLiteral(value) + ";"
+			if strings.Contains(value, "\n") {
+				if _, err := parser.NewParser(source).ParseProgram(); err == nil {
+					t.Fatal("source string containing a newline compiled")
+				}
+				return
+			}
 			assertCanonicalRoundTrip(t, source)
 
 			program, err := parser.NewParser(source).ParseProgram()
@@ -151,21 +170,10 @@ func assertCanonicalRoundTrip(t *testing.T, source string) {
 	if err != nil {
 		t.Fatalf("initial parse error = %v\nsource:\n%s", err, source)
 	}
-	formatted := strings.Join(parser.FormatMOO(original), "\n")
-	reparsed, err := parser.NewParser(formatted).ParseProgram()
-	if err != nil {
-		t.Fatalf("formatted parse error = %v\nformatted:\n%s", err, formatted)
-	}
-	if !reflect.DeepEqual(withoutPositions(reflect.ValueOf(original)).Interface(), withoutPositions(reflect.ValueOf(reparsed)).Interface()) {
-		t.Fatalf("semantic IR changed\nsource:\n%s\nformatted:\n%s", source, formatted)
-	}
-	formattedAgain := strings.Join(parser.FormatMOO(reparsed), "\n")
-	if formattedAgain != formatted {
-		t.Fatalf("formatter is unstable\nfirst:\n%s\nsecond:\n%s", formatted, formattedAgain)
-	}
+	assertDirectProgramFormatRoundTrip(t, original)
 }
 
-var positionType = reflect.TypeOf(verb.Position{})
+var positionType = reflect.TypeOf(ir.Position{})
 
 func withoutPositions(value reflect.Value) reflect.Value {
 	if !value.IsValid() {
@@ -193,6 +201,13 @@ func withoutPositions(value reflect.Value) reflect.Value {
 		copy := reflect.New(value.Type()).Elem()
 		for i := 0; i < value.NumField(); i++ {
 			copy.Field(i).Set(withoutPositions(value.Field(i)))
+		}
+		// Canonical formatting may uppercase type-constant variable names.
+		// Their semantic identity is case-insensitive (compiler/lower_locals.go).
+		switch value.Interface().(type) {
+		case ir.IdentifierExpr, ir.VariableTarget:
+			name := copy.FieldByName("Name")
+			name.SetString(strings.ToUpper(name.String()))
 		}
 		return copy
 	case reflect.Slice:

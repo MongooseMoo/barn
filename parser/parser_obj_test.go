@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -28,7 +28,7 @@ func TestParseObjectLiteral(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != verb.LiteralObj {
+			if lit.Kind != ir.LiteralObj {
 				t.Fatalf("literal kind = %v, want LiteralObj", lit.Kind)
 			}
 			if lit.ObjID != tt.expected {

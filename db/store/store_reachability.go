@@ -1,54 +1,19 @@
 package store
 
 import (
+	"cmp"
 	"github.com/MongooseMoo/barn/types"
+	"maps"
+	"slices"
 	"sort"
+	"sync"
 )
-
-func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
-	collectAnonymousObjectRefsVisited(value, out, nil, false)
-}
-
-func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}, retained bool) {
-	switch value.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if value.IsAnonymous() {
-			out[value.ID()] = struct{}{}
-		}
-	case types.TYPE_WAIF:
-		identity := value.WaifIdentity()
-		if _, seen := visitedWaifs[identity]; seen {
-			return
-		}
-		if visitedWaifs == nil {
-			visitedWaifs = make(map[types.WaifIdentity]struct{})
-		}
-		visitedWaifs[identity] = struct{}{}
-		if retained {
-			value.VisitRetainedWaifValues(func(property types.Value) { collectAnonymousObjectRefsVisited(property, out, visitedWaifs, true) })
-			return
-		}
-		for _, name := range value.PropertyNames() {
-			if property, ok := value.GetProperty(name); ok {
-				collectAnonymousObjectRefsVisited(property, out, visitedWaifs, retained)
-			}
-		}
-	case types.TYPE_LIST:
-		for _, elem := range value.Elements() {
-			collectAnonymousObjectRefsVisited(elem, out, visitedWaifs, retained)
-		}
-	case types.TYPE_MAP:
-		for _, pair := range value.Pairs() {
-			collectAnonymousObjectRefsVisited(pair[0], out, visitedWaifs, retained)
-			collectAnonymousObjectRefsVisited(pair[1], out, visitedWaifs, retained)
-		}
-	}
-}
 
 // lookupAnonymousLocked returns the live anonymous object with the given
 // identity id, regardless of which backing map holds it. Runtime-created and
 // database-loaded anonymous objects live in s.anonObjects; some test fixtures
-// (and any object added via Add with the anonymous flag) live in s.objects.
+// (and any object added via Add with the anonymous flag) live in the numbered
+// directory.
 // Anon scanning subsystems must consider both so the planner, GC candidate scan,
 // and serializer all operate over one consistent set of anonymous objects.
 // Caller holds s.mu.
@@ -94,25 +59,98 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 	defer s.mu.RUnlock()
 
 	reachable := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0)
-
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
-			return true
+	seeds := make(map[types.ObjID]struct{})
+	for _, holder := range s.directRefs.snapshot() {
+		if holder.anonymous {
+			continue
 		}
-		for _, prop := range obj.properties.all() {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefsVisited(prop.value, refs, nil, retained)
-			for id := range refs {
-				queue = append(queue, id)
-			}
+		for _, ref := range holder.refs {
+			types.CollectAnonymousRefs(ref, seeds, retained)
 		}
-		return true
-	})
+	}
+	queue := make([]types.ObjID, 0, len(seeds))
+	for id := range seeds {
+		queue = append(queue, id)
+	}
 
 	s.expandAnonymousReachabilityLocked(reachable, queue, retained)
 	return reachable
+}
+
+// directRefIndex holds, for each live directory object whose property values
+// reference an anonymous object or a WAIF, those references
+// (VisitDirectFinalizationRefs, deduplicated), so the persistent reachability
+// walks seed from the holders instead of scanning every property of every
+// object. mu is its own: a shared-lock commit refreshes entries under
+// store.mu.RLock.
+type directRefIndex struct {
+	mu      sync.Mutex
+	entries map[types.ObjID]directRefHolder
+}
+
+type directRefHolder struct {
+	id        types.ObjID
+	anonymous bool // seeds the WAIF top, never anonymous reachability
+	refs      []types.Value
+}
+
+// snapshot returns every holder in id order, the order the directory walks.
+func (x *directRefIndex) snapshot() []directRefHolder {
+	x.mu.Lock()
+	holders := slices.Collect(maps.Values(x.entries))
+	x.mu.Unlock()
+	slices.SortFunc(holders, func(a, b directRefHolder) int { return cmp.Compare(a.id, b.id) })
+	return holders
+}
+
+// refreshDirectRefs recomputes id's entry from its published directory image.
+// Every noteWaifRootsChanged site calls it, after the change and before the
+// epoch moves, for each object whose property values or existence it changed.
+func (s *Store) refreshDirectRefs(id types.ObjID) {
+	obj := s.load(id)
+	var refs []types.Value
+	if validLiveObject(obj) {
+		waifs := types.NewWaifSet(nil)
+		anons := make(map[types.ObjID]struct{})
+		for _, prop := range obj.properties.all() {
+			if !prop.value.MayHoldFinalizable() {
+				continue
+			}
+			prop.value.VisitDirectFinalizationRefs(func(ref types.Value) {
+				if ref.IsAnonymous() {
+					if _, seen := anons[ref.ID()]; seen {
+						return
+					}
+					anons[ref.ID()] = struct{}{}
+				} else if !waifs.Add(ref) {
+					return
+				}
+				refs = append(refs, ref)
+			})
+		}
+	}
+	s.directRefs.mu.Lock()
+	defer s.directRefs.mu.Unlock()
+	if len(refs) == 0 {
+		delete(s.directRefs.entries, id)
+		return
+	}
+	if s.directRefs.entries == nil {
+		s.directRefs.entries = make(map[types.ObjID]directRefHolder)
+	}
+	s.directRefs.entries[id] = directRefHolder{id: id, anonymous: obj.anonymous, refs: refs}
+}
+
+// indexedWaifTop returns the WAIFs live directory objects hold directly, in
+// first-seen order over holders by id.
+func (s *Store) indexedWaifTop() []types.Value {
+	set := types.NewWaifSet(nil)
+	for _, holder := range s.directRefs.snapshot() {
+		for _, ref := range holder.refs {
+			set.Add(ref)
+		}
+	}
+	return set.Values
 }
 
 // ExpandCommittedAnonymousReachability expands only edges a checkpoint writes.
@@ -143,31 +181,12 @@ func (s *Store) HasAnonymousAtOrAbove(minID types.ObjID) bool {
 	return found
 }
 
-func (s *Store) expandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
-	if len(refs) == 0 {
-		return
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	queue := make([]types.ObjID, 0, len(refs))
-	for id := range refs {
-		queue = append(queue, id)
-	}
-	s.expandAnonymousReachabilityLocked(reachable, queue, true)
-}
-
 // ExpandAnonymousReachability expands anonymous roots through this transaction's
 // object view, including property values staged by the current task. A live-store
 // walk cannot see those values until commit and may otherwise collect an object
 // that is reachable through the task's in-flight anonymous graph.
 func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if tx == nil || len(refs) == 0 {
-		return
-	}
-	if tx.direct {
-		tx.store.expandAnonymousReachability(reachable, refs)
 		return
 	}
 
@@ -191,7 +210,7 @@ func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties.all() {
-			collectAnonymousObjectRefsVisited(prop.value, nested, nil, true)
+			types.CollectAnonymousRefs(prop.value, nested, true)
 		}
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
@@ -216,7 +235,7 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties.all() {
-			collectAnonymousObjectRefsVisited(prop.value, nested, nil, retained)
+			types.CollectAnonymousRefs(prop.value, nested, retained)
 		}
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
@@ -275,44 +294,8 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	return candidates
 }
 
-// collectWaifsInto records every waif reachable from value (through lists,
-// maps, and waif properties) in set. A waif already present is not re-expanded,
-// which also terminates on cyclic waif graphs.
-func collectWaifsInto(value types.Value, set *types.WaifSet, retained bool) {
-	switch value.Type() {
-	case types.TYPE_WAIF:
-		if !set.Add(value) {
-			return
-		}
-		if retained {
-			value.VisitRetainedWaifValues(func(property types.Value) { collectWaifsInto(property, set, true) })
-		} else {
-			for _, name := range value.PropertyNames() {
-				if property, ok := value.GetProperty(name); ok {
-					collectWaifsInto(property, set, false)
-				}
-			}
-		}
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectWaifsInto(elem, set, retained)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectWaifsInto(pair[0], set, retained)
-			collectWaifsInto(pair[1], set, retained)
-		}
-	}
-}
-
-// persistentWaifRootsEntry memoizes the top-level scan for one waifRootsEpoch
-// and, for one (waifRootsEpoch, types.WaifGraphEpoch) pair, the expanded
+// persistentWaifRootsEntry memoizes the top-level scan for one waifRoots.epoch
+// and, for one (waifRoots.epoch, types.WaifGraphEpoch) pair, the expanded
 // closure as an immutable set shared by every caller.
 type persistentWaifRootsEntry struct {
 	epoch      uint64
@@ -326,30 +309,6 @@ type persistentWaifRootsEntry struct {
 func propertyValueMayHoldFinalizable(obj *Object, name string) bool {
 	_, prop, ok := obj.properties.find(name)
 	return ok && prop.value.MayHoldFinalizable()
-}
-
-// collectTopLevelWaifsInto records the waifs directly inside value (descending
-// through lists and maps) without expanding the waifs' own properties.
-func collectTopLevelWaifsInto(value types.Value, set *types.WaifSet) {
-	switch value.Type() {
-	case types.TYPE_WAIF:
-		set.Add(value)
-	case types.TYPE_LIST:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, elem := range value.Elements() {
-			collectTopLevelWaifsInto(elem, set)
-		}
-	case types.TYPE_MAP:
-		if !value.MayHoldFinalizable() {
-			return
-		}
-		for _, pair := range value.Pairs() {
-			collectTopLevelWaifsInto(pair[0], set)
-			collectTopLevelWaifsInto(pair[1], set)
-		}
-	}
 }
 
 // PersistentWaifRoots returns every waif reachable from a live object's
@@ -367,13 +326,13 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 // a live object's property values. The set is immutable and shared: layer
 // additions on it with types.NewWaifSetOver.
 //
-// Two memos, because the two inputs change at different rates. The walk over
-// every property of every object (the finalizer asks after every task that let
-// a WAIF leave scope, and on a large database that scan dominated the task) is
-// memoized per waifRootsEpoch, which every store write that can add or remove
-// a waif from a property value bumps (noteWaifRootsChanged). The expansion of
+// Two memos, because the two inputs change at different rates. The top-level
+// roots, read from the direct-reference index (the finalizer asks after every
+// task that let a WAIF leave scope), are memoized per waifRoots.epoch, which
+// every store write that can add or remove a waif from a property value bumps
+// (noteWaifRootsChanged). The expansion of
 // those roots through current and retained WAIF images is memoized per
-// (waifRootsEpoch, types.WaifGraphEpoch), including history retirement.
+// (waifRoots.epoch, types.WaifGraphEpoch), including history retirement.
 func (s *Store) PersistentWaifRootSet() *types.WaifSet {
 	return s.persistentWaifRootSet(true)
 }
@@ -385,9 +344,9 @@ func (s *Store) CommittedWaifRootSet() *types.WaifSet {
 
 func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	s.mu.RLock()
-	epoch := s.waifRootsEpoch.Load()
+	epoch := s.waifRoots.epoch.Load()
 	graphEpoch := types.WaifGraphEpoch()
-	entry := s.waifRootsCache.Load()
+	entry := s.waifRoots.cache.Load()
 	if retained && entry != nil && entry.epoch == epoch && entry.graphEpoch == graphEpoch {
 		s.mu.RUnlock()
 		return entry.closure
@@ -396,20 +355,7 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	if entry != nil && entry.epoch == epoch {
 		top = entry.top
 	} else {
-		set := types.NewWaifSet(nil)
-		s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-			obj := slot.ptr.Load()
-			if obj == nil || !validLiveObject(obj) {
-				return true
-			}
-			for _, prop := range obj.properties.all() {
-				if prop.value.MayHoldFinalizable() {
-					collectTopLevelWaifsInto(prop.value, set)
-				}
-			}
-			return true
-		})
-		top = set.Values
+		top = s.indexedWaifTop()
 	}
 	s.mu.RUnlock()
 
@@ -418,13 +364,10 @@ func (s *Store) persistentWaifRootSet(retained bool) *types.WaifSet {
 	// the entry stored below is already stale and the next call recomputes.
 	closure := types.NewWaifSet(nil)
 	for _, waif := range top {
-		collectWaifsInto(waif, closure, retained)
+		closure.AddReachable(waif, retained)
 	}
 	if retained {
-		s.waifRootsCache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
+		s.waifRoots.cache.Store(&persistentWaifRootsEntry{epoch: epoch, top: top, graphEpoch: graphEpoch, closure: closure})
 	}
 	return closure
 }
-
-// LocalProperty returns a copy of the property slot defined on the object
-// itself. It does not search ancestors.

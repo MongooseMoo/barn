@@ -1,12 +1,12 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func enqueuePendingEffect(ctx *Execution, effect kernel.PendingEffect) {
+func enqueuePendingEffect(ctx *Execution, effect task.PendingEffect) {
 	ctx.PendingEffects = append(ctx.PendingEffects, effect)
 }
 
@@ -14,7 +14,7 @@ func enqueuePendingEffect(ctx *Execution, effect kernel.PendingEffect) {
 // acquired by reloading before its writes committed, or nil when the
 // session-wide cache applies. Readers of any server option consult it first so
 // the reload takes effect for the loading task at once, as it does in Toast.
-func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions {
+func pendingServerOptions(ctx *task.Context) *task.PendingServerOptions {
 	if ctx == nil {
 		return nil
 	}
@@ -24,7 +24,7 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 	// An effect queued without deferServerOptions (tests build the queue by
 	// hand) is still the task's view.
 	for i := len(ctx.PendingEffects) - 1; i >= 0; i-- {
-		if ctx.PendingEffects[i].Kind == kernel.PendingEffectServerOptions {
+		if ctx.PendingEffects[i].Kind == task.PendingEffectServerOptions {
 			return ctx.PendingEffects[i].ServerOptions
 		}
 	}
@@ -33,11 +33,11 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 
 // deferServerOptions records snapshot as the task's view and queues it for
 // session-wide publication when the task commits.
-func deferServerOptions(ctx *Execution, snapshot *kernel.PendingServerOptions) {
+func deferServerOptions(ctx *Execution, snapshot *task.PendingServerOptions) {
 	ctx.ServerOptions = snapshot
 	ctx.MaxStringConcat = snapshot.MaxStringConcat
-	enqueuePendingEffect(ctx, kernel.PendingEffect{
-		Kind:          kernel.PendingEffectServerOptions,
+	enqueuePendingEffect(ctx, task.PendingEffect{
+		Kind:          task.PendingEffectServerOptions,
 		ServerOptions: snapshot,
 	})
 }
@@ -47,7 +47,7 @@ func deferServerOptions(ctx *Execution, snapshot *kernel.PendingServerOptions) {
 // drop later calls. The task has already committed, so failures are logged instead
 // of being converted into an uncatchable MOO error after successful completion.
 func FlushPendingEffects(ctx *Execution) {
-	if ctx == nil || ctx.TaskContext == nil {
+	if ctx == nil || ctx.Context == nil {
 		return
 	}
 	if len(ctx.PendingEffects) == 0 {
@@ -67,7 +67,7 @@ func FlushPendingEffects(ctx *Execution) {
 
 	for _, effect := range pending {
 		switch effect.Kind {
-		case kernel.PendingEffectNotification:
+		case task.PendingEffectNotification:
 			note := effect.Notification
 			conn := resolveConnection(ctx, note.Player)
 			if conn == nil {
@@ -77,7 +77,7 @@ func FlushPendingEffects(ctx *Execution) {
 			if err := conn.SendNotification(note); err != nil {
 				setErr(types.E_INVARG)
 			}
-		case kernel.PendingEffectConnectionSwitch:
+		case task.PendingEffectConnectionSwitch:
 			cm := hostOf(ctx).ConnManager
 			if cm == nil {
 				setErr(types.E_INVARG)
@@ -87,7 +87,7 @@ func FlushPendingEffects(ctx *Execution) {
 			if err := cm.SwitchPlayer(sw.OldPlayer, sw.NewPlayer); err != nil {
 				setErr(types.E_INVARG)
 			}
-		case kernel.PendingEffectBootPlayer:
+		case task.PendingEffectBootPlayer:
 			cm := hostOf(ctx).ConnManager
 			if cm == nil {
 				setErr(types.E_INVARG)
@@ -99,13 +99,13 @@ func FlushPendingEffects(ctx *Execution) {
 			if err := cm.BootPlayer(effect.BootPlayer); err != nil {
 				setErr(types.E_INVARG)
 			}
-		case kernel.PendingEffectServerOptions:
+		case task.PendingEffectServerOptions:
 			snapshot := effect.ServerOptions
 			ctx.Session.applyServerOptionsSnapshot(snapshot)
 			if snapshot != nil && snapshot.ProtectedBuiltins != nil {
 				ctx.Session.applyProtectedBuiltins(snapshot.ProtectedBuiltins)
 			}
-		case kernel.PendingEffectAsyncStart:
+		case task.PendingEffectAsyncStart:
 			if effect.Start != nil {
 				effect.Start()
 			}
@@ -117,7 +117,7 @@ func FlushPendingEffects(ctx *Execution) {
 }
 
 func DiscardPendingEffects(ctx *Execution) {
-	if ctx != nil && ctx.TaskContext != nil {
+	if ctx != nil && ctx.Context != nil {
 		ctx.PendingEffects = nil
 		ctx.ServerOptions = nil
 	}

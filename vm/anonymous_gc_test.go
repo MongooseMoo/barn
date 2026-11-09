@@ -6,7 +6,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -237,7 +237,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 		t.Fatal(err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Store = store
 	const requestCount = 128
 	requests := make([]AnonGCRequest, requestCount)
@@ -259,7 +259,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 }
 
 func TestRecycleFrozenAnonymousCandidatesAllocationsDoNotScaleWithRequests(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	const requestCount = 128
 	requests := make([]AnonGCRequest, requestCount)
 	for i := range requests {

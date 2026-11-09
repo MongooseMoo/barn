@@ -1,214 +1,138 @@
 # Barn
 
-Barn is a Go implementation of a MOO server. It includes a parser, bytecode VM,
-ToastStunt-format database reader/writer, TCP server, execution engine, built-in
-function registry, and conformance tooling for comparing behavior with existing
-MOO implementations.
+Barn is a MOO server written in Go. It loads [ToastStunt](https://github.com/lisdude/toaststunt)
+databases and runs their MOO code, and the goal is for it to behave exactly
+like ToastStunt, so an existing MOO can change servers without touching its
+database.
 
-## What is MOO?
+What changes is underneath. ToastStunt runs MOO tasks one at a time. Barn
+runs them in parallel across CPU cores: each task reads a snapshot of the
+database, and if another task changed something it read before it finished,
+Barn discards that attempt and runs it again. MOO code still sees the world
+as if tasks ran one after another.
 
-MOO (MUD Object Oriented) is a programmable virtual world server where
-everything is an object with properties and verbs. Users connect over a text
-protocol, interact with objects, and write MOO-language code to extend the
-world.
+Barn is developed against Mongoose, a large, long-running MOO, as its real
+workload.
 
-## Requirements
+## What's a MOO?
 
-- Go 1.24.6, matching `go.mod`
-- PowerShell for the checked-in conformance runner
-- `uv` when running the Python conformance suite
-- A local `..\moo-conformance-tests` checkout when using the `uv` project setup
-  in this repository
+A MOO is a multi-user text world where everything (rooms, players, objects)
+is an object with properties and verbs, and the world is programmed from
+inside itself in the MOO language. LambdaMOO made the idea popular, and
+ToastStunt is its actively maintained descendant.
 
-## Getting Started
+## Status
 
-Build and run the server:
+Barn is under active development. ToastStunt compatibility is tested, not
+assumed: CI runs the [moo-conformance-tests](https://github.com/MongooseMoo/moo-conformance-tests)
+suite against Barn on every change. The suite's expected results are
+ToastStunt's actual behaviour.
 
-```powershell
+One difference is deliberate: Barn strings are Unicode text, while ToastStunt
+strings are bytes. In Barn, `length("é")` is 1.
+
+## Quick start
+
+You need Go 1.27 or newer (see `go.mod`).
+
+```sh
 go build -o bin/ ./cmd/barn
-.\bin\barn.exe -db Test.db -port 7777
+bin/barn -db Test.db -port 7777
 ```
 
-Send commands from another terminal:
+Connect any MOO client or telnet to `localhost:7777` and type
+`connect wizard`. `Test.db` is the small test database that ships in the
+repository.
 
-```powershell
-go build -o bin/ ./cmd/moo_client
-.\bin\moo_client.exe -port 7777 -cmd "connect wizard" -cmd "; return 1 + 1;"
+To run MOO code without starting a server:
+
+```sh
+go build -o bin/ ./cmd/moo
+bin/moo -e 'return 1 + 2;'
+bin/moo program.moo
 ```
 
-`cmd/barn` defaults to `Test.db`, port `7777`, and a 3600-second checkpoint
-interval.
+`make build` builds every tool into `bin/`. On Windows, Go adds `.exe`.
 
-## Server Options
+## Running a server
 
-The main server binary is built from `./cmd/barn/`.
-
-Common runtime flags:
+Common flags:
 
 | Flag | Purpose |
 |------|---------|
-| `-db <path>` | Database file path, default `Test.db` |
-| `-port <n>` | TCP listen port, default `7777` |
-| `-checkpoint-interval <seconds>` | Periodic checkpoint interval, default `3600`; use `0` to disable |
-| `-trace` | Enable execution tracing |
-| `-trace-filter <glob[,glob...]>` | Limit tracing to matching verb names |
+| `-db <path>` | Database file (default `Test.db`) |
+| `-port <n>` | TCP port (default `7777`) |
+| `-listen <url>` | Listener URL such as `tcp://:7777`; can be repeated |
+| `-config <path>` | Server options file (examples in `profiles/barn/`) |
+| `-checkpoint-interval <s>` | Seconds between checkpoints (default `3600`, `0` disables) |
+| `-log-level`, `-log-dir` | Log verbosity and where JSON logs go (default `logs/`) |
 
-Database and inspection flags exit after completing the requested operation:
+`bin/barn -h` lists everything else.
 
-| Flag | Purpose |
-|------|---------|
-| `-dump <path>` | Write a ToastStunt-format dump, reload it, and compare persistence fields |
-| `-verb-code #obj:verb` | Print verb source and metadata |
-| `-list-verbs #obj` | List verbs defined on an object |
-| `-obj-info #obj` | Print object metadata, properties, and verbs |
-| `-eval <expr>` | Parse and evaluate a MOO expression against the database |
-| `-dump-obj-raw #obj` | Print raw object fields for debugging |
-| `-verb-lookup #obj:verb` | Show where a verb resolves in the parent chain |
-| `-ancestry #obj` | Print an object's parent chain |
+Barn can also inspect a database and exit without opening any ports:
 
-## Command-Line Tools
-
-Build every tool into the gitignored `bin/` directory with `make build`, or
-directly:
-
-```powershell
-go build -o bin/ ./cmd/...        # all tools
-go build -o bin/ ./cmd/<tool>     # one tool
+```sh
+bin/barn -db Test.db -eval 'return #0.name;'
+bin/barn -db Test.db -verb-code '#0:do_login_command'
+bin/barn -db Test.db -obj-info '#2'
+bin/barn -db Test.db -dump copy.db     # write, reload and compare
 ```
 
-Go adds the `.exe` suffix on Windows.
+There are also `-list-verbs`, `-verb-lookup`, `-ancestry`, `-dump-obj-raw`,
+`-eval-file` and `-memory-report`.
 
-| Tool | Purpose |
-|------|---------|
-| `barn` | Main server plus database inspection commands |
-| `barn_logs` | Inspect Barn's structured run logs |
-| `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
-| `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
+## Tools
 
-## Conformance Workflow
+| Command | What it does |
+|---------|--------------|
+| `barn` | The server, plus the inspection flags above |
+| `moo` | Runs MOO code against a database with no network |
+| `moo_client` | Sends commands to a running server (`-cmd`, `-file`) |
+| `barn_logs` | Reads Barn's run logs; `barn_logs -level error` shows what failed |
+| `toast_oracle` | Runs an expression on a ToastStunt binary (`-bin`, `-db`) |
+| `mongoose_tz` | Mongoose's timezone helper program, for Windows |
 
-The preferred managed conformance entrypoint in this repo is:
+## Development
+
+```sh
+go test ./...
+make conformance     # Linux or WSL: the managed conformance suite
+```
+
+`make conformance` needs a checkout of
+[moo-conformance-tests](https://github.com/MongooseMoo/moo-conformance-tests)
+next to this one and [uv](https://docs.astral.sh/uv/). On Windows,
+`scripts/run-conformance.ps1` does the same job:
 
 ```powershell
 .\scripts\run-conformance.ps1 -Build -Binary .\bin\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788
 ```
 
-The script builds Barn when `-Build` is supplied, copies the source database to a
-run database, starts the server, waits for the TCP listener, runs
-`uv run pytest --pyargs moo_conformance`, stops the server, removes the run
-database unless `-KeepRunDb` is set, and writes logs under `reports/runs/`.
+When Barn and ToastStunt disagree, ToastStunt is right. A new behaviour is
+first written as a conformance test that passes on ToastStunt, then Barn is
+fixed to pass it. [AGENTS.md](AGENTS.md) has the full rules.
 
-Useful script flags:
+Where things are:
 
-| Flag | Purpose |
-|------|---------|
-| `-K <pattern>` | Pass a pytest `-k` selector |
-| `-ExtraPytestArgs <args>` | Append pytest arguments |
-| `-KeepRunDb` | Preserve the copied run database after the run |
-| `-NoFreshDb` | Use the existing run database instead of copying `-SourceDb` |
-| `-ReportsRoot <path>` | Change the report output directory |
+| Path | Contents |
+|------|----------|
+| `parser/`, `compiler/`, `bytecode/`, `vm/` | MOO source to bytecode, and the interpreter |
+| `builtins/` | Builtin functions |
+| `engine/`, `task/` | Running verbs and tasks: fork, suspend, retry |
+| `db/store/` | The in-memory object store and its snapshots |
+| `db/format/` | Reading and writing ToastStunt database files |
+| `server/`, `internal/listener/` | Connections, login, TCP/TLS/WebSocket |
+| `types/` | MOO values |
+| `spec/` | How ToastStunt behaves, written down |
+| `docs/` | Design notes and operating guides |
 
-The repository also contains a Go `conformance` package. Its loader currently
-looks for legacy YAML tests under `..\cow_py\tests\conformance`; the managed
-PowerShell runner above is the current repo-level workflow.
+The Windows DLLs at the repository root (SQLite, PCRE, Argon2, Nettle and the
+MinGW runtime) are required there; leave them tracked.
 
-## Architecture
+## Further reading
 
-```text
-barn/
-|-- cmd/             # CLI entrypoints
-|-- vm/              # Bytecode compiler and evaluator
-|-- builtins/        # Built-in function implementations and registry
-|-- parser/          # MOO lexer, parser, AST, and unparser
-|-- db/              # ToastStunt-format database I/O
-|-- engine/          # MOO evaluation, verb execution, and task lifecycle
-|-- server/          # TCP server, connection management, engine integration
-|-- types/           # MOO value types and task context
-|-- task/            # Task state, queues, and tracebacks
-|-- conformance/     # Go-side conformance loader and runner
-|-- scripts/         # Managed conformance runner
-`-- spec/            # Local MOO behavior notes and reference specs
-```
-
-## Current Implementation Surface
-
-Implemented areas visible in the current code:
-
-- MOO lexer/parser and AST for expressions and statements
-- Bytecode compiler and stack-based VM
-- Object, property, verb, parent-chain, player, and waif support
-- Task scheduling with suspend/resume, forked tasks, traceback formatting, and
-  task-local builtins
-- TCP connection handling, login hooks, user connection hooks, listener support,
-  and connection-option builtins
-- ToastStunt database load, checkpoint, dump, and round-trip support
-- Built-in categories for types, strings, lists, maps, math, objects,
-  properties, verbs, JSON, network, crypto, regex, file I/O, SQLite, exec,
-  server/system behavior, time, tasks, and GC diagnostics
-
-## Specification Documents
-
-See [`spec/`](spec/) for local behavior documentation:
-
-- Core: [Grammar](spec/grammar.md), [Types](spec/types.md),
-  [Operators](spec/operators.md), [Statements](spec/statements.md),
-  [Errors](spec/errors.md), [Objects](spec/objects.md),
-  [Tasks](spec/tasks.md), [VM](spec/vm.md), [Server](spec/server.md),
-  [Database](spec/database.md)
-- Builtins: [Types](spec/builtins/types.md), [Math](spec/builtins/math.md),
-  [Strings](spec/builtins/strings.md), [Lists](spec/builtins/lists.md),
-  [Maps](spec/builtins/maps.md), [Objects](spec/builtins/objects.md),
-  [Properties](spec/builtins/properties.md), [Verbs](spec/builtins/verbs.md),
-  [Tasks](spec/builtins/tasks.md), [Time](spec/builtins/time.md),
-  [JSON](spec/builtins/json.md), [File I/O](spec/builtins/fileio.md),
-  [Network](spec/builtins/network.md), [Crypto](spec/builtins/crypto.md),
-  [Regex](spec/builtins/regex.md), [SQLite](spec/builtins/sqlite.md),
-  [Exec](spec/builtins/exec.md), [Server](spec/builtins/server.md)
-
-## Performance Builds
-
-Go automatically applies the checked-in `cmd/barn/default.pgo` when building
-the Barn command. The profile combines representative real-Mongoose workloads
-at low and high concurrency with the `BenchmarkVM`/bench_differ hot loops. Keep
-a profile-free baseline available with `go build -pgo=off ./cmd/barn`.
-
-Refresh the profile only after collecting current CPU profiles for all three
-workload shapes, then merge them and re-run the performance gate:
-
-```bash
-go tool pprof -proto mongoose-1p.cpu mongoose-16p.cpu bench-differ.cpu > cmd/barn/default.pgo
-go test -pgo=off ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > before.txt
-go test ./vm -run='^$' -bench='^BenchmarkVM$' -benchmem -count=10 > after.txt
-benchstat before.txt after.txt
-```
-
-Commit a refreshed profile only when the geomean improves with p < 0.05 and no
-benchmark regresses by more than 3%. `make build-linux-amd64` produces the
-BMI2/AVX2 `GOAMD64=v3` binary used for deployment, and bench_differ uses the
-same architecture level. Generic release builds retain Go's `GOAMD64=v1`
-default.
-
-## Resources
-
-- [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests)
-- [ToastStunt](https://github.com/lisdude/toaststunt)
+- [`spec/`](spec/README.md): the MOO language and builtins as ToastStunt implements them
+- [`docs/TRACING.md`](docs/TRACING.md): execution tracing
+- [`docs/operator-http.md`](docs/operator-http.md): liveness and readiness probes
+- [`docs/pgo.md`](docs/pgo.md): the profile-guided build and how to refresh it
 - [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
-
-## Housekeeping
-
-Durable prose lives in `docs/` (design notes, reports, `docs/TRACING.md`,
-`docs/history/` for retired plans), active plans in `plans/`, measured results
-in `experiments/`, and agent working notes in `notes/`. Per-session
-`notes-*.md` files at the root are ignored scratch. Ad hoc runs leave
-database copies, transcripts and profiles at the root; list and remove them
-with:
-
-```powershell
-.\scripts\clean-scratch.ps1            # dry run
-.\scripts\clean-scratch.ps1 -Force     # delete untracked scratch
-.\scripts\clean-scratch.ps1 -ArchiveNotes
-```
-
-The Windows runtime DLLs at the root (`argon2.dll`, `pcre.dll`, `sqlite3.dll`,
-`nettle-8.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`)
-are loaded from the executable's directory and must stay tracked there.

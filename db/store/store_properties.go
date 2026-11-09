@@ -2,11 +2,19 @@ package store
 
 import (
 	"github.com/MongooseMoo/barn/types"
+	"maps"
 	"strings"
 )
 
-func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
-	result := newPropTable(0)
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID, owner types.ObjID) propTable {
+	return copyInheritedProperties(parents, owner, s.liveObjectLocked)
+}
+
+// copyInheritedProperties keeps the same breadth-first precedence and visits
+// every ancestor even when the first table can supply a shared base. The txn
+// reader records its dependencies on each visit; the live reader holds s.mu.
+func copyInheritedProperties(parents []types.ObjID, owner types.ObjID, object func(types.ObjID) *Object) propTable {
+	var result propTable
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -18,27 +26,52 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) propTable {
 		}
 		visited[currentID] = true
 
-		current := s.liveObjectLocked(currentID)
+		current := object(currentID)
 		if !validLiveObject(current) {
 			continue
+		}
+		queue = append(queue, current.parents...)
+		if result.s == nil {
+			if base := current.properties.inheritedBase(owner); base != nil {
+				result = propTable{s: &propState{base: base}}
+				continue
+			}
+			result = newPropTable(0)
 		}
 		for name, prop := range current.properties.all() {
 			// Keys are canonical on every object, so a direct hit suffices.
 			if _, exists := result.lookup(name); exists {
 				continue
 			}
-			result.put(name, Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: prop.version,
-			})
+			if result.s.base != nil {
+				// A later ancestor or parent adds a name. Build the union through
+				// the ordinary representation so shareCreatedProperties interns
+				// the complete shape, rather than retaining private placeholders.
+				union := newPropTable(result.count() + 1)
+				for key, slot := range result.all() {
+					union.put(key, slot)
+				}
+				result = union
+			}
+			result.put(name, inheritedSlot(prop, owner))
 		}
-		queue = append(queue, current.parents...)
 	}
 
+	if result.s == nil {
+		return newPropTable(0)
+	}
 	return result
+}
+
+// inheritedSlot is the slot an object owned by owner gets for a property it
+// inherits and has not written: clear, with no value of its own, as a loaded
+// object's is. Reads take the value from the ancestor. With the c flag the
+// slot belongs to the object's owner (Toast db_properties.cc:974).
+func inheritedSlot(from Property, owner types.ObjID) Property {
+	if !from.perms.Has(PropChown) {
+		owner = from.owner
+	}
+	return Property{value: types.None, owner: owner, perms: from.perms, clear: true}
 }
 
 func propertyNameKey(name string) string {
@@ -52,28 +85,273 @@ func PropertyNameKey(name string) string {
 	return propertyNameKey(name)
 }
 
-func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
-	newProps := s.copyInheritedPropertiesLocked(obj.parents)
-	for name, prop := range obj.properties.all() {
-		if prop.defined {
+// reseedInheritedPropertiesLocked rebuilds the inherited slots of obj, whose
+// parents were oldParents, and of every descendant of obj.
+//
+// obj's slots are each rewritten at ts: a read of a clear slot depends on the
+// ancestry it resolved through, so its version must change with it. A
+// descendant loses the slots of the ancestors obj lost and gains slots of those
+// obj gained, except ancestors it also reaches by a path that does not pass
+// through obj, and keeps the rest as they are: a read that resolves a clear slot
+// of it through obj records obj's rewritten slot. A descendant with no slot to
+// lose or gain is left alone.
+func (s *Store) reseedInheritedPropertiesLocked(obj *Object, oldParents []types.ObjID, ts uint64) {
+	object := func(id types.ObjID) *Object {
+		if o := s.liveObjectLocked(id); validLiveObject(o) {
+			return o
+		}
+		return nil
+	}
+	subtree, inSubtree := inheritanceSubtree(obj.id, object)
+	lost, gained := changedAncestors(oldParents, obj.parents, object)
+	s.rebuildInheritedSlotsLocked(obj, obj.id, oldParents, object, ts)
+	s.refreshDirectRefs(obj.id)
+	others := otherAncestors(obj.id, inSubtree, object)
+	for _, id := range subtree[1:] {
+		current, other := object(id), others(id)
+		if !ancestorChangeTouches(current, lost, gained, other) {
+			continue
+		}
+		current = s.republishForMutation(current)
+		applyAncestorChange(current, obj, lost, gained, other, ts)
+		stampObjectProperties(current, ts)
+		s.refreshDirectRefs(id)
+	}
+}
+
+// ancestorChangeTouches reports whether applyAncestorChange would change any
+// slot of obj.
+func ancestorChangeTouches(obj *Object, lost, gained map[types.ObjID][]string, other map[types.ObjID]bool) bool {
+	for ancestorID, names := range lost {
+		if other[ancestorID] {
+			continue
+		}
+		for _, name := range names {
+			if prop, ok := obj.properties.lookup(name); ok && !prop.defined {
+				return true
+			}
+		}
+	}
+	for ancestorID, names := range gained {
+		if !other[ancestorID] && len(names) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// rebuildInheritedSlotsLocked rebuilds current's inherited slots from its
+// parents, keeping those of ancestors common to its old and new ancestry, and
+// rewrites each at ts.
+func (s *Store) rebuildInheritedSlotsLocked(current *Object, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object, ts uint64) {
+	newProps := s.copyInheritedPropertiesLocked(current.parents, current.owner)
+	keepCommonAncestorSlots(current, newProps, keptInheritedNames(current.id, moved, movedOldParents, object))
+	for name, prop := range newProps.all() {
+		if !prop.defined {
+			prop.version = ts
 			newProps.put(name, prop)
 		}
 	}
-	obj.properties = newProps
+	current.properties = newProps
 }
 
-// FindProperty resolves a property (with inheritance) and returns a flat,
-// read-only PropertyView value. The store never hands out a live *Property to
-// external callers.
-func (s *Store) findProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	resolvedName, prop, errCode := s.findPropertyLocked(objID, name)
-	if errCode != types.E_NONE {
-		return PropertyView{}, errCode
+// applyAncestorChange removes obj's slots of the properties defined by the
+// ancestors in lost, and gives it a new clear slot, at ts and from moved's
+// slot, of each property defined by those in gained, skipping the ancestors in
+// other. Slots obj defines stay.
+func applyAncestorChange(obj, moved *Object, lost, gained map[types.ObjID][]string, other map[types.ObjID]bool, ts uint64) {
+	for ancestorID, names := range lost {
+		if other[ancestorID] {
+			continue
+		}
+		for _, name := range names {
+			if prop, ok := obj.properties.lookup(name); ok && !prop.defined {
+				obj.properties.remove(name)
+			}
+		}
 	}
-	return prop.View(resolvedName), types.E_NONE
+	for ancestorID, names := range gained {
+		if other[ancestorID] {
+			continue
+		}
+		for _, name := range names {
+			from, ok := moved.properties.lookup(name)
+			if !ok {
+				continue
+			}
+			if prop, ok := obj.properties.lookup(name); ok && prop.defined {
+				continue
+			}
+			slot := inheritedSlot(from, obj.owner)
+			slot.version = ts
+			obj.properties.put(name, slot)
+		}
+	}
+}
+
+// otherAncestors returns, for an object in moved's subtree (inSubtree), the
+// ancestors it reaches through a parent outside the subtree. Results are
+// memoized and shared between objects; callers must not modify them.
+func otherAncestors(moved types.ObjID, inSubtree map[types.ObjID]bool, object func(types.ObjID) *Object) func(types.ObjID) map[types.ObjID]bool {
+	memo := map[types.ObjID]map[types.ObjID]bool{moved: nil}
+	outside := make(map[types.ObjID]map[types.ObjID]bool)
+	var others func(types.ObjID) map[types.ObjID]bool
+	others = func(id types.ObjID) map[types.ObjID]bool {
+		if set, ok := memo[id]; ok {
+			return set
+		}
+		var result map[types.ObjID]bool
+		shared := true
+		current := object(id)
+		if current != nil {
+			for _, parentID := range current.parents {
+				var set map[types.ObjID]bool
+				if inSubtree[parentID] {
+					set = others(parentID)
+				} else {
+					if outside[parentID] == nil {
+						outside[parentID] = ancestorSet([]types.ObjID{parentID}, object)
+					}
+					set = outside[parentID]
+				}
+				switch {
+				case len(set) == 0:
+				case result == nil:
+					result = set
+				default:
+					if shared {
+						result = maps.Clone(result)
+						shared = false
+					}
+					maps.Copy(result, set)
+				}
+			}
+		}
+		memo[id] = result
+		return result
+	}
+	return others
+}
+
+// inheritanceSubtree returns id and its descendants, children and anonymous
+// children, each once and after the parent it was first reached from, and the
+// same objects as a set.
+func inheritanceSubtree(id types.ObjID, object func(types.ObjID) *Object) ([]types.ObjID, map[types.ObjID]bool) {
+	subtree := []types.ObjID{id}
+	in := map[types.ObjID]bool{id: true}
+	for i := 0; i < len(subtree); i++ {
+		current := object(subtree[i])
+		if current == nil {
+			continue
+		}
+		for _, childID := range append(append([]types.ObjID(nil), current.children...), current.anonymousChildren...) {
+			if !in[childID] && object(childID) != nil {
+				in[childID] = true
+				subtree = append(subtree, childID)
+			}
+		}
+	}
+	return subtree, in
+}
+
+// changedAncestors returns the ancestors that an object moving from oldParents
+// to newParents loses, and those it gains, each with the names of the
+// properties it defines.
+func changedAncestors(oldParents, newParents []types.ObjID, object func(types.ObjID) *Object) (lost, gained map[types.ObjID][]string) {
+	oldAncestry, newAncestry := ancestorSet(oldParents, object), ancestorSet(newParents, object)
+	only := func(ancestry, other map[types.ObjID]bool) map[types.ObjID][]string {
+		defs := make(map[types.ObjID][]string)
+		for ancestorID := range ancestry {
+			ancestor := object(ancestorID)
+			if other[ancestorID] || ancestor == nil {
+				continue
+			}
+			for name, prop := range ancestor.properties.all() {
+				if prop.defined {
+					defs[ancestorID] = append(defs[ancestorID], name)
+				}
+			}
+		}
+		return defs
+	}
+	return only(oldAncestry, newAncestry), only(newAncestry, oldAncestry)
+}
+
+// ancestorSet returns parents and all their ancestors.
+func ancestorSet(parents []types.ObjID, object func(types.ObjID) *Object) map[types.ObjID]bool {
+	seen := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), parents...)
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if current := object(id); current != nil {
+			queue = append(queue, current.parents...)
+		}
+	}
+	return seen
+}
+
+// keptInheritedNames returns the names of the properties defined by an
+// ancestor of id in both its old and new ancestry, where the old ancestry has
+// moved's parents as movedOldParents. id keeps its slots for these across the
+// change of parents (Toast db_properties.cc:950-962). Another ancestor
+// defining the same name does not count.
+func keptInheritedNames(id, moved types.ObjID, movedOldParents []types.ObjID, object func(types.ObjID) *Object) map[string]bool {
+	ancestry := func(old bool) map[types.ObjID]bool {
+		seen := make(map[types.ObjID]bool)
+		queue := []types.ObjID{id}
+		for len(queue) > 0 {
+			currentID := queue[0]
+			queue = queue[1:]
+			parents := movedOldParents
+			if !old || currentID != moved {
+				current := object(currentID)
+				if current == nil {
+					continue
+				}
+				parents = current.parents
+			}
+			for _, parentID := range parents {
+				if !seen[parentID] {
+					seen[parentID] = true
+					queue = append(queue, parentID)
+				}
+			}
+		}
+		return seen
+	}
+	oldAncestry := ancestry(true)
+	kept := make(map[string]bool)
+	for ancestorID := range ancestry(false) {
+		ancestor := object(ancestorID)
+		if !oldAncestry[ancestorID] || ancestor == nil {
+			continue
+		}
+		for name, prop := range ancestor.properties.all() {
+			if prop.defined {
+				kept[name] = true
+			}
+		}
+	}
+	return kept
+}
+
+// keepCommonAncestorSlots puts into newProps, built from obj's new parents,
+// obj's existing slot for each name in kept, and every slot obj defines.
+func keepCommonAncestorSlots(obj *Object, newProps propTable, kept map[string]bool) {
+	for name, prop := range obj.properties.all() {
+		if prop.defined {
+			newProps.put(name, prop)
+			continue
+		}
+		if _, inherited := newProps.lookup(name); inherited && kept[name] {
+			newProps.put(name, prop)
+		}
+	}
 }
 
 func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Property, types.ErrorCode) {
@@ -103,7 +381,10 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Prop
 		}
 		visited[currentID] = true
 
-		current := s.liveObjectLocked(currentID)
+		current := s.parentObjectLocked(currentID)
+		if currentID == objID {
+			current = s.liveObjectLocked(currentID)
+		}
 		if !validLiveObject(current) {
 			continue
 		}
@@ -134,458 +415,19 @@ func validLiveObject(obj *Object) bool {
 	return obj != nil && !obj.recycled && !obj.flags.Has(FlagInvalid)
 }
 
-// DefinedPropertyNames returns properties defined directly on an object in
-// definition order.
-
-func (s *Store) definedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return nil, types.E_INVIND
-	}
-
-	names := make([]string, 0, obj.properties.count())
-	for _, name := range obj.propOrder {
-		prop, _ := obj.properties.lookup(propertyNameKey(name))
-		if prop.defined {
-			names = append(names, name)
-		}
-	}
-	return names, types.E_NONE
-}
-
-// DefinedPropertyNamesInAncestry returns every property name defined on objID
-// or its ancestors.
-
-func (s *Store) definedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.liveObjectLocked(objID) == nil {
-		return nil, types.E_INVIND
-	}
-	return s.definedPropertyNamesInAncestryLocked([]types.ObjID{objID}), types.E_NONE
-}
-
-func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[string]bool {
-	names := make(map[string]bool)
-	visited := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), start...)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if visited[currentID] || currentID == types.ObjNothing {
-			continue
-		}
-		visited[currentID] = true
-
-		current := s.liveObjectLocked(currentID)
-		if !validLiveObject(current) {
-			continue
-		}
-		for name, prop := range current.properties.all() {
-			if prop.defined {
-				names[propertyNameKey(name)] = true
-			}
-		}
-		queue = append(queue, current.parents...)
-	}
-
-	return names
-}
-
-func (s *Store) hasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	seen := make(map[string]bool)
-	for _, id := range ids {
-		obj := s.liveObjectLocked(id)
-		if obj == nil {
-			return false, types.E_INVARG
-		}
-		for name, prop := range obj.properties.all() {
-			if !prop.defined {
-				continue
-			}
-			key := propertyNameKey(name)
-			if seen[key] {
-				return true, types.E_NONE
-			}
-			seen[key] = true
-		}
-	}
-	return false, types.E_NONE
-}
-
-func (s *Store) hasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return false, types.E_INVIND
-	}
-	for _, parentID := range parentIDs {
-		if s.liveObjectLocked(parentID) == nil {
-			return false, types.E_INVARG
-		}
-	}
-
-	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
-	for name, prop := range obj.properties.all() {
-		if prop.defined && ancestorNames[propertyNameKey(name)] {
-			return true, types.E_NONE
-		}
-	}
-	return false, types.E_NONE
-}
-
-func (s *Store) hasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return false, types.E_INVIND
-	}
-
-	visited := make(map[types.ObjID]bool)
-	var check func(*Object) bool
-	check = func(current *Object) bool {
-		if current == nil || visited[current.id] {
-			return false
-		}
-		visited[current.id] = true
-		for childID := range current.chparentChildren {
-			child := s.liveObjectLocked(childID)
-			if !validLiveObject(child) {
-				continue
-			}
-			for name, prop := range child.properties.all() {
-				if prop.defined && names[propertyNameKey(name)] {
-					return true
-				}
-			}
-			if check(child) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return check(obj), types.E_NONE
-}
-
-func (s *Store) propertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
-	prop, errCode := s.findProperty(objID, name)
-	if errCode != types.E_NONE {
-		return types.None, errCode
-	}
-	return prop.Value, types.E_NONE
-}
-
-func (s *Store) propertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return nil, types.E_INVIND
-	}
-
-	values := make([]types.Value, 0, obj.properties.count())
-	for _, prop := range obj.properties.all() {
-		values = append(values, prop.value)
-	}
-	return values, types.E_NONE
-}
-
-func (s *Store) truthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.liveObjectLocked(objID) == nil {
-		return nil, types.E_INVIND
-	}
-
-	result := make(map[string]bool)
-	seenObjects := make(map[types.ObjID]bool)
-	decidedNames := make(map[string]bool)
-	queue := []types.ObjID{objID}
-	prefixLower := strings.ToLower(prefix)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if seenObjects[currentID] {
-			continue
-		}
-		seenObjects[currentID] = true
-
-		current := s.liveObjectLocked(currentID)
-		if !validLiveObject(current) {
-			continue
-		}
-		for propName, prop := range current.properties.all() {
-			// Map keys are canonical lowercase; lower the prefix once.
-			if !strings.HasPrefix(propName, prefixLower) {
-				continue
-			}
-			name := propName[len(prefix):]
-			if name == "" || decidedNames[name] {
-				continue
-			}
-			if prop.clear {
-				continue
-			}
-			decidedNames[name] = true
-			if !prop.value.IsNone() && prop.value.Truthy() {
-				result[name] = true
-			}
-		}
-		queue = append(queue, current.parents...)
-	}
-
-	return result, types.E_NONE
-}
-
-// LocalProperty returns a flat read-only view of a property slot defined or
-// inherited directly on objID (not resolved up the parent chain).
-func (s *Store) localProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return PropertyView{}, false, types.E_INVIND
-	}
-	actualName, prop, ok := obj.properties.find(name)
-	if !ok {
-		return PropertyView{}, false, types.E_NONE
-	}
-	return prop.View(actualName), true, types.E_NONE
-}
-
 // DefinedProperty returns a read-only view of a property defined directly on the
 // object.
-
 func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	prop, ok, err := s.localProperty(objID, name)
+	prop, ok, err := s.DirectTxn().LocalProperty(objID, name)
 	if err != types.E_NONE || !ok || !prop.Defined {
 		return PropertyView{}, false, err
 	}
 	return prop, true, types.E_NONE
 }
 
-func (s *Store) HasLocalProperty(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	_, ok, err := s.localProperty(objID, name)
-	return ok, err
-}
-
-func (s *Store) IsPropertyDefinedOnObject(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	_, ok, err := s.DefinedProperty(objID, name)
-	return ok, err
-}
-
-// PropertyClearState reports whether an existing inherited property is clear on
-// the target object. A missing local slot means the property is inherited.
-
-func (s *Store) propertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return false, types.E_INVIND
-	}
-	_, prop, exists := obj.properties.find(name)
-	if !exists {
-		return true, types.E_NONE
-	}
-	if prop.defined {
-		return false, types.E_NONE
-	}
-	return prop.clear, types.E_NONE
-}
-
-// SetPropertyInfo updates owner and/or permissions on a local property slot.
-
-func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, prop, ok := obj.properties.find(name)
-	if !ok {
-		return types.E_PROPNF
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	if owner != nil {
-		prop.owner = *owner
-	}
-	if perms != nil {
-		prop.perms = *perms
-	}
-	prop.version = ts
-	obj.properties.put(actualName, prop)
-	stampObjectProperties(obj, ts)
-	return types.E_NONE
-}
-
-// SetPropertyValue updates an existing local property slot or creates a local
-// override for an inherited property.
-
-func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	obj = s.republishForMutation(obj)
-	ts := s.bumpClockLocked()
-	s.noteWaifRootsChanged()
-	if actualName, prop, ok := obj.properties.find(name); ok {
-		prop.clear = false
-		prop.value = value
-		prop.version = ts
-		obj.properties.put(actualName, prop)
-		stampObjectProperties(obj, ts)
-		return types.E_NONE
-	}
-
-	inheritedName, inherited, err := s.findPropertyLocked(objID, name)
-	if err != types.E_NONE {
-		return err
-	}
-	obj.properties.put(inheritedName, Property{
-		value:   value,
-		owner:   inherited.owner,
-		perms:   inherited.perms,
-		clear:   false,
-		defined: false,
-		version: ts,
-	})
-	stampObjectProperties(obj, ts)
-	return types.E_NONE
-}
-
-// DefineProperty adds a new property definition to an object and propagates
-// inherited clear slots to existing descendants.
-
-func (s *Store) defineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.definePropertyLocked(objID, name, prop, 0)
-}
-
-func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Property, ts uint64) types.ErrorCode {
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	if _, _, exists := obj.properties.find(name); exists {
-		return types.E_INVARG
-	}
-	obj = s.republishForMutation(obj)
-	if ts == 0 {
-		ts = s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-	}
-	prop.defined = true
-	prop.clear = false
-	prop.version = ts
-
-	obj.properties.put(propertyNameKey(name), prop)
-
-	pos := obj.propDefsCount
-	if pos > len(obj.propOrder) {
-		pos = len(obj.propOrder)
-	}
-	obj.propOrder = append(obj.propOrder, "")
-	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-	obj.propOrder[pos] = name
-	obj.propDefsCount++
-	stampObjectProperties(obj, ts)
-
-	s.propagatePropertyToDescendantsLocked(objID, name, prop, ts)
-	return types.E_NONE
-}
-
-// DeleteDefinedProperty removes a property defined directly on an object and
-// removes inherited copies from descendants.
-
-func (s *Store) deleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.deleteDefinedPropertyLocked(objID, name, 0)
-}
-
-func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts uint64) types.ErrorCode {
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, prop, ok := obj.properties.find(name)
-	if !ok || !prop.defined {
-		return types.E_PROPNF
-	}
-	obj = s.republishForMutation(obj)
-	if ts == 0 {
-		ts = s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-	}
-
-	obj.properties.remove(actualName)
-	// propOrder keeps display case while actualName is the canonical map key,
-	// so the order entry is removed case-insensitively.
-	obj.propOrder = removeStringFold(obj.propOrder, actualName)
-	if obj.propDefsCount > 0 {
-		obj.propDefsCount--
-	}
-	stampObjectProperties(obj, ts)
-	s.removeInheritedPropertyLocked(objID, actualName, ts)
-	return types.E_NONE
-}
-
-// ClearPropertyOverride removes a local inherited-property slot so reads fall
-// through to the parent chain.
-
-func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	actualName, _, ok := obj.properties.find(name)
-	if ok {
-		obj = s.republishForMutation(obj)
-		ts := s.bumpClockLocked()
-		s.noteWaifRootsChanged()
-		obj.properties.remove(actualName)
-		stampObjectProperties(obj, ts)
-	}
-	return types.E_NONE
-}
-
-func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+// propagatePropertyToDescendantsLocked gives each descendant of objID, as an
+// exclusive commit is building it, the inherited slot of a definition.
+func (s *Store) propagatePropertyToDescendantsLocked(images commitImages, objID types.ObjID, name string, prop Property, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -595,72 +437,12 @@ func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 			continue
 		}
 		visited[currentID] = true
-		current := s.liveObjectLocked(currentID)
+		current := images.view(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.liveObjectLocked(childID)
-			if !validLiveObject(child) {
-				continue
-			}
-			if _, prop, ok := child.properties.find(name); ok && prop.defined {
-				return true
-			}
-			queue = append(queue, childID)
-		}
-	}
-	return false
-}
-
-func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	obj := s.liveObjectLocked(objID)
-	if obj == nil {
-		return types.E_INVIND
-	}
-	// Read-only scan first: only republish if there is an inherited slot to drop, so
-	// a no-op reset does not needlessly supersede the image. The delete loop then
-	// mutates the fresh copy, never the published image (which pre-existing read
-	// aliases may hold).
-	changed := false
-	for _, prop := range obj.properties.all() {
-		if !prop.defined {
-			changed = true
-			break
-		}
-	}
-	if changed {
-		obj = s.republishForMutation(obj)
-		for name, prop := range obj.properties.all() {
-			if !prop.defined {
-				obj.properties.remove(name)
-			}
-		}
-		stampObjectProperties(obj, s.bumpClockLocked())
-		s.noteWaifRootsChanged()
-	}
-	return types.E_NONE
-}
-
-func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name string, prop Property, ts uint64) {
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-		current := s.liveObjectLocked(currentID)
-		if !validLiveObject(current) {
-			continue
-		}
-		for _, childID := range current.children {
-			child := s.liveObjectLocked(childID)
+			child := images.view(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -669,25 +451,44 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 					queue = append(queue, childID)
 					continue
 				}
-				child = s.republishForMutation(child)
+				child = images.own(child)
 				child.properties.remove(actualName)
 			} else {
-				child = s.republishForMutation(child)
+				child = images.own(child)
 			}
-			child.properties.put(propertyNameKey(name), Property{
-				value:   prop.value,
-				owner:   prop.owner,
-				perms:   prop.perms,
-				clear:   true,
-				version: ts,
-			})
+			slot := inheritedSlot(prop, child.owner)
+			slot.version = ts
+			child.properties.put(propertyNameKey(name), slot)
 			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
+		}
+		// Anonymous children get the slot too (Toast insert_prop_recursively,
+		// db_properties.cc:162-166, :176-179).
+		for _, anonID := range current.anonymousChildren {
+			anon := images.view(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, existing, ok := anon.properties.find(name); ok {
+				if existing.defined {
+					continue
+				}
+				anon = images.own(anon)
+				anon.properties.remove(actualName)
+			} else {
+				anon = images.own(anon)
+			}
+			slot := inheritedSlot(prop, anon.owner)
+			slot.version = ts
+			anon.properties.put(propertyNameKey(name), slot)
+			stampObjectProperties(anon, ts)
 		}
 	}
 }
 
-func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts uint64) {
+// removeInheritedPropertyLocked takes a deleted definition's inherited slot
+// away from each descendant of objID, as an exclusive commit is building it.
+func (s *Store) removeInheritedPropertyLocked(images commitImages, objID types.ObjID, name string, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -697,33 +498,115 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 			continue
 		}
 		visited[currentID] = true
-		current := s.liveObjectLocked(currentID)
+		current := images.view(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.liveObjectLocked(childID)
+			child := images.view(childID)
 			if !validLiveObject(child) {
 				continue
 			}
 			if actualName, prop, ok := child.properties.find(name); ok && !prop.defined {
-				child = s.republishForMutation(child)
+				child = images.own(child)
 				child.properties.remove(actualName)
 				stampObjectProperties(child, ts)
 			}
 			queue = append(queue, childID)
 		}
+		// Anonymous children lose the slot too (Toast remove_prop_recursively,
+		// db_properties.cc:325-328, :340-341).
+		for _, anonID := range current.anonymousChildren {
+			anon := images.view(anonID)
+			if !validLiveObject(anon) {
+				continue
+			}
+			if actualName, prop, ok := anon.properties.find(name); ok && !prop.defined {
+				anon = images.own(anon)
+				anon.properties.remove(actualName)
+				stampObjectProperties(anon, ts)
+			}
+		}
 	}
 }
 
-func removeString(items []string, value string) []string {
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if item != value {
-			result = append(result, item)
+// renameInheritedPropertiesLocked moves each descendant's inherited slot for
+// the renames of a property objID defines, as an exclusive commit is building
+// it.
+func (s *Store) renameInheritedPropertiesLocked(images commitImages, objID types.ObjID, renames []propertyRename, ts uint64) {
+	move := func(obj *Object) {
+		for _, rename := range renames {
+			if prop, ok := obj.properties.lookup(propertyNameKey(rename.from)); ok && !prop.defined {
+				obj = images.own(obj)
+				renameSlots(obj, renames, true, ts)
+				stampObjectProperties(obj, ts)
+				return
+			}
 		}
 	}
-	return result
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := images.view(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		for _, childID := range current.children {
+			if child := images.view(childID); validLiveObject(child) {
+				move(child)
+				queue = append(queue, childID)
+			}
+		}
+		for _, anonID := range current.anonymousChildren {
+			if anon := images.view(anonID); validLiveObject(anon) {
+				move(anon)
+			}
+		}
+	}
+}
+
+// renameSlots moves obj's slot under each rename's from to its to: a definer's
+// defined slots, or with inherited a descendant's inherited ones. Every slot
+// leaves before any arrives, so renames that swap two names keep both. A
+// definer's definition-order entries take the new names. A nonzero ts stamps
+// the moved slots; zero keeps their versions.
+func renameSlots(obj *Object, renames []propertyRename, inherited bool, ts uint64) {
+	type move struct {
+		to   string
+		prop Property
+	}
+	moves := make([]move, 0, len(renames))
+	for _, rename := range renames {
+		key, prop, ok := obj.properties.find(rename.from)
+		if !ok || prop.defined == inherited {
+			continue
+		}
+		obj.properties.remove(key)
+		if ts != 0 {
+			prop.version = ts
+		}
+		moves = append(moves, move{to: rename.to, prop: prop})
+	}
+	for _, m := range moves {
+		obj.properties.put(propertyNameKey(m.to), m.prop)
+	}
+	if inherited {
+		return
+	}
+	for i, name := range obj.propOrder {
+		for _, rename := range renames {
+			if strings.EqualFold(name, rename.from) {
+				obj.propOrder[i] = rename.to
+				break
+			}
+		}
+	}
 }
 
 // removeStringFold removes entries matching value case-insensitively. Used for
@@ -738,11 +621,3 @@ func removeStringFold(items []string, value string) []string {
 	}
 	return result
 }
-
-// matchVerbName checks if a search name matches a MOO verb name pattern
-// Supports MOO wildcard matching where * marks the minimum abbreviation point
-// Example: "co*nnect" matches "co", "con", "conn", "conne", "connec", "connect"
-//   - Must type at least "co" (prefix before *)
-//   - Can type any prefix of the full name "connect"
-//
-// Example: "get_conj*ugation" matches "get_conj", "get_conju", ..., "get_conjugation"

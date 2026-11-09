@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
@@ -33,15 +32,15 @@ import (
 //     memo has a real working set to amortize over.
 //   - A store-global memo stamped with the global commit clock would be WRONG
 //     for any transaction whose readTS lags the clock (a long-running or
-//     retried task reads an older snapshot through s.history —
-//     store_txn.go objectLocked). It would only be usable when
+//     retried task reads an older snapshot through s.history.byID —
+//     StoreTxn.objectLocked). It would only be usable when
 //     tx.readTS == clock, which is exactly the case a global epoch cannot
 //     cheaply prove per lookup. Scoping the memo to the snapshot that produced
 //     it removes that class of bug entirely.
 //   - A per-txn memo needs no lock. StoreTxn is single-goroutine by
-//     construction: tx.object (store_txn.go:247-262) writes the unsynchronized
-//     tx.objects map on the pure-READ path, so two goroutines sharing one txn
-//     would already be a data race today.
+//     construction: tx.object writes the unsynchronized tx.objects map on the
+//     pure-READ path, so two goroutines sharing one txn would already be a
+//     data race.
 //
 // CORRECTNESS: read-tracking is preserved exactly. The walk records every
 // object it visited and whether it marked a scan or a read on it; a memo hit
@@ -170,6 +169,15 @@ type plainScratch struct {
 	inUse   bool
 }
 
+// The direct transaction is shared between goroutines, so its walks cannot use
+// its own scratch: each takes one from these pools and puts it back. A direct
+// walk's steps are never read (its memos are off), so it returns none.
+var (
+	directVerbScratch  = sync.Pool{New: func() any { return new(verbScratch) }}
+	directPropScratch  = sync.Pool{New: func() any { return new(propScratch) }}
+	directPlainScratch = sync.Pool{New: func() any { return new(plainScratch) }}
+)
+
 // verbResolveKey keys the verb memo by the QUERIED name, verbatim. Storing the
 // resolved target under the exact string the caller asked for is what preserves
 // alias and `*` wildcard semantics (matchVerbNameLowered): the memo never has
@@ -214,9 +222,10 @@ type propResolveEntry struct {
 }
 
 // resolveCacheActive gates property memoization. Local verb entries instead
-// validate that every object on their path is unowned.
+// validate that every object on their path is unowned. A live transaction
+// reads the store as it is now, which no memo describes.
 func (tx *StoreTxn) resolveCacheActive() bool {
-	return len(tx.owned) == 0
+	return !tx.live() && len(tx.owned) == 0
 }
 
 // verbMemoActive gates the store-global verb dispatch memo. A memo entry names
@@ -228,7 +237,7 @@ func (tx *StoreTxn) resolveCacheActive() bool {
 // materializeVerbMemoMarks. Commit still fails a memo user whose snapshot
 // predates a verb-shape change (validateVerbReadsLocked).
 func (tx *StoreTxn) verbMemoActive() bool {
-	return !tx.privateVerbShape
+	return !tx.live() && !tx.privateVerbShape
 }
 
 // invalidateResolveCaches drops both memos. Called from the paths that REPLACE
@@ -238,6 +247,7 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 	if tx == nil {
 		return
 	}
+	tx.verbResolveGen++
 	tx.verbResolve = nil
 	tx.propResolve = nil
 }
@@ -246,7 +256,7 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 // walk visited is still the identical immutable, unowned *Object pointer.
 func (tx *StoreTxn) verbStepsCurrent(steps []verbWalkStep) bool {
 	for i := range steps {
-		if tx.owned[steps[i].id] || tx.objects[steps[i].id] != steps[i].obj {
+		if tx.owned[steps[i].id] != 0 || tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
 	}
@@ -264,8 +274,18 @@ func (tx *StoreTxn) replayVerbSteps(steps []verbWalkStep) {
 	}
 }
 
-func (tx *StoreTxn) propStepsCurrent(steps []propWalkStep) bool {
-	for i := range steps {
+// propStepsCurrent reports whether the txn's view of every object the recorded
+// walk visited is still the identical *Object pointer. root, when not nil, is
+// the txn's view of the walk's first object, so its map lookup is skipped.
+func (tx *StoreTxn) propStepsCurrent(steps []propWalkStep, root *Object) bool {
+	i := 0
+	if root != nil && len(steps) > 0 {
+		if root != steps[0].obj {
+			return false
+		}
+		i = 1
+	}
+	for ; i < len(steps); i++ {
 		if tx.objects[steps[i].id] != steps[i].obj {
 			return false
 		}
@@ -300,44 +320,51 @@ type verbDispatchMemoEntry struct {
 	// shape clock holds, a walk on any later snapshot scans the same objects,
 	// so a writing txn can record exact scan marks without re-matching names.
 	path []types.ObjID
+	// err is the "verb not found" error the producing walk built for a miss.
+	// Its text is a pure function of the queried name, which is part of the
+	// key, and callers only test it for nil or read its text, so every txn
+	// hitting the miss returns this value instead of building its own.
+	err error
 }
 
 // lookupVerbDispatchMemo consults the store-level dispatch memo. A hit
 // replaces the per-ancestor verb-scan marks with a single txn-level
-// dependency on verbShapeChangeTS (validated at commit) plus the usual read
+// dependency on dispatch.shapeChangeTS (validated at commit) plus the usual read
 // mark on the resolved verb, which is re-fetched from this txn's view of the
 // definer so a concurrent code edit is seen exactly as it would be by a walk.
 // err is the "verb not found" error of a negative resolution.
 //
-// local is the txn's own record of an earlier hit on this key, if any. A verb
-// called in a loop used to pay the shared map's lookup and both marks on every
-// call; the record carries the memo entry and which of the marks this txn
-// already holds, so a repeat hit only re-checks the clock and the definer. The
+// local is the txn's own record of an earlier hit on this key, if any. It
+// carries the memo entry and which of the marks this txn already holds, so a
+// verb called in a loop pays the shared map's lookup and both marks once, and a
+// repeat hit only re-checks the clock and the definer. The
 // record lives in tx.verbResolve, which is dropped wherever a binding in
 // tx.objects is replaced or a read mark is removed, so what it says is recorded
 // still is.
-func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolveEntry) (verb *Verb, definer types.ObjID, err error, hit bool) {
+//
+// On a hit, record is what tx.verbResolve[key] holds when it returns.
+func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolveEntry) (verb *Verb, definer types.ObjID, record verbResolveEntry, err error, hit bool) {
 	s := tx.store
 	if s == nil || tx.verbMemoDisabled || tx.liveMutated {
 		// A live-mutated txn commits through the coarse path, which validates
 		// scan marks, not the clock; it must never hold mark-less resolutions.
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
-	last := s.verbShapeChangeTS.Load()
+	last := s.dispatch.shapeChangeTS.Load()
 	if tx.readTS < last {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	entry := local.memo
 	if entry == nil {
 		raw, ok := s.verbMemo().Load(key)
 		if !ok {
-			return nil, types.ObjNothing, nil, false
+			return nil, types.ObjNothing, local, nil, false
 		}
 		entry = raw.(*verbDispatchMemoEntry)
 		local = verbResolveEntry{} // a stale walk record says nothing about entry
 	}
 	if entry.readTS < last {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	// A txn that has staged writes will be validated at commit; give it the
 	// walk's exact scan marks rather than a dependency on the global shape
@@ -350,34 +377,31 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 	if !entry.found {
 		if local.memoSeen < need {
 			if !tx.recordVerbMemoHit(key, entry, precise) {
-				return nil, types.ObjNothing, nil, false
-			}
-			if local.err == nil {
-				local.err = fmt.Errorf("verb not found: %s", key.name)
+				return nil, types.ObjNothing, local, nil, false
 			}
 			local.memo, local.memoSeen, local.definer = entry, need, types.ObjNothing
 			tx.storeVerbMemoUse(key, local)
 		}
-		return nil, types.ObjNothing, local.err, true
+		return nil, types.ObjNothing, local, entry.err, true
 	}
 	obj := tx.object(entry.definer)
 	if !validLiveObject(obj) {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	if entry.index < 0 || entry.index >= len(obj.verbList) {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	verb = obj.verbList[entry.index]
 	if verb == nil || (key.requireExecute && !verb.perms.Has(VerbExecute)) {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	if local.memoSeen < need && !tx.recordVerbMemoHit(key, entry, precise) {
-		return nil, types.ObjNothing, nil, false
+		return nil, types.ObjNothing, local, nil, false
 	}
 	// An unowned definer is an immutable image, so the same *Verb yields the
 	// same read mark; a private copy can be edited in place and is re-marked.
 	marked := verb
-	if precise && tx.owned[entry.definer] {
+	if precise && tx.owned[entry.definer] != 0 {
 		marked = nil
 	}
 	if marked == nil || local.verb != marked {
@@ -388,17 +412,18 @@ func (tx *StoreTxn) lookupVerbDispatchMemo(key verbResolveKey, local verbResolve
 		local.memoSeen = max(local.memoSeen, need)
 		tx.storeVerbMemoUse(key, local)
 	}
-	return verb, entry.definer, nil, true
+	return verb, entry.definer, local, nil, true
 }
 
 // storeVerbMemoUse files the txn's record of a dispatch memo hit.
 func (tx *StoreTxn) storeVerbMemoUse(key verbResolveKey, use verbResolveEntry) {
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
+	} else if _, present := tx.verbResolve[key]; present {
+		tx.verbResolveGen++
 	} else if len(tx.verbResolve) >= resolveCacheCap {
-		if _, present := tx.verbResolve[key]; !present {
-			tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
-		}
+		tx.verbResolveGen++
+		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
 	}
 	tx.verbResolve[key] = use
 }
@@ -410,9 +435,9 @@ const (
 
 // recordVerbMemoHit gives the txn what it must hold for a memo resolution:
 // the walk's scan marks when precise, otherwise a place in verbMemoHits. Both
-// last for the txn, so each is recorded the first time an entry is used. A verb
-// called in a loop used to replay its whole ancestor path, or grow the hit
-// list, on every call. It reports false when the path cannot be replayed.
+// last for the txn, so each is recorded the first time an entry is used, not on
+// every call of a verb called in a loop. It reports false when the path cannot
+// be replayed.
 func (tx *StoreTxn) recordVerbMemoHit(key verbResolveKey, entry *verbDispatchMemoEntry, precise bool) bool {
 	seen := tx.verbMemoSeen[entry]
 	if precise {
@@ -444,7 +469,7 @@ func (tx *StoreTxn) setVerbMemoSeen(entry *verbDispatchMemoEntry, state uint8) {
 // this txn's view, so the caller can fall back to a real walk.
 func (tx *StoreTxn) replayMemoPath(path []types.ObjID) bool {
 	for _, id := range path {
-		if obj := tx.object(id); obj == nil || obj.recycled {
+		if !validLiveObject(tx.object(id)) {
 			return false
 		}
 	}
@@ -462,7 +487,7 @@ func (tx *StoreTxn) noteVerbMemoHit(key verbResolveKey) {
 
 // PrepareLiveMutation must run before a task's first direct mutation of the
 // live store (a staged-topology flush or a coarse builtin). Those mutations
-// move verbShapeChangeTS themselves, after which the memo's single clock check
+// move dispatch.shapeChangeTS themselves, after which the memo's single clock check
 // cannot distinguish the task's own change from a concurrent one and a
 // live-mutated task cannot retry. So every resolution taken from the memo is
 // re-walked here, on the snapshot the memo hit was equivalent to, into the
@@ -493,7 +518,7 @@ func (tx *StoreTxn) materializeVerbMemoMarks() {
 // Anonymous objects are never memoized: their ids are recycled constantly and
 // invalidating the memo on each would make it useless. A txn that has mutated
 // the live store has no clean snapshot to tag the entry with.
-func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep) {
+func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, definer types.ObjID, steps []verbWalkStep, err error) {
 	s := tx.store
 	if s == nil || tx.liveMutated || tx.verbMemoDisabled {
 		return
@@ -501,7 +526,7 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 	if obj := tx.object(key.objID); obj == nil || obj.anonymous {
 		return
 	}
-	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer}
+	entry := &verbDispatchMemoEntry{readTS: tx.readTS, found: verb != nil, definer: definer, err: err}
 	for _, step := range steps {
 		if step.scanned {
 			entry.path = append(entry.path, step.id)
@@ -521,9 +546,9 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 	}
 	memo := s.verbMemo()
 	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
-		if s.verbDispatchMemoSize.Add(1) > verbDispatchMemoCap {
-			s.verbDispatchMemo.Store(&sync.Map{})
-			s.verbDispatchMemoSize.Store(0)
+		if s.dispatch.size.Add(1) > verbDispatchMemoCap {
+			s.dispatch.memo.Store(&sync.Map{})
+			s.dispatch.size.Store(0)
 		}
 	} else {
 		memo.Store(key, entry)
@@ -531,15 +556,21 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
+	if tx.live() {
+		return
+	}
 	for _, step := range steps {
-		if tx.owned[step.id] {
+		if tx.owned[step.id] != 0 {
 			return
 		}
 	}
 	if tx.verbResolve == nil {
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry)
 	} else if len(tx.verbResolve) >= resolveCacheCap {
+		tx.verbResolveGen++
 		tx.verbResolve = make(map[verbResolveKey]verbResolveEntry, resolveCacheCap)
+	} else if _, present := tx.verbResolve[key]; present {
+		tx.verbResolveGen++
 	}
 	tx.verbResolve[key] = verbResolveEntry{
 		steps:   append([]verbWalkStep(nil), steps...),

@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -34,10 +33,15 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check player is connected
-	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
+	cm := hostOf(ctx).ConnManager
+	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if ctx.Session.HasPendingHTTPRead(player) || ctx.Session.heldInputEnabled(player) {
+	conn := cm.GetConnection(player)
+	if conn == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if ctx.Session.HasPendingHTTPRead(player) || ctx.Session.heldInputEnabled(conn.ConnectionID()) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -64,7 +68,7 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	mgr.SuspendTask(t, -1)
+	t.SuspendSeconds(-1)
 
 	return types.Suspend(-1)
 }
@@ -112,11 +116,10 @@ func inputReceipt(ctx *Execution) func() {
 }
 
 func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Result {
-	// The no-argument form describes the current connection and therefore uses
-	// Player as its default target, never as an authority source.
+	// The no-argument form reports the cached maximum output buffer size.
 	target := ctx.Player
 	if len(args) == 0 {
-		return types.Ok(types.NewInt(65536))
+		return types.Ok(types.NewInt(ctx.Session.maxQueuedOutputFor(ctx.Context)))
 	}
 	if len(args) == 1 {
 		if !isObjectRef(args[0]) {
@@ -136,12 +139,12 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 	length := conn.BufferedOutputLength()
 	if ctx != nil {
 		for _, effect := range ctx.PendingEffects {
-			if effect.Kind != kernel.PendingEffectNotification {
+			if effect.Kind != task.PendingEffectNotification {
 				continue
 			}
 			note := effect.Notification
 			if note.Player == target {
-				length++
+				length += note.ByteLength()
 			}
 		}
 	}
@@ -156,7 +159,8 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 	if !ctx.IsWizard && target != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
-	if resolveConnection(ctx, target) == nil {
+	conn := resolveConnection(ctx, target)
+	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -168,14 +172,14 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		if !validConnectionOption(name) {
 			return types.Err(types.E_INVARG)
 		}
-		value, ok := ctx.Session.getConnectionOption(target, name)
+		value, ok := ctx.Session.getConnectionOption(conn.ConnectionID(), name)
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(value)
 	}
 
-	options := ctx.Session.getConnectionOptions(target)
+	options := ctx.Session.getConnectionOptions(conn.ConnectionID())
 	names := make([]string, 0, len(options))
 	for name := range options {
 		names = append(names, name)

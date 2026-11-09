@@ -2,7 +2,10 @@ package vm
 
 import (
 	"strings"
+	"sync/atomic"
 
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
@@ -37,11 +40,16 @@ func (vm *VM) executeCallVerbWide() error {
 	return vm.executeCallVerbStatic(int(vm.ReadShort()))
 }
 
+// executeCallVerbStatic reads the argc operand before it can fail: a frame
+// without the 'd' flag pushes the error and continues at the current ip, which
+// must be the next instruction, not this one's operand.
 func (vm *VM) executeCallVerbStatic(nameIdx int) error {
+	argc := int(vm.FetchByte())
 	if _, err := vm.staticNameFromConstant(nameIdx, "verb"); err != nil {
 		return err
 	}
-	return vm.executeCallVerbNamed(vm.CurrentFrame().Program.Constants[nameIdx], int(vm.FetchByte()))
+	program := vm.CurrentFrame().Program
+	return vm.executeCallVerbNamed(program.Constants[nameIdx], argc, callSiteAt(program, nameIdx))
 }
 
 func (vm *VM) executeCallVerbDynamic() error {
@@ -50,35 +58,34 @@ func (vm *VM) executeCallVerbDynamic() error {
 	if name.Type() != types.TYPE_STR {
 		return newMooError(types.E_TYPE, "dynamic verb name must be a string")
 	}
-	return vm.executeCallVerbNamed(name, argc)
+	return vm.executeCallVerbNamed(name, argc, nil)
 }
 
 // executeCallVerbNamed takes the verb name as the string value the program
-// already holds, which becomes the callee's `verb` without a copy.
-func (vm *VM) executeCallVerbNamed(name types.Value, argc int) error {
+// already holds, which becomes the callee's `verb` without a copy. site is the
+// call site of a static name, or nil.
+func (vm *VM) executeCallVerbNamed(name types.Value, argc int, site *verbCallSite) error {
 	// Pop arguments
 	var args []types.Value
+	argsList := types.None
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced verb args")
 		}
-		args = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			args[i-1] = listVal.Get(i)
-		}
+		args, argsList = splicedArgs(listVal), listVal
 	} else {
 		args = vm.PopN(argc)
 	}
 
 	// Pop the object
 	objVal := vm.Pop()
-	return vm.startVerbCallResolved(objVal, name.Str(), name, args, nil)
+	return vm.startVerbCallResolved(objVal, name.Str(), name, args, argsList, nil, site)
 }
 
 func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
-	return vm.startVerbCallResolved(objVal, verbName, types.None, args, nil)
+	return vm.startVerbCallResolved(objVal, verbName, types.None, args, types.None, nil, nil)
 }
 
 // resolvedVerb is a call target the caller has already looked up, through the
@@ -91,8 +98,15 @@ type resolvedVerb struct {
 
 // startVerbCallResolved is startVerbCall with the verb lookup optionally done
 // by the caller: a nil resolved looks the verb up here. nameValue is verbName
-// as a string value when the caller has one, and None otherwise.
-func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, resolved *resolvedVerb) error {
+// as a string value when the caller has one, and None otherwise. argsList is
+// args as a list value when the caller has one (a spliced call), which becomes
+// the callee's `args` without a copy, and None otherwise. site, when not nil,
+// is the static call site making the call; only a call on a plain object
+// number uses it.
+func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameValue types.Value, args []types.Value, argsList types.Value, resolved *resolvedVerb, site *verbCallSite) error {
+	if objVal.Type() != types.TYPE_OBJ || objVal.IsAnonymous() {
+		site = nil
+	}
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
@@ -152,7 +166,11 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		verb, defObjID = resolved.verb, resolved.definer
 	} else {
 		var err error
-		verb, defObjID, err = findCallableVerbForRead(txn, objID, lookupVerbName)
+		if site != nil {
+			verb, defObjID, err = txn.FindCallableVerbAt(site.lookup, objID, lookupVerbName)
+		} else {
+			verb, defObjID, err = findCallableVerbForRead(txn, objID, lookupVerbName)
+		}
 		if err != nil {
 			vm.Store.NoteVerbCacheMiss()
 			return newMooErrorf(types.E_VERBNF, "verb not found: %s", verbName)
@@ -161,7 +179,13 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
 	// so the cache lookup on this hot path does not rehash the source.
-	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	var prog *bytecode.Program
+	var diagnostics []compiler.Diagnostic
+	if site != nil {
+		prog, diagnostics = site.compile(vm.Builtins.Registry().Compiler(), verb.Code, verb.CodeKey)
+	} else {
+		prog, diagnostics = vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	}
 	if len(diagnostics) > 0 {
 		return newMooErrorf(types.E_VERBNF, "compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -183,8 +207,10 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		callerValue = currentFrame.ThisValue
 	}
 	player := currentFrame.Player
-	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
-		player = vm.Context.Player
+	if slot := currentFrame.Program.BuiltinSlots.Player; slot != 0 && vm.Context != nil && vm.Context.IsWizard {
+		if local := currentFrame.Locals[slot-1]; local.Type() == types.TYPE_OBJ {
+			player = local.Obj()
+		}
 	}
 
 	// Trace nested verb calls when tracing is enabled.
@@ -206,30 +232,31 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		savedThreadMode = vm.Context.ThreadMode
 	}
 
-	// Push new stack frame
-	frame := vm.frameFrom(StackFrame{
-		Program:         prog,
-		IP:              0,
-		BasePointer:     vm.SP,
-		Locals:          vm.allocLocals(prog.NumLocals),
-		localsOnStack:   true,
-		This:            objID,
-		ThisValue:       thisValue,
-		Player:          player,
-		Verb:            lookupVerbName,
-		StoredVerbNames: verb.Names,
-		Caller:          callerObj,
-		VerbLoc:         defObjID,
-		Args:            args,
-		IsVerbCall:      true,
-		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
-		SavedThisObj:    savedThisObj,
-		SavedThisValue:  savedThisValue,
-		SavedVerb:       savedVerb,
-		SavedProgrammer: savedProgrammer,
-		SavedIsWizard:   savedIsWizard,
-		SavedThreadMode: savedThreadMode,
-	})
+	// Push new stack frame, filled in place: takeFrame's fields are zero
+	// except the loop and handler stacks. copyCommandLocals below sets every
+	// command variable, so the frame skips their defaults.
+	frame := vm.takeFrame()
+	frame.Program = prog
+	frame.BasePointer = vm.SP
+	frame.Locals = vm.allocLocals(prog.NumLocals)
+	frame.localsOnStack = true
+	frame.This = objID
+	frame.ThisValue = thisValue
+	frame.Player = player
+	frame.Verb = lookupVerbName
+	frame.StoredVerbNames = verb.Names
+	frame.Caller = callerObj
+	frame.VerbLoc = defObjID
+	frame.Args = args
+	frame.IsVerbCall = true
+	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
+	frame.SavedThisObj = savedThisObj
+	frame.SavedThisValue = savedThisValue
+	frame.SavedVerb = savedVerb
+	frame.SavedProgrammer = savedProgrammer
+	frame.SavedIsWizard = savedIsWizard
+	frame.SavedThreadMode = savedThreadMode
+	bindTypeConstants(frame)
 
 	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
@@ -239,39 +266,14 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 		SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(objID))
 	}
 	if nameValue.IsNone() {
-		nameValue = types.NewStr(lookupVerbName)
+		nameValue = types.NewStr(strings.TrimPrefix(lookupVerbName, ":"))
 	}
 	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, nameValue)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
-	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
+	setArgsLocal(frame, args, argsList)
 	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
 
-	// Propagate command environment variables from the task's parsed command context.
-	// Only propagate real command context when NOT inside an eval() boundary.
-	// Eval'd code has no command context, so nested verb calls see empty strings.
-	insideEval := false
-	for _, f := range vm.Frames {
-		if f.IsEvalFrame {
-			insideEval = true
-			break
-		}
-	}
-	if !insideEval && vm.Task != nil {
-		t := vm.Task
-		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-	} else {
-		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
-		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
-	}
+	copyCommandLocals(frame, currentFrame)
 
 	// Update shared context for builtins
 	if vm.Context != nil {
@@ -312,19 +314,54 @@ func (vm *VM) startVerbCallResolved(objVal types.Value, verbName string, nameVal
 	return nil
 }
 
+func (vm *VM) markBuiltinCaller(name string, pc int) {
+	frame := vm.CurrentFrame()
+	frame.BuiltinCaller, frame.BuiltinPC = name, pc
+	if vm.Task != nil {
+		vm.Task.SetTopFrameBuiltinCaller(name, pc)
+	}
+}
+
+func (vm *VM) pushInitialize(created types.Value, args []types.Value, builtin string) types.Result {
+	// The builtin returns the created object after the callback, regardless of
+	// the callback's normal result. The ordinary stack preserves it on suspend.
+	vm.Push(created)
+	if err := vm.startVerbCall(created, "initialize", args); err != nil {
+		vm.Pop()
+		if errorCode(err) == types.E_VERBNF {
+			return types.Ok(created)
+		}
+		return moveLifecycleErrorResult(err)
+	}
+	vm.CurrentFrame().DiscardReturn = true
+	vm.markBuiltinCaller(builtin, 2)
+	return types.Result{Flow: types.FlowBuiltinPush}
+}
+
 // pushProtectedVerb shares ordinary verb activation, return, unwind, and
-// suspension with the calling VM. args is owned by the builtin dispatcher, which
-// has just resolved #0:name to verb on definer.
-func (vm *VM) pushProtectedVerb(name types.Value, verb dbstore.VerbView, definer types.ObjID, args []types.Value) types.Result {
+// suspension with the calling VM. It resolves #0:name from the call site in
+// slot, the protected builtin's own, so repeated calls reuse the site's lookup
+// record and compiled program; found is false, with nothing pushed, when #0
+// has no callable verb by that name. args belongs to the builtin dispatcher and
+// is copied for the wrapper's frame.
+func (vm *VM) pushProtectedVerb(name types.Value, slot *atomic.Value, args []types.Value) (types.Result, bool) {
+	site := callSiteIn(slot)
+	verb, definer, err := vm.Context.StoreTxn.FindCallableVerbAt(site.lookup, types.ObjID(0), name.Str())
+	if err != nil {
+		return types.Result{}, false
+	}
 	threadMode := vm.Context.ThreadMode
 	resolved := resolvedVerb{verb: verb, definer: definer}
-	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, &resolved); err != nil {
-		return types.Err(errorCode(err))
+	args = append([]types.Value(nil), args...)
+	if err := vm.startVerbCallResolved(types.NewObj(0), name.Str(), name, args, types.None, &resolved, site); err != nil {
+		result := types.Err(errorCode(err))
+		result.Reason = exceptionReason(err)
+		return result, true
 	}
 	// Toast runs a #0:bf_<name> wrapper in the calling activation's thread
 	// mode rather than the default one (functions.cc call_bi_func).
 	vm.Context.ThreadMode = threadMode
-	return types.Result{Flow: types.FlowBuiltinPush}
+	return types.Result{Flow: types.FlowBuiltinPush}, true
 }
 
 // executePass handles OP_PASS: call the same verb on the parent object.
@@ -346,16 +383,14 @@ func (vm *VM) executePass() error {
 	}
 	// Get pass-through args
 	var passArgs []types.Value
+	passList := types.None
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
 		if listVal.Type() != types.TYPE_LIST {
 			return newMooError(types.E_TYPE, "expected list for spliced pass() args")
 		}
-		passArgs = make([]types.Value, listVal.Len())
-		for i := 1; i <= listVal.Len(); i++ {
-			passArgs[i-1] = listVal.Get(i)
-		}
+		passArgs, passList = splicedArgs(listVal), listVal
 	} else if argc > 0 {
 		passArgs = vm.PopN(argc)
 	} else {
@@ -451,7 +486,9 @@ func (vm *VM) executePass() error {
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
-	newFrame := vm.frameFrom(StackFrame{
+	// copyCommandLocals below sets every command variable, so the frame skips
+	// their defaults.
+	newFrame := vm.frameWithoutCommandDefaults(StackFrame{
 		Program:         prog,
 		IP:              0,
 		BasePointer:     vm.SP,
@@ -479,35 +516,10 @@ func (vm *VM) executePass() error {
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Verb, types.NewStr(verbName))
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Caller, types.NewObj(frame.Caller))
-	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, types.NewList(passArgs))
+	setArgsLocal(newFrame, passArgs, passList)
 	SetLocalBySlot(newFrame, prog.BuiltinSlots.Player, types.NewObj(frame.Player))
 
-	// pass() continues the same command, so propagate the command parsing
-	// variables to the inherited verb (matching the regular verb-dispatch path
-	// above and Toast). Eval'd code has no command context.
-	insideEval := false
-	for _, f := range vm.Frames {
-		if f.IsEvalFrame {
-			insideEval = true
-			break
-		}
-	}
-	if !insideEval && vm.Task != nil {
-		t := vm.Task
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, vm.commandStr(0, t.Argstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, vm.commandStr(1, t.Dobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, vm.commandStr(2, t.Iobjstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, vm.commandStr(3, t.Prepstr))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-	} else {
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
-		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
-	}
+	copyCommandLocals(newFrame, frame)
 
 	// Update shared context for builtins
 	if vm.Context != nil {
@@ -571,17 +583,46 @@ func findParentVerbForRead(txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName 
 	return txn.FindParentVerb(verbLoc, verbName)
 }
 
-// commandStr returns the string value for command-environment variable i
-// (argstr, dobjstr, iobjstr, prepstr), reusing the previous value when the
-// text is unchanged: every verb call in a command task sets all four.
-func (vm *VM) commandStr(i int, s string) types.Value {
-	if s == "" {
-		return types.NewStr("")
+// setArgsLocal fills a new verb frame's `args` variable with args, as list
+// when the caller already holds them as a list value (None otherwise). A
+// program that never names `args` has no slot for it, and nothing reads the
+// list then: the arguments stay on the frame (frame.Args) for pass(),
+// suspension and callers, so no list is built.
+func setArgsLocal(frame *StackFrame, args []types.Value, list types.Value) {
+	slot := frame.Program.BuiltinSlots.Args
+	if slot == 0 {
+		return
 	}
-	if vm.cmdStrSet[i] && vm.cmdStrSrc[i] == s {
-		return vm.cmdStrVal[i]
+	if list.IsNone() {
+		list = types.NewList(args)
 	}
-	v := types.NewStr(s)
-	vm.cmdStrSrc[i], vm.cmdStrVal[i], vm.cmdStrSet[i] = s, v, true
-	return v
+	SetLocalBySlot(frame, slot, list)
+}
+
+// commandSlots returns the program's one-based local slots for the command
+// variables, in task.CommandVariableNames order; zero means not referenced.
+func commandSlots(program *bytecode.Program) [6]int {
+	s := &program.BuiltinSlots
+	return [...]int{s.Argstr, s.Dobjstr, s.Iobjstr, s.Prepstr, s.Dobj, s.Iobj}
+}
+
+func copyCommandLocals(dst, src *StackFrame) {
+	slots := commandSlots(dst.Program)
+	for index, value := range src.commandEnvironment() {
+		if slot := slots[index]; slot != 0 {
+			SetLocalBySlot(dst, slot, value)
+		} else {
+			dst.CommandEnvironment[index] = value
+		}
+	}
+}
+
+func (frame *StackFrame) commandEnvironment() [6]types.Value {
+	values := frame.CommandEnvironment
+	for index, slot := range commandSlots(frame.Program) {
+		if slot != 0 {
+			values[index] = frame.Locals[slot-1]
+		}
+	}
+	return values
 }

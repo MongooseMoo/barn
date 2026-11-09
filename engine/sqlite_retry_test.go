@@ -37,7 +37,7 @@ func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
 				return types.Ok(types.NewInt(0))
 			}
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
-			setup := task.NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
+			setup := NewTaskFull(95010, 0, compileTestProgram(t, rt.registry, `
 #0.h = sqlite_open(":memory:");
 sqlite_query(#0.h, "CREATE TABLE t(x INTEGER)");
 return 1;
@@ -48,7 +48,7 @@ return 1;
 				t.Fatalf("setup: %+v", setup.Result)
 			}
 			defer rt.EvalCommandOutput(0, "return sqlite_close(#0.h);")
-			running := task.NewTaskFull(95011, 0, compileTestProgram(t, rt.registry, fmt.Sprintf(`
+			running := NewTaskFull(95011, 0, compileTestProgram(t, rt.registry, fmt.Sprintf(`
 set_thread_mode(0);
 before = #0.read_value;
 bump_read_value_live_once();
@@ -74,7 +74,7 @@ return {before, sqlite_query(#0.h, %q), held};
 
 // runSQLiteTaskToCompletion drives a task through its threaded SQLite suspends:
 // each completion re-queues the task and the scheduler pass resumes it.
-func runSQLiteTaskToCompletion(t *testing.T, rt *Runtime, tk *task.Task) {
+func runSQLiteTaskToCompletion(t *testing.T, rt *Runtime, tk *Task) {
 	t.Helper()
 	tk.SetState(task.TaskQueued)
 	rt.taskManager.RegisterTask(tk)
@@ -135,7 +135,7 @@ func TestSqliteThreadedStatementRunsOnceAcrossSuspendCommitRetry(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	setup := task.NewTaskFull(94010, 0, compileTestProgram(t, rt.registry, `
+	setup := NewTaskFull(94010, 0, compileTestProgram(t, rt.registry, `
 h = sqlite_open(":memory:");
 sqlite_query(h, "CREATE TABLE t(attempt INTEGER)");
 #0.h = h;
@@ -147,7 +147,7 @@ return h;
 		t.Fatalf("setup result = %+v, want a handle", setup.Result)
 	}
 
-	running := task.NewTaskFull(94011, 0, compileTestProgram(t, rt.registry, `
+	running := NewTaskFull(94011, 0, compileTestProgram(t, rt.registry, `
 n = attempt_no();
 before = #0.retry_value;
 force_retry_conflict();

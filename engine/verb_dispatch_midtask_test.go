@@ -29,7 +29,7 @@ func runMidTask(t *testing.T, setup, body, want string) {
 		if got := s.EvalCommandOutput(2, setup+"return 1;"); got != "{1, 1}" {
 			t.Fatalf("setup: %s", got)
 		}
-		verb := dbstore.NewVerb("go", []string{"go"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		verb := dbstore.NewVerb([]string{"go"}, 2, dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 			dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, []string{body})
 		if _, errCode := store.AddVerb(1, verb); errCode != types.E_NONE {
 			t.Fatalf("add verb: %s", errCode)

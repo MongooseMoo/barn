@@ -38,7 +38,7 @@ and nonzero path counts. Keep native errors and unknown outcomes visible.
 - Do not invoke `pytest` directly as a YAML or collection probe during conformance work; validate collection and behavior through the documented managed conformance command.
 - A focused packaged conformance selector must include the canonical `capability_admission` test in the same managed session, unless validated admission evidence and its exact context are supplied explicitly.
 - When the requested conformance deliverable is a full-suite run or complete failure inventory, test failure markers are results to collect, not a reason to interrupt the run; continue to the terminal summary unless the harness itself fails, hangs, or the user cancels.
-- Do not manually launch Barn or Toast for conformance work unless the user explicitly asks for a manual repro.
+- Do not manually launch Barn or Toast for conformance work unless the user explicitly asks for a manual repro. This covers launching servers only. Reading code, Go tests, `bin/moo`, `barn -eval` and a debugger are ordinary investigation and need no approval.
 - Do not manually run against a tracked database file. If a manual repro is explicitly required, use a disposable copy outside tracked fixtures.
 - Do not create ad hoc debug executables with arbitrary names for conformance work. Use the managed server flow, or one clearly temporary disposable binary under `.tmp` only when the user explicitly approves a manual repro.
 - If the managed harness command fails to start or connect, report the exact command, working directory, expected result, and actual failure before improvising.

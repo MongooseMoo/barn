@@ -1,14 +1,14 @@
 package builtins
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/parser"
+	"github.com/MongooseMoo/barn/preposition"
 	"github.com/MongooseMoo/barn/types"
-	languageverb "github.com/MongooseMoo/barn/verb"
 )
 
 // matchArgSpec validates argument spec string (this/none/any)
@@ -19,19 +19,45 @@ func matchArgSpec(s string) bool {
 
 // matchPrepSpec validates and returns prep index or -1 if invalid
 func matchPrepSpec(s string) int {
-	prep, ok := languageverb.ParsePrepositionAlias(s)
+	prep, ok := preposition.ParseAlias(s)
 	if !ok {
 		return -1
 	}
-	if prep == languageverb.PrepositionNone || prep == languageverb.PrepositionAny {
+	if prep == preposition.None || prep == preposition.Any {
 		return -2 // Special value for none/any
 	}
 	return int(prep)
 }
 
+// canonicalSetterPrepSpec accepts named prepositions and unsigned decimal
+// table indices. Signs, whitespace, trailing text and overflowing indices are
+// invalid; MOO code can use the first out-of-range error to end enumeration.
+func canonicalSetterPrepSpec(s string) (string, bool) {
+	if prep, ok := preposition.Parse(s); ok {
+		return prep.Canonical()
+	}
+	if s == "" {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return "", false
+		}
+	}
+	code, err := strconv.Atoi(s)
+	if err != nil {
+		return "", false
+	}
+	prep, ok := preposition.FromCode(code)
+	if !ok {
+		return "", false
+	}
+	return prep.Canonical()
+}
+
 // unparsePrepSpec returns the full prep string for a prep value stored in verb
 func unparsePrepSpec(prepStr string) string {
-	if prep, ok := languageverb.ParsePreposition(prepStr); ok {
+	if prep, ok := preposition.Parse(prepStr); ok {
 		if canonical, ok := prep.Canonical(); ok {
 			return canonical
 		}
@@ -75,7 +101,7 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 		// Return {defining_object, verb_name}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
-			types.NewStr(verb.Name),
+			types.NewStr(strings.Join(verb.Names, " ")),
 		}))
 	}
 
@@ -125,35 +151,12 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-
-	var verb dbstore.VerbView
-
-	// Accept string (verb name) or integer (verb index)
-	switch args[1].Type() {
-	case types.TYPE_STR:
-		var err error
-		verb, err = findVerbOnObjectForRead(ctx, objID, args[1].Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
-		}
-	case types.TYPE_INT:
-		if args[1].Int() <= 0 {
-			return types.Err(types.E_INVARG)
-		}
-		index := int(args[1].Int()) - 1 // Convert to 0-based
-		found, errCode := verbByIndexForRead(ctx, objID, index)
-		if errCode == types.E_RANGE {
-			return types.Err(types.E_VERBNF)
-		}
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		verb = found
-	default:
-		return types.Err(types.E_TYPE)
+	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
@@ -163,9 +166,6 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 
 	// Build names string (space-separated aliases)
 	namesStr := strings.Join(verb.Names, " ")
-	if namesStr == "" {
-		namesStr = verb.Name
-	}
 
 	return types.Ok(types.NewList([]types.Value{
 		types.NewObj(verb.Owner),
@@ -178,38 +178,20 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
+	// Toast bf_verb_args (src/verbs.cc:392) takes a numbered object only
+	// (is_obj), before it looks at the descriptor.
 	objVal := args[0]
-	if !isObjectRef(objVal) {
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-
-	var verb dbstore.VerbView
-
-	// Accept string (verb name) or integer (verb index)
-	switch args[1].Type() {
-	case types.TYPE_STR:
-		var err error
-		verb, err = findVerbOnObjectForRead(ctx, objID, args[1].Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
-		}
-	case types.TYPE_INT:
-		index := int(args[1].Int()) - 1 // Convert to 0-based
-		found, errCode := verbByIndexForRead(ctx, objID, index)
-		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
-		}
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		verb = found
-	default:
-		return types.Err(types.E_TYPE)
+	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
@@ -237,32 +219,12 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-
-	var verb dbstore.VerbView
-
-	// Accept string (verb name) or integer (verb index)
-	switch args[1].Type() {
-	case types.TYPE_STR:
-		var err error
-		verb, err = findVerbOnObjectForRead(ctx, objID, args[1].Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
-		}
-	case types.TYPE_INT:
-		index := int(args[1].Int()) - 1 // Convert to 0-based
-		found, errCode := verbByIndexForRead(ctx, objID, index)
-		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
-		}
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		verb = found
-	default:
-		return types.Err(types.E_TYPE)
+	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Check read permission: wizards and the verb's owner can always read its
@@ -307,24 +269,34 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
-	infoList := args[1]
-	if infoList.Type() != types.TYPE_LIST || infoList.Len() != 3 {
-		return types.Err(types.E_INVARG)
+	// Toast bf_add_verb (src/verbs.cc:175-214) validates the whole info list,
+	// then the whole args list (validate_verb_args, verbs.cc:156-171), and only
+	// then the object: E_TYPE unless a numbered object, E_INVARG unless valid.
+	ownerID, perms, names, errCode := validateVerbInfo(ctx, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	argsList := args[2]
 	if argsList.Type() != types.TYPE_LIST || argsList.Len() != 3 {
+		return types.Err(types.E_TYPE)
+	}
+	dobjVal, prepVal, iobjVal := argsList.Get(1), argsList.Get(2), argsList.Get(3)
+	if dobjVal.Type() != types.TYPE_STR || prepVal.Type() != types.TYPE_STR || iobjVal.Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	dobjStr, prepStr, iobjStr := dobjVal.Str(), prepVal.Str(), iobjVal.Str()
+	if !matchArgSpec(dobjStr) || matchPrepSpec(prepStr) == -1 || !matchArgSpec(iobjStr) {
 		return types.Err(types.E_INVARG)
 	}
 
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
+		return types.Err(types.E_TYPE)
+	}
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects are instances, not classes: their verb structure cannot
@@ -335,70 +307,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	}
 	if isAnonymous {
 		return types.Err(types.E_TYPE)
-	}
-
-	// Parse info list (1-indexed)
-	owner := infoList.Get(1)
-	if !isObjectRef(owner) {
-		return types.Err(types.E_TYPE)
-	}
-
-	// Validate owner is valid
-	ownerID := owner.ID()
-	if !validForRead(ctx, ownerID) {
-		return types.Err(types.E_INVARG)
-	}
-
-	permsStr := infoList.Get(2)
-	if permsStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	// Validate permissions string - only rwxd allowed
-	for _, ch := range permsStr.Str() {
-		if ch != 'r' && ch != 'w' && ch != 'x' && ch != 'd' &&
-			ch != 'R' && ch != 'W' && ch != 'X' && ch != 'D' {
-			return types.Err(types.E_INVARG)
-		}
-	}
-
-	namesStr := infoList.Get(3)
-	if namesStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
-	// Parse args list (1-indexed) - must be strings
-	dobjVal := argsList.Get(1)
-	if dobjVal.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	prepVal := argsList.Get(2)
-	if prepVal.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	iobjVal := argsList.Get(3)
-	if iobjVal.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
-	dobjStr := dobjVal.Str()
-	prepStr := prepVal.Str()
-	iobjStr := iobjVal.Str()
-
-	// Validate arg specs
-	if !matchArgSpec(dobjStr) {
-		return types.Err(types.E_INVARG)
-	}
-	if matchPrepSpec(prepStr) == -1 {
-		return types.Err(types.E_INVARG)
-	}
-	if !matchArgSpec(iobjStr) {
-		return types.Err(types.E_INVARG)
-	}
-
-	// Parse verb names (space-separated)
-	names := strings.Fields(namesStr.Str())
-	if len(names) == 0 {
-		return types.Err(types.E_INVARG)
 	}
 
 	// Check permissions against the task's effective programmer (ctx.Programmer),
@@ -427,11 +335,8 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	// Parse permissions
-	perms := parseVerbPerms(permsStr.Str())
-
 	// Create the verb
-	verb := dbstore.NewVerb(names[0], names, ownerID, perms, dbstore.VerbArgs{
+	verb := dbstore.NewVerb(names, ownerID, perms, dbstore.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,
@@ -452,13 +357,15 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
+	// Toast bf_delete_verb (src/verbs.cc:247-250) checks the descriptor, then
+	// takes a numbered object only (is_obj).
+	descVal := args[1]
+	if errCode := verbDescriptorError(descVal); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
-	descVal := args[1]
-	if descVal.Type() != types.TYPE_STR && descVal.Type() != types.TYPE_INT {
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -479,19 +386,20 @@ func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 			return dbstore.ResolvedVerb{}, false
 		}
 	}
-	// Resolve before checking authority to preserve delete_verb's E_VERBNF-before-
-	// E_PERM precedence. A transaction stages deletion of this exact current-list
-	// index; commit validates the starting generation before publishing anything.
-	resolved, ok := resolveDescriptor()
-	if !ok {
-		return types.Err(types.E_VERBNF)
-	}
+	// Toast bf_delete_verb (src/verbs.cc:253-256) checks object write permission
+	// (E_PERM) before it looks the verb up (E_VERBNF). A transaction stages
+	// deletion of this exact current-list index; commit validates the starting
+	// generation before publishing anything.
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	if !allowed {
 		return types.Err(types.E_PERM)
+	}
+	resolved, ok := resolveDescriptor()
+	if !ok {
+		return types.Err(types.E_VERBNF)
 	}
 	if errCode := readTxn(ctx).DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
 		return types.Err(errCode)
@@ -513,57 +421,47 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
-	infoList := args[2]
-	if infoList.Type() != types.TYPE_LIST || infoList.Len() != 3 {
-		return types.Err(types.E_INVARG)
-	}
-
-	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+	desc := args[1]
+	if errCode := verbDescriptorError(desc); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := findVerbForRead(ctx, objID, nameVal.Str())
-	if err != nil {
-		return types.Err(types.E_VERBNF)
-	}
-
-	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
-	// object writability does not grant this to a non-owner).
-	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
-		return types.Err(types.E_PERM)
-	}
-
-	// Parse info list (1-indexed)
-	owner := infoList.Get(1)
-	if !isObjectRef(owner) {
+	// Toast bf_set_verb_info (src/verbs.cc:332-352) checks the descriptor, then
+	// takes a numbered object only (is_obj), then checks the whole info list
+	// (validate_verb_info, verbs.cc:77-122) before it looks the verb up
+	// (E_VERBNF) or checks permission (E_PERM).
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
 	}
-
-	permsStr := infoList.Get(2)
-	if permsStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	if !validVerbPerms(permsStr.Str()) {
+	objID := objVal.ID()
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
 
-	namesStr := infoList.Get(3)
-	if namesStr.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
+	ownerID, perms, names, errCode := validateVerbInfo(ctx, args[2])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
-	errCode := store.SetVerbInfo(objID, nameVal.Str(), owner.ID(), parseVerbPerms(permsStr.Str()), strings.Fields(namesStr.Str()))
+	verb, errCode := findDescribedVerbForRead(ctx, objID, desc)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
+	// Toast db_verb_allows(h, progr, VF_WRITE) (src/db_verbs.cc:880-885): the
+	// verb's w flag, its owner or a wizard (object writability does not count).
+	// Only a wizard may change the owner (src/verbs.cc:353-354).
+	if (!verb.Perms.Has(dbstore.VerbWrite) && !ctx.IsWizard && ctx.Programmer != verb.Owner) ||
+		(!ctx.IsWizard && ownerID != verb.Owner) {
+		return types.Err(types.E_PERM)
+	}
+
+	if desc.Type() == types.TYPE_INT {
+		errCode = store.SetVerbInfoByIndex(objID, int(desc.Int())-1, ownerID, perms, names)
+	} else {
+		errCode = store.SetVerbInfo(objID, desc.Str(), ownerID, perms, names)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -588,49 +486,60 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
+	desc := args[1]
+	if errCode := verbDescriptorError(desc); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
+	// Toast bf_set_verb_args (src/verbs.cc:431-457) checks the descriptor, then
+	// takes a numbered object only (is_obj), then checks the whole args list
+	// (validate_verb_args, verbs.cc:156-171) before it looks the verb up
+	// (E_VERBNF) or checks permission (E_PERM).
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
 		return types.Err(types.E_TYPE)
+	}
+	objID := objVal.ID()
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
 	}
 
 	argsList := args[2]
 	if argsList.Type() != types.TYPE_LIST || argsList.Len() != 3 {
+		return types.Err(types.E_TYPE)
+	}
+	dobjVal, prepVal, iobjVal := argsList.Get(1), argsList.Get(2), argsList.Get(3)
+	if dobjVal.Type() != types.TYPE_STR || prepVal.Type() != types.TYPE_STR || iobjVal.Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	dobjStr, iobjStr := dobjVal.Str(), iobjVal.Str()
+	prepStr, ok := canonicalSetterPrepSpec(prepVal.Str())
+	if !ok || !matchArgSpec(dobjStr) || !matchArgSpec(iobjStr) {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
+	verb, errCode := findDescribedVerbForRead(ctx, objID, desc)
+	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := findVerbForRead(ctx, objID, nameVal.Str())
-	if err != nil {
-		return types.Err(types.E_VERBNF)
-	}
-
-	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
-	// object writability does not grant this to a non-owner).
-	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+	// Toast db_verb_allows(h, progr, VF_WRITE) (src/db_verbs.cc:880-885): the
+	// verb's w flag, its owner or a wizard (object writability does not count).
+	if !verb.Perms.Has(dbstore.VerbWrite) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
-
-	// Parse args list (1-indexed)
-	// Accept either string or object values (objects get converted to string)
-	dobjStr := valueToArgSpec(argsList.Get(1))
-	prepStr := valueToArgSpec(argsList.Get(2))
-	iobjStr := valueToArgSpec(argsList.Get(3))
 
 	argSpec := dbstore.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,
 	}
-	if errCode := store.SetVerbArgs(objID, nameVal.Str(), argSpec); errCode != types.E_NONE {
+	if desc.Type() == types.TYPE_INT {
+		errCode = store.SetVerbArgsByIndex(objID, int(desc.Int())-1, argSpec)
+	} else {
+		errCode = store.SetVerbArgs(objID, desc.Str(), argSpec)
+	}
+	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
@@ -645,46 +554,8 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
-	objVal := args[0]
-	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
-	}
-
-	objID := objVal.ID()
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-
-	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb dbstore.VerbView
-	switch args[1].Type() {
-	case types.TYPE_STR:
-		found, _, err := findVerbForRead(ctx, objID, args[1].Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
-		}
-		verb = found
-	case types.TYPE_INT:
-		index := int(args[1].Int()) - 1 // Convert to 0-based
-		found, errCode := verbByIndexForRead(ctx, objID, index)
-		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
-		}
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		verb = found
-	default:
-		return types.Err(types.E_TYPE)
-	}
-
-	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
-	// object writability does not grant this to a non-owner).
-	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
-		return types.Err(types.E_PERM)
-	}
-
-	// Accept either string (single line) or list of strings
+	// Toast bf_set_verb_code (src/verbs.cc:515-525) rejects a non-string code
+	// line (E_TYPE) before it checks the object or the verb descriptor.
 	var lines []string
 	switch args[2].Type() {
 	case types.TYPE_STR:
@@ -702,6 +573,30 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 		}
 	default:
 		return types.Err(types.E_TYPE)
+	}
+
+	// A numbered object only (Toast is_obj, src/verbs.cc:520).
+	objVal := args[0]
+	if objVal.Type() != types.TYPE_OBJ {
+		return types.Err(types.E_TYPE)
+	}
+	objID := objVal.ID()
+	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
+	// Toast (src/verbs.cc:532): !is_programmer(progr) || !db_verb_allows(h, progr,
+	// VF_WRITE) -> E_PERM. is_programmer is valid(progr) and the programmer flag,
+	// with no wizard exemption (db_objects.cc:1283-1286); db_verb_allows is the
+	// verb's w flag, its owner or a wizard (db_verbs.cc:880-885).
+	isProgrammer, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagProgrammer)
+	if errCode != types.E_NONE || !isProgrammer ||
+		(!verb.Perms.Has(dbstore.VerbWrite) && !ctx.IsWizard && ctx.Programmer != verb.Owner) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Compile the code. Toast verb_code() returns source without semicolons for
@@ -788,32 +683,19 @@ func normalizeVerbSourceLines(lines []string) []string {
 	return normalized
 }
 
-// valueToArgSpec converts a Value to an arg spec string
-// Accepts string values directly, converts object values to their string representation
-func valueToArgSpec(v types.Value) string {
-	switch v.Type() {
-	case types.TYPE_STR:
-		return v.Str()
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		// Convert object ID to string - cow_py compatibility
-		return fmt.Sprintf("%d", v.ID())
-	default:
-		return ""
-	}
-}
-
-// parseVerbPerms converts permission string like "rxd" to VerbPerms
+// parseVerbPerms converts permission string like "rxd" to VerbPerms. Toast
+// validate_verb_info accepts each letter in either case (src/verbs.cc:92-112).
 func parseVerbPerms(s string) dbstore.VerbPerms {
 	var perms dbstore.VerbPerms
 	for _, ch := range s {
 		switch ch {
-		case 'r':
+		case 'r', 'R':
 			perms |= dbstore.VerbRead
-		case 'w':
+		case 'w', 'W':
 			perms |= dbstore.VerbWrite
-		case 'x':
+		case 'x', 'X':
 			perms |= dbstore.VerbExecute
-		case 'd':
+		case 'd', 'D':
 			perms |= dbstore.VerbDebug
 		}
 	}
@@ -822,11 +704,85 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 
 func validVerbPerms(s string) bool {
 	for _, ch := range s {
-		if !strings.ContainsRune("rwxd", ch) {
+		if !strings.ContainsRune("rwxdRWXD", ch) {
 			return false
 		}
 	}
 	return true
+}
+
+// validateVerbInfo mirrors Toast validate_verb_info (src/verbs.cc:77-122): a
+// list of a numbered-object owner, a flags string and a names string (else
+// E_TYPE); a valid owner, rwxd flags and at least one name (else E_INVARG).
+// Only spaces separate verb names; a tab is part of a name.
+func validateVerbInfo(ctx *Execution, info types.Value) (types.ObjID, dbstore.VerbPerms, []string, types.ErrorCode) {
+	if info.Type() != types.TYPE_LIST || info.Len() != 3 {
+		return 0, 0, nil, types.E_TYPE
+	}
+	owner, flags, names := info.Get(1), info.Get(2), info.Get(3)
+	if owner.Type() != types.TYPE_OBJ || flags.Type() != types.TYPE_STR || names.Type() != types.TYPE_STR {
+		return 0, 0, nil, types.E_TYPE
+	}
+	if !validForRead(ctx, owner.ID()) || !validVerbPerms(flags.Str()) {
+		return 0, 0, nil, types.E_INVARG
+	}
+	split := strings.FieldsFunc(names.Str(), func(r rune) bool { return r == ' ' })
+	if len(split) == 0 {
+		return 0, 0, nil, types.E_INVARG
+	}
+	return owner.ID(), parseVerbPerms(flags.Str()), split, types.E_NONE
+}
+
+// verbDescriptorError mirrors Toast validate_verb_descriptor (src/verbs.cc:216-226):
+// a verb descriptor is a string or a positive 1-based integer index.
+func verbDescriptorError(desc types.Value) types.ErrorCode {
+	switch desc.Type() {
+	case types.TYPE_STR:
+		return types.E_NONE
+	case types.TYPE_INT:
+		if desc.Int() <= 0 {
+			return types.E_INVARG
+		}
+		return types.E_NONE
+	default:
+		return types.E_TYPE
+	}
+}
+
+// verbDescriptorAndObjectError mirrors the checks Toast's verb readers make after
+// the object type (e.g. bf_verb_info, src/verbs.cc:285-291): the descriptor
+// first, then E_INVARG unless the object is valid.
+func verbDescriptorAndObjectError(ctx *Execution, objID types.ObjID, desc types.Value) types.ErrorCode {
+	if errCode := verbDescriptorError(desc); errCode != types.E_NONE {
+		return errCode
+	}
+	if objectExistsForRead(ctx, objID) != types.E_NONE {
+		return types.E_INVARG
+	}
+	return types.E_NONE
+}
+
+// verbAtIndexForRead returns the verb at 1-based index on objID itself. An index
+// past the last verb is E_VERBNF (Toast db_find_indexed_verb finds no verb).
+func verbAtIndexForRead(ctx *Execution, objID types.ObjID, index int64) (dbstore.VerbView, types.ErrorCode) {
+	verb, errCode := verbByIndexForRead(ctx, objID, int(index)-1)
+	if errCode == types.E_RANGE {
+		return verb, types.E_VERBNF
+	}
+	return verb, errCode
+}
+
+// findDescribedVerbForRead mirrors Toast find_described_verb (src/verbs.cc:229-237)
+// for a descriptor verbDescriptorError accepted: a verb defined on objID itself.
+func findDescribedVerbForRead(ctx *Execution, objID types.ObjID, desc types.Value) (dbstore.VerbView, types.ErrorCode) {
+	if desc.Type() == types.TYPE_INT {
+		return verbAtIndexForRead(ctx, objID, desc.Int())
+	}
+	verb, err := findVerbOnObjectForRead(ctx, objID, desc.Str())
+	if err != nil {
+		return verb, types.E_VERBNF
+	}
+	return verb, types.E_NONE
 }
 
 // builtinDisassemble: disassemble(object, name) → LIST
@@ -838,36 +794,14 @@ func builtinDisassemble(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	switch args[1].Type() {
-	case types.TYPE_STR, types.TYPE_INT:
-	default:
-		return types.Err(types.E_TYPE)
+	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
-	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(types.E_INVARG)
-	}
-
-	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb dbstore.VerbView
-	switch args[1].Type() {
-	case types.TYPE_STR:
-		found, _, err := findVerbForRead(ctx, objID, args[1].Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
-		}
-		verb = found
-	case types.TYPE_INT:
-		index := int(args[1].Int()) - 1 // Convert to 0-based
-		found, errCode := verbByIndexForRead(ctx, objID, index)
-		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
-		}
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		verb = found
-	default:
-		return types.Err(types.E_TYPE)
+	// Toast bf_disassemble (src/disassemble.cc:478) uses find_described_verb: a
+	// verb defined on the object itself, never an inherited one.
+	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Check read permission against the task's effective programmer: wizard,

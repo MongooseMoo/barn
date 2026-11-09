@@ -9,17 +9,43 @@ on:
   # so PRs no longer need manual "update branch" round-trips.
   merge_group:
 
-permissions:
-  contents: read
-
 # Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
+  # The pull request, merge queue and master push runs usually test the same
+  # tree against the same suite commit. If a run of this repository already
+  # passed on both, the required jobs below are skipped, which GitHub reports
+  # as success.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+      suite: ${{ steps.suite.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: suite
+        run: echo "sha=$(git ls-remote https://github.com/MongooseMoo/moo-conformance-tests refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+      - id: tree
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: ci
+          extra: ${{ steps.suite.outputs.sha }}
+
   go:
     name: Build & unit tests
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       # A server run as root with /dev/null as its output database replaces the
@@ -68,11 +94,19 @@ jobs:
       - name: Types race tests
         run: go test -race ./types
 
+      - name: Store race tests
+        run: go test -race ./db/store
+
+      - name: Task race tests
+        run: go test -race ./task
+
       - name: Benchmark driver tests
         run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
   conformance:
     name: MOO conformance suite
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - name: Check /dev/null is a device
@@ -97,13 +131,14 @@ jobs:
         run: go build -o bin/barn ./cmd/barn/
 
       # The conformance suite is the spec. It lives in its own repo and is a
-      # read-only dependency here; CI always runs barn against its latest tip.
+      # read-only dependency here; CI runs barn against its tip as read when
+      # this run started, the commit the pass record names.
       - name: Checkout moo-conformance-tests
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           repository: MongooseMoo/moo-conformance-tests
-          ref: main
+          ref: ${{ needs.tested.outputs.suite }}
           path: moo-conformance-tests
 
       - name: Set up uv
@@ -117,7 +152,7 @@ jobs:
         run: |
           uv run --project moo-conformance-tests --frozen moo-conformance \
             -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=${{ github.workspace }}/conformance-logs" \
             --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
             --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
             --moo-host=127.0.0.1 \
@@ -156,7 +191,7 @@ jobs:
               --junitxml="${{ github.workspace }}/issue-423-$run-results.xml" -q
           done
 
-      - name: Run Mongoose notification regressions
+      - name: Run local conformance regressions
         run: |
           mkdir -p .tmp/conformance/db
           cp -R moo-conformance-tests/src/moo_conformance/_db/. .tmp/conformance/db/
@@ -164,7 +199,8 @@ jobs:
             --candidate-root="${{ github.workspace }}" \
             --moo-suite-root="${{ github.workspace }}/tests/mongoose-conformance" \
             --moo-suite-path=root/empty_notifications.yaml \
-            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --moo-suite-path=builtins/clear_property_metadata.yaml \
+            --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=${{ github.workspace }}/notifications-logs" \
             --server-db="${{ github.workspace }}/.tmp/conformance/db/Test.db" \
             --server-db-dir="${{ github.workspace }}/.tmp/conformance/db/startup" \
             --moo-host=127.0.0.1 \
@@ -186,4 +222,20 @@ jobs:
             notifications-admission.json
             issue-423-*-results.xml
             issue-423-*-admission.json
+            conformance-logs/
+            notifications-logs/
           if-no-files-found: warn
+
+  record:
+    name: Record pass
+    needs: [tested, go, conformance]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: ci
+          extra: ${{ needs.tested.outputs.suite }}

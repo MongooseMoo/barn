@@ -7,6 +7,8 @@ import (
 	"os"
 	"sync/atomic"
 	"time"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Phase is a fixed vocabulary: no task IDs, verbs, SQL or arguments become
@@ -28,6 +30,9 @@ const (
 	ResumeToVM
 	phaseCount
 )
+
+// PhaseCount is the number of phases; phases are 0 through PhaseCount-1.
+const PhaseCount = phaseCount
 
 var phaseNames = [...]string{
 	"slice", "vm_attempt", "retry_waste", "input_admission", "background_admission", "readmission",
@@ -92,6 +97,18 @@ func ParsePhase(name string) (Phase, bool) {
 // RuntimePhaseStats returns totals without retaining individual observations.
 func RuntimePhaseStats(p Phase) PhaseStats { return runtimePhases[p].snapshot() }
 
+// Sub returns what was observed between prior and s, two snapshots of the same
+// phase. A window's maximum cannot be derived from cumulative maxima, so MaxNS
+// is zero; the highest bucket that grew bounds it.
+func (s PhaseStats) Sub(prior PhaseStats) PhaseStats {
+	d := PhaseStats{Count: s.Count - prior.Count, TotalNS: s.TotalNS - prior.TotalNS, Ticks: s.Ticks - prior.Ticks,
+		UpperNS: s.UpperNS, Buckets: make([]int64, len(s.Buckets))}
+	for i := range d.Buckets {
+		d.Buckets[i] = s.Buckets[i] - prior.Buckets[i]
+	}
+	return d
+}
+
 func (c *phaseCounter) snapshot() PhaseStats {
 	s := PhaseStats{Count: c.count.Load(), TotalNS: c.total.Load(), MaxNS: c.maximum.Load(), Ticks: c.ticks.Load(),
 		UpperNS: make([]int64, len(durationBounds)), Buckets: make([]int64, len(c.buckets))}
@@ -126,9 +143,17 @@ func (c *phaseCounter) observe(elapsed time.Duration, ticks int64) {
 
 // Identity labels opt-in local logs only. It contains no runtime values.
 type Identity struct {
-	TaskID int64
-	This   int64
-	Verb   string
+	CommandID int64
+	TaskID    int64
+	This      int64
+	Verb      string
+}
+
+func commandIdentityAttr(id Identity) slog.Attr {
+	if id.CommandID > 0 {
+		return slog.Int64("command_id", id.CommandID)
+	}
+	return slog.Attr{}
 }
 
 // ObserveRuntime records every interval, including zero-length intervals.
@@ -138,6 +163,7 @@ func ObserveRuntime(p Phase, id Identity, elapsed time.Duration, ticks int64) {
 	runtimePhases[p].observe(elapsed, ticks)
 	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.LogAttrs(context.Background(), slog.LevelDebug, "runtime phase",
+			commandIdentityAttr(id),
 			slog.String("phase", p.String()), slog.Int64("task_id", id.TaskID),
 			slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.Int64("elapsed_ns", int64(max(elapsed, 0))), slog.Int64("ticks", max(ticks, 0)))
@@ -148,8 +174,23 @@ func ObserveRuntime(p Phase, id Identity, elapsed time.Duration, ticks int64) {
 func RuntimeEvent(stage string, id Identity, generation uint64, accepted bool) {
 	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.LogAttrs(context.Background(), slog.LevelDebug, "threaded lifecycle",
+			commandIdentityAttr(id),
 			slog.String("stage", stage), slog.Int64("task_id", id.TaskID),
 			slog.Int64("this", id.This), slog.String("verb", id.Verb),
 			slog.Uint64("generation", generation), slog.Bool("accepted", accepted))
+	}
+}
+
+// TerminalException identifies a finalized exception before a database handler
+// can replace the current task or issue history. Call only after retry,
+// cancellation and suspension decisions. Payloads and rendered errors are never
+// accepted here. Like phase records, this requires diagnostic opt-in and debug.
+func TerminalException(id Identity, code types.ErrorCode, reason types.ExceptionReason, intrinsicEval, committed bool) {
+	if detailedRuntime.Load() && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		slog.LogAttrs(context.Background(), slog.LevelDebug, "terminal task exception",
+			commandIdentityAttr(id),
+			slog.Int64("task_id", id.TaskID), slog.Int64("this", id.This), slog.String("verb", id.Verb),
+			slog.String("error", code.String()), slog.String("reason", reason.String()),
+			slog.Bool("intrinsic_eval", intrinsicEval), slog.Bool("committed", committed))
 	}
 }

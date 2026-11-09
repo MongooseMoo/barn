@@ -1,0 +1,26 @@
+File: store.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build146967060\b001\store.test.exe2026-11-07 10:58:33.2539346 -0700 MST
+Type: cpu
+Time: 2026-11-07 10:58:33 MST
+Duration: 766.83ms, Total samples = 870ms (113.45%)
+Showing nodes accounting for 160ms, 18.39% of 870ms total
+Showing top 18 nodes out of 174
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      370ms 42.53%  github.com/MongooseMoo/barn/db/store.BenchmarkObjectLifecycle.func1
+         0     0%     0%      370ms 42.53%  testing.(*B).run1.func1
+         0     0%     0%      370ms 42.53%  testing.(*B).runN
+      10ms  1.15%  1.15%      270ms 31.03%  runtime.bgsweep
+         0     0%  1.15%      260ms 29.89%  runtime.systemstack
+         0     0%  1.15%      150ms 17.24%  github.com/MongooseMoo/barn/db/store.BenchmarkObjectLifecycle.func1.2
+      10ms  1.15%  2.30%      110ms 12.64%  github.com/MongooseMoo/barn/db/store.(*StoreTxn).Commit
+      10ms  1.15%  3.45%      110ms 12.64%  github.com/MongooseMoo/barn/db/store.loadedClass
+         0     0%  3.45%      100ms 11.49%  github.com/MongooseMoo/barn/db/store.BenchmarkObjectLifecycle.func1.1
+      20ms  2.30%  5.75%      100ms 11.49%  github.com/MongooseMoo/barn/db/store.cloneObjectNonVerbState
+         0     0%  5.75%      100ms 11.49%  runtime.lock (inline)
+      60ms  6.90% 12.64%      100ms 11.49%  runtime.lock2
+         0     0% 12.64%      100ms 11.49%  runtime.lockWithRank (inline)
+         0     0% 12.64%      100ms 11.49%  runtime.unlock (inline)
+      50ms  5.75% 18.39%      100ms 11.49%  runtime.unlock2
+         0     0% 18.39%      100ms 11.49%  runtime.unlockWithRank (inline)
+         0     0% 18.39%       90ms 10.34%  runtime.freeDeadSpanSPMCs
+         0     0% 18.39%       70ms  8.05%  runtime.freeSomeWbufs

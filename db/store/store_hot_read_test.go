@@ -263,6 +263,140 @@ func TestHotPropertyCoolsWhenItStopsConflicting(t *testing.T) {
 	}
 }
 
+// hotMapStore is mapKeyStore with a hot counter #0.handle beside the map #0.m.
+func hotMapStore(t *testing.T, pairs ...[2]types.Value) *Store {
+	t.Helper()
+	s := mapKeyStore(t, pairs...)
+	if ec := s.DirectTxn().DefineProperty(0, "handle", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	s.MarkHotProperty(0, "handle")
+	return s
+}
+
+// commitKeyed runs #0.m[key] = value in a transaction of its own.
+func commitKeyed(t *testing.T, s *Store, key string, value int64) {
+	t.Helper()
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	keyedWrite(t, tx, key, value)
+	mustCommit(t, tx)
+}
+
+// renewAtHotRead commits a new #0.handle, so tx's next read of it is stale, and
+// returns the transaction that read uses.
+func renewAtHotRead(t *testing.T, s *Store, tx *StoreTxn) *StoreTxn {
+	t.Helper()
+	commitValue(t, s, 0, "handle", types.NewInt(liveInt(t, s, 0, "handle")+1))
+	_, ec, next := tx.FindPropertyRenewing(0, "handle")
+	if ec != types.E_NONE {
+		t.Fatalf("FindPropertyRenewing: %v", ec)
+	}
+	return next
+}
+
+// A keyed read whose entry is unchanged is carried by renewal as the keyed
+// dependency it is, not as a whole read of the map.
+func TestRenewalCarriesAnUnchangedKeyedRead(t *testing.T) {
+	s := hotMapStore(t, kv("a", 1), kv("b", 1))
+	tx := s.BeginSnapshot(0)
+	if v, _ := keyedRead(t, tx, "a"); v.Int() != 1 {
+		t.Fatalf("keyed read = %v", v)
+	}
+	commitKeyed(t, s, "b", 2)
+	next := renewAtHotRead(t, s, tx)
+	defer next.Release()
+	if next == tx {
+		t.Fatalf("a transaction with an unchanged keyed read was not renewed")
+	}
+	if _, whole := next.propertyReads[propertyReadKey{objID: 0, name: "m"}]; whole {
+		t.Fatalf("renewal recorded a whole read of the keyed slot")
+	}
+	commitKeyed(t, s, "b", 3)
+	mustCommit(t, next)
+}
+
+// After renewal a keyed read of an entry that changed before the renewal is a
+// dependency on the value the renewed transaction sees.
+func TestRenewalKeepsDependenciesOnEntriesReadAfterIt(t *testing.T) {
+	s := hotMapStore(t, kv("a", 1), kv("b", 1))
+	tx := s.BeginSnapshot(0)
+	keyedRead(t, tx, "a")
+	commitKeyed(t, s, "b", 2)
+	next := renewAtHotRead(t, s, tx)
+	defer next.Release()
+	if next == tx {
+		t.Fatalf("not renewed")
+	}
+	b, _ := keyedRead(t, next, "b")
+	if b.Int() != 2 {
+		t.Fatalf("m[\"b\"] after renewal = %v, want 2", b)
+	}
+	if ec := next.SetPropertyValue(0, "handle", b); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	commitKeyed(t, s, "b", 3)
+	mustLose(t, next, ConflictMapKey)
+}
+
+// A keyed read whose entry changed before renewal refuses the renewal.
+func TestRenewalIsRefusedWhenAKeyedReadIsStale(t *testing.T) {
+	s := hotMapStore(t, kv("a", 1))
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	keyedRead(t, tx, "a")
+	commitKeyed(t, s, "a", 2)
+	if next := renewAtHotRead(t, s, tx); next != tx {
+		next.Release()
+		t.Fatalf("renewed past a stale keyed read")
+	}
+	if _, refused, _ := s.HotReadStats(); refused != 1 {
+		t.Fatalf("refusals = %d, want 1", refused)
+	}
+}
+
+// A keyed write is carried as a keyed write: entries other transactions commit
+// before and after the renewal survive its commit.
+func TestRenewalCarriesAKeyedWrite(t *testing.T) {
+	s := hotMapStore(t, kv("a", 1), kv("b", 1), kv("c", 1))
+	tx := s.BeginSnapshot(0)
+	keyedWrite(t, tx, "a", 10)
+	commitKeyed(t, s, "b", 20)
+	next := renewAtHotRead(t, s, tx)
+	defer next.Release()
+	if next == tx {
+		t.Fatalf("a transaction with a keyed write was not renewed")
+	}
+	if _, whole := next.propertyReads[propertyReadKey{objID: 0, name: "m"}]; whole {
+		t.Fatalf("renewal recorded a whole read of the keyed slot")
+	}
+	commitKeyed(t, s, "c", 30)
+	mustCommit(t, next)
+	for key, want := range map[string]int64{"a": 10, "b": 20, "c": 30} {
+		if got, ok := liveEntry(t, s, key); !ok || got != want {
+			t.Fatalf("live m[%q] = %d (present %v), want %d", key, got, ok, want)
+		}
+	}
+}
+
+// A keyed assignment between its base fetch and its writeback refuses renewal:
+// the writeback would build on the old base as a whole write.
+func TestRenewalIsRefusedWithAPendingKeyedBase(t *testing.T) {
+	s := hotMapStore(t, kv("a", 1))
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	if _, keyed, ec := tx.MapPropertyForKey(0, "m", true); ec != types.E_NONE || !keyed {
+		t.Fatalf("base fetch keyed=%v ec=%v", keyed, ec)
+	}
+	if next := renewAtHotRead(t, s, tx); next != tx {
+		next.Release()
+		t.Fatalf("renewed with a keyed assignment in flight")
+	}
+	if _, refused, _ := s.HotReadStats(); refused != 1 {
+		t.Fatalf("refusals = %d, want 1", refused)
+	}
+}
+
 // renewAtCurrentClock must decide what happens to every piece of transaction
 // state. A field added to StoreTxn fails this test until it is listed here with
 // what renewal does about it -- and until renewAtCurrentClock does that.
@@ -274,27 +408,29 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		fresh    = "belongs to the snapshot; the renewed transaction has its own"
 	)
 	disposition := map[string]string{
-		"readTS": fresh, "store": fresh, "released": fresh,
+		"objectReadSet": carried, // Its promoted dependency maps are accounted for individually below.
+		"readTS":        fresh, "store": fresh, "released": fresh, "locked": fresh,
 		"objects": restaged, "owned": restaged, "propertyWrites": restaged,
 		"scalarReads": carried, "relationshipReads": carried, "propertyReads": carried,
 		"propertyScans": carried, "propertyShapeScans": carried, "verbReads": carried,
-		"verbScans": carried, "waifs": carried, "usedVerbMemo": carried,
+		"verbScans": carried, "taskReads": carried, "taskWrites": declines, "waifs": carried, "usedVerbMemo": carried,
 		"verbMemoDisabled": carried, "verbMemoHits": carried, "gateWait": carried,
 		"commitContext": carried, "conflictLabel": carried,
 		"direct": declines, "gateExempt": declines, "exclusiveGrant": declines,
 		"scalarWrites": declines, "relationshipWrites": declines, "propertyDefines": declines,
-		"propertyDefinitionDeletes": declines, "propertyDeletes": declines, "verbWrites": declines,
+		"propertyDefinitionDeletes": declines, "propertyRenames": declines, "propertyDeletes": declines, "verbWrites": declines,
 		"verbDeletes": declines, "validationFail": declines, "privateVerbShape": declines,
 		"terminalErr": declines, "liveMutated": declines, "createdObjects": declines,
-		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines, "mapKeys": declines,
+		"recycleWrites": declines, "maxObjID": declines, "highWaterID": declines, "mapKeys": carried,
 		"verbMemoSeen": fresh, "verbWalk": fresh, "propWalk": fresh, "parentWalk": fresh,
-		"verbResolve": fresh, "propResolve": fresh, "trackNewReads": fresh, "newReads": fresh,
+		"verbResolve": fresh, "verbResolveGen": fresh, "verbSites": fresh, "propResolve": fresh, "trackNewReads": fresh, "newReads": fresh,
 		"conflicts": fresh, "lossCounted": fresh, "sampleReadClocks": fresh, "readClocks": fresh,
+		"diag": carried,
 	}
-	typ := reflect.TypeFor[StoreTxn]()
-	seen := make(map[string]bool, typ.NumField())
-	for i := range typ.NumField() {
-		name := typ.Field(i).Name
+	fields := reflect.VisibleFields(reflect.TypeFor[StoreTxn]())
+	seen := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		name := field.Name
 		seen[name] = true
 		if disposition[name] == "" {
 			t.Errorf("StoreTxn.%s: renewAtCurrentClock has no stated disposition for this field", name)

@@ -14,7 +14,6 @@ func serverOptionsVerbStore(t *testing.T, code string) *dbstore.Store {
 	t.Helper()
 	store := protectedRedirectStore(t)
 	verb := dbstore.NewVerb(
-		"go",
 		[]string{"go"},
 		2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug, // d: errors raise instead of becoming values

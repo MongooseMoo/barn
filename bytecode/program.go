@@ -1,6 +1,9 @@
 package bytecode
 
 import (
+	"strings"
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -21,6 +24,73 @@ type Program struct {
 	NumLocals     int           // Number of local variables
 	Source        []string      // Source lines (1-based by index+1), optional
 	BuiltinSlots  BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+	// BuiltinPropertyConstants[i] reports whether Constants[i] is a string that
+	// names a built-in property (IsBuiltinPropertyName), so a property read
+	// with a static name need not classify it again. The compiler fills it;
+	// it is nil on a program from anywhere else, whose reads classify the name
+	// when they run.
+	BuiltinPropertyConstants []bool
+
+	// CallSites is runtime scratch with one slot per constant, which the VM
+	// fills for verb calls naming that constant. The compiler makes it; a
+	// program built anywhere else has none, and its calls take the uncached
+	// path. It is not part of what the program means.
+	CallSites *CallSites
+}
+
+// CallSites holds one runtime slot per constant of a program. Programs are
+// shared by every task running them, so each slot is read and written
+// atomically; what a slot holds belongs to the VM.
+type CallSites struct {
+	slots []atomic.Value
+}
+
+// NewCallSites returns a table for a program with n constants.
+func NewCallSites(n int) *CallSites {
+	return &CallSites{slots: make([]atomic.Value, n)}
+}
+
+// Slot returns the slot for calls naming constant index, or nil when the
+// program has no table or index is outside it.
+func (c *CallSites) Slot(index int) *atomic.Value {
+	if c == nil || index < 0 || index >= len(c.slots) {
+		return nil
+	}
+	return &c.slots[index]
+}
+
+// IsBuiltinPropertyName reports whether name, in any case, is one of the
+// server-maintained object properties: name, owner, location, contents,
+// last_move, programmer, wizard, r, w, f, a. Those can never be defined
+// properties: add_property rejects them. parent/parents/children/player are
+// NOT properties -- they have dedicated accessor built-in functions (parent(),
+// parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
+func IsBuiltinPropertyName(name string) bool {
+	switch strings.ToLower(name) {
+	case "name", "owner", "location", "contents", "last_move",
+		"programmer", "wizard", "r", "w", "f", "a":
+		return true
+	default:
+		return false
+	}
+}
+
+// ClassifyPropertyConstants fills BuiltinPropertyConstants from Constants.
+func (p *Program) ClassifyPropertyConstants() {
+	p.BuiltinPropertyConstants = make([]bool, len(p.Constants))
+	for i, constant := range p.Constants {
+		p.BuiltinPropertyConstants[i] = constant.Type() == types.TYPE_STR && IsBuiltinPropertyName(constant.Str())
+	}
+}
+
+// IsBuiltinPropertyConstant reports whether the string constant at index names
+// a built-in property, from BuiltinPropertyConstants when the compiler filled
+// it.
+func (p *Program) IsBuiltinPropertyConstant(index int) bool {
+	if index < len(p.BuiltinPropertyConstants) {
+		return p.BuiltinPropertyConstants[index]
+	}
+	return IsBuiltinPropertyName(p.Constants[index].Str())
 }
 
 // BuiltinSlots caches the local-variable slots populated when a verb frame is
@@ -31,10 +101,12 @@ type BuiltinSlots struct {
 	TypeConstants                                 []TypeConstantSlot
 }
 
-// TypeConstantSlot records a mutable implicit type constant's initial value.
+// TypeConstantSlot records the initial value of a mutable built-in variable
+// that Toast binds in every frame (eval_env.cc fill_in_rt_consts): the type
+// constants, and true and false.
 type TypeConstantSlot struct {
-	Slot int
-	Type types.TypeCode
+	Slot  int
+	Value types.Value
 }
 
 // Set records the slot for a built-in variable. It returns false for ordinary
@@ -72,7 +144,10 @@ func (s *BuiltinSlots) Set(name string, slot int) bool {
 			"float": types.TYPE_FLOAT, "map": types.TYPE_MAP, "anon": types.TYPE_ANON,
 			"waif": types.TYPE_WAIF, "bool": types.TYPE_BOOL,
 		}
-		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Type: initial[name]})
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewInt(int64(initial[name]))})
+		return true
+	case "true", "false":
+		s.TypeConstants = append(s.TypeConstants, TypeConstantSlot{Slot: encoded, Value: types.NewBool(name == "true")})
 		return true
 	default:
 		return false
@@ -129,9 +204,31 @@ type Handler struct {
 	Type       HandlerType       // Except or Finally
 	HandlerIP  int               // Handler code location
 	EndIP      int               // End of handler block
-	Codes      []types.ErrorCode // Errors to catch (except)
+	Codes      []types.ErrorCode // Errors to catch (except); empty is ANY; see CodesLocal
 	VarIndex   int               // Variable for error (except, -1 if none)
 	StackDepth int               // Operand stack depth to restore on unwind
+}
+
+// ExceptCodesInLocal marks an except clause whose codes are not all error
+// literals. Its code bytes in OP_TRY_EXCEPT (and so its Handler.Codes) are
+// exactly {ExceptCodesInLocal, slot}: the arm's code list was evaluated into
+// local slot before the try was entered, as Toast evaluates every arm's codes
+// then (code_gen.cc generate_codes). No error code has this value.
+const ExceptCodesInLocal = 0xFF
+
+// clauseCodesInLocal reports whether an OP_TRY_EXCEPT clause, starting at its
+// code count, is an ExceptCodesInLocal clause.
+func clauseCodesInLocal(clause []byte) bool {
+	return len(clause) >= 3 && clause[0] == 2 && clause[1] == ExceptCodesInLocal
+}
+
+// CodesLocal reports the local slot holding the evaluated code list of a
+// clause whose codes are expressions.
+func (h *Handler) CodesLocal() (slot int, ok bool) {
+	if len(h.Codes) == 2 && h.Codes[0] == ExceptCodesInLocal {
+		return int(h.Codes[1]), true
+	}
+	return 0, false
 }
 
 // ExtractForkBody creates a new sub-program from a bytecode range within an
@@ -177,6 +274,9 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		Source:        p.Source,
 		BuiltinSlots:  p.BuiltinSlots,
 		BuiltinLayout: p.BuiltinLayout,
+		// Same constants, same classification and the same call-site slots.
+		BuiltinPropertyConstants: p.BuiltinPropertyConstants,
+		CallSites:                p.CallSites,
 	}
 }
 
@@ -315,25 +415,4 @@ func decodeAbsoluteWide(encoded []byte) uint32 {
 		uint32(encoded[1])<<16 |
 		uint32(encoded[2])<<8 |
 		uint32(encoded[3])
-}
-
-// Matches checks if a handler matches an error code
-func (h *Handler) Matches(errCode types.ErrorCode) bool {
-	if h.Type != HandlerExcept {
-		return false
-	}
-
-	// Empty codes means catch all
-	if len(h.Codes) == 0 {
-		return true
-	}
-
-	// Check if error code matches
-	for _, code := range h.Codes {
-		if code == errCode {
-			return true
-		}
-	}
-
-	return false
 }

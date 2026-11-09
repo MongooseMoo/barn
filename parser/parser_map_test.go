@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"testing"
 )
 
@@ -25,11 +25,11 @@ func TestParseMapLiteral(t *testing.T) {
 			}
 
 			for _, pair := range mapExpr.Pairs {
-				key, ok := pair.Key.(*verb.LiteralExpr)
+				key, ok := pair.Key.(*ir.LiteralExpr)
 				if !ok {
 					t.Fatalf("key = %T, want *LiteralExpr", pair.Key)
 				}
-				if key.Kind != verb.LiteralString {
+				if key.Kind != ir.LiteralString {
 					t.Fatalf("key kind = %v, want LiteralString", key.Kind)
 				}
 				expected, ok := tt.expected[key.StringValue]
@@ -46,12 +46,12 @@ func TestParseMapWithDifferentKeySyntax(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		kind  verb.LiteralKind
+		kind  ir.LiteralKind
 	}{
-		{"int_key", `[1 -> "one"]`, verb.LiteralInt},
-		{"float_key", `[3.14 -> "pi"]`, verb.LiteralFloat},
-		{"obj_key", `[#42 -> "answer"]`, verb.LiteralObj},
-		{"err_key", `[E_TYPE -> "type error"]`, verb.LiteralErr},
+		{"int_key", `[1 -> "one"]`, ir.LiteralInt},
+		{"float_key", `[3.14 -> "pi"]`, ir.LiteralFloat},
+		{"obj_key", `[#42 -> "answer"]`, ir.LiteralObj},
+		{"err_key", `[E_TYPE -> "type error"]`, ir.LiteralErr},
 		{"list_key", `[{1, 2} -> "value"]`, -1},
 		{"map_key", `[[ "nested" -> 1] -> "value"]`, -1},
 	}
@@ -64,7 +64,7 @@ func TestParseMapWithDifferentKeySyntax(t *testing.T) {
 			}
 
 			if tt.kind >= 0 {
-				key, ok := mapExpr.Pairs[0].Key.(*verb.LiteralExpr)
+				key, ok := mapExpr.Pairs[0].Key.(*ir.LiteralExpr)
 				if !ok {
 					t.Fatalf("key = %T, want *LiteralExpr", mapExpr.Pairs[0].Key)
 				}
@@ -82,15 +82,15 @@ func TestParseMapWithNestedValue(t *testing.T) {
 		t.Fatalf("len(Pairs) = %d, want 1", len(mapExpr.Pairs))
 	}
 
-	key, ok := mapExpr.Pairs[0].Key.(*verb.LiteralExpr)
+	key, ok := mapExpr.Pairs[0].Key.(*ir.LiteralExpr)
 	if !ok {
 		t.Fatalf("key = %T, want *LiteralExpr", mapExpr.Pairs[0].Key)
 	}
-	if key.Kind != verb.LiteralString || key.StringValue != "x" {
+	if key.Kind != ir.LiteralString || key.StringValue != "x" {
 		t.Fatalf("key = (%v, %q), want (LiteralString, \"x\")", key.Kind, key.StringValue)
 	}
 
-	list, ok := mapExpr.Pairs[0].Value.(*verb.ListExpr)
+	list, ok := mapExpr.Pairs[0].Value.(*ir.ListExpr)
 	if !ok {
 		t.Fatalf("value = %T, want *ListExpr", mapExpr.Pairs[0].Value)
 	}
@@ -102,10 +102,10 @@ func TestParseMapWithNestedValue(t *testing.T) {
 	assertIntLiteral(t, list.Elements[2], 3)
 }
 
-func parseMapForTest(t *testing.T, input string) *verb.MapExpr {
+func parseMapForTest(t *testing.T, input string) *ir.MapExpr {
 	t.Helper()
 	expr := parseExprForTest(t, input)
-	mapExpr, ok := expr.(*verb.MapExpr)
+	mapExpr, ok := expr.(*ir.MapExpr)
 	if !ok {
 		t.Fatalf("ParseExpression(%q) returned %T, want *MapExpr", input, expr)
 	}

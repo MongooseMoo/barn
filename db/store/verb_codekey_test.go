@@ -37,7 +37,7 @@ func storeWithVerbForTest(t *testing.T, code []string) *Store {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root: %v", err)
 	}
-	verb := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, code)
+	verb := NewVerb([]string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, code)
 	if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
 		t.Fatalf("AddVerb: %v", errCode)
 	}
@@ -49,20 +49,9 @@ func TestNewVerbCarriesItsSourceKey(t *testing.T) {
 	assertKeyMatchesCode(t, verbViewForTest(t, store, 0, "look"), "NewVerb")
 }
 
-func TestVerbSetCodeRefreshesKey(t *testing.T) {
-	verb := NewVerb("look", []string{"look"}, 0, VerbRead, VerbArgs{}, nil)
-	before := verb.View().CodeKey
-	verb.SetCode([]string{"return 1;"})
-	after := verb.View()
-	assertKeyMatchesCode(t, after, "Verb.SetCode")
-	if after.CodeKey == before {
-		t.Fatalf("Verb.SetCode left the key unchanged")
-	}
-}
-
 func TestObjectBuilderSetVerbCodeByIndexRefreshesKey(t *testing.T) {
 	builder := NewObjectBuilder(1)
-	builder.AppendVerb(NewVerb("look", []string{"look"}, 0, VerbRead, VerbArgs{}, nil))
+	builder.AppendVerb(NewVerb([]string{"look"}, 0, VerbRead, VerbArgs{}, nil))
 	if !builder.SetVerbCodeByIndex(0, []string{"return 7;"}) {
 		t.Fatalf("SetVerbCodeByIndex returned false")
 	}

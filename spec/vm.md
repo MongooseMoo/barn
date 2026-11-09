@@ -36,7 +36,7 @@ with Toast.
 
 | Stage | Current owner | Result |
 |---|---|---|
-| Parse | `parser` | sealed semantic nodes in `verb` |
+| Parse | `parser` | sealed semantic nodes in `ir` |
 | Orchestrate | `compiler/compiler.go` | structured diagnostics or a cached `*bytecode.Program` |
 | Lower | `bytecode/compiler.go` | Barn bytecode, constants, locals, and line information |
 | Disassemble | `bytecode/disassemble.go` | deterministic text for Barn bytecode inspection |
@@ -49,7 +49,7 @@ Production callers in `builtins`, `scheduler`, `server`, `vm`, and `cmd` use
 that entry point rather than composing the parser and bytecode compiler
 themselves.
 
-`verb/ir.go` owns the sealed expression, assignment-target, statement, and
+`ir/ir.go` owns the sealed expression, assignment-target, statement, and
 binding families consumed by `bytecode/compiler.go`. Parser tokens and concrete
 source spelling do not become VM nodes. The stored verb `Code` in `db/store` is
 the source returned by `verb_code()` and written by `db/format`; the compiler

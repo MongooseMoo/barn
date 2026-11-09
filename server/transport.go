@@ -2,7 +2,9 @@ package server
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -10,6 +12,11 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 )
+
+// maxLineBytes is ToastStunt's MAX_LINE_BYTES (include/options.h).
+const maxLineBytes = 5242880
+
+var errMaxLineBytes = errors.New("input exceeds MAX_LINE_BYTES")
 
 // Telnet protocol constants (RFC 854, RFC 855)
 const (
@@ -54,12 +61,17 @@ type InputTransport interface {
 	ReadInput() (string, bool, error)
 }
 
+// Bound active output without imposing an idle-session deadline.
+const outputWriteTimeout = 30 * time.Second
+
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
 	conn      net.Conn
 	reader    *bufio.Reader
 	writer    *bufio.Writer
 	mu        sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 	tState    telnetState
 	tCommand  []byte
 	lineBuf   strings.Builder
@@ -102,6 +114,18 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 				return line, false, nil
 			}
 			return "", false, err
+		}
+		// Toast closes a connection whose pending line or telnet command
+		// reaches MAX_LINE_BYTES when more input arrives (network.cc).
+		if t.lineBuf.Len() >= maxLineBytes {
+			slog.Warn("connection closed for exceeding MAX_LINE_BYTES!",
+				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", t.lineBuf.Len()))
+			return "", false, errMaxLineBytes
+		}
+		if len(t.tCommand) >= maxLineBytes {
+			slog.Warn("connection exceeded MAX_LINE_BYTES in telnet command!",
+				slog.String("remote", t.conn.RemoteAddr().String()), slog.Int("bytes", len(t.tCommand)))
+			return "", false, errMaxLineBytes
 		}
 
 		switch t.tState {
@@ -203,41 +227,55 @@ func formatTelnetCommand(command []byte) string {
 }
 
 func (t *TCPTransport) ReadChunk() (string, error) {
-	var chunk strings.Builder
-	b, err := t.reader.ReadByte()
+	if _, err := t.reader.Peek(1); err != nil {
+		return "", err
+	}
+	n := t.reader.Buffered()
+	data, err := t.reader.Peek(n)
 	if err != nil {
 		return "", err
 	}
-	chunk.WriteByte(b)
-
-	for t.reader.Buffered() > 0 {
-		b, err = t.reader.ReadByte()
-		if err != nil {
-			break
-		}
-		chunk.WriteByte(b)
+	builtins.AppendRawToBinary(&t.lineBuf, data)
+	if _, err := t.reader.Discard(n); err != nil {
+		return "", err
 	}
-	return chunk.String(), nil
+	chunk := t.lineBuf.String()
+	t.lineBuf.Reset()
+	return chunk, nil
 }
 
 // WriteOutput sends bytes with optional CRLF framing.
-func (t *TCPTransport) WriteOutput(msg string, newline bool) error {
+func (t *TCPTransport) WriteOutput(msg string, newline bool) (err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	defer func() {
+		if err == nil {
+			err = t.conn.SetWriteDeadline(time.Time{})
+		}
+		if err != nil {
+			// A buffered write failure is permanent; wake the reader for cleanup.
+			_ = t.Close()
+		}
+	}()
+	if err = t.conn.SetWriteDeadline(time.Now().Add(outputWriteTimeout)); err != nil {
+		return err
+	}
 
 	if newline {
 		msg += "\r\n"
 	}
-	_, err := t.writer.WriteString(msg)
+	_, err = t.writer.WriteString(msg)
 	if err != nil {
 		return err
 	}
 	return t.writer.Flush()
 }
 
-// Close closes the underlying connection
+// Close interrupts I/O once, independently of the write mutex.
 func (t *TCPTransport) Close() error {
-	return t.conn.Close()
+	t.closeOnce.Do(func() { t.closeErr = t.conn.Close() })
+	return t.closeErr
 }
 
 // RemoteAddr returns the remote address as a string

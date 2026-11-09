@@ -89,17 +89,17 @@ func sqliteMapGet(t *testing.T, m types.Value, key string) types.Value {
 	return value
 }
 
-func sqliteAsyncCtx() (*Execution, *task.Task) {
+func sqliteAsyncCtx() (*Execution, *task.State) {
 	ctx := sqliteWizardCtx()
-	taskValue := task.NewTask(1, ctx.Programmer, 1000, 1)
+	taskValue := task.NewState(1, ctx.Programmer, 1000, 1)
 	taskValue.SetState(task.TaskRunning)
 	ctx.Task = taskValue
 	ctx.CanSuspend = true
-	wireTestTaskManager(ctx)
+	wireTestTaskHost(ctx)
 	return ctx, taskValue
 }
 
-func waitForSQLiteResume(t *testing.T, taskValue *task.Task) {
+func waitForSQLiteResume(t *testing.T, taskValue *task.State) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for taskValue.GetState() == task.TaskSuspended && time.Now().Before(deadline) {

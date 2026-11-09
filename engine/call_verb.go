@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/admission"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
@@ -21,14 +20,14 @@ import (
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
 func (s *Runtime) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
-	return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipNone, 0, nil)
+	return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, player, "", vmOwnershipNone, 0, nil)
 }
 
 func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parent *builtins.Execution) types.Result {
-	if parent == nil || parent.TaskContext == nil {
+	if parent == nil || parent.Context == nil {
 		return types.Err(types.E_INVARG)
 	}
-	parentCtx := parent.TaskContext
+	parentCtx := parent.Context
 	// This is a separate synchronous VM even though it shares the parent's
 	// transaction/context. Count it under the same opaque lease so run_gc cannot
 	// exclude the sole owner while both outer and inner VMs hold roots. A
@@ -52,7 +51,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 		defObjID types.ObjID
 		err      error
 	)
-	verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
+	verb, defObjID, err = parentCtx.StoreTxn.FindCallableVerb(objID, verbName)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -113,7 +112,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	}
 
 	// Pooled: nothing outlives this call. The VM is never handed to the task
-	// (SetBytecodeVM is not called here), a FlowSuspend from a nested hook is
+	// (SetVM is not called here), a FlowSuspend from a nested hook is
 	// returned to the caller and the VM dropped, and ReleaseVM itself declines to
 	// pool a still-yielded VM. Release happens after drainForks, which resumes on
 	// this same VM.
@@ -132,9 +131,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	bcVM.Task = parentTask
 	// Its ticks are absorbed into the caller's below, so profile samples taken
 	// here bill them, and carry the caller's frames.
-	if callingVM, ok := parent.CallingVM.(*vm.VM); ok {
-		bcVM.SetProfileParent(callingVM)
-	}
+	bcVM.SetProfileParent(parent.ProfileParent)
 	// A builtin callback is part of the current execution slice. Preserve any
 	// earlier callback charges until the outer VM consumes them, and keep this
 	// child from consuming those charges a second time.
@@ -197,10 +194,14 @@ func (s *Runtime) CallVerbWithArgstr(objID types.ObjID, verbName string, args []
 		return types.Err(types.E_INTRPT)
 	}
 	defer scope.Finish()
-	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0, scope)
+	return s.callVerbWithArgstr(types.NewObj(objID), verbName, args, player, argstr, vmOwnershipNone, 0, scope)
 }
 
-func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64, scope *admission.Scope) (result types.Result) {
+func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64, scope *admission.Scope) (result types.Result) {
+	objID := receiver.ID()
+	if receiver.Type() == types.TYPE_WAIF {
+		objID = receiver.Class()
+	}
 	ownsScope := ownership == vmOwnershipNone
 	if ownsScope && scope == nil {
 		roots := s.pinAdmissionRoots(objID, args)
@@ -214,9 +215,12 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	s.beginFinalizationProducer()
 	defer s.finishFinalizationProducer()
-	var leasedTask *task.Task
+	var leasedTask *Task
 	var inheritedLease bool
-	var ownedCtx *kernel.TaskContext
+	var ownedCtx *task.Context
+	// A sweep runs as a registered task with a row, which its commit ends.
+	var ownRow dbstore.TaskRow
+	var hasOwnRow bool
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -251,13 +255,13 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// publish ownership at the earliest safe entry. Anonymous/waif arguments are
 	// roots even during trace, lookup, and compile, before a VM frame exists to be
 	// scanned by GC.
-	t := &task.Task{
+	t := &Task{State: task.State{
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
 		CallStack:   make([]types.ActivationFrame, 0),
 		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
 		ForkCreator: s,                   // Enable fork support in server hooks
-	}
+	}}
 	switch ownership {
 	case vmOwnershipNone:
 		if !s.acquireTaskExecution(t) {
@@ -270,6 +274,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	case vmOwnershipExecution:
 		s.acquireInheritedTaskExecution(ownerTaskID)
 		inheritedLease = true
+	case vmOwnershipSweep:
+		ticks, seconds := foregroundTaskLimits(s.session)
+		t = NewTaskFull(s.newTaskID(), player, nil, ticks, seconds)
+		t.ForkCreator = s
 	}
 
 	// Trace only after the direct path owns either a physical lease or the
@@ -277,7 +285,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	trace.VerbCall(objID, verbName, len(args), player, player)
 
 	// Look up the verb to get its owner for programmer permissions
-	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindCallableVerb(objID, verbName)
 	if err != nil {
 		// Verb not found
 		result := types.Result{
@@ -313,8 +321,12 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		thisVal = anon
 		frameThisValue = anon
 	}
+	if receiver.Type() == types.TYPE_WAIF {
+		thisVal = receiver
+		frameThisValue = receiver
+	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := task.NewContext()
 	ctx.Player = player
 	ctx.Programmer = verb.Owner           // Programmer is verb owner, not player
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner
@@ -324,12 +336,30 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
+	defer func() { ctx.StoreTxn.Release() }()
 	ctx.StoreTxn.SetConflictLabel(objID, verbName)
 	ctx.Admission = scope
 	if scope != nil {
 		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
 	}
 	ctx.RuntimeOptions = s.options
+	if ownership == vmOwnershipSweep {
+		ctx.TaskID = t.ID
+		ctx.DeferredGC = true
+		t.Context = ctx
+		t.This = objID
+		t.Caller = types.ObjNothing
+		t.VerbName = verbName
+		t.VerbLoc = defObjID
+		t.SetState(task.TaskRunning)
+		t.StartExecution()
+		s.taskManager.RegisterTask(t)
+		ownRow, hasOwnRow = s.readOwnRow(t, ctx.StoreTxn)
+		defer func() {
+			s.scheduler.ReleaseExecution(t)
+			s.taskManager.NotifyScheduleChange()
+		}()
+	}
 
 	// Propagate the already-published ownership to nested registry hooks.
 	switch ownership {
@@ -354,13 +384,12 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 		ServerInitiated: true,
 	})
 
-	// Create bytecode VM and set up initial frame variables. Pooled for the same
-	// reason as CallVerbInContext: this VM is never stored on the task, and the
-	// only post-execution uses (commit, effect flush, traceback) read the task and
-	// the context, never the VM.
+	// Sweep-owned hooks retain this VM when they suspend. Other synchronous
+	// callers release it after execution and publication.
 	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = ctx
-	bcVM.Task = t
+	bcVM.Task = &t.State
+	bcVM.Resumable = ownership == vmOwnershipSweep
 	// This standalone hook owns a fresh foreground slice. Start its budget only
 	// after admission and setup, just as the normal task execution path does.
 	ticks, seconds := foregroundTaskLimits(s.session)
@@ -373,6 +402,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// Toast sets caller = #-1 in server-initiated hook calls (do_command etc.);
 	// conformance parser::do_command_sees_command_verb_and_argstr pins this.
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, types.ObjNothing, verbName, defObjID, args)
+	frame.ThisValue = frameThisValue
 	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
 	vm.SetLocalByName(frame, prog, "this", thisVal)
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
@@ -383,8 +413,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	result = bcVM.ExecuteLoop()
 
 	// Handle fork yields: create child tasks and resume parent
-	result = s.drainForks(t, bcVM, result)
-	vm.ReleaseVM(bcVM)
+	result = s.drainForks(&t.State, bcVM, result)
+	if hasOwnRow {
+		ctx.StoreTxn.StageTaskRow(t.ID, ownEndRow(t, ownRow, result))
+	}
 	committed := true
 	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
@@ -394,11 +426,30 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 	}
+	if ownership == vmOwnershipSweep {
+		t.Result = result
+		s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
+		if result.Flow == types.FlowSuspend && committed {
+			ctx.DeferredGC = false
+			t.SetVM(bcVM)
+			if t.GetState() == task.TaskQueued {
+				s.scheduler.RequeueYield(t, time.Now())
+			}
+			return result
+		}
+		if result.Flow == types.FlowException {
+			t.SetState(task.TaskKilled)
+		} else {
+			t.SetState(task.TaskCompleted)
+		}
+		t.CloseDone()
+	}
+	vm.ReleaseVM(bcVM)
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {

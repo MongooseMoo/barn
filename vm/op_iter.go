@@ -3,7 +3,9 @@ package vm
 import (
 	"fmt"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"strings"
 )
 
 // executeIterPrepColumns retains list snapshots directly. Map values and keys
@@ -181,7 +183,7 @@ func (vm *VM) executeScatter() error {
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
-		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type()))
+		return newMooErrorf(types.E_TYPE, "%s", typeMismatchMessage(types.TYPE_LIST, val.Type())).withMessage()
 	}
 
 	length := val.Len()
@@ -222,12 +224,18 @@ func (vm *VM) executeScatterTake() error {
 
 // SetLocalByName sets a local variable in a stack frame by name.
 // Looks up the name in the program's VarNames table and sets the corresponding
-// slot in frame.Locals. If the name is not found (verb doesn't reference it),
-// silently does nothing.
+// slot in frame.Locals. Command variables absent from source locals are retained
+// separately for inheritance by callees; other absent names are ignored.
 func SetLocalByName(frame *StackFrame, prog *bytecode.Program, name string, value types.Value) {
 	for i, varName := range prog.VarNames {
-		if varName == name {
+		if strings.EqualFold(varName, name) {
 			frame.Locals[i] = value
+			return
+		}
+	}
+	for index, commandName := range task.CommandVariableNames {
+		if strings.EqualFold(name, commandName) {
+			frame.CommandEnvironment[index] = value
 			return
 		}
 	}

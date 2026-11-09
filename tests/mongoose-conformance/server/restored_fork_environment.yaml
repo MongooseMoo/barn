@@ -1,0 +1,84 @@
+name: restored_fork_environment
+description: >
+  A queued fork retains used locals through two fresh checkpoint/restart cycles.
+  Distinct durable markers reject a stale second checkpoint. Observe whether
+  the parent-only local is dropped when the isolated fork body is recompiled.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, queued_tasks, kill_task, dump_database, maphaskey, task_id]
+  config: [managed_server]
+tests:
+  - name: restored_fork_two_checkpoints
+    permission: wizard
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_fork_roundtrip_20261014", o, {player, ""});
+          add_property(o, "result", 0, {player, ""});
+          add_property(o, "runs", 0, {player, ""});
+          add_property(o, "uninitialized", 0, {player, ""});
+          add_property(o, "generation", 1, {player, ""});
+          add_property(o, "fork_id", 0, {player, ""});
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {
+            "used = 73; parent_only = 91;",
+            "fork tid (30)",
+            "try",
+            "this.uninitialized = missing;",
+            "except (E_VARNF)",
+            "this.uninitialized = \"E_VARNF\";",
+            "endtry",
+            "this.result = {task_id(), used};",
+            "this.runs = this.runs + 1;",
+            "endfork",
+            "return {tid, parent_only};"
+          });
+          if (errors) raise(E_INVARG, "fork compile failed", errors); endif
+          result = o:start(); o.fork_id = result[1];
+          found = {};
+          for q in (queued_tasks(1)) if (q[1] == o.fork_id) found = q; endif endfor
+          return {result[2], o.result, found[11]["used"], found[11]["parent_only"]};
+        expect:
+          value: [91, 0, 73, 91]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - run: |
+          o = #1.conformance_fork_roundtrip_20261014;
+          found = {};
+          for q in (queued_tasks(1)) if (q[1] == o.fork_id) found = q; endif endfor
+          return {o.generation, o.result, found[11]["used"], maphaskey(found[11], "parent_only")};
+        expect:
+          value: [1, 0, 73, 0]
+      - run: |
+          #1.conformance_fork_roundtrip_20261014.generation = 2;
+          return dump_database();
+        expect:
+          value: 0
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - run: |
+          o = #1.conformance_fork_roundtrip_20261014;
+          found = {};
+          for q in (queued_tasks(1)) if (q[1] == o.fork_id) found = q; endif endfor
+          return {o.generation, o.result, found[11]["used"], maphaskey(found[11], "parent_only")};
+        expect:
+          value: [2, 0, 73, 0]
+      - wait: 35000
+      - run: |
+          o = #1.conformance_fork_roundtrip_20261014;
+          found = 0;
+          for q in (queued_tasks()) if (q[1] == o.fork_id) found = found + 1; endif endfor
+          return {o.result == {o.fork_id, 73}, o.runs, found, o.uninitialized};
+        expect:
+          value: [1, 1, 0, "E_VARNF"]
+    cleanup:
+      - run: |
+          o = #1.conformance_fork_roundtrip_20261014;
+          if (o.fork_id) try kill_task(o.fork_id); except (E_INVARG) endtry endif
+          delete_property(#1, "conformance_fork_roundtrip_20261014");
+          recycle(o);
+          return 0;

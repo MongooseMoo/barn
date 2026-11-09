@@ -2,7 +2,7 @@ package parser
 
 import (
 	"errors"
-	"github.com/MongooseMoo/barn/verb"
+	"github.com/MongooseMoo/barn/ir"
 	"unicode"
 )
 
@@ -73,7 +73,7 @@ func (l *Lexer) skipWhitespace() {
 
 func (l *Lexer) readNULToken() Token {
 	tok := Token{Type: TOKEN_ILLEGAL, Value: ErrNULInSource.Error(),
-		Position: verb.Position{Line: l.line, Column: l.column, Offset: l.position}}
+		Position: ir.Position{Line: l.line, Column: l.column, Offset: l.position}}
 	if l.lexicalError == nil {
 		l.lexicalError = &ParseError{Position: tok.Position, Msg: tok.Value, Detail: ErrNULInSource}
 	}
@@ -92,7 +92,7 @@ func (l *Lexer) NextToken() Token {
 		if l.ch != '/' || l.peekChar() != '*' {
 			break
 		}
-		start := verb.Position{Line: l.line, Column: l.column, Offset: l.position}
+		start := ir.Position{Line: l.line, Column: l.column, Offset: l.position}
 		l.readChar()
 		l.readChar()
 		for l.ch != '*' || l.peekChar() != '/' {
@@ -112,7 +112,7 @@ func (l *Lexer) NextToken() Token {
 		l.readChar()
 	}
 
-	tok.Position = verb.Position{
+	tok.Position = ir.Position{
 		Line:   l.line,
 		Column: l.column,
 		Offset: l.position,
@@ -367,7 +367,7 @@ func (l *Lexer) NextToken() Token {
 // readNumber reads an integer or float literal
 func (l *Lexer) readNumber() Token {
 	tok := Token{
-		Position: verb.Position{
+		Position: ir.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,
@@ -440,7 +440,7 @@ func (l *Lexer) readNumber() Token {
 func (l *Lexer) readObjectLiteral() Token {
 	tok := Token{
 		Type: TOKEN_OBJECT,
-		Position: verb.Position{
+		Position: ir.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,
@@ -467,7 +467,7 @@ func (l *Lexer) readObjectLiteral() Token {
 // readIdentifier reads an identifier or keyword
 func (l *Lexer) readIdentifier() Token {
 	tok := Token{
-		Position: verb.Position{
+		Position: ir.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,

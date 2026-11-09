@@ -3,15 +3,15 @@ package builtins
 import (
 	"bytes"
 	"fmt"
-	"github.com/MongooseMoo/barn/config"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/config"
+
 	"github.com/MongooseMoo/barn/internal/listener"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
+	taskpkg "github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -33,8 +33,10 @@ type ConnectionManager interface {
 
 // Connection interface to avoid import cycle.
 type Connection interface {
+	ConnectionID() int64
+	Done() <-chan struct{}
 	Send(message string) error
-	SendNotification(kernel.PendingNotification) error
+	SendNotification(taskpkg.PendingNotification) error
 	Buffer(message string)
 	Flush() error
 	RemoteAddr() string
@@ -68,7 +70,7 @@ type InputForcer interface {
 }
 
 type httpReadWaiter struct {
-	task *task.Task
+	task *taskpkg.State
 	kind string
 }
 
@@ -112,7 +114,7 @@ func compactHTTPBuffer(state *httpHeldInput) {
 }
 
 type httpWake struct {
-	task  *task.Task
+	task  *taskpkg.State
 	value types.Value
 }
 
@@ -167,11 +169,11 @@ func defaultConnectionOptions() map[string]types.Value {
 	}
 }
 
-func (r *Session) getConnectionOptions(player types.ObjID) map[string]types.Value {
+func (r *Session) getConnectionOptions(connectionID int64) map[string]types.Value {
 	state := &r.runtime.connectionOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
-	existing, ok := state.byPlayer[player]
+	existing, ok := state.byConnection[connectionID]
 	if !ok {
 		return defaultConnectionOptions()
 	}
@@ -186,10 +188,10 @@ func (r *Session) getConnectionOptions(player types.ObjID) map[string]types.Valu
 
 // getConnectionOption copies one immutable value under the read lock. Resolve
 // only its default after unlocking; scalar reads need no map or intrinsic list.
-func (r *Session) getConnectionOption(player types.ObjID, name string) (types.Value, bool) {
+func (r *Session) getConnectionOption(connectionID int64, name string) (types.Value, bool) {
 	state := &r.runtime.connectionOptions
 	state.mu.RLock()
-	if existing, ok := state.byPlayer[player]; ok {
+	if existing, ok := state.byConnection[connectionID]; ok {
 		value, found := existing[name]
 		state.mu.RUnlock()
 		return value, found
@@ -210,17 +212,25 @@ func (r *Session) getConnectionOption(player types.ObjID, name string) (types.Va
 	}
 }
 
-func (r *Session) setConnectionOption(player types.ObjID, name string, value types.Value) {
+func (r *Session) setConnectionOption(connectionID int64, done <-chan struct{}, name string, value types.Value) bool {
 	state := &r.runtime.connectionOptions
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	existing, ok := state.byPlayer[player]
+	// Disconnect cancels before Forget takes this mutex. A mutation that wins
+	// this check is deleted afterward; one that loses cannot recreate the bag.
+	select {
+	case <-done:
+		return false
+	default:
+	}
+	existing, ok := state.byConnection[connectionID]
 	if !ok {
 		existing = defaultConnectionOptions()
-		state.byPlayer[player] = existing
+		state.byConnection[connectionID] = existing
 	}
 	existing[name] = value
+	return true
 }
 
 func (r *Session) drainHeldCommands(player types.ObjID) []string {
@@ -232,13 +242,22 @@ func (r *Session) drainHeldCommands(player types.ObjID) []string {
 	return lines
 }
 
-func (r *Session) heldInputEnabled(player types.ObjID) bool {
-	return r.ConnectionOptionTruthy(player, "hold-input")
+func (r *Session) heldInputEnabled(connectionID int64) bool {
+	return r.ConnectionOptionTruthy(connectionID, "hold-input")
 }
 
-func (r *Session) ConnectionOptionTruthy(player types.ObjID, name string) bool {
-	value, ok := r.getConnectionOption(player, name)
+func (r *Session) ConnectionOptionTruthy(connectionID int64, name string) bool {
+	value, ok := r.getConnectionOption(connectionID, name)
 	return ok && value.Truthy()
+}
+
+// ForgetConnectionOptions drops only the options owned by this physical socket.
+// Player identity may already belong to a replacement connection.
+func (r *Session) ForgetConnectionOptions(connectionID int64) {
+	state := &r.runtime.connectionOptions
+	state.mu.Lock()
+	delete(state.byConnection, connectionID)
+	state.mu.Unlock()
 }
 
 func (r *Session) getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
@@ -354,7 +373,7 @@ func parseHTTPHeaders(data []byte, start int) httpHeaderParseResult {
 			if lastHeader < 0 {
 				return httpHeaderParseResult{bodyStart: pos, state: httpHeadersInvalid}
 			}
-			continued := encodeBinaryStr(trimHTTPLeadingWhitespace(line))
+			continued := EncodeRawToBinary(trimHTTPLeadingWhitespace(line))
 			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].Str() + continued)
 			continue
 		}
@@ -365,7 +384,7 @@ func parseHTTPHeaders(data []byte, start int) httpHeaderParseResult {
 		}
 
 		name := string(line[:colon])
-		value := encodeBinaryStr(trimHTTPLeadingWhitespace(line[colon+1:]))
+		value := EncodeRawToBinary(trimHTTPLeadingWhitespace(line[colon+1:]))
 		headers = append(headers, [2]types.Value{types.NewStr(name), types.NewStr(value)})
 		lastHeader = len(headers) - 1
 
@@ -413,7 +432,7 @@ func parseHTTPChunkedBody(data []byte, start int) (string, int, bool) {
 				}
 				pos = nextTrailer
 				if len(trailer) == 0 {
-					return encodeBinaryStr(body), pos, true
+					return EncodeRawToBinary(body), pos, true
 				}
 			}
 		}
@@ -475,7 +494,7 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(EncodeRawToBinary(data[header.bodyStart : header.bodyStart+header.contentLength]))})
 		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true
@@ -533,7 +552,7 @@ func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 		if len(data[header.bodyStart:]) < header.contentLength {
 			return types.None, 0, false
 		}
-		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[header.bodyStart : header.bodyStart+header.contentLength]))})
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(EncodeRawToBinary(data[header.bodyStart : header.bodyStart+header.contentLength]))})
 		consumed = header.bodyStart + header.contentLength
 	}
 	return types.NewMap(pairs), consumed, true
@@ -546,7 +565,7 @@ func parseHTTPMessage(kind string, data []byte) (types.Value, int, bool) {
 	return parseHTTPResponse(data)
 }
 
-func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
+func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, connectionID int64, state *httpHeldInput) []httpWake {
 	pruneHTTPWaitersLocked(state)
 	wakes := make([]httpWake, 0)
 	for len(state.waiters) > 0 {
@@ -570,14 +589,14 @@ func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldIn
 	}
 
 	compactHTTPBuffer(state)
-	if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+	if !r.heldInputEnabled(connectionID) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
 		delete(r.runtime.heldHTTPInput.byPlayer, player)
 	}
 	return wakes
 }
 
-func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
-	flush, _ := r.getConnectionOption(player, "flush-command")
+func (r *Session) HandleHeldInput(player types.ObjID, connectionID int64, line string, atFront bool) (bool, []string) {
+	flush, _ := r.getConnectionOption(connectionID, "flush-command")
 	if flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
 		lines := r.drainHeldCommands(player)
 		if lines == nil {
@@ -586,7 +605,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 		return true, lines
 	}
 
-	held := r.heldInputEnabled(player)
+	held := r.heldInputEnabled(connectionID)
 
 	hadWaiter, wakes, handled := func() (bool, []httpWake, bool) {
 		stateSet := &r.runtime.heldHTTPInput
@@ -622,7 +641,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 			}
 		}
 
-		return hadWaiter, r.collectHTTPWakeupsLocked(player, state), true
+		return hadWaiter, r.collectHTTPWakeupsLocked(player, connectionID, state), true
 	}()
 	if !handled {
 		return false, nil
@@ -647,7 +666,7 @@ func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool)
 	return true, nil
 }
 
-func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
+func (r *Session) prepareHTTPRead(player types.ObjID, connectionID int64, kind string, t *taskpkg.State) (types.Value, bool) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
@@ -656,7 +675,7 @@ func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task)
 	pruneHTTPWaitersLocked(state)
 	if state.invalidCount > 0 {
 		state.invalidCount--
-		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+		if !r.heldInputEnabled(connectionID) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
 			delete(stateSet.byPlayer, player)
 		}
 		return types.NewInt(0), true
@@ -666,7 +685,7 @@ func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task)
 	if complete {
 		consumeHTTPBuffer(state, consumed)
 		compactHTTPBuffer(state)
-		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+		if !r.heldInputEnabled(connectionID) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
 			delete(stateSet.byPlayer, player)
 		}
 		return value, true
@@ -682,7 +701,7 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 	}
 	kept := state.waiters[:0]
 	for _, waiter := range state.waiters {
-		if waiter.task != nil && waiter.task.GetState() == task.TaskSuspended {
+		if waiter.task != nil && waiter.task.GetState() == taskpkg.TaskSuspended {
 			kept = append(kept, waiter)
 		}
 	}
@@ -728,7 +747,13 @@ func (r *Session) CancelHTTPReadTask(taskID int64) {
 			state.bufferCapacity = 0
 			state.invalidCount = 0
 		}
-		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+		held := false
+		if cm := r.host.ConnManager; cm != nil {
+			if conn := cm.GetConnection(player); conn != nil {
+				held = r.heldInputEnabled(conn.ConnectionID())
+			}
+		}
+		if !held && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
 			delete(stateSet.byPlayer, player)
 		}
 	}
@@ -856,10 +881,6 @@ func listenerDescriptorEqual(left, right listener.Descriptor) bool {
 
 // notify(player, message [, no_flush [, no_newline]]) -> int
 func builtinNotify(ctx *Execution, args []types.Value) types.Result {
-	if hostOf(ctx).ConnManager == nil {
-		return types.Err(types.E_INVARG)
-	}
-
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -869,6 +890,9 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	message := args[1].Str()
+	if !ctx.IsWizard && player != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
 
 	noFlush := false
 	if len(args) >= 3 {
@@ -882,7 +906,7 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	noNewline := len(args) >= 4 && args[3].Truthy()
-	if ctx.Session.ConnectionOptionTruthy(player, "binary") {
+	if ctx.Session.ConnectionOptionTruthy(conn.ConnectionID(), "binary") {
 		decoded, invalid := decodeBinaryString(message)
 		if invalid {
 			return types.Err(types.E_INVARG)
@@ -892,20 +916,20 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	}
 	// Capture framing now: connection options may change before the task's
 	// deferred output is published.
-	note := kernel.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline}
+	note := taskpkg.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline, CommandDiagnostic: ctx.CommandDiagnostic}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind:         kernel.PendingEffectNotification,
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind:         taskpkg.PendingEffectNotification,
 			Notification: note,
 		})
-		return types.Ok(types.NewInt(0))
+		return types.Ok(types.NewInt(1))
 	}
 
 	trace.Notify(player)
 	if err := conn.SendNotification(note); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewInt(1))
 }
 
 // listeners([find]) -> list of listener maps.
@@ -1095,8 +1119,8 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind:       kernel.PendingEffectBootPlayer,
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind:       taskpkg.PendingEffectBootPlayer,
 			BootPlayer: player,
 		})
 		return types.Ok(types.NewInt(0))
@@ -1132,9 +1156,9 @@ func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
-		enqueuePendingEffect(ctx, kernel.PendingEffect{
-			Kind: kernel.PendingEffectConnectionSwitch,
-			ConnectionSwitch: kernel.PendingConnectionSwitch{
+		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
+			Kind: taskpkg.PendingEffectConnectionSwitch,
+			ConnectionSwitch: taskpkg.PendingConnectionSwitch{
 				OldPlayer: args[0].ID(),
 				NewPlayer: args[1].ID(),
 			},
@@ -1304,9 +1328,12 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 			return types.Err(types.E_INVARG)
 		}
 	}
+	// args may be the elements of the caller's list (set_connection_option(@l)),
+	// so a replacement value goes in a local, never back into args.
+	value := args[2]
 	if name == "intrinsic-commands" {
-		if args[2].Truthy() {
-			if args[2].Type() == types.TYPE_LIST {
+		if value.Truthy() {
+			if value.Type() == types.TYPE_LIST {
 				allowed := map[string]bool{
 					".program":     true,
 					"PREFIX":       true,
@@ -1314,25 +1341,27 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 					"OUTPUTPREFIX": true,
 					"OUTPUTSUFFIX": true,
 				}
-				for i := 1; i <= args[2].Len(); i++ {
-					elem := args[2].Get(i)
+				for i := 1; i <= value.Len(); i++ {
+					elem := value.Get(i)
 					if elem.Type() != types.TYPE_STR || !allowed[elem.Str()] {
 						return types.Err(types.E_INVARG)
 					}
 				}
 			} else {
-				args[2] = defaultIntrinsicCommands()
+				value = defaultIntrinsicCommands()
 			}
 		}
 	}
 
-	ctx.Session.setConnectionOption(player, name, args[2])
-	if name == "binary" && args[2].Truthy() {
+	if !ctx.Session.setConnectionOption(conn.ConnectionID(), conn.Done(), name, value) {
+		return types.Ok(types.NewInt(0))
+	}
+	if name == "binary" {
 		if wakeConn, ok := conn.(inputWakeConnection); ok {
 			wakeConn.WakeInputReader()
 		}
 	}
-	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
+	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !value.Truthy() && forcer != nil {
 		for _, line := range ctx.Session.drainHeldCommands(player) {
 			forcer.ForceInput(player, line, false, inputReceipt(ctx))
 		}
@@ -1346,7 +1375,8 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if resolveConnection(ctx, player) == nil {
+	conn := resolveConnection(ctx, player)
+	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if !ctx.IsWizard && player != ctx.Programmer {
@@ -1361,7 +1391,7 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	value, ok := ctx.Session.getConnectionOption(player, name)
+	value, ok := ctx.Session.getConnectionOption(conn.ConnectionID(), name)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -1421,7 +1451,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if mgr.FindReadingTask(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
+	if mgr.FindReadingTaskState(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1430,13 +1460,14 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	value, complete := ctx.Session.prepareHTTPRead(connection, typeStr, t)
+	value, complete := ctx.Session.prepareHTTPRead(connection, conn.ConnectionID(), typeStr, t)
 	if complete {
 		return types.Ok(value)
 	}
 
 	t.IsHTTPReadSuspended = true
-	mgr.SuspendTask(t, -1)
+	t.HTTPReadConnection = connection
+	t.SuspendSeconds(-1)
 	return types.Suspend(-1)
 }
 

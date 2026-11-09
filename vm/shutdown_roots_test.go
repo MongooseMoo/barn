@@ -5,7 +5,7 @@ import (
 
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -112,7 +112,7 @@ func TestSetVarRetainsOverwrittenWaifForFinalization(t *testing.T) {
 	}
 }
 
-func TestVMRootCollectorsTraverseWaifPropertiesAndTaskContext(t *testing.T) {
+func TestVMRootCollectorsTraverseWaifPropertiesAndContext(t *testing.T) {
 	store := dbstore.NewStore()
 	anonID, errCode := store.DirectTxn().CreateObject(nil, 3, true)
 	if errCode != types.E_NONE {
@@ -123,7 +123,7 @@ func TestVMRootCollectorsTraverseWaifPropertiesAndTaskContext(t *testing.T) {
 	child.SetProperty("anonymous", types.NewAnon(anonID))
 	parent.SetProperty("child", child)
 	exec := NewVM(store, nil)
-	exec.Context = kernel.NewTaskContext()
+	exec.Context = task.NewContext()
 	exec.Context.TaskLocal = parent
 
 	var waifs []types.Value
