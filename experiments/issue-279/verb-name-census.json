@@ -1,0 +1,32 @@
+{
+  "input_sha256": "12286fda9b50bffa826186e518f1ba14781bedbbfae7eae35197e9d8ebfc0d56",
+  "definitions": 18451,
+  "distinct": 13202,
+  "size_buckets": [
+    {
+      "max_bytes": 8,
+      "definitions_at_most": 5330,
+      "distinct_at_most": 2666
+    },
+    {
+      "max_bytes": 16,
+      "definitions_at_most": 13639,
+      "distinct_at_most": 8757
+    },
+    {
+      "max_bytes": 32,
+      "definitions_at_most": 17885,
+      "distinct_at_most": 12668
+    },
+    {
+      "max_bytes": 64,
+      "definitions_at_most": 18381,
+      "distinct_at_most": 13142
+    },
+    {
+      "max_bytes": 128,
+      "definitions_at_most": 18429,
+      "distinct_at_most": 13183
+    }
+  ]
+}

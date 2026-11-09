@@ -49,6 +49,10 @@ func TestRespondToKeepsCanonicalNames(t *testing.T) {
 			if result.Val.Get(1).Obj() != 3 || got.Str() != tc.canonical {
 				t.Fatalf("respond_to = %v, want {#3, %q}", result.Val, tc.canonical)
 			}
+			again := admitTestBuiltin("respond_to", ctx, []types.Value{types.NewObj(3), name})
+			if !again.IsNormal() || again.Val.Get(2) != got {
+				t.Fatal("repeated canonical name allocated another representation")
+			}
 			// Appending to the response must preserve both existing values.
 			appended := got.StrAppend(types.NewStr("!"))
 			if appended.Str() != tc.canonical+"!" || got.Str() != tc.canonical || name.Str() != tc.query {

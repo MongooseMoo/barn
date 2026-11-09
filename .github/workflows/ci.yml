@@ -203,7 +203,7 @@ jobs:
     needs: record
     if: github.head_ref == 'perf/279-memory-evidence'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -212,7 +212,7 @@ jobs:
           cache: ${{ runner.environment == 'github-hosted' }}
       # Temporary experiment. Native copies with verified hashes keep the
       # Windows/9p fixture transport outside the loaded workload process.
-      - name: Measure repaired original checkpoint
+      - name: Compare runtime intern with repaired control
         shell: bash
         env:
           BARN_MONGOOSE_BENCH: '1'
@@ -240,24 +240,31 @@ jobs:
             env | sort | grep -E '^(BARN_MONGOOSE_|GOMAXPROCS=)'
           } > "$evidence/manifest.txt"
           printf '%s  %s\n' 12286fda9b50bffa826186e518f1ba14781bedbbfae7eae35197e9d8ebfc0d56 "$BARN_MONGOOSE_DB" 250b9b69fae2dad6788061a1abb029332f564b92e630514c93181030f7277ca9 "$BARN_MONGOOSE_SOUND_DB" | sha256sum -c -
-          go test -c -o "$evidence/engine.test" ./engine
-          sha256sum "$evidence/engine.test" >> "$evidence/manifest.txt"
+          cp /mnt/c/Users/Q/code/barn/.tmp/issue-279-ci/42661518475-1/engine.test "$evidence/control.test"
+          printf '%s  %s\n' 4d550c64ad13f4cb0c710723bcbc0e898362c88fe9b66fe6d750177b52130c59 "$evidence/control.test" | sha256sum -c -
+          go test -c -o "$evidence/candidate.test" ./engine
+          sha256sum "$evidence/control.test" "$evidence/candidate.test" >> "$evidence/manifest.txt"
           cd engine
           failed=0
-          for sample in 1 2 3 diagnostic; do
-            if [ "$sample" = diagnostic ]; then
-              export BARN_MONGOOSE_MEMSTATS=1 GODEBUG=gctrace=1
-              export BARN_MONGOOSE_CPUPROFILE="$evidence/runtime.cpu" BARN_MONGOOSE_MEMPROFILE="$evidence/runtime.heap"
-            fi
-            if "$evidence/engine.test" -test.run '^TestMongooseRealWorkload$' -test.v -test.count=1 -test.timeout=180s > "$evidence/sample-$sample.txt" 2>&1; then
-              echo "sample $sample: process exit 0"
-            else
-              code=$?
-              echo "sample $sample: process exit $code"
-              failed=1
-            fi
-            if grep -E 'cohort submitted=|players=16 goodput=|gc: cycles=|memory MiB after' "$evidence/sample-$sample.txt"; then :; else failed=1; fi
-            if grep -qE 'cohort submitted=.* failed=0 unsettled_at_return=0 ' "$evidence/sample-$sample.txt"; then :; else failed=1; fi
+          for sample in 1 2 3 4 5 6 diagnostic; do
+            order='control candidate'
+            if [ "$sample" = 2 ] || [ "$sample" = 4 ] || [ "$sample" = 6 ]; then order='candidate control'; fi
+            for variant in $order; do
+              if [ "$sample" = diagnostic ]; then
+                export BARN_MONGOOSE_MEMSTATS=1 GODEBUG=gctrace=1
+                export BARN_MONGOOSE_CPUPROFILE="$evidence/$variant.cpu" BARN_MONGOOSE_MEMPROFILE="$evidence/$variant.heap"
+              fi
+              output="$evidence/$variant-$sample.txt"
+              if "$evidence/$variant.test" -test.run '^TestMongooseRealWorkload$' -test.v -test.count=1 -test.timeout=180s > "$output" 2>&1; then
+                echo "$variant sample $sample: process exit 0"
+              else
+                code=$?
+                echo "$variant sample $sample: process exit $code"
+                failed=1
+              fi
+              if grep -E 'cohort submitted=|players=16 goodput=|gc: cycles=|memory MiB after' "$output"; then :; else failed=1; fi
+              if grep -qE 'cohort submitted=.* failed=0 unsettled_at_return=0 ' "$output"; then :; else failed=1; fi
+            done
           done
           echo "Raw evidence: $saved"
           exit "$failed"
