@@ -26,8 +26,18 @@ engine-local implementation was moved, not copied. World histories also check
 nonwizard readable/unreadable effects and two sufficient tick budgets. Native
 history lanes are integrated into the existing fuzz matrix, and task race tests
 and the reduced local conformance case run in PR CI.
-No PR has been opened and nothing has been pushed. PR publication and normal
-merge are already authorized.
+Published as https://github.com/MongooseMoo/barn/pull/672. Its first CI run passed
+formatting, vet, staticcheck, golangci-lint and build, then rejected the changed
+race fixture: scratch was already defined during setup, so its first checked
+redefinition returned E_INVARG. Checking deletion commits then exposed legitimate
+MVCC conflicts: the supposedly disjoint deletion writers used ids[:4], overlapping
+the ordinary writers. Give the definition writers four genuinely separate objects
+and include them in raw-reader coverage. The loop deletes the pre-existing
+definition, checks the commit result and releases the snapshot, then recreates it.
+No assertion or checker is weakened and no retry loop is introduced. The focused
+corrected fixture completed with `ok github.com/MongooseMoo/barn/db/store`.
+The first-head Elle and Jepsen jobs completed successfully; the conformance job
+is still running. Collect final-head evidence after this repair.
 
 Current raw focused evidence:
 
@@ -256,5 +266,6 @@ Both the mixed sequence and the reduced public conformance case are retained.
 
 ## Next step
 
-Inspect the final diff, finish workflow audits, then publish the independent PR.
-Collect exact-head PR CI and Elle evidence, resolve review findings and normal-merge.
+Run the corrected race-fixture test, commit the repair with this updated record,
+and push it to PR 672. Collect final-head PR CI and Elle evidence, resolve review
+findings and normal-merge. Publication and merge remain authorized.
