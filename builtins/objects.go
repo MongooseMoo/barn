@@ -34,8 +34,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	var parents []types.ObjID
 	var parentFromInteger []bool
 	parentsFromList := false
+	// Parents are OBJ values only (Toast is_obj_or_list_of_objs, objects.cc
+	// bf_create): an anonymous object is never a parent.
 	switch args[0].Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		parents = []types.ObjID{args[0].ID()}
 		parentFromInteger = []bool{false}
 	case types.TYPE_INT:
@@ -53,7 +55,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		parentFromInteger = make([]bool, len(elements))
 		for i, elem := range elements {
 			switch elem.Type() {
-			case types.TYPE_OBJ, types.TYPE_ANON:
+			case types.TYPE_OBJ:
 				parents[i] = elem.ID()
 			case types.TYPE_INT:
 				// Only negative integers are valid as object references

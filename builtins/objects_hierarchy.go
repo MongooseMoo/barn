@@ -267,7 +267,8 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		if !isObjectRef(elem) {
+		// Parents are OBJ values only (Toast is_obj_or_list_of_objs).
+		if elem.Type() != types.TYPE_OBJ {
 			return types.Err(types.E_TYPE)
 		}
 
