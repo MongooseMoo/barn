@@ -187,8 +187,12 @@ Elle verdicts with nonzero operations. Raw correctness archives remain under
 `C:/Users/Q/code/barn/.tmp/671-ci-candidate/`.
 
 The final workflow selects the authored false-accept witness in its existing
-local-conformance command. Final publication CI is tracked on PR 671; no
-experiment-only job or checkout override remains.
+local-conformance command. The focused managed run of this authored file plus
+capability admission also passes on both stock WSL Toast and the current Barn
+build: each XML records 2 tests, zero failures/errors/skips. Private XML and
+admission records are under `.tmp/conformance/{toast,barn}-move*` in the task
+worktree. These focused runs do not replace final PR CI. Final publication CI is
+tracked on PR 671; no experiment-only job or checkout override remains.
 
 ## Original checkpoint
 
