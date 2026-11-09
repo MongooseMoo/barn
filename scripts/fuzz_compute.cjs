@@ -25,7 +25,8 @@ function configure({context, core}) {
   if (!['legacy', 'dedicated-once', 'dedicated-continuous'].includes(mode)) throw new Error('Invalid compute mode');
   let result;
   if (mode === 'legacy') {
-    result = {runner: JSON.parse(process.env.CI_RUNNER_LABELS || '["ubuntu-latest"]'), parallel: 2};
+    // GitHub allows at most 256 matrix jobs. Let available runners set capacity.
+    result = {runner: JSON.parse(process.env.CI_RUNNER_LABELS || '["ubuntu-latest"]'), parallel: 256};
   } else {
     if (context.ref !== 'refs/heads/master') throw new Error('Dedicated compute requires trusted master');
     result = dedicated(process.env);

@@ -58,12 +58,13 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             text=True, capture_output=True, check=True, cwd=cwd)
         return json.loads(result.stdout)
 
-    def test_legacy_fallback_and_cap_are_preserved(self):
+    def test_legacy_uses_available_runners_and_preserves_fallback(self):
         result = self.execute("configure", {"COMPUTE_MODE": "legacy"})
-        self.assertEqual(result["output"], {"runner": '["ubuntu-latest"]', "parallel": 2,
+        self.assertEqual(result["output"], {"runner": '["ubuntu-latest"]', "parallel": 256,
                                             "campaign": "native-and-toast"})
         result = self.execute("configure", {"COMPUTE_MODE": "legacy", "CI_RUNNER_LABELS": '["existing-wsl"]'})
         self.assertEqual(json.loads(result["output"]["runner"]), ["existing-wsl"])
+        self.assertEqual(result["output"]["parallel"], 256)
 
     def test_dedicated_requires_explicit_policy_labels_and_master(self):
         env = {**CONFIG, "COMPUTE_MODE": "dedicated-once"}
