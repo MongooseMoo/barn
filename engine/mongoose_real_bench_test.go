@@ -553,6 +553,12 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 		}
 	}()
+	// Setup failures must stop the same runtime/scheduler as a completed run.
+	defer s.Stop()
+	defer func() {
+		stopSched()
+		<-schedDone
+	}()
 	// Mirror server boot: this registry must load the snapshot it executes.
 	s.Session().LoadServerOptionsFromStore(store)
 	s.Session().LoadProtectedBuiltinsFromStore(store)
@@ -617,11 +623,19 @@ func TestMongooseRealWorkload(t *testing.T) {
 			"  endif",
 			"endfor",
 			"cloaked = `property_info(#36, \"cloaked\") ! E_PROPNF => add_property(#36, \"cloaked\", 0, {#36, \"r\"})';",
+			// The October checkpoint gives #71 a home at #62, whose inherited
+			// acceptable returns 0. Toast rejects that owner-driven move too.
+			// Repair this captured fixture defect to its designated player start.
+			"home_repaired = 0;",
+			"if (#71.home == #62 && !#62:acceptable(#71) && $player_start:acceptable(#71))",
+			"  #71.home = $player_start; home_repaired = 1;",
+			"endif",
 			"if (#2585.sql:is_open())",
 			"  sqlite_execute(#2585.sql.handle, \"CREATE TABLE IF NOT EXISTS assets (asset_location TEXT, duration REAL);\", {});",
 			"endif",
-			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
+			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked, {home_repaired, #71.home}};",
 		}, "\n")
+		t.Logf("snapshot home before repair: %s", s.EvalCommandOutput(2, "return #71.home;"))
 		var out string
 		for attempt := 0; attempt < 60; attempt++ {
 			out = s.EvalCommandOutput(2, repair)
@@ -630,14 +644,11 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
+		if !strings.HasPrefix(out, "{1, {1,") {
+			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
+		}
+		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked, home repair}: %s", out)
 	}
-	defer s.Stop()
-	defer func() {
-		stopSched()
-		<-schedDone
-	}()
-
 	totalWeight := 0
 	for _, sh := range realShapes {
 		totalWeight += sh.weight
@@ -830,6 +841,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
 		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
+		if failed != 0 {
+			t.Errorf("%d commands failed; measurement is invalid", failed)
+		}
 		if unsettled != 0 {
 			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
@@ -993,12 +1007,25 @@ func readHeapSample() memSample {
 func readMemSample(t *testing.T, s *Runtime) memSample {
 	sample := readHeapSample()
 	out := s.EvalCommandOutput(2, "return memory_usage()[2];")
-	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	resident, err := parseResidentSample(out, runtime.GOOS, os.Getpagesize())
 	if err != nil {
 		t.Errorf("memory_usage() = %s: %v", out, err)
 	}
-	sample.resident = uint64(resident)
+	sample.resident = resident
 	return sample
+}
+
+func parseResidentSample(out, goos string, pageSize int) (uint64, error) {
+	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	if err != nil {
+		return 0, err
+	}
+	bytes := uint64(resident)
+	// Linux memory_usage reads statm's page counts; Windows reports bytes.
+	if goos == "linux" {
+		bytes *= uint64(pageSize)
+	}
+	return bytes, nil
 }
 
 func logMemSamples(t *testing.T, samples []memSample) {

@@ -171,6 +171,7 @@ jobs:
           uv run --project moo-conformance-tests --frozen moo-conformance \
             --candidate-root="${{ github.workspace }}" \
             --moo-suite-root="${{ github.workspace }}/tests/mongoose-conformance" \
+            --moo-suite-path=builtins/move_false_accept_owner.yaml \
             --moo-suite-path=root/empty_notifications.yaml \
             --moo-suite-path=builtins/clear_property_metadata.yaml \
             --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=${{ github.workspace }}/notifications-logs" \

@@ -12,6 +12,7 @@ func TestReadValueSharesEqualStringsWithinALoad(t *testing.T) {
 	database := &Database{Version: 17}
 	stream := bufio.NewReader(strings.NewReader("2\nlamp\n2\nlamp\n2\ndesk\n2\n\n2\nlamp\n"))
 	want := []string{"lamp", "lamp", "desk", "", "lamp"}
+	seen := make(map[string]types.Value)
 
 	for i, text := range want {
 		value, err := database.readValue(stream)
@@ -21,6 +22,11 @@ func TestReadValueSharesEqualStringsWithinALoad(t *testing.T) {
 		if !value.Identical(types.NewStr(text)) {
 			t.Fatalf("value %d = %v, want %q", i, value, text)
 		}
+		// Identical compares contents; this requirement is sharing the payload.
+		if first, ok := seen[text]; ok && value != first {
+			t.Fatalf("value %d did not reuse the loaded %q representation", i, text)
+		}
+		seen[text] = value
 	}
 
 	if got := len(database.loadedStrings); got != 3 {

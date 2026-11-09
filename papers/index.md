@@ -1,5 +1,10 @@
 # Paper notes
 
+## [Hash-consing Garbage Collection](Appel_1993_HashConsingGarbageCollection/notes.md) (hash-consing, garbage-collection, interning)
+
+Immutable survivor canonicalization, its collector/table costs and eight-program
+evaluation. All 18 page images read; Barn implications are explicitly inferences.
+
 This index lists processed notes. Other retained PDFs without notes are not
 represented as papers read.
 

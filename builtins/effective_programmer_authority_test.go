@@ -7,7 +7,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func loweredPermsExecution(t *testing.T) *Execution {
+func loweredPermsExecution(t testing.TB) *Execution {
 	t.Helper()
 	store := dbstore.NewStore()
 	for _, spec := range []struct {
