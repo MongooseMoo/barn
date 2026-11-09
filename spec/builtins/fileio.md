@@ -247,21 +247,23 @@ file_openmode(handle)
 
 ### 4.4 file_grep (ToastStunt)
 
-**Signature:** `file_grep(handle, pattern [, case_sensitive]) → LIST`
+**Signature:** `file_grep(handle, pattern [, all_matches]) → LIST`
 
-**Description:** Searches file for lines matching pattern.
+**Description:** Rewinds the file and searches for lines containing the pattern.
 
 **Parameters:**
 - `handle`: File handle
-- `pattern`: String or regex pattern to search for
-- `case_sensitive`: Optional, defaults to case-sensitive (1)
+- `pattern`: String to search for
+- `all_matches`: If true, collect every matching line; otherwise stop after the first
 
-**Returns:** List of matching lines.
+**Returns:** List of `{line_text, line_number}` pairs, with one-based line numbers.
+The cursor follows the last consumed line: immediately after the first match,
+or at EOF after an all-match or unsuccessful scan.
 
 **Examples:**
 ```moo
 matches = file_grep(handle, "error");
-// => {"Error on line 1", "Fatal error occurred"}
+// => {{"error on line 1", 1}}
 ```
 
 ---
@@ -270,7 +272,7 @@ matches = file_grep(handle, "error");
 
 **Signature:** `file_count_lines(handle) → INT`
 
-**Description:** Returns total number of lines in file.
+**Description:** Rewinds the file, counts all lines and leaves the cursor at EOF.
 
 **Examples:**
 ```moo

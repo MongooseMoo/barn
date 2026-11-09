@@ -143,10 +143,7 @@ func (s *Runtime) runServerVerbTask(objID types.ObjID, verbName string, args []t
 	if err := s.runTaskAdmitted(t, scope, ownsScope); err != nil {
 		return t.Result, err
 	}
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, nil)
 	return t.Result, nil
 }
 
@@ -414,10 +411,7 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 			slog.String("verb", t.VerbName),
 			slog.Any("err", err))
 	}
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, nil)
 	return true
 }
 

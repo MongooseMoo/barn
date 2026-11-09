@@ -30,7 +30,9 @@ jobs:
       hit: ${{ steps.tree.outputs.hit }}
       suite: ${{ steps.suite.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - id: suite
         run: echo "sha=$(git ls-remote https://github.com/MongooseMoo/moo-conformance-tests refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
       - id: tree
@@ -55,9 +57,11 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           # Persistent runners already retain Go's caches on disk.
@@ -96,6 +100,9 @@ jobs:
       - name: Set up uv for benchmark drivers
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
 
+      - name: Task race tests
+        run: go test -race ./task
+
       - name: Benchmark driver tests
         # The root uv project belongs to managed conformance. These drivers
         # need the checkpoint reader, including its native-task header API.
@@ -118,9 +125,11 @@ jobs:
           fi
 
       - name: Checkout barn
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           # Persistent runners already retain Go's caches on disk.
@@ -133,14 +142,15 @@ jobs:
       # read-only dependency here; CI runs barn against its tip as read when
       # this run started, the commit the pass record names.
       - name: Checkout moo-conformance-tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           repository: MongooseMoo/moo-conformance-tests
           ref: ${{ needs.tested.outputs.suite }}
           path: moo-conformance-tests
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
 
@@ -162,7 +172,7 @@ jobs:
             -q \
             --junitxml="${{ github.workspace }}/conformance-results.xml"
 
-      - name: Run Mongoose notification regressions
+      - name: Run local conformance regressions
         run: |
           mkdir -p .tmp/conformance/db
           cp -R moo-conformance-tests/src/moo_conformance/_db/. .tmp/conformance/db/
@@ -170,6 +180,7 @@ jobs:
             --candidate-root="${{ github.workspace }}" \
             --moo-suite-root="${{ github.workspace }}/tests/mongoose-conformance" \
             --moo-suite-path=root/empty_notifications.yaml \
+            --moo-suite-path=builtins/clear_property_metadata.yaml \
             --server-command "${{ github.workspace }}/bin/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest} --log-dir=${{ github.workspace }}/notifications-logs" \
             --server-db="${{ github.workspace }}/.tmp/conformance/db/Test.db" \
             --server-db-dir="${{ github.workspace }}/.tmp/conformance/db/startup" \
@@ -182,7 +193,7 @@ jobs:
 
       - name: Upload conformance results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: conformance-results
           path: |
@@ -199,7 +210,9 @@ jobs:
     needs: [tested, go, conformance]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/tested-tree
         with:
           mode: record

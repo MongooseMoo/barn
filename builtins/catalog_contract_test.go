@@ -14,7 +14,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// Transactional: they stage the target task's store row in the caller's
 	// transaction. dump_database (CommitGateReentrant) became Transactional too:
 	// it queues its checkpoint request as a commit-deferred effect.
-	const expected = "02be89d588ee263e04e460ab456bbdec04a4bcce8a1125c170433c0600e09537"
+	// file_count_lines and file_grep became Irreversible because their scans
+	// move the shared file cursor, just like file_readline and file_seek.
+	const expected = "1c65ff23ae88787b06c0a2fdb3baaf7d8bdd89d252e10b2f39ff20313e47d4e3"
 	type contract struct {
 		Name       string
 		Signature  *Signature

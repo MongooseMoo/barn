@@ -39,7 +39,7 @@ func main() {
 
 // run is the whole command: it returns the exit status instead of exiting, so
 // tests drive it in-process.
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) (exitCode int) {
 	flags := flag.NewFlagSet("moo", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
@@ -83,7 +83,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return exitFailed
 	}
-	defer session.Close()
+	defer func() {
+		if err := session.Close(); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			exitCode = exitFailed
+		}
+	}()
 
 	if program == nil {
 		return repl(session, stdin, stdout, stderr)

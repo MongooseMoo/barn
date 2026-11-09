@@ -22,9 +22,9 @@ type Connection struct {
 	ID             int64
 	transport      Transport
 	player         types.ObjID
-	loggedIn       bool
 	disconnectHook *string // nil: client close; empty: notification already handled
 	outputBuffer   []task.PendingNotification
+	outputBytes    int
 	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
 	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
 	resolvedName   string
@@ -41,6 +41,7 @@ type Connection struct {
 	listenerObject  types.ObjID
 	listenerPort    int64
 	listenerPortSet bool
+	loggedIn        bool
 	printMessages   bool
 	outbound        bool
 	outboundSource  string
@@ -55,6 +56,7 @@ type Connection struct {
 	// only that input's wizard task can use the implicit connection form.
 	lastInputTaskID int64
 	mu              sync.Mutex
+	outputMu        sync.Mutex // owns outputBuffer/outputBytes and notification writes
 	ctx             context.Context
 	cancel          context.CancelFunc
 }
@@ -76,6 +78,12 @@ func NewConnection(id int64, transport Transport) *Connection {
 		cancel:         cancel,
 	}
 }
+
+// ConnectionID is immutable across login and player switches.
+func (c *Connection) ConnectionID() int64 { return c.ID }
+
+// Done exposes the physical connection's existing lifetime.
+func (c *Connection) Done() <-chan struct{} { return c.ctx.Done() }
 
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
@@ -109,15 +117,18 @@ func (c *Connection) SendNotification(note task.PendingNotification) error {
 		}
 	}
 	note.CommandDiagnostic.Committed(c.ID)
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.outputMu.Lock()
+	defer c.outputMu.Unlock()
 	if note.NoFlush {
 		c.outputBuffer = append(c.outputBuffer, note)
+		c.outputBytes += note.ByteLength()
 		return nil
 	}
-	if err := c.flushLocked(); err != nil {
-		note.CommandDiagnostic.Output(c.ID, started, err)
-		return err
+	if len(c.outputBuffer) > 0 {
+		if err := c.flushLocked(); err != nil {
+			note.CommandDiagnostic.Output(c.ID, started, err)
+			return err
+		}
 	}
 	err := c.transport.WriteOutput(note.Message, !note.NoNewline)
 	note.CommandDiagnostic.Output(c.ID, started, err)
@@ -126,18 +137,21 @@ func (c *Connection) SendNotification(note task.PendingNotification) error {
 
 // Buffer adds a message to the output buffer (flushed later)
 func (c *Connection) Buffer(message string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.outputBuffer = append(c.outputBuffer, task.PendingNotification{Message: message})
+	c.outputMu.Lock()
+	defer c.outputMu.Unlock()
+	note := task.PendingNotification{Message: message}
+	c.outputBuffer = append(c.outputBuffer, note)
+	c.outputBytes += note.ByteLength()
 }
 
 // Flush flushes the output buffer
 func (c *Connection) Flush() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.outputMu.Lock()
+	defer c.outputMu.Unlock()
 	return c.flushLocked()
 }
 
+// flushLocked requires outputMu.
 func (c *Connection) flushLocked() error {
 	for i, msg := range c.outputBuffer {
 		var started time.Time
@@ -150,6 +164,7 @@ func (c *Connection) flushLocked() error {
 			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
+		c.outputBytes -= msg.ByteLength()
 		c.outputBuffer[i] = task.PendingNotification{}
 	}
 	c.outputBuffer = c.outputBuffer[:0]
@@ -225,7 +240,12 @@ func (c *Connection) SetProxiedIP(ip string) {
 	c.proxiedIP = ip
 }
 
+// WakeInputReader reselects the read strategy after a binary-mode change.
+// Transports without binary reads keep the same strategy and need no wake.
 func (c *Connection) WakeInputReader() {
+	if _, ok := c.transport.(BinaryTransport); !ok {
+		return
+	}
 	if wakeTransport, ok := c.transport.(interface{ WakeReader() }); ok {
 		wakeTransport.WakeReader()
 		return
@@ -310,11 +330,11 @@ func (c *Connection) GetOutputSuffix() string {
 	return c.outputSuffix
 }
 
-// BufferedOutputLength returns the number of queued output lines.
+// BufferedOutputLength returns the number of queued MOO output bytes.
 func (c *Connection) BufferedOutputLength() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.outputBuffer)
+	c.outputMu.Lock()
+	defer c.outputMu.Unlock()
+	return c.outputBytes
 }
 
 // ConnectedSeconds returns how long the connection has been active.

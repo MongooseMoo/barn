@@ -259,33 +259,13 @@ func (tx *StoreTxn) dropStagedSlotsNotKept(obj *Object, w *objectWrites, moved t
 }
 
 func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID, owner types.ObjID) propTable {
-	result := newPropTable(0)
-	visited := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), parents...)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if visited[currentID] {
-			continue
+	return copyInheritedProperties(parents, owner, func(id types.ObjID) *Object {
+		current := tx.object(id)
+		if validLiveObject(current) {
+			tx.markPropertyScan(id, current)
 		}
-		visited[currentID] = true
-
-		current := tx.object(currentID)
-		if !validLiveObject(current) {
-			continue
-		}
-		tx.markPropertyScan(currentID, current)
-		for name, prop := range current.properties.all() {
-			if _, _, exists := result.find(name); exists {
-				continue
-			}
-			result.put(name, inheritedSlot(prop, owner))
-		}
-		queue = append(queue, current.parents...)
-	}
-
-	return result
+		return current
+	})
 }
 
 // propagateDefinedProperty stages the inherited slot a define gives each

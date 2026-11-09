@@ -44,7 +44,10 @@ func writeCheckpoint(
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, checkpoint.Close()) }()
-	if err := checkpoint.Serialize(objectStore, queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := checkpoint.Capture(objectStore, queuedTasks, suspendedTasks, activeConnections); err != nil {
+		return err
+	}
+	if err := checkpoint.Serialize(); err != nil {
 		return err
 	}
 	return checkpoint.Publish()

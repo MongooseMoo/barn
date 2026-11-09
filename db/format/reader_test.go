@@ -39,7 +39,7 @@ func TestNumberedObjectLabelMismatch(t *testing.T) {
 			mutated := strings.Replace(string(raw), label, tc.eol+"#9"+tc.eol, 1)
 			database, err := parseDatabaseWithWaifIdentities(bufio.NewReader(strings.NewReader(mutated)), nil)
 			if tc.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "object record 2 has ID #9") {
+				if err == nil || !strings.Contains(err.Error(), "READ_DB_FILE: Bad object #2.") {
 					t.Fatalf("error = %v, want rejected label #9 at record 2", err)
 				}
 				return

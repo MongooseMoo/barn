@@ -577,6 +577,9 @@ retryAttempt:
 	}
 	s.store.NoteSliceAttempts(attempt+1, executedTicks, rerunTicks) // counted only with census tracking on
 	bcVM.ReleaseRetryCheckpoint()
+	// Replay uses captured effect inputs, not this attempt's read cache. Release
+	// its timestamp before blocked output can hold back the history floor.
+	ctx.StoreTxn.Release()
 	if committed {
 		t.CreatedForks = nil
 		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
@@ -584,11 +587,8 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
 	}
-	// This slice no longer needs its read cache, including private WAIF roots.
-	// Retaining a read-only cache here would keep dropped locals alive during
-	// finalization. Cleanup hooks get a fresh usable transaction; suspended tasks
+	// Cleanup hooks get a fresh usable transaction after replay; suspended tasks
 	// take their next execution snapshot when the scheduler resumes them.
-	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
@@ -915,11 +915,7 @@ func (s *Runtime) reportUncaughtException(t *Task, scope *admission.Scope, resul
 		metrics.UncaughtExceptions.Add(1)
 		stackValues := make([]types.Value, 0, len(stack))
 		for i := len(stack) - 1; i >= 0; i-- {
-			frame := stack[i].ToList()
-			if s.session.IncludeRTVars(t.Context) {
-				frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-			}
-			stackValues = append(stackValues, frame)
+			stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 		}
 		formattedLines := task.FormatTraceback(stack, result.ErrorMessage())
 		formattedValues := make([]types.Value, 0, len(formattedLines))
@@ -1243,11 +1239,7 @@ func (s *Runtime) callTaskTimeoutHook(t *Task, scope *admission.Scope, resource 
 	}
 	stackValues := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
-		frame := stack[i].ToList()
-		if s.session.IncludeRTVars(t.Context) {
-			frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
-		}
-		stackValues = append(stackValues, frame)
+		stackValues = append(stackValues, stack[i].ToList(true, s.session.IncludeRTVars(t.Context)))
 	}
 	traceLines := task.FormatTraceback(stack, "Task ran out of "+resource)
 	traceValues := make([]types.Value, 0, len(traceLines))
@@ -1358,18 +1350,6 @@ func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *comman
 
 	// Run synchronously on the runtime goroutine.
 	err := s.runTaskAdmitted(t, scope, true)
-	if err != nil {
-		slog.Error("task error",
-			slog.Int64("task_id", t.ID),
-			slog.Int64("this", int64(t.This)),
-			slog.String("verb", t.VerbName),
-			slog.Any("err", err))
-	}
-
-	// Flush output buffer for the player
-	s.flushTaskOutput(t)
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	s.settleTaskResult(t, err)
 	return err
 }

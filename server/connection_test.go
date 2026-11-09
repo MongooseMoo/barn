@@ -42,15 +42,15 @@ func TestFlushResumesAfterPartialWriteFailure(t *testing.T) {
 	if err := conn.Flush(); err == nil {
 		t.Fatal("first Flush() error = nil, want transient write failure")
 	}
-	if got := conn.BufferedOutputLength(); got != 2 {
-		t.Fatalf("buffered lines after failed Flush() = %d, want 2", got)
+	if got := conn.BufferedOutputLength(); got != 13 {
+		t.Fatalf("buffered bytes after failed Flush() = %d, want 13", got)
 	}
 
 	if err := conn.Flush(); err != nil {
 		t.Fatalf("second Flush(): %v", err)
 	}
 	if got := conn.BufferedOutputLength(); got != 0 {
-		t.Fatalf("buffered lines after successful retry = %d, want 0", got)
+		t.Fatalf("buffered bytes after successful retry = %d, want 0", got)
 	}
 	wantWrites := []string{"one", "two", "three", "three", "four"}
 	if !reflect.DeepEqual(transport.writes, wantWrites) {
@@ -107,7 +107,7 @@ func TestProxiedIPRewritesRemoteAddr(t *testing.T) {
 	}
 }
 
-func TestBufferedOutputLengthTracksQueuedLines(t *testing.T) {
+func TestBufferedOutputLengthTracksQueuedBytes(t *testing.T) {
 	conn := NewConnection(1, stubTransport{})
 
 	if err := conn.Send("immediate"); err != nil {
@@ -119,8 +119,8 @@ func TestBufferedOutputLengthTracksQueuedLines(t *testing.T) {
 
 	conn.Buffer("first")
 	conn.Buffer("second")
-	if got := conn.BufferedOutputLength(); got != 2 {
-		t.Fatalf("BufferedOutputLength before Flush = %d, want 2", got)
+	if got := conn.BufferedOutputLength(); got != 15 {
+		t.Fatalf("BufferedOutputLength before Flush = %d, want 15", got)
 	}
 
 	if err := conn.Flush(); err != nil {

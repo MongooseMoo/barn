@@ -121,7 +121,10 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 		}
 		visited[currentID] = true
 
-		obj := s.liveObjectLocked(currentID)
+		obj := s.parentObjectLocked(currentID)
+		if currentID == objID {
+			obj = s.liveObjectLocked(currentID)
+		}
 		if !validLiveObject(obj) {
 			continue
 		}
@@ -155,7 +158,10 @@ func (s *Store) FindVerbInAncestry(objID types.ObjID, match func(VerbView) bool)
 		}
 		visited = append(visited, currentID)
 
-		obj := s.liveObjectLocked(currentID)
+		obj := s.parentObjectLocked(currentID)
+		if currentID == objID {
+			obj = s.liveObjectLocked(currentID)
+		}
 		if !validLiveObject(obj) {
 			continue
 		}

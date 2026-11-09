@@ -79,18 +79,19 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 	}
 	root := callStack[0]
 	return &SuspendedTask{Snapshot: task.Snapshot{
-		ID:         id,
-		Owner:      root.Player,
-		State:      state,
-		StartTime:  time.Unix(start, 0),
-		WakeValue:  wakeValue,
-		TaskLocal:  taskLocal,
-		CallStack:  callStack,
-		Programmer: root.Programmer,
-		VerbLoc:    root.VerbLoc,
-		VerbName:   root.Verb,
-		This:       root.This,
-		VM:         vmSnapshot,
+		ID:            id,
+		Owner:         root.Player,
+		State:         state,
+		StartTime:     time.Unix(start, 0),
+		WakeValue:     wakeValue,
+		TaskLocal:     taskLocal,
+		CallStack:     callStack,
+		Programmer:    root.Programmer,
+		VerbLoc:       root.VerbLoc,
+		VerbName:      root.Verb,
+		This:          root.This,
+		ReadingPlayer: types.ObjNothing,
+		VM:            vmSnapshot,
 	}}, nil
 }
 
@@ -346,6 +347,9 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 	var frame task.VMFrameSnapshot
 	if value.Type() != types.TYPE_LIST || value.Len() < 15 || value.Get(1).Type() != types.TYPE_STR || value.Get(1).Str() != barnVMFrameMarker {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
+	}
+	if err := checkVMFrameShape(value); err != nil {
+		return frame, err
 	}
 
 	for index := range frame.CommandEnvironment {
@@ -619,6 +623,64 @@ func decodePendingReasons(frame *task.VMFrameSnapshot, metadata types.Value, leg
 			previous := frame.PendingReasons[index-1].FinallyIP
 			if previous == pending.FinallyIP || !frame.Program.FinallyContains(previous, pending.FinallyIP) {
 				return fmt.Errorf("unsupported pending reason history: ambiguous cleanup order")
+			}
+		}
+	}
+	return nil
+}
+
+// checkVMFrameShape rejects frame metadata whose fields decodeVMFrameMetadata
+// indexes without its own type check. Get, Elements and Str panic on a value of
+// another type, and Len counts a string's bytes or a map's entries, so each
+// field read element by element must be a list long enough for its reads.
+// value is a list of at least 15 elements.
+func checkVMFrameShape(value types.Value) error {
+	isList := func(v types.Value, minLen int) bool {
+		return v.Type() == types.TYPE_LIST && v.Len() >= minLen
+	}
+	eachList := func(v types.Value, ok func(types.Value) bool) bool {
+		if !isList(v, 0) {
+			return false
+		}
+		for _, element := range v.Elements() {
+			if !ok(element) {
+				return false
+			}
+		}
+		return true
+	}
+	checks := []struct {
+		field int
+		name  string
+		ok    func(types.Value) bool
+	}{
+		{2, "code", func(v types.Value) bool { return isList(v, 0) }},
+		{3, "constants", func(v types.Value) bool { return isList(v, 0) }},
+		{4, "variable names", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return e.Type() == types.TYPE_STR })
+		}},
+		{5, "line info", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return isList(e, 2) })
+		}},
+		{7, "handlers", func(v types.Value) bool {
+			return eachList(v, func(e types.Value) bool { return isList(e, 6) && isList(e.Get(4), 0) })
+		}},
+		{9, "flags", func(v types.Value) bool { return isList(v, 5) }},
+		{11, "arguments", func(v types.Value) bool { return isList(v, 0) }},
+		{14, "verb", func(v types.Value) bool { return v.Type() == types.TYPE_STR }},
+	}
+	for _, check := range checks {
+		if !check.ok(value.Get(check.field)) {
+			return fmt.Errorf("suspended activation has invalid %s metadata", check.name)
+		}
+	}
+	if value.Len() >= 18 {
+		recycleState := value.Get(18)
+		if isList(recycleState, 5) {
+			for i := 2; i <= 4; i++ {
+				if !isList(recycleState.Get(i), 0) {
+					return fmt.Errorf("suspended activation has invalid recycle continuation metadata")
+				}
 			}
 		}
 	}

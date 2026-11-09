@@ -24,7 +24,10 @@ func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 // writeQueuedTasks writes all queued (forked) tasks
 func (w *Writer) writeQueuedTasks() error {
 	for _, t := range w.queuedTasks {
-		if t.Fork == nil || len(t.Fork.SourceLines) == 0 {
+		// An empty fork body ("fork (n) endfork") is a valid program. Toast
+		// writes it as the terminator alone (db_io.cc
+		// dbio_write_forked_program), so only a missing fork is unwritable.
+		if t.Fork == nil {
 			return fmt.Errorf("queued task %d has no serializable fork program", t.ID)
 		}
 	}

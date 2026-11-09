@@ -139,6 +139,16 @@ type PendingNotification struct {
 	NoNewline         bool
 }
 
+// ByteLength counts MOO output bytes, including the captured CRLF framing.
+// Transport framing such as WebSocket frames and TLS records is excluded.
+func (note PendingNotification) ByteLength() int {
+	length := len(note.Message)
+	if !note.NoNewline {
+		length += 2
+	}
+	return length
+}
+
 type PendingConnectionSwitch struct {
 	OldPlayer types.ObjID
 	NewPlayer types.ObjID
@@ -172,6 +182,7 @@ type PendingServerOptions struct {
 	MaxStringConcat    int
 	MaxListValueBytes  int
 	MaxMapValueBytes   int
+	MaxQueuedOutput    int64
 	FgTicks            int64
 	BgTicks            int64
 	FgSeconds          float64

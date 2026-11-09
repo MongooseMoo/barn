@@ -1,0 +1,256 @@
+go version go1.27.1 linux/amd64
+corpus directory missing: vm/testdata/fuzz/FuzzSourceExecution
+==> running toast lane (803 inputs)
+    toast: exit 0 in 0.1s
+==> running barn lane (803 inputs)
+    barn: exit 0 in 0.5s
+# Barn vs Toast fuzz differential
+
+- programs compared: 802; results: {"divergence": 16, "match": 786}
+- excluded: {"fork": 8, "longer than one emergency-mode line": 7, "non-ASCII or control character": 256, "seconds_left(): tick budget": 6, "ticks_left(): tick budget": 10}
+- bounds: fg_ticks 30000, fg_seconds 2; db `/mnt/c/Users/Q/code/barn-fuzz-differential/Test_conf.db`
+- toast binary: `/root/src/toaststunt/build-release/moo` sha256 `72fb1cf96cb303647a8ee72808e7c1ff62a491ecf44f547e6757e71ba2402bde` version `ToastStunt version 2.7.3_5`
+
+## divergence (16)
+
+### F00028 `0ede3170ad3ee915`
+
+```moo
+{""/@`A!ANY=>{}'};
+```
+
+- toast: `compile 0`
+- barn: `raised E_TYPE`
+
+### F00043 `1777ded96b545861`
+
+```moo
+notify(player, "VeeeeeeeeeeeeeeeeeeeeeeeeeeeERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+notify(player, "DOBJSTR:" + dobjstr):
+notify(player, "PREPSTR:" + prepstr);
+notify(player, "IOBJSTR:" + iobjstr);
+
+```
+
+- toast: `raised E_TYPE`
+- barn: `raised E_INVARG`
+
+### F00084 `33e5cfd0284d3eac`
+
+```moo
+set_task_perms(player);
+try
+try
+notify(player, "-=!-^-!=-");
+notify(player, toliteral(eval(argstr)));
+except e (KNY)
+notify(player, toliteral({2, e}));
+endtry
+finally
+notify(player, "-=!-v-!=-");
+endtry
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`
+
+### F00113 `45d2ec61e4ff42a0`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+notify(player, "DOBJSTR:" + dobjstr);
+notify(player, "PREPSTR:" + prepstr);
+notify(player, "IOBJSTR:" + iSbjstr);
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`
+
+### F00123 `4aace1d45e5151e9`
+
+```moo
+{0..0}[0.^1%0];
+```
+
+- toast: `compile 0`
+- barn: `raised E_TYPE`
+
+### F00179 `63bacf4517ed1062`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+notify(player, "DOBJSTR:" + dobjstr):
+notify(player, "PREPSTR:" + prepstr);
+notify(player, "IOBJSTR:" + iobjstr);
+
+```
+
+- toast: `raised E_TYPE`
+- barn: `raised E_INVARG`
+
+### F00184 `6519ab8ebe5495ab`
+
+```moo
+{0..0}[0.^1/0];
+```
+
+- toast: `compile 0`
+- barn: `raised E_TYPE`
+
+### F00265 `8dd7aeba9a757324`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(plager, "ARGSTR:" + argstr);
+notify(player, "DOBJSTR:" + dobjstr);
+notify(player, "PREPSTR:" + prepstr);
+notify(player, "IOBJSTR:" + iSbjstr);
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`
+
+### F00405 `d10d12ee11aeb00b`
+
+```moo
+set_task_perms(player);
+try
+try
+notify(player, "-=!-^-!=-");
+notify(playeq, toliteral(eval(argstr)));
+except e (ANY)
+notify(player, toliteral({2, e}));
+endtry
+finally
+notify(player, "-=!-v-!=-");
+endtry
+
+```
+
+- toast: `value 0`
+- barn: `raised E_INVARG`
+
+### F00496 `f7904c4aa2efaa62`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+notify(player, "DOBJSTR:" + dobjstr);
+notify(player, "PREPSTR:" + prepstr);
+notify(player, "IOBJS i:" +TRSbjstr);
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`
+
+### F00543 `16d223e094e4e5c5`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+notify(er, "DOBJSTR:" + dobjstr);
+notify(player, "PREPSTR:" + prepstr);
+notify(p, "IOBJSTR:" + iobjstr);
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`
+
+### F00610 `5ad56d50df0bebc2`
+
+```moo
+set_task_perms(player);
+try
+try
+notify(playe=r, "-=!-^-!=-");
+notify(player, toliteral(eval(argstermsr)));
+except e (ANY)
+notify(player, toliteral({2, e}));
+endtry
+finally
+notify(player, "-=!-v-!=-");
+endtry
+
+```
+
+- toast: `value 0`
+- barn: `raised E_INVARG`
+
+### F00631 `6d9cf7c21dd8eb9a`
+
+```moo
+callers() && raise(E_PERM, "Sereback, formatted} = args;
+for line in (formatted)
+server_log(line);
+endforver task");
+{resource, traceback, formatted} = args;
+for line in (formatted)
+server_log(line);
+endfor
+
+```
+
+- toast: `compile 0`
+- barn: `raised E_PERM`
+
+### F00635 `704ccb420018ae99`
+
+```moo
+set_task_perms(player);
+try
+try
+notify(player, "-=!-^-!=-");
+notify(player, toliteral(eval(argstr)));
+except e (ANY)
+notify(pl3333, toliteral({2, e}));
+endtry
+finally
+notify(player, "-=!-v-!=-");
+endtry
+
+```
+
+- toast: `value 0`
+- barn: `raised E_INVARG`
+
+### F00765 `ddc73d6fc61a0984`
+
+```moo
+set_task_perms(player);
+try
+try
+notify(player, "-=!-^-!=-");
+notify(player, toliteral(eval(argstermsr)));
+except e (ANY)
+notify(player, toliteral({2, e}));
+endtry
+finally
+notify(player, "-=!-v-!=-");
+endtry
+
+```
+
+- toast: `value 0`
+- barn: `raised E_INVARG`
+
+### F00802 `ffafadb0b7abc8da`
+
+```moo
+notify(player, "VERB:" + verb);
+notify(player, "ARGSTR:" + argstr);
+nR:otify(er, "DOBJSTR:" + dobjstr);
+notify(player, "PREPSTR:" + prepstr);
+notify(p, "IOBJSTR:" + iobjstr);
+
+```
+
+- toast: `raised E_VARNF`
+- barn: `raised E_INVARG`

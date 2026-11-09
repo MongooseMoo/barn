@@ -112,8 +112,8 @@ func (t *WebSocketTransport) SetReadDeadline(deadline time.Time) error {
 	return nil
 }
 
-// WakeReader interrupts a read currently blocked in conn.Read so that
-// Connection.WakeInputReader / graceful shutdown can unblock it promptly.
+// WakeReader explicitly cancels a read currently blocked in conn.Read.
+// Binary-mode changes use Connection's read-strategy guard; shutdown uses CloseNow.
 //
 // Setting the deadline field alone is insufficient: it is only consulted when
 // a read begins (beginRead), so it cannot interrupt a read that is already

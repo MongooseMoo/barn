@@ -1,7 +1,9 @@
 package task
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -10,6 +12,47 @@ import (
 
 // CommandVariableNames are inherited even by verbs that do not reference them.
 var CommandVariableNames = [...]string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"}
+
+// RestoreForkEnvironment reorders the saved parent environment for a recompiled
+// isolated fork body. Unmatched program locals remain unbound; unused parent
+// locals disappear, while the implicit command environment is retained.
+func RestoreForkEnvironment(program *bytecode.Program, saved map[string]types.Value) (map[string]types.Value, error) {
+	lookup := func(name string) (types.Value, bool, error) {
+		value, matched := types.Unbound, false
+		for savedName, savedValue := range saved {
+			if strings.EqualFold(savedName, name) {
+				// Serialized order is unavailable in the reader's map. Do not
+				// guess which ambiguous spelling native's first match would use.
+				if matched {
+					return types.None, false, fmt.Errorf("ambiguous saved local %q", name)
+				}
+				value, matched = savedValue, true
+			}
+		}
+		return value, matched, nil
+	}
+	variables := make(map[string]types.Value, len(program.VarNames))
+	for _, name := range program.VarNames {
+		value, _, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		variables[name] = value
+	}
+	for _, name := range CommandVariableNames {
+		if slices.ContainsFunc(program.VarNames, func(sourceName string) bool { return strings.EqualFold(name, sourceName) }) {
+			continue
+		}
+		value, present, err := lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		if present {
+			variables[name] = value
+		}
+	}
+	return variables, nil
+}
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {

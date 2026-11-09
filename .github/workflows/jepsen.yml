@@ -1,0 +1,109 @@
+name: Jepsen checkpoint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: jepsen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Skip when a run of this repository already passed on this exact tree
+  # (see .github/actions/tested-tree). A manual dispatch always runs.
+  tested:
+    name: Check for an earlier pass
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    outputs:
+      hit: ${{ steps.tree.outputs.hit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: tree
+        if: github.event_name != 'workflow_dispatch'
+        uses: ./.github/actions/tested-tree
+        with:
+          mode: check
+          name: jepsen
+
+  record:
+    name: Record pass
+    needs: campaign
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/tested-tree
+        with:
+          mode: record
+          name: jepsen
+
+  campaign:
+    name: Checkpoint durability campaign
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      # Jepsen 0.3.15's dependencies are Java 21 class files.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build pinned checker
+        uses: ./.github/actions/elle-cli
+      - name: Build Barn
+        run: go build -o bin/barn ./cmd/barn/
+      - name: Build Jepsen workload
+        working-directory: tests/jepsen-checkpoint
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
+      # The MOO transport (SocketTransport) and the public Test.db fixture.
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          path: moo-conformance-tests
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Run campaign
+        run: |
+          set -euo pipefail
+          uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
+            --barn bin/barn \
+            --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
+            --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
+            --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
+            --output jepsen-evidence --jepsen-timeout 600
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d jepsen-evidence ]; then
+            tar -czf jepsen-evidence.tar.gz jepsen-evidence
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: jepsen-evidence-${{ github.sha }}
+          path: jepsen-evidence.tar.gz
+          if-no-files-found: warn

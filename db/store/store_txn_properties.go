@@ -272,19 +272,20 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 	return prop.Value, types.E_NONE
 }
 
-func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+// VisitPropertyValues reads every local slot and records the same dependencies
+// as an ordinary value read, without materializing an intermediate slice.
+func (tx *StoreTxn) VisitPropertyValues(objID types.ObjID, visit func(types.Value)) types.ErrorCode {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
-		return nil, types.E_INVIND
+		return types.E_INVIND
 	}
 	tx.markPropertyScan(objID, obj)
 
-	values := make([]types.Value, 0, obj.properties.count())
 	for pname, prop := range obj.properties.all() {
 		tx.markPropertyRead(objID, pname, prop)
-		values = append(values, prop.value)
+		visit(prop.value)
 	}
-	return values, types.E_NONE
+	return types.E_NONE
 }
 
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
@@ -413,7 +414,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		prop.clear = false
 		prop.value = value
 		// Properties are stored by value: write the mutated copy back so reads
-		// within this txn (e.g. PropertyValues) see the staged change.
+		// within this txn (e.g. VisitPropertyValues) see the staged change.
 		obj.properties.put(actualName, prop)
 		tx.stagePropertyValue(objID, actualName, prop, value, before, true)
 		return types.E_NONE
@@ -610,10 +611,16 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 		return types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
-	obj.properties.remove(actualName)
+	if prop.defined {
+		return types.E_INVARG
+	}
+	// Clearing changes only the value's source. The inherited slot still owns
+	// per-object permissions/ownership, which property_info and checkpoints need.
+	prop.value = types.None
+	prop.clear = true
+	obj.properties.put(actualName, prop)
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
-	delete(tx.propertyWrites, key)
-	delete(tx.propertyDefines, key)
-	lazySet(&tx.propertyDeletes, key, actualName)
+	delete(tx.propertyDeletes, key)
+	lazySet(&tx.propertyWrites, key, propertyWrite{name: actualName, value: prop.value, prop: prop})
 	return types.E_NONE
 }

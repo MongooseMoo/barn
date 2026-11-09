@@ -17,7 +17,7 @@ func TestRegistryDispatchCanBeSharedWithoutSharingSessionState(t *testing.T) {
 		t.Fatal("sessions must retain the shared dispatch registry")
 	}
 
-	first.setConnectionOption(7, "binary", types.NewInt(1))
+	first.setConnectionOption(7, nil, "binary", types.NewInt(1))
 	if !first.ConnectionOptionTruthy(7, "binary") {
 		t.Fatal("first session did not retain its connection option")
 	}

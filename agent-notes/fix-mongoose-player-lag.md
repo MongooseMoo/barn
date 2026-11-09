@@ -333,3 +333,23 @@ scoped correction, finish exact-head CI and Elle, retain raw evidence, and leave
 the published PR open. Publication permission does not grant merge authority.
 Remaining first-output work needs a schedule-preserving credential path; no
 login script is available and the unsafe Toast bootstrap remains rejected.
+
+## November 9 merge delivery
+
+Goal: Q requested merging all open Barn PRs except WASM, superseding the
+historical publication-only hold above. The original worktree has unrelated
+uncommitted note changes and files; delivery uses a separate detached checkout.
+
+State: GitHub reports conflicts despite enabled auto-merge. Integrated current
+master, retaining both task race CI and the benchmark driver's managed uv
+dependency; retained both native pending-reason decoding and master's malformed
+frame shape validation. These were adjacent independent additions. No runtime
+policy change is needed to resolve the conflicts.
+
+Audit: actionlint accepted the resolved CI workflow. Offline zizmor reports
+two low self-repository syntax suggestions on unchanged tested-tree references
+inherited from master, with no medium or high findings.
+
+Next: publish the integration, finish fresh PR
+checks, and verify the normal merge queue actually merges this PR. Existing
+first-output evidence limits remain; this delivery does not claim a speedup.

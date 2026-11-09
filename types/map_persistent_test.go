@@ -1,73 +1,150 @@
 package types
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"testing"
+
+	"pgregory.net/rapid"
 )
 
 func TestMapUpdatesPreserveSnapshotsAndInsertionOrder(t *testing.T) {
-	rng := rand.New(rand.NewSource(743))
+	rapid.Check(t, mapUpdatesPreserveSnapshotsAndInsertionOrder)
+}
+
+func FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder(f *testing.F) {
+	// MakeFuzz interprets bytes as Rapid choices, not serialized operations.
+	// Keep enough choice data for complete bounded histories; exhausted inputs
+	// are skipped by Rapid rather than treated as checked histories.
+	f.Add(make([]byte, 128))
+	seed := make([]byte, 16*1024)
+	_, _ = rand.New(rand.NewSource(743)).Read(seed)
+	f.Add(seed)
+	f.Fuzz(rapid.MakeFuzz(mapUpdatesPreserveSnapshotsAndInsertionOrder))
+}
+
+type mapHistoryOperation struct {
+	delete bool
+	key    int64
+	upper  bool
+	value  Value
+}
+
+// A logical key ID determines an independent typed key. String spelling may
+// change on overwrite while its case-insensitive identity stays the same.
+func mapHistoryKey(id int64, upper bool) Value {
+	n := id / 4
+	switch id % 4 {
+	case 0:
+		return NewInt(n)
+	case 1:
+		prefix := "k"
+		if upper {
+			prefix = "K"
+		}
+		return NewStr(fmt.Sprintf("%s%d", prefix, n))
+	case 2:
+		return NewFloat(float64(n))
+	default:
+		return NewObj(ObjID(n))
+	}
+}
+
+// This single property runs under both Rapid's shrinking/replay runner and
+// Go's coverage-guided fuzzer. Rapid logs generation choices; the explicit
+// action log also keeps the concrete history readable if generators change.
+func mapUpdatesPreserveSnapshotsAndInsertionOrder(t *rapid.T) {
+	operation := rapid.Custom(func(t *rapid.T) mapHistoryOperation {
+		op := mapHistoryOperation{
+			delete: rapid.SampledFrom([]bool{false, false, false, true}).Draw(t, "delete"),
+			key:    rapid.Int64Range(0, 119).Draw(t, "key"),
+			upper:  rapid.Bool().Draw(t, "uppercase key"),
+		}
+		if !op.delete {
+			value := NewInt(rapid.Int64().Draw(t, "value"))
+			switch rapid.IntRange(0, 2).Draw(t, "value shape") {
+			case 0:
+				op.value = value
+			case 1:
+				op.value = NewList([]Value{value, NewStr("nested")})
+			case 2:
+				op.value = NewMap([][2]Value{{NewStr("nested"), NewList([]Value{value})}})
+			}
+		}
+		return op
+	})
+	// Vary the minimum length so generation also explores longer histories,
+	// while shrinking it lets SliceOfN remove groups of operations. Keeping
+	// the upper bound fixed avoids an exact-length constraint on those removals.
+	minimum := rapid.IntRange(1, 128).Draw(t, "minimum history length")
+	operations := rapid.SliceOfN(operation, minimum, 256).Draw(t, "operations")
 	m := NewEmptyMap()
-	reference := map[int64]int64{}
+	reference := map[int64]Value{}
+	spellings := map[int64]Value{}
 	var order []int64
-	var snapshots []Value
-	var expected [][][2]Value
-	check := func(m Value, pairs [][2]Value) {
+	snapshots := []Value{m}
+	expected := [][][2]Value{nil}
+	step := -1
+	check := func(version int, m Value, pairs [][2]Value) {
 		t.Helper()
 		got := m.PairsInInsertionOrder()
 		if len(got) != len(pairs) || m.Len() != len(pairs) {
-			t.Fatalf("map length %d/%d, want %d", len(got), m.Len(), len(pairs))
+			t.Fatalf("after op %d snapshot %d: map length %d/%d, want %d", step, version, len(got), m.Len(), len(pairs))
 		}
 		for i, p := range pairs {
 			if !got[i][0].Identical(p[0]) || !got[i][1].Identical(p[1]) {
-				t.Fatalf("insertion pair %d = %v, want %v", i, got[i], p)
+				t.Fatalf("after op %d snapshot %d: insertion pair %d = %v, want %v", step, version, i, got[i], p)
 			}
 			value, ok := m.MapGet(p[0])
 			if !ok || !value.Identical(p[1]) {
-				t.Fatalf("lookup %v = %v/%v", p[0], value, ok)
+				t.Fatalf("after op %d snapshot %d: lookup %v = %v/%v, want %v", step, version, p[0], value, ok, p[1])
 			}
 		}
 		if ValueBytes(m) != ValueBytes(NewMap(pairs)) {
-			t.Fatal("cached size changed")
+			t.Fatalf("after op %d snapshot %d: cached size %d, want %d", step, version, ValueBytes(m), ValueBytes(NewMap(pairs)))
 		}
 	}
-	for i := 0; i < 3000; i++ {
-		key := int64(rng.Intn(120))
-		if rng.Intn(4) == 0 {
-			m = m.MapDelete(NewInt(key))
+	for i, op := range operations {
+		step = i
+		key := op.key
+		typedKey := mapHistoryKey(key, op.upper)
+		if op.delete {
+			t.Logf("op %d: delete(%s)", step, typedKey.String())
+			m = m.MapDelete(typedKey)
 			delete(reference, key)
+			delete(spellings, key)
 			for j, k := range order {
 				if k == key {
 					order = append(order[:j], order[j+1:]...)
 					break
 				}
 			}
-			if _, ok := m.MapGet(NewInt(key)); ok {
-				t.Fatalf("deleted key %d remains", key)
+			if _, ok := m.MapGet(typedKey); ok {
+				t.Fatalf("after op %d: deleted key %d remains", step, key)
 			}
 		} else {
-			value := int64(i)
+			value := op.value
+			t.Logf("op %d: set(%s, %s)", step, typedKey.String(), value.String())
 			if _, exists := reference[key]; !exists {
 				order = append(order, key)
 			}
 			reference[key] = value
-			m = m.MapSet(NewInt(key), NewInt(value))
+			spellings[key] = typedKey
+			m = m.MapSet(typedKey, value)
 		}
-		if i%31 == 0 {
-			pairs := make([][2]Value, len(order))
-			for j, k := range order {
-				pairs[j] = [2]Value{NewInt(k), NewInt(reference[k])}
-			}
-			check(m, pairs)
-			// Force the lazy Toast tree too, before later aliases change.
-			_ = m.Pairs()
-			snapshots = append(snapshots, m)
-			expected = append(expected, pairs)
+		pairs := make([][2]Value, len(order))
+		for j, k := range order {
+			pairs[j] = [2]Value{spellings[k], reference[k]}
 		}
-	}
-	for i, snapshot := range snapshots {
-		check(snapshot, expected[i])
+		// Force the lazy Toast tree before later aliases change, as in the
+		// original fixed-seed test. Expected pairs come only from the model.
+		_ = m.Pairs()
+		snapshots = append(snapshots, m)
+		expected = append(expected, pairs)
+		for version, snapshot := range snapshots {
+			check(version, snapshot, expected[version])
+		}
 	}
 }
 
@@ -185,7 +262,7 @@ func TestMapFinalizationScanDoesNotAllocate(t *testing.T) {
 		m := NewMap(pairs).goMap()
 		allocs := testing.AllocsPerRun(20, func() {
 			// Force the first scan, not the cheap cached follow-up.
-			m.finalizableOnce = sync.Once{}
+			m.finalizableResolved.Store(int32(finalizableUnknown))
 			if got := m.mayHoldFinalizable(); got != tainted {
 				t.Fatalf("finalizable=%v, want %v", got, tainted)
 			}

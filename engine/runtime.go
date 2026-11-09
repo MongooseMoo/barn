@@ -611,7 +611,7 @@ func (s *Runtime) ProcessReadyBatch() int {
 // task's completion requests a fresh scan through ScheduleChanged.
 func (s *Runtime) DispatchReady() int {
 	return s.scheduler.Dispatch(time.Now(), s.taskManager.Unfinished(), (*Task).ReserveAdmission, func(result schedulerResult) {
-		s.settleTaskResult(result)
+		s.settleTaskResult(result.Task, result.Err)
 		s.flushDeferredGC()
 		s.taskManager.NotifyScheduleChange()
 	})
@@ -647,18 +647,17 @@ func (s *Runtime) runReadyTasks(readyTasks []*Task) int {
 
 func (s *Runtime) runTaskBatch(readyTasks []*Task) {
 	for _, result := range s.scheduler.Run(readyTasks) {
-		s.settleTaskResult(result)
+		s.settleTaskResult(result.Task, result.Err)
 	}
 }
 
-func (s *Runtime) settleTaskResult(result schedulerResult) {
-	t := result.Task
-	if result.Err != nil {
+func (s *Runtime) settleTaskResult(t *Task, err error) {
+	if err != nil {
 		slog.Error("task error",
 			slog.Int64("task_id", t.ID),
 			slog.Int64("this", int64(t.This)),
 			slog.String("verb", t.VerbName),
-			slog.Any("err", result.Err))
+			slog.Any("err", err))
 	}
 
 	s.flushTaskOutput(t)
@@ -670,10 +669,6 @@ func (s *Runtime) settleTaskResult(result schedulerResult) {
 	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
 		t.CloseDone()
 	}
-}
-
-func (s *Runtime) YieldReadyTasks() int {
-	return s.ProcessReadyTasks()
 }
 
 // collectAllGCRefs snapshots the anonymous-object and waif references held by every

@@ -205,7 +205,6 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire the force_input() builtin to the runtime.
 	host.InputForcer = s.input
-	host.TaskYielder = s.runtime
 	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
 	// Like the Toast main loop, checkpoint requests run outside the requesting
@@ -332,7 +331,7 @@ func (s *Server) Start() error {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
-		return fmt.Errorf("listen failed: %w", err)
+		return errors.Join(fmt.Errorf("listen failed: %w", err), s.runtime.Session().Close())
 	}
 
 	for _, lines := range s.StartScripts {
@@ -441,7 +440,8 @@ func (s *Server) checkpoint() error {
 }
 
 type checkpointStage interface {
-	Serialize(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Capture(*dbstore.Store, []task.Snapshot, []task.Snapshot, []dbformat.ActiveConnection) error
+	Serialize() error
 	Publish() error
 	Close() error
 }
@@ -507,12 +507,15 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 	if err := s.runtime.WithCheckpointBarrier(func() error {
 		queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 		activeConnections := s.connManager.CheckpointConnections()
-		if err := checkpoint.Serialize(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+		if err := checkpoint.Capture(s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 			return err
 		}
 		if mode == checkpointTerminal {
 			// Closing input does not stop already dispatched background tasks.
 			// Keep terminal snapshots protected until durable publication finishes.
+			if err := checkpoint.Serialize(); err != nil {
+				return err
+			}
 			return checkpoint.Publish()
 		}
 		return nil
@@ -520,6 +523,9 @@ func (s *Server) dumpCheckpoint(begin checkpointFactory, ordinary bool, mode che
 		return err
 	}
 	if mode == checkpointRunning {
+		if err := checkpoint.Serialize(); err != nil {
+			return err
+		}
 		return checkpoint.Publish()
 	}
 	return nil

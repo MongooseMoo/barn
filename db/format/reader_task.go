@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -118,6 +119,37 @@ func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 	}
 
 	return task, nil
+}
+
+// persistenceSnapshot re-expresses a parsed queued task as the snapshot the
+// writer serializes, without compiling it (engine/task_load.go owns execution
+// restoration). The reader keeps neither the header's first line nor the
+// variables' declaration order, so FirstLine is 1 and names are sorted.
+func (queued *QueuedTask) persistenceSnapshot() task.Snapshot {
+	variables := make(map[string]types.Value, len(queued.Variables))
+	names := make([]string, 0, len(queued.Variables))
+	for name, value := range queued.Variables {
+		variables[name] = value
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return task.Snapshot{
+		ID:            queued.ID,
+		Owner:         queued.Player,
+		State:         task.TaskQueued,
+		StartTime:     time.Unix(queued.StartTime, 0),
+		Programmer:    queued.Programmer,
+		VerbLoc:       queued.VerbLoc,
+		VerbName:      queued.Verb,
+		This:          queued.This,
+		ReadingPlayer: types.ObjNothing,
+		Fork: &task.ForkSnapshot{
+			Variables:     variables,
+			VariableNames: names,
+			SourceLines:   slices.Clone(queued.Code),
+			FirstLine:     1,
+		},
+	}
 }
 
 func (database *Database) readQueuedTaskActivation(r *bufio.Reader, task *QueuedTask) error {
@@ -351,19 +383,22 @@ func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, 
 	}
 
 	root := callStack[0]
+	// The load resumes an interrupted task with E_INTRPT, so it is no longer
+	// reading: a later checkpoint writes it as a ready suspended task.
 	return &SuspendedTask{Snapshot: task.Snapshot{
-		ID:         id,
-		Owner:      root.Player,
-		State:      task.TaskQueued,
-		StartTime:  time.Unix(0, 0),
-		WakeValue:  types.NewErr(types.E_INTRPT),
-		TaskLocal:  taskLocal,
-		CallStack:  callStack,
-		Programmer: root.Programmer,
-		VerbLoc:    root.VerbLoc,
-		VerbName:   root.Verb,
-		This:       root.This,
-		VM:         vmSnapshot,
+		ID:            id,
+		Owner:         root.Player,
+		State:         task.TaskQueued,
+		StartTime:     time.Unix(0, 0),
+		WakeValue:     types.NewErr(types.E_INTRPT),
+		TaskLocal:     taskLocal,
+		CallStack:     callStack,
+		Programmer:    root.Programmer,
+		VerbLoc:       root.VerbLoc,
+		VerbName:      root.Verb,
+		This:          root.This,
+		ReadingPlayer: types.ObjNothing,
+		VM:            vmSnapshot,
 	}}, nil
 }
 

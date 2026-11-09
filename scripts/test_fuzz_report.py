@@ -1,6 +1,7 @@
 """Real nightly logs and offline execution of the issue/dispatch script."""
 
 import json
+import itertools
 import os
 from pathlib import Path
 import shutil
@@ -15,6 +16,17 @@ from fuzz_report import INLINE_LIMIT, TAIL_LIMIT, report, summarize
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures") / "fuzz"
 TARGET = "FuzzRestoreVMSnapshotDoesNotPanic"
+
+# Exact summary lines produced by the differential count-mismatch regression,
+# using its existing real Barn `Error: internal error: boom` transcript record.
+UNATTRIBUTED_DIFFERENTIAL_PANIC = '''# Barn vs Toast fuzz differential
+
+- outcome: divergence; partial coverage: True
+- programs loaded: 1; eligible: 1; completed comparisons: 0
+- results: {}
+- record errors: ["barn: 3 result records for 2 inputs; see barn_raw.txt"]
+- recovered Barn panics: ["Error: internal error: boom"]
+'''
 
 
 class FuzzReportTests(unittest.TestCase):
@@ -63,6 +75,29 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
+    def test_real_toast_differential_divergence(self):
+        # Real output of scripts/fuzz_differential.py over the runner's fuzz
+        # cache, run inside WSL Debian (2026-11-06).
+        log = (FIXTURES / "toast-differential-2026-11-06.txt").read_text()
+        result = report(log, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "divergence")
+        self.assertEqual(result["first_error"],
+                         "## divergence (16)\n- toast: `compile 0`\n- barn: `raised E_TYPE`\n"
+                         "- toast binary: `/root/src/toaststunt/build-release/moo` sha256 "
+                         "`72fb1cf96cb303647a8ee72808e7c1ff62a491ecf44f547e6757e71ba2402bde` "
+                         "version `ToastStunt version 2.7.3_5`")
+        self.assertEqual(result["input_path"], "0ede3170ad3ee915")
+        self.assertEqual(result["input_text"], "{\"\"/@`A!ANY=>{}'};")
+        self.assertIsNone(result["repro"])
+        self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
+        # Program text in the report never reclassifies it, and the same
+        # first divergence keeps the same signature.
+        self.assertEqual(report(log + "\npanic: in a program\n", "./scripts", "ToastDifferential",
+                                "other")["signature"], result["signature"])
+        # A run that compared nothing (exit 2) has no divergence section.
+        self.assertEqual(report(log.split("## divergence")[0], "./scripts", "ToastDifferential",
+                                "commit")["kind"], "infrastructure")
+
     def test_saved_crash_signal_is_a_finding(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:186
         # formats "fuzzing process hung or terminated unexpectedly: %v".
@@ -75,6 +110,28 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["input_path"], f"vm/testdata/fuzz/{TARGET}/synthetic-crash")
         self.assertEqual(result["repro"],
                          f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/synthetic-crash'")
+
+    def test_unattributed_differential_panic_is_a_finding_with_native_evidence(self):
+        result = report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "panic")
+        self.assertEqual(result["first_error"], "Error: internal error: boom")
+        self.assertIn('recovered Barn panics: ["Error: internal error: boom"]', result["log_tail"])
+        self.assertEqual(result["barn_frames"], [])
+        self.assertIsNone(result["input_path"])
+        self.assertIsNone(result["input_text"])
+        self.assertIsNone(result["repro"])
+        other = report(UNATTRIBUTED_DIFFERENTIAL_PANIC.replace("boom", "other native error"),
+                       "./scripts", "ToastDifferential", "commit")
+        self.assertNotEqual(result["signature"], other["signature"])
+
+    def test_empty_or_malformed_panic_summary_does_not_invent_a_finding(self):
+        for value in ('[]', 'not JSON', '{}', '["other error"]'):
+            with self.subTest(value=value):
+                log = "- recovered Barn panics: " + value
+                self.assertEqual(report(log, "./scripts", "ToastDifferential", "commit")["kind"],
+                                 "infrastructure")
+        self.assertEqual(report(UNATTRIBUTED_DIFFERENTIAL_PANIC, "./scripts", "ToastDifferential",
+                                "commit", "skipped")["kind"], "infrastructure")
 
     def test_non_crash_signal_without_saved_input_is_infrastructure(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:170-176
@@ -145,9 +202,11 @@ class FuzzReportTests(unittest.TestCase):
 
 
 class IssueScriptTests(unittest.TestCase):
-    def execute(self, result, issues=(), checkout=True):
+    def execute(self, result, issues=(), checkout=True, logs=()):
         workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
-        script = textwrap.dedent(workflow.split("          script: |\n", 1)[1])
+        lines = workflow.split("          script: |\n", 1)[1].splitlines()
+        script = textwrap.dedent("\n".join(itertools.takewhile(
+            lambda line: not line.strip() or line.startswith("            "), lines)))
         harness = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -160,8 +219,11 @@ const github = {
          actions: {createWorkflowDispatch: record('dispatch')}}
 };
 const context = {repo: {owner: 'test', repo: 'barn'}, sha: 'commit', serverUrl: 'https://github.com', runId: 1};
-const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => []}
-  : name === 'node:child_process' ? {execFileSync: () => JSON.stringify(input.result)} : require(name);
+const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => input.logs}
+  : name === 'node:child_process' ? {execFileSync: (command, args) => {
+      if (args.some(arg => arg.includes('success-'))) throw new Error('Successful campaign log passed to failure reporter');
+      return JSON.stringify(input.result);
+    }} : require(name);
 vm.runInNewContext('(async () => {' + input.script + '})()', {
   require: mockedRequire, github, context,
   process: {env: {FUZZ_TARGET: 'FuzzTarget', FUZZ_PACKAGE: './vm', CAMPAIGN_OUTCOME: 'failure', GITHUB_RUN_ATTEMPT: '1'}}
@@ -173,7 +235,7 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
             # adding it to PATH for shell steps.
             node = str(Path(os.environ["RUNNER_TEMP"]).parents[1] / "externals/node24/bin/node")
         completed = subprocess.run([node, "-e", harness], input=json.dumps({
-            "script": script, "result": result, "issues": list(issues), "checkout": checkout}),
+            "script": script, "result": result, "issues": list(issues), "checkout": checkout, "logs": list(logs)}),
             text=True, capture_output=True, check=True, cwd=ROOT)
         return json.loads(completed.stdout)
 
@@ -185,6 +247,11 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         calls = self.execute(result, [{"number": 12, "body": calls[0]["body"]}])
         self.assertEqual([c["name"] for c in calls], ["comment"])
         self.assertEqual(calls[0]["issue_number"], 12)
+
+    def test_successful_campaign_logs_are_retained_without_creating_failure_reports(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        calls = self.execute(result, logs=("run-001.log", "success-002.log"))
+        self.assertEqual([call["name"] for call in calls], ["create", "dispatch"])
 
     def test_each_distinct_signature_of_the_night_is_reported_once(self):
         # Synthetic two-failure night with the first failure refound once.
@@ -215,6 +282,13 @@ vm.runInNewContext('(async () => {' + input.script + '})()', {
         calls = self.execute(summarize([log], "./vm", "FuzzTarget", "commit"))
         self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
         self.assertEqual(calls[0]["labels"], ["claude-fix"])
+
+    def test_unattributed_differential_panic_dispatches_with_native_evidence(self):
+        result = summarize([UNATTRIBUTED_DIFFERENTIAL_PANIC], "./scripts", "ToastDifferential", "commit")
+        calls = self.execute(result)
+        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
+        self.assertEqual(calls[0]["labels"], ["claude-fix"])
+        self.assertIn("Error: internal error: boom", calls[0]["body"])
 
     def test_body_keeps_corpus_fences_inside_code_block(self):
         result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")

@@ -64,9 +64,9 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 			return fmt.Errorf("invalid pending error reason")
 		}
 	}
-	if len(frame.Program.Source) == 0 {
-		return fmt.Errorf("activation has no source program")
-	}
+	// An empty source is an empty program, which Toast writes as the "."
+	// terminator alone (execute.cc write_activ -> dbio_write_program).
+	// Restore executes the bytecode in vmFrameMetadata, not the source.
 	if err := w.writeString("language version 17"); err != nil {
 		return err
 	}

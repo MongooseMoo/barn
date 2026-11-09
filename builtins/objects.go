@@ -34,8 +34,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	var parents []types.ObjID
 	var parentFromInteger []bool
 	parentsFromList := false
+	// Parents are OBJ values only (Toast is_obj_or_list_of_objs, objects.cc
+	// bf_create): an anonymous object is never a parent.
 	switch args[0].Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		parents = []types.ObjID{args[0].ID()}
 		parentFromInteger = []bool{false}
 	case types.TYPE_INT:
@@ -53,7 +55,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		parentFromInteger = make([]bool, len(elements))
 		for i, elem := range elements {
 			switch elem.Type() {
-			case types.TYPE_OBJ, types.TYPE_ANON:
+			case types.TYPE_OBJ:
 				parents[i] = elem.ID()
 			case types.TYPE_INT:
 				// Only negative integers are valid as object references
@@ -468,12 +470,11 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
 	anonRefs := make(map[types.ObjID]types.Value)
-	propValues, errCode := tx.PropertyValues(objID)
+	errCode := tx.VisitPropertyValues(objID, func(value types.Value) {
+		collectAnonymousRefs(value, anonRefs)
+	})
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
-	}
-	for _, value := range propValues {
-		collectAnonymousRefs(value, anonRefs)
 	}
 
 	if len(anonRefs) > 0 {

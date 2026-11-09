@@ -85,7 +85,6 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	return database, nil
 }
 
-// readObjectV4 reads a single object in version 4 format
 // readObjectV4 reads the record expected at slot. Like Toast's v4_read_object
 // (db_file.cc), it rejects a label that is not the next consecutive ID.
 func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*store.ObjectBuilder, error) {
@@ -115,7 +114,11 @@ func (database *Database) readObjectV4(r *bufio.Reader, slot types.ObjID) (*stor
 	}
 	objID = types.ObjID(id)
 	if objID != slot {
-		return nil, fmt.Errorf("object record %d has ID #%d", slot, objID)
+		// Toast's text, a conformance contract: read_db_file logs
+		// "READ_DB_FILE: Bad object #%d.\n" with i - 1, the 0-based record
+		// index, when v4_read_object fails (db_file.cc:920). The label
+		// follows so the message does not end in punctuation (ST1005).
+		return nil, fmt.Errorf("READ_DB_FILE: Bad object #%d. (label #%d)", slot, objID)
 	}
 
 	if recycled {

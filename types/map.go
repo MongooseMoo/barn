@@ -56,9 +56,8 @@ type goMap struct {
 	root     *toastLookupNode
 	// finalizable caches whether any key or value (transitively) is an
 	// anonymous object or WAIF; see finalizableUnknown/None/Maybe.
-	finalizable         int8
-	finalizableOnce     sync.Once
-	finalizableResolved int8
+	finalizable         int8 // immutable constructor-supplied proof
+	finalizableResolved atomic.Int32
 	// byteSize caches ValueBytes(map) (always > 0 when known; 0 = not
 	// computed). set/delete derive the new map's size from the old one, so
 	// the per-write quota check is O(1) instead of a walk of every pair —
@@ -124,6 +123,65 @@ func mapKeyMatches(a, b Value) bool {
 type flatEntry struct {
 	hash uint64
 	mapEntry
+}
+
+// Each small update owns a new header and entry array. Keeping both in one
+// typed allocation halves their object count without sharing mutable storage.
+// Exact-sized arrays avoid retaining unused entries in long-lived values.
+type flatMapEntries interface {
+	[1]flatEntry | [2]flatEntry | [3]flatEntry | [4]flatEntry |
+		[5]flatEntry | [6]flatEntry | [7]flatEntry | [8]flatEntry |
+		[9]flatEntry | [10]flatEntry | [11]flatEntry | [12]flatEntry |
+		[13]flatEntry | [14]flatEntry | [15]flatEntry | [16]flatEntry
+}
+
+func allocateFlatMap[E flatMapEntries]() *goMap {
+	storage := new(struct {
+		header  goMap
+		entries E
+	})
+	storage.header.flat = unsafe.Slice(&storage.entries[0], len(storage.entries))
+	storage.header.count = len(storage.entries)
+	return &storage.header
+}
+
+func newFlatMap(size int) *goMap {
+	switch size {
+	case 1:
+		return allocateFlatMap[[1]flatEntry]()
+	case 2:
+		return allocateFlatMap[[2]flatEntry]()
+	case 3:
+		return allocateFlatMap[[3]flatEntry]()
+	case 4:
+		return allocateFlatMap[[4]flatEntry]()
+	case 5:
+		return allocateFlatMap[[5]flatEntry]()
+	case 6:
+		return allocateFlatMap[[6]flatEntry]()
+	case 7:
+		return allocateFlatMap[[7]flatEntry]()
+	case 8:
+		return allocateFlatMap[[8]flatEntry]()
+	case 9:
+		return allocateFlatMap[[9]flatEntry]()
+	case 10:
+		return allocateFlatMap[[10]flatEntry]()
+	case 11:
+		return allocateFlatMap[[11]flatEntry]()
+	case 12:
+		return allocateFlatMap[[12]flatEntry]()
+	case 13:
+		return allocateFlatMap[[13]flatEntry]()
+	case 14:
+		return allocateFlatMap[[14]flatEntry]()
+	case 15:
+		return allocateFlatMap[[15]flatEntry]()
+	case 16:
+		return allocateFlatMap[[16]flatEntry]()
+	default:
+		panic("flat map allocation outside 1..16 entries")
+	}
 }
 
 func newFlatEntry(k, v Value) flatEntry {
@@ -254,44 +312,62 @@ func (m *goMap) indexed() *goMap {
 		}
 		// Racing writers may each build it; the forms are equal and either
 		// may be kept.
-		p := m.buildIndexed()
+		p := m.buildIndexed(nil)
 		m.bulk.indexed.Store(p)
 		return p
 	}
-	return m.buildIndexed()
+	return m.buildIndexed(nil)
 }
 
-func (m *goMap) buildIndexed() *goMap {
+// added, when non-nil, is a missing key that triggers promotion. Build its
+// final map privately instead of immediately path-copying the new trie.
+func (m *goMap) buildIndexed(added *mapEntry) *goMap {
 	p := &goMap{count: m.count, finalizable: m.finalizableState(), byteSize: m.mapBytes()}
-	builder := mapBuilder{blockSize: min(32, len(m.flat))}
-	for _, e := range m.flat {
-		hash := keyHash(e.key)
-		builder.put(&p.index, hash, e.mapEntry, maphash.Comparable(mapIndexSeed, hash))
+	if added != nil {
+		p.count++
+		p.byteSize += ValueBytes(added.key) + ValueBytes(added.val)
+		p.finalizable = finalizableAfterAdd(finalizableAfterAdd(p.finalizable, added.key), added.val)
+	}
+	builder := mapBuilder{blockSize: min(32, p.count)}
+	for i := 0; i < p.count; i++ {
+		var entry mapEntry
+		if i < len(m.flat) {
+			entry = m.flat[i].mapEntry
+		} else {
+			entry = *added
+		}
+		hash := keyHash(entry.key)
+		builder.put(&p.index, hash, entry, maphash.Comparable(mapIndexSeed, hash))
 		p.order = builder.order(hash, p.order)
 	}
 	return p
 }
 
 // finalizableState returns the cached tri-state, resolving finalizableUnknown
-// with a single scan. Derived maps (set/delete) start from this resolved state
+// with an immutable scan. Derived maps (set/delete) start from this resolved state
 // so a clean proof propagates along a chain of updates; see
 // (*sliceList).finalizableState for why the raw field is not enough.
 func (m *goMap) finalizableState() int8 {
-	if m.finalizable == finalizableUnknown {
-		m.finalizableOnce.Do(func() {
-			m.finalizableResolved = finalizableNone
-			if mapIndexFinalizable(m.index) {
-				m.finalizableResolved = finalizableMaybe
-			}
-			for _, e := range m.flat {
-				if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
-					m.finalizableResolved = finalizableMaybe
-				}
-			}
-		})
-		return m.finalizableResolved
+	if m.finalizable != finalizableUnknown {
+		return m.finalizable
 	}
-	return m.finalizable
+	if state := m.finalizableResolved.Load(); state != int32(finalizableUnknown) {
+		return int8(state)
+	}
+	state := finalizableNone
+	if mapIndexFinalizable(m.index) {
+		state = finalizableMaybe
+	}
+	for _, e := range m.flat {
+		if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
+			state = finalizableMaybe
+			break
+		}
+	}
+	// As with lists, concurrent cold readers may duplicate this immutable
+	// scan and publish the same result. No reader mutates the constructor proof.
+	m.finalizableResolved.Store(int32(state))
+	return state
 }
 
 func (m *goMap) mayHoldFinalizable() bool {
@@ -526,21 +602,25 @@ func (m *goMap) set(k, v Value) *goMap {
 		}
 		i := m.flatFind(k)
 		if i < 0 && len(m.flat) >= mapFlatLimit {
-			return m.indexed().set(k, v)
+			return m.buildIndexed(&mapEntry{key: k, val: v})
 		}
 		fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
 		bytes := m.mapBytes() + ValueBytes(k) + ValueBytes(v)
-		var flat []flatEntry
+		size := len(m.flat)
+		var hash uint64
 		if i >= 0 {
 			bytes -= ValueBytes(m.flat[i].key) + ValueBytes(m.flat[i].val)
-			flat = append([]flatEntry(nil), m.flat...)
-			flat[i] = flatEntry{hash: m.flat[i].hash, mapEntry: mapEntry{key: k, val: v}}
+			hash = m.flat[i].hash
 		} else {
-			flat = make([]flatEntry, len(m.flat)+1)
-			copy(flat, m.flat)
-			flat[len(m.flat)] = newFlatEntry(k, v)
+			size++
+			i = len(m.flat)
+			hash = flatKeyHash(k)
 		}
-		return &goMap{flat: flat, count: len(flat), finalizable: fin, byteSize: bytes}
+		result := newFlatMap(size)
+		copy(result.flat, m.flat)
+		result.flat[i] = flatEntry{hash: hash, mapEntry: mapEntry{key: k, val: v}}
+		result.finalizable, result.byteSize = fin, bytes
+		return result
 	}
 	hash := keyHash(k)
 	bits := maphash.Comparable(mapIndexSeed, hash)

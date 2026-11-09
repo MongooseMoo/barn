@@ -211,7 +211,7 @@ type EvalSession struct {
 }
 
 // NewEvalSession starts a runtime over store. Evaluation mutates the store in
-// memory only; the caller must Close the session to stop the runtime.
+// memory only; Close stops the runtime and releases builtin-session resources.
 func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession, error) {
 	wizard, ok := firstWizard(store)
 	if !ok {
@@ -222,7 +222,10 @@ func NewEvalSession(store *dbstore.Store, options config.Options) (*EvalSession,
 	return &EvalSession{runtime: runtime, wizard: wizard}, nil
 }
 
-func (s *EvalSession) Close() { s.runtime.Stop() }
+func (s *EvalSession) Close() error {
+	s.runtime.Stop()
+	return s.runtime.Session().Close()
+}
 
 // LoadStore reads the database at path without changing any file and builds
 // its store as the server does, compiling calls to builtins missing from the
@@ -331,13 +334,18 @@ func (s *EvalSession) Print(out, diagOut io.Writer, source []string) (compiled, 
 
 // EvalExpression evaluates one MOO input (a statement list, or an expression)
 // as the database's first wizard and prints its result line.
-func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
+func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) (err error) {
 	session, err := NewEvalSession(store, options)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.Close()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	if compiled, _ := session.Print(out, errOut, []string{expr}); !compiled {
 		return errors.New("inspection failed")
 	}
@@ -350,7 +358,7 @@ func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 // "-- skipped" so line counts stay aligned with the input for differential
 // drivers. One session serves the whole file, so load_server_options() on an
 // early line governs later lines, as in a Toast emergency-mode session.
-func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) error {
+func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) (err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
@@ -361,7 +369,12 @@ func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options 
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
 	}
-	defer session.Close()
+	defer func() {
+		if closeErr := session.Close(); closeErr != nil {
+			fmt.Fprintf(errOut, "Error: %v\n", closeErr)
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	for _, line := range SourceLines(data) {
 		input := strings.TrimSpace(line)
 		if input == "" || strings.HasPrefix(input, "##") {

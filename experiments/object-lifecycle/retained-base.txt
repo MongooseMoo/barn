@@ -1,0 +1,26 @@
+goos: windows
+goarch: amd64
+pkg: github.com/MongooseMoo/barn/db/store
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  80006300 ns/op	       560.7 retained-B/object	74141872 B/op	   58770 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  78202500 ns/op	       555.4 retained-B/object	74136408 B/op	   58759 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  91776600 ns/op	       555.4 retained-B/object	74136472 B/op	   58759 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	 106297200 ns/op	       555.4 retained-B/object	74136424 B/op	   58759 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  83029000 ns/op	       555.8 retained-B/object	74136696 B/op	   58761 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  83942200 ns/op	       555.1 retained-B/object	74136104 B/op	   58756 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	 119634800 ns/op	       555.1 retained-B/object	74136152 B/op	   58756 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  93269000 ns/op	       555.1 retained-B/object	74136104 B/op	   58756 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  71745800 ns/op	       555.0 retained-B/object	74135912 B/op	   58754 allocs/op
+BenchmarkRetainedCreatedObjects/anon=false-4         	       1	  98456600 ns/op	       555.1 retained-B/object	74136152 B/op	   58756 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  72786100 ns/op	       631.4 retained-B/object	61377984 B/op	   33130 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  55134600 ns/op	       631.2 retained-B/object	61377776 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  70778200 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  57440900 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  62411600 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  63599100 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  61379700 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  54678000 ns/op	       631.3 retained-B/object	61377872 B/op	   33129 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  56934800 ns/op	       631.2 retained-B/object	61377760 B/op	   33128 allocs/op
+BenchmarkRetainedCreatedObjects/anon=true-4          	       1	  57598200 ns/op	       631.5 retained-B/object	61378096 B/op	   33131 allocs/op
+PASS
+ok  	github.com/MongooseMoo/barn/db/store	3.039s

@@ -50,8 +50,8 @@ func sharedCommitWaitObserver(scope *admission.Scope, id metrics.Identity) func(
 }
 
 // WithCheckpointBarrier captures tasks and store state at one cooperative
-// boundary. The callback must not execute MOO hooks. Mutable WAIF graphs require
-// retaining this barrier until serialization has consumed the snapshots.
+// boundary. The callback must not execute MOO hooks. Mutable WAIF graphs must
+// be frozen during capture before file encoding can proceed outside the barrier.
 func (s *Runtime) WithCheckpointBarrier(write func() error) error {
 	resume, err := s.admission.Pause(s.ctx)
 	if err != nil {

@@ -10,16 +10,18 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// Checkpoint owns one output path from recovery through publication. Serialize
+// Checkpoint owns one output path from recovery through publication. Capture
 // while world/task state is protected, then release that protection before
-// Publish performs file-only work. Call Close on every path. A handle is used
-// by one goroutine at a time.
+// Serialize and Publish perform file-only work. Call Close on every path.
+// A handle is used by one goroutine at a time.
 type Checkpoint struct {
 	outPath, tempPath    string
 	file                 *os.File
+	writer               *Writer
 	identities           []types.WaifIdentity
 	release              func()
 	fs                   checkpointIO
+	captureStarted       bool
 	serializeStarted     bool
 	serialized           bool
 	publicationAttempted bool
@@ -56,16 +58,27 @@ func beginCheckpoint(outPath, tempPath string) (*Checkpoint, error) {
 	return &Checkpoint{outPath: outPath, tempPath: tempPath, file: file, release: release, fs: fs}, nil
 }
 
-// Serialize consumes a consistent world and task view, including flushing the
-// portable writer. No snapshot objects are retained for Publish.
-func (c *Checkpoint) Serialize(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot, activeConnections []ActiveConnection) error {
-	if c.closed || c.serializeStarted {
-		return fmt.Errorf("checkpoint is closed or serialization already started")
+// Capture freezes a consistent world and task view for later serialization.
+func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot, activeConnections []ActiveConnection) error {
+	if c.closed || c.captureStarted {
+		return fmt.Errorf("checkpoint is closed or capture already started")
 	}
-	c.serializeStarted = true
+	c.captureStarted = true
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
 	}
+	snapshot := snapshotWithTaskRoots(objectStore, queuedTasks, suspendedTasks)
+	writer := NewWriter(c.file, snapshot)
+	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
+	writer.SetActiveConnections(activeConnections)
+	c.writer = writer
+	return nil
+}
+
+// snapshotWithTaskRoots snapshots objectStore with every task-persisted value as
+// an anonymous reachability root, then rewrites those task values in place to
+// the snapshot's anonymous serialization IDs. The caller owns the task slices.
+func snapshotWithTaskRoots(objectStore *store.Store, queuedTasks, suspendedTasks []task.Snapshot) store.Snapshot {
 	taskRoots := make([]types.Value, 0)
 	collectRoot := func(value types.Value) types.Value {
 		taskRoots = append(taskRoots, value)
@@ -84,9 +97,18 @@ func (c *Checkpoint) Serialize(objectStore *store.Store, queuedTasks, suspendedT
 	for index := range suspendedTasks {
 		suspendedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
 	}
-	writer := NewWriter(c.file, snapshot)
-	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
-	writer.SetActiveConnections(activeConnections)
+	return snapshot
+}
+
+// Serialize consumes the captured view and flushes its portable writer.
+// No snapshot objects are retained for Publish, including on an encoding error.
+func (c *Checkpoint) Serialize() error {
+	if c.closed || c.writer == nil || c.serializeStarted {
+		return fmt.Errorf("checkpoint is closed, not captured or serialization already started")
+	}
+	c.serializeStarted = true
+	writer := c.writer
+	c.writer = nil
 	if err := writer.WriteDatabase(); err != nil {
 		return fmt.Errorf("write database: %w", err)
 	}
@@ -132,6 +154,7 @@ func (c *Checkpoint) Close() error {
 		return nil
 	}
 	c.closed = true
+	c.writer = nil
 	defer c.release()
 	var err error
 	if c.file != nil {

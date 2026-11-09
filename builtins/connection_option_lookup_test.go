@@ -8,7 +8,7 @@ import (
 )
 
 func TestSingleConnectionOptionReadsPreserveValues(t *testing.T) {
-	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{}})
+	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}})
 	ctx.IsWizard = true
 	expected := map[string]types.Value{
 		"binary": types.NewInt(0), "hold-input": types.NewInt(0),
@@ -21,8 +21,8 @@ func TestSingleConnectionOptionReadsPreserveValues(t *testing.T) {
 	}
 	for _, stored := range []bool{false, true} {
 		if stored {
-			ctx.Session.setConnectionOption(7, "binary", types.NewInt(1))
-			ctx.Session.setConnectionOption(7, "flush-command", types.NewStr(".flush"))
+			ctx.Session.setConnectionOption(7, nil, "binary", types.NewInt(1))
+			ctx.Session.setConnectionOption(7, nil, "flush-command", types.NewStr(".flush"))
 			expected["binary"] = types.NewInt(1)
 			expected["flush-command"] = types.NewStr(".flush")
 		}
@@ -56,7 +56,7 @@ func TestConnectionOptionSnapshotsRemainIndependent(t *testing.T) {
 	first, second := NewSession(NewRegistry(), NoHost()), NewSession(NewRegistry(), NoHost())
 	for _, stored := range []bool{false, true} {
 		if stored {
-			first.setConnectionOption(7, "binary", types.NewInt(1))
+			first.setConnectionOption(7, nil, "binary", types.NewInt(1))
 		}
 		snapshot := first.getConnectionOptions(7)
 		snapshot["binary"] = types.NewInt(99)
@@ -74,9 +74,9 @@ func TestConnectionOptionSnapshotsRemainIndependent(t *testing.T) {
 }
 
 func TestSingleConnectionOptionConcurrentReadsAndWrites(t *testing.T) {
-	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{}})
+	ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}})
 	ctx.IsWizard = true
-	ctx.Session.setConnectionOption(7, "binary", types.NewInt(0))
+	ctx.Session.setConnectionOption(7, nil, "binary", types.NewInt(0))
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 	workers.Add(3)
@@ -84,7 +84,7 @@ func TestSingleConnectionOptionConcurrentReadsAndWrites(t *testing.T) {
 		defer workers.Done()
 		<-start
 		for i := 0; i < 2000; i++ {
-			ctx.Session.setConnectionOption(7, "binary", types.NewInt(int64(i&1)))
+			ctx.Session.setConnectionOption(7, nil, "binary", types.NewInt(int64(i&1)))
 		}
 	}()
 	for range 2 {
@@ -106,17 +106,88 @@ func TestSingleConnectionOptionConcurrentReadsAndWrites(t *testing.T) {
 	workers.Wait()
 }
 
+func TestConnectionOptionLifetimeOrdersMutationAndForget(t *testing.T) {
+	session := NewSession(NewRegistry(), NoHost())
+	const connectionID int64 = 91
+	done := make(chan struct{})
+	if !session.setConnectionOption(connectionID, done, "binary", types.NewInt(1)) {
+		t.Fatal("live mutation was skipped")
+	}
+	close(done)
+	if session.setConnectionOption(connectionID, done, "binary", types.NewInt(0)) || !session.ConnectionOptionTruthy(connectionID, "binary") {
+		t.Fatal("closed lifetime changed its existing bag")
+	}
+	session.ForgetConnectionOptions(connectionID)
+	if session.setConnectionOption(connectionID, done, "binary", types.NewInt(1)) {
+		t.Fatal("closed lifetime reported a mutation after Forget")
+	}
+	if _, exists := session.runtime.connectionOptions.byConnection[connectionID]; exists {
+		t.Fatal("closed lifetime recreated an option bag")
+	}
+}
+
+type lifetimeOptionConn struct {
+	stubConn
+	done  <-chan struct{}
+	wakes int
+}
+
+func (c *lifetimeOptionConn) Done() <-chan struct{} { return c.done }
+func (c *lifetimeOptionConn) WakeInputReader()      { c.wakes++ }
+
+type optionDrainRecorder struct{ calls int }
+
+func (r *optionDrainRecorder) ForceInput(types.ObjID, string, bool, func()) {
+	r.calls++
+}
+
+func TestClosedOptionMutationSkipsWakeAndHeldDrain(t *testing.T) {
+	const connectionID int64 = 91
+	done := make(chan struct{})
+	conn := &lifetimeOptionConn{stubConn: stubConn{id: connectionID}, done: done}
+	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+	ctx.IsWizard = true
+	forcer := &optionDrainRecorder{}
+	configureTestHost(ctx.Session, func(host *Host) { host.InputForcer = forcer })
+	ctx.Session.setConnectionOption(connectionID, done, "hold-input", types.NewInt(1))
+	if handled, _ := ctx.Session.HandleHeldInput(7, connectionID, "pending command", false); !handled {
+		t.Fatal("live fixture failed to hold input")
+	}
+	close(done)
+	ctx.Session.ForgetConnectionOptions(connectionID)
+	for _, option := range []struct {
+		name  string
+		value int64
+	}{{"binary", 1}, {"hold-input", 0}} {
+		result := admitTestBuiltin("set_connection_option", ctx, []types.Value{
+			types.NewObj(7), types.NewStr(option.name), types.NewInt(option.value),
+		})
+		if result.IsError() || result.Val.Type() != types.TYPE_INT || result.Val.Int() != 0 {
+			t.Fatalf("closed %s setter = %+v, want normal zero", option.name, result)
+		}
+	}
+	if _, exists := ctx.Session.runtime.connectionOptions.byConnection[connectionID]; exists {
+		t.Fatal("closed builtin recreated an option bag")
+	}
+	if conn.wakes != 0 || forcer.calls != 0 {
+		t.Fatalf("skipped mutations performed wakes=%d, forced inputs=%d", conn.wakes, forcer.calls)
+	}
+	if lines := ctx.Session.drainHeldCommands(7); len(lines) != 1 || lines[0] != "pending command" {
+		t.Fatalf("skipped mutation drained held commands: %q", lines)
+	}
+}
+
 var singleOptionBoolSink bool
 var singleOptionResultSink types.Result
 var connectionOptionsSnapshotSink map[string]types.Value
 
 func TestSingleConnectionOptionScalarReadsDoNotAllocate(t *testing.T) {
 	for _, stored := range []bool{false, true} {
-		ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{}})
+		ctx := ctxWithConnManager(&stubConnManager{conn: &stubConn{id: 7}})
 		ctx.IsWizard = true
 		session := ctx.Session
 		if stored {
-			session.setConnectionOption(7, "binary", types.NewInt(1))
+			session.setConnectionOption(7, nil, "binary", types.NewInt(1))
 		}
 		for _, name := range []string{"binary", "hold-input", "client-echo", "disable-oob", "keep-alive", "flush-command", "missing"} {
 			if allocs := testing.AllocsPerRun(100, func() { singleOptionBoolSink = session.ConnectionOptionTruthy(7, name) }); allocs != 0 {
@@ -143,10 +214,11 @@ func BenchmarkSingleConnectionOption(b *testing.B) {
 		for _, operation := range []string{"Truthy", "Held", "Snapshot"} {
 			b.Run(operation+state, func(b *testing.B) {
 				session := NewSession(NewRegistry(), NoHost())
+				configureTestHost(session, func(host *Host) { host.ConnManager = &stubConnManager{conn: &stubConn{id: 7}} })
 				stored := state == "Stored"
 				if stored {
-					session.setConnectionOption(7, "binary", types.NewInt(1))
-					session.setConnectionOption(7, "hold-input", types.NewInt(1))
+					session.setConnectionOption(7, nil, "binary", types.NewInt(1))
+					session.setConnectionOption(7, nil, "hold-input", types.NewInt(1))
 				}
 				b.ReportAllocs()
 				b.ResetTimer()
@@ -167,6 +239,50 @@ func BenchmarkSingleConnectionOption(b *testing.B) {
 					}
 				} else if singleOptionBoolSink != stored {
 					b.Fatal("scalar workload changed")
+				}
+			})
+		}
+	}
+}
+
+// Exercise the ordinary consumers as well as the raw option-store lookup.
+func BenchmarkConnectionOptionConsumers(b *testing.B) {
+	for _, stored := range []bool{false, true} {
+		state := "Default"
+		if stored {
+			state = "Stored"
+		}
+		for _, operation := range []string{"Notify", "Getter", "Input"} {
+			b.Run(operation+state, func(b *testing.B) {
+				conn := &stubConn{id: 7}
+				ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+				ctx.IsWizard = true
+				if stored {
+					ctx.Session.setConnectionOption(7, nil, "binary", types.NewInt(1))
+					ctx.Session.setConnectionOption(7, nil, "hold-input", types.NewInt(0))
+				}
+				notifyArgs := []types.Value{types.NewObj(7), types.NewStr("hello")}
+				getterArgs := []types.Value{types.NewObj(7), types.NewStr("binary")}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					switch operation {
+					case "Notify":
+						singleOptionResultSink = builtinNotify(ctx, notifyArgs)
+						conn.sent = conn.sent[:0]
+					case "Getter":
+						singleOptionResultSink = builtinConnectionOptions(ctx, getterArgs)
+					case "Input":
+						singleOptionBoolSink, _ = ctx.Session.HandleHeldInput(7, 7, "hello", false)
+					}
+				}
+				b.StopTimer()
+				if operation == "Input" {
+					if singleOptionBoolSink {
+						b.Fatal("ordinary input was held")
+					}
+				} else if singleOptionResultSink.IsError() {
+					b.Fatal(singleOptionResultSink)
 				}
 			})
 		}
