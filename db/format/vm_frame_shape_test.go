@@ -18,7 +18,7 @@ func TestDecodeVMFrameMetadataRejectsMalformedFields(t *testing.T) {
 		NumLocals: 1,
 		LineInfo:  []bytecode.LineEntry{{StartIP: 0, Line: 1}},
 	}})
-	if _, err := decodeVMFrameMetadata(base); err != nil {
+	if _, err := decodeVMFrameMetadata(base, 0); err != nil {
 		t.Fatalf("base metadata: %v", err)
 	}
 	str := types.NewStr("ab")
@@ -49,7 +49,7 @@ func TestDecodeVMFrameMetadataRejectsMalformedFields(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fields := append([]types.Value(nil), base.Elements()...)
 			fields[test.field-1] = test.value
-			if _, err := decodeVMFrameMetadata(types.NewList(fields)); err == nil {
+			if _, err := decodeVMFrameMetadata(types.NewList(fields), 0); err == nil {
 				t.Fatalf("accepted field %d = %v", test.field, test.value)
 			}
 		})

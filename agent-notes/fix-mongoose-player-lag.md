@@ -350,6 +350,10 @@ Audit: actionlint accepted the resolved CI workflow. Offline zizmor reports
 two low self-repository syntax suggestions on unchanged tested-tree references
 inherited from master, with no medium or high findings.
 
-Next: publish the integration, finish fresh PR
-checks, and verify the normal merge queue actually merges this PR. Existing
+Fresh PR CI caught two newly inherited shape-test callers of the decoder still
+using its old one-argument signature. Both now supply the fixture's entry PC,
+zero. The decoder retains shape validation and native pending-reason decoding;
+the existing vet check caught the integration defect before queue admission.
+
+Next: finish fresh PR checks and verify the normal merge queue actually merges this PR. Existing
 first-output evidence limits remain; this delivery does not claim a speedup.
