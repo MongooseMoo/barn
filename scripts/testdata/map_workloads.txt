@@ -1,0 +1,15 @@
+## Reconstructed from issue 441's published 13-workload corpus.
+## Abbreviated rows are expanded to complete statements; results are returned.
+map6_str_get_first_1M: m = ["name" -> 1, "owner" -> 2, "location" -> 3, "flags" -> 4, "desc" -> 5, "aliases" -> 6]; x = 0; for i in [1..1000000]; x = x + m["name"]; endfor; return x;
+map6_str_get_1M: m = ["name" -> 1, "owner" -> 2, "location" -> 3, "flags" -> 4, "desc" -> 5, "aliases" -> 6]; x = 0; for i in [1..1000000]; x = x + m["desc"]; endfor; return x;
+map8_int_get_1M: m = [1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 7 -> 7, 8 -> 8]; x = 0; for i in [1..1000000]; x = x + m[5]; endfor; return x;
+map8_has_miss_1M: m = ["a" -> 1, "b" -> 2, "c" -> 3, "d" -> 4, "e" -> 5, "f" -> 6, "g" -> 7, "h" -> 8]; x = 0; for i in [1..1000000]; x = x + maphaskey(m, "zz"); endfor; return x;
+map4_str_set_500k: m = ["a" -> 0, "b" -> 0, "c" -> 0, "d" -> 0]; for i in [1..500000]; m["c"] = i; endfor; return m["c"];
+map6_literal_500k: for i in [1..500000]; m = ["a" -> i, "b" -> 2, "c" -> 3, "d" -> 4, "e" -> 5, "f" -> 6]; endfor; return m;
+map8_build_100k: for i in [1..100000]; m = []; for j in [1..8]; m[j] = j; endfor; endfor; return m;
+map12_iterate_200k: m = []; for j in [1..12]; m[tostr("k", j)] = j; endfor; x = 0; for i in [1..200000]; for v, k in (m); x = x + v; endfor; endfor; return x;
+map16_str_get_last_1M: m = []; for j in [1..16]; m[tostr("property_name_", j)] = j; endfor; x = 0; for i in [1..1000000]; x = x + m["property_name_16"]; endfor; return x;
+map16_str_set_500k: m = []; for j in [1..16]; m[tostr("property_name_", j)] = j; endfor; for i in [1..500000]; m["property_name_9"] = i; endfor; return m["property_name_9"];
+map17_grow_and_shrink_100k: for i in [1..100000]; m = []; for j in [1..17]; m[j] = j; endfor; m = mapdelete(m, 17); endfor; return m;
+map1000_build_200: for i in [1..200]; m = []; for j in [1..1000]; m[j] = j; endfor; endfor; return length(m);
+map1000_get_1M: m = []; for j in [1..1000]; m[j] = j; endfor; x = 0; for i in [1..1000000]; x = x + m[1 + (i % 1000)]; endfor; return x;
