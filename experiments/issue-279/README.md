@@ -66,7 +66,7 @@ Fresh offline control/candidate observations (Go 1.27.1, original input):
 | Windows resident, bytes | 559501312 | 560046080 |
 | Linux heap_alloc, bytes | 399449536 | 399450400 |
 | Linux resident, 4096-byte pages | 133641 | 137994 |
-| Linux resident, bytes | 547393536 | 565219328 |
+| Linux resident, bytes | 547393536 | 565223424 |
 
 These separate offline eval processes are below the 600,000,000-byte resident
 target; they do not measure busy-server residency. Linux control and candidate
