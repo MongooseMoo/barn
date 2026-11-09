@@ -993,12 +993,25 @@ func readHeapSample() memSample {
 func readMemSample(t *testing.T, s *Runtime) memSample {
 	sample := readHeapSample()
 	out := s.EvalCommandOutput(2, "return memory_usage()[2];")
-	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	resident, err := parseResidentSample(out, runtime.GOOS, os.Getpagesize())
 	if err != nil {
 		t.Errorf("memory_usage() = %s: %v", out, err)
 	}
-	sample.resident = uint64(resident)
+	sample.resident = resident
 	return sample
+}
+
+func parseResidentSample(out, goos string, pageSize int) (uint64, error) {
+	resident, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimPrefix(out, "{1, "), "}"), 64)
+	if err != nil {
+		return 0, err
+	}
+	bytes := uint64(resident)
+	// Linux memory_usage reads statm's page counts; Windows reports bytes.
+	if goos == "linux" {
+		bytes *= uint64(pageSize)
+	}
+	return bytes, nil
 }
 
 func logMemSamples(t *testing.T, samples []memSample) {
