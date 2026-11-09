@@ -133,7 +133,7 @@ are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
 [fuzzing documentation](https://go.dev/doc/security/fuzz/).
 
-The single `compute-mode` dispatch input also accepts `dedicated-once` and
+The `compute-mode` dispatch input also accepts `dedicated-once` and
 `dedicated-continuous`. Both require master, runner group `barn-bug-discovery`,
 `FUZZ_RUNNER_POLICY_VERIFIED=true` and nonempty JSON `FUZZ_RUNNER_LABELS`
 including `self-hosted` and `barn-fuzz`. Missing configuration fails before
@@ -141,6 +141,18 @@ fuzz workload routing, without a workstation fallback. `FUZZ_MAX_PARALLEL`
 defaults to two and accepts only two or four. The policy marker records the
 operator's verified group enforcement; it is not itself enforcement. Ordinary
 PR CI and repair workflows keep their existing runner ownership.
+
+The independent `campaign` input defaults to `native-and-toast`, preserving the
+existing native matrix followed by cross-engine comparison. `native-only` runs
+the same native targets, retention and reporting without building or executing
+Toast. Its run title ends in `/ native-only`; its acceptance log explicitly says
+`differential: "not-run-native-only"`. This mode supplies native property and
+recovery checks, not cross-engine agreement. For example, start one finite
+dedicated campaign with:
+
+```sh
+gh workflow run fuzz.yml --ref master -f compute-mode=dedicated-once -f campaign=native-only
+```
 
 Each native job starts with an isolated public-only fuzz cache and clears
 `BARN_FUZZ_CORPUS`. `scripts/fuzz_retention.py` restores retained records,
@@ -167,8 +179,10 @@ from arbitrary input bytes; do not feed local private corpora to public jobs.
 Continuous mode additionally requires `FUZZ_CONTINUOUS_ENABLED=true`. Every
 dispatch ends with an `Accept discovery cycle` job. It passes when each native
 lane ran to completion with nonzero measured executions, kept its census and
-evidence, and ended clean or with a saved finding, and the differential
-completed with `success` or `divergence`. Only the step that found something
+evidence, and ended clean or with a saved finding. For `native-and-toast`, the
+differential must also complete with `success` or `divergence`. For `native-only`,
+the comparison job must be skipped and no comparison result may be present.
+Only the step that found something
 may fail. A saved finding or a real divergence keeps its job and the run red and
 opens its issue as before, yet the cycle is still accepted. A setup failure,
 zero measured work, an inconclusive differential or a failed upload, cache save
@@ -180,7 +194,8 @@ rejects a workflow whose `workflow_run` trigger names itself). It runs on the
 ordinary CI selector, since the dedicated group admits only `fuzz.yml`, and only
 dispatches. The controller checks the stop switch and dedicated configuration,
 accepts only a trusted master source dispatch whose acceptance job passed, and
-submits one successor only when there is no newer or active dispatch. An
+submits one successor with the same `campaign` selection only when there is no
+newer or active dispatch. An
 unaccepted cycle stops the chain with a red controller run. Setting the switch to anything
 other than `true` prevents replenishment; cancel an active run separately when
 immediate stopping is required. The controller uses its new run's variable

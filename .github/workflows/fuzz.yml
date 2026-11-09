@@ -1,5 +1,5 @@
 name: Nightly fuzz
-run-name: Nightly fuzz / ${{ inputs.compute-mode }}
+run-name: Nightly fuzz / ${{ inputs.compute-mode }}${{ inputs.campaign == 'native-only' && ' / native-only' || '' }}
 
 # Workstation Task Scheduler continues dispatching the default legacy mode at
 # 03:17 Mountain. Dedicated modes use only the explicitly verified runner group.
@@ -13,6 +13,11 @@ on:
         type: choice
         default: legacy
         options: [legacy, dedicated-once, dedicated-continuous]
+      campaign:
+        description: Native discovery alone or with Toast comparison
+        type: choice
+        default: native-and-toast
+        options: [native-and-toast, native-only]
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ jobs:
     outputs:
       runner: ${{ steps.route.outputs.runner }}
       parallel: ${{ steps.route.outputs.parallel }}
+      campaign: ${{ steps.route.outputs.campaign }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -42,6 +48,7 @@ jobs:
         id: route
         env:
           COMPUTE_MODE: ${{ inputs.compute-mode }}
+          FUZZ_CAMPAIGN: ${{ inputs.campaign }}
           CI_RUNNER_LABELS: ${{ vars.CI_RUNNER_LABELS }}
           FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
           FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
@@ -64,6 +71,8 @@ jobs:
       # owner's private local-world corpus. Retained corpus is restored below.
       GOCACHE: ${{ github.workspace }}/.fuzz/go-cache/${{ github.run_id }}-${{ matrix.target }}
       BARN_FUZZ_CORPUS: ''
+      FUZZ_TARGET: ${{ matrix.target }}
+      FUZZ_PACKAGE: ${{ matrix.package }}
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(needs.route.outputs.parallel) }}
@@ -198,8 +207,6 @@ jobs:
         if: failure()
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          FUZZ_TARGET: ${{ matrix.target }}
-          FUZZ_PACKAGE: ${{ matrix.package }}
           CAMPAIGN_OUTCOME: ${{ steps.campaign.outcome }}
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
         with:
@@ -281,10 +288,9 @@ jobs:
   differential:
     needs: [route, fuzz]
     # Even a native finding must preserve and replay the producers' artifacts.
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' }}
-    # A name without a matrix expression gets the matrix values appended
-    # ("ToastDifferential (./scripts, ToastDifferential)"); accept matches it exactly.
-    name: ${{ matrix.target }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.route.result == 'success' && needs.route.outputs.campaign == 'native-and-toast' }}
+    # A fixed scalar job also has this name when skipped before matrix expansion.
+    name: ToastDifferential
     permissions:
       contents: read
       issues: write
@@ -294,10 +300,8 @@ jobs:
     env:
       TOAST_BIN: ${{ github.workspace }}/toaststunt/build/moo
       BARN_FUZZ_CORPUS: ''
-    strategy:
-      matrix:
-        include:
-          - {package: ./scripts, target: ToastDifferential}
+      FUZZ_TARGET: ToastDifferential
+      FUZZ_PACKAGE: ./scripts
     steps:
       - name: Check /dev/null is a device
         run: |
@@ -399,9 +403,12 @@ jobs:
           merge-multiple: true
           path: .fuzz/retained
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.route.outputs.campaign == 'native-and-toast'
         with:
           name: fuzz-failure-ToastDifferential
           path: fuzz-differential
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_CAMPAIGN: ${{ needs.route.outputs.campaign }}
         with:
           script: await require('./scripts/fuzz_compute.cjs').accept({github, context, core});
