@@ -1466,6 +1466,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	t.IsHTTPReadSuspended = true
+	t.HTTPReadConnection = connection
 	t.SuspendSeconds(-1)
 	return types.Suspend(-1)
 }

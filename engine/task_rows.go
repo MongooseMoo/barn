@@ -77,7 +77,10 @@ func ownEndRow(t *Task, row dbstore.TaskRow, result types.Result) dbstore.TaskRo
 	case t.ReadingPlayer != types.ObjNothing:
 		end.Status = dbstore.TaskRowRunning
 		end.Owner = t.ReadingPlayer
-	case t.IsHTTPReadSuspended, t.IsExecSuspended:
+	case t.IsHTTPReadSuspended:
+		end.Status = dbstore.TaskRowRunning
+		end.Owner = t.HTTPReadConnection
+	case t.IsExecSuspended:
 		end.Status = dbstore.TaskRowRunning
 	}
 	t.Mu.RUnlock()

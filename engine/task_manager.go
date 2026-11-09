@@ -46,7 +46,9 @@ func registrationRow(t *Task) (dbstore.TaskRow, bool) {
 	case t.Status != task.TaskSuspended:
 	case t.ReadingPlayer != types.ObjNothing:
 		row.Owner = t.ReadingPlayer
-	case t.IsExecSuspended || t.IsHTTPReadSuspended:
+	case t.IsHTTPReadSuspended:
+		row.Owner = t.HTTPReadConnection
+	case t.IsExecSuspended:
 	default:
 		row.Status = dbstore.TaskRowSuspended
 		if t.Context != nil {

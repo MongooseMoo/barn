@@ -84,6 +84,7 @@ type State struct {
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
 	ExecCommandName     string      // Toast-style executable label while suspended by exec()
 	IsHTTPReadSuspended bool        // True while suspended by read_http()
+	HTTPReadConnection  types.ObjID // Connection read_http() waits on; meaningful only while IsHTTPReadSuspended
 	ReadingPlayer       types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
@@ -559,7 +560,7 @@ type RetrySnapshot struct {
 	TicksLimit                           int64
 	SecondsLimit                         float64
 	WakeTime                             time.Time
-	ReadingPlayer                        types.ObjID
+	ReadingPlayer, HTTPReadConnection    types.ObjID
 	IsExecSuspended, IsHTTPReadSuspended bool
 	ExecCommandName                      string
 }
@@ -572,7 +573,8 @@ func (t *State) RetryStateSnapshot() RetrySnapshot {
 		TaskLocal: t.TaskLocal, WakeValue: t.WakeValue, WakeErrorAsValue: t.WakeErrorAsValue,
 		TicksLimit: t.TicksLimit, SecondsLimit: t.SecondsLimit, WakeTime: t.WakeTime,
 		ReadingPlayer: t.ReadingPlayer, IsExecSuspended: t.IsExecSuspended,
-		IsHTTPReadSuspended: t.IsHTTPReadSuspended, ExecCommandName: t.ExecCommandName,
+		IsHTTPReadSuspended: t.IsHTTPReadSuspended, HTTPReadConnection: t.HTTPReadConnection,
+		ExecCommandName: t.ExecCommandName,
 	}
 }
 
@@ -589,6 +591,7 @@ func (t *State) RestoreRetryState(saved RetrySnapshot) {
 	t.ReadingPlayer = saved.ReadingPlayer
 	t.IsExecSuspended = saved.IsExecSuspended
 	t.IsHTTPReadSuspended = saved.IsHTTPReadSuspended
+	t.HTTPReadConnection = saved.HTTPReadConnection
 	t.ExecCommandName = saved.ExecCommandName
 	t.CreatedForks = nil
 	// The runtime replays the instruction budget, but retains this slice's

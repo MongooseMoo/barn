@@ -254,7 +254,8 @@ resume(task_id, value);
   queue holds it, which is that same programmer at the time of the resume.
   Otherwise `E_PERM`.
 - Any other ID receives `E_INVARG`: no such task, the current task, a forked
-  task that has not yet started, a task waiting in `read()`, and a task
+  task that has not yet started, a task waiting in `read()` or `read_http()`,
+  and a task
   waiting on `exec()`.
 
 ---
@@ -277,7 +278,8 @@ is:
   that started it;
 - a task waiting in a background queue (resumed or forked, about to run): the
   programmer whose queue holds it;
-- a task blocked in `read()`: the connection's player.
+- a task blocked in `read()` or `read_http()`: the player of the connection
+  it reads from, not the programmer of the verb that called it.
 
 Killing the current task aborts it with `ABORT_KILL`. A located task the
 caller may not kill yields `E_PERM`; an unknown task ID yields `E_INVARG`.
