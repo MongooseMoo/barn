@@ -206,6 +206,10 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Keep the comparison against the saved control independent of
+          # unrelated master changes in GitHub's synthetic merge checkout.
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

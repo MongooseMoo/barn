@@ -841,6 +841,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
 		t.Logf("cohort submitted=%d completed=%d failed=%d unsettled_at_return=%d elapsed=%s drain=%s", committed+failed, committed, failed, unsettled, elapsed, max(time.Duration(0), elapsed-measure))
+		if failed != 0 {
+			t.Errorf("%d commands failed; measurement is invalid", failed)
+		}
 		if unsettled != 0 {
 			t.Errorf("%d commands left without terminal flush acknowledgement; measurement is invalid", unsettled)
 		}
