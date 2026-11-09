@@ -600,6 +600,17 @@ func (s *Store) liveObjectLocked(id types.ObjID) *Object {
 	return nil
 }
 
+// parentObjectLocked returns the live object a parent id names. Parents are
+// numbered objects only (Toast is_obj_or_list_of_objs, db_file.cc links an
+// anonymous object only to valid numbered parents), so a parent id never
+// resolves to an anonymous object that happens to share it.
+func (s *Store) parentObjectLocked(id types.ObjID) *Object {
+	if obj := s.load(id); validLiveObject(obj) {
+		return obj
+	}
+	return nil
+}
+
 // Get returns a flat, read-only ObjectView for a live object, plus ok=false if
 // the object does not exist or is recycled/invalid. The store never hands out a
 // live *Object to external callers.

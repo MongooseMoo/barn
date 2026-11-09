@@ -427,7 +427,7 @@ func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 			}
 		}
 		for _, parentID := range o.parents {
-			walk(s.liveObjectLocked(parentID))
+			walk(s.parentObjectLocked(parentID))
 		}
 	}
 	walk(obj)

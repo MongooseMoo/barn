@@ -381,7 +381,10 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Prop
 		}
 		visited[currentID] = true
 
-		current := s.liveObjectLocked(currentID)
+		current := s.parentObjectLocked(currentID)
+		if currentID == objID {
+			current = s.liveObjectLocked(currentID)
+		}
 		if !validLiveObject(current) {
 			continue
 		}
