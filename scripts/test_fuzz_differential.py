@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -139,6 +140,19 @@ class ExclusionTests(unittest.TestCase):
     def test_plain_program_and_lookalike_names(self):
         self.assertIsNone(exclusion("x = {0..0}; return x[1];"))
         self.assertIsNone(exclusion("return times;"))
+
+    def test_deferred_comparison_is_counted_and_other_sources_remain(self):
+        fingerprint = hashlib.sha256(b"return 1;").hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            lane = Path(directory)
+            Path(lane, "deferred").write_bytes(b'go test fuzz v1\nstring("return 1;")\n')
+            Path(lane, "ordinary").write_bytes(b'go test fuzz v1\nstring("return 2;")\n')
+            with patch("fuzz_differential.DEFERRED_COMPARISONS", {fingerprint}):
+                programs, excluded, lanes = load_programs([lane])
+        self.assertEqual(list(programs), ["return 2;"])
+        self.assertEqual(excluded, {"deferred comparison": 1})
+        self.assertEqual(lanes[str(lane)]["excluded"], 1)
+        self.assertEqual(lanes[str(lane)]["eligible"], 1)
 
 
 class ResultTests(unittest.TestCase):
