@@ -29,6 +29,36 @@ generated programs to compile. Keep those bytes with the generator's source
 version. The workflow also includes snapshot, bytecode, database reader,
 HTTP chunking, TCP input and string-builtin targets; its matrix is the inventory.
 
+`vm/FuzzWorldCheckpointEffects` uses `internal/fuzzseed.WorldHistory` to generate
+setup and a bounded dependent action history together: a live parent/child,
+property values and metadata, installed and replaced verbs, nonwizard reads,
+temporary definitions and queued children. Each action observes values,
+permissions, dispatch and code, then suspends. Every input must complete its
+setup and tasks and evaluate at least one checkpoint comparison; rejected setup
+and zero checkpoint work fail rather than count as agreement. The same source
+runs with and without checkpoint/reload, comparing per-task outcomes and final
+state. Agreement is a recovery relation, not independent proof of every MOO rule.
+The nonwizard read also checks the explicit readable/unreadable permission result.
+
+The existing checkpoint driver now writes queued children with the suspended
+parent, reloads their source and captured environment, and runs them through the
+production fork VM constructor. Fixed cases retain anonymous and WAIF values
+held only by queued work across repeated reloads. Controls require the observer
+to detect a lost write, dropped queued work and changed verb code. Fixed world
+histories also compare two sufficient tick budgets; this is a supported-setting
+comparison, not an arbitrary performance threshold.
+
+`task/FuzzSuspensionCompletionHistory` drives real task APIs against a small model
+of suspension identities, accepted wake values, readiness consumption and terminal
+cancellation. It includes stale and duplicate completions and new-task lifetimes.
+A channel-coordinated cancellation/completion overlap runs under the task race
+check. Neither this overlap nor workload choice replay enumerates Go schedules.
+
+The existing Rapid map property now mixes integer, string, float and object keys,
+case-changing string overwrites, nested list/map values and retained snapshots.
+It checks insertion order, lookup, old versions and cached value sizes throughout
+the history. Its Go choice records remain Rapid inputs, not rendered MOO source.
+
 ## Import a larger local corpus
 
 Use the existing `lambdamoo-db-py` reader to extract verbs from additional
@@ -126,8 +156,10 @@ The next cycle restores a target's explicit public corpus cache across hosts.
 Native `fuzz-corpus-*` artifacts retain the corpus, provenance and census for
 30 days, including on failure. Toast differential replay waits for the entire
 native matrix and downloads that run's artifacts, so it cannot depend on matrix
-ordering or a shared workstation cache. It currently consumes raw VM/compiler
-source records; structured-choice decoding is a separate oracle change.
+ordering or a shared workstation cache. It consumes raw VM/compiler source and
+the existing structured source targets through their production renderer.
+World-history and task-history choices have their own replay producers and are
+not passed to that source decoder or the cross-engine lane.
 Artifacts expire and GitHub can evict caches: preserve confirmed findings with
 their regression fixes before expiry. The helper does not determine privacy
 from arbitrary input bytes; do not feed local private corpora to public jobs.

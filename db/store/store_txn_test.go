@@ -724,10 +724,17 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if errCode := store.DirectTxn().SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue override failed: %v", errCode)
 	}
+	owner, perms := types.ObjID(7), PropRead
+	if ec := store.DirectTxn().SetPropertyInfo(child, "a", &owner, &perms); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
 
 	tx := store.BeginSnapshot(0)
 	if errCode := tx.ClearPropertyOverride(child, "a"); errCode != types.E_NONE {
 		t.Fatalf("ClearPropertyOverride failed: %v", errCode)
+	}
+	if prop, found, ec := tx.LocalProperty(child, "a"); ec != types.E_NONE || !found || !prop.Clear || prop.Owner != owner || prop.Perms != perms {
+		t.Fatalf("clear lost transaction metadata: %+v found=%v error=%v", prop, found, ec)
 	}
 	txValue, errCode := tx.PropertyValue(child, "a")
 	if errCode != types.E_NONE {
@@ -746,6 +753,9 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 
 	if errCode := tx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if prop, found, ec := store.DirectTxn().LocalProperty(child, "a"); ec != types.E_NONE || !found || !prop.Clear || prop.Owner != owner || prop.Perms != perms {
+		t.Fatalf("clear lost committed metadata: %+v found=%v error=%v", prop, found, ec)
 	}
 	liveValue, errCode = store.DirectTxn().PropertyValue(child, "a")
 	if errCode != types.E_NONE {

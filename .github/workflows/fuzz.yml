@@ -83,6 +83,8 @@ jobs:
           - { package: ./server, target: FuzzTCPReadInput }
           - { package: ./builtins, target: FuzzStringBuiltins }
           - { package: ./vm, target: FuzzCheckpointResumeEquivalence }
+          - { package: ./vm, target: FuzzWorldCheckpointEffects }
+          - { package: ./task, target: FuzzSuspensionCompletionHistory }
           - { package: ./types, target: FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder }
     steps:
       - name: Check /dev/null is a device
@@ -157,8 +159,10 @@ jobs:
 
       - name: Capture public interesting inputs and execution census
         if: always()
+        env:
+          CAMPAIGN_OUTCOME: ${{ steps.campaign.outputs.cycle }}
         run: |
-          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign '${{ steps.campaign.outputs.cycle }}'
+          python3 scripts/fuzz_retention.py capture --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --head "$GITHUB_SHA" --go-version "$(go version)" --logs "$RUNNER_TEMP/fuzz-logs" --campaign "$CAMPAIGN_OUTCOME"
 
       - name: Upload retained corpus and native evidence
         if: always()

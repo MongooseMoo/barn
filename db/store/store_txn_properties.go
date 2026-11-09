@@ -611,10 +611,16 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 		return types.E_NONE
 	}
 	tx.markPropertyRead(objID, actualName, prop)
-	obj.properties.remove(actualName)
+	if prop.defined {
+		return types.E_INVARG
+	}
+	// Clearing changes only the value's source. The inherited slot still owns
+	// per-object permissions/ownership, which property_info and checkpoints need.
+	prop.value = types.None
+	prop.clear = true
+	obj.properties.put(actualName, prop)
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
-	delete(tx.propertyWrites, key)
-	delete(tx.propertyDefines, key)
-	lazySet(&tx.propertyDeletes, key, actualName)
+	delete(tx.propertyDeletes, key)
+	lazySet(&tx.propertyWrites, key, propertyWrite{name: actualName, value: prop.value, prop: prop})
 	return types.E_NONE
 }
