@@ -101,7 +101,7 @@ callers(1)
 **Signature:** `task_stack(task_id [, line_numbers [, include_vars]]) → LIST`
 
 **Description:** Returns the stack of a task waiting in suspend() (including
-one already resumed and not yet run), in read(), or on exec() (Toast
+one already resumed and not yet run), in read() or read_http(), or on exec() (Toast
 execute.cc bf_task_stack, tasks.cc find_suspended_task).
 
 **Parameters:**
@@ -219,7 +219,8 @@ resume(other_task, "wake up!");
 
 **Errors:**
 - E_INVARG: No task waiting in suspend() or already resumed has this ID
-  (including the current task, a task in read(), and a forked task not yet
+  (including the current task, a task in read() or read_http(), and a forked
+  task not yet
   started)
 - E_PERM: Caller is neither a wizard nor the programmer of the verb the task
   is suspended in
@@ -237,7 +238,8 @@ resume(other_task, "wake up!");
 - Otherwise the caller must be the programmer the task is checked against: the
   forking programmer for a fork not yet started, the programmer of the verb a
   suspended task is suspended in, the queue's programmer for a task waiting in
-  a background queue, or the connection's player for a task in read()
+  a background queue, or the connection's player for a task in read() or
+  read_http()
 
 **Examples:**
 ```moo
