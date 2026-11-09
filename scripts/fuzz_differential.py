@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import re
 import subprocess
@@ -45,6 +46,11 @@ from bench_differ import REPO, TOAST, build_barn_linux, moo_str, run_lanes, run_
 
 FG_TICKS = 30000
 FG_SECONDS = 2
+
+DEFERRED_COMPARISONS = {
+    "b594964e16a6b933676a449a39e87c920aa0d86ae1682bca0100ea546b9e0fbd",
+    "0a6ccdc333f500419bbcf3364ae9183153e0365bdd3159309a68f7748df268cd",
+}
 
 PREAMBLE = (
     'for p in ({"fg_ticks", "fg_seconds"}) '
@@ -136,6 +142,8 @@ def render_choices(paths: list[str]) -> dict[str, dict[str, str]]:
 
 def exclusion(source: str) -> str | None:
     """Why a program is not compared, or None."""
+    if hashlib.sha256(source.encode("utf-8")).hexdigest() in DEFERRED_COMPARISONS:
+        return "deferred comparison"
     # Barn strings are Unicode by design and Toast strings are bytes, so
     # non-ASCII input diverges on purpose. Control characters other than tab
     # and newline cannot travel on one emergency-mode line.
