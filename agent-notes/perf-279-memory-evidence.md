@@ -1,6 +1,16 @@
 # Issue 279: memory evidence and runtime string sharing
 
-> FINAL PUBLICATION IN PROGRESS. Implementation and valid measurements are complete; the final report/workflow change still requires publication CI and PR readiness. Do not end until those finish. The historical narrower completion claim below was wrong and remains superseded.
+> IMPLEMENTATION AND MEASUREMENT EVIDENCE COMPLETE. Live PR 671 owns publication status. Delivery requires its current-head CI, Elle and checkpoint workflows to succeed and the PR to be ready. This note is not permission to stop before those conditions hold. The earlier narrower completion claim below remains superseded.
+
+## Completed functional verification
+
+After provider recovery and the shared-runner queue, all functional publication checks completed successfully: CI run 42676906209 (build/unit 2m29s, conformance 11m42s), Elle run 42676905590 (7m7s), checkpoint run 42676905633 (4m43s), including their record steps. Conformance XML: 13,781 tests, zero failures/errors, 316 declared skips; local-regression XML: ten tests, zero failures/errors/skips, including the authored false-accept movement witness. Capability probes pass, and all persistence-related rows have no failure/error/skip. Final Elle healthy models are true for all three seeds, all 20 faults false, no zero coverage, parallel paths 805/800/806 and hot renewals 5/4/9. Checkpoint violations and errors are empty; all generation verdicts true with nonzero operations. Raw final archives are under C:/Users/Q/code/barn/.tmp/671-ci-final. The complete paired workload evidence remains in the report and its private directory; no additional production changes followed that comparison.
+
+This substantive proof/report update records the completed validation and removes stale active-task framing. Its own publication CI is tracked on PR 671. Query live readiness and all three current-head workflow conclusions before ending; mark ready only after green. No further implementation is pending, and no merge is authorized.
+
+## Historical publication delay and resumed-execution record
+
+The recovery instructions and earlier current-stage snapshot below describe the preceding execution, not outstanding implementation work. The completed validation above and live GitHub state supersede their pending-status language.
 
 Recovery and next action: at 18:43:24 UTC the provider reports Actions operational, incident monitoring, with the degradation mitigated. Publish the newly collected managed movement-witness evidence with this handoff update, then obtain all three successful current-head workflow conclusions and the final managed local-regression result. Mark PR 671 ready only afterward, verify live state and finish. The infrastructure failure below is historical; no check or production code was loosened. The Stop hook also verifies all three actual workflow conclusions, so empty or partial CheckRuns after a provider startup failure cannot count as green CI.
 

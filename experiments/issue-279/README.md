@@ -194,6 +194,34 @@ admission records are under `.tmp/conformance/{toast,barn}-move*` in the task
 worktree. These focused runs do not replace final PR CI. Final publication CI is
 tracked on PR 671; no experiment-only job or checkout override remains.
 
+### Completed functional publication verification
+
+After the provider outage and shared-runner queue, validation of source
+`d1d6a3b26661eadeb5eb3c10fc35949fea079b5a` completed successfully:
+
+| Workflow | Run | Result |
+| --- | --- | --- |
+| CI | [42676906209](https://github.com/MongooseMoo/barn/actions/runs/42676906209) | Build/unit 2m29s; conformance 11m42s; record step passed |
+| Elle | [42676905590](https://github.com/MongooseMoo/barn/actions/runs/42676905590) | Histories and negative controls 7m7s; record step passed |
+| Checkpoint | [42676905633](https://github.com/MongooseMoo/barn/actions/runs/42676905633) | Campaign 4m43s; record step passed |
+
+The final main XML records 13,781 tests, zero failures/errors and 316 declared
+skips. All capability admission probes pass, and no persistence-related row has a
+failure, error or skip. The local-regression XML records ten tests with zero
+failures/errors/skips, including
+`move_nonwizard_owner_false_accept_raises_nacc`.
+
+Final Elle archives contain true verdicts for both healthy models on seeds
+412/395/396, all 20 fault verdicts false, and no zero coverage. Parallel counts
+are 805/800/806; hot-renewal counts 5/4/9. Final checkpoint generations 1–8 have
+empty violation lists; generations 0–7 have true Elle verdicts and nonzero
+operations, with `errors=[]`. Raw archives/XML/admission evidence are retained at
+`C:/Users/Q/code/barn/.tmp/671-ci-final/`.
+
+This final proof publication changes documentation only. Its current-head check
+state and PR readiness are tracked live on PR 671; the production implementation
+and experiment settings are unchanged.
+
 ## Original checkpoint
 
 165,578,514 bytes; SHA-256
