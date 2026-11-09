@@ -1,6 +1,12 @@
 // The workflow owns scheduling; this validates its bounded dedicated selector.
 const GROUP = 'barn-bug-discovery';
 
+function campaign() {
+  const selected = process.env.FUZZ_CAMPAIGN || 'native-and-toast';
+  if (!['native-and-toast', 'native-only'].includes(selected)) throw new Error('Invalid fuzz campaign');
+  return selected;
+}
+
 function dedicated(config) {
   if (config.FUZZ_RUNNER_POLICY_VERIFIED !== 'true') throw new Error('Dedicated runner policy is not verified');
   const labels = JSON.parse(config.FUZZ_RUNNER_LABELS || 'null');
@@ -14,6 +20,7 @@ function dedicated(config) {
 }
 
 function configure({context, core}) {
+  const selected = campaign();
   const mode = process.env.COMPUTE_MODE;
   if (!['legacy', 'dedicated-once', 'dedicated-continuous'].includes(mode)) throw new Error('Invalid compute mode');
   let result;
@@ -28,7 +35,8 @@ function configure({context, core}) {
   }
   core.setOutput('runner', JSON.stringify(result.runner));
   core.setOutput('parallel', result.parallel);
-  core.info(JSON.stringify({mode, ...result}));
+  core.setOutput('campaign', selected);
+  core.info(JSON.stringify({mode, campaign: selected, ...result}));
 }
 
 const ACCEPT = 'Accept discovery cycle';
@@ -39,6 +47,7 @@ const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, ACCEPT]);
 // evidence. A saved finding or a real divergence leaves its job red and is
 // still accepted; setup, zero-work, inconclusive or missing evidence is not.
 async function accept({github, context, core}) {
+  const selected = campaign();
   const fs = require('node:fs');
   const path = require('node:path');
   const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
@@ -78,23 +87,33 @@ async function accept({github, context, core}) {
   const differential = jobs.find(job => job.name === DIFFERENTIAL);
   const resultsFile = 'fuzz-differential/results.json';
   const outcome = fs.existsSync(resultsFile) ? JSON.parse(fs.readFileSync(resultsFile, 'utf8')).summary?.outcome : undefined;
-  if (!differential || !['success', 'failure'].includes(differential.conclusion)) {
+  if (selected === 'native-only') {
+    if (differential?.conclusion !== 'skipped' || fs.existsSync(resultsFile)) {
+      problems.push(`${DIFFERENTIAL}: native-only requires a skipped comparison with no results`);
+    }
+  } else if (!differential || !['success', 'failure'].includes(differential.conclusion)) {
     problems.push(`${DIFFERENTIAL}: job ${differential?.conclusion ?? 'missing'}`);
   } else if (!onlyFailed(differential, 'Compare retained public source on Barn and Toast')) {
     problems.push(`${DIFFERENTIAL}: a step other than the comparison failed`);
   } else if (outcome !== (differential.conclusion === 'success' ? 'success' : 'divergence')) {
     problems.push(`${DIFFERENTIAL}: outcome ${outcome ?? 'missing'} with job ${differential.conclusion}`);
   }
-  core.info(JSON.stringify({lanes: lanes.length, differential: outcome ?? null, problems}));
+  core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
+    differential: selected === 'native-only' ? 'not-run-native-only' : outcome ?? null, problems}));
   if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
 }
 
 async function replenish({github, context, core}) {
   const source = context.payload.workflow_run;
+  const campaigns = new Map([
+    ['Nightly fuzz / dedicated-continuous', 'native-and-toast'],
+    ['Nightly fuzz / dedicated-continuous / native-only', 'native-only']
+  ]);
+  const selected = campaigns.get(source?.display_title);
   if (context.eventName !== 'workflow_run' || context.ref !== 'refs/heads/master' ||
       source?.event !== 'workflow_dispatch' || source.head_branch !== 'master' ||
       source.path !== '.github/workflows/fuzz.yml' || !['success', 'failure'].includes(source.conclusion) ||
-      source.display_title !== 'Nightly fuzz / dedicated-continuous' ||
+      !selected ||
       source.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
     throw new Error('Replenishment requires a completed trusted continuous dispatch');
   }
@@ -129,7 +148,7 @@ async function replenish({github, context, core}) {
   }
   await github.rest.actions.createWorkflowDispatch({
     ...context.repo, workflow_id: 'fuzz.yml', ref: 'master',
-    inputs: {'compute-mode': 'dedicated-continuous'}
+    inputs: {'compute-mode': 'dedicated-continuous', campaign: selected}
   });
   core.info('Submitted one dedicated successor');
 }
