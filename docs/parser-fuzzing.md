@@ -123,7 +123,9 @@ These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/4
 PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` gives each native
 target thirty minutes, with two Go fuzz workers per target. The default
 `legacy` mode preserves the workstation's 3:17 AM America/Denver task
-`Barn - Nightly fuzz`, its `CI_RUNNER_LABELS` hosted fallback and two-job cap.
+`Barn - Nightly fuzz` and its `CI_RUNNER_LABELS` hosted fallback. It allows
+the full matrix to schedule on available runners, up to GitHub's 256-job
+matrix limit, rather than imposing a smaller job cap.
 A failed job opens an issue with its
 run and artifact links; subsequent failures for the same target add those links
 to its existing open issue. Setup failures are reported separately from failed
