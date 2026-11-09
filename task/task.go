@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -337,6 +338,9 @@ func (s TaskState) finished() bool {
 // until that slice ends, so the state alone does not settle it.
 // The caller holds Mu.
 func (t *State) SettledLocked() bool {
+	if isolationprobe.Fault("finished-task-index") {
+		return t.Status.finished()
+	}
 	return t.Status.finished() && !t.executionActive
 }
 
