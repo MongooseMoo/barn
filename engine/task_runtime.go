@@ -308,7 +308,7 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
 	ctx.StoreTxn.SetCommitContext(taskCtx)
 	// The task's own row: a kill that committed since the last slice stops it,
 	// and a resume's value is what its suspend() returns. The attempt's commit
@@ -591,7 +591,7 @@ retryAttempt:
 	// take their next execution snapshot when the scheduler resumes them.
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
 	// Every suspension yields the commit gate along with execution. Everything
 	// after this point (completion hooks, the suspend hand-off, a failure-path
 	// txn that lives on) takes the gate normally. Checkpoint requests are
@@ -844,7 +844,7 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
+		ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, taskRuntimeIdentity(t)))
 	}
 	// Outside shutdown, the WAIFs queued above and the store's committed
 	// anonymous objects cover the ledger, which otherwise grows on every
@@ -856,12 +856,16 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	}
 	// Save VM state for later Resume() via the thread-safe setter, so a
 	// concurrently running sibling scanning saved VMs for orphan GC never races
-	// the write. The s.mu critical section additionally guards the suspend(0)-
-	// style heap re-queue below; lock order is s.mu then the task lock taken
-	// inside SetVM, matching collectSiblingGCRefs's read path.
+	// the write. Lock order is s.mu then the task lock taken inside SetVM,
+	// matching collectSiblingGCRefs's read path.
 	s.mu.Lock()
 	t.SetVM(bcVM)
-	if t.GetState() == task.TaskQueued {
+	queued := t.GetState() == task.TaskQueued
+	s.mu.Unlock()
+	// The physical execution lease still excludes this task from readiness.
+	// Publish the heap entry before releasing that lease, without holding the
+	// runtime mutex across a potentially long scheduler scan.
+	if queued {
 		// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
 		// Stamp it with the suspend moment so the task's ready time reflects
 		// when it yielded — otherwise it sorts by its original StartTime and
@@ -869,7 +873,6 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		// while it was running.
 		s.scheduler.RequeueYield(t, time.Now())
 	}
-	s.mu.Unlock()
 	// The task manager has already been notified via builtinSuspend
 	// Just return without setting state to Completed
 }

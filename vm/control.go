@@ -276,6 +276,7 @@ func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 			Codes:      codes,
 			VarIndex:   varIndex,
 			StackDepth: vm.SP,
+			ExceptBase: base + 1,
 		})
 	}
 
@@ -321,10 +322,21 @@ func (vm *VM) executeTryFinally(wide bool) error {
 	return nil
 }
 
+// pendingReason owns the reason for one currently executing cleanup.
+type pendingReason struct {
+	Kind         task.PendingReasonKind
+	FinallyIP    int
+	Value        types.Value
+	Error        error
+	TargetIP     int
+	HandlerDepth int
+	Stack        []types.Value
+}
+
 // executeEndFinally handles OP_END_FINALLY <finally_ip>.
 // This opcode appears twice in try/finally bytecode:
 // 1. After the try body (normal path): pop its matching handler from ExceptStack
-// 2. After the finally block: re-raise PendingError if set
+// 2. After cleanup: resume the reason owned by this cleanup, if any.
 func (vm *VM) executeEndFinally(wide bool) error {
 	frame := vm.CurrentFrame()
 
@@ -342,18 +354,71 @@ func (vm *VM) executeEndFinally(wide bool) error {
 		}
 	}
 
-	// This block's handler was already removed while unwinding. Re-raise the
-	// pending error without consuming an enclosing finally handler.
-	if frame.PendingError != nil {
-		err := frame.PendingError
-		frame.PendingError = nil
-		return err
+	count := len(frame.PendingReasons)
+	if count == 0 {
+		return nil
 	}
-	if frame.HasPendingReturn {
-		value := frame.PendingReturn
-		frame.HasPendingReturn = false
-		return vm.Return(value)
+	pending := frame.PendingReasons[count-1]
+	if pending.FinallyIP != finallyIP {
+		return nil
 	}
+	frame.PendingReasons[count-1] = pendingReason{}
+	frame.PendingReasons = frame.PendingReasons[:count-1]
+	switch pending.Kind {
+	case task.PendingError:
+		return pending.Error
+	case task.PendingReturn:
+		return vm.Return(pending.Value)
+	case task.PendingJump:
+		return vm.unwindJump(pending.TargetIP, pending.HandlerDepth, pending.Stack)
+	}
+	return fmt.Errorf("internal error: invalid pending cleanup reason")
+}
 
+// abandonPendingTo cancels only reasons whose cleanup body is being left.
+// A loop entirely inside cleanup must preserve the enclosing pending reason.
+func (vm *VM) abandonPendingTo(target int) {
+	frame := vm.CurrentFrame()
+	for index, pending := range frame.PendingReasons {
+		if !frame.Program.FinallyContains(pending.FinallyIP, target) {
+			for _, dropped := range frame.PendingReasons[index:] {
+				vm.collectPendingFinalizationsFromValue(dropped.Value)
+				visitErrorValue(dropped.Error, vm.collectPendingFinalizationsFromValue)
+				for _, value := range dropped.Stack {
+					vm.collectPendingFinalizationsFromValue(value)
+				}
+			}
+			clear(frame.PendingReasons[index:])
+			frame.PendingReasons = frame.PendingReasons[:index]
+			break
+		}
+	}
+}
+
+func (vm *VM) unwindJump(target, depth int, stack []types.Value) error {
+	frame := vm.CurrentFrame()
+	if depth < 0 || depth > len(frame.ExceptStack) {
+		return fmt.Errorf("internal error: unwind jump retains %d of %d handlers", depth, len(frame.ExceptStack))
+	}
+	for len(frame.ExceptStack) > depth {
+		index := len(frame.ExceptStack) - 1
+		handler := frame.ExceptStack[index]
+		frame.ExceptStack = frame.ExceptStack[:index]
+		if handler.Type == bytecode.HandlerFinally {
+			vm.abandonPendingTo(handler.HandlerIP)
+			frame.PendingReasons = append(frame.PendingReasons, pendingReason{
+				Kind: task.PendingJump, TargetIP: target, HandlerDepth: depth, FinallyIP: handler.HandlerIP, Stack: stack,
+			})
+			vm.SP = handler.StackDepth
+			frame.IP = handler.HandlerIP
+			return nil
+		}
+	}
+	vm.abandonPendingTo(target)
+	vm.SP = frame.BasePointer
+	for _, value := range stack {
+		vm.Push(value)
+	}
+	frame.IP = target
 	return nil
 }

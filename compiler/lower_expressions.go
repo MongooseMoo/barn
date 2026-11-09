@@ -214,6 +214,9 @@ func (c *lowerer) compileTernary(n *ir.TernaryExpr) error {
 
 	// Compile else branch
 	c.patchJump(elseJump)
+	if c.importLayout != nil {
+		c.importLayout.resetBranch(c)
+	}
 	if err := c.compileNode(n.ElseExpr); err != nil {
 		return err
 	}

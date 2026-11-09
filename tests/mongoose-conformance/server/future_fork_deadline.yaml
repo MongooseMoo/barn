@@ -1,0 +1,43 @@
+name: future_fork_deadline
+description: A queued fork preserves a deadline beyond signed 32-bit Unix time across restart.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, queued_tasks, kill_task, dump_database]
+  config: [managed_server]
+tests:
+  - name: future_fork_deadline_roundtrip
+    permission: wizard
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_future_fork_deadline", o, {player, ""});
+          add_property(o, "ran", 0, {player, ""});
+          add_property(o, "fork_id", 0, {player, ""});
+          add_property(o, "deadline", 0, {player, ""});
+          add_verb(o, {player, "rxd", "start"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "start", {"fork tid (2147483647)", "this.ran = 1;", "endfork", "return tid;"});
+          if (errors) raise(E_INVARG, "fork compile failed", errors); endif
+          o.fork_id = o:start();
+          for q in (queued_tasks()) if (q[1] == o.fork_id) o.deadline = q[2]; endif endfor
+          return {o.deadline > 2147483647, o.ran};
+        expect:
+          value: [1, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - run: |
+          o = #1.conformance_future_fork_deadline;
+          deadline = 0;
+          for q in (queued_tasks()) if (q[1] == o.fork_id) deadline = q[2]; endif endfor
+          return {deadline == o.deadline, o.ran};
+        expect:
+          value: [1, 0]
+    cleanup:
+      - run: |
+          o = #1.conformance_future_fork_deadline;
+          try kill_task(o.fork_id); except (E_INVARG) endtry
+          delete_property(#1, "conformance_future_fork_deadline");
+          recycle(o);
+          return 0;

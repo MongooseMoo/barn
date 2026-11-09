@@ -13,6 +13,9 @@ import (
 // emit adds an opcode to the bytecode
 func (c *lowerer) emit(op bytecode.OpCode) int {
 	pos := len(c.program.Code)
+	if c.importLayout != nil {
+		c.importLayout.emit(c, pos)
+	}
 	c.program.Code = append(c.program.Code, byte(op))
 	return pos
 }

@@ -143,6 +143,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		<-done
 	}
 
+	var readDeadline time.Time
 	for {
 		select {
 		case <-conn.ctx.Done():
@@ -152,11 +153,14 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 
 		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
 			if conn.IsLoggedIn() {
+				readDeadline = time.Time{}
 				_ = deadlineTransport.SetReadDeadline(time.Time{})
 			} else {
-				now := time.Now()
-				deadline := time.Unix(now.Unix()+int64(connectTimeout/time.Second)+1, 0)
-				_ = deadlineTransport.SetReadDeadline(deadline)
+				if readDeadline.IsZero() {
+					now := time.Now()
+					readDeadline = time.Unix(now.Unix()+int64(connectTimeout/time.Second)+1, 0)
+				}
+				_ = deadlineTransport.SetReadDeadline(readDeadline)
 			}
 		}
 
@@ -177,6 +181,11 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			line, err = conn.ReadLine()
 		}
 		if err != nil {
+			// Binary output can wake a reader even before authentication (Mongoose
+			// Telnet negotiation). Its early deadline is not a connect timeout.
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !readDeadline.IsZero() && time.Now().Before(readDeadline) {
+				continue
+			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
 				continue
 			}
@@ -198,6 +207,9 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			return
 		}
 
+		// Only actual input renews the unauthenticated idle timeout. A binary
+		// mode wake retries the same read deadline without extending it.
+		readDeadline = time.Time{}
 		received := time.Now()
 		diagnostic := metrics.NewCommand(conn.ID, int64(conn.inputPlayer()), received, p.commandContext)
 		size := len(line)

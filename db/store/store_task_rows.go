@@ -179,7 +179,7 @@ func (tx *StoreTxn) publishTaskRowsLocked() []PublishedTaskRow {
 // exclusively cannot lose to it.
 func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode types.ErrorCode) {
 	if !tx.gateExempt {
-		grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+		grant, err := tx.acquireSharedCommitGate()
 		if err != nil {
 			return nil, tx.markTerminal(types.E_INTRPT)
 		}

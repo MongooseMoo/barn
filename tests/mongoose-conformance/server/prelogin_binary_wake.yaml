@@ -1,0 +1,38 @@
+name: prelogin_binary_wake
+description: Mongoose Telnet output temporarily enables binary mode before login.
+requires:
+  config: [managed_server]
+  builtins: [set_connection_option, notify, read, suspend]
+tests:
+  - name: prelogin_binary_output_keeps_login_reader_alive
+    steps:
+      - restart_server: {reset_db: true}
+      - run: |
+          try add_property(#6, "trusted_proxies", {}, {player, "rw"}); except (E_INVARG) endtry
+          #6.trusted_proxies = {};
+          set_verb_code(#0, "do_login_command", {
+            "if (!argstr) return 0; endif",
+            "suspend(0);",
+            "try",
+            "set_connection_option(player, \"binary\", 1);",
+            "notify(player, \"~FF~FB~46\");",
+            "finally",
+            "set_connection_option(player, \"binary\", 0);",
+            "endtry",
+            "notify(player, \"login-prompt\");",
+            "line = read();",
+            "notify(player, \"login-read: \" + line);",
+            "return 0;"
+          });
+          return 1;
+        as: wizard
+        expect: {value: 1}
+      - new_connection: {capture: login_conn}
+      - send: {connection: login_conn, text: hello}
+        expect:
+          output: {contains: login-prompt}
+      - send: {connection: login_conn, text: answer}
+        expect:
+          output: {contains: "login-read: answer"}
+      - close_connection: login_conn
+      - restart_server: {reset_db: true}

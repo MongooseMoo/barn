@@ -58,11 +58,13 @@ class CleanupReportTests(unittest.TestCase):
             root = Path(root)
             source = root / "source.db"
             source.write_bytes(b"disposable test fixture")
+            sound = root / "sound.sqlite"
+            sound.write_bytes(b"sound catalog fixture")
             out = root / "run"
             server = Mock(identity={})
             server.start.side_effect = RuntimeError("startup failed")
             server.stop.side_effect = RuntimeError("ownership mismatch")
-            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--out", str(out)]),
+            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--sound", str(sound), "--out", str(out)]),
                   patch.object(bench, "load_login_script", return_value=("proxy", "user", "pass")),
                   patch.object(bench, "ToastServer", return_value=server),
                   patch.object(bench, "log")):
@@ -71,6 +73,108 @@ class CleanupReportTests(unittest.TestCase):
             self.assertEqual(report["error"], "RuntimeError: startup failed")
             self.assertEqual(report["cleanup_error"], "RuntimeError: ownership mismatch")
             self.assertTrue((out / "run.db").is_file())
+            self.assertEqual((out / "files" / "sqlite" / "sound.sqlite").read_bytes(), sound.read_bytes())
+            self.assertEqual(report["fixture"]["sound"]["sha256"], bench.sha256_file(sound))
+            self.assertEqual(report["fixture"]["sound"]["copy_sha256"], bench.sha256_file(sound))
+
+
+class BootstrapScheduleTests(unittest.TestCase):
+    def test_reads_schedule_from_native_producer_checkpoint(self):
+        checkpoint = bench.REPO_ROOT / "engine" / "testdata" / "toast-suspended-call.db"
+        self.assertEqual(bench.checkpoint_schedule(checkpoint),
+                         [["suspended", 1656954001, 1794030538, 0]])
+
+    def test_main_retains_bootstrap_failure_provenance_and_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.db"
+            source.write_bytes(b"original")
+            out = root / "run"
+            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--out", str(out)]),
+                  patch.object(bench, "load_login_script", return_value=None),
+                  patch.object(bench, "bootstrap_control_account", side_effect=RuntimeError("changed saved task scheduling")),
+                  patch.object(bench, "ToastServer") as server,
+                  patch.object(bench, "log")):
+                self.assertEqual(bench.main(), 1)
+            server.assert_not_called()
+            report = json.loads((out / "run.json").read_text())
+            self.assertEqual(report["fixture"]["sha256"], bench.sha256_file(source))
+            self.assertIn("changed saved task scheduling", report["error"])
+            self.assertEqual((out / "run.db").read_bytes(), b"original")
+
+    def bootstrap(self, root, before, after):
+        database = root / "run.db"
+        database.write_bytes(b"original")
+
+        def fake_wsl(*args, **kwargs):
+            if args[0] == "wslpath":
+                return args[-1]
+            if args[0] == "bash":
+                database.with_suffix(".db.boot").write_bytes(b"prepared")
+                return '=> {"bootstrap", "benchboot", 1}'
+            self.fail("bootstrap must not replace the original through WSL")
+
+        with (patch.object(bench, "checkpoint_schedule", side_effect=[before, after]),
+              patch.object(bench, "wsl", side_effect=fake_wsl)):
+            return bench.bootstrap_control_account(root, database, 7777)
+
+    def test_interrupted_bootstrap_retains_input_and_marks_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.db"
+            source.write_bytes(b"original")
+            out = root / "run"
+            with (patch.object(sys, "argv", ["bench", "--engine", "toast", "--db", str(source), "--out", str(out)]),
+                  patch.object(bench, "load_login_script", return_value=None),
+                  patch.object(bench, "bootstrap_control_account", side_effect=KeyboardInterrupt),
+                  patch.object(bench, "log")):
+                with self.assertRaises(KeyboardInterrupt):
+                    bench.main()
+            self.assertTrue((out / "run.db").is_file())
+            self.assertIn("KeyboardInterrupt", json.loads((out / "run.json").read_text())["error"])
+
+    def test_changed_deadline_preserves_original_and_rejected_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "changed saved task scheduling"):
+                self.bootstrap(root, [["queued", 1787475465, 109290153959993]],
+                               [["queued", 1787475465, 416145977]])
+            self.assertEqual((root / "run.db").read_bytes(), b"original")
+            self.assertEqual((root / "run.db.boot").read_bytes(), b"prepared")
+            self.assertFalse(json.loads((root / "bootstrap-schedule.json").read_text())["preserved"])
+
+    def test_dropped_task_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "changed saved task scheduling"):
+                self.bootstrap(Path(directory), [["suspended", 91, 2000000000, 0]], [])
+
+    def test_unchanged_schedule_accepts_prepared_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schedule = [["queued", 91, 2000000000]]
+            self.bootstrap(root, schedule, schedule)
+            self.assertEqual((root / "run.db").read_bytes(), b"prepared")
+
+
+class BarnDiagnosticLaunchTests(unittest.TestCase):
+    def test_runtime_diagnostic_capture_enables_debug_logging(self):
+        with tempfile.TemporaryDirectory() as root:
+            server = bench.BarnServer.__new__(bench.BarnServer)
+            server.run_dir = Path(root)
+            server.db_copy = Path(root) / "run.db"
+            server.exe = Path(root) / "barn.exe"
+            server.host, server.port = "127.0.0.1", 7777
+            server.identity = {}
+            with (patch.dict(os.environ, {"BARN_RUNTIME_DIAGNOSTICS": "1"}),
+                  patch.object(bench.subprocess, "Popen") as launch,
+                  patch.object(bench, "wait_port", return_value=0.0)):
+                try:
+                    server.start()
+                    command = launch.call_args.args[0]
+                    self.assertIn("--log-level", command)
+                    self.assertEqual(command[command.index("--log-level") + 1], "debug")
+                finally:
+                    server.log_file.close()
 
 
 class LinuxOwnershipTests(unittest.TestCase):
@@ -138,6 +242,16 @@ class ControlResultTests(unittest.TestCase):
         self.assertIsInstance(value["actor"], bench.MooObj)
         self.assertEqual(value["velocity"], [0.499909530400231, -0.866077630131976, 0.0])
         self.assertEqual(native, output)
+
+
+class LoginBracketTests(unittest.TestCase):
+    def test_welcome_before_switch_retries_dropped_bracket_commands(self):
+        conn = ScriptedConnection([None, bench.SUFFIX_TAG, bench.PREFIX_TAG, bench.SUFFIX_TAG])
+        bench.arm_bracket(conn)
+        self.assertEqual(conn.sent, [
+            f"OUTPUTPREFIX {bench.PREFIX_TAG}", f"OUTPUTSUFFIX {bench.SUFFIX_TAG}", "look",
+            f"OUTPUTPREFIX {bench.PREFIX_TAG}", f"OUTPUTSUFFIX {bench.SUFFIX_TAG}", "look",
+        ])
 
 
 class CommandCompletionTests(unittest.TestCase):

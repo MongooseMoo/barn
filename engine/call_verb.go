@@ -339,9 +339,6 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	defer func() { ctx.StoreTxn.Release() }()
 	ctx.StoreTxn.SetConflictLabel(objID, verbName)
 	ctx.Admission = scope
-	if scope != nil {
-		ctx.StoreTxn.SetCommitWaitObserver(scope.Waited)
-	}
 	ctx.RuntimeOptions = s.options
 	if ownership == vmOwnershipSweep {
 		ctx.TaskID = t.ID
@@ -360,6 +357,11 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 			s.taskManager.NotifyScheduleChange()
 		}()
 	}
+	hookIdentity := metrics.Identity{TaskID: ownerTaskID, This: int64(objID), Verb: verbName}
+	if ownership == vmOwnershipSweep {
+		hookIdentity.TaskID = t.ID
+	}
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, hookIdentity))
 
 	// Propagate the already-published ownership to nested registry hooks.
 	switch ownership {

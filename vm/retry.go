@@ -70,6 +70,7 @@ func copyRetryVM(source *VM) VM {
 		frame.Args = slices.Clone(original.Args)
 		frame.LoopStack = slices.Clone(original.LoopStack)
 		frame.ExceptStack = cloneHandlers(original.ExceptStack)
+		frame.PendingReasons = clonePendingReasons(original.PendingReasons)
 		frame.MoveContinuation = cloneMoveContinuation(original.MoveContinuation)
 		if original.RecycleContinuation != nil {
 			continuation := *original.RecycleContinuation
@@ -77,10 +78,6 @@ func copyRetryVM(source *VM) VM {
 			continuation.request.OldChildren = slices.Clone(continuation.request.OldChildren)
 			continuation.request.OldContents = slices.Clone(continuation.request.OldContents)
 			frame.RecycleContinuation = &continuation
-		}
-		if pending, ok := original.PendingError.(*VMException); ok {
-			cloned := *pending
-			frame.PendingError = &cloned
 		}
 		frame.localsOnStack = false
 		copy.pushFrame(frame)

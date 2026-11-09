@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -52,14 +53,15 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 	if n, scanErr := fmt.Sscanf(vmHeader, "%d %d %d %d", &top, &rootVector, &ready, &maxStack); scanErr != nil || n != 4 {
 		return nil, fmt.Errorf("parse VM header %q", vmHeader)
 	}
-	_ = rootVector
 	if top < 0 || top == math.MaxInt {
 		return nil, fmt.Errorf("invalid top activation %d", top)
 	}
 
 	vmSnapshot := &task.VMSnapshot{
-		MaxStackDepth: maxStack,
-		Frames:        make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
+		MaxStackDepth:    maxStack,
+		Frames:           make([]task.VMFrameSnapshot, 0, min(top+1, maxTrustedCount)),
+		NativeRootVector: rootVector,
+		NativeFunctionID: ready,
 	}
 	callStack := make([]types.ActivationFrame, 0, min(top+1, maxTrustedCount))
 	for i := 0; i <= top; i++ {
@@ -104,6 +106,10 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	if !strings.HasPrefix(version, "language version ") {
 		return frame, activation, fmt.Errorf("expected language version, got %q", version)
 	}
+	languageVersion, err := strconv.Atoi(strings.TrimPrefix(version, "language version "))
+	if err != nil {
+		return frame, activation, fmt.Errorf("parse language version %q: %w", version, err)
+	}
 	var source []string
 	for {
 		line, err := readLine(r)
@@ -132,15 +138,22 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		return frame, activation, fmt.Errorf("invalid runtime stack count %d", stackCount)
 	}
 	frame.Stack = make([]types.Value, 0, min(stackCount, maxTrustedCount))
+	operandTypes := make([]int, 0, min(stackCount, maxTrustedCount))
 	for i := 0; i < stackCount; i++ {
-		value, err := database.readValue(r)
+		kind, err := readInt(r)
+		if err != nil {
+			return frame, activation, fmt.Errorf("read runtime stack type %d: %w", i, err)
+		}
+		value, err := database.readValueAfterType(r, kind)
 		if err != nil {
 			return frame, activation, fmt.Errorf("read runtime stack value %d: %w", i, err)
 		}
 		frame.Stack = append(frame.Stack, value)
+		operandTypes = append(operandTypes, kind)
 	}
 
-	if _, err := database.readValue(r); err != nil {
+	sentinel, err := database.readValue(r)
+	if err != nil {
 		return frame, activation, fmt.Errorf("read activation sentinel: %w", err)
 	}
 	thisValue, err := database.readValue(r)
@@ -199,12 +212,17 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		return frame, activation, err
 	}
 	var pc, builtinPC, errorPC int
-	if n, scanErr := fmt.Sscanf(pcLine, "%d %d %d", &pc, &builtinPC, &errorPC); scanErr != nil || n < 2 {
+	n, scanErr := fmt.Sscanf(pcLine, "%d %d %d", &pc, &builtinPC, &errorPC)
+	if n < 2 || (scanErr != nil && scanErr != io.EOF) {
 		return frame, activation, fmt.Errorf("parse activation PC %q", pcLine)
 	}
-	_ = errorPC
+	if n == 2 {
+		errorPC = pc
+	}
+	var nativeBuiltin *task.NativeBuiltinSnapshot
 	if builtinPC != 0 {
-		if err := database.skipBiFuncData(r); err != nil {
+		nativeBuiltin, err = database.readNativeBuiltin(r)
+		if err != nil {
 			return frame, activation, err
 		}
 	}
@@ -215,11 +233,21 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 		metadata.Get(1).Type() == types.TYPE_STR &&
 		metadata.Get(1).Str() == barnVMFrameMarker
 	if isBarnFrame {
-		frame, err = decodeVMFrameMetadata(metadata)
+		frame, err = decodeVMFrameMetadata(metadata, pc)
 		if err != nil {
 			return frame, activation, err
 		}
 	} else {
+		frame.Native = &task.NativeFrameSnapshot{
+			LanguageVersion: languageVersion,
+			Programmer:      programmer,
+			ErrorPC:         errorPC,
+			OperandTypes:    operandTypes,
+			Sentinel:        sentinel,
+			Temporary:       metadata,
+			Builtin:         nativeBuiltin,
+		}
+		frame.BuiltinPC = builtinPC
 		frame.Program = bytecode.Program{
 			VarNames:  append([]string(nil), envNames...),
 			NumLocals: len(envNames),
@@ -315,7 +343,7 @@ func (database *Database) readOrderedRtEnv(r *bufio.Reader) ([]string, []types.V
 	return names, values, nil
 }
 
-func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
+func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, error) {
 	var frame task.VMFrameSnapshot
 	if value.Type() != types.TYPE_LIST || value.Len() < 15 || value.Get(1).Type() != types.TYPE_STR || value.Get(1).Str() != barnVMFrameMarker {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
@@ -424,32 +452,21 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 			VarIndex:   int(saved.Get(5).Int()),
 			StackDepth: int(saved.Get(6).Int()),
 		}
+		if saved.Len() >= 7 {
+			if saved.Get(7).Type() != types.TYPE_INT {
+				return frame, fmt.Errorf("invalid handler group base")
+			}
+			handler.ExceptBase = int(saved.Get(7).Int())
+		}
 		for j := 1; j <= codes.Len(); j++ {
 			handler.Codes[j-1] = types.ErrorCode(codes.Get(j).Int())
 		}
 		frame.ExceptStack[i-1] = handler
 	}
 
-	pending := value.Get(8)
-	// This list is Barn-private frame metadata, not a MOO exception tuple.
-	// Older checkpoints have three fields and leave the native origin unknown.
-	if pending.Type() != types.TYPE_LIST || (pending.Len() != 3 && pending.Len() != 4) {
-		return frame, fmt.Errorf("invalid pending error metadata")
-	}
-	frame.PendingError = task.VMErrorSnapshot{
-		Present: pending.Get(1).Truthy(),
-		Code:    types.ErrorCode(pending.Get(2).Int()),
-		Value:   pending.Get(3),
-	}
-	if pending.Len() == 4 {
-		reason := pending.Get(4)
-		if reason.Type() != types.TYPE_INT || reason.Int() < 0 || reason.Int() > int64(types.ExceptionReasonSecondsBudget) {
-			return frame, fmt.Errorf("invalid pending error reason")
-		}
-		frame.PendingError.Reason = types.ExceptionReason(reason.Int())
-	}
-	if !frame.PendingError.ValidExceptionReason() {
-		return frame, fmt.Errorf("invalid pending error reason")
+	legacyError, err := decodePendingError(value.Get(8))
+	if err != nil {
+		return frame, err
 	}
 	flags := value.Get(9)
 	frame.VerbDebug = flags.Get(1).Truthy()
@@ -479,11 +496,13 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 			}
 		}
 	}
+	var legacyReturn types.Value
+	hasLegacyReturn := false
 	if value.Len() >= 17 {
 		pendingReturn := value.Get(17)
 		if pendingReturn.Type() == types.TYPE_LIST && pendingReturn.Len() >= 2 {
-			frame.HasPendingReturn = pendingReturn.Get(1).Truthy()
-			frame.PendingReturn = pendingReturn.Get(2)
+			hasLegacyReturn = pendingReturn.Get(1).Truthy()
+			legacyReturn = pendingReturn.Get(2)
 		}
 	}
 	if value.Len() >= 18 {
@@ -501,7 +520,113 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 			}
 		}
 	}
+	frame.IP = pc
+	if err := decodePendingReasons(&frame, value, legacyError, hasLegacyReturn, legacyReturn); err != nil {
+		return frame, err
+	}
 	return frame, nil
+}
+
+func decodePendingError(value types.Value) (task.VMErrorSnapshot, error) {
+	var pending task.VMErrorSnapshot
+	if value.Type() != types.TYPE_LIST || (value.Len() != 3 && value.Len() != 4) {
+		return pending, fmt.Errorf("invalid pending error metadata")
+	}
+	pending = task.VMErrorSnapshot{Present: value.Get(1).Truthy(), Code: types.ErrorCode(value.Get(2).Int()), Value: value.Get(3)}
+	if value.Len() == 4 {
+		reason := value.Get(4)
+		if reason.Type() != types.TYPE_INT || reason.Int() < 0 || reason.Int() > int64(types.ExceptionReasonSecondsBudget) {
+			return pending, fmt.Errorf("invalid pending error reason")
+		}
+		pending.Reason = types.ExceptionReason(reason.Int())
+	}
+	if !pending.ValidExceptionReason() {
+		return pending, fmt.Errorf("invalid pending error reason")
+	}
+	return pending, nil
+}
+
+func decodePendingReasons(frame *task.VMFrameSnapshot, metadata types.Value, legacyError task.VMErrorSnapshot, hasReturn bool, legacyReturn types.Value) error {
+	returnOwner, errorOwner := 0, 0
+	canonical := false
+	if metadata.Len() >= 24 {
+		control := metadata.Get(24)
+		if control.Type() != types.TYPE_LIST {
+			return fmt.Errorf("invalid pending control state")
+		}
+		canonical = control.Len() == 2 && control.Get(1).Type() == types.TYPE_STR && control.Get(1).Str() == "pending-reasons-v1"
+		if canonical {
+			if legacyError.Present || hasReturn || control.Get(2).Type() != types.TYPE_LIST {
+				return fmt.Errorf("mixed or invalid pending control state")
+			}
+			for _, row := range control.Get(2).Elements() {
+				if row.Type() != types.TYPE_LIST || row.Len() != 7 || row.Get(1).Type() != types.TYPE_INT || row.Get(2).Type() != types.TYPE_INT || row.Get(5).Type() != types.TYPE_INT || row.Get(6).Type() != types.TYPE_INT || row.Get(7).Type() != types.TYPE_LIST {
+					return fmt.Errorf("invalid pending reason")
+				}
+				pendingError, err := decodePendingError(row.Get(4))
+				if err != nil {
+					return err
+				}
+				kind := task.PendingReasonKind(row.Get(1).Int())
+				if row.Get(1).Int() < int64(task.PendingReturn) || row.Get(1).Int() > int64(task.PendingJump) || (kind == task.PendingError) != pendingError.Present {
+					return fmt.Errorf("invalid pending reason kind or error")
+				}
+				frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: kind, FinallyIP: int(row.Get(2).Int()), Value: row.Get(3), Error: pendingError, TargetIP: int(row.Get(5).Int()), HandlerDepth: int(row.Get(6).Int()), Stack: append([]types.Value(nil), row.Get(7).Elements()...)})
+			}
+		} else {
+			if control.Len() != 3 || control.Get(1).Type() != types.TYPE_INT || control.Get(2).Type() != types.TYPE_INT || control.Get(3).Type() != types.TYPE_LIST {
+				return fmt.Errorf("invalid legacy pending control state")
+			}
+			returnOwner, errorOwner = int(control.Get(1).Int()), int(control.Get(2).Int())
+			for _, row := range control.Get(3).Elements() {
+				if row.Type() != types.TYPE_LIST || row.Len() != 4 || row.Get(1).Type() != types.TYPE_INT || row.Get(2).Type() != types.TYPE_INT || row.Get(3).Type() != types.TYPE_INT || row.Get(4).Type() != types.TYPE_LIST {
+					return fmt.Errorf("invalid legacy pending jump")
+				}
+				frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: task.PendingJump, TargetIP: int(row.Get(1).Int()), HandlerDepth: int(row.Get(2).Int()), FinallyIP: int(row.Get(3).Int()), Stack: append([]types.Value(nil), row.Get(4).Elements()...)})
+			}
+		}
+	}
+	if !canonical {
+		if legacyError.Present {
+			frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: task.PendingError, FinallyIP: errorOwner, Error: legacyError})
+		}
+		if hasReturn {
+			frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: task.PendingReturn, FinallyIP: returnOwner, Value: legacyReturn})
+		}
+		for index := range frame.PendingReasons {
+			pending := &frame.PendingReasons[index]
+			if pending.FinallyIP == 0 {
+				owners := frame.Program.FinallyOwnersAt(frame.IP)
+				if len(owners) != 1 {
+					return fmt.Errorf("unsupported legacy pending reason: ambiguous cleanup ownership")
+				}
+				pending.FinallyIP = owners[0]
+			}
+		}
+		// Order legacy records only by proven cleanup containment.
+		for i := 1; i < len(frame.PendingReasons); i++ {
+			for j := i; j > 0; j-- {
+				left, right := frame.PendingReasons[j-1].FinallyIP, frame.PendingReasons[j].FinallyIP
+				if left != right && frame.Program.FinallyContains(right, left) {
+					frame.PendingReasons[j-1], frame.PendingReasons[j] = frame.PendingReasons[j], frame.PendingReasons[j-1]
+				} else {
+					break
+				}
+			}
+		}
+	}
+	for index, pending := range frame.PendingReasons {
+		if !frame.Program.IsInstructionBoundary(pending.FinallyIP) || !frame.Program.FinallyContains(pending.FinallyIP, frame.IP) {
+			return fmt.Errorf("pending reason has no containing cleanup")
+		}
+		if index > 0 {
+			previous := frame.PendingReasons[index-1].FinallyIP
+			if previous == pending.FinallyIP || !frame.Program.FinallyContains(previous, pending.FinallyIP) {
+				return fmt.Errorf("unsupported pending reason history: ambiguous cleanup order")
+			}
+		}
+	}
+	return nil
 }
 
 // checkVMFrameShape rejects frame metadata whose fields decodeVMFrameMetadata

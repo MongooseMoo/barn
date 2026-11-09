@@ -217,6 +217,23 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 	return next, publishedWrites, types.E_NONE
 }
 
+// acquireSharedCommitGate accounts both object and task-row commit waits before
+// either path acquires publication locks.
+func (tx *StoreTxn) acquireSharedCommitGate() (*commitgate.Grant, error) {
+	started := time.Now()
+	grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+	if err != nil {
+		return nil, err
+	}
+	waited := time.Since(started)
+	tx.store.sharedGateWaits.Add(1)
+	tx.store.sharedGateWaitNS.Add(int64(waited))
+	if tx.gateWait != nil {
+		tx.gateWait(waited)
+	}
+	return grant, nil
+}
+
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil {
 		return types.E_NONE
@@ -255,16 +272,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// because its runtime already holds the gate exclusively. Outermost by
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
-		started := time.Now()
-		grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+		grant, err := tx.acquireSharedCommitGate()
 		if err != nil {
 			return tx.markTerminal(types.E_INTRPT)
-		}
-		waited := time.Since(started)
-		tx.store.sharedGateWaits.Add(1)
-		tx.store.sharedGateWaitNS.Add(int64(waited))
-		if tx.gateWait != nil {
-			tx.gateWait(waited)
 		}
 		defer grant.Release()
 	} else if !tx.exclusiveGrant.Owns(&tx.store.commitGate, commitgate.Exclusive) {

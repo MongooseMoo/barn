@@ -158,14 +158,14 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 			MaxStackDepth: 77,
 			Frames: []task.VMFrameSnapshot{{
 				Program: bytecode.Program{
-					Code:      []byte{byte(bytecode.OP_RETURN_NONE)},
+					Code:      []byte{byte(bytecode.OP_RETURN_NONE), byte(bytecode.OP_END_FINALLY_WIDE), 0, 0, 0, 1},
 					Constants: []types.Value{types.NewInt(91)},
 					VarNames:  []string{"zeta", "alpha"},
 					LineInfo:  []bytecode.LineEntry{{StartIP: 0, Line: 4}},
 					NumLocals: 2,
 					Source:    []string{"return;"},
 				},
-				IP:         0,
+				IP:         1,
 				Locals:     []types.Value{types.NewInt(1), types.Unbound},
 				Stack:      []types.Value{types.NewStr("operand")},
 				This:       7,
@@ -183,15 +183,14 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 					VarIndex:   1,
 					StackDepth: 1,
 				}},
-				PendingReturn:    types.NewInt(73),
-				HasPendingReturn: true,
-				VerbDebug:        true,
-				IsVerbCall:       true,
-				SavedThisObj:     9,
-				SavedThisValue:   types.NewObj(9),
-				SavedVerb:        "outer",
-				SavedProgrammer:  4,
-				SavedIsWizard:    true,
+				PendingReasons:  []task.PendingReasonSnapshot{{Kind: task.PendingReturn, FinallyIP: 1, Value: types.NewInt(73)}},
+				VerbDebug:       true,
+				IsVerbCall:      true,
+				SavedThisObj:    9,
+				SavedThisValue:  types.NewObj(9),
+				SavedVerb:       "outer",
+				SavedProgrammer: 4,
+				SavedIsWizard:   true,
 				MoveContinuation: &task.MoveContinuationSnapshot{
 					Stage:         2,
 					What:          types.NewObj(12),
@@ -254,8 +253,8 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 		!frame.MoveContinuation.Decentralized {
 		t.Fatalf("move continuation = %#v", frame.MoveContinuation)
 	}
-	if !frame.HasPendingReturn || !frame.PendingReturn.Equal(types.NewInt(73)) {
-		t.Fatalf("pending return = (%t, %v)", frame.HasPendingReturn, frame.PendingReturn)
+	if len(frame.PendingReasons) != 1 || !frame.PendingReasons[0].Value.Equal(types.NewInt(73)) {
+		t.Fatalf("pending return = %#v", frame.PendingReasons)
 	}
 	if frame.RecycleContinuation == nil || !frame.RecycleContinuation.Object.Equal(types.NewObj(20)) ||
 		!slices.Equal(frame.RecycleContinuation.OldParents, []types.ObjID{1, 2}) ||

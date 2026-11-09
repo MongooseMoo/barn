@@ -1,0 +1,64 @@
+name: nested_pending_cleanup
+description: Locally handled control inside cleanup preserves its enclosing pending reason.
+tests:
+  - name: nested_caught_cleanup_error_preserves_outer_error
+    permission: wizard
+    statement: |
+      try
+        try
+          raise(E_TYPE);
+        finally
+          try
+            try
+              raise(E_INVARG);
+            finally
+              x = 1;
+            endtry
+          except (E_INVARG)
+            x = 2;
+          endtry
+        endtry
+      except (E_TYPE)
+        return 73;
+      endtry
+      return 99;
+    expect:
+      value: 73
+  - name: local_break_cancels_inner_return_preserves_outer_return
+    permission: wizard
+    statement: |
+      try
+        return 73;
+      finally
+        for j in [1..1]
+          try
+            return 99;
+          finally
+            break;
+          endtry
+        endfor
+      endtry
+      return 42;
+    expect:
+      value: 73
+  - name: local_break_cancels_inner_return_preserves_outer_continue
+    permission: wizard
+    statement: |
+      seen = {};
+      for i in [1..2]
+        try
+          continue;
+        finally
+          for j in [1..1]
+            try
+              return 99;
+            finally
+              break;
+            endtry
+          endfor
+        endtry
+        seen = {@seen, "bad"};
+      endfor
+      return seen;
+    expect:
+      value: []

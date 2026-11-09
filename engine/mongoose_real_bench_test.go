@@ -435,9 +435,13 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if os.Getenv("BARN_MONGOOSE_BENCH") == "" {
 		t.Skip("set BARN_MONGOOSE_BENCH=1 to run the real-database mongoose workload")
 	}
+	if runtime.GOOS == "windows" && (runtime.Version() == "go1.27.0" || runtime.Version() == "go1.27.1") && runtime.SetMutexProfileFraction(-1) > 0 {
+		t.Fatal("Windows mutex profiling can deadlock GC on this Go toolchain (golang/go#80982); use Go 1.27.2 or newer, or capture a block profile and execution trace")
+	}
 	if dir := os.Getenv("BARN_MONGOOSE_LOG_DIR"); dir != "" {
 		priorLogger, priorLevel := slog.Default(), logging.Level.Level()
-		closeLog, err := logging.Setup(logging.Options{LevelStr: "debug", Dir: dir})
+		// Keep detailed diagnostics in JSON without flooding the cohort report.
+		closeLog, err := logging.Setup(logging.Options{LevelStr: "debug", Dir: dir, Stderr: io.Discard})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -515,6 +519,40 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
 	s := newRuntimeWithRegistry(store, opts, runtime.GOMAXPROCS(0), registry)
+	// Setup failures must stop the same runtime as a completed run.
+	defer s.Stop()
+	// Prepare the host, file sandbox and boot caches before restored tasks can
+	// execute, matching Server.LoadDatabase before InputProcessor.Start.
+	if err := os.Chdir(".."); err != nil {
+		t.Fatalf("chdir to repo root: %v", err)
+	}
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
+	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
+		if err := copyBenchFile(catalog, "files/sqlite/sound.sqlite"); err != nil {
+			t.Fatalf("install sound catalog: %v", err)
+		}
+		t.Logf("sound catalog: %s", catalog)
+	} else {
+		t.Logf("sound catalog: none (BARN_MONGOOSE_SOUND_DB unset); `say` will raise")
+	}
+	s.Session().LoadServerOptionsFromStore(store)
+	s.Session().LoadProtectedBuiltinsFromStore(store)
+	s.LoadQueuedTasks(database.QueuedTasks)
+	if err := s.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
+		t.Fatalf("restore checkpoint continuations before dispatch: %v", err)
+	}
+	queuedRestored, suspendedRestored := 0, 0
+	for _, saved := range database.QueuedTasks {
+		if saved != nil && s.GetTask(saved.ID) != nil {
+			queuedRestored++
+		}
+	}
+	for _, saved := range database.SuspendedTasks {
+		if saved != nil && s.GetTask(saved.Snapshot.ID) != nil {
+			suspendedRestored++
+		}
+	}
+	t.Logf("checkpoint tasks: queued restored=%d/%d suspended restored=%d/%d (see native restore warnings for omissions)", queuedRestored, len(database.QueuedTasks), suspendedRestored, len(database.SuspendedTasks))
 	// Mirror server/input_processor.go processRuntimeTick: the input processor
 	// drives the runtime's ready-task loop on a ticker. Nothing else runs a
 	// forked, suspended, or resumed task, so without this loop the fork(0)
@@ -553,15 +591,10 @@ func TestMongooseRealWorkload(t *testing.T) {
 			}
 		}
 	}()
-	// Setup failures must stop the same runtime/scheduler as a completed run.
-	defer s.Stop()
 	defer func() {
 		stopSched()
 		<-schedDone
 	}()
-	// Mirror server boot: this registry must load the snapshot it executes.
-	s.Session().LoadServerOptionsFromStore(store)
-	s.Session().LoadProtectedBuiltinsFromStore(store)
 
 	// Mirror server boot's #0:server_started (server.go callServerStarted) —
 	// it activates services including $sql_utils, which opens the SQLite
@@ -569,24 +602,6 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// "This database is not open" through #3882::execute, an error the
 	// production server only sees in the restart window. The boot conn
 	// manager must be installed FIRST: $prod() checks listeners().
-	// SQLite/fileio confine paths to a CWD-relative files/ sandbox, so run
-	// from the repo root like the production server does.
-	if err := os.Chdir(".."); err != nil {
-		t.Fatalf("chdir to repo root: %v", err)
-	}
-	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
-	// The deployment's sound catalog is not in this repo. Without it the
-	// server creates an empty files/sqlite/sound.sqlite and every `say` raises
-	// "no such table: AssetFiles" from the sound handler, so 30% of the mix
-	// measures #0:handle_uncaught_error instead of the command.
-	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
-		if err := copyBenchFile(catalog, "files/sqlite/sound.sqlite"); err != nil {
-			t.Fatalf("install sound catalog: %v", err)
-		}
-		t.Logf("sound catalog: %s", catalog)
-	} else {
-		t.Logf("sound catalog: none (BARN_MONGOOSE_SOUND_DB unset); `say` will raise")
-	}
 	if memStats {
 		t.Logf("memory MiB after load: %s", readMemSample(t, s))
 	}
@@ -1219,7 +1234,7 @@ func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold)
 	if sharedN > 0 {
 		sharedMean = sharedWait / time.Duration(sharedN)
 	}
-	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (exclusive acquire wait is the commit_gate phase)",
+	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (shared_commit_gate phase; exclusive acquire wait is commit_gate)",
 		sharedN, latStr(sharedWait), latStr(sharedMean))
 
 	a0, a1 := before.admission, after.admission

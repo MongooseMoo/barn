@@ -6,6 +6,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -46,8 +47,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			VerbLoc:             frame.VerbLoc,
 			Args:                append([]types.Value(nil), frame.Args...),
 			ExceptStack:         cloneHandlers(frame.ExceptStack),
-			PendingReturn:       frame.PendingReturn,
-			HasPendingReturn:    frame.HasPendingReturn,
+			PendingReasons:      snapshotPendingReasons(frame.PendingReasons),
 			VerbDebug:           frame.VerbDebug,
 			DiscardReturn:       frame.DiscardReturn,
 			ReturnLocal:         frame.ReturnLocal,
@@ -63,19 +63,6 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			SavedIsWizard:       frame.SavedIsWizard,
 			MoveContinuation:    cloneMoveContinuation(frame.MoveContinuation),
 			RecycleContinuation: snapshotRecycleContinuation(frame.RecycleContinuation),
-		}
-		if frame.PendingError != nil {
-			saved.PendingError.Present = true
-			saved.PendingError.Reason = exceptionReason(frame.PendingError)
-			switch pending := frame.PendingError.(type) {
-			case VMException:
-				saved.PendingError.Code = pending.Code
-				saved.PendingError.Value = pending.Value
-			case MooError:
-				saved.PendingError.Code = pending.Code
-			default:
-				saved.PendingError.Code = errorCode(frame.PendingError)
-			}
 		}
 		snapshot.Frames = append(snapshot.Frames, saved)
 	}
@@ -113,6 +100,11 @@ func RestoreVMSnapshot(
 	session *builtins.Session,
 	ctx *task.Context,
 ) (*VM, error) {
+	var err error
+	snapshot, err = convertNativeSnapshot(snapshot, store, session)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateVMSnapshot(snapshot); err != nil {
 		return nil, err
 	}
@@ -149,8 +141,7 @@ func RestoreVMSnapshot(
 			VerbLoc:             saved.VerbLoc,
 			Args:                append([]types.Value(nil), saved.Args...),
 			ExceptStack:         cloneHandlers(saved.ExceptStack),
-			PendingReturn:       saved.PendingReturn,
-			HasPendingReturn:    saved.HasPendingReturn,
+			PendingReasons:      restorePendingReasons(saved.PendingReasons),
 			VerbDebug:           saved.VerbDebug,
 			DiscardReturn:       saved.DiscardReturn,
 			ReturnLocal:         saved.ReturnLocal,
@@ -169,13 +160,6 @@ func RestoreVMSnapshot(
 		}
 		if n := len(machine.Frames); n > 0 && savesContext(frame) {
 			frame.SavedThreadMode = snapshot.Frames[n-1].ThreadMode
-		}
-		if saved.PendingError.Present {
-			frame.PendingError = VMException{
-				Code:   saved.PendingError.Code,
-				Value:  saved.PendingError.Value,
-				Reason: saved.PendingError.Reason,
-			}
 		}
 		machine.Frames = append(machine.Frames, frame)
 		if recycleContinuation != nil {
@@ -203,6 +187,51 @@ func RestoreVMSnapshot(
 	return machine, nil
 }
 
+func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, session *builtins.Session) (*task.VMSnapshot, error) {
+	if snapshot == nil || len(snapshot.Frames) == 0 || snapshot.Frames[0].Native == nil {
+		return snapshot, nil
+	}
+	if session == nil || store == nil {
+		return nil, fmt.Errorf("native continuation import requires a store and builtin session")
+	}
+	if snapshot.NativeFunctionID != 0 {
+		return nil, fmt.Errorf("unsupported native VM function continuation %d", snapshot.NativeFunctionID)
+	}
+	converted := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
+	previousCall := compiler.NativeResumeVerb
+	stackBase := 0
+	for index, saved := range snapshot.Frames {
+		if saved.Native == nil {
+			return nil, fmt.Errorf("mixed native and Barn activation encodings")
+		}
+		vector := -1
+		if index == 0 {
+			vector = snapshot.NativeRootVector
+		}
+		frame, call, err := session.Registry().Compiler().ConvertNativeFrame(saved, vector, index == len(snapshot.Frames)-1)
+		if err != nil {
+			return nil, fmt.Errorf("native frame %d: %w", index, err)
+		}
+		frame.IsVerbCall = previousCall == compiler.NativeResumeVerb || previousCall == compiler.NativeResumePass
+		frame.IsEvalFrame = previousCall == compiler.NativeResumeEval
+		if index != 0 {
+			parent := snapshot.Frames[index-1]
+			frame.SavedThisObj = parent.This
+			frame.SavedThisValue = parent.ThisValue
+			frame.SavedVerb = parent.Verb
+			frame.SavedProgrammer = parent.Native.Programmer
+			frame.SavedIsWizard, _ = store.DirectTxn().HasObjectFlag(parent.Native.Programmer, dbstore.FlagWizard)
+		}
+		for handlerIndex := range frame.ExceptStack {
+			frame.ExceptStack[handlerIndex].StackDepth += stackBase
+		}
+		stackBase += len(frame.Stack)
+		converted.Frames[index] = frame
+		previousCall = call
+	}
+	return converted, nil
+}
+
 func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	if snapshot == nil || len(snapshot.Frames) == 0 {
 		return fmt.Errorf("empty VM snapshot")
@@ -214,9 +243,6 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 	stackBase := 0
 	for frameIndex := range snapshot.Frames {
 		saved := &snapshot.Frames[frameIndex]
-		if !saved.PendingError.ValidExceptionReason() {
-			return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
-		}
 		heights, err := bytecode.StackHeights(&saved.Program)
 		if err != nil {
 			return fmt.Errorf("frame %d: %w", frameIndex, err)
@@ -244,6 +270,33 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 			return fmt.Errorf("frame %d: invalid caller result local", frameIndex)
 		}
 		stackEnd := stackBase + len(saved.Stack)
+		for index, pending := range saved.PendingReasons {
+			if !saved.Program.IsInstructionBoundary(pending.FinallyIP) || !saved.Program.FinallyContains(pending.FinallyIP, saved.IP) {
+				return fmt.Errorf("frame %d: pending cleanup owner does not contain saved IP", frameIndex)
+			}
+			if index != 0 && (saved.PendingReasons[index-1].FinallyIP == pending.FinallyIP || !saved.Program.FinallyContains(saved.PendingReasons[index-1].FinallyIP, pending.FinallyIP)) {
+				return fmt.Errorf("frame %d: pending cleanup reasons are not nested", frameIndex)
+			}
+			if !pending.Error.ValidExceptionReason() {
+				return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+			}
+			switch pending.Kind {
+			case task.PendingError:
+				if !pending.Error.Present || !pending.Error.ValidExceptionReason() {
+					return fmt.Errorf("frame %d: invalid pending error reason", frameIndex)
+				}
+			case task.PendingReturn:
+				if pending.Error.Present {
+					return fmt.Errorf("frame %d: return has pending error", frameIndex)
+				}
+			case task.PendingJump:
+				if pending.Error.Present || pending.HandlerDepth < 0 || pending.HandlerDepth > len(saved.ExceptStack) || !saved.Program.IsInstructionBoundary(pending.TargetIP) || heights[pending.TargetIP] != len(pending.Stack) {
+					return fmt.Errorf("frame %d: invalid pending loop transfer", frameIndex)
+				}
+			default:
+				return fmt.Errorf("frame %d: invalid pending cleanup reason kind", frameIndex)
+			}
+		}
 		for handlerIndex, handler := range saved.ExceptStack {
 			if handler.Type != bytecode.HandlerExcept && handler.Type != bytecode.HandlerFinally {
 				return fmt.Errorf("frame %d handler %d: invalid handler type %d", frameIndex, handlerIndex, handler.Type)
@@ -256,6 +309,9 @@ func validateVMSnapshot(snapshot *task.VMSnapshot) error {
 			}
 			if handler.VarIndex < -1 || handler.VarIndex >= saved.Program.NumLocals {
 				return fmt.Errorf("frame %d handler %d: local index %d outside program locals", frameIndex, handlerIndex, handler.VarIndex)
+			}
+			if handler.ExceptBase < 0 || handler.ExceptBase > handlerIndex+1 {
+				return fmt.Errorf("frame %d handler %d: invalid handler group base", frameIndex, handlerIndex)
 			}
 			if handler.StackDepth < stackBase || handler.StackDepth > stackEnd {
 				return fmt.Errorf("frame %d handler %d: stack depth %d outside [%d,%d]", frameIndex, handlerIndex, handler.StackDepth, stackBase, stackEnd)
@@ -285,6 +341,50 @@ func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveConti
 	}
 	cloned := *state
 	return &cloned
+}
+
+func clonePendingReasons(pending []pendingReason) []pendingReason {
+	if pending == nil {
+		return nil
+	}
+	copy := append([]pendingReason(nil), pending...)
+	for index := range copy {
+		copy[index].Stack = append([]types.Value(nil), pending[index].Stack...)
+		if original, ok := pending[index].Error.(*VMException); ok {
+			cloned := *original
+			copy[index].Error = &cloned
+		}
+	}
+	return copy
+}
+
+func snapshotPendingReasons(pending []pendingReason) []task.PendingReasonSnapshot {
+	result := make([]task.PendingReasonSnapshot, len(pending))
+	for index, reason := range pending {
+		result[index] = task.PendingReasonSnapshot{Kind: reason.Kind, FinallyIP: reason.FinallyIP, Value: reason.Value, TargetIP: reason.TargetIP, HandlerDepth: reason.HandlerDepth, Stack: append([]types.Value(nil), reason.Stack...)}
+		if reason.Error != nil {
+			encoded := &result[index].Error
+			encoded.Present, encoded.Reason, encoded.Code = true, exceptionReason(reason.Error), errorCode(reason.Error)
+			switch value := reason.Error.(type) {
+			case VMException:
+				encoded.Value = value.Value
+			case *VMException:
+				encoded.Value = value.Value
+			}
+		}
+	}
+	return result
+}
+
+func restorePendingReasons(pending []task.PendingReasonSnapshot) []pendingReason {
+	result := make([]pendingReason, len(pending))
+	for index, reason := range pending {
+		result[index] = pendingReason{Kind: reason.Kind, FinallyIP: reason.FinallyIP, Value: reason.Value, TargetIP: reason.TargetIP, HandlerDepth: reason.HandlerDepth, Stack: append([]types.Value(nil), reason.Stack...)}
+		if reason.Error.Present {
+			result[index].Error = VMException{Code: reason.Error.Code, Value: reason.Error.Value, Reason: reason.Error.Reason}
+		}
+	}
+	return result
 }
 
 func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContinuationSnapshot {

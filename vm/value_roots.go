@@ -34,10 +34,13 @@ func (frame *StackFrame) visitValues(visit valueVisitor) {
 	}
 	visit(frame.ThisValue, valueRootLive)
 	visit(frame.SavedThisValue, valueRootLive)
-	if frame.HasPendingReturn {
-		visit(frame.PendingReturn, valueRootLive)
+	for _, pending := range frame.PendingReasons {
+		visit(pending.Value, valueRootLive)
+		visitErrorValue(pending.Error, func(value types.Value) { visit(value, valueRootLive) })
+		for _, value := range pending.Stack {
+			visit(value, valueRootLive)
+		}
 	}
-	visitErrorValue(frame.PendingError, func(value types.Value) { visit(value, valueRootLive) })
 	for _, loop := range frame.LoopStack {
 		if value, ok := loop.Iterator.(types.Value); ok {
 			visit(value, valueRootLive)
@@ -86,15 +89,20 @@ func (frame *StackFrame) visitFinalizableCandidates(visit func(types.Value)) {
 	if frame.SavedThisValue.MayHoldFinalizable() {
 		visit(frame.SavedThisValue)
 	}
-	if frame.HasPendingReturn && frame.PendingReturn.MayHoldFinalizable() {
-		visit(frame.PendingReturn)
-	}
-	if frame.PendingError != nil {
-		visitErrorValue(frame.PendingError, func(value types.Value) {
+	for _, pending := range frame.PendingReasons {
+		if pending.Value.MayHoldFinalizable() {
+			visit(pending.Value)
+		}
+		visitErrorValue(pending.Error, func(value types.Value) {
 			if value.MayHoldFinalizable() {
 				visit(value)
 			}
 		})
+		for _, value := range pending.Stack {
+			if value.MayHoldFinalizable() {
+				visit(value)
+			}
+		}
 	}
 	for _, loop := range frame.LoopStack {
 		if value, ok := loop.Iterator.(types.Value); ok && value.MayHoldFinalizable() {

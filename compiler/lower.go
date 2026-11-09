@@ -28,6 +28,7 @@ type lowerer struct {
 	variables            map[string]int       // Source variable name -> index mapping
 	internalVariables    map[string]int       // Compiler-only local name -> index mapping
 	loops                []loopContext        // Loop context stack for break/continue
+	handlerDepth         int                  // Active handlers in the current activation
 	tempCount            int                  // Counter for unique temporary variable names
 	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
 	registry             map[string]int       // Immutable builtin name-to-ID view
@@ -35,6 +36,7 @@ type lowerer struct {
 	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
 	lastLine             int                  // Last emitted line number for LineInfo deduplication
 	err                  error                // First overflow/limit error; checked at Compile boundaries
+	importLayout         *barnImportLayout    // Set only while converting a native checkpoint.
 }
 
 func newLowerer(registry map[string]int) *lowerer {
@@ -121,6 +123,10 @@ func (c *lowerer) compileNode(node ir.Node) error {
 	// Program validation supplies non-nil nodes; keep this internal guard.
 	if node == nil {
 		return fmt.Errorf("nil semantic node")
+	}
+	if c.importLayout != nil {
+		finish := c.importLayout.enter(c, node)
+		defer finish()
 	}
 
 	// Track source line for runtime error reporting

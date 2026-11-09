@@ -1,0 +1,59 @@
+name: range_bound_evaluation
+description: Range bounds evaluate from left to right before binding the loop variable, including suspension in the lower bound.
+requires:
+  builtins: [create, recycle, add_property, delete_property, add_verb, set_verb_code, suspend, dump_database]
+  config: [managed_server]
+tests:
+  - name: range_bound_order_and_suspended_lower_bound
+    permission: wizard
+    timeout_ms: 30000
+    steps:
+      - run: |
+          o = create($nothing);
+          add_property(#1, "conformance_range_bound_evaluation", o, {player, ""});
+          add_property(o, "trace", {}, {player, ""});
+          add_property(o, "sum", 0, {player, ""});
+          add_property(o, "done", 0, {player, ""});
+          add_verb(o, {player, "rxd", "bound"}, {"this", "none", "this"});
+          errors = set_verb_code(o, "bound", {"this.trace = {@this.trace, args[1]};", "if (args[3]) suspend(20); endif", "return args[2];"});
+          if (errors) raise(E_INVARG, "bound compile failed", errors); endif
+          i = 99;
+          for i in [o:bound("start", 1, 0)..o:bound(tostr(i), 2, 0)] endfor
+          return o.trace;
+        expect:
+          value: ["start", "99"]
+      - run: |
+          o = #1.conformance_range_bound_evaluation;
+          o.trace = {};
+          fork (0)
+            for i in [o:bound("start", 1, 1)..o:bound("end", 2, 0)] o.sum = o.sum + i; endfor
+            o.done = o.done + 1;
+          endfork
+          return 0;
+        expect:
+          value: 0
+      - wait: 500
+      - run: |
+          o = #1.conformance_range_bound_evaluation;
+          return {o.trace, o.sum, o.done};
+        expect:
+          value: [["start"], 0, 0]
+      - run: "return dump_database();"
+        expect:
+          value: 0
+      - wait: 8000
+      - restart_server:
+          wait_ms: 300
+          checkpoint_timeout_ms: 5000
+      - wait: 14000
+      - run: |
+          o = #1.conformance_range_bound_evaluation;
+          return {o.trace, o.sum, o.done};
+        expect:
+          value: [["start", "end"], 3, 1]
+    cleanup:
+      - run: |
+          o = #1.conformance_range_bound_evaluation;
+          delete_property(#1, "conformance_range_bound_evaluation");
+          recycle(o);
+          return 0;
