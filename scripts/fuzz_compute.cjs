@@ -131,19 +131,22 @@ async function replenish({github, context, core}) {
   if (!sourceJobs.some(job => job.name === ACCEPT && job.conclusion === 'success')) {
     throw new Error('The source cycle was not accepted; continuous discovery stops here');
   }
+  // Only dedicated cycles compete with a successor: legacy runs (the nightly
+  // workstation dispatch) use their own concurrency group and runner pool.
+  const dedicatedRun = run => run.display_title?.startsWith('Nightly fuzz / dedicated-');
   const {data: latest} = await github.rest.actions.listWorkflowRuns({
-    ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', per_page: 1
+    ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', per_page: 100
   });
-  if (latest.workflow_runs[0]?.id !== source.id) {
-    core.info('A newer fuzz dispatch exists; no successor submitted');
+  if (latest.workflow_runs.find(dedicatedRun)?.id !== source.id) {
+    core.info('A newer dedicated fuzz dispatch exists; no successor submitted');
     return;
   }
   for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
     const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
       ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', status, per_page: 100
     });
-    if (runs.some(run => run.id !== context.runId)) {
-      core.info('Another fuzz cycle already exists; no successor submitted');
+    if (runs.some(run => run.id !== context.runId && dedicatedRun(run))) {
+      core.info('Another dedicated fuzz cycle already exists; no successor submitted');
       return;
     }
   }

@@ -18,6 +18,8 @@ SOURCE = {"id": 10, "event": "workflow_dispatch", "head_branch": "master",
           "display_title": "Nightly fuzz / dedicated-continuous",
           "head_repository": {"full_name": "test/barn"}}
 ACCEPTED = [{"name": "Accept discovery cycle", "conclusion": "success"}]
+DEDICATED_CYCLE = {"id": 11, "display_title": "Nightly fuzz / dedicated-continuous"}
+LEGACY_CYCLE = {"id": 12, "display_title": "Nightly fuzz / legacy"}
 COMPARE = "Compare retained public source on Barn and Toast"
 
 
@@ -41,7 +43,8 @@ const context = {repo: {owner:'test',repo:'barn'}, ref:input.ref, runId:20,
  eventName: input.method === 'configure' ? 'workflow_dispatch' : 'workflow_run', payload: {workflow_run:input.source}};
 const github = {paginate: async (method,args) => {calls.push(args); return args.run_id ? input.jobs : input.active;}, rest: {actions: {
  listJobsForWorkflowRun: async () => ({}),
- listWorkflowRuns: async args => {calls.push(args); return {data:{workflow_runs:[{id:input.latest}]}};},
+ listWorkflowRuns: async args => {calls.push(args); return {data:{workflow_runs:Array.isArray(input.latest)
+  ? input.latest : [{id:input.latest, display_title:'Nightly fuzz / dedicated-continuous'}]}};},
  createWorkflowDispatch: async args => calls.push({dispatch:args})
 }}};
 Promise.resolve().then(() => require(input.module)[input.method]({github,context,core}))
@@ -106,16 +109,26 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 self.assertEqual([dispatch["inputs"] for dispatch in dispatches], [
                     {"compute-mode": "dedicated-continuous", "campaign": "native-only"}])
         for kwargs in ({"env": {**CONFIG, "FUZZ_CONTINUOUS_ENABLED": "false"}},
-                       {"active": [{"id": 11}]}, {"latest": 11}, {"jobs": []}):
+                       {"active": [DEDICATED_CYCLE]}, {"latest": 11}, {"jobs": []}):
             result = self.execute(source=source, **kwargs)
             self.assertFalse(any("dispatch" in call for call in result["calls"]))
 
     def test_stop_switch_and_existing_or_newer_cycle_prevent_dispatch(self):
         results = [self.execute(env={**CONFIG, "FUZZ_CONTINUOUS_ENABLED": "false"}),
-                   self.execute(active=[{"id": 11}]), self.execute(latest=11)]
+                   self.execute(active=[DEDICATED_CYCLE]), self.execute(latest=11)]
         self.assertEqual(results[0]["calls"], [])
         for result in results:
             self.assertFalse(any("dispatch" in call for call in result["calls"]))
+
+    def test_nightly_legacy_run_does_not_end_the_continuous_chain(self):
+        # The workstation's nightly legacy dispatch is newer than the finished
+        # cycle and still running; it uses another pool, so a successor follows.
+        result = self.execute(active=[LEGACY_CYCLE], latest=[LEGACY_CYCLE, {**SOURCE}])
+        self.assertNotIn("error", result)
+        self.assertEqual(len([call for call in result["calls"] if "dispatch" in call]), 1)
+        # A newer dedicated dispatch behind a legacy one still prevents it.
+        result = self.execute(latest=[LEGACY_CYCLE, DEDICATED_CYCLE, {**SOURCE}])
+        self.assertFalse(any("dispatch" in call for call in result["calls"]))
 
     def test_accepted_cycle_with_a_finding_replenishes(self):
         result = self.execute(source={**SOURCE, "conclusion": "failure"})
