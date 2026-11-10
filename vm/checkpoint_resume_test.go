@@ -130,7 +130,7 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 			differences = append(differences, fmt.Sprintf("task %d: uninterrupted %s, checkpointed %s", i+1, describeTaskResult(plain[i]), describeTaskResult(resumed[i])))
 		}
 	}
-	if !plainState.Identical(resumedState) {
+	if !sameCheckpointedValue(plainState, resumedState) {
 		differences = append(differences, fmt.Sprintf("persistent state: uninterrupted %s, checkpointed %s", plainState, resumedState))
 	}
 	return strings.Join(differences, "; "), ""
@@ -211,7 +211,43 @@ func observePersistentState(t *testing.T, store *dbstore.Store, session *builtin
 }
 
 func sameTaskResult(a, b types.Result) bool {
-	return a.Flow == b.Flow && a.Error == b.Error && a.Reason == b.Reason && a.Val.Identical(b.Val)
+	return a.Flow == b.Flow && a.Error == b.Error && a.Reason == b.Reason && sameCheckpointedValue(a.Val, b.Val)
+}
+
+// sameCheckpointedValue is Identical, except that maps compare their pairs in
+// traversal order rather than insertion order. A checkpoint writes a map's
+// pairs in traversal order and the load inserts them in that order, as Toast's
+// dbio_write_var (mapforeach) and dbio_read_var (mapinsert) do, so a map
+// survives a checkpoint with its traversal order, not its insertion order.
+func sameCheckpointedValue(a, b types.Value) bool {
+	if a.Type() != b.Type() {
+		return false
+	}
+	switch a.Type() {
+	case types.TYPE_LIST:
+		if a.Len() != b.Len() {
+			return false
+		}
+		for i := 1; i <= a.Len(); i++ {
+			if !sameCheckpointedValue(a.Get(i), b.Get(i)) {
+				return false
+			}
+		}
+		return true
+	case types.TYPE_MAP:
+		ap, bp := a.Pairs(), b.Pairs()
+		if len(ap) != len(bp) {
+			return false
+		}
+		for i := range ap {
+			if !sameCheckpointedValue(ap[i][0], bp[i][0]) || !sameCheckpointedValue(ap[i][1], bp[i][1]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a.Identical(b)
+	}
 }
 
 func describeTaskResult(result types.Result) string {
