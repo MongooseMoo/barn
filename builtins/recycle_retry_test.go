@@ -12,7 +12,7 @@ func TestRecycleContinuationKeepsGuardWhenValidationRequestsRetry(t *testing.T) 
 		t.Fatal("fixture did not reserve object")
 	}
 	defer endRecycle(ctx, 345)
-	ctx.BeforeIrreversibleEffect = func() bool { ctx.ConflictRetryRequested = true; return true }
+	ctx.BeforeIrreversibleEffect = func(string) bool { ctx.ConflictRetryRequested = true; return true }
 	result := FinishRecycleLifecycle(ctx, RecycleLifecycleRequest{Object: types.NewObj(345)}, types.Err(types.E_INVARG))
 	if result.Flow != types.FlowAbortAttempt || ctx.IrreversibleSideEffect {
 		t.Fatalf("result=%+v irreversible=%v", result, ctx.IrreversibleSideEffect)

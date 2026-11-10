@@ -18,6 +18,47 @@ func waitQueued(t *testing.T, g *Gate, n int) {
 	}
 }
 
+// An exclusive request records the labelled owner and the requests queued in
+// front of it; a shared request granted at once is not blocked, one queued
+// behind the exclusive owner is.
+func TestGrantRecordsAheadAndBlocked(t *testing.T) {
+	var g Gate
+	holder, _ := g.AcquireLabeled(context.Background(), Exclusive, "#9655:arm by #0:bf_exec exec()")
+	shared := make(chan *Grant, 1)
+	go func() { r, _ := g.Acquire(context.Background(), Shared); shared <- r }()
+	waitQueued(t, &g, 1)
+	queuedWriter := make(chan *Grant, 1)
+	go func() {
+		r, _ := g.AcquireLabeled(context.Background(), Exclusive, "#2:say by retry budget spent")
+		queuedWriter <- r
+	}()
+	waitQueued(t, &g, 2)
+	last := make(chan *Grant, 1)
+	go func() { r, _ := g.AcquireLabeled(context.Background(), Exclusive, "last"); last <- r }()
+	waitQueued(t, &g, 3)
+
+	holder.Release()
+	s := <-shared
+	if !s.Blocked() {
+		t.Error("shared request queued behind the exclusive owner is not blocked")
+	}
+	s.Release()
+	w := <-queuedWriter
+	w.Release()
+	l := <-last
+	defer l.Release()
+	want := Ahead{HolderExclusive: true, Holder: "#9655:arm by #0:bf_exec exec()", Depth: 2,
+		Exclusive: []string{"#2:say by retry budget spent"}, Shared: 1}
+	got := l.Ahead()
+	if got.HolderExclusive != want.HolderExclusive || got.Holder != want.Holder || got.Depth != want.Depth ||
+		got.Shared != want.Shared || len(got.Exclusive) != 1 || got.Exclusive[0] != want.Exclusive[0] {
+		t.Errorf("ahead = %+v, want %+v", got, want)
+	}
+	if holder.Blocked() {
+		t.Error("an exclusive grant taken on an idle gate is blocked")
+	}
+}
+
 func TestFIFOSharedCohortsCannotPassOlderExclusive(t *testing.T) {
 	var g Gate
 	holder, _ := g.Acquire(context.Background(), Exclusive)

@@ -197,6 +197,10 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	publishedWrites = tx.HasWrites()
 	if publishedWrites {
+		if tx.diag != nil && tx.diag.point == CommitFinal {
+			// A coarse builtin's renewal; the boundary marks its own point.
+			tx.diag.point = CommitCoarse
+		}
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			return tx, false, errCode
 		}
@@ -228,8 +232,16 @@ func (tx *StoreTxn) acquireSharedCommitGate() (*commitgate.Grant, error) {
 	waited := time.Since(started)
 	tx.store.sharedGateWaits.Add(1)
 	tx.store.sharedGateWaitNS.Add(int64(waited))
+	blocked := grant.Blocked()
+	if blocked {
+		tx.store.sharedGateBlocked.Add(1)
+		tx.store.sharedGateBlockedNS.Add(int64(waited))
+	}
 	if tx.gateWait != nil {
-		tx.gateWait(waited)
+		tx.gateWait(waited, blocked)
+	}
+	if tx.diag != nil {
+		tx.diag.noteSharedGateWait(waited)
 	}
 	return grant, nil
 }

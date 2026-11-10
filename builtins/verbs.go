@@ -260,7 +260,7 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "add_verb"); !ok {
 		return res
 	}
 	store := ctx.Store
@@ -412,7 +412,7 @@ func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "set_verb_info"); !ok {
 		return res
 	}
 	store := ctx.Store
@@ -477,7 +477,7 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "set_verb_args"); !ok {
 		return res
 	}
 	store := ctx.Store

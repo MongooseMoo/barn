@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -98,6 +100,10 @@ func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope boo
 			if ctx := t.ContextValue(); ctx != nil {
 				ctx.CommandDiagnostic.TaskFinished(t.ID, state.String())
 			}
+			s.finishTimeline(t, state.String())
+			if s.store != nil {
+				s.store.NoteTaskRetries(dbstore.ConflictLabel{Obj: t.VerbLoc, Verb: t.VerbName}, int(t.retries.Load()))
+			}
 		}
 	}()
 	var completion taskCompletion
@@ -159,6 +165,19 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
 	var rerunTicks int64
 	gate := sliceGate{holds: &s.gateHolds, key: GateHolder{This: t.This, Verb: t.VerbName}}
+	// The task's timeline, while diagnostics tracking is on (task_timeline.go).
+	tl := s.timelineFor(t)
+	var queueWait time.Duration
+	if !execReadyAt.IsZero() {
+		queueWait = started.Sub(execReadyAt)
+	}
+	tl.beginSlice(started, time.Duration(t.admissionWait.Swap(0)), queueWait)
+	defer func() { tl.endSlice(time.Now()) }()
+	var waits attemptWaits
+	var timelineWaits *attemptWaits
+	if tl != nil {
+		timelineWaits = &waits
+	}
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
@@ -252,6 +271,7 @@ retryAttempt:
 	// -> 149/s), while the slices that fall into 1-player abort storms are
 	// forked background jobs.
 	wastedWork := t.IsForked && attempt > 0 && lostAttemptTicks >= escalateAfterWastedTicks
+	tl.beginAttempt(time.Now())
 	if (attempt >= escalateAfterAttempts || !retryState.canRetry || wastedWork) && !gate.held() {
 		cause := gateCauseRetryBudget
 		switch {
@@ -260,9 +280,12 @@ retryAttempt:
 		case attempt < escalateAfterAttempts:
 			cause = gateCauseWastedWork
 		}
-		gateWait, err := gate.acquire(taskCtx, s.store, cause)
+		// Taken before the attempt runs: its ticks count from the attempt's
+		// start, which the launch records (sliceGate.attach).
+		gateWait, err := gate.acquire(taskCtx, s.store, cause, "", gateTicksAtLaunch)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
+		tl.noteGate(gate.key, gateWait)
 		if err != nil {
 			t.SetState(task.TaskKilled)
 			return err
@@ -308,7 +331,8 @@ retryAttempt:
 	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
+	ctx.StoreTxn.SetConflictOrigin(t.VerbLoc, attempt+1)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id, timelineWaits))
 	ctx.StoreTxn.SetCommitContext(taskCtx)
 	// The task's own row: a kill that committed since the last slice stops it,
 	// and a resume's value is what its suspend() returns. The attempt's commit
@@ -351,12 +375,12 @@ retryAttempt:
 	// exposes the slice's first half to
 	// concurrent readers before its second half exists; none of them can commit
 	// on that view until this attempt has.
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(builtin string) bool {
 		if gate.held() {
 			return false
 		}
 		// The running frame is the verb that called the irreversible builtin.
-		gateWait, err := gate.acquire(taskCtx, s.store, fmt.Sprintf("#%d:%s", ctx.ThisObj, ctx.Verb))
+		gateWait, err := gate.acquire(taskCtx, s.store, fmt.Sprintf("#%d:%s", ctx.ThisObj, ctx.Verb), builtin, gateTicksFromVM)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		if err != nil {
 			ctx.ConflictRetryRequested = true
@@ -364,6 +388,11 @@ retryAttempt:
 		}
 		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
+		tl.noteGate(gate.key, gateWait)
+		// For the census: the wait sits between the attempt's reads and the
+		// boundary's validation, and the boundary is where it validates next.
+		ctx.StoreTxn.NoteCommitGateWait(gateWait)
+		ctx.StoreTxn.NoteBoundary(builtin)
 		gate.bind(ctx.StoreTxn)
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
 		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
@@ -464,7 +493,7 @@ retryAttempt:
 	var launchErr error
 	lagInfo := lagInvocation{definer: t.VerbLoc, verb: t.VerbName}
 	vmStarted := time.Now()
-	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo)
+	bcVM, result, launchErr = s.launchSlice(t, ctx, bcVM, preempt, attempt, sliceEntryTicks, started, execReadyAt, &lagInfo, &gate)
 	vmElapsed := time.Since(vmStarted)
 	if launchErr == nil {
 		t.Result = result
@@ -495,6 +524,8 @@ retryAttempt:
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
 		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+		tl.endAttempt("lost-at-boundary", vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
+		t.retries.Add(1)
 		rerunTicks += attemptTicks
 		lostAttemptTicks = attemptTicks
 		gate.release(ctx.StoreTxn)
@@ -519,6 +550,9 @@ retryAttempt:
 	}
 	committed := true
 	if ctx.StoreTxn.HasWrites() {
+		if result.Flow == types.FlowSuspend {
+			ctx.StoreTxn.SetConflictCommitPoint(dbstore.CommitSuspend)
+		}
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			if hasOwnRow && ctx.StoreTxn.ValidationFailed() && s.ownRowKilled(t) {
 				// kill_task() of this task committed during the slice: it stops
@@ -538,6 +572,8 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
+				tl.endAttempt("lost", vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
+				t.retries.Add(1)
 				rerunTicks += attemptTicks
 				lostAttemptTicks = attemptTicks
 				s.discardCreatedForks(t)
@@ -575,7 +611,22 @@ retryAttempt:
 			isolationprobe.MarkFailed(ctx)
 		}
 	}
-	s.store.NoteSliceAttempts(attempt+1, executedTicks, rerunTicks) // counted only with census tracking on
+	if tl != nil {
+		outcome := "commit"
+		switch {
+		case !committed && ctx.StoreTxn.ValidationFailed():
+			outcome = "lost-final"
+		case !committed:
+			outcome = "error"
+		case result.Flow == types.FlowSuspend:
+			outcome = "suspend"
+		case result.Flow == types.FlowException:
+			outcome = "exception"
+		}
+		tl.endAttempt(outcome, vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
+	}
+	// Counted only with census tracking on.
+	s.store.NoteSliceAttempts(dbstore.ConflictLabel{Obj: t.VerbLoc, Verb: t.VerbName}, attempt+1, executedTicks, rerunTicks)
 	bcVM.ReleaseRetryCheckpoint()
 	// Replay uses captured effect inputs, not this attempt's read cache. Release
 	// its timestamp before blocked output can hold back the history floor.
@@ -591,7 +642,8 @@ retryAttempt:
 	// take their next execution snapshot when the scheduler resumes them.
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id))
+	ctx.StoreTxn.SetConflictOrigin(t.VerbLoc, attempt+1)
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id, nil))
 	// Every suspension yields the commit gate along with execution. Everything
 	// after this point (completion hooks, the suspend hand-off, a failure-path
 	// txn that lives on) takes the gate normally. Checkpoint requests are
@@ -676,7 +728,7 @@ retryAttempt:
 // suspended task, starts a forked child's pre-configured VM, or builds a VM
 // for a fresh program. bcVM is the VM of the previous attempt, if any; the
 // caller stores the returned VM back even when err is non-nil.
-func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(*vm.VM), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation) (_ *vm.VM, result types.Result, err error) {
+func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt func(*vm.VM), attempt int, sliceEntryTicks int64, started, execReadyAt time.Time, lagInfo *lagInvocation, gate *sliceGate) (_ *vm.VM, result types.Result, err error) {
 	if savedVM := t.VM(); savedVM != nil {
 		if attempt == 0 && !execReadyAt.IsZero() {
 			metrics.ObserveRuntime(metrics.ResumeToVM, taskRuntimeIdentity(t), time.Since(execReadyAt), 0)
@@ -698,6 +750,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 			// budget, while the seconds deadline remains anchored to this slice.
 			bcVM.Ticks = sliceEntryTicks
 		}
+		gate.attach(bcVM)
 		lagInfo.capture(bcVM.CurrentFrame())
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
@@ -751,6 +804,7 @@ func (s *Runtime) launchSlice(t *Task, ctx *task.Context, bcVM *vm.VM, preempt f
 		if attempt > 0 {
 			bcVM.Ticks = sliceEntryTicks
 		}
+		gate.attach(bcVM)
 		s.installConflictSite(ctx, bcVM, sliceEntryTicks)
 		configureVMStackLimit(bcVM, s.session)
 
@@ -825,6 +879,7 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 	// A terminal commit failure makes HasWrites false without discarding the
 	// private view, preventing completion cleanup from recommitting it.
 	if ctx.StoreTxn.HasWrites() {
+		ctx.StoreTxn.SetConflictCommitPoint(dbstore.CommitSuspend)
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result := types.Err(errCode)
 			t.Result = result
@@ -844,7 +899,7 @@ func (s *Runtime) handOffSuspended(t *Task, ctx *task.Context, scope *admission.
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginSnapshot(0)
 		ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
-		ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, taskRuntimeIdentity(t)))
+		ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, taskRuntimeIdentity(t), nil))
 	}
 	// Outside shutdown, the WAIFs queued above and the store's committed
 	// anonymous objects cover the ledger, which otherwise grows on every
@@ -970,15 +1025,34 @@ type sliceGate struct {
 	holds     *gateHoldStats
 	key       GateHolder
 	heldSince time.Time
+	// machine is the slice's VM, set at launch; ticksAtAcquire is its tick
+	// count when the gate was taken (or the slice entry ticks for a gate taken
+	// before the attempt ran), so a hold knows the ticks run under it.
+	machine        *vm.VM
+	ticksAtAcquire int64
+	// wait and ahead are the current hold's acquire wait and what was in front
+	// of it, recorded with the hold.
+	wait  time.Duration
+	ahead commitgate.Ahead
 }
 
 // GateHolder names the task verb that held the exclusive commit gate and why
 // the slice took it: the verb that called an irreversible builtin
-// ("#123:verb"), or one of the escalation causes below.
+// ("#123:verb") and that builtin, or one of the escalation causes below with
+// no builtin.
 type GateHolder struct {
-	This  types.ObjID
-	Verb  string
-	Cause string
+	This    types.ObjID
+	Verb    string
+	Cause   string
+	Builtin string
+}
+
+// label is how a holder appears to the requests queued behind it.
+func (h GateHolder) label() string {
+	if h.Builtin != "" {
+		return fmt.Sprintf("#%d:%s by %s %s()", h.This, h.Verb, h.Cause, h.Builtin)
+	}
+	return fmt.Sprintf("#%d:%s by %s", h.This, h.Verb, h.Cause)
 }
 
 const (
@@ -988,11 +1062,39 @@ const (
 )
 
 // GateHold is the cumulative exclusive commit gate hold of one task verb.
+// Count, Total and Max are the holds and their durations; Ticks sums the VM
+// ticks the slices ran while holding. Wait, WaitMax and WaitHist (buckets
+// bounded by dbstore.WallBoundsNS) are the acquire waits before each hold;
+// DepthSum and DepthMax the queued requests ahead at each acquire; Ahead names
+// who was in front (the exclusive owner and exclusive requests queued ahead,
+// by label, plus "shared" for shared owners or requests), the first
+// maxGateAhead labels, the rest counted in OtherAhead.
 type GateHold struct {
 	GateHolder
 	Count      int64
 	Total, Max time.Duration
+	Ticks      int64
+	Wait       time.Duration
+	WaitMax    time.Duration
+	WaitHist   dbstore.WallHist
+	DepthSum   int64
+	DepthMax   int
+	Ahead      []GateAheadCount
+	OtherAhead int64
 }
+
+// GateAheadCount counts the acquires that found Label in front of them.
+type GateAheadCount struct {
+	Label string
+	N     int64
+}
+
+// maxGateAhead bounds the labels GateHold.Ahead names; maxGateHolders bounds
+// the holders counted separately, the rest counting into one overflow holder.
+const (
+	maxGateAhead   = 8
+	maxGateHolders = 512
+)
 
 // gateHoldStats accumulates exclusive gate holds. It is touched only when a
 // slice releases a gate it held.
@@ -1001,7 +1103,7 @@ type gateHoldStats struct {
 	holds map[GateHolder]*GateHold
 }
 
-func (h *gateHoldStats) observe(key GateHolder, held time.Duration) {
+func (h *gateHoldStats) observe(key GateHolder, held time.Duration, ticks int64, wait time.Duration, ahead commitgate.Ahead) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.holds == nil {
@@ -1009,12 +1111,58 @@ func (h *gateHoldStats) observe(key GateHolder, held time.Duration) {
 	}
 	entry := h.holds[key]
 	if entry == nil {
-		entry = &GateHold{GateHolder: key}
-		h.holds[key] = entry
+		if len(h.holds) >= maxGateHolders {
+			key = GateHolder{This: types.ObjNothing, Verb: "(other holders)"}
+			entry = h.holds[key]
+		}
+		if entry == nil {
+			entry = &GateHold{GateHolder: key}
+			h.holds[key] = entry
+		}
 	}
 	entry.Count++
 	entry.Total += held
 	entry.Max = max(entry.Max, held)
+	entry.Ticks += max(ticks, 0)
+	entry.Wait += wait
+	entry.WaitMax = max(entry.WaitMax, wait)
+	entry.WaitHist.Add(int64(wait))
+	entry.DepthSum += int64(ahead.Depth)
+	entry.DepthMax = max(entry.DepthMax, ahead.Depth)
+	if ahead.HolderExclusive {
+		entry.addAhead(holderLabel(ahead.Holder))
+	} else if ahead.SharedOwners > 0 {
+		entry.addAhead("shared")
+	}
+	for _, label := range ahead.Exclusive {
+		entry.addAhead(holderLabel(label))
+	}
+	if ahead.Shared > 0 {
+		entry.addAhead("shared")
+	}
+}
+
+// holderLabel names an exclusive requester; an unlabeled one is the store's
+// own (a checkpoint snapshot).
+func holderLabel(label string) string {
+	if label == "" {
+		return "(store snapshot)"
+	}
+	return label
+}
+
+func (g *GateHold) addAhead(label string) {
+	for i := range g.Ahead {
+		if g.Ahead[i].Label == label {
+			g.Ahead[i].N++
+			return
+		}
+	}
+	if len(g.Ahead) >= maxGateAhead {
+		g.OtherAhead++
+		return
+	}
+	g.Ahead = append(g.Ahead, GateAheadCount{Label: label, N: 1})
 }
 
 // ResetGateHolds forgets the holds recorded so far, starting a new window.
@@ -1030,7 +1178,12 @@ func (s *Runtime) GateHolds() []GateHold {
 	s.gateHolds.mu.Lock()
 	out := make([]GateHold, 0, len(s.gateHolds.holds))
 	for _, entry := range s.gateHolds.holds {
-		out = append(out, *entry)
+		copied := *entry
+		copied.Ahead = slices.Clone(entry.Ahead)
+		slices.SortFunc(copied.Ahead, func(a, b GateAheadCount) int {
+			return cmp.Or(cmp.Compare(b.N, a.N), cmp.Compare(a.Label, b.Label))
+		})
+		out = append(out, copied)
 	}
 	s.gateHolds.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool {
@@ -1040,27 +1193,59 @@ func (s *Runtime) GateHolds() []GateHold {
 		if out[i].This != out[j].This {
 			return out[i].This < out[j].This
 		}
-		return out[i].Verb < out[j].Verb
+		if out[i].Verb != out[j].Verb {
+			return out[i].Verb < out[j].Verb
+		}
+		if out[i].Cause != out[j].Cause {
+			return out[i].Cause < out[j].Cause
+		}
+		return out[i].Builtin < out[j].Builtin
 	})
 	return out
 }
 
 func (g *sliceGate) held() bool { return g.grant != nil }
 
+// Tick bases for acquire: gateTicksFromVM counts a hold's ticks from the slice
+// VM's ticks at the acquire; gateTicksAtLaunch from the VM's ticks when the
+// attempt launches (attach), for a gate taken before the attempt runs.
+const (
+	gateTicksFromVM   = -1
+	gateTicksAtLaunch = -2
+)
+
+// attach records the VM an attempt runs on, after its ticks are set for the
+// attempt, so a hold can count the ticks run under it.
+func (g *sliceGate) attach(machine *vm.VM) {
+	g.machine = machine
+	if g.held() && g.ticksAtAcquire == gateTicksAtLaunch {
+		g.ticksAtAcquire = machine.Ticks
+	}
+}
+
 // acquire takes the gate and reports how long that took, whether or not it
-// succeeded.
-// The hold is recorded under cause.
-func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause string) (time.Duration, error) {
+// succeeded. The hold is recorded under cause and builtin (the irreversible
+// builtin that made the slice take it, or empty); its ticks are counted from
+// baseTicks when baseTicks >= 0, else from the slice VM's ticks now.
+func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause, builtin string, baseTicks int64) (time.Duration, error) {
+	g.key.Cause, g.key.Builtin = cause, builtin
 	waitStart := time.Now()
-	grant, err := store.AcquireExclusive(ctx)
+	grant, err := store.AcquireExclusiveLabeled(ctx, g.key.label())
 	wait := time.Since(waitStart)
 	if err != nil {
 		return wait, err
 	}
-	g.key.Cause = cause
 	g.grant = grant
 	g.everHeld = true
 	g.heldSince = time.Now()
+	g.wait, g.ahead = wait, grant.Ahead()
+	g.ticksAtAcquire = baseTicks
+	if baseTicks == gateTicksFromVM {
+		g.ticksAtAcquire = 0
+		if g.machine != nil {
+			g.ticksAtAcquire = g.machine.Ticks
+		}
+	}
 	return wait, nil
 }
 
@@ -1088,7 +1273,11 @@ func (g *sliceGate) drop() {
 	g.grant.Release()
 	g.grant = nil
 	if g.holds != nil {
-		g.holds.observe(g.key, time.Since(g.heldSince))
+		var ticks int64
+		if g.machine != nil && g.ticksAtAcquire >= 0 {
+			ticks = g.machine.Ticks - g.ticksAtAcquire
+		}
+		g.holds.observe(g.key, time.Since(g.heldSince), ticks, g.wait, g.ahead)
 	}
 }
 

@@ -194,6 +194,10 @@ type Store struct {
 	// the gate exclusively skip it and are not counted).
 	sharedGateWaits  atomic.Uint64
 	sharedGateWaitNS atomic.Int64
+	// sharedGateBlocked/sharedGateBlockedNS are the subset of those that had
+	// to queue behind an exclusive holder or request, and their wait.
+	sharedGateBlocked   atomic.Uint64
+	sharedGateBlockedNS atomic.Int64
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
 	// slot already held an Identical value (see SetPropertyValue).
 	propertyWriteElisions atomic.Uint64
@@ -357,6 +361,12 @@ func (s *Store) SharedGateWait() (uint64, time.Duration) {
 	return s.sharedGateWaits.Load(), time.Duration(s.sharedGateWaitNS.Load())
 }
 
+// SharedGateBlocked reports how many of those shared acquisitions queued
+// behind an exclusive holder or request, and their cumulative wait.
+func (s *Store) SharedGateBlocked() (uint64, time.Duration) {
+	return s.sharedGateBlocked.Load(), time.Duration(s.sharedGateBlockedNS.Load())
+}
+
 // PropertyWriteElisions is the number of property writes dropped as no-ops
 // because the target slot already held an Identical value.
 func (s *Store) PropertyWriteElisions() uint64 { return s.propertyWriteElisions.Load() }
@@ -387,7 +397,13 @@ func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 // AcquireExclusive returns owner-held FIFO admission. Cancellation only
 // withdraws the wait; it never revokes a grant returned to executing code.
 func (s *Store) AcquireExclusive(ctx context.Context) (*commitgate.Grant, error) {
-	g, err := s.commitGate.Acquire(ctx, commitgate.Exclusive)
+	return s.AcquireExclusiveLabeled(ctx, "")
+}
+
+// AcquireExclusiveLabeled is AcquireExclusive for a requester named label; the
+// grant reports what was ahead of it (commitgate.Grant.Ahead).
+func (s *Store) AcquireExclusiveLabeled(ctx context.Context, label string) (*commitgate.Grant, error) {
+	g, err := s.commitGate.AcquireLabeled(ctx, commitgate.Exclusive, label)
 	if err == nil {
 		s.commitEscalations.Add(1)
 	}

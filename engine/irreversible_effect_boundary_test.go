@@ -151,6 +151,12 @@ func TestRunTaskRecordsExclusiveGateHoldByVerb(t *testing.T) {
 		holds[0].Count != 1 || holds[0].Total < held || holds[0].Max != holds[0].Total {
 		t.Fatalf("holds = %+v, want one #7:hold hold by #0:caller of at least %s", holds, held)
 	}
+	// The builtin that opened the boundary, and the ticks run under the gate
+	// from it to the commit (the sleep call and the property write at least).
+	if holds[0].Builtin != "server_log" || holds[0].Ticks <= 0 || holds[0].DepthMax != 0 {
+		t.Fatalf("hold builtin %q ticks %d depth %d, want server_log, positive ticks and an empty queue",
+			holds[0].Builtin, holds[0].Ticks, holds[0].DepthMax)
+	}
 	assertCommitGateReleased(t, store)
 	s.ResetGateHolds()
 	if holds := s.GateHolds(); len(holds) != 0 {

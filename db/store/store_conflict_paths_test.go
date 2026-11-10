@@ -1,0 +1,207 @@
+package store
+
+import (
+	"testing"
+	"time"
+
+	"github.com/MongooseMoo/barn/types"
+)
+
+func pathRow(t *testing.T, census ConflictCensus, kind ConflictKind, objID types.ObjID, name string) ConflictPath {
+	t.Helper()
+	for _, p := range census.Paths {
+		if p.Kind == kind && p.ObjID == objID && p.Name == name {
+			return p
+		}
+	}
+	t.Fatalf("census has no path on %v #%d %q: %+v", kind, objID, name, census.Paths)
+	return ConflictPath{}
+}
+
+// A keyed read of #0.m["a"] made whole at the irreversible-effect boundary,
+// after an exclusive gate wait, loses there to a writer's final commit. Its
+// path names the loser's root verb by its definer, the read site, the attempt,
+// that the loss was at the boundary opened by sqlite_execute at its calling
+// site and slice tick, that the read was a degraded keyed read, the gate wait
+// between the read and the loss, and the writer and how it published. The verb
+// row counts the boundary with its tick.
+func TestConflictPathAtBoundaryNamesBuiltinGateWaitAndDegradedRead(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1))
+	s.SetConflictCensusTracking(true)
+
+	loser := s.BeginSnapshot(0)
+	defer loser.Release()
+	loser.SetConflictLabel(5, "say")
+	loser.SetConflictOrigin(7, 2)
+	stub := &stubSite{site: ConflictSite{Obj: 7, Verb: "stored", Line: 6}, ticks: 100}
+	loser.SetConflictSiteFunc(stub.fn)
+	keyedRead(t, loser, "a")
+	loser.NoteCommitGateWait(3 * time.Millisecond)
+	stub.site.Line, stub.ticks = 9, 333
+	loser.NoteBoundary("sqlite_execute")
+
+	writer := ConflictLabel{Obj: 8, Verb: "browser_flush"}
+	winner := s.BeginSnapshot(0)
+	winner.SetConflictLabel(writer.Obj, writer.Verb)
+	winner.SetConflictSiteFunc((&stubSite{site: ConflictSite{Obj: 8, Verb: "browser_flush", Line: 13}}).fn)
+	keyedWrite(t, winner, "a", 5)
+	mustCommit(t, winner)
+	winner.Release()
+
+	if _, _, ec := loser.CommitAndRenewCarryingReads(); ec == types.E_NONE || !loser.ValidationFailed() {
+		t.Fatalf("boundary validation did not lose: %v", ec)
+	}
+
+	census := s.ConflictCensus()
+	p := pathRow(t, census, ConflictProperty, 0, "m")
+	t.Logf("path = %+v", p)
+	if p.Loser != (ConflictLabel{Obj: 7, Verb: "say"}) || p.ReadSite != (ConflictSite{Obj: 7, Verb: "stored", Line: 6}) {
+		t.Errorf("loser %v read site %v, want #7:say read at #7:stored@6", p.Loser, p.ReadSite)
+	}
+	if p.Lost != 1 || p.MaxAttempt != 2 || p.AttemptSum != 2 {
+		t.Errorf("lost %d attempts sum %d max %d, want 1, 2, 2", p.Lost, p.AttemptSum, p.MaxAttempt)
+	}
+	if p.LostAt != (CommitPointCounts{Boundary: 1}) {
+		t.Errorf("lost at %+v, want the boundary", p.LostAt)
+	}
+	wantBoundary := BoundarySiteCount{Builtin: "sqlite_execute", Site: ConflictSite{Obj: 7, Verb: "stored", Line: 9}, N: 1, Ticks: 333}
+	if len(p.BoundarySites) != 1 || p.BoundarySites[0] != wantBoundary {
+		t.Errorf("boundary sites %+v, want %+v", p.BoundarySites, wantBoundary)
+	}
+	if p.Degraded != (DegradeCounts{Boundary: 1}) {
+		t.Errorf("degraded %+v, want one keyed read made whole at the boundary", p.Degraded)
+	}
+	// The wait is reported, not slept, so the wall clock window can be shorter
+	// than it here; in the runtime the reported wait is inside the window.
+	if p.WallMeasured != 1 || p.ExclusiveWaitNS != int64(3*time.Millisecond) || p.SharedWaitNS != 0 {
+		t.Errorf("wall measured %d exclusive %d shared %d, want 1, a 3ms exclusive wait and no shared wait",
+			p.WallMeasured, p.ExclusiveWaitNS, p.SharedWaitNS)
+	}
+	if len(p.Writers) != 1 || p.Writers[0].Label != writer || p.Writers[0].PublishedBy != (CommitPointCounts{Final: 1}) {
+		t.Errorf("writers %+v, want %v published by a final commit", p.Writers, writer)
+	}
+	if d := censusRow(t, census, ConflictProperty, 0, "m").Diag; d.Degraded != (DegradeCounts{Boundary: 1}) {
+		t.Errorf("key degraded %+v, want boundary=1", d.Degraded)
+	}
+	if len(census.Verbs) != 1 || census.Verbs[0].Verb != (ConflictLabel{Obj: 7, Verb: "say"}) ||
+		census.Verbs[0].Boundaries != 1 || census.Verbs[0].BoundaryTicks != 333 {
+		t.Errorf("verbs %+v, want #7:say with one boundary at tick 333", census.Verbs)
+	}
+}
+
+// A slice ending in suspension that loses its commit counts at the suspend
+// point.
+func TestConflictPathCountsSuspendCommitPoint(t *testing.T) {
+	s, a, b := conflictFixture(t)
+	s.SetConflictCensusTracking(true)
+	loser := s.BeginSnapshot(0)
+	defer loser.Release()
+	loser.SetConflictLabel(a, "yielder")
+	readValue(t, loser, a, "p")
+	commitAs(t, s, ConflictLabel{Obj: b, Verb: "w"}, ConflictSite{Obj: b, Verb: "w", Line: 1}, a, "p", 3)
+	loser.SetConflictCommitPoint(CommitSuspend)
+	loseCommit(t, loser, b, "q")
+	p := pathRow(t, s.ConflictCensus(), ConflictProperty, a, "p")
+	if p.LostAt != (CommitPointCounts{Suspend: 1}) {
+		t.Errorf("lost at %+v, want the suspend commit", p.LostAt)
+	}
+	// Without a site callback the read site is unknown and no wall is measured.
+	if p.ReadSite.Obj != types.ObjNothing || p.WallMeasured != 0 {
+		t.Errorf("read site %v wall measured %d, want unknown and 0", p.ReadSite, p.WallMeasured)
+	}
+}
+
+// Verb goodput sums slices, attempts and committed/wasted ticks per root verb
+// and buckets retries per finished task; builtin calls count per calling site.
+// With tracking off nothing is recorded.
+func TestConflictCensusVerbGoodputAndBuiltinCalls(t *testing.T) {
+	s, a, _ := conflictFixture(t)
+	say := ConflictLabel{Obj: 7, Verb: "say"}
+	s.NoteSliceAttempts(say, 3, 300, 200)
+	s.NoteTaskRetries(say, 2)
+	if c := s.ConflictCensus(); len(c.Verbs) != 0 {
+		t.Fatalf("tracking off recorded verbs %+v", c.Verbs)
+	}
+
+	s.SetConflictCensusTracking(true)
+	s.NoteSliceAttempts(say, 3, 300, 200)
+	s.NoteSliceAttempts(say, 1, 100, 0)
+	for _, retries := range []int{0, 2, 40} {
+		s.NoteTaskRetries(say, retries)
+	}
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	site := ConflictSite{Obj: a, Verb: "lookup_cache_version", Line: 7}
+	tx.SetConflictSiteFunc((&stubSite{site: site}).fn)
+	tx.NoteBuiltinCall("sqlite_execute")
+	tx.NoteBuiltinCall("sqlite_execute")
+
+	c := s.ConflictCensus()
+	if len(c.Verbs) != 1 {
+		t.Fatalf("verbs %+v, want one", c.Verbs)
+	}
+	v := c.Verbs[0]
+	if v.Slices != 2 || v.Attempts != 4 || v.Retries() != 2 || v.CommittedTicks != 200 || v.WastedTicks != 200 || v.WastedShare() != 50 {
+		t.Errorf("verb %+v, want 2 slices, 4 attempts, 200 committed and 200 wasted ticks", v)
+	}
+	// Buckets: <=0, <=1, <=2, <=3, <=7, <=15, <=31, >31.
+	if v.Tasks != 3 || v.RetriesPerTask != [8]uint64{1, 0, 1, 0, 0, 0, 0, 1} || v.MaxRetriesPerTask != 40 {
+		t.Errorf("tasks %d retries per task %v max %d, want 3, one each at 0, 2 and >31, max 40", v.Tasks, v.RetriesPerTask, v.MaxRetriesPerTask)
+	}
+	want := BuiltinCallCount{Builtin: "sqlite_execute", Site: site, Calls: 2}
+	if len(c.BuiltinCalls) != 1 || c.BuiltinCalls[0] != want {
+		t.Errorf("builtin calls %+v, want %+v", c.BuiltinCalls, want)
+	}
+	s.ResetConflictCensus()
+	if c := s.ConflictCensus(); len(c.Verbs) != 0 || len(c.BuiltinCalls) != 0 || len(c.Paths) != 0 {
+		t.Errorf("reset left verbs %v calls %v paths %v", c.Verbs, c.BuiltinCalls, c.Paths)
+	}
+}
+
+// A hot-read renewal counts on the slot's row, and a renewed transaction that
+// then loses on that slot counts as renewed then lost.
+func TestConflictCensusCountsHotRenewalsPerKey(t *testing.T) {
+	s, counter, _ := hotReadFixture(t)
+	s.SetConflictCensusTracking(true)
+	tx := s.BeginSnapshot(0)
+	commitValue(t, s, counter, "handle", types.NewInt(7))
+	_, ec, next := tx.FindPropertyRenewing(counter, "handle")
+	if ec != types.E_NONE || next == tx {
+		t.Fatalf("stale hot read did not renew (ec=%v)", ec)
+	}
+	defer next.Release()
+	commitValue(t, s, counter, "handle", types.NewInt(8))
+	if ec := next.SetPropertyValue(counter, "handle", types.NewInt(9)); ec != types.E_NONE {
+		t.Fatalf("increment: %v", ec)
+	}
+	if ec := next.Commit(); ec == types.E_NONE {
+		t.Fatalf("renewed transaction committed over a newer write")
+	}
+	row := censusRow(t, s.ConflictCensus(), ConflictProperty, counter, "handle")
+	if row.HotRenewed != 1 || row.HotRefused != 0 || row.HotDeclined != 0 || row.Diag.RenewedThenLost != 1 {
+		t.Errorf("renewed %d refused %d declined %d renewed_then_lost %d, want 1 0 0 1",
+			row.HotRenewed, row.HotRefused, row.HotDeclined, row.Diag.RenewedThenLost)
+	}
+}
+
+// Writers past maxConflictSites on one key are named by root in
+// OtherWriterRoots.
+func TestConflictDiagNamesOtherWriterRoots(t *testing.T) {
+	s, a, b := conflictFixture(t)
+	s.SetConflictCensusTracking(true)
+	for i := range maxConflictSites + 2 {
+		loser := s.BeginSnapshot(0)
+		readValue(t, loser, a, "p")
+		root := ConflictLabel{Obj: b, Verb: "root"}
+		if i >= maxConflictSites {
+			root.Verb = "late"
+		}
+		commitAs(t, s, root, ConflictSite{Obj: b, Verb: "w", Line: i + 1}, a, "p", int64(i+10))
+		loseCommit(t, loser, b, "q")
+		loser.Release()
+	}
+	d := censusRow(t, s.ConflictCensus(), ConflictProperty, a, "p").Diag
+	if d.OtherWriters != 2 || len(d.OtherWriterRoots) != 1 || d.OtherWriterRoots[0] != (ConflictLabelCount{Obj: b, Verb: "late", Lost: 2}) {
+		t.Errorf("other writers %d roots %+v, want 2 by #%d:late", d.OtherWriters, d.OtherWriterRoots, b)
+	}
+}

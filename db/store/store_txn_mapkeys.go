@@ -232,14 +232,18 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 // degradeMapKeys turns every keyed dependency into a whole read of its slot at
 // the version the transaction first saw. A path that cannot validate per key or
 // apply entries to the live map (live mutation, flush, the irreversible-effect
-// boundary) then behaves exactly as it does for any property read.
-func (tx *StoreTxn) degradeMapKeys() {
+// boundary) then behaves exactly as it does for any property read. This form is
+// the boundary's; the others name their path for the census.
+func (tx *StoreTxn) degradeMapKeys() { tx.degradeMapKeysVia(DegradeBoundary) }
+
+func (tx *StoreTxn) degradeMapKeysVia(via DegradePath) {
 	for rkey, st := range tx.mapKeys {
 		if _, whole := tx.propertyReads[rkey]; !whole {
 			lazySet(&tx.propertyReads, rkey, st.version)
 			if tx.diag != nil {
 				// The whole read is at st.version, whose value is the baseline.
 				tx.diag.noteRead(rkey, &Property{value: st.baseline})
+				tx.diag.noteDegraded(rkey, via)
 			}
 		}
 	}

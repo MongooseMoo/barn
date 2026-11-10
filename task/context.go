@@ -90,8 +90,9 @@ type Context struct {
 	// a direct mutation of the live store (LiveStoreMutated). It returns true when
 	// the attempt must stop right there and be re-run instead of acting (its
 	// reads are already stale, so it could never commit); the builtin then
-	// returns FlowAbortAttempt without acting.
-	BeforeIrreversibleEffect func() bool
+	// returns FlowAbortAttempt without acting. builtin names the builtin about
+	// to act, for the runtime's commit gate accounting.
+	BeforeIrreversibleEffect func(builtin string) bool
 
 	// ConflictRetryRequested is set by BeforeIrreversibleEffect when it stopped
 	// the attempt. Every later irreversible act in the attempt is refused, the

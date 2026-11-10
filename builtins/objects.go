@@ -245,7 +245,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 		// earlier decentralized create in this same task must be flushed to live first —
 		// otherwise an anonymous child of a just-created numbered object inherits from a
 		// parent the coarse store cannot see yet (E_INVIND on later property access).
-		if res, ok := beforeCoarse(ctx); !ok {
+		if res, ok := beforeCoarse(ctx, "create"); !ok {
 			return res
 		}
 		tx = readTxn(ctx) // the boundary may have renewed the transaction
@@ -434,7 +434,7 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	// A session-wide recycle reservation is observable by other tasks and
 	// cannot be undone by replaying a VM checkpoint. Validate before acquiring
 	// it, just as for the later live topology mutation.
-	if !beginIrreversible(ctx) {
+	if !beginIrreversible(ctx, "recycle") {
 		return abortedAttempt()
 	}
 	ctx.IrreversibleSideEffect = true
@@ -454,7 +454,7 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// The reservation may have survived a committed suspension. A failed
 	// validation must leave it held for the restored continuation, including
 	// the early error paths that otherwise release it without a topology write.
-	if !beginIrreversible(ctx) {
+	if !beginIrreversible(ctx, "recycle") {
 		return abortedAttempt()
 	}
 	ctx.IrreversibleSideEffect = true
@@ -495,7 +495,7 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
-	if res, ok := beforeCoarse(ctx); !ok {
+	if res, ok := beforeCoarse(ctx, "recycle"); !ok {
 		return res
 	}
 	for _, contentID := range oldContents {
@@ -550,7 +550,7 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 		// Coarse recycle reads/reparents through the LIVE store, so flush any topology this
 		// task staged decentrally first (e.g. a just-created child of the object being
 		// recycled) — otherwise store.Recycle cannot see it. Mirrors the coarse create path.
-		if res, ok := beforeCoarse(ctx); !ok {
+		if res, ok := beforeCoarse(ctx, "recycle"); !ok {
 			return res
 		}
 		tx = readTxn(ctx)
@@ -589,11 +589,11 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 // NextRecycleExit moves one current content, or the object itself, to nothing.
 // The VM invokes exitfunc before requesting the next move.
 func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Value, types.Result) {
-	if !beginIrreversible(ctx) {
+	if !beginIrreversible(ctx, "recycle") {
 		return types.None, types.None, abortedAttempt()
 	}
 	ctx.IrreversibleSideEffect = true
-	if result, ok := beforeCoarse(ctx); !ok {
+	if result, ok := beforeCoarse(ctx, "recycle"); !ok {
 		return types.None, types.None, result
 	}
 	tx := readTxn(ctx)

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -13,6 +15,14 @@ type Task struct {
 	task.State
 	machine *vm.VM
 	catalog *TaskManager
+	// timeline is the task's slice timeline while diagnostics tracking is on
+	// (task_timeline.go); admissionWait is the background admission wait before
+	// the slice about to run, read by that slice's timeline entry.
+	timeline      atomic.Pointer[taskTimeline]
+	admissionWait atomic.Int64
+	// retries counts the attempts this task discarded and re-ran over all its
+	// slices, for the census's retries per task.
+	retries atomic.Int64
 }
 
 func NewTask(id int64, owner types.ObjID, ticks int64, seconds float64) *Task {

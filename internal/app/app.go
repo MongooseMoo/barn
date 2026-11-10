@@ -357,7 +357,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	defer releaseListeners()
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux(srv.Store))
+		mux := debugMux(srv.Store)
+		registerRuntimeDiagnostics(mux, srv.Runtime)
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, mux)
 		if err != nil {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {
@@ -402,6 +404,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}()
 	err = srv.Start()
 	close(done)
+	logDiagnosticsSummary(srv.Runtime(), srv.Store())
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}

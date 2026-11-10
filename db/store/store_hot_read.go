@@ -233,16 +233,26 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 	}
 	if !tx.onlyPropertyValuesStaged() {
 		s.hotProps.declines.Add(1)
+		s.noteHotReadOutcome(staleKey, hotReadDeclined)
 		debugHotRead("declined", staleKey)
 		return nil
 	}
 	next := tx.renewAtCurrentClock(tx.newReads)
 	if next == nil {
 		s.hotProps.refusals.Add(1)
+		s.noteHotReadOutcome(staleKey, hotReadRefused)
 		debugHotRead("refused", staleKey)
 		return nil
 	}
 	s.hotProps.renewals.Add(1)
+	s.noteHotReadOutcome(staleKey, hotReadRenewed)
+	if next.diag != nil {
+		for _, key := range tx.newReads {
+			if _, isHot := hot[key]; isHot {
+				next.diag.noteRenewed(key)
+			}
+		}
+	}
 	isolationprobe.Note("hot_renewal")
 	debugHotRead("renewed", staleKey)
 	return next
@@ -303,7 +313,10 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
 	if tx.diag != nil && next.diag != nil {
 		// The slots in drop are read again at the new clock.
-		next.diag.siteFn = tx.diag.siteFn
+		tx.diag.carryOrigin(next.diag)
+		next.diag.point = tx.diag.point
+		next.diag.renewed = maps.Clone(tx.diag.renewed)
+		next.diag.degraded = maps.Clone(tx.diag.degraded)
 		next.diag.readSites, next.diag.readValues = maps.Clone(tx.diag.readSites), maps.Clone(tx.diag.readValues)
 		for _, key := range drop {
 			delete(next.diag.readSites, key)

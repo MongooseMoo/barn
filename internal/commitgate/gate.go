@@ -21,6 +21,21 @@ type Gate struct {
 	readers  int
 	writer   bool
 	sequence uint64
+	// writerLabel is the exclusive owner's label, for Ahead.
+	writerLabel string
+}
+
+// Ahead is what stood in front of an exclusive request when it was queued:
+// the exclusive owner's label (Holder, with HolderExclusive set) or the number
+// of shared owners, and the requests queued before it, exclusive ones by label
+// and shared ones counted. Depth is the number of queued requests ahead.
+type Ahead struct {
+	HolderExclusive bool
+	Holder          string
+	SharedOwners    int
+	Depth           int
+	Exclusive       []string
+	Shared          int
 }
 
 // Grant is an opaque, single-release capability. Cancellation can withdraw a
@@ -32,18 +47,37 @@ type Grant struct {
 	ready  chan struct{}
 	active bool
 	wait   time.Duration
+	// blocked: the request was not granted when it was queued. A shared
+	// request is only held back by an exclusive owner or an exclusive request
+	// queued ahead of it, so for Shared this means it waited behind Exclusive.
+	blocked bool
+	// label and ahead are AcquireLabeled's: the request's label and, for an
+	// exclusive request, what was in front of it.
+	label string
+	ahead Ahead
 }
 
 func (g *Gate) Acquire(ctx context.Context, mode Mode) (*Grant, error) {
+	return g.AcquireLabeled(ctx, mode, "")
+}
+
+// AcquireLabeled is Acquire for a request named label. An exclusive request
+// also records what was in front of it (Grant.Ahead), and while it owns the
+// gate its label is what later exclusive requests see as the holder.
+func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label string) (*Grant, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	g.mu.Lock()
 	g.sequence++
-	r := &Grant{gate: g, mode: mode, ticket: g.sequence, ready: make(chan struct{})}
+	r := &Grant{gate: g, mode: mode, ticket: g.sequence, ready: make(chan struct{}), label: label}
+	if mode == Exclusive {
+		r.ahead = g.aheadLocked()
+	}
 	g.queue = append(g.queue, r)
 	g.dispatchLocked()
+	r.blocked = !r.active
 	g.mu.Unlock()
 	select {
 	case <-r.ready:
@@ -84,6 +118,7 @@ func (g *Gate) dispatchLocked() {
 		r.active = true
 		if r.mode == Exclusive {
 			g.writer = true
+			g.writerLabel = r.label
 		} else {
 			g.readers++
 		}
@@ -100,6 +135,7 @@ func (g *Gate) releaseLocked(r *Grant) bool {
 	r.active = false
 	if r.mode == Exclusive {
 		g.writer = false
+		g.writerLabel = ""
 	} else {
 		g.readers--
 	}
@@ -112,7 +148,31 @@ func (r *Grant) Release() bool {
 	return r.gate.releaseLocked(r)
 }
 func (r *Grant) Wait() time.Duration { return r.wait }
-func (r *Grant) Ticket() uint64      { return r.ticket }
+
+// Blocked reports whether the request had to queue: it was not granted at
+// once when it arrived.
+func (r *Grant) Blocked() bool { return r.blocked }
+
+// Ahead reports what was in front of an exclusive request when it was queued;
+// it is empty for a shared one.
+func (r *Grant) Ahead() Ahead { return r.ahead }
+
+// aheadLocked describes the owners and the queue as a new request finds them.
+func (g *Gate) aheadLocked() Ahead {
+	a := Ahead{HolderExclusive: g.writer, SharedOwners: g.readers, Depth: len(g.queue)}
+	if g.writer {
+		a.Holder = g.writerLabel
+	}
+	for _, q := range g.queue {
+		if q.mode == Exclusive {
+			a.Exclusive = append(a.Exclusive, q.label)
+		} else {
+			a.Shared++
+		}
+	}
+	return a
+}
+func (r *Grant) Ticket() uint64 { return r.ticket }
 func (r *Grant) Owns(g *Gate, mode Mode) bool {
 	r.gate.mu.Lock()
 	defer r.gate.mu.Unlock()

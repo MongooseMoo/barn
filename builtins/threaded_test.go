@@ -12,7 +12,7 @@ import (
 func threadedCtx() (*Execution, *task.State) {
 	ctx, taskValue := sqliteAsyncCtx()
 	ctx.RuntimeOptions = config.Options{OutboundNetwork: true}
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(string) bool {
 		panic("a threaded call crossed the irreversible-effect boundary")
 	}
 	return ctx, taskValue
@@ -118,7 +118,7 @@ func TestUnthreadedCurlCrossesIrreversibleBoundary(t *testing.T) {
 	ctx, taskValue := threadedCtx()
 	ctx.ThreadMode = false
 	crossings := 0
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(string) bool {
 		crossings++
 		return false
 	}

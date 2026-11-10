@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,7 +37,11 @@ func TestTaskRowSharedGateWaitAccounting(t *testing.T) {
 				}
 			}
 			observed := make(chan time.Duration, 2)
-			tx.SetCommitWaitObserver(func(wait time.Duration) { observed <- wait })
+			var sawBlocked atomic.Bool
+			tx.SetCommitWaitObserver(func(wait time.Duration, blocked bool) {
+				sawBlocked.Store(blocked)
+				observed <- wait
+			})
 			done := make(chan types.ErrorCode, 1)
 			go func() { done <- tx.Commit() }()
 			deadline := time.Now().Add(time.Second)
@@ -73,6 +78,10 @@ func TestTaskRowSharedGateWaitAccounting(t *testing.T) {
 			if wait := <-observed; wait != total {
 				t.Fatalf("observer wait=%s, counter wait=%s", wait, total)
 			}
+			// It queued behind the exclusive grant, so it counts as blocked.
+			if blocked, blockedWait := store.SharedGateBlocked(); blocked != 1 || blockedWait != total || !sawBlocked.Load() {
+				t.Fatalf("blocked accounting: count=%d wait=%s observer=%v; want 1, %s, true", blocked, blockedWait, sawBlocked.Load(), total)
+			}
 		})
 	}
 }
@@ -100,7 +109,7 @@ func TestTaskRowExclusiveGrantDoesNotAccountSharedWait(t *testing.T) {
 				}
 			}
 			calls := 0
-			tx.SetCommitWaitObserver(func(time.Duration) { calls++ })
+			tx.SetCommitWaitObserver(func(time.Duration, bool) { calls++ })
 			if code := tx.Commit(); code != types.E_NONE {
 				t.Fatalf("Commit = %v", code)
 			}
