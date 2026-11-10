@@ -78,8 +78,25 @@ Candidate for the goodput campaign; it is measured before it is proposed.
 - `TestRenewalAccountsForEveryTxnField` caught that hot-read renewal had to
   carry the new fields.
 
+- On the 2026-11-10T0143 dump this change made `say` slower (one run: goodput
+  125 -> 91/s, aborts 6.1% -> 10.7%): the gate taken after the SELECT had been
+  serializing says, which protected the shared `#2585.handle` counter they
+  read and write. Without it, says lost on that counter at their final
+  commit (3714 losses vs 1884). The live game's `$sh:handle` no longer
+  touches a property (0342 dump), so measurement moved there.
+
+## Measurements (0342 dump, 16 players, warmup 5s, measure 30s)
+
+Master vs branch, interleaved, gated on idle CPU. Five of six runs fail
+the harness's validity rule: `home` commands stuck at the 10s completion
+deadline in the `#1:_handlers` / `#9655` thermal chain, on both binaries.
+Only branch run 1 is valid (202/s, abort 2.15%, p99 502ms). In every
+pair the say holds of the exclusive gate are gone, aborts and retries fall,
+and goodput is higher or equal (103 -> 202, 118 -> 119, census 142 -> 189).
+Raw lines are in the campaign progress file
+(`scratchpad/plan/fix-readonly-sqlite.md`).
+
 ## Next step
 
-Real-workload measurement, 16 players, 3 runs before and after plus one census
-run each; results in the campaign progress file
-(`scratchpad/plan/fix-readonly-sqlite.md`). Not pushed; no PR.
+A valid master baseline on the 0342 dump needs the `home` deadline failures
+fixed or excluded first; then repeat the pairs. Not pushed; no PR.
