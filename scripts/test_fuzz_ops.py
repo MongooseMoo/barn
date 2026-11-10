@@ -39,17 +39,21 @@ class FuzzOpsTests(unittest.TestCase):
         self.assertIsNone(c["idle_minutes"])
 
     def test_real_guest_and_host_probe(self):
-        # Before: listener 2 failed after the OOM kill, no drop-in applied.
-        before = fuzz_ops.parse_probe(fixture("guest-probe-before.txt"))
-        self.assertEqual(before["listeners"][2], {"state": "failed", "restarts": 0, "memory_max": "infinity"})
-        self.assertEqual(before["memory"], {"used_mb": 2829, "total_mb": 16004})
-        # After: drop-in applied, listener 2 restarted; one kernel kill line.
-        probe = fuzz_ops.parse_probe(fixture("guest-probe.txt"))
-        self.assertEqual(probe["listeners"][2], {"state": "active", "restarts": 0, "memory_max": "3670016000"})
-        self.assertEqual(len(probe["oom"]), 1)
-        self.assertIn("task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service", probe["oom"][0])
-        self.assertEqual((probe["disk"], probe["hostdisk"]), (8, 8))
-        self.assertEqual(probe["host"], {"state": "active", "restarts": 0})
+        # Slice installed, listeners not yet restarted into it (2026-11-10).
+        outside = fuzz_ops.parse_probe(fixture("guest-probe-outside-slice.txt"))
+        self.assertEqual(outside["listeners"][2], {
+            "state": "active", "restarts": 0,
+            "cgroup": "/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service"})
+        self.assertEqual(outside["slice"], {"memory_max": "15032385536", "memory_current": "0"})
+        # One global kill (06:43) and four pairs of 3500M cgroup kills.
+        self.assertEqual(len(outside["oom"]), 9)
+        self.assertEqual(sum("task=format.test" in line for line in outside["oom"]), 4)
+        self.assertEqual((outside["disk"], outside["hostdisk"]), (8, 9))
+        self.assertEqual(outside["host"], {"state": "active", "restarts": 0})
+        # After each listener restarted into the slice.
+        inside = fuzz_ops.parse_probe(fixture("guest-probe.txt"))
+        for slot in fuzz_ops.SLOTS:
+            self.assertTrue(inside["listeners"][slot]["cgroup"].startswith("/barn-fuzz.slice/"))
 
     def test_probe_counts_only_kernel_kill_lines(self):
         # 08:30:17 systemd repeated "system.slice: A process of this unit has
@@ -64,17 +68,22 @@ class FuzzOpsTests(unittest.TestCase):
         self.assertEqual(lines, ["Submitted one dedicated successor", "continuous discovery stops here"])
 
     def test_real_state_reports_every_seen_problem(self):
-        probe = fuzz_ops.parse_probe(fixture("guest-probe-before.txt"))
-        state, problems = fuzz_ops.verdict(True, [self.current], self.runners, probe)
+        outside = fuzz_ops.parse_probe(fixture("guest-probe-outside-slice.txt"))
+        state, problems = fuzz_ops.verdict(True, [self.current], self.runners, outside)
         self.assertEqual(state, "RUNNING: cycle 42766490058 is in_progress")
         self.assertIn("runner mongoose-barn-fuzz-2 is offline", problems)
-        self.assertIn("guest listener 2 is failed (python scripts/fuzz_ops.py runner restart 2)", problems)
-        self.assertEqual(sum("no memory bound" in p for p in problems), 4)
-        healthy = fuzz_ops.parse_probe(fixture("guest-probe.txt"))
+        self.assertEqual(sum("runs outside barn-fuzz.slice" in p for p in problems), 4)
+        self.assertTrue(any(p.startswith("9 kernel OOM kills in the last 24h") for p in problems))
+        inside = fuzz_ops.parse_probe(fixture("guest-probe.txt"))
         online = [{**r, "status": "online"} for r in self.runners]
-        _, problems = fuzz_ops.verdict(True, [self.current], online, healthy)
-        self.assertEqual(len(problems), 1)
-        self.assertTrue(problems[0].startswith("1 kernel OOM kills in the last 24h"))
+        _, problems = fuzz_ops.verdict(True, [self.current], online, inside)
+        self.assertFalse(any("barn-fuzz.slice" in p for p in problems), problems)
+
+    def test_failed_listener_and_unbounded_slice_are_problems(self):
+        probe = fuzz_ops.parse_probe("listener 2 failed 0 /barn-fuzz.slice/x.service\nslice infinity 0\n")
+        _, problems = fuzz_ops.verdict(True, [self.current], [], probe)
+        self.assertIn("guest listener 2 is failed (python scripts/fuzz_ops.py runner restart 2)", problems)
+        self.assertIn("barn-fuzz.slice has no memory bound: install .github/runner/barn-fuzz.slice", problems)
 
     def test_chain_states(self):
         done = dict(status="completed", conclusion="failure", accept="success")

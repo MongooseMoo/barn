@@ -38,13 +38,16 @@ HOST = "root@mongoose.world"
 KNOWN_HOSTS = (Path.home() / ".ssh" / "barn-compute-known-hosts").as_posix()
 SLOTS = (1, 2, 3, 4)
 LISTENER = "actions.runner.MongooseMoo.mongoose-barn-fuzz-{}.service"
+SLICE = "barn-fuzz.slice"  # .github/runner/barn-fuzz.slice: one memory bound for all listeners
 DECISION = re.compile(r"(Submitted one dedicated successor|no successor submitted|"
                       r"continuous discovery stops here|Watchdog: .*)")
 
 GUEST_PROBE = (
     'for s in 1 2 3 4; do u=actions.runner.MongooseMoo.mongoose-barn-fuzz-$s.service; '
     'printf "listener %s %s %s %s\\n" "$s" "$(systemctl is-active $u)" '
-    '"$(systemctl show $u -p NRestarts --value)" "$(systemctl show $u -p MemoryMax --value)"; done; '
+    '"$(systemctl show $u -p NRestarts --value)" "$(systemctl show $u -p ControlGroup --value)"; done; '
+    'printf "slice %s %s\\n" "$(systemctl show barn-fuzz.slice -p MemoryMax --value)" '
+    '"$(systemctl show barn-fuzz.slice -p MemoryCurrent --value)"; '
     # One kernel line per kill, naming its cgroup and task. systemd's "killed
     # by the OOM killer" lines repeat on daemon-reload and are not kills.
     'journalctl -q -k --since -24h --no-pager -o short-iso --grep "oom-kill:" | sed "s/^/oom /"; '
@@ -98,7 +101,9 @@ def parse_probe(text):
         if kind == "listener":
             probe["listeners"][int(fields[0])] = {
                 "state": fields[1], "restarts": int(fields[2]) if fields[2:] else None,
-                "memory_max": fields[3] if fields[3:] else None}
+                "cgroup": fields[3] if fields[3:] else None}
+        elif kind == "slice":
+            probe["slice"] = {"memory_max": fields[0], "memory_current": fields[1] if fields[1:] else None}
         elif kind == "oom":
             probe["oom"].append(rest)
         elif kind in ("disk", "hostdisk"):
@@ -133,8 +138,11 @@ def verdict(enabled, cycles, runners, probe=None):
             if listener["state"] != "active":
                 problems.append(f"guest listener {slot} is {listener['state']} "
                                 f"(python scripts/fuzz_ops.py runner restart {slot})")
-            if listener["memory_max"] == "infinity":
-                problems.append(f"guest listener {slot} has no memory bound: .github/runner/listener.conf is not applied")
+            if not (listener["cgroup"] or "").startswith(f"/{SLICE}/"):
+                problems.append(f"guest listener {slot} runs outside {SLICE} ({listener['cgroup']}): apply "
+                                ".github/runner/listener.conf and restart it while its runner is idle")
+        if probe.get("slice", {}).get("memory_max") in (None, "infinity"):
+            problems.append(f"{SLICE} has no memory bound: install .github/runner/barn-fuzz.slice")
         if probe["oom"]:
             problems.append(f"{len(probe['oom'])} kernel OOM kills in the last 24h; last: {probe['oom'][-1]}")
         for key in ("disk", "hostdisk"):
@@ -246,7 +254,9 @@ def render(status):
     if probe:
         for slot, listener in sorted(probe["listeners"].items()):
             lines.append(f"Guest listener {slot}: {listener['state']}, restarts {listener['restarts']}, "
-                         f"memory bound {listener['memory_max']}.")
+                         f"cgroup {listener['cgroup']}.")
+        if "slice" in probe:
+            lines.append(f"{SLICE}: memory {probe['slice']['memory_current']} of {probe['slice']['memory_max']} bytes.")
         if "memory" in probe:
             lines.append(f"Guest memory {probe['memory']['used_mb']} of {probe['memory']['total_mb']} MB used, "
                          f"disk {probe.get('disk')}% used, load {' '.join(map(str, probe.get('load', [])))}.")
