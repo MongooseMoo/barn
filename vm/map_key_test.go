@@ -26,6 +26,12 @@ func mapKeyVMStore(t *testing.T) *dbstore.Store {
 // runOn runs code to completion in txn, as a task of programmer #0.
 func runOn(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, code string) {
 	t.Helper()
+	runOnThis(t, store, txn, types.ObjNothing, code)
+}
+
+// runOnThis is runOn with this bound to thisObj.
+func runOnThis(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, thisObj types.ObjID, code string) {
+	t.Helper()
 	registry := BuildVMRegistry()
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
@@ -38,7 +44,8 @@ func runOn(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, code strin
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx
 	machine.Task = task.NewState(1, 0, 30000, 1)
-	machine.PrepareVerbFrame(prog, types.ObjNothing, 0, 0, "", types.ObjNothing, []types.Value{})
+	frame := machine.PrepareVerbFrame(prog, thisObj, 0, 0, "", types.ObjNothing, []types.Value{})
+	SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(thisObj))
 	if result := machine.ExecuteLoop(); result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("%q: flow %v: %v", code, result.Flow, result.Error)
 	}
@@ -291,5 +298,127 @@ func TestKeyedMapRebaseRespectsTaskValueQuota(t *testing.T) {
 				t.Fatalf("published map = %v, error=%v, bytes=%d, limit=%d; want %v below limit", actual, ec, types.ValueBytes(actual), limit, want)
 			}
 		})
+	}
+}
+
+// playerStateStore gives #0 a property "state": a map keyed by player objects,
+// holding an entry for each of present.
+func playerStateStore(t *testing.T, present ...types.ObjID) *dbstore.Store {
+	t.Helper()
+	store := dbstore.NewStore()
+	system := dbstore.NewObjectBuilder(0)
+	system.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+	pairs := [][2]types.Value{}
+	for _, who := range present {
+		pairs = append(pairs, [2]types.Value{types.NewObj(who), types.NewInt(1)})
+	}
+	system.SetProperty("state", dbstore.NewProperty(types.NewMap(pairs), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(system.Build()); err != nil {
+		t.Fatalf("store.Add: %v", err)
+	}
+	return store
+}
+
+// playerState returns #0.state[who], and whether the entry exists.
+func playerState(t *testing.T, store *dbstore.Store, who types.ObjID) (int64, bool) {
+	t.Helper()
+	m, ec := store.DirectTxn().PropertyValue(0, "state")
+	if ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	v, ok := m.MapGet(types.NewObj(who))
+	return v.Int(), ok
+}
+
+// catchReadState is the per-player update as deployed in Mongoose: a catch-form
+// keyed read that yields 0 for a player with no entry, a change to the local,
+// and a keyed write back.
+func catchReadState(who types.ObjID) string {
+	return fmt.Sprintf("who = #%d; s = `this.state[who] ! E_RANGE => 0'; s = s + 1; this.state[who] = s;", who)
+}
+
+// Two players' tasks update their own entries of a player-keyed map through the
+// deployed catch-form read: neither depends on the other's entry, whether the
+// entries exist or are being inserted, so both commit from one snapshot.
+func TestCatchReadOfObjectKeyedEntriesForDifferentPlayersBothCommit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		present []types.ObjID
+		want    int64
+	}{
+		{name: "present", present: []types.ObjID{5, 6}, want: 2},
+		{name: "absent", want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := playerStateStore(t, test.present...)
+			ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+			defer ta.Release()
+			defer tb.Release()
+			runOnThis(t, store, ta, 0, catchReadState(5))
+			runOnThis(t, store, tb, 0, catchReadState(6))
+			if ec := ta.Commit(); ec != types.E_NONE {
+				t.Fatalf("first commit: %v %v", ec, ta.Conflicts())
+			}
+			if ec := tb.Commit(); ec != types.E_NONE {
+				t.Fatalf("second commit: %v %v", ec, tb.Conflicts())
+			}
+			for _, who := range []types.ObjID{5, 6} {
+				if v, ok := playerState(t, store, who); !ok || v != test.want {
+					t.Fatalf("state[#%d] = %d (present %v); want %d", who, v, ok, test.want)
+				}
+			}
+		})
+	}
+}
+
+// Two tasks updating the same player's entry, present or being inserted, both
+// depend on that entry: the second to commit loses validation.
+func TestCatchReadOfTheSameObjectKeyedEntryConflicts(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		present []types.ObjID
+		want    int64
+	}{
+		{name: "present", present: []types.ObjID{5}, want: 2},
+		{name: "absent", want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := playerStateStore(t, test.present...)
+			ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+			defer ta.Release()
+			defer tb.Release()
+			runOnThis(t, store, ta, 0, catchReadState(5))
+			runOnThis(t, store, tb, 0, catchReadState(5))
+			if ec := ta.Commit(); ec != types.E_NONE {
+				t.Fatalf("first commit: %v %v", ec, ta.Conflicts())
+			}
+			if ec := tb.Commit(); ec == types.E_NONE || !tb.ValidationFailed() {
+				t.Fatalf("second commit = %v; want a lost validation", ec)
+			}
+			if v, ok := playerState(t, store, 5); !ok || v != test.want {
+				t.Fatalf("state[#5] = %d (present %v); want %d", v, ok, test.want)
+			}
+		})
+	}
+}
+
+// The shape the verb had before: copying the whole map into a local reads the
+// whole property, so a task updating one player's entry conflicts with a task
+// updating another's.
+func TestWholeMapReadOfObjectKeyedStateConflictsAcrossPlayers(t *testing.T) {
+	oldShape := func(who types.ObjID) string {
+		return fmt.Sprintf("who = #%d; states = this.state; s = maphaskey(states, who) ? states[who] | 0; s = s + 1; this.state[who] = s;", who)
+	}
+	store := playerStateStore(t, 5, 6)
+	ta, tb := store.BeginSnapshot(0), store.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	runOnThis(t, store, ta, 0, oldShape(5))
+	runOnThis(t, store, tb, 0, oldShape(6))
+	if ec := ta.Commit(); ec != types.E_NONE {
+		t.Fatalf("first commit: %v %v", ec, ta.Conflicts())
+	}
+	if ec := tb.Commit(); ec == types.E_NONE || !tb.ValidationFailed() {
+		t.Fatalf("second commit = %v; want a lost validation", ec)
 	}
 }
