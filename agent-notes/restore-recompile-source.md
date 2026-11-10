@@ -177,5 +177,57 @@ index on the program it returns; no compiler is needed at write time.
 - Copied agent-notes/fuzz-oom-restore-vmsnapshot.md unchanged from
   feat-fuzz-compute-ops (lead, that worktree is being removed).
 
+### Built so far
+- bytecode/origin.go: Origin, ExtractFork, Fingerprint, ConstantKey;
+  program.go: Program.Origin, ExtractForkBody stamps Fork.
+- compiler/native_import.go: Compiler.Rebuild, compileNativeVector shared
+  with ConvertNativeFrame (which now stamps a Native origin).
+- task/snapshot.go: RebuildSnapshot/LocalSlot on VMFrameSnapshot.
+- db/format writer_vm.go (step 1, marker v2 + programIdentityValue),
+  reader_vm.go (frameFields maps v1 numbering onto v1/v2; v2 keeps named
+  locals by name and temporaries in Rebuild.Internal; v1 marked Legacy).
+- vm/persistence.go: rebuildSnapshot (steps 2-3), ProgramMismatchError.
+- engine/task_load.go: mismatch dropped with ERROR log (Q's decision).
+- Existing format tests that built v1 metadata via vmFrameMetadata now use
+  the test-only legacyVMFrameMetadata; tests that asserted reader-side
+  slot layout now assert the v2 shape (names, Rebuild.Internal), and the
+  compiler-slot equality moved to vm TestCheckpointStoresNoBytecode.
+
+- Step 4: FuzzRestoreVMSnapshotDoesNotPanic now fuzzes (source, ip, stack
+  count, handler IP, palette shift) through WriteCheckpoint/LoadDatabase and
+  RestoreVMSnapshot. The 8 old seeds (raw bytecode, old signature) were
+  removed with git rm and replaced by 8 source seeds; TestRestoreFuzzSeeds-
+  ReachResume keeps each seed reaching Resume. The run gets the source fuzz
+  driver's 100 ms execution deadline (attachSourceFuzzTask pattern), because
+  a compiled named while charges only unchecked ticks and would otherwise
+  hang the target. 30 s local fuzz: 32,918 execs, no failure.
+- Step 5 tests: vm/rebuild_persistence_test.go (verb, eval, fork, nested
+  fork, try/finally, pending finally, for-list, for-range-in-try round
+  trips; no bytecode stored; eval frame rebuilt from its own source; v2
+  fingerprint mismatch refused; v1 equal accepted incl. a v1 fork frame; v1
+  tampered code/constant refused), db/format/vm_frame_legacy_test.go,
+  engine/rebuild_load_test.go (Toast fork-vector import re-checkpointed by
+  Barn resumes to 1/1/173/1; mismatch dropped with ERROR, malformed fails).
+
+### Unverified
+- How the nightly fuzz workflow (.github/workflows/fuzz.yml:87) treats its
+  retained corpus for this target, recorded in the old input signature,
+  when restored into the Go fuzz cache (skipped vs failing the campaign).
+- The Toast fork-vector round trip re-checkpoints the imported task before
+  it resumes; no fixture has an imported task that resumes and suspends a
+  second time. Both write the same ConvertNativeFrame program, so the
+  rebuild path is the same, but that second-suspend case is not run.
+- The activation LineNumber the reader puts on a v2 frame's call stack is
+  1 (no line table until restore); not checked whether anything reads it
+  after restore before the VM recomputes lines.
+- v1 frames whose program came from a Toast import are refused (origin
+  never recorded in v1).
+
+## State
+Steps 1-5 built and committed on feat/restore-recompile-source, plus Q's
+drop-and-keep-booting rule. Not pushed (lead publishes). Gates run locally:
+go test ./db/format ./vm ./compiler ./task ./engine ./bytecode, go vet ./...,
+gofmt -l, staticcheck on touched packages: all clean.
+
 ## Next step
-Failing tests, then steps 1-5.
+Lead reviews and publishes.
