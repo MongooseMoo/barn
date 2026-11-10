@@ -35,8 +35,10 @@ func (tx *StoreTxn) writesTouchAnon(writes *writeSet) bool {
 // version that a commit before the gate already superseded. The reads recorded
 // so far stay on the renewed transaction (those on objects this commit itself
 // republished at the versions it just gave them), so the slice's final commit
-// still validates everything the slice read. A validation loss returns E_INVARG
-// with ValidationFailed() set and leaves this transaction intact.
+// still validates everything the slice read. Keyed map reads are validated per
+// entry and carried per entry, re-based to the map the boundary published
+// (boundaryMapKeys). A validation loss returns E_INVARG with ValidationFailed()
+// set and leaves this transaction intact.
 func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
 	if tx == nil || tx.store == nil {
 		return tx, false, types.E_INVARG
@@ -47,8 +49,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	if tx.terminalErr != types.E_NONE {
 		return tx, false, tx.terminalErr
 	}
-	// The renewed transaction carries version-checked reads only.
-	tx.degradeMapKeys()
+	mapKeys := tx.boundaryMapKeys()
 	if errCode := tx.validateReads(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return tx, false, errCode
@@ -172,6 +173,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.propertyShapeScans = propertyShapeScans
 	next.verbReads = verbReads
 	next.verbScans = verbScans
+	next.carryBoundaryMapKeys(mapKeys)
 	next.waifs = tx.waifs
 	tx.carryConflictDiag(next, true)
 	return next, publishedWrites, types.E_NONE

@@ -6,7 +6,10 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func TestBoundaryRenewDegradesKeyedReadsOnRepublishedMap(t *testing.T) {
+// The renewed transaction carries a keyed read on the map the boundary
+// republished as a keyed read, not a whole one: its own publication is no
+// conflict, a later change to the entry it read is.
+func TestBoundaryRenewCarriesKeyedReadsOnRepublishedMap(t *testing.T) {
 	for _, change := range []bool{false, true} {
 		t.Run(map[bool]string{false: "own-publication", true: "later-conflict"}[change], func(t *testing.T) {
 			store := mapKeyStore(t, kv("a", 1), kv("b", 2))
@@ -23,8 +26,8 @@ func TestBoundaryRenewDegradesKeyedReadsOnRepublishedMap(t *testing.T) {
 				t.Fatalf("renew=%v published=%v", ec, published)
 			}
 			defer next.Release()
-			if len(next.mapKeys) != 0 || len(next.propertyReads) == 0 {
-				t.Fatalf("keyed dependency not converted: keyed=%d whole=%d", len(next.mapKeys), len(next.propertyReads))
+			if _, whole := next.propertyReads[propertyReadKey{objID: 0, name: "m"}]; len(next.mapKeys) != 1 || whole {
+				t.Fatalf("keyed dependency not carried keyed: keyed=%d whole=%v", len(next.mapKeys), whole)
 			}
 			if change {
 				writer := store.BeginSnapshot(0)
