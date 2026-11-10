@@ -413,7 +413,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"objects": restaged, "owned": restaged, "propertyWrites": restaged,
 		"scalarReads": carried, "relationshipReads": carried, "propertyReads": carried,
 		"propertyScans": carried, "propertyShapeScans": carried, "verbReads": carried,
-		"verbScans": carried, "taskReads": carried, "taskWrites": declines, "waifs": carried, "usedVerbMemo": carried,
+		"verbScans": carried, "taskReads": carried, "externalRead": carried, "externalEpoch": carried, "taskWrites": declines, "waifs": carried, "usedVerbMemo": carried,
 		"verbMemoDisabled": carried, "verbMemoHits": carried, "gateWait": carried,
 		"commitContext": carried, "conflictLabel": carried,
 		"direct": declines, "gateExempt": declines, "exclusiveGrant": declines,

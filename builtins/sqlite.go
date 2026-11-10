@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 
@@ -242,13 +243,19 @@ func sqliteScanRows(rows *sql.Rows, includeHeaders bool) types.Result {
 	return types.Ok(types.NewList(resultRows))
 }
 
-func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool, id metrics.Identity) types.Result {
+// sqliteExecOrQuery runs sqlText on handle. With readOnly set it runs it only
+// if it is shareable (sqlite_readonly.go) and the handle is open, and otherwise
+// returns ran false having run nothing; epoch is the store's external write
+// epoch loaded before the statement ran. Without readOnly every statement
+// runs, and one that is not shareable moves the epoch once it has run, before
+// the handle is released. A nil store skips both.
+func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, includeHeaders bool, id metrics.Identity, store *dbstore.Store, readOnly bool) (result types.Result, ran bool, epoch uint64) {
 	waitStart := time.Now()
 	opCtx, ok := beginSQLiteOperation(handle)
 	handleWait := time.Since(waitStart)
 	if !ok {
 		metrics.ObserveRuntime(metrics.SQLiteHandleWait, id, handleWait, 0)
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_INVARG), !readOnly, 0
 	}
 	workStart := time.Now()
 	defer func() {
@@ -259,6 +266,20 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 		metrics.ObserveRuntime(metrics.SQLiteWork, id, workElapsed, 0)
 	}()
 
+	if store != nil {
+		shareable := sqliteStatementShareable(handle.conn, sqlText)
+		if readOnly && !shareable {
+			return types.Result{}, false, 0
+		}
+		epoch = store.ExternalWrites()
+		if !shareable {
+			defer store.BumpExternalWrites() // runs before the slot is released
+		}
+	}
+	return sqliteRunStatement(opCtx, handle, sqlText, params, includeHeaders), true, epoch
+}
+
+func sqliteRunStatement(opCtx context.Context, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
 	if sqliteReturnsRows(sqlText) {
 		rows, err := handle.conn.QueryContext(opCtx, sqlText, params...)
 		if err != nil {
@@ -275,9 +296,19 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 }
 
 func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	id := runtimeIdentity(ctx)
+	store := ctx.Store
 	if ctx.Task != nil && !threadedCall(ctx) {
+		// A read-only statement runs at once and is validated at commit
+		// instead (sqlite_readonly.go).
+		if sqliteMayReadOptimistically(ctx) {
+			if result, ran, epoch := sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id, store, true); ran {
+				readTxn(ctx).NoteExternalRead(epoch)
+				return result
+			}
+		}
 		// Row-returning statements can write (WITH, PRAGMA), so protect every
-		// inline statement before entering SQLite or waiting on its handle.
+		// other inline statement before entering SQLite or waiting on its handle.
 		// A stale attempt must stop before executing any external operation.
 		// Threaded operations instead start only after the slice commits.
 		if !beginIrreversible(ctx) {
@@ -285,10 +316,25 @@ func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string
 		}
 		ctx.IrreversibleSideEffect = true
 	}
-	id := runtimeIdentity(ctx)
 	return runInBackground(ctx, func() types.Result {
-		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id)
+		result, _, _ := sqliteExecOrQuery(handle, sqlText, params, includeHeaders, id, store, false)
+		return result
 	})
+}
+
+// sqliteMayReadOptimistically reports whether an inline read-only statement
+// may skip the irreversible-effect boundary: the attempt can still be re-run
+// and does not hold the exclusive commit gate. Otherwise the statement takes
+// the path every statement took before: across the boundary, or, where the
+// boundary is already behind the attempt or the context has none, straight in.
+func sqliteMayReadOptimistically(ctx *Execution) bool {
+	tc := ctx.Context
+	if ctx.Store == nil || tc == nil || tc.BeforeIrreversibleEffect == nil ||
+		tc.ConflictRetryRequested || tc.IrreversibleSideEffect || tc.LiveStoreMutated {
+		return false
+	}
+	tx := readTxn(ctx)
+	return !tx.IsDirect() && !tx.IsCommitGateExempt()
 }
 
 func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {

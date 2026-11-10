@@ -221,6 +221,9 @@ type Store struct {
 	// interleave between its snapshot and its validation, it cannot lose again.
 	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
+	// externalWrites counts writes to state outside the store that tasks read
+	// optimistically (store_external_reads.go).
+	externalWrites atomic.Uint64
 
 	// Live waifs by class. Weak, so the registry roots nothing; a class
 	// property rename or delete reaches every WAIF of the class through it.

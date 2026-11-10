@@ -195,8 +195,8 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 		return tx, false, tx.terminalErr
 	}
 
-	publishedWrites = tx.HasWrites()
-	if publishedWrites {
+	publishedWrites = tx.hasStagedWrites()
+	if tx.HasWrites() {
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			return tx, false, errCode
 		}
@@ -244,7 +244,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.terminalErr != types.E_NONE {
 		return tx.terminalErr
 	}
-	if !tx.hasStagedWrites() {
+	if !tx.hasStagedWrites() && !tx.externalRead {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -388,6 +388,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.gateExempt {
 		isolationprobe.Note("exclusive_gate")
 	}
+	tx.externalRead = false
 	return types.E_NONE
 }
 

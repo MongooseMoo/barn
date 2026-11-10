@@ -175,6 +175,9 @@ func (tx *StoreTxn) publishTaskRowsLocked() []PublishedTaskRow {
 // commitTaskRowsOnly commits a transaction whose only writes are task rows. It
 // validates only the task-row reads: the rest of the transaction wrote
 // nothing, so, like a read-only transaction, it is serialized at its snapshot.
+// A transaction that read external state is the exception: that read was made
+// after the snapshot, so the transaction is serialized here instead and every
+// read it made is validated (store_external_reads.go).
 // It still takes the shared commit gate, so an attempt holding the gate
 // exclusively cannot lose to it.
 func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode types.ErrorCode) {
@@ -190,13 +193,21 @@ func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode 
 	tx.validationFail = false
 	tx.conflicts = tx.conflicts[:0]
 	s := tx.store
+	errCode = types.E_NONE
+	if tx.externalRead {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		s.commitMu.Lock()
+		defer s.commitMu.Unlock()
+		errCode = tx.validateReadsLocked()
+	}
 	s.tasks.mu.Lock()
 	defer s.tasks.mu.Unlock()
-	errCode = types.E_NONE
 	tx.validateTaskReadsLocked(&errCode)
 	if errCode != types.E_NONE {
 		tx.lostValidation()
 		return nil, errCode
 	}
+	tx.externalRead = false
 	return tx.publishTaskRowsLocked(), types.E_NONE
 }

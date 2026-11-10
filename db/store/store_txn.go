@@ -48,8 +48,12 @@ type StoreTxn struct {
 	// taskReads holds the version of each task row read (0 for a missing row)
 	// and taskWrites the rows staged for publication (store_task_rows.go).
 	// Unlike the object reads, renewal carries taskReads forward.
-	taskReads      map[int64]uint64
-	taskWrites     map[int64]TaskRow
+	taskReads  map[int64]uint64
+	taskWrites map[int64]TaskRow
+	// externalRead is set once the txn has read external state at external
+	// write epoch externalEpoch (store_external_reads.go).
+	externalRead   bool
+	externalEpoch  uint64
 	validationFail bool
 	waifs          map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
@@ -302,8 +306,10 @@ func (tx *StoreTxn) HasStagedVerbDeletes() bool {
 	return tx != nil && len(tx.verbDeletes) > 0
 }
 
+// HasWrites reports whether a commit has anything to do: staged writes to
+// publish, or an external read to validate (store_external_reads.go).
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && !tx.direct && tx.terminalErr == types.E_NONE && tx.hasStagedWrites()
+	return tx != nil && !tx.direct && tx.terminalErr == types.E_NONE && (tx.hasStagedWrites() || tx.externalRead)
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {

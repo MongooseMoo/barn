@@ -69,6 +69,9 @@ const (
 	ConflictMapKey
 	// ConflictTask is a task's row; Name is the task id.
 	ConflictTask
+	// ConflictExternal is state outside the store, such as an SQLite database,
+	// written since the transaction read it (store_external_reads.go).
+	ConflictExternal
 )
 
 var conflictKindNames = [...]string{
@@ -84,6 +87,7 @@ var conflictKindNames = [...]string{
 	ConflictObjectID:      "object-id",
 	ConflictMapKey:        "map-key",
 	ConflictTask:          "task",
+	ConflictExternal:      "external",
 }
 
 func (k ConflictKind) String() string {
