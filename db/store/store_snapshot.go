@@ -198,6 +198,13 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 		if obj == nil || !validLiveObject(obj) || obj.anonymous {
 			return true
 		}
+		// last_move is written with the object like a property value, so its
+		// anonymous references need a plan entry too (dangling -> NOTHING).
+		refs := make(map[types.ObjID]struct{})
+		types.CollectAnonymousRefs(obj.lastMove, refs, false)
+		for id := range refs {
+			enqueue(id)
+		}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
 			types.CollectAnonymousRefs(prop.value, refs, false)
@@ -236,6 +243,11 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 			continue
 		}
 		reachablePresent[id] = struct{}{}
+		refs := make(map[types.ObjID]struct{})
+		types.CollectAnonymousRefs(obj.lastMove, refs, false)
+		for nid := range refs {
+			enqueue(nid)
+		}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
 			types.CollectAnonymousRefs(prop.value, refs, false)
