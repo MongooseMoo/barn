@@ -154,6 +154,19 @@ func (tx *StoreTxn) ObserveMapKey(objID types.ObjID, name string, captured, key 
 	st.reads = append(st.reads, mapKeyRead{key: key, value: value, present: present})
 }
 
+// ReadMapKeyedSlotWhole turns the keyed dependency on objID.name, if any, into
+// a whole read at the version the transaction first saw: a keyed fetch whose
+// map then reached more than one entry's worth of code depends on all of it.
+func (tx *StoreTxn) ReadMapKeyedSlotWhole(objID types.ObjID, name string) {
+	if tx == nil {
+		return
+	}
+	rkey := propertyReadKey{objID: objID, name: propertyNameKey(name)}
+	if st := tx.mapKeys[rkey]; st != nil {
+		tx.degradeMapKey(rkey, st)
+	}
+}
+
 // pendingKeyedBase returns the slot state when the keyed base fetched for an
 // assignment is still the transaction's view of objID.name, so the map the
 // assignment built differs from that view only at its key.

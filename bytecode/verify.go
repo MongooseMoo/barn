@@ -281,6 +281,8 @@ func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err er
 		return 2, 0, nil
 	case OP_RANGE, OP_INDEX_KEYED:
 		return 3, 1, nil
+	case OP_MAPHASKEY_KEYED:
+		return 3, 2, nil
 	case OP_RANGE_SET, OP_SET_PROP_DYNAMIC, OP_SET_PROP_KEYED:
 		return 3, 0, nil
 	case OP_GET_PROP: // operand 0xff is the legacy dynamic form: name above the object
@@ -345,7 +347,7 @@ func decodeInstructions(code []byte) (map[int]bool, []decodedInstruction, error)
 		if op.String() == "UNKNOWN" {
 			return nil, nil, fmt.Errorf("unknown opcode %d at byte %d", op, ip)
 		}
-		if op == OP_BREAK || op == OP_CONTINUE || op == OP_CATCH || op == OP_RAISE {
+		if op == OP_BREAK || op == OP_CONTINUE || op == OP_CATCH {
 			return nil, nil, fmt.Errorf("dead opcode %s at byte %d", op, ip)
 		}
 		ip++
@@ -444,6 +446,8 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 	case OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
 		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return constant(int(binary.BigEndian.Uint16(operand)))
+	case OP_MAPHASKEY_KEYED:
+		return constant(int(binary.BigEndian.Uint16(operand[:2])))
 	case OP_CALL_VERB:
 		if operand[0] != 0xff {
 			return constant(int(operand[0]))

@@ -266,6 +266,10 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 
 	case *ir.IndexBoundaryExpr:
 		if e.Boundary == ir.IndexFirst {
+			// A caret followed by a property dot would lex as `^.` (XOR).
+			if parentPrecedence >= precedenceProperty {
+				return "(^)"
+			}
 			return "^"
 		}
 		return "$"

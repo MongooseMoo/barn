@@ -1406,6 +1406,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeIndex()
 	case bytecode.OP_INDEX_KEYED:
 		return vm.executeIndexKeyed()
+	case bytecode.OP_MAPHASKEY_KEYED:
+		return vm.executeMaphaskeyKeyed()
 	case bytecode.OP_INDEX_SET:
 		return vm.executeIndexSet()
 	case bytecode.OP_RANGE:

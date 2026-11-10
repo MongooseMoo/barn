@@ -130,7 +130,10 @@ jobs:
       - name: Fuzz ${{ matrix.target }}
         id: campaign
         # Go stops a campaign at its first failing input, so start the target
-        # again with the time left until the 30 minutes are used.
+        # again with the time left until the 30 minutes are used. Each finding
+        # is reported, and its repair dispatched, before the next attempt.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           inputs="${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}"
@@ -151,7 +154,7 @@ jobs:
               go version
               # Keep the original failing seed so quarantine can remove its
               # exact bytes from the disposable cache before retrying.
-              go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=2 -timeout="$((remaining + 600))s"
+              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=2 -timeout="$((remaining + 600))s"
             } 2>&1 | tee "$log"; then
               mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
@@ -162,6 +165,18 @@ jobs:
                 --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure |
               python3 -c 'import json, sys; r = json.load(sys.stdin)[0]; print(r["input_path"] if r["kind"] != "infrastructure" and r["input_path"] else "")')
             if [ -z "$input" ]; then echo "cycle=infrastructure" >> "$GITHUB_OUTPUT"; exit 1; fi
+            # Report now, while the exact record is still in place; the issue
+            # carries it, since its artifact is uploaded only when the job ends.
+            reported=()
+            for prior in "$logs"/reported-*.log; do [ -e "$prior" ] && reported+=(--reported-log "$prior"); done
+            python3 scripts/fuzz_report.py --log "$log" "${reported[@]}" --package '${{ matrix.package }}' \
+                --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure \
+                --publish --immediate > /dev/null && published=0 || published=$?
+            case "$published" in
+              0) mv "$log" "$logs/reported-$(printf %03d "$run").log" ;;
+              3) echo "::notice::$input is too large for an issue; it is reported with its artifact when the job ends." ;;
+              *) echo "::error::Reporting $input failed; Open failure issues retries it when the job ends." ;;
+            esac
             python3 scripts/fuzz_retention.py quarantine --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --input "$input" --found "$found"
           done
           echo "cycle=$([ "$status" = 0 ] && echo clean || echo finding)" >> "$GITHUB_OUTPUT"
@@ -207,79 +222,22 @@ jobs:
       - &failure-reporter
         name: Open failure issues
         if: failure()
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           CAMPAIGN_OUTCOME: ${{ steps.campaign.outcome }}
           ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
-        with:
-          script: |
-            const target = process.env.FUZZ_TARGET;
-            const fs = require('node:fs');
-            const {execFileSync} = require('node:child_process');
-            // One log per failed campaign, named so that sorting gives run order.
-            const logs = `${process.env.RUNNER_TEMP}/fuzz-logs`;
-            const logArgs = fs.existsSync(logs) ? fs.readdirSync(logs).filter(name => name.startsWith('run-')).sort().flatMap(name => ['--log', `${logs}/${name}`]) : [];
-            // Checkout/setup can fail before the reporter is available.
-            const reports = fs.existsSync('scripts/fuzz_report.py')
-              ? JSON.parse(execFileSync('python3', [
-                  'scripts/fuzz_report.py', ...logArgs,
-                  '--package', process.env.FUZZ_PACKAGE, '--target', target,
-                  '--commit', context.sha, '--campaign-outcome', process.env.CAMPAIGN_OUTCOME
-                ], {encoding: 'utf8'}))
-              : [{kind: 'infrastructure', first_error: 'Checkout failed; inspect the failed step.',
-                 signature: require('node:crypto').createHash('sha256').update(`${target}|infrastructure|unavailable`).digest('hex'), commit: context.sha,
-                 go_version: 'unavailable', barn_frames: [], log_tail: '', count: 1}];
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              ...context.repo, state: 'open', per_page: 100
-            });
-            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${process.env.GITHUB_RUN_ATTEMPT}`;
-            // A corpus can contain Markdown fences; keep its contents inside the block.
-            const block = value => {
-              const text = String(value ?? 'Unavailable');
-              const fence = '`'.repeat(Math.max(3, ...Array.from(text.matchAll(/`+/g), m => m[0].length + 1)));
-              return `${fence}text\n${text}\n${fence}`;
-            };
-            // One issue or comment per distinct signature found in the night.
-            for (const report of reports) {
-              const infrastructure = report.kind === 'infrastructure';
-              const title = infrastructure
-                ? `Nightly fuzz infrastructure failure: ${target}`
-                : `Nightly fuzz failure: ${target}`;
-              const marker = `<!-- fuzz-signature: ${report.signature} -->`;
-              const body = [
-                marker,
-                `Target: ${process.env.FUZZ_PACKAGE}/${target}`,
-                `Run: ${run}`,
-                `Kind: ${report.kind}`,
-                `Times found in this run's campaigns: ${report.count} (the input below is from the first; the artifact holds every saved input).`,
-                `Commit: ${report.commit}\nGo: ${report.go_version}`,
-                `First error:\n${block(report.first_error)}`,
-                `Top Barn frames:\n${block(report.barn_frames.map(f => `${f.function}\n  ${f.location}`).join('\n') || 'Unavailable in Go output')}`,
-                `Failing input (${report.input_path || 'none recorded'}):\n${block(report.input_text)}`,
-                `Bounded reproduction:\n${block(report.repro || 'No failing input recorded; inspect the log.')}`,
-                `Log tail:\n${block(report.log_tail)}`,
-                process.env.ARTIFACT_URL ? `Failing inputs: ${process.env.ARTIFACT_URL} (retained for 30 days).` : 'No failing-input artifact was uploaded.',
-                'Preserve confirmed failing inputs with their regression fixes.'
-              ].join('\n\n');
-              const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(marker));
-              if (existing) {
-                await github.rest.issues.createComment({
-                  ...context.repo, issue_number: existing.number, body
-                });
-              } else {
-                // GITHUB_TOKEN events start no other workflows, except
-                // workflow_dispatch, so dispatch the fix run explicitly.
-                const {data: issue} = await github.rest.issues.create({
-                  ...context.repo, title, body, labels: infrastructure ? [] : ['claude-fix']
-                });
-                if (!infrastructure) {
-                  await github.rest.actions.createWorkflowDispatch({
-                    ...context.repo, workflow_id: 'claude-fix.yml', ref: 'master',
-                    inputs: {issue_number: String(issue.number)}
-                  });
-                }
-              }
-            }
+          GITHUB_TOKEN: ${{ github.token }}
+        # Reports what the campaign did not report while it ran: failures with
+        # no saved finding, records too large for an issue, and retries.
+        run: |
+          if [ ! -f scripts/fuzz_report.py ]; then
+            echo "::error::Checkout failed before the reporter was available; inspect the failed step."
+            exit 1
+          fi
+          logs="$RUNNER_TEMP/fuzz-logs" args=()
+          for log in "$logs"/run-*.log; do [ -e "$log" ] && args+=(--log "$log"); done
+          for log in "$logs"/reported-*.log; do [ -e "$log" ] && args+=(--reported-log "$log"); done
+          python3 scripts/fuzz_report.py "${args[@]}" --package "$FUZZ_PACKAGE" --target "$FUZZ_TARGET" \
+            --commit "$GITHUB_SHA" --campaign-outcome "$CAMPAIGN_OUTCOME" --artifact-url "$ARTIFACT_URL" --publish
 
       - name: Remove this job's disposable build cache
         if: always()
