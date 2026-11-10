@@ -21,6 +21,9 @@ from fuzz_report import DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, publis
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures") / "fuzz"
+# Failing inputs named by the real logs, at their repository-relative paths.
+# They are kept here because their target's input format has since changed.
+CORPUS = FIXTURES / "corpus"
 TARGET = "FuzzRestoreVMSnapshotDoesNotPanic"
 
 # Exact summary lines produced by the differential count-mismatch regression,
@@ -51,13 +54,21 @@ class FuzzReportTests(unittest.TestCase):
         return report((FIXTURES / f"{run}.log").read_text(), "./vm", target, "test-commit")
 
     def test_real_panic_and_corpus(self):
-        result = self.real_report(41882671144)
+        # report() opens the input relative to the working directory, as the
+        # workflow runs it from the repository root.
+        previous = os.getcwd()
+        os.chdir(CORPUS)
+        try:
+            result = self.real_report(41882671144)
+        finally:
+            os.chdir(previous)
         self.assertEqual(result["kind"], "panic")
         self.assertIn("invalid memory address", result["first_error"])
         self.assertEqual(result["barn_frames"][0], {
             "function": "github.com/MongooseMoo/barn/db/store.(*StoreTxn).live",
             "location": "db/store/store_txn.go:260"})
-        self.assertEqual(result["input_text"], (ROOT / result["input_path"]).read_text())
+        self.assertEqual(result["input_text"], (CORPUS / result["input_path"]).read_text())
+        self.assertFalse(result["input_text"].startswith("Input unavailable"))
         self.assertEqual(result["repro"],
                          f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/3fd49d1954a707ba'")
 
