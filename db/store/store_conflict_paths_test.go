@@ -125,6 +125,41 @@ func TestConflictPathCountsPendingBaseDegradedAtBoundary(t *testing.T) {
 	}
 }
 
+// A keyed fetch of #0.m that maphaskey cannot keep keyed is made whole, so a
+// commit to another entry loses the final commit. The path and the key row
+// count the read as degraded by maphaskey.
+func TestConflictPathCountsMaphaskeyDegrade(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	s.SetConflictCensusTracking(true)
+
+	loser := s.BeginSnapshot(0)
+	defer loser.Release()
+	loser.SetConflictLabel(5, "say")
+	loser.SetConflictOrigin(7, 1)
+	if _, keyed, ec := loser.MapPropertyForKey(0, "m", false); ec != types.E_NONE || !keyed {
+		t.Fatalf("keyed fetch = %v, keyed %v", ec, keyed)
+	}
+	loser.ReadMapKeyedSlotWhole(0, "m")
+
+	winner := s.BeginSnapshot(0)
+	keyedWrite(t, winner, "b", 11)
+	mustCommit(t, winner)
+	winner.Release()
+
+	keyedWrite(t, loser, "c", 2)
+	if ec := loser.Commit(); ec == types.E_NONE || !loser.ValidationFailed() {
+		t.Fatalf("final commit did not lose: %v", ec)
+	}
+	census := s.ConflictCensus()
+	p := pathRow(t, census, ConflictProperty, 0, "m")
+	if p.LostAt != (CommitPointCounts{Final: 1}) || p.Degraded != (DegradeCounts{Maphaskey: 1}) {
+		t.Errorf("lost at %+v degraded %+v, want final and maphaskey", p.LostAt, p.Degraded)
+	}
+	if d := censusRow(t, census, ConflictProperty, 0, "m").Diag; d.Degraded != (DegradeCounts{Maphaskey: 1}) {
+		t.Errorf("key degraded %+v, want maphaskey=1", d.Degraded)
+	}
+}
+
 // A keyed read the boundary carries keeps its read site on the renewed
 // transaction: a later commit to that entry loses the slice's final commit,
 // counted at the final point under the read site before the boundary, with no

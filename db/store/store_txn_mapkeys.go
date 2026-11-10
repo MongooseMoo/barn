@@ -163,7 +163,7 @@ func (tx *StoreTxn) ReadMapKeyedSlotWhole(objID types.ObjID, name string) {
 	}
 	rkey := propertyReadKey{objID: objID, name: propertyNameKey(name)}
 	if st := tx.mapKeys[rkey]; st != nil {
-		tx.degradeMapKey(rkey, st)
+		tx.degradeMapKey(rkey, st, DegradeMaphaskey)
 	}
 }
 

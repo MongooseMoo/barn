@@ -367,7 +367,7 @@ data from one implementation (`engine/diag_report.go`). Two levels:
     site): attempt number, where validation was lost (`final`, `suspend`,
     `boundary`, `coarse`), for boundary losses the builtin and calling
     `verb@line` with its slice tick, keyed map reads made whole and by which
-    path (`boundary`, `live-mutation`, `flush`, `rename`), losses after a
+    path (`boundary`, `live-mutation`, `flush`, `rename`, `maphaskey`), losses after a
     hot-read renewal of the slot, the winning writers with how they published,
     and the wall time from the read to the loss (histogram) split into
     exclusive gate wait, shared gate wait and the rest.

@@ -148,7 +148,7 @@ func degradedStr(c dbstore.DegradeCounts) string {
 	if c == (dbstore.DegradeCounts{}) {
 		return "0"
 	}
-	return fmt.Sprintf("boundary=%d live_mutation=%d flush=%d rename=%d", c.Boundary, c.LiveMutation, c.Flush, c.Rename)
+	return fmt.Sprintf("boundary=%d live_mutation=%d flush=%d rename=%d maphaskey=%d", c.Boundary, c.LiveMutation, c.Flush, c.Rename, c.Maphaskey)
 }
 
 func boundarySitesStr(rows []dbstore.BoundarySiteCount, other uint64) string {

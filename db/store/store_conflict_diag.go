@@ -200,7 +200,9 @@ func (p CommitPoint) String() string {
 // read (degradeMapKey): the irreversible-effect boundary, for a keyed
 // assignment whose base was fetched and not yet written back (boundaryMapKeys;
 // the boundary carries every other keyed read per entry), a live mutation by a
-// coarse builtin, a flush of staged topology, or a property rename.
+// coarse builtin, a flush of staged topology, a property rename, or a
+// maphaskey(obj.prop, key) that cannot stay keyed (ReadMapKeyedSlotWhole: the
+// call may redirect to #0:bf_maphaskey, or the key is not an ordered key).
 type DegradePath uint8
 
 const (
@@ -208,10 +210,11 @@ const (
 	DegradeLiveMutation
 	DegradeFlush
 	DegradeRename
+	DegradeMaphaskey
 	degradePathCount
 )
 
-var degradePathNames = [...]string{"boundary", "live-mutation", "flush", "rename"}
+var degradePathNames = [...]string{"boundary", "live-mutation", "flush", "rename", "maphaskey"}
 
 func (p DegradePath) String() string {
 	if int(p) < len(degradePathNames) {
@@ -240,7 +243,7 @@ func (c *CommitPointCounts) add(p CommitPoint) {
 
 // DegradeCounts counts by degrade path.
 type DegradeCounts struct {
-	Boundary, LiveMutation, Flush, Rename uint64
+	Boundary, LiveMutation, Flush, Rename, Maphaskey uint64
 }
 
 func (c *DegradeCounts) add(p DegradePath) {
@@ -251,6 +254,8 @@ func (c *DegradeCounts) add(p DegradePath) {
 		c.Flush++
 	case DegradeRename:
 		c.Rename++
+	case DegradeMaphaskey:
+		c.Maphaskey++
 	default:
 		c.Boundary++
 	}

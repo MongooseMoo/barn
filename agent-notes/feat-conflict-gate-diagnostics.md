@@ -42,6 +42,10 @@ reads per entry) and #686 (exec crosses the boundary itself, after its checks):
   `TestConflictPathCarriedKeyedReadLosesAtFinalCommit` (a carried keyed read
   keeps its pre-boundary read site and loses at the final point); the exec
   boundary test asserts the builtin name.
+- A later master merge brought #691 (keyed `maphaskey(obj.prop, key)`); its
+  `ReadMapKeyedSlotWhole` degrades under the new path `DegradeMaphaskey`
+  (`maphaskey`, `Degraded.Maphaskey`), tested by
+  `TestConflictPathCountsMaphaskeyDegrade`.
 
 - db/store/store_conflict_paths.go (new): census `Paths`, `Verbs`,
   `BuiltinCalls`; `SetConflictOrigin`, `NoteBoundary`, `NoteCommitGateWait`,
