@@ -14,12 +14,14 @@ import (
 
 func TestInlineSQLiteRetriesBeforeExecutingStatement(t *testing.T) {
 	for _, tc := range []struct {
-		name, statement, readback, want string
+		name, statement, readback, want, held string
 	}{
-		{"query_cte", `sqlite_query(#0.h, "WITH v(x) AS (SELECT 7) INSERT INTO t SELECT x FROM v");`, "SELECT x FROM t", "{{7}}"},
-		{"execute_cte", `sqlite_execute(#0.h, "WITH v(x) AS (SELECT ?) INSERT INTO t SELECT x FROM v", {7});`, "SELECT x FROM t", "{{7}}"},
-		{"pragma", `sqlite_query(#0.h, "PRAGMA user_version = 17");`, "PRAGMA user_version", "{{17}}"},
-		{"select", `sqlite_query(#0.h, "SELECT 7");`, "SELECT 7", "{{7}}"},
+		{"query_cte", `sqlite_query(#0.h, "WITH v(x) AS (SELECT 7) INSERT INTO t SELECT x FROM v");`, "SELECT x FROM t", "{{7}}", "1"},
+		{"execute_cte", `sqlite_execute(#0.h, "WITH v(x) AS (SELECT ?) INSERT INTO t SELECT x FROM v", {7});`, "SELECT x FROM t", "{{7}}", "1"},
+		{"pragma", `sqlite_query(#0.h, "PRAGMA user_version = 17");`, "PRAGMA user_version", "{{17}}", "1"},
+		// A read-only statement takes no gate; the stale read is caught at the
+		// final commit instead, with the same single retry.
+		{"select", `sqlite_query(#0.h, "SELECT 7");`, "SELECT 7", "{{7}}", "0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newBoundaryTestStore(t)
@@ -60,9 +62,9 @@ return {before, sqlite_query(#0.h, %q), held};
 			running.Context.IsWizard = true
 			retries := store.CommitRetries()
 			runSQLiteTaskToCompletion(t, rt, running)
-			want := "{1, " + tc.want + ", 1}"
+			want := "{1, " + tc.want + ", " + tc.held + "}"
 			if running.Result.Flow != types.FlowReturn || running.Result.Val.String() != want {
-				t.Fatalf("result = %+v, want %s (one SQL effect under the gate)", running.Result, want)
+				t.Fatalf("result = %+v, want %s (one SQL effect, under the gate for a writer)", running.Result, want)
 			}
 			if *calls != 2 || store.CommitRetries()-retries != 1 {
 				t.Fatalf("attempts=%d retries=%d, want 2 and 1", *calls, store.CommitRetries()-retries)

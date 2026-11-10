@@ -314,6 +314,7 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.verbReads = maps.Clone(tx.verbReads)
 	next.verbScans = maps.Clone(tx.verbScans)
 	next.taskReads = maps.Clone(tx.taskReads)
+	next.externalRead, next.externalEpoch = tx.externalRead, tx.externalEpoch
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
