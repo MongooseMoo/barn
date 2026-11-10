@@ -133,6 +133,20 @@ jobs:
             --model claude-opus-5-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
+      # GitHub closes the issue on merge only when the PR body, not its title,
+      # says "Fixes #N"; #696 named #692 only in its title, so #692 stayed open.
+      - name: Make the pull request close its issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for n in $(gh pr list --head "claude/issue-$ISSUE" --state open --json number,closingIssuesReferences \
+              --jq ".[] | select([.closingIssuesReferences[].number] | index($ISSUE) | not) | .number"); do
+            gh pr view "$n" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+            printf '\nFixes #%s\n' "$ISSUE" >> "$RUNNER_TEMP/pr-body.md"
+            gh pr edit "$n" --body-file "$RUNNER_TEMP/pr-body.md"
+          done
+
   conformance:
     if: >-
       github.event_name == 'pull_request' &&
