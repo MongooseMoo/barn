@@ -19,7 +19,7 @@ on master; its four runners were online and idle when inspected.
 
 Downloaded failing-input and retained-corpus artifacts. Four exact saved inputs
 are now regression corpus files. The original first campaign log is preserved
-in scripts/fixtures/fuzz/42692025227-baseline.log. Focused replay on current
+in scripts/fixtures/fuzz/native/42692025227-baseline.log. Focused replay on current
 master passed: go test ./db/format -run with the four saved input names,
 output "ok github.com/MongooseMoo/barn/db/format 1.731s".
 
@@ -63,10 +63,20 @@ zero-mutation-work check, as required. git diff --check produced no output.
 Three artifact inputs were already present on master; only the missing
 6b8992e5372061cb input is a new regression corpus file.
 
+PR 682 is open. Server group policy now admits exactly the trusted master
+fuzz.yml and fuzz-controller.yml paths. Host barn-compute.service is active,
+running, Restart=on-failure, NRestarts=0. All four guest listener services are
+active/running. No workstation Debian Go fuzz commands were found.
+
+First PR build job failed in test_raw_fixtures_are_not_tool_truncations: the new
+native tee log was placed among GitHub-prefixed logs. Moved it into native/,
+documented the producer formats, and extended the existing check recursively
+with explicit native go-version/progress assertions. Existing GitHub-prefix
+and truncation checks remain. Other PR checks were still running.
+
 ## Next step
 
-Publish the inspected routing/retention repair and documentation as one repair
-PR under Q's approved plan, watch exact-head CI, fix red checks, normal merge,
-admit controller policy, dispatch continuous native-only discovery, verify all
+Run the edited fixture tests, publish the fixture-format repair, watch exact-head
+CI, fix red checks, normal merge, dispatch continuous native-only discovery, verify all
 actual runner assignments and a completed cycle's successor. Update this note
 with actual evidence before committing substantive work and before completion.

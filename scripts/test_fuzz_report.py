@@ -31,10 +31,15 @@ UNATTRIBUTED_DIFFERENTIAL_PANIC = '''# Barn vs Toast fuzz differential
 
 class FuzzReportTests(unittest.TestCase):
     def test_raw_fixtures_are_not_tool_truncations(self):
-        for fixture in FIXTURES.glob("*.log"):
+        for fixture in FIXTURES.rglob("*.log"):
             text = fixture.read_text()
             self.assertNotIn("Warning: truncated output", text, str(fixture))
-            self.assertTrue(text.startswith("Fuzz"), str(fixture))
+            if fixture.parent == FIXTURES / "native":
+                self.assertTrue(text.startswith("go version go"), str(fixture))
+                self.assertIn("\nfuzz: elapsed:", text, str(fixture))
+            else:
+                self.assertEqual(fixture.parent, FIXTURES)
+                self.assertTrue(text.startswith("Fuzz"), str(fixture))
 
     def real_report(self, run, target=TARGET):
         return report((FIXTURES / f"{run}.log").read_text(), "./vm", target, "test-commit")

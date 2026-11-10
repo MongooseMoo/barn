@@ -137,7 +137,7 @@ class RetentionTests(unittest.TestCase):
     def test_real_baseline_findings_do_not_masquerade_as_mutation_work(self):
         logs = self.root / "logs"
         logs.mkdir()
-        raw = (ROOT / "scripts/fixtures/fuzz/42692025227-baseline.log").read_bytes()
+        raw = (ROOT / "scripts/fixtures/fuzz/native/42692025227-baseline.log").read_bytes()
         (logs / "run-001.log").write_bytes(raw)
         with self.assertRaisesRegex(ValueError, "zero measured"):
             self.run_transfer(logs=logs, campaign="finding")
