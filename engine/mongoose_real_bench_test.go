@@ -26,6 +26,10 @@ package engine
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
 //                             files/sqlite/sound.sqlite before #0:server_started
+//   BARN_MONGOOSE_MOO_PATCH   path to a MOO program evaluated once as #2 after the
+//                             snapshot repairs and before the workload (independent
+//                             of BARN_MONGOOSE_REPAIR); it must return a true value
+//                             on success, and the test fails otherwise
 //   BARN_MONGOOSE_CPUPROFILE  write Go CPU profile (startup, warmup, measurement, drain)
 //   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
 //   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
@@ -41,6 +45,7 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -691,6 +696,25 @@ func TestMongooseRealWorkload(t *testing.T) {
 			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
 		}
 		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
+	}
+	// BARN_MONGOOSE_MOO_PATCH applies a candidate MOO change to this loaded
+	// snapshot, so one dump can be measured with and without it. The file is
+	// evaluated once as #2 with ordinary builtins (set_verb_code etc.) and must
+	// itself check its work and return a true value (1) on success; a compile
+	// error, uncaught error, or false result fails the test with the raw output.
+	if path := os.Getenv("BARN_MONGOOSE_MOO_PATCH"); path != "" {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("BARN_MONGOOSE_MOO_PATCH: %v", err)
+		}
+		t.Logf("MOO patch %s sha256=%x", path, sha256.Sum256(src))
+		outcome := s.Eval(2, strings.Split(string(src), "\n"))
+		out := outcome.CommandOutput()
+		if outcome.Panic != nil || len(outcome.Diagnostics) > 0 ||
+			outcome.Result.Flow == types.FlowException || !outcome.Result.Val.Truthy() {
+			t.Fatalf("MOO patch %s failed: %s", path, out)
+		}
+		t.Logf("MOO patch (as #2) result: %s", out)
 	}
 	totalWeight := 0
 	for _, sh := range realShapes {
