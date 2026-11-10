@@ -49,10 +49,21 @@ restore lane's a67f1c049e52d97e no longer OOMs. Its first queue run had failed
 on a Jepsen harness race (two crash operations on one generation; no checkpoint
 violations); barn-b2 owns that harness fix.
 
-As of 17:30 no listener has been idle long enough to restart: each picks up its
-next lane within about a second, so the restarts mostly happen at cycle end.
+All four listeners are in the slice since about 18:04 UTC: ControlGroup
+/barn.slice/barn-fuzz.slice/... read back on each, slice memory 5156503552 of
+15032385536 bytes at ~19:00, and no kernel OOM kill after 16:34:15 (the restore
+lane of cycle 42871469786, which includes #726, ran from 18:36 without one).
+guest-probe.txt is that real output.
+
+My mistake while moving them: the scratchpad script checked
+/sys/fs/cgroup/barn-fuzz.slice/<unit>, but a dash in a slice name nests it
+(barn-fuzz.slice is inside barn.slice), so the check never matched and the
+script restarted idle listeners again every minute (listener 4 from 17:35, all
+four 18:00-18:04) until I stopped it. Guest journal since 17:30 shows no job
+"completed with result: Canceled"; the last restart (18:04:51) preceded the
+first lane. fuzz_ops.py had the same wrong prefix; it now uses
+SLICE_CGROUP = /barn.slice/barn-fuzz.slice/.
 
 ## Next step
-When all four listeners are in the slice: capture guest-probe.txt, run
-scripts/test_fuzz_ops.py, commit, push, PR, queue. Then watch the next cycle's
-FuzzReadDatabase lane finish without a kill.
+PR, queue, CI. Then watch cycle 42871469786's FuzzReadDatabase lane finish
+without a kill and its acceptance result.

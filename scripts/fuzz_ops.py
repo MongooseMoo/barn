@@ -39,6 +39,8 @@ KNOWN_HOSTS = (Path.home() / ".ssh" / "barn-compute-known-hosts").as_posix()
 SLOTS = (1, 2, 3, 4)
 LISTENER = "actions.runner.MongooseMoo.mongoose-barn-fuzz-{}.service"
 SLICE = "barn-fuzz.slice"  # .github/runner/barn-fuzz.slice: one memory bound for all listeners
+# A dash in a slice name nests it (systemd.slice): barn-fuzz.slice is inside barn.slice.
+SLICE_CGROUP = "/barn.slice/barn-fuzz.slice/"
 DECISION = re.compile(r"(Submitted one dedicated successor|no successor submitted|"
                       r"continuous discovery stops here|Watchdog: .*)")
 
@@ -138,7 +140,7 @@ def verdict(enabled, cycles, runners, probe=None):
             if listener["state"] != "active":
                 problems.append(f"guest listener {slot} is {listener['state']} "
                                 f"(python scripts/fuzz_ops.py runner restart {slot})")
-            if not (listener["cgroup"] or "").startswith(f"/{SLICE}/"):
+            if not (listener["cgroup"] or "").startswith(SLICE_CGROUP):
                 problems.append(f"guest listener {slot} runs outside {SLICE} ({listener['cgroup']}): apply "
                                 ".github/runner/listener.conf and restart it while its runner is idle")
         if probe.get("slice", {}).get("memory_max") in (None, "infinity"):

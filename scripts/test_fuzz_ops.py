@@ -53,7 +53,7 @@ class FuzzOpsTests(unittest.TestCase):
         # After each listener restarted into the slice.
         inside = fuzz_ops.parse_probe(fixture("guest-probe.txt"))
         for slot in fuzz_ops.SLOTS:
-            self.assertTrue(inside["listeners"][slot]["cgroup"].startswith("/barn-fuzz.slice/"))
+            self.assertTrue(inside["listeners"][slot]["cgroup"].startswith("/barn.slice/barn-fuzz.slice/"))
 
     def test_probe_counts_only_kernel_kill_lines(self):
         # 08:30:17 systemd repeated "system.slice: A process of this unit has
@@ -80,7 +80,7 @@ class FuzzOpsTests(unittest.TestCase):
         self.assertFalse(any("barn-fuzz.slice" in p for p in problems), problems)
 
     def test_failed_listener_and_unbounded_slice_are_problems(self):
-        probe = fuzz_ops.parse_probe("listener 2 failed 0 /barn-fuzz.slice/x.service\nslice infinity 0\n")
+        probe = fuzz_ops.parse_probe("listener 2 failed 0 /barn.slice/barn-fuzz.slice/x.service\nslice infinity 0\n")
         _, problems = fuzz_ops.verdict(True, [self.current], [], probe)
         self.assertIn("guest listener 2 is failed (python scripts/fuzz_ops.py runner restart 2)", problems)
         self.assertIn("barn-fuzz.slice has no memory bound: install .github/runner/barn-fuzz.slice", problems)
