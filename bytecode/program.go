@@ -24,6 +24,7 @@ type Program struct {
 	NumLocals     int           // Number of local variables
 	Source        []string      // Source lines (1-based by index+1), optional
 	BuiltinSlots  BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+	Origin        Origin        // Which compile of Source produced this program
 	// BuiltinPropertyConstants[i] reports whether Constants[i] is a string that
 	// names a built-in property (IsBuiltinPropertyName), so a property read
 	// with a static name need not classify it again. The compiler fills it;
@@ -322,7 +323,15 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		}
 	}
 
+	origin := p.Origin
+	origin.Fork = -1
+	if local := p.forkIndexAt(bodyIP); local != 0 && p.Origin.Fork >= 0 {
+		// A nested fork instruction lies inside its parent's body, so the
+		// parent's local numbering continues the whole program's.
+		origin.Fork = p.Origin.Fork + local
+	}
 	return &Program{
+		Origin:        origin,
 		Code:          code,
 		Constants:     p.Constants, // Share constants
 		VarNames:      p.VarNames,  // Share variable names
