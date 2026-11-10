@@ -9,12 +9,17 @@ on:
     workflows: [Nightly fuzz]
     types: [completed]
     branches: [master]
+  # The watchdog resumes a chain whose successor was never submitted.
+  schedule:
+    - cron: '7,37 * * * *'
 
 permissions:
   contents: read
 
+# A newer pending run cancels an older pending run in the same group, so a
+# scheduled watchdog run must never share a group with a pending replenish run.
 concurrency:
-  group: nightly-fuzz-controller
+  group: nightly-fuzz-controller-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -47,3 +52,25 @@ jobs:
           FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
         with:
           script: await require('./scripts/fuzz_compute.cjs').replenish({github, context, core});
+
+  watchdog:
+    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'
+    runs-on:
+      group: barn-bug-discovery
+      labels: [self-hosted, Linux, X64, barn-fuzz]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+        with:
+          script: await require('./scripts/fuzz_compute.cjs').watchdog({github, context, core});

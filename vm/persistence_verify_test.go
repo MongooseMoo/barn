@@ -200,6 +200,48 @@ func FuzzRestoreVMSnapshotDoesNotPanic(f *testing.F) {
 	})
 }
 
+// Issue #694: a restored UNWIND_JUMP whose handler depth exceeds the frame's
+// except stack failed, and a frame without the d flag fell through to an
+// instruction the verifier never reached, which popped past the frame's
+// stack. A database can no longer supply this bytecode (frames are rebuilt
+// from source), so the input that was fuzz seed 23a3e856b403a399 for the old
+// raw-bytecode target runs here through an in-memory snapshot instead.
+func TestRestoredFailedUnwindJumpDoesNotFallThrough(t *testing.T) {
+	code := []byte("0\x01\x00000\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3\xd3ӳ\xd3\xd3Ӏ\xff\x00\x00\x00\x10\xd3\xd3\xd3\xd3\xd3\xcb0\x05\xbb")
+	palette := []types.Value{
+		types.NewInt(0), types.NewInt(-1), types.NewFloat(1.5), types.NewStr(""), types.NewStr("x"),
+		types.NewList(nil), types.NewList([]types.Value{types.NewInt(1), types.NewStr("a")}),
+		types.NewEmptyMap(), types.NewObj(0), types.NewObj(-1), types.NewErr(types.E_DIV),
+	}
+	snapshot := validRestoredSnapshot()
+	program := &snapshot.Frames[0].Program
+	program.Code = code
+	for i := range 485 {
+		program.Constants = append(program.Constants, palette[i%len(palette)])
+	}
+	program.NumLocals = 4
+	snapshot.Frames[0].Locals = make([]types.Value, 4)
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := newTestSessionWithTaskManager(registry)
+	t.Cleanup(func() { _ = session.Close() })
+	context := task.NewContext()
+	context.TicksRemaining = 100
+	machine, err := RestoreVMSnapshot(snapshot, dbstore.NewStore(), session, context)
+	if err != nil {
+		t.Fatalf("restore refused the #694 input, so it no longer reaches the VM: %v", err)
+	}
+	machine.Task = task.NewState(1, context.Player, context.TicksRemaining, 1)
+	machine.TickLimit = context.TicksRemaining
+	start, seconds := machine.Task.ExecutionBudget()
+	machine.Task.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
+	if result := machine.Resume(); result.Flow != types.FlowException {
+		t.Fatalf("failed UNWIND_JUMP ended with %+v, want an exception", result)
+	}
+}
+
 type restoreFuzzSeed struct {
 	source    string
 	ip        int
@@ -285,10 +327,12 @@ func restoreFuzzInput(t *testing.T, registry *builtins.Registry, source string, 
 		return false
 	}
 	machine.Task = task.NewState(1, context.Player, context.TicksRemaining, 1)
-	// As the source fuzz driver does (attachSourceFuzzTask): a named while
-	// charges only unchecked ticks, so the seconds budget stops it.
-	machine.Task.SetExecutionDeadline(time.Now().Add(100 * time.Millisecond))
 	machine.TickLimit = context.TicksRemaining
+	// Unchecked ticks stop only at the seconds deadline (vm tickCheckpoint),
+	// so set it as engine/task_runtime.go does before running a slice; a
+	// compiled named while charges only unchecked ticks.
+	start, seconds := machine.Task.ExecutionBudget()
+	machine.Task.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 	_ = machine.Resume()
 	return true
 }

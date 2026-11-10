@@ -91,6 +91,21 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # A committed fuzz input claims to reproduce the bug its change fixes:
+      # each added input must fail on the commit the change applies to, and
+      # pass with the change (scripts/fuzz_red_green.py).
+      - name: Added fuzz inputs fail before the change
+        if: github.event_name != 'push'
+        env:
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          # A pull request's checkout is its merge commit; its first parent is
+          # the base it was merged onto.
+          git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+          base="${QUEUE_BASE:-$(git rev-parse HEAD^1)}"
+          git fetch --no-tags --depth=1 origin "$base"
+          python3 scripts/fuzz_red_green.py --base "$base"
+
       - name: Types race tests
         run: go test -race ./types
 

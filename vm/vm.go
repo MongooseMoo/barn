@@ -971,8 +971,11 @@ func (vm *VM) executeLoop() types.Result {
 			// push the error as a value instead of propagating it as an exception.
 			// This applies to ALL errors including explicit raise().
 			// Matches Toast's PUSH_ERROR/RAISE_ERROR macro behavior in execute.cc.
+			// An UNWIND_JUMP never falls through (bytecode/verify.go successors),
+			// so the instruction after a failed one may be unverified, or verified
+			// at another stack height; its error must unwind instead.
 			frame := vm.CurrentFrame()
-			if frame != nil && !frame.VerbDebug {
+			if frame != nil && !frame.VerbDebug && op != bytecode.OP_UNWIND_JUMP {
 				var errCode types.ErrorCode
 				if vmErr, ok := err.(VMException); ok {
 					errCode = vmErr.Code

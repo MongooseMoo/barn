@@ -337,6 +337,13 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 		if t.Program != nil {
 			variableNames = append(variableNames, t.Program.VarNames...)
 			firstLine = t.Program.LineForIP(0)
+			if firstLine <= 0 && len(t.Program.LineInfo) == 0 {
+				// An empty fork body compiles to a program with no
+				// statements and so no line entries. Its first line is
+				// the program default of 1, as Toast's new_program
+				// sets first_lineno and the queued-task reader assumes.
+				firstLine = 1
+			}
 		} else if body := t.ForkInfo.Body; body != nil {
 			variableNames = append(variableNames, body.VariableNames()...)
 			firstLine = body.FirstLine()

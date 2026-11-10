@@ -102,7 +102,7 @@ func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 
-	tempIdx := c.declareInternalVariable(c.tempVar("rngsetctx"))
+	tempIdx := c.collectionAssignTemp("rngsetctx", 0)
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(varIdx))
 	c.emitStoreLocal(tempIdx)
@@ -116,6 +116,22 @@ func (c *lowerer) compileRangeIndex(expr ir.Expr, varIdx int) error {
 	c.indexBoundaryContext = oldBoundaryContext
 
 	return err
+}
+
+// enterCollectionAssign opens one index or range assignment and returns the
+// function that closes it. Sequential collection assignments have disjoint
+// temporary lifetimes, so they reuse slots; an assignment nested anywhere in
+// another one's target or value runs one depth deeper and keeps distinct slots
+// while the outer assignment's temporaries are live.
+func (c *lowerer) enterCollectionAssign() func() {
+	c.collectionAssignDepth++
+	return func() { c.collectionAssignDepth-- }
+}
+
+// collectionAssignTemp returns the slot for the innermost active collection
+// assignment's temporary of the given kind and position.
+func (c *lowerer) collectionAssignTemp(kind string, position int) int {
+	return c.declareInternalVariable(fmt.Sprintf("__%s_%d_depth_%d__", kind, position, c.collectionAssignDepth))
 }
 
 type propertyWriteback struct {
@@ -142,7 +158,7 @@ func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bo
 		return 0, nil, err
 	}
 	writeback := &propertyWriteback{
-		objectVar: c.declareInternalVariable(c.tempVar("collectionobj")),
+		objectVar: c.collectionAssignTemp("collectionobj", 0),
 		nameVar:   -1,
 		name:      property.Name,
 	}
@@ -155,7 +171,7 @@ func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bo
 		if err := c.compileNode(property.NameExpr); err != nil {
 			return 0, nil, err
 		}
-		writeback.nameVar = c.declareInternalVariable(c.tempVar("collectionname"))
+		writeback.nameVar = c.collectionAssignTemp("collectionname", 0)
 		c.emitStoreLocal(writeback.nameVar)
 	}
 
@@ -171,7 +187,7 @@ func (c *lowerer) prepareCollectionBase(target ir.CollectionTarget, keyedBase bo
 		c.emitByte(byte(writeback.nameVar))
 		c.emit(bytecode.OP_GET_PROP_DYNAMIC)
 	}
-	baseVar := c.declareInternalVariable(c.tempVar("collectionbase"))
+	baseVar := c.collectionAssignTemp("collectionbase", 0)
 	c.emitStoreLocal(baseVar)
 	return baseVar, writeback, nil
 }
@@ -208,6 +224,7 @@ func (c *lowerer) compileIndexForCollection(expr ir.Expr, collectionVar int) err
 }
 
 func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
 	var indices []ir.Expr
 	var base ir.CollectionTarget = target
 	for {
@@ -237,7 +254,7 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
 			return err
 		}
-		indexVars[i] = c.declareInternalVariable(c.tempVar("assignindex"))
+		indexVars[i] = c.collectionAssignTemp("assignindex", i)
 		c.emitStoreLocal(indexVars[i])
 		if i < len(indices)-1 {
 			c.emit(bytecode.OP_GET_VAR)
@@ -246,7 +263,7 @@ func (c *lowerer) compileIndexAssign(target *ir.IndexTarget, value ir.Expr) erro
 			c.emitByte(byte(indexVars[i]))
 			c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 			c.emit(bytecode.OP_INDEX)
-			intermediateVars[i] = c.declareInternalVariable(c.tempVar("assignintermediate"))
+			intermediateVars[i] = c.collectionAssignTemp("assignintermediate", i)
 			c.emitStoreLocal(intermediateVars[i])
 			collectionVar = intermediateVars[i]
 		}
@@ -300,6 +317,7 @@ func (c *lowerer) emitCollectionIndexSet(target, baseVar int, writeback *propert
 }
 
 func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
 	if nested, ok := target.Collection.(*ir.IndexTarget); ok {
 		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
 	}
@@ -310,12 +328,12 @@ func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) erro
 	if err := c.compileRangeIndex(target.Start, baseVar); err != nil {
 		return err
 	}
-	startVar := c.declareInternalVariable(c.tempVar("rangestart"))
+	startVar := c.collectionAssignTemp("rangestart", 0)
 	c.emitStoreLocal(startVar)
 	if err := c.compileRangeIndex(target.End, baseVar); err != nil {
 		return err
 	}
-	endVar := c.declareInternalVariable(c.tempVar("rangeend"))
+	endVar := c.collectionAssignTemp("rangeend", 0)
 	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {
@@ -338,6 +356,7 @@ func (c *lowerer) compileRangeAssign(target *ir.RangeTarget, value ir.Expr) erro
 // compileNestedRangeAssign lowers nested range assignments while retaining all
 // target components before evaluating value.
 func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, end, value ir.Expr) error {
+	defer c.enterCollectionAssign()()
 	var indices []ir.Expr
 	var base ir.CollectionTarget = indexTarget
 	for {
@@ -363,7 +382,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
 			return err
 		}
-		indexVars[i] = c.declareInternalVariable(c.tempVar("nestedrangeindex"))
+		indexVars[i] = c.collectionAssignTemp("nestedrangeindex", i)
 		c.emitStoreLocal(indexVars[i])
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(collectionVar))
@@ -371,7 +390,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 		c.emitByte(byte(indexVars[i]))
 		c.emitTicks(0) // Toast's OP_PUSH_REF is tick-free
 		c.emit(bytecode.OP_INDEX)
-		collectionVars[i] = c.declareInternalVariable(c.tempVar("nestedrangecollection"))
+		collectionVars[i] = c.collectionAssignTemp("nestedrangecollection", i)
 		c.emitStoreLocal(collectionVars[i])
 		collectionVar = collectionVars[i]
 	}
@@ -380,12 +399,12 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *ir.IndexTarget, start, e
 	if err := c.compileRangeIndex(start, innerVar); err != nil {
 		return err
 	}
-	startVar := c.declareInternalVariable(c.tempVar("nestedrangestart"))
+	startVar := c.collectionAssignTemp("nestedrangestart", 0)
 	c.emitStoreLocal(startVar)
 	if err := c.compileRangeIndex(end, innerVar); err != nil {
 		return err
 	}
-	endVar := c.declareInternalVariable(c.tempVar("nestedrangeend"))
+	endVar := c.collectionAssignTemp("nestedrangeend", 0)
 	c.emitStoreLocal(endVar)
 
 	if err := c.compileNode(value); err != nil {

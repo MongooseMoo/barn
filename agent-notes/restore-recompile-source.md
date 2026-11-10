@@ -222,6 +222,23 @@ index on the program it returns; no compiler is needed at write time.
 - v1 frames whose program came from a Toast import are refused (origin
   never recorded in v1).
 
+### Merge of origin/master after PR #726
+- #726's production-style deadline (ExecutionBudget, as
+  engine/task_runtime.go) replaces the 100 ms deadline in restoreFuzzInput;
+  one deadline only.
+- Removed the old-format seeds master added under the old target's
+  testdata: a67f1c049e52d97e (#726's OOM input) and 23a3e856b403a399 (the
+  #694 UNWIND_JUMP input). Git's rename detection had placed both under
+  scripts/fixtures/fuzz/corpus; neither stays anywhere.
+- 23a3e856b403a399 was the only test of the #694 fix in vm/vm.go, so its
+  exact bytes now run in TestRestoredFailedUnwindJumpDoesNotFallThrough
+  through an in-memory snapshot (the old harness, plus #726's deadline).
+  Checked: with the `op != bytecode.OP_UNWIND_JUMP` condition removed it
+  panics with stack underflow; with it, it passes.
+- The fuzz-report fixture lives at scripts/fixtures/fuzz/corpus/
+  3fd49d1954a707ba (no testdata/fuzz in the path, so fuzz_red_green.py does
+  not select it); the test lays out the logged path in a temp directory.
+
 ## State
 Steps 1-5 built and committed on feat/restore-recompile-source, plus Q's
 drop-and-keep-booting rule. Not pushed (lead publishes). Gates run locally:

@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -33,15 +34,17 @@ def job(name, conclusion="success", failed=None):
 
 class ComputeTests(unittest.TestCase):
     def execute(self, method="replenish", env=None, source=None, active=(), latest=10, ref="refs/heads/master",
-                jobs=ACCEPTED, cwd=ROOT):
+                jobs=ACCEPTED, cwd=ROOT, event=None):
         harness = r"""
 const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
 for (const key of Object.keys(process.env)) if (key.startsWith('FUZZ_') || key === 'COMPUTE_MODE' || key === 'CI_RUNNER_LABELS') delete process.env[key];
 Object.assign(process.env, input.env);
 const calls = [], output = {}, info = [];
-const core = {setOutput: (k,v) => output[k] = v, info: message => info.push(message)};
+const core = {setOutput: (k,v) => output[k] = v, info: message => info.push(message),
+ warning: message => info.push(message)};
 const context = {repo: {owner:'test',repo:'barn'}, ref:input.ref, runId:20,
- eventName: input.method === 'configure' ? 'workflow_dispatch' : 'workflow_run', payload: {workflow_run:input.source}};
+ eventName: input.event || {configure: 'workflow_dispatch', watchdog: 'schedule'}[input.method] || 'workflow_run',
+ payload: {workflow_run:input.source}};
 const github = {paginate: async (method,args) => {calls.push(args); return args.run_id ? input.jobs : input.active;}, rest: {actions: {
  listJobsForWorkflowRun: async () => ({}),
  listWorkflowRuns: async args => {calls.push(args); return {data:{workflow_runs:Array.isArray(input.latest)
@@ -58,7 +61,8 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         result = subprocess.run([node, "-e", harness], input=json.dumps({
             "method": method, "env": CONFIG if env is None else env,
             "source": SOURCE if source is None else source, "active": list(active),
-            "latest": latest, "ref": ref, "jobs": jobs, "module": str(ROOT / "scripts/fuzz_compute.cjs")}),
+            "latest": latest, "ref": ref, "jobs": jobs, "event": event,
+            "module": str(ROOT / "scripts/fuzz_compute.cjs")}),
             text=True, capture_output=True, check=True, cwd=cwd)
         return json.loads(result.stdout)
 
@@ -141,6 +145,50 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 result = self.execute(source={**SOURCE, "conclusion": "failure"}, jobs=jobs)
                 self.assertIn("error", result)
                 self.assertFalse(any("dispatch" in call for call in result["calls"]))
+
+    def watchdog(self, ended_minutes_ago=45, title="Nightly fuzz / dedicated-continuous / native-only", **kwargs):
+        ended = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ended_minutes_ago * 60))
+        last = {"id": 42750434626, "display_title": title, "status": "completed", "updated_at": ended}
+        kwargs.setdefault("latest", [LEGACY_CYCLE, last])
+        return self.execute("watchdog", **kwargs)
+
+    @staticmethod
+    def dispatches(result):
+        return [call["dispatch"]["inputs"] for call in result["calls"] if "dispatch" in call]
+
+    def test_watchdog_resumes_an_accepted_chain_with_its_campaign(self):
+        result = self.watchdog()
+        self.assertNotIn("error", result)
+        self.assertEqual(self.dispatches(result), [{"compute-mode": "dedicated-continuous", "campaign": "native-only"}])
+        result = self.watchdog(title="Nightly fuzz / dedicated-continuous")
+        self.assertEqual(self.dispatches(result), [{"compute-mode": "dedicated-continuous", "campaign": "native-and-toast"}])
+
+    def test_watchdog_leaves_a_live_stopped_or_unaccepted_chain_alone(self):
+        cases = {
+            "cycle running": {"active": [DEDICATED_CYCLE]},
+            "replenish still has time": {"ended_minutes_ago": 5},
+            "stopped": {"env": {**CONFIG, "FUZZ_CONTINUOUS_ENABLED": "false"}},
+            "not accepted": {"jobs": [{"name": "Accept discovery cycle", "conclusion": "failure"}]},
+            "no continuous cycle": {"latest": [LEGACY_CYCLE, {"id": 13, "display_title": "Nightly fuzz / dedicated-once"}]},
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name):
+                result = self.watchdog(**kwargs)
+                self.assertNotIn("error", result)
+                self.assertEqual(self.dispatches(result), [])
+
+    def test_watchdog_runs_only_on_the_master_schedule_with_verified_routing(self):
+        for kwargs in ({"event": "workflow_dispatch"}, {"ref": "refs/heads/topic"},
+                       {"env": {**CONFIG, "FUZZ_RUNNER_POLICY_VERIFIED": "false"}}):
+            with self.subTest(kwargs=kwargs):
+                result = self.watchdog(**kwargs)
+                self.assertIn("error", result)
+                self.assertEqual(self.dispatches(result), [])
+
+    def test_watchdog_never_shares_a_concurrency_group_with_replenish(self):
+        controller = (ROOT / ".github/workflows/fuzz-controller.yml").read_text()
+        self.assertIn("group: nightly-fuzz-controller-${{ github.event_name }}", controller)
+        self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
     def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast"):
         with tempfile.TemporaryDirectory() as directory:

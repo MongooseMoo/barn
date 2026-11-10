@@ -56,6 +56,7 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 	if !isolationprobe.Fault("waif-reads") {
 		tx.validateWaifsLocked(&errCode)
 	}
+	tx.validateExternalReadLocked(&errCode)
 	return errCode
 }
 

@@ -74,7 +74,27 @@ the trusted management path and keep a separate known-hosts file.
 ## Listener installation and acceptance
 
 Inside the guest, root runs `bash install-listener.sh SLOT` with a short-lived
-organization registration token on stdin. The script verifies the official
+organization registration token on stdin, with `listener.conf` in the same
+directory as the script. The script installs that file as a systemd drop-in
+(`Restart=always`, `OOMPolicy=continue`, `MemoryMax=3500M`), so a listener
+whose lane is OOM-killed, or which exits for any reason, comes back on its own.
+To apply it to listeners installed before it existed, copy `listener.conf` to
+the guest as root and run:
+
+```sh
+for s in 1 2 3 4; do
+  d=/etc/systemd/system/actions.runner.MongooseMoo.mongoose-barn-fuzz-$s.service.d
+  install -d -m 0755 "$d" && install -m 0644 listener.conf "$d/barn.conf"
+done
+systemctl daemon-reload
+```
+
+The memory bound applies to a running listener at once; `Restart=` and
+`OOMPolicy=` apply from its next start. `python scripts/fuzz_ops.py status
+--host` shows each listener's state and restart count, and
+`python scripts/fuzz_ops.py runner restart N` starts a stopped one.
+
+The script verifies the official
 runner archive digest, registers the listener in the selected group, and runs
 the installed service as `runner`, which has no sudo. It accepts slots 1–4;
 start with two. Do not store a PAT, OAuth secret or organization management token
