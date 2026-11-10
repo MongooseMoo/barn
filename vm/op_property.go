@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -96,6 +97,51 @@ func (vm *VM) executeIndexKeyed() error {
 	vm.Push(coll)
 	vm.Push(index)
 	return vm.executeIndex()
+}
+
+// executeMaphaskeyKeyed runs between the arguments of maphaskey(obj.prop, key)
+// and the call: it tells the store the call tests the entry at key of the map
+// OP_GET_PROP_KEYED fetched, then leaves the arguments for OP_CALL_BUILTIN,
+// which computes the result as for any maphaskey call. A call that may go to
+// #0:bf_maphaskey hands that wrapper the whole map, and a key orderedLookupKey
+// rejects makes the answer depend on other keys, so either reads the slot whole.
+func (vm *VM) executeMaphaskeyKeyed() error {
+	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	if err != nil {
+		return err
+	}
+	funcID := int(vm.ReadShort())
+	key := vm.Pop()
+	coll := vm.Pop()
+	objVal := vm.Pop()
+	if coll.Type() == types.TYPE_MAP && isObjLike(objVal) && vm.Context != nil {
+		txn := vm.Context.StoreTxn
+		if orderedLookupKey(key) && !vm.Builtins.MayRedirectByID(funcID, vm.builtinExecution()) {
+			txn.ObserveMapKey(objVal.ID(), propName, coll, key)
+		} else {
+			txn.ReadMapKeyedSlotWhole(objVal.ID(), propName)
+		}
+	}
+	vm.Push(coll)
+	vm.Push(key)
+	return nil
+}
+
+// orderedLookupKey reports whether maphaskey finds key exactly when MapGet
+// does, whatever else the map holds. maphaskey walks the map's Toast-ordered
+// tree (types.Value.GetWithCase); its comparator orders integers, objects,
+// errors, strings and floats totally, but calls any two distinct booleans,
+// WAIFs or anonymous objects, or NaN and any float, unordered, so for those
+// the walk's answer depends on the other keys: [true -> 1, false -> 2, 1 -> 3]
+// has m[true], yet maphaskey(m, true) is 0. Other key types are E_TYPE.
+func orderedLookupKey(key types.Value) bool {
+	switch key.Type() {
+	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_ERR, types.TYPE_STR:
+		return true
+	case types.TYPE_FLOAT:
+		return !math.IsNaN(key.Float())
+	}
+	return false
 }
 
 // executeSetPropKeyed is the writeback of obj.prop[key] = v. When the base it

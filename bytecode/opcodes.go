@@ -101,14 +101,26 @@ const (
 	OP_TRY_FINALLY                                 // Push finally handler [finally_offset]
 	OP_END_FINALLY                                 // Finish matching finally handler [finally_offset]
 	OP_CATCH                                       // DEAD: replaced by OP_TRY_EXCEPT/OP_END_EXCEPT pattern (never emitted by compiler)
-	OP_RAISE                                       // DEAD: replaced by Go error returns (never emitted by compiler)
+	// OP_MAPHASKEY_KEYED reuses the number of OP_RAISE, which no compiler
+	// emitted and the decoder rejected, because every other byte is taken.
+	//
+	// It sits between the arguments of maphaskey(obj.prop, key) and the
+	// OP_CALL_BUILTIN that runs it, after OP_GET_PROP_KEYED fetched obj.prop:
+	// pop key, coll, obj; push coll, key. It tells the store which entry of
+	// obj.prop the call tests (db/store/store_txn_mapkeys.go); the slot is read
+	// whole instead when the call may be handed to a protected builtin's #0
+	// wrapper, which receives the whole map, or when the key's type leaves the
+	// lookup's answer depending on other keys. It has no Toast counterpart and
+	// charges no tick.
+	// [name:short, func_id:short]
+	OP_MAPHASKEY_KEYED
 )
 
 // Function/Verb Calls
 const (
-	OP_CALL_BUILTIN OpCode = OP_RAISE + 1 + iota // Call builtin function [func_id, argc]
-	OP_CALL_VERB                                 // Pop obj; call obj:verb [argc]
-	OP_SCATTER                                   // Scatter assignment [pattern]
+	OP_CALL_BUILTIN OpCode = OP_MAPHASKEY_KEYED + 1 + iota // Call builtin function [func_id, argc]
+	OP_CALL_VERB                                           // Pop obj; call obj:verb [argc]
+	OP_SCATTER                                             // Scatter assignment [pattern]
 )
 
 // Collection Operations
@@ -270,7 +282,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_TRY_FINALLY:           "TRY_FINALLY",
 	OP_END_FINALLY:           "END_FINALLY",
 	OP_CATCH:                 "DEAD_CATCH",
-	OP_RAISE:                 "DEAD_RAISE",
+	OP_MAPHASKEY_KEYED:       "MAPHASKEY_KEYED",
 	OP_CALL_BUILTIN:          "CALL_BUILTIN",
 	OP_CALL_VERB:             "CALL_VERB",
 	OP_SCATTER:               "SCATTER",
@@ -360,6 +372,8 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 4
 	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE, OP_CALL_BUILTIN_WIDE, OP_FOR_LIST_LOAD_VALUE:
 		return 3
+	case OP_MAPHASKEY_KEYED:
+		return 4
 	case OP_FORK_WIDE, OP_FOR_LIST_LOAD_COLUMNS:
 		return 5
 	case OP_FORK_LOCAL_WIDE:
