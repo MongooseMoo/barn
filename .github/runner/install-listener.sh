@@ -1,9 +1,11 @@
 #!/bin/bash
 # Run as root inside the compute guest; registration token arrives on stdin.
 set -euo pipefail
-# listener.conf (restart and memory bound) sits next to this script.
+# listener.conf (restart policy) and barn-fuzz.slice (shared memory bound)
+# sit next to this script.
 source_dir=$(cd "$(dirname "$0")" && pwd)
 test -f "$source_dir/listener.conf"
+test -f "$source_dir/barn-fuzz.slice"
 test "$(id -u)" = 0
 test "$(hostname)" = barn-compute
 test "$(systemd-detect-virt)" = kvm
@@ -34,6 +36,7 @@ runuser -u runner -- ./config.sh --unattended --url https://github.com/MongooseM
 unset registration_token
 ./svc.sh install runner
 dropin=/etc/systemd/system/actions.runner.MongooseMoo.mongoose-barn-fuzz-${slot}.service.d
+install -m 0644 "$source_dir/barn-fuzz.slice" /etc/systemd/system/barn-fuzz.slice
 install -d -m 0755 "$dropin"
 install -m 0644 "$source_dir/listener.conf" "$dropin/barn.conf"
 systemctl daemon-reload

@@ -1,0 +1,19 @@
+listener 1 active 0 /system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service
+listener 2 active 0 /system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service
+listener 3 active 0 /system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-3.service
+listener 4 active 0 /system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-4.service
+slice 15032385536 0
+oom 2026-11-10T06:43:13+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),cpuset=/,mems_allowed=0,global_oom,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task=vm.test,pid=303035,uid=1000
+oom 2026-11-10T09:58:16+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task=vm.test,pid=390290,uid=1000
+oom 2026-11-10T10:06:27+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task=format.test,pid=396352,uid=1000
+oom 2026-11-10T12:06:53+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task=vm.test,pid=476971,uid=1000
+oom 2026-11-10T12:18:44+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task=format.test,pid=483520,uid=1000
+oom 2026-11-10T14:16:34+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task=vm.test,pid=564680,uid=1000
+oom 2026-11-10T14:27:48+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-1.service,task=format.test,pid=571521,uid=1000
+oom 2026-11-10T16:27:26+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-4.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-4.service,task=vm.test,pid=652742,uid=1000
+oom 2026-11-10T16:34:15+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=/,mems_allowed=0,oom_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-4.service,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-4.service,task=format.test,pid=659439,uid=1000
+disk 8%
+memory 2779 16004
+load 14.91 15.24 15.82
+host active 0
+hostdisk 9%
