@@ -32,6 +32,13 @@ func runOn(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, code strin
 // runOnThis is runOn with this bound to thisObj.
 func runOnThis(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, thisObj types.ObjID, code string) {
 	t.Helper()
+	runOnThisWith(t, store, txn, thisObj, code, nil)
+}
+
+// runOnThisWith is runOnThis with setup, when not nil, applied to the task's
+// context before it runs.
+func runOnThisWith(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, thisObj types.ObjID, code string, setup func(*task.Context)) {
+	t.Helper()
 	registry := BuildVMRegistry()
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
@@ -41,6 +48,9 @@ func runOnThis(t *testing.T, store *dbstore.Store, txn *dbstore.StoreTxn, thisOb
 	ctx.Programmer = 0
 	ctx.Store = store
 	ctx.StoreTxn = txn
+	if setup != nil {
+		setup(ctx)
+	}
 	machine := NewVM(store, newTestSession(registry))
 	machine.Context = ctx
 	machine.Task = task.NewState(1, 0, 30000, 1)
