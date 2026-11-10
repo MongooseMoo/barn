@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"slices"
 	"strings"
-	"time"
 )
 
 // ForkBodyProgram extracts the fork body sub-program described by a bytecode
@@ -133,7 +132,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	thisValue := frame.ThisValue
 
 	forkInfo := &types.ForkInfo{
-		Delay:       time.Duration(delaySeconds * float64(time.Second)),
+		Delay:       delaySeconds,
 		VarName:     varName,
 		Body:        &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen},
 		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),

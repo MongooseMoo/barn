@@ -211,6 +211,39 @@ return 1;
 	b.finish(t, done)
 }
 
+// Toast lists every waiting task (tasks.cc bf_queued_tasks), so a suspended
+// child forked from eval code, which has no verb name, is listed too.
+func TestQueuedTasksListsSuspendedForkWithoutVerb(t *testing.T) {
+	b := newBlockingRuntime(t)
+	defer b.s.Stop()
+	owner := types.ObjID(7905)
+	defer removeTasksForOwner(b.s, owner)
+
+	parent := b.newTask(t, 3341, owner, `
+fork child (0)
+  suspend(5);
+endfork
+return child;
+`)
+	if err := b.s.runTask(parent); err != nil {
+		t.Fatalf("parent runTask failed: %v", err)
+	}
+	childID := parent.Result.Val.Int()
+	child := b.s.taskManager.GetTask(childID)
+	if child == nil {
+		t.Fatalf("fork %d not in the catalog", childID)
+	}
+	if err := b.s.runTask(child); err != nil {
+		t.Fatalf("child runTask failed: %v", err)
+	}
+	if state := child.GetState(); state != task.TaskSuspended {
+		t.Fatalf("child state = %v, want suspended", state)
+	}
+	if _, listed := b.listQueued(t, 3342, owner)[childID]; !listed {
+		t.Fatalf("suspended fork %d without a verb missing from queued_tasks()", childID)
+	}
+}
+
 func TestQueuedTasksOmitsCommandTaskFirstSlice(t *testing.T) {
 	b := newBlockingRuntime(t)
 	defer b.s.Stop()
