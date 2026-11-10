@@ -221,14 +221,6 @@ func (m *TaskManager) GetQueuedTasks() []*task.State {
 	tasks := make([]*task.State, 0)
 	for _, candidate := range m.tasks {
 		state := candidate.GetState()
-		if state == task.TaskSuspended {
-			candidate.Mu.RLock()
-			evalScaffold := candidate.IsForked && candidate.VerbName == "" && !candidate.IsExecSuspended
-			candidate.Mu.RUnlock()
-			if evalScaffold {
-				continue
-			}
-		}
 		if state == task.TaskQueued || state == task.TaskSuspended || candidate.RunningInBackground() {
 			tasks = append(tasks, &candidate.State)
 		}

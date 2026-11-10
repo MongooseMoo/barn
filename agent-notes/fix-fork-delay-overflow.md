@@ -7,8 +7,9 @@ overflowing time.Duration and running it at once. Real producer: Mongoose
 #9655:arm line 6 `fork tid (secs)` with delays such as 363410236465734.0.
 
 ## State
-Fix and Go test written; conformance tests in the conformance repo branch
-`fix/fork-delay-far-future`. Not pushed, no PR.
+Two Barn commits: the delay overflow fix, then the queued_tasks listing fix
+for suspended eval-forked tasks. Conformance rows (four) are on the
+conformance repo branch `fix/fork-delay-far-future`. Not pushed, no PR.
 
 ## Decisions and why
 - Toast authority: `double_to_start_tv` (src/tasks.cc:102-112) adds
@@ -36,13 +37,17 @@ Fix and Go test written; conformance tests in the conformance repo branch
 - The first Toast run selected the new rows without the `queued_tasks`
   capability provider and skipped them ("assumes 'queued_tasks' which has no
   provider"); the selector must include `capabilities/queued_tasks.yaml`.
-- engine/task_manager.go:224-230 (`GetQueuedTasks`) omits a suspended forked
+- engine/task_manager.go:224-230 (`GetQueuedTasks`) omitted a suspended forked
   task whose VerbName is empty ("evalScaffold"), so a child forked from eval
-  code that then suspends is never listed by queued_tasks(), whatever its
-  delay. The suspend conformance row therefore forks inside a verb, like the
-  existing `suspend_zero_queued_tasks_lists_child_suspended_first`. Whether
-  Toast lists such an eval-forked suspended child was not tested here; it is
-  a separate question and is not changed.
+  code that then suspends was never listed by queued_tasks(), whatever its
+  delay. Toast lists every waiting task with no such filter (tasks.cc:2571-2581
+  in bf_queued_tasks), and the eval-forked suspend row passes on Toast. The
+  filter came from 2026-05-05 commits with no body and no test; the reason
+  recorded in agent-notes/notes-conformance-zero-baseline.md:368-372 was
+  exact-count exec rows, which now filter by task id
+  (server/exec.yaml). Removed in a separate commit with Go test
+  `TestQueuedTasksListsSuspendedForkWithoutVerb`. The conformance branch keeps
+  the eval-forked suspend row and adds a verb-based one.
 
 ## Next step
 Coordinator: push both branches, open PRs, run the real-workload measurement.

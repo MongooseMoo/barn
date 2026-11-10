@@ -410,8 +410,6 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	earlier := NewTask(earlierID, 1, 10000, 30)
 	later := NewTask(laterID, 1, 10000, 30)
 
-	// Set a non-empty verb name so GetQueuedTasks does not filter them as
-	// eval scaffolding (which filters IsForked && VerbName == "").
 	earlier.VerbName = "review_earlier_verb"
 	later.VerbName = "review_later_verb"
 
