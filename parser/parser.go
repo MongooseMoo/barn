@@ -21,6 +21,9 @@ type Parser struct {
 	lowerBuiltin func(string, ir.Position) bool
 	sourceLoops  []sourceLoop
 	indexDepth   int
+	// operandGroup marks the next ParseExpression frame as a unary or binary
+	// operand, whose parenthesized group shares that frame's depth.
+	operandGroup bool
 }
 
 // MaxNestingDepth is shared with semantic IR consumers.
@@ -94,6 +97,8 @@ func semanticUnaryOperator(token TokenType) ir.UnaryOperator {
 
 // ParseExpression parses an expression
 func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
+	operandGroup := p.operandGroup
+	p.operandGroup = false
 	// Recursive expression calls and enclosing block statements share one
 	// budget. A terminal operand is allowed beneath construct 256; another
 	// prefix construct is rejected before consuming its token.
@@ -239,6 +244,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		op := p.current.Type
 		pos := p.current.Position
 		p.nextToken()
+		p.operandGroup = true
 		operand, err := p.ParseExpression(PREC_UNARY)
 		if err != nil {
 			return nil, err
@@ -250,9 +256,19 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 		}
 
 	case TOKEN_LPAREN:
-		// Parse parenthesized expression
+		// Parse parenthesized expression. A group that is a whole operand adds
+		// no semantic construct, so it reuses the operand frame's depth: the
+		// fully parenthesized form of an accepted operator chain reparses. The
+		// group's own frame is not an operand, so a group directly inside it
+		// is charged and recursion stays bounded.
 		p.nextToken()
+		if operandGroup {
+			p.syntaxDepth--
+		}
 		expr, err := p.ParseExpression(PREC_LOWEST)
+		if operandGroup {
+			p.syntaxDepth++
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -328,6 +344,7 @@ func (p *Parser) ParseExpression(prec int) (ir.Expr, error) {
 			p.nextToken()
 
 			var right ir.Expr
+			p.operandGroup = true
 			if spec.associativity == associateRight {
 				right, err = p.ParseExpression(opPrec) // Don't increment for right-assoc
 			} else {
