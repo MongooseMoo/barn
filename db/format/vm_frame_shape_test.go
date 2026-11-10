@@ -12,7 +12,7 @@ import (
 // decoder reads element by element with a value of the wrong shape. A database
 // file supplies these values, so each must be an error, never a panic.
 func TestDecodeVMFrameMetadataRejectsMalformedFields(t *testing.T) {
-	base := vmFrameMetadata(task.VMFrameSnapshot{Program: bytecode.Program{
+	base := legacyVMFrameMetadata(task.VMFrameSnapshot{Program: bytecode.Program{
 		Code:      []byte{byte(bytecode.OP_RETURN_NONE)},
 		VarNames:  []string{"x"},
 		NumLocals: 1,
@@ -53,5 +53,43 @@ func TestDecodeVMFrameMetadataRejectsMalformedFields(t *testing.T) {
 				t.Fatalf("accepted field %d = %v", test.field, test.value)
 			}
 		})
+	}
+
+	// A v2 frame: the same later fields sit four elements earlier, and
+	// element 2 is the program identity {fork, native, fingerprint}.
+	current := vmFrameMetadata(task.VMFrameSnapshot{Program: bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}}})
+	if _, err := decodeVMFrameMetadata(current, 0); err != nil {
+		t.Fatalf("v2 base metadata: %v", err)
+	}
+	fingerprint := current.Get(2).Get(3)
+	for _, test := range tests {
+		if test.field < 7 {
+			continue
+		}
+		fields := append([]types.Value(nil), current.Elements()...)
+		fields[test.field-5] = test.value
+		if _, err := decodeVMFrameMetadata(types.NewList(fields), 0); err == nil {
+			t.Errorf("v2 %s: accepted field %d = %v", test.name, test.field, test.value)
+		}
+	}
+	for name, identity := range map[string]types.Value{
+		"identity string":   str,
+		"identity short":    list(zero, list()),
+		"fork negative":     list(types.NewInt(-1), list(), fingerprint),
+		"fork string":       list(str, list(), fingerprint),
+		"native short":      list(zero, list(zero), fingerprint),
+		"native string":     list(zero, list(str, zero), fingerprint),
+		"native vector low": list(zero, list(types.NewInt(-2), zero), fingerprint),
+		"fingerprint hex":   list(zero, list(), types.NewStr("zz")),
+		"fingerprint short": list(zero, list(), types.NewStr("00")),
+	} {
+		fields := append([]types.Value(nil), current.Elements()...)
+		fields[1] = identity
+		if _, err := decodeVMFrameMetadata(types.NewList(fields), 0); err == nil {
+			t.Errorf("v2 %s: accepted identity %v", name, identity)
+		}
+	}
+	if _, err := decodeVMFrameMetadata(types.NewList(current.Elements()[:len(current.Elements())-1]), 0); err == nil {
+		t.Error("accepted a v2 frame missing its last element")
 	}
 }

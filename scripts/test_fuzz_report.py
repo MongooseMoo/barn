@@ -22,6 +22,10 @@ from fuzz_report import (DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, issue
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).with_name("fixtures") / "fuzz"
+# Failing inputs named by the real logs, kept here because their target's
+# input format has since changed. Their paths hold no testdata/fuzz, so
+# scripts/fuzz_red_green.py does not take them for fuzz inputs.
+CORPUS = FIXTURES / "corpus"
 TARGET = "FuzzRestoreVMSnapshotDoesNotPanic"
 
 # Exact summary lines produced by the differential count-mismatch regression,
@@ -52,13 +56,27 @@ class FuzzReportTests(unittest.TestCase):
         return report((FIXTURES / f"{run}.log").read_text(), "./vm", target, "test-commit")
 
     def test_real_panic_and_corpus(self):
-        result = self.real_report(41882671144)
+        # report() opens the input the log names relative to the working
+        # directory, as the workflow runs it from the repository root.
+        data = (CORPUS / "3fd49d1954a707ba").read_bytes()
+        previous = os.getcwd()
+        with tempfile.TemporaryDirectory() as root:
+            named = Path(root) / "vm/testdata/fuzz" / TARGET / "3fd49d1954a707ba"
+            named.parent.mkdir(parents=True)
+            named.write_bytes(data)
+            os.chdir(root)
+            try:
+                result = self.real_report(41882671144)
+            finally:
+                os.chdir(previous)
         self.assertEqual(result["kind"], "panic")
         self.assertIn("invalid memory address", result["first_error"])
         self.assertEqual(result["barn_frames"][0], {
             "function": "github.com/MongooseMoo/barn/db/store.(*StoreTxn).live",
             "location": "db/store/store_txn.go:260"})
-        self.assertEqual(result["input_text"], (ROOT / result["input_path"]).read_text())
+        self.assertEqual(result["input_path"], f"vm/testdata/fuzz/{TARGET}/3fd49d1954a707ba")
+        self.assertEqual(result["input_text"], data.decode("utf-8", errors="replace"))
+        self.assertFalse(result["input_text"].startswith("Input unavailable"))
         self.assertEqual(result["repro"],
                          f"timeout --kill-after=5s 60s go test ./vm -run '{TARGET}/3fd49d1954a707ba'")
 

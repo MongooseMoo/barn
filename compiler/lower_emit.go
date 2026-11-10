@@ -3,7 +3,6 @@ package compiler
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/ir"
@@ -98,14 +97,7 @@ func (c *lowerer) emitConstant(v types.Value) {
 // as a safe fallback index.
 func (c *lowerer) addConstant(v types.Value) int {
 	// Check if constant already exists
-	key := fmt.Sprintf("%d:%s", int(v.Type()), v.String())
-	if v.Type() == types.TYPE_FLOAT {
-		f := v.Float()
-		if f == 0 {
-			f = 0
-		}
-		key = fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
-	}
+	key := bytecode.ConstantKey(v)
 	if idx, ok := c.constants[key]; ok {
 		return idx
 	}

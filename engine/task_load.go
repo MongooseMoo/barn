@@ -36,7 +36,21 @@ func (s *Runtime) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) error 
 			failures = append(failures, fmt.Errorf("suspended task record %d is incomplete", index))
 			continue
 		}
-		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
+		err := s.loadSuspendedTask(saved.Snapshot)
+		var mismatch *vm.ProgramMismatchError
+		if errors.As(err, &mismatch) {
+			// Q, 2026-11-10: a task whose program is not what its saved source
+			// compiles to is dropped, and the server keeps booting.
+			slog.Error("dropped suspended task: saved program does not match its source",
+				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.String("verb", saved.Snapshot.VerbName),
+				slog.Int64("verbloc", int64(saved.Snapshot.VerbLoc)),
+				slog.Int64("this", int64(saved.Snapshot.This)),
+				slog.Int64("programmer", int64(saved.Snapshot.Programmer)),
+				slog.String("reason", mismatch.Error()))
+			continue
+		}
+		if err != nil {
 			slog.Warn("failed to restore suspended task",
 				slog.Int64("task_id", saved.Snapshot.ID),
 				slog.String("verb", saved.Snapshot.VerbName),

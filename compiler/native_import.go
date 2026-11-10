@@ -22,22 +22,45 @@ const (
 	NativeResumePass
 )
 
-// ConvertNativeFrame compiles a saved native program and translates existing
-// continuation values. It executes no MOO source and never replays effects.
-func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, top bool) (task.VMFrameSnapshot, NativeResumeCall, error) {
-	if saved.Native == nil {
-		return saved, NativeResumeBuiltin, nil
+// Rebuild compiles source the way the compile named by origin did: the whole
+// source, or one vector of a Toast checkpoint, then the numbered fork body.
+// A saved task's frame runs the result instead of stored bytecode.
+func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.Program, error) {
+	var program *bytecode.Program
+	if origin.Native {
+		compiled, _, _, err := c.compileNativeVector(source, origin.LanguageVersion, origin.NativeVector, nil)
+		if err != nil {
+			return nil, err
+		}
+		program = compiled
+	} else {
+		compiled, diagnostics := c.CompileMOO(source)
+		if len(diagnostics) != 0 {
+			return nil, fmt.Errorf("source does not compile: %w", diagnostics[0])
+		}
+		program = compiled
 	}
-	if saved.BuiltinPC != 0 || saved.Native.Builtin != nil {
-		return saved, 0, fmt.Errorf("native builtin continuation requires conversion")
+	if origin.Fork == 0 {
+		return program, nil
 	}
-	program, err := parser.NewParser(strings.Join(saved.Program.Source, "\n")).ParseProgram()
+	fork := program.ExtractFork(origin.Fork)
+	if fork == nil {
+		return nil, fmt.Errorf("source has no fork body %d", origin.Fork)
+	}
+	return fork, nil
+}
+
+// compileNativeVector lowers one vector of Toast-compiled source. Importing,
+// when not nil, observes the lowering to map Toast continuation state; it
+// never changes the code emitted.
+func (c *Compiler) compileNativeVector(source []string, languageVersion, vector int, importing *barnImportLayout) (*bytecode.Program, *NativeVectorLayout, *lowerer, error) {
+	program, err := parser.NewParser(strings.Join(source, "\n")).ParseProgram()
 	if err != nil {
-		return saved, 0, fmt.Errorf("parse native saved source: %w", err)
+		return nil, nil, nil, fmt.Errorf("parse native saved source: %w", err)
 	}
-	layout, err := NativeLayout(program, saved.Program.VarNames, saved.Native.LanguageVersion)
+	layout, err := NativeLayout(program, nil, languageVersion)
 	if err != nil {
-		return saved, 0, err
+		return nil, nil, nil, err
 	}
 	var selected *NativeVectorLayout
 	for index := range layout.Vectors {
@@ -47,8 +70,40 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 		}
 	}
 	if selected == nil {
-		return saved, 0, fmt.Errorf("native root vector %d does not exist", vector)
+		return nil, nil, nil, fmt.Errorf("native root vector %d does not exist", vector)
 	}
+	lower := newLowerer(c.builtinIDs)
+	lower.importLayout = importing
+	compiled, err := lower.compileProgram(&ir.Program{Statements: selected.Body})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("compile native continuation: %w", err)
+	}
+	if importing != nil {
+		importing.flush(lower)
+		if importing.err != nil {
+			return nil, nil, nil, importing.err
+		}
+	}
+	compiled.Source = append([]string(nil), source...)
+	compiled.BuiltinLayout = c.layout
+	compiled.Origin = bytecode.Origin{Native: true, NativeVector: vector, LanguageVersion: languageVersion}
+	return compiled, selected, lower, nil
+}
+
+// ConvertNativeFrame compiles a saved native program and translates existing
+// continuation values. It executes no MOO source and never replays effects.
+func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, top bool) (task.VMFrameSnapshot, NativeResumeCall, error) {
+	if saved.Native == nil {
+		return saved, NativeResumeBuiltin, nil
+	}
+	if saved.BuiltinPC != 0 || saved.Native.Builtin != nil {
+		return saved, 0, fmt.Errorf("native builtin continuation requires conversion")
+	}
+	compiled, selected, lower, err := c.compileNativeVector(saved.Program.Source, saved.Native.LanguageVersion, vector, newBarnImportLayout())
+	if err != nil {
+		return saved, 0, err
+	}
+	importing := lower.importLayout
 	var site *NativeContinuation
 	for index := range selected.Continuations {
 		if selected.Continuations[index].PC == saved.IP {
@@ -59,19 +114,7 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 	if site == nil || len(site.Stack) != len(saved.Stack)+1 {
 		return saved, 0, fmt.Errorf("native continuation PC %d does not match its saved stack", saved.IP)
 	}
-	lower := newLowerer(c.builtinIDs)
-	lower.importLayout = newBarnImportLayout()
-	compiled, err := lower.compileProgram(&ir.Program{Statements: selected.Body})
-	if err != nil {
-		return saved, 0, fmt.Errorf("compile native continuation: %w", err)
-	}
-	lower.importLayout.flush(lower)
-	if lower.importLayout.err != nil {
-		return saved, 0, lower.importLayout.err
-	}
-	compiled.Source = append([]string(nil), saved.Program.Source...)
-	compiled.BuiltinLayout = c.layout
-	barn, found := lower.importLayout.calls[site.Node]
+	barn, found := importing.calls[site.Node]
 	if !found {
 		return saved, 0, fmt.Errorf("native continuation has no Barn callsite")
 	}

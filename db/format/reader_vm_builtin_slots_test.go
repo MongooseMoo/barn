@@ -73,8 +73,10 @@ test_verb
 	assertCommandSlotsMatchNames(t, frame.Program.ExtractForkBody(0, 0))
 }
 
-// A Barn frame round-trips through its private metadata, which stores names
-// but not slots; the restored slots must equal the compiler's.
+// A Barn frame round-trips through its private metadata, which stores no
+// program: the reader keeps the frame's source and identity for restore,
+// which installs the compiler's program, slots included
+// (vm TestCheckpointStoresNoBytecode checks the restored slots).
 func TestBarnFrameRestoresCompilerBuiltinSlots(t *testing.T) {
 	program, diagnostics := compiler.New(map[string]int{}).CompileMOO([]string{
 		"x = {INT, true, this, argstr, dobj};",
@@ -101,11 +103,19 @@ func TestBarnFrameRestoresCompilerBuiltinSlots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readVMFrame: %v", err)
 	}
-	if !reflect.DeepEqual(restored.Program.BuiltinSlots, program.BuiltinSlots) {
-		t.Fatalf("restored BuiltinSlots = %+v, compiled %+v", restored.Program.BuiltinSlots, program.BuiltinSlots)
+	if restored.Rebuild == nil || restored.Rebuild.Fingerprint != program.Fingerprint() || restored.Program.Origin != program.Origin ||
+		!reflect.DeepEqual(restored.Program.Source, program.Source) {
+		t.Fatalf("restored frame lacks its program's identity: rebuild %+v origin %+v", restored.Rebuild, restored.Program.Origin)
 	}
-	assertCommandSlotsMatchNames(t, &restored.Program)
-	assertCommandSlotsMatchNames(t, restored.Program.ExtractForkBody(0, len(restored.Program.Code)))
+	rebuilt, err := compiler.New(map[string]int{}).Rebuild(restored.Program.Source, restored.Program.Origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rebuilt.BuiltinSlots, program.BuiltinSlots) {
+		t.Fatalf("rebuilt BuiltinSlots = %+v, compiled %+v", rebuilt.BuiltinSlots, program.BuiltinSlots)
+	}
+	assertCommandSlotsMatchNames(t, rebuilt)
+	assertCommandSlotsMatchNames(t, rebuilt.ExtractFork(1))
 }
 
 // assertCommandSlotsMatchNames checks that slot-based command-variable

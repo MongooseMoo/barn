@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -102,6 +103,10 @@ func RestoreVMSnapshot(
 ) (*VM, error) {
 	var err error
 	snapshot, err = convertNativeSnapshot(snapshot, store, session)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err = rebuildSnapshot(snapshot, session)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +235,105 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 		previousCall = call
 	}
 	return converted, nil
+}
+
+// ProgramMismatchError refuses a saved task one of whose frames ran a program
+// that compiling the frame's saved source does not produce today.
+type ProgramMismatchError struct {
+	Frame   int
+	Verb    string
+	VerbLoc types.ObjID
+	Reason  string
+}
+
+func (e *ProgramMismatchError) Error() string {
+	return fmt.Sprintf("frame %d (#%d:%s): %s", e.Frame, e.VerbLoc, e.Verb, e.Reason)
+}
+
+// rebuildSnapshot replaces the program of every frame read from a database
+// (Rebuild set) with the compiler's output for its saved source, so a saved
+// task can only run code a compile of that source produces.
+func rebuildSnapshot(snapshot *task.VMSnapshot, session *builtins.Session) (*task.VMSnapshot, error) {
+	if snapshot == nil || !slices.ContainsFunc(snapshot.Frames, func(frame task.VMFrameSnapshot) bool { return frame.Rebuild != nil }) {
+		return snapshot, nil
+	}
+	if session == nil {
+		return nil, fmt.Errorf("rebuilding saved programs requires a builtin session")
+	}
+	compile := session.Registry().Compiler()
+	rebuilt := *snapshot
+	rebuilt.Frames = append([]task.VMFrameSnapshot(nil), snapshot.Frames...)
+	for index := range rebuilt.Frames {
+		frame := &rebuilt.Frames[index]
+		if frame.Rebuild == nil {
+			continue
+		}
+		mismatch := func(reason string) error {
+			return &ProgramMismatchError{Frame: index, Verb: frame.Verb, VerbLoc: frame.VerbLoc, Reason: reason}
+		}
+		if frame.Rebuild.Legacy {
+			if !rebuildLegacyFrame(compile, frame) {
+				return nil, mismatch("saved bytecode is not the compiler's output for its source")
+			}
+		} else {
+			program, err := compile.Rebuild(frame.Program.Source, frame.Program.Origin)
+			if err != nil {
+				return nil, mismatch(err.Error())
+			}
+			if program.Fingerprint() != frame.Rebuild.Fingerprint {
+				return nil, mismatch("compiling its source no longer gives the program the task ran")
+			}
+			locals, err := placeLocals(program, frame)
+			if err != nil {
+				return nil, fmt.Errorf("frame %d: %w", index, err)
+			}
+			frame.Program, frame.Locals = cloneProgram(program), locals
+		}
+		frame.Rebuild = nil
+	}
+	return &rebuilt, nil
+}
+
+// rebuildLegacyFrame replaces a v1 frame's stored program with the compiled
+// program, or one of its fork bodies, whose Code and Constants equal it.
+func rebuildLegacyFrame(compile *compiler.Compiler, frame *task.VMFrameSnapshot) bool {
+	root, diagnostics := compile.CompileMOO(frame.Program.Source)
+	if len(diagnostics) != 0 {
+		return false
+	}
+	for candidate, fork := root, 0; candidate != nil; fork++ {
+		if slices.Equal(candidate.Code, frame.Program.Code) && slices.EqualFunc(candidate.Constants, frame.Program.Constants, func(a, b types.Value) bool {
+			return bytecode.ConstantKey(a) == bytecode.ConstantKey(b)
+		}) {
+			frame.Program = cloneProgram(candidate)
+			return true
+		}
+		candidate = root.ExtractFork(fork + 1)
+	}
+	return false
+}
+
+// placeLocals moves a v2 frame's named locals, read in saved order, and its
+// compiler temporaries into the rebuilt program's slots.
+func placeLocals(program *bytecode.Program, frame *task.VMFrameSnapshot) ([]types.Value, error) {
+	locals := make([]types.Value, program.NumLocals)
+	for slot := range locals {
+		locals[slot] = types.Unbound
+	}
+	for index, name := range frame.Program.VarNames {
+		slot := slices.Index(program.VarNames, name)
+		if slot < 0 || index >= len(frame.Locals) {
+			return nil, fmt.Errorf("saved local %q is not a variable of the program", name)
+		}
+		locals[slot] = frame.Locals[index]
+	}
+	for _, internal := range frame.Rebuild.Internal {
+		if internal.Slot < len(program.VarNames) || internal.Slot >= program.NumLocals {
+			return nil, fmt.Errorf("saved internal local slot %d outside [%d, %d)", internal.Slot, len(program.VarNames), program.NumLocals)
+		}
+		locals[internal.Slot] = internal.Value
+	}
+	return locals, nil
 }
 
 func validateVMSnapshot(snapshot *task.VMSnapshot) error {
@@ -430,6 +534,7 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		Source:        append([]string(nil), program.Source...),
 		BuiltinSlots:  slots,
 		BuiltinLayout: program.BuiltinLayout,
+		Origin:        program.Origin,
 		// Immutable once the compiler fills it, like Constants' values.
 		BuiltinPropertyConstants: program.BuiltinPropertyConstants,
 	}

@@ -238,7 +238,9 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 		t.Fatalf("wake value = %v", got.WakeValue)
 	}
 	frame := got.VM.Frames[0]
-	if frame.Program.VarNames[0] != "zeta" || !frame.Locals[1].IsUnbound() {
+	// Only bound named locals travel; restore places them in the rebuilt
+	// program's slots.
+	if !slices.Equal(frame.Program.VarNames, []string{"zeta"}) || len(frame.Locals) != 1 || !frame.Locals[0].Equal(types.NewInt(1)) {
 		t.Fatalf("locals = %#v, names = %#v", frame.Locals, frame.Program.VarNames)
 	}
 	if frame.Stack[0].Str() != "operand" || len(frame.ExceptStack) != 1 {
