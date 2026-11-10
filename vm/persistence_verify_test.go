@@ -3,6 +3,7 @@ package vm
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -218,6 +219,10 @@ func FuzzRestoreVMSnapshotDoesNotPanic(f *testing.F) {
 		}
 		machine.Task = task.NewState(1, context.Player, context.TicksRemaining, 1)
 		machine.TickLimit = context.TicksRemaining
+		// Unchecked ticks stop only at the seconds deadline (vm tickCheckpoint),
+		// so set it as engine/task_runtime.go does before running a slice.
+		start, seconds := machine.Task.ExecutionBudget()
+		machine.Task.SetExecutionDeadline(start.Add(time.Duration(seconds * float64(time.Second))))
 		_ = machine.Resume()
 	})
 }
