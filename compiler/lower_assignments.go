@@ -678,10 +678,16 @@ func (c *lowerer) compileDestructuringTarget(target *ir.DestructuringTarget) err
 	}
 	hasRest := restIndex >= 0
 
-	listVar := c.declareInternalVariable(c.tempVar("scatter_list"))
-	lenVar := c.declareInternalVariable(c.tempVar("scatter_len"))
-	leftVar := c.declareInternalVariable(c.tempVar("scatter_left"))
-	rightVar := c.declareInternalVariable(c.tempVar("scatter_right"))
+	// Sequential scatters have disjoint temporary lifetimes, so reuse their
+	// slots. A scatter nested in a default expression increments the depth and
+	// keeps distinct slots while the outer scatter's cursors are live.
+	depth := c.scatterDepth
+	c.scatterDepth++
+	defer func() { c.scatterDepth-- }()
+	listVar := c.declareInternalVariable(fmt.Sprintf("__scatter_list_depth_%d__", depth))
+	lenVar := c.declareInternalVariable(fmt.Sprintf("__scatter_len_depth_%d__", depth))
+	leftVar := c.declareInternalVariable(fmt.Sprintf("__scatter_left_depth_%d__", depth))
+	rightVar := c.declareInternalVariable(fmt.Sprintf("__scatter_right_depth_%d__", depth))
 
 	c.emitStoreLocal(listVar)
 
