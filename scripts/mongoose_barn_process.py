@@ -224,9 +224,12 @@ class OwnedBarnServer:
             except Exception as cleanup_error:
                 self.identity["startup_cleanup_failure"] = str(cleanup_error)
             raise
+        # Popen returns once the kernel releases the parent inside exec, before
+        # it writes the new argv: /proc/<pid>/cmdline reads empty until then.
+        # A listening Barn has finished exec, so its identity is checkable.
+        bench.wait_port(self.host, self.port, 180, self.proc)
         self.verify_owned()
         self._ownership_established = True
-        bench.wait_port(self.host, self.port, 180, self.proc)
         last_readiness = None
         while time.monotonic() - started < 180:
             if self.proc.poll() is not None:
