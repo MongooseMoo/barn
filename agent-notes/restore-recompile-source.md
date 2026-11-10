@@ -60,8 +60,7 @@ fingerprint of its compiled program; on load, a recompile whose fingerprint
 differs refuses the task with a log line naming the verb. Step 1 adds the
 fingerprint slot; step 2 checks it before any position is used.
 
-Harness agent result (fix/restore-fuzz-deadline, commit c7c5abb9, not
-pushed, worktree agent-ad55941583b5ea175): the production-style deadline
+Harness agent result (branch fix/restore-fuzz-deadline, PR #726): the production-style deadline
 stops a67f1c049e52d97e in 1.00 s at ~212 MB live heap (was 1378 MB at 29.9 s
 and a timeout). It does NOT stop 021b3e3abaa49095 (#695): that loop charges
 zero ticks (UNWIND_JUMP depth 45996 > 0 handlers errors at
@@ -80,8 +79,8 @@ corrected by message.
   still hang on those after this change. Q answered "hmm".
 
 ## Implementation (Q: "Make it so! worktree!")
-Branch feat/restore-recompile-source, worktree agent-a5f299cd5a56de919, base
-origin/master ae6a2216.
+Branch feat/restore-recompile-source, worktree agent-a5f299cd5a56de919, based
+on origin/master after PR #708.
 
 ### Pre-code answers
 (a) Same entry. Every runtime program comes from
