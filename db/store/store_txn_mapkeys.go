@@ -1,6 +1,8 @@
 package store
 
 import (
+	"slices"
+
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -231,19 +233,81 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 
 // degradeMapKeys turns every keyed dependency into a whole read of its slot at
 // the version the transaction first saw. A path that cannot validate per key or
-// apply entries to the live map (live mutation, flush, the irreversible-effect
-// boundary) then behaves exactly as it does for any property read.
+// apply entries to the live map (live mutation, flush) then behaves exactly as
+// it does for any property read.
 func (tx *StoreTxn) degradeMapKeys() {
 	for rkey, st := range tx.mapKeys {
-		if _, whole := tx.propertyReads[rkey]; !whole {
-			lazySet(&tx.propertyReads, rkey, st.version)
-			if tx.diag != nil {
-				// The whole read is at st.version, whose value is the baseline.
-				tx.diag.noteRead(rkey, &Property{value: st.baseline})
-			}
-		}
+		tx.degradeMapKey(rkey, st)
 	}
 	tx.mapKeys = nil
+}
+
+// degradeMapKey turns the keyed dependency on one slot into a whole read.
+func (tx *StoreTxn) degradeMapKey(rkey propertyReadKey, st *mapKeyState) {
+	if _, whole := tx.propertyReads[rkey]; !whole {
+		lazySet(&tx.propertyReads, rkey, st.version)
+		if tx.diag != nil {
+			// The whole read is at st.version, whose value is the baseline.
+			tx.diag.noteRead(rkey, &Property{value: st.baseline})
+		}
+	}
+	delete(tx.mapKeys, rkey)
+}
+
+// boundaryMapKeys runs at the irreversible-effect boundary before validation and
+// returns the keyed reads the renewed transaction carries. The boundary itself
+// validates per key and rebases keyed writes as any commit does. A keyed
+// assignment whose base was fetched and not yet written back was built on the
+// map as it is now; kept keyed, its writeback after the boundary would put that
+// base over entries other commits changed, so its slot degrades to a whole read
+// here. A carried read of an entry this transaction wrote takes the value the
+// boundary is about to publish; every other carried read keeps the value the
+// boundary validates against the live map.
+func (tx *StoreTxn) boundaryMapKeys() map[propertyReadKey]*mapKeyState {
+	var carried map[propertyReadKey]*mapKeyState
+	for rkey, st := range tx.mapKeys {
+		if st.hasPendingBase {
+			tx.degradeMapKey(rkey, st)
+			continue
+		}
+		if _, whole := tx.propertyReads[rkey]; whole {
+			continue
+		}
+		c := &mapKeyState{name: st.name, reads: slices.Clone(st.reads)}
+		if w, staged := tx.propertyWrites[propertyWriteKey(rkey)]; staged {
+			for i, r := range c.reads {
+				if st.wrote(r.key) {
+					c.reads[i].value, c.reads[i].present = w.value.MapGet(r.key)
+				}
+			}
+		}
+		lazySet(&carried, rkey, c)
+	}
+	return carried
+}
+
+// carryBoundaryMapKeys installs on the renewed transaction tx the keyed reads
+// boundaryMapKeys returned, at tx's view of each slot: the map the boundary
+// published. That view is the baseline later keyed reads are told apart from
+// and the version a degrade records. A slot that no longer holds a map is read
+// whole at its current version; a slot that is gone drops out.
+func (tx *StoreTxn) carryBoundaryMapKeys(carried map[propertyReadKey]*mapKeyState) {
+	for rkey, c := range carried {
+		obj := tx.object(rkey.objID)
+		if !validLiveObject(obj) {
+			continue
+		}
+		_, prop, ok := obj.properties.find(rkey.name)
+		if !ok {
+			continue
+		}
+		if prop.clear || prop.value.Type() != types.TYPE_MAP {
+			lazySet(&tx.propertyReads, rkey, prop.version)
+			continue
+		}
+		c.owner, c.perms, c.version, c.baseline = prop.owner, prop.perms, prop.version, prop.value
+		lazySet(&tx.mapKeys, rkey, c)
+	}
 }
 
 // validateMapKeysLocked checks each keyed slot without a whole read: present, not
