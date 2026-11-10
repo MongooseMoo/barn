@@ -8,7 +8,7 @@ Stop the real-workload harness from truncating the sound catalog when
 
 ## State
 
-Done, committed, not pushed. `copyBenchFile` in
+Done; PR #703 is open with auto-merge queued. `copyBenchFile` in
 `engine/mongoose_real_bench_test.go` stats src (through the open handle) and
 dst; when dst exists and `os.SameFile` says they are the same file it returns
 `copied=false` without opening dst. The one caller (the sound catalog install)
@@ -32,4 +32,5 @@ was destroyed and every `say` failed with "no such table: AssetFiles".
 ## Next step
 
 None for this fix. The destroyed main-checkout `files/sqlite/sound.sqlite`
-must be restored from its original source separately.
+was restored from a byte-identical harness copy (same sha256 as three other
+surviving copies, 481218560 bytes).
