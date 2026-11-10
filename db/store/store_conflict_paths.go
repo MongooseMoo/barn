@@ -213,11 +213,15 @@ func (tx *StoreTxn) addPathLocked(census *conflictCensus, c *ReadConflict, key p
 	if d.point == CommitBoundary {
 		addBoundarySite(&path.BoundarySites, &path.OtherBoundarySites, d.boundary)
 	}
-	if via, ok := d.degraded[key]; ok {
-		path.Degraded.add(via)
-	}
-	if _, ok := d.renewed[key]; ok {
-		path.RenewedThenLost++
+	// degraded and renewed hold property slots; a verb or object key can share
+	// their {obj, name} shape.
+	if c.Kind == ConflictProperty || c.Kind == ConflictMapKey {
+		if via, ok := d.degraded[key]; ok {
+			path.Degraded.add(via)
+		}
+		if _, ok := d.renewed[key]; ok {
+			path.RenewedThenLost++
+		}
 	}
 	if writerFound {
 		path.addWriter(writer)

@@ -161,21 +161,21 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	var executedTicks int64
 	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
 	var rerunTicks int64
-	gate := sliceGate{holds: &s.gateHolds, this: t.This, verb: t.VerbName}
 	// The task's timeline, while diagnostics tracking is on (task_timeline.go).
 	tl := s.timelineFor(t)
-	var queueWait time.Duration
-	if !execReadyAt.IsZero() {
-		queueWait = started.Sub(execReadyAt)
-	}
-	tl.beginSlice(started, queueWait)
-	defer tl.endSlice()
+	gate := sliceGate{holds: &s.gateHolds, key: gateHolderKey{This: t.This, Verb: t.VerbName}, tracked: tl != nil}
 	// The attempt's shared gate waits, for the timeline; nil (no allocation)
 	// without one.
 	var waits *attemptWaits
 	if tl != nil {
+		var queueWait time.Duration
+		if !execReadyAt.IsZero() {
+			queueWait = started.Sub(execReadyAt)
+		}
+		tl.beginSlice(started, queueWait)
 		waits = new(attemptWaits)
 	}
+	defer tl.endSlice()
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
 		if elapsed := time.Since(started); elapsed >= 100*time.Millisecond {
@@ -283,11 +283,11 @@ retryAttempt:
 		gateWait, err := gate.acquire(taskCtx, s.store, cause, "", gateTicksAtLaunch)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
-		tl.noteGate(gate.holder(cause, ""), gateWait)
 		if err != nil {
 			t.SetState(task.TaskKilled)
 			return err
 		}
+		tl.noteGate(gate.detail, gateWait)
 	}
 	if attempt > 0 {
 		// restore replaces the task's context, so the release below would not
@@ -386,7 +386,7 @@ retryAttempt:
 		}
 		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
-		tl.noteGate(gate.hold.key, gateWait)
+		tl.noteGate(gate.detail, gateWait)
 		// For the census: the wait sits between the attempt's reads and the
 		// boundary's validation, and the boundary is where it validates next.
 		ctx.StoreTxn.NoteCommitGateWait(gateWait)
@@ -1017,40 +1017,38 @@ type sliceGate struct {
 	// everHeld records that the slice held the gate at some point, for the
 	// slow-slice log.
 	everHeld bool
-	// holds, when set, records each hold under its holder.
-	holds *gateHoldStats
-	// this and verb are the task's, for the holder of each hold.
-	this types.ObjID
-	verb string
-	// machine is the slice's VM, set at launch, so a hold can count the ticks
-	// run under it.
+	// holds, when set, records each hold under key (the task verb and the
+	// hold's cause), timed from heldSince.
+	holds     *gateHoldStats
+	key       gateHolderKey
+	heldSince time.Time
+	// tracked: diagnostics tracking was on when the slice began. Only then
+	// does a hold take the tracked gate and record detail, whose key adds
+	// the builtin.
+	tracked bool
+	// machine is the slice's VM, set at launch while tracked, so a hold can
+	// count the ticks run under it.
 	machine *vm.VM
-	// hold is the current hold, made at each acquire so the slice carries one
-	// pointer rather than the record.
-	hold *sliceHold
+	// detail is the current tracked hold's record; never set when untracked.
+	detail *holdDetail
 }
 
-// sliceHold is one exclusive hold: who holds it (also the commitgate label
-// requests queued behind it see), since when, the VM's tick count when it was
-// taken (or the attempt's starting ticks for a gate taken before the attempt
-// ran), the acquire wait and what was in front of it.
-type sliceHold struct {
+// holdDetail is what tracking records of one exclusive hold: its holder (the
+// commitgate label requests queued behind it see; never written after the
+// acquire), the VM's tick count when it was taken (or the attempt's starting
+// ticks for a gate taken before the attempt ran), the acquire wait and what
+// was in front of it.
+type holdDetail struct {
 	key            GateHolder
-	heldSince      time.Time
 	ticksAtAcquire int64
 	wait           time.Duration
 	ahead          commitgate.Ahead
 }
 
-// holder names the slice's current or next hold.
-func (g *sliceGate) holder(cause, builtin string) GateHolder {
-	return GateHolder{This: g.this, Verb: g.verb, Cause: cause, Builtin: builtin}
-}
-
 // GateHolder names the task verb that held the exclusive commit gate and why
 // the slice took it: the verb that called an irreversible builtin
-// ("#123:verb") and that builtin, or one of the escalation causes below with
-// no builtin.
+// ("#123:verb") and, for a tracked hold, that builtin, or one of the
+// escalation causes below with no builtin.
 type GateHolder struct {
 	This    types.ObjID
 	Verb    string
@@ -1072,18 +1070,23 @@ const (
 	gateCauseWastedWork    = "wasted work"
 )
 
-// GateHold is the cumulative exclusive commit gate hold of one task verb.
-// Count, Total and Max are the holds and their durations; Ticks sums the VM
-// ticks the slices ran while holding. Wait, WaitMax and WaitHist (buckets
-// bounded by dbstore.WallBoundsNS) are the acquire waits before each hold;
-// DepthSum and DepthMax the queued requests ahead at each acquire; Ahead names
-// who was in front (the exclusive owner and exclusive requests queued ahead,
-// by label, plus "shared" for shared owners or requests), the first
-// maxGateAhead labels, the rest counted in OtherAhead.
+// GateHold is the cumulative exclusive commit gate hold of one task verb and
+// cause. Count, Total and Max are the holds and their durations, always
+// counted. Holds of slices that began with diagnostics tracking on are rows of
+// their own, also keyed by Builtin, and count the rest (Tracked is their
+// number): Ticks sums the VM ticks the slices ran while holding.
+// Wait, WaitMax and WaitHist (buckets bounded by dbstore.WallBoundsNS) are the
+// acquire waits before each hold; DepthSum and DepthMax the queued requests
+// ahead at each acquire; Ahead names who was in front (the exclusive owner and
+// exclusive requests queued ahead, by label, "(unlabeled)" for an untracked
+// one or the store's own checkpoint snapshot, plus "shared" for shared owners
+// or requests), the first maxGateAhead labels, the rest (and requests past
+// the gate's bounded look at its queue) counted in OtherAhead.
 type GateHold struct {
 	GateHolder
 	Count      int64
 	Total, Max time.Duration
+	Tracked    int64
 	Ticks      int64
 	Wait       time.Duration
 	WaitMax    time.Duration
@@ -1092,12 +1095,57 @@ type GateHold struct {
 	DepthMax   int
 	Ahead      []GateAheadCount
 	OtherAhead int64
+	// ahead is what Ahead is made from when reported, so recording a hold
+	// formats nothing.
+	ahead []gateAheadCount
 }
 
 // GateAheadCount counts the acquires that found Label in front of them.
 type GateAheadCount struct {
 	Label string
 	N     int64
+}
+
+// gateAheadKind says what a gateAheadKey names.
+type gateAheadKind uint8
+
+const (
+	aheadHolder gateAheadKind = iota
+	aheadUnlabeled
+	aheadShared
+)
+
+// gateAheadKey is who was in front of an acquire, unrendered: a labelled
+// exclusive holder or request, an unlabeled one, or shared ones.
+type gateAheadKey struct {
+	kind   gateAheadKind
+	holder GateHolder
+}
+
+func (k gateAheadKey) label() string {
+	switch k.kind {
+	case aheadHolder:
+		return k.holder.label()
+	case aheadShared:
+		return "shared"
+	default:
+		return "(unlabeled)"
+	}
+}
+
+type gateAheadCount struct {
+	key gateAheadKey
+	n   int64
+}
+
+// aheadKeyFor names an exclusive requester from its commitgate label: a
+// tracked task slice's *GateHolder (its holdDetail's key, never written after
+// the acquire), or nil for an untracked slice or the store's own.
+func aheadKeyFor(label any) gateAheadKey {
+	if h, ok := label.(*GateHolder); ok && h != nil {
+		return gateAheadKey{kind: aheadHolder, holder: *h}
+	}
+	return gateAheadKey{kind: aheadUnlabeled}
 }
 
 // maxGateAhead bounds the labels GateHold.Ahead names; maxGateHolders bounds
@@ -1108,100 +1156,147 @@ const (
 )
 
 // gateHoldStats accumulates exclusive gate holds. It is touched only when a
-// slice releases a gate it held.
+// slice releases a gate it held. Untracked holds are keyed by task verb and
+// cause only (holds), as they were before tracking existed: a fourth key
+// field costs every release a string hash and compare. Tracked holds are also
+// split by builtin (tracked).
 type gateHoldStats struct {
-	mu    sync.Mutex
-	holds map[GateHolder]*GateHold
+	mu      sync.Mutex
+	holds   map[gateHolderKey]*GateHold
+	tracked map[GateHolder]*GateHold
 }
 
-func (h *gateHoldStats) observe(key GateHolder, held time.Duration, ticks int64, wait time.Duration, ahead commitgate.Ahead) {
+// gateHolderKey is GateHolder without its builtin.
+type gateHolderKey struct {
+	This  types.ObjID
+	Verb  string
+	Cause string
+}
+
+// observe records an untracked hold under its task verb and cause.
+func (h *gateHoldStats) observe(key gateHolderKey, held time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.holds == nil {
-		h.holds = make(map[GateHolder]*GateHold)
-	}
 	entry := h.holds[key]
 	if entry == nil {
-		if len(h.holds) >= maxGateHolders {
-			key = GateHolder{This: types.ObjNothing, Verb: "(other holders)"}
-			entry = h.holds[key]
-		}
-		if entry == nil {
-			entry = &GateHold{GateHolder: key}
-			h.holds[key] = entry
-		}
+		entry = holdEntryLocked(&h.holds, key, gateHolderKey{This: types.ObjNothing, Verb: "(other holders)"}, func(k gateHolderKey) GateHolder {
+			return GateHolder{This: k.This, Verb: k.Verb, Cause: k.Cause}
+		})
 	}
-	entry.Count++
-	entry.Total += held
-	entry.Max = max(entry.Max, held)
+	entry.count(held)
+}
+
+// observeTracked records a tracked hold with its detail. Who was ahead is
+// collected before the lock and rendered only when reported.
+func (h *gateHoldStats) observeTracked(held time.Duration, d *holdDetail, ticks int64) {
+	// The owner, at most MaxAheadLabels queued exclusive requests, and shared.
+	var keys [commitgate.MaxAheadLabels + 2]gateAheadKey
+	n := 0
+	a := &d.ahead
+	if a.HolderExclusive {
+		keys[n], n = aheadKeyFor(a.Holder), n+1
+	} else if a.SharedOwners > 0 {
+		keys[n], n = gateAheadKey{kind: aheadShared}, n+1
+	}
+	for _, label := range a.Exclusive {
+		keys[n], n = aheadKeyFor(label), n+1
+	}
+	if a.Shared > 0 {
+		keys[n], n = gateAheadKey{kind: aheadShared}, n+1
+	}
+	other := int64(a.ExclusiveMore + a.Unscanned)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	entry := holdEntryLocked(&h.tracked, d.key, GateHolder{This: types.ObjNothing, Verb: "(other holders)"}, func(k GateHolder) GateHolder { return k })
+	entry.count(held)
+	entry.Tracked++
 	entry.Ticks += max(ticks, 0)
-	entry.Wait += wait
-	entry.WaitMax = max(entry.WaitMax, wait)
-	entry.WaitHist.Add(int64(wait))
-	entry.DepthSum += int64(ahead.Depth)
-	entry.DepthMax = max(entry.DepthMax, ahead.Depth)
-	if ahead.HolderExclusive {
-		entry.addAhead(holderLabel(ahead.Holder))
-	} else if ahead.SharedOwners > 0 {
-		entry.addAhead("shared")
-	}
-	for _, label := range ahead.Exclusive {
-		entry.addAhead(holderLabel(label))
-	}
-	if ahead.Shared > 0 {
-		entry.addAhead("shared")
+	entry.Wait += d.wait
+	entry.WaitMax = max(entry.WaitMax, d.wait)
+	entry.WaitHist.Add(int64(d.wait))
+	entry.DepthSum += int64(a.Depth)
+	entry.DepthMax = max(entry.DepthMax, a.Depth)
+	entry.OtherAhead += other
+	for _, k := range keys[:n] {
+		entry.addAhead(k)
 	}
 }
 
-// holderLabel names an exclusive requester from its commitgate label: a task
-// slice's *GateHolder (its sliceHold's key, never written after the acquire),
-// or none for the store's own (a checkpoint snapshot).
-func holderLabel(label any) string {
-	switch l := label.(type) {
-	case *GateHolder:
-		return l.label()
-	case nil:
-		return "(store snapshot)"
-	default:
-		return fmt.Sprint(l)
+// holdEntryLocked returns key's entry in *m, or overflow's once
+// maxGateHolders holders are counted there; holder names a new entry. The
+// caller holds gateHoldStats.mu.
+func holdEntryLocked[K comparable](m *map[K]*GateHold, key, overflow K, holder func(K) GateHolder) *GateHold {
+	entry := (*m)[key]
+	if entry != nil {
+		return entry
 	}
+	if len(*m) >= maxGateHolders {
+		key = overflow
+		if entry = (*m)[key]; entry != nil {
+			return entry
+		}
+	}
+	entry = &GateHold{GateHolder: holder(key)}
+	if *m == nil {
+		*m = make(map[K]*GateHold)
+	}
+	(*m)[key] = entry
+	return entry
 }
 
-func (g *GateHold) addAhead(label string) {
-	for i := range g.Ahead {
-		if g.Ahead[i].Label == label {
-			g.Ahead[i].N++
+func (g *GateHold) count(held time.Duration) {
+	g.Count++
+	g.Total += held
+	g.Max = max(g.Max, held)
+}
+
+func (g *GateHold) addAhead(key gateAheadKey) {
+	for i := range g.ahead {
+		if g.ahead[i].key == key {
+			g.ahead[i].n++
 			return
 		}
 	}
-	if len(g.Ahead) >= maxGateAhead {
+	if len(g.ahead) >= maxGateAhead {
 		g.OtherAhead++
 		return
 	}
-	g.Ahead = append(g.Ahead, GateAheadCount{Label: label, N: 1})
+	g.ahead = append(g.ahead, gateAheadCount{key: key, n: 1})
 }
 
 // ResetGateHolds forgets the holds recorded so far, starting a new window.
 func (s *Runtime) ResetGateHolds() {
 	s.gateHolds.mu.Lock()
-	s.gateHolds.holds = nil
+	s.gateHolds.holds, s.gateHolds.tracked = nil, nil
 	s.gateHolds.mu.Unlock()
 }
 
 // GateHolds returns the cumulative exclusive commit gate holds taken by task
-// slices, one entry per task verb, largest total first.
+// slices, one entry per task verb and cause (and builtin, for tracked holds),
+// largest total first.
 func (s *Runtime) GateHolds() []GateHold {
 	s.gateHolds.mu.Lock()
-	out := make([]GateHold, 0, len(s.gateHolds.holds))
+	out := make([]GateHold, 0, len(s.gateHolds.holds)+len(s.gateHolds.tracked))
 	for _, entry := range s.gateHolds.holds {
+		out = append(out, *entry)
+	}
+	for _, entry := range s.gateHolds.tracked {
 		copied := *entry
-		copied.Ahead = slices.Clone(entry.Ahead)
-		slices.SortFunc(copied.Ahead, func(a, b GateAheadCount) int {
-			return cmp.Or(cmp.Compare(b.N, a.N), cmp.Compare(a.Label, b.Label))
-		})
+		copied.ahead = slices.Clone(entry.ahead)
 		out = append(out, copied)
 	}
 	s.gateHolds.mu.Unlock()
+	for i := range out {
+		h := &out[i]
+		h.Ahead = nil
+		for _, a := range h.ahead {
+			h.Ahead = append(h.Ahead, GateAheadCount{Label: a.key.label(), N: a.n})
+		}
+		h.ahead = nil
+		slices.SortFunc(h.Ahead, func(a, b GateAheadCount) int {
+			return cmp.Or(cmp.Compare(b.N, a.N), cmp.Compare(a.Label, b.Label))
+		})
+	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Total != out[j].Total {
 			return out[i].Total > out[j].Total
@@ -1230,41 +1325,54 @@ const (
 	gateTicksAtLaunch = -2
 )
 
-// attach records the VM an attempt runs on, after its ticks are set for the
-// attempt, so a hold can count the ticks run under it.
+// attach records, while tracked, the VM an attempt runs on, after its ticks
+// are set for the attempt, so a hold can count the ticks run under it.
 func (g *sliceGate) attach(machine *vm.VM) {
+	if !g.tracked {
+		return
+	}
 	g.machine = machine
-	if g.held() && g.hold.ticksAtAcquire == gateTicksAtLaunch {
-		g.hold.ticksAtAcquire = machine.Ticks
+	if g.detail != nil && g.detail.ticksAtAcquire == gateTicksAtLaunch {
+		g.detail.ticksAtAcquire = machine.Ticks
 	}
 }
 
 // acquire takes the gate and reports how long that took, whether or not it
-// succeeded. The hold is recorded under cause and builtin (the irreversible
-// builtin that made the slice take it, or empty); its ticks are counted from
-// the slice VM's ticks now (gateTicksFromVM) or at the attempt's launch
-// (gateTicksAtLaunch).
+// succeeded. The hold is recorded under cause and, while tracked, builtin (the
+// irreversible builtin that made the slice take it, or empty), with its ticks
+// counted from the slice VM's ticks now (gateTicksFromVM) or at the attempt's
+// launch (gateTicksAtLaunch).
 func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause, builtin string, baseTicks int64) (time.Duration, error) {
-	// The record is the commitgate label too: requests queued behind this one
-	// see the hold as it was taken, rendered only if reported (holderLabel).
-	hold := &sliceHold{key: g.holder(cause, builtin), ticksAtAcquire: baseTicks}
+	var detail *holdDetail
+	var grant *commitgate.Grant
+	var err error
 	waitStart := time.Now()
-	grant, err := store.AcquireExclusiveLabeled(ctx, &hold.key)
+	if g.tracked {
+		// The record is the commitgate label too: requests queued behind this
+		// one see the hold as it was taken, rendered only if reported.
+		detail = &holdDetail{key: GateHolder{This: g.key.This, Verb: g.key.Verb, Cause: cause, Builtin: builtin}, ticksAtAcquire: baseTicks}
+		grant, err = store.AcquireExclusiveTracked(ctx, &detail.key)
+	} else {
+		grant, err = store.AcquireExclusive(ctx)
+	}
 	wait := time.Since(waitStart)
 	if err != nil {
 		return wait, err
 	}
+	g.key.Cause = cause
 	g.grant = grant
 	g.everHeld = true
-	hold.heldSince = time.Now()
-	hold.wait, hold.ahead = wait, grant.Ahead()
-	if baseTicks == gateTicksFromVM {
-		hold.ticksAtAcquire = 0
-		if g.machine != nil {
-			hold.ticksAtAcquire = g.machine.Ticks
+	g.heldSince = time.Now()
+	if detail != nil {
+		g.detail = detail
+		detail.wait, detail.ahead = wait, grant.Ahead()
+		if baseTicks == gateTicksFromVM {
+			detail.ticksAtAcquire = 0
+			if g.machine != nil {
+				detail.ticksAtAcquire = g.machine.Ticks
+			}
 		}
 	}
-	g.hold = hold
 	return wait, nil
 }
 
@@ -1291,15 +1399,23 @@ func (g *sliceGate) drop() {
 	}
 	g.grant.Release()
 	g.grant = nil
-	hold := g.hold
-	g.hold = nil
-	if g.holds != nil {
-		var ticks int64
-		if g.machine != nil && hold.ticksAtAcquire >= 0 {
-			ticks = g.machine.Ticks - hold.ticksAtAcquire
+	d := g.detail
+	if d == nil {
+		// Untracked: detail was never set, so nothing to clear.
+		if g.holds != nil {
+			g.holds.observe(g.key, time.Since(g.heldSince))
 		}
-		g.holds.observe(hold.key, time.Since(hold.heldSince), ticks, hold.wait, hold.ahead)
+		return
 	}
+	g.detail = nil
+	if g.holds == nil {
+		return
+	}
+	var ticks int64
+	if g.machine != nil && d.ticksAtAcquire >= 0 {
+		ticks = g.machine.Ticks - d.ticksAtAcquire
+	}
+	g.holds.observeTracked(time.Since(g.heldSince), d, ticks)
 }
 
 type taskRetryState struct {

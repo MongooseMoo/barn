@@ -233,19 +233,25 @@ func (tx *StoreTxn) renewAtStaleHotRead() *StoreTxn {
 	}
 	if !tx.onlyPropertyValuesStaged() {
 		s.hotProps.declines.Add(1)
-		s.noteHotReadOutcome(staleKey, hotReadDeclined)
+		if tx.diag != nil {
+			s.noteHotReadOutcome(staleKey, hotReadDeclined)
+		}
 		debugHotRead("declined", staleKey)
 		return nil
 	}
 	next := tx.renewAtCurrentClock(tx.newReads)
 	if next == nil {
 		s.hotProps.refusals.Add(1)
-		s.noteHotReadOutcome(staleKey, hotReadRefused)
+		if tx.diag != nil {
+			s.noteHotReadOutcome(staleKey, hotReadRefused)
+		}
 		debugHotRead("refused", staleKey)
 		return nil
 	}
 	s.hotProps.renewals.Add(1)
-	s.noteHotReadOutcome(staleKey, hotReadRenewed)
+	if tx.diag != nil {
+		s.noteHotReadOutcome(staleKey, hotReadRenewed)
+	}
 	if next.diag != nil {
 		for _, key := range tx.newReads {
 			if _, isHot := hot[key]; isHot {

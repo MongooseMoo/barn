@@ -21,61 +21,79 @@ type Gate struct {
 	readers  int
 	writer   bool
 	sequence uint64
-	// writerLabel is the exclusive owner's label, for Ahead.
-	writerLabel any
+	// labelOwner is the latest tracked exclusive request granted the gate. Its
+	// label names the owner to later tracked requests while it is still the
+	// active owner; an untracked owner leaves it stale, and stale means
+	// unlabeled.
+	labelOwner *Grant
 }
 
-// Ahead is what stood in front of an exclusive request when it was queued:
-// the exclusive owner's label (Holder, with HolderExclusive set) or the number
-// of shared owners, and the requests queued before it, exclusive ones by label
-// and shared ones counted. Depth is the number of queued requests ahead.
-// Labels are whatever the requesters passed to AcquireLabeled (nil when they
-// passed none); the gate only stores them, so naming them costs nothing until
-// the owner renders them.
+// Ahead is what stood in front of a tracked request when it was queued (see
+// AcquireTracked): the exclusive owner's label (Holder, with HolderExclusive
+// set) or the number of shared owners, and the requests queued before it.
+// Depth is the number of queued requests ahead. Of the first maxAheadScan of
+// them, the exclusive ones are named by label (the first MaxAheadLabels in
+// Exclusive, the rest counted in ExclusiveMore) and the shared ones counted in
+// Shared; Unscanned counts those past maxAheadScan. Labels are whatever the
+// requesters passed to AcquireTracked (nil for an untracked one); the gate
+// only stores them, so naming them costs nothing until the owner renders them.
 type Ahead struct {
 	HolderExclusive bool
 	Holder          any
 	SharedOwners    int
 	Depth           int
 	Exclusive       []any
+	ExclusiveMore   int
 	Shared          int
+	Unscanned       int
 }
+
+// maxAheadScan bounds the queued requests an Ahead looks at under the gate's
+// mutex, and MaxAheadLabels the exclusive labels it keeps.
+const (
+	maxAheadScan   = 64
+	MaxAheadLabels = 8
+)
 
 // Grant is an opaque, single-release capability. Cancellation can withdraw a
 // queued request, but cannot revoke a capability already returned to its owner.
 //
-// Fields are ordered so the small ones share a word: every commit allocates a
-// Grant.
+// Fields are ordered so mode and active share a word: every commit allocates a
+// Grant, and this keeps it the size it was before tracked.
 type Grant struct {
 	gate   *Gate
 	ticket uint64
 	ready  chan struct{}
 	wait   time.Duration
-	// excl is an exclusive request's label and what was in front of it; nil
-	// for a shared request.
-	excl   *exclusiveRequest
-	mode   Mode
-	active bool
-	// blocked: the request was not granted when it was queued. A shared
-	// request is only held back by an exclusive owner or an exclusive request
-	// queued ahead of it, so for Shared this means it waited behind Exclusive.
-	blocked bool
+	// tracked is a tracked request's record; nil for Acquire.
+	tracked *trackedRequest
+	mode    Mode
+	active  bool
 }
 
-// exclusiveRequest is AcquireLabeled's record of an exclusive request.
-type exclusiveRequest struct {
-	label any
-	ahead Ahead
+// trackedRequest is AcquireTracked's record of a request: its label, whether
+// it had to queue, and for an exclusive request what was in front of it.
+type trackedRequest struct {
+	label   any
+	blocked bool
+	ahead   Ahead
+	labels  [MaxAheadLabels]any
 }
 
 func (g *Gate) Acquire(ctx context.Context, mode Mode) (*Grant, error) {
-	return g.AcquireLabeled(ctx, mode, nil)
+	return g.acquire(ctx, mode, nil)
 }
 
-// AcquireLabeled is Acquire for a request named label. An exclusive request
-// also records what was in front of it (Grant.Ahead), and while it owns the
-// gate its label is what later exclusive requests see as the holder.
-func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label any) (*Grant, error) {
+// AcquireTracked is Acquire for a request named label that also records
+// whether it had to queue (Grant.Blocked) and, when exclusive, what was in
+// front of it (Grant.Ahead); while it owns the gate exclusively its label is
+// what later tracked requests see as the holder. It costs one allocation and a
+// bounded look at the queue that Acquire does not.
+func (g *Gate) AcquireTracked(ctx context.Context, mode Mode, label any) (*Grant, error) {
+	return g.acquire(ctx, mode, &trackedRequest{label: label})
+}
+
+func (g *Gate) acquire(ctx context.Context, mode Mode, tr *trackedRequest) (*Grant, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -83,12 +101,11 @@ func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label any) (*Grant
 	g.mu.Lock()
 	g.sequence++
 	r := &Grant{gate: g, mode: mode, ticket: g.sequence, ready: make(chan struct{})}
-	if mode == Exclusive {
-		r.excl = &exclusiveRequest{label: label, ahead: g.aheadLocked()}
+	if tr != nil {
+		g.trackLocked(r, tr)
 	}
 	g.queue = append(g.queue, r)
 	g.dispatchLocked()
-	r.blocked = !r.active
 	g.mu.Unlock()
 	select {
 	case <-r.ready:
@@ -115,6 +132,45 @@ func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label any) (*Grant
 		return nil, ctx.Err()
 	}
 }
+
+// trackLocked fills tr for r as the gate stands before r is queued. A shared
+// request is held back only by an exclusive owner or by a queue, whose head is
+// then exclusive; an exclusive one also by shared owners.
+func (g *Gate) trackLocked(r *Grant, tr *trackedRequest) {
+	r.tracked = tr
+	tr.blocked = g.writer || len(g.queue) > 0 || (r.mode == Exclusive && g.readers > 0)
+	if r.mode != Exclusive {
+		return
+	}
+	a := &tr.ahead
+	a.HolderExclusive, a.SharedOwners, a.Depth = g.writer, g.readers, len(g.queue)
+	if o := g.labelOwner; g.writer && o != nil && o.active && o.mode == Exclusive {
+		a.Holder = o.tracked.label
+	}
+	scan := g.queue
+	if len(scan) > maxAheadScan {
+		a.Unscanned = len(scan) - maxAheadScan
+		scan = scan[:maxAheadScan]
+	}
+	n := 0
+	for _, q := range scan {
+		switch {
+		case q.mode != Exclusive:
+			a.Shared++
+		case n == MaxAheadLabels:
+			a.ExclusiveMore++
+		default:
+			var label any
+			if q.tracked != nil {
+				label = q.tracked.label
+			}
+			tr.labels[n] = label
+			n++
+		}
+	}
+	a.Exclusive = tr.labels[:n:n]
+}
+
 func (g *Gate) dispatchLocked() {
 	if g.writer {
 		return
@@ -129,7 +185,9 @@ func (g *Gate) dispatchLocked() {
 		r.active = true
 		if r.mode == Exclusive {
 			g.writer = true
-			g.writerLabel = r.excl.label
+			if r.tracked != nil {
+				g.labelOwner = r
+			}
 		} else {
 			g.readers++
 		}
@@ -146,7 +204,6 @@ func (g *Gate) releaseLocked(r *Grant) bool {
 	r.active = false
 	if r.mode == Exclusive {
 		g.writer = false
-		g.writerLabel = nil
 	} else {
 		g.readers--
 	}
@@ -160,33 +217,17 @@ func (r *Grant) Release() bool {
 }
 func (r *Grant) Wait() time.Duration { return r.wait }
 
-// Blocked reports whether the request had to queue: it was not granted at
-// once when it arrived.
-func (r *Grant) Blocked() bool { return r.blocked }
+// Blocked reports whether a tracked request had to queue: it was not granted
+// at once when it arrived. It is false for an untracked one.
+func (r *Grant) Blocked() bool { return r.tracked != nil && r.tracked.blocked }
 
-// Ahead reports what was in front of an exclusive request when it was queued;
-// it is empty for a shared one.
+// Ahead reports what was in front of a tracked exclusive request when it was
+// queued; it is empty for any other.
 func (r *Grant) Ahead() Ahead {
-	if r.excl == nil {
+	if r.tracked == nil {
 		return Ahead{}
 	}
-	return r.excl.ahead
-}
-
-// aheadLocked describes the owners and the queue as a new request finds them.
-func (g *Gate) aheadLocked() Ahead {
-	a := Ahead{HolderExclusive: g.writer, SharedOwners: g.readers, Depth: len(g.queue)}
-	if g.writer {
-		a.Holder = g.writerLabel
-	}
-	for _, q := range g.queue {
-		if q.mode == Exclusive {
-			a.Exclusive = append(a.Exclusive, q.excl.label)
-		} else {
-			a.Shared++
-		}
-	}
-	return a
+	return r.tracked.ahead
 }
 func (r *Grant) Ticket() uint64 { return r.ticket }
 func (r *Grant) Owns(g *Gate, mode Mode) bool {

@@ -572,11 +572,11 @@ func (tx *StoreTxn) addDiagLocked(census *conflictCensus, count *ConflictCount, 
 		} else {
 			d.UnknownReadSites++
 		}
+		if _, ok := tx.diag.renewed[key]; ok {
+			d.RenewedThenLost++
+		}
 	}
 	key := propertyReadKey{objID: c.ObjID, name: c.Name}
-	if _, ok := tx.diag.renewed[key]; ok {
-		d.RenewedThenLost++
-	}
 	tx.addPathLocked(census, c, key, lossTicks, writer, writerFound, read, readFound)
 }
 

@@ -17,8 +17,9 @@ import (
 //	curl localhost:PORT/debug/commit-gate      exclusive gate holds, shared gate waits
 //	curl localhost:PORT/debug/task-timelines   slice timelines of running and slow tasks
 //
-// Gate holds and shared waits are always counted. Timelines, like the census's
-// loss paths and verb goodput, need CONFLICT_CENSUS = 1.
+// Gate holds and shared waits are always counted. Their detail (ticks, waits,
+// queue ahead, shared commits behind an exclusive) and timelines, like the
+// census's loss paths and verb goodput, need CONFLICT_CENSUS = 1.
 
 // registerRuntimeDiagnostics adds the runtime routes to mux. rt returns nil
 // until the runtime exists, and the routes answer 503 then.

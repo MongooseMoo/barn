@@ -71,6 +71,27 @@ reads per entry) and #686 (exec crosses the boundary itself, after its checks):
   spread between runs of one binary is larger than any difference. Go
   benchmarks: per command no new allocation, -30 B; per commit unchanged;
   +2 allocations per exclusive gate acquire.
+- Review fixes (scratchpad plan/review-diagnostics.md, all eight items):
+  `Server.Runtime()` is an atomic like `Store()`; per-slot hot-read outcomes
+  are a separate bounded `HotReads` table counted only with tracking (no key
+  rows, no census.mu on the untracked renewal path; master's
+  `TestCensusCountsRefusedRenewals` restored); `RenewedThenLost` and path
+  degrade counts only for property and map-key kinds; the commit gate's
+  untracked path is master's (tracked requests use
+  `commitgate.Gate.AcquireTracked`, which looks at 64 queued requests and
+  names 8); untracked gate holds keep master's {verb, cause} key and record
+  only count/total/max, tracked ones are separate rows split by builtin with
+  ahead labels stored unrendered (formatted in `GateHolds`); timelines are a
+  ring of the latest 16 slices, released by `Runtime.SetDiagnosticsTracking
+  (false)`; the slow-task log record is `FormatTaskTimelineSummary` (totals,
+  first and last 3 attempts).
+- Tracking-off benchmarks against origin/master (`BenchmarkDiagOverhead*`,
+  `BenchmarkExclusive*`, -cpu 1, interleaved): identical B/op and allocs/op
+  for an ordinary commit (5864 B, 32), a hot-read renewal (9752 B, 48), an
+  exclusive acquire on an idle gate and behind 32 waiters (168 B, 3; 184 B,
+  3) and a slice's exclusive hold (168 B, 3). Times within noise except the
+  slice hold: median +6 ns (356.8 vs 362.8 ns, 40 rounds), min lower; the
+  profile shows no added operation.
 
 ## Run evidence
 
@@ -84,9 +105,14 @@ ahead of the say holders in most acquires.
 ## Decisions and why
 
 - One switch: everything per-transaction rides the existing census tracking
-  (`CONFLICT_CENSUS = 1`, harness `BARN_MONGOOSE_STALE_READS`). Gate holds,
-  shared-behind-exclusive counts and per-key hot-read outcomes are rare events
-  and stay always on.
+  (`CONFLICT_CENSUS = 1`, harness `BARN_MONGOOSE_STALE_READS`).
+- The gate report was always on in the first cut; it is now opt-in beyond
+  what master recorded (per holder count/total/max, shared commits and wait).
+  The requirement is that tracking off adds nothing to master's hot paths:
+  the ahead snapshot walked the queue under the gate mutex, the hold record
+  formatted labels under its mutex, the hot-read counts took census.mu on
+  every renewal, and even a fourth map-key field (builtin) cost 13 ns per
+  release. None of that can be always on and free.
 - Paths key the loser by the verb's defining object (`t.VerbLoc`), so every
   player's `say` is one row; the existing per-key `Labels` keep `this`.
 - The builtin name is passed explicitly through `beginIrreversible(ctx, name)`
@@ -106,9 +132,17 @@ ahead of the say holders in most acquires.
 - The first cut cost one allocation and ~210 B per command and 96 B per commit
   with tracking off; fixed before measuring (see State/Decisions).
 - `TestCensusCountsRefusedRenewals` was red on the branch before the merge
-  (only focused tests had been run): the always-on per-key `HotRefused` gives
-  the refused hot slot its own row, so the census has two keys. The test now
-  expects that row.
+  (only focused tests had been run): the always-on per-key `HotRefused` gave
+  the refused hot slot its own row. Loosening the test hid a real change to
+  `keys=` and the 4096-key budget; the review fix restored the test and moved
+  the counts to `HotReads`.
+- After the obvious fixes the untracked slice hold was still ~16 ns slower
+  than master. Causes found by profile and a scratch microbenchmark: the
+  4-field map key (31.8 vs 44.8 ns per lookup) and two pointer stores that
+  pay the GC write barrier. A 56-byte by-value key argument cost a few more.
+- `TestGitImplementationRefSharesDeadline` and
+  `TestGitImplementationRefBoundsInheritedPipe` (internal/app) fail on this
+  Windows workstation on origin/master too (process-timing bounds).
 - The merge's only textual conflict was `degradeMapKeys`; the exec call site
   merged cleanly but did not compile (`beginIrreversible` takes the builtin
   name on this branch), and master's exec tests used the old

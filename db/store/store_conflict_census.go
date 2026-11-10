@@ -36,7 +36,21 @@ const (
 	maxConflictKeys = 4096
 	// maxConflictLabels bounds the labels counted separately per key.
 	maxConflictLabels = 8
+	// maxHotReadKeys bounds the hot property slots whose renewals are counted
+	// separately.
+	maxHotReadKeys = 1024
 )
+
+// HotReadCount is, for one hot property slot, the renewals at a stale read of
+// it that were made, refused and declined: the store-wide HotReadStats split
+// per slot, counted while tracking is on.
+type HotReadCount struct {
+	ObjID    types.ObjID
+	Name     string
+	Renewed  uint64
+	Refused  uint64
+	Declined uint64
+}
 
 // ConflictKind says which kind of read a transaction lost validation on.
 type ConflictKind uint8
@@ -136,10 +150,6 @@ type ConflictLabelCount struct {
 // which the read was already stale when it was made; it stays 0 unless tracking
 // is on. Labels holds the first maxConflictLabels labels that lost on the key,
 // most losses first, and OtherLabels the losses under every other label.
-// HotRenewed, HotRefused and HotDeclined count, for a property row, the
-// hot-read renewals at a stale read of the slot that were made, refused and
-// declined (the store-wide HotReadStats split per slot); they are counted with
-// tracking off too, and a row can have them without any loss.
 type ConflictCount struct {
 	Kind        ConflictKind
 	ObjID       types.ObjID
@@ -147,9 +157,6 @@ type ConflictCount struct {
 	Lost        uint64
 	Sole        uint64
 	Refused     uint64
-	HotRenewed  uint64
-	HotRefused  uint64
-	HotDeclined uint64
 	StaleAtRead uint64
 	Labels      []ConflictLabelCount
 	OtherLabels uint64
@@ -172,8 +179,11 @@ type ConflictCount struct {
 // wasted ticks first, and VerbOverflow the verbs met after maxGoodputVerbs
 // (store_conflict_diag.go). BuiltinCalls counts the calls of boundary-checking
 // builtins by calling site, most first, and BuiltinCallOverflow the calls from
-// sites met after maxBuiltinCallSites (store_conflict_paths.go). All of these
-// stay empty unless tracking is on.
+// sites met after maxBuiltinCallSites (store_conflict_paths.go). HotReads is
+// the hot-read renewal outcomes per slot, most renewals first, and
+// HotReadOverflow those of slots met after maxHotReadKeys; it is separate from
+// Keys, so a renewed slot that never lost has no key row. All of these stay
+// empty unless tracking is on.
 type ConflictCensus struct {
 	LostTxns            uint64
 	RefusedRenewals     uint64
@@ -189,6 +199,8 @@ type ConflictCensus struct {
 	VerbOverflow        VerbGoodput
 	BuiltinCalls        []BuiltinCallCount
 	BuiltinCallOverflow uint64
+	HotReads            []HotReadCount
+	HotReadOverflow     HotReadCount
 }
 
 type conflictKey struct {
@@ -225,6 +237,10 @@ type conflictCensus struct {
 	// BuiltinCallOverflow (store_conflict_paths.go).
 	builtinCalls        map[builtinCallKey]uint64
 	builtinCallOverflow uint64
+	// hotReads and hotReadOverflow are ConflictCensus.HotReads and
+	// HotReadOverflow.
+	hotReads        map[propertyReadKey]*HotReadCount
+	hotReadOverflow HotReadCount
 }
 
 // countLocked returns the row c counts into: its own, or the overflow row once
@@ -303,20 +319,28 @@ const (
 	hotReadDeclined
 )
 
-// noteHotReadOutcome counts, on the stale hot slot key's row, what renewing a
-// transaction at a read of it did (store_hot_read.go).
+// noteHotReadOutcome counts, on the stale hot slot's HotReads row, what
+// renewing a tracking transaction at a read of it did (store_hot_read.go).
 func (s *Store) noteHotReadOutcome(key propertyReadKey, outcome hotReadOutcome) {
 	census := &s.conflicts
 	census.mu.Lock()
 	defer census.mu.Unlock()
-	count := census.countLocked(&ReadConflict{Kind: ConflictProperty, ObjID: key.objID, Name: key.name})
+	count := census.hotReads[key]
+	if count == nil {
+		if len(census.hotReads) >= maxHotReadKeys {
+			count = &census.hotReadOverflow
+		} else {
+			count = &HotReadCount{ObjID: key.objID, Name: key.name}
+			lazySet(&census.hotReads, key, count)
+		}
+	}
 	switch outcome {
 	case hotReadRenewed:
-		count.HotRenewed++
+		count.Renewed++
 	case hotReadRefused:
-		count.HotRefused++
+		count.Refused++
 	default:
-		count.HotDeclined++
+		count.Declined++
 	}
 }
 
@@ -349,6 +373,13 @@ func (s *Store) ConflictCensus() ConflictCensus {
 		VerbOverflow:        census.verbOverflow.snapshot(),
 		BuiltinCalls:        census.builtinCallsLocked(),
 		BuiltinCallOverflow: census.builtinCallOverflow,
+		HotReadOverflow:     census.hotReadOverflow,
+	}
+	if len(census.hotReads) > 0 {
+		out.HotReads = make([]HotReadCount, 0, len(census.hotReads))
+		for _, h := range census.hotReads {
+			out.HotReads = append(out.HotReads, *h)
+		}
 	}
 	for _, count := range census.keys {
 		out.Keys = append(out.Keys, count.snapshot())
@@ -366,6 +397,13 @@ func (s *Store) ConflictCensus() ConflictCensus {
 		}
 	}
 	census.mu.Unlock()
+	slices.SortFunc(out.HotReads, func(a, b HotReadCount) int {
+		return cmp.Or(
+			cmp.Compare(b.Renewed, a.Renewed),
+			cmp.Compare(a.ObjID, b.ObjID),
+			cmp.Compare(a.Name, b.Name),
+		)
+	})
 	slices.SortFunc(out.Paths, func(a, b ConflictPath) int {
 		return cmp.Or(
 			cmp.Compare(b.Lost, a.Lost),
@@ -427,6 +465,7 @@ func (s *Store) ResetConflictCensus() {
 	census.paths, census.pathOverflow = nil, ConflictPath{}
 	census.verbs, census.verbOverflow = nil, VerbGoodput{}
 	census.builtinCalls, census.builtinCallOverflow = nil, 0
+	census.hotReads, census.hotReadOverflow = nil, HotReadCount{}
 }
 
 // SetConflictCensusTracking switches the sampling of the clock at each first

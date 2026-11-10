@@ -18,18 +18,21 @@ import (
 // store's conflict census tracking: CONFLICT_CENSUS = 1, or the harness's
 // BARN_MONGOOSE_STALE_READS), so with tracking off the cost is one atomic load
 // per slice. With it on, each task that runs a slice holds one bounded record:
-// at most maxTimelineSlices slices (the first timelineKeepFirst and the latest
-// ones; the rest are counted in DroppedSlices) of at most maxTimelineAttempts
-// attempts each. A finished task whose timeline spans at least
-// slowTimelineThreshold is kept in a ring of the latest maxSlowTimelines for
-// /debug/task-timelines, and logged once ("slow task timeline", INFO) when it
-// is a player's command (a background loop that suspends between slices
-// outlives the threshold by design).
+// a ring of its latest maxTimelineSlices slices (older ones are counted in
+// DroppedSlices) of at most maxTimelineAttempts attempts each. Switching
+// tracking off through Runtime.SetDiagnosticsTracking releases every task's
+// record. A finished task whose timeline spans at least slowTimelineThreshold
+// is kept in a ring of the latest maxSlowTimelines for /debug/task-timelines,
+// and logged once ("slow task timeline", INFO) when it is a player's command
+// (a background loop that suspends between slices outlives the threshold by
+// design). The log record is bounded: the totals and the first and last
+// timelineLogAttempts attempts (FormatTaskTimelineSummary); the endpoint has
+// the whole record.
 
 const (
-	maxTimelineSlices     = 64
-	timelineKeepFirst     = 4
+	maxTimelineSlices     = 16
 	maxTimelineAttempts   = 8
+	timelineLogAttempts   = 3
 	maxSlowTimelines      = 32
 	maxLiveTimelines      = 64
 	slowTimelineThreshold = time.Second
@@ -95,7 +98,12 @@ type TimelineAttempt struct {
 // writes it and /debug/task-timelines and the harness copy it.
 type taskTimeline struct {
 	mu sync.Mutex
-	tl TaskTimeline
+	// tl is the timeline except its Slices, which are in slices: a ring of
+	// at most maxTimelineSlices, the current one at cur and, once full, the
+	// oldest at cur+1.
+	tl     TaskTimeline
+	slices []TimelineSlice
+	cur    int
 	// sliceStart is the current slice's start, for its WallNS.
 	sliceStart time.Time
 	// pendingAdmission is the background admission wait before the slice
@@ -130,6 +138,22 @@ func (s *Runtime) DiagnosticsTracking() bool {
 	return s.store != nil && s.store.ConflictCensusTracking()
 }
 
+// SetDiagnosticsTracking switches the store's conflict census tracking, and
+// with it timelines and the commit gate detail. Switching it off releases
+// every task's timeline; a slice already running keeps writing to its own
+// copy, which is dropped with it.
+func (s *Runtime) SetDiagnosticsTracking(on bool) {
+	s.store.SetConflictCensusTracking(on)
+	if on {
+		return
+	}
+	for _, t := range s.taskManager.Snapshot() {
+		if t != nil {
+			t.timeline.Store(nil)
+		}
+	}
+}
+
 // timelineFor returns t's timeline, creating it, while tracking is on, or nil.
 func (s *Runtime) timelineFor(t *Task) *taskTimeline {
 	if s.store == nil || !s.store.ConflictCensusTracking() {
@@ -159,15 +183,22 @@ func (tl *taskTimeline) beginSlice(started time.Time, queue time.Duration) {
 		tl.tl.Start = started
 	}
 	tl.sliceStart = started
-	if len(tl.tl.Slices) >= maxTimelineSlices {
-		tl.tl.Slices = append(tl.tl.Slices[:timelineKeepFirst], tl.tl.Slices[timelineKeepFirst+1:]...)
-		tl.tl.DroppedSlices++
-	}
-	tl.tl.Slices = append(tl.tl.Slices, TimelineSlice{
+	sl := TimelineSlice{
 		AtNS:            int64(started.Sub(tl.tl.Start)),
 		AdmissionWaitNS: int64(admissionWait),
 		QueueNS:         int64(queue),
-	})
+	}
+	if len(tl.slices) < maxTimelineSlices {
+		tl.slices = append(tl.slices, sl)
+		tl.cur = len(tl.slices) - 1
+		return
+	}
+	// Overwrite the oldest, reusing its attempts' storage: copies never
+	// share it (snapshot).
+	tl.cur = (tl.cur + 1) % maxTimelineSlices
+	sl.Attempts = tl.slices[tl.cur].Attempts[:0]
+	tl.slices[tl.cur] = sl
+	tl.tl.DroppedSlices++
 }
 
 // beginAttempt opens an attempt of the current slice at now.
@@ -189,21 +220,23 @@ func (tl *taskTimeline) beginAttempt(now time.Time) {
 }
 
 func (tl *taskTimeline) currentLocked() *TimelineSlice {
-	if len(tl.tl.Slices) == 0 {
+	if len(tl.slices) == 0 {
 		return nil
 	}
-	return &tl.tl.Slices[len(tl.tl.Slices)-1]
+	return &tl.slices[tl.cur]
 }
 
-// noteGate records the exclusive gate hold the current attempt took.
-func (tl *taskTimeline) noteGate(holder GateHolder, wait time.Duration) {
-	if tl == nil {
+// noteGate records the exclusive gate hold the current attempt took (a
+// tracked slice's hold detail).
+func (tl *taskTimeline) noteGate(hold *holdDetail, wait time.Duration) {
+	if tl == nil || hold == nil {
 		return
 	}
+	label := hold.key.label()
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 	if a := tl.attemptLocked(); a != nil {
-		a.Gate = holder.label()
+		a.Gate = label
 		a.ExclusiveWaitNS += int64(wait)
 	}
 }
@@ -275,13 +308,19 @@ func (tl *taskTimeline) snapshot(state string, finished bool) TaskTimeline {
 	defer tl.mu.Unlock()
 	out := tl.tl
 	out.State, out.Finished = state, finished || out.Finished
-	if !finished && !tl.tl.Finished && len(out.Slices) > 0 && out.Slices[len(out.Slices)-1].WallNS == 0 {
+	if cur := tl.currentLocked(); !finished && !tl.tl.Finished && cur != nil && cur.WallNS == 0 {
 		out.ElapsedNS = int64(time.Since(out.Start))
 	}
-	out.Slices = make([]TimelineSlice, len(tl.tl.Slices))
-	for i, sl := range tl.tl.Slices {
+	// Oldest first: once the ring is full the oldest follows the current.
+	out.Slices = make([]TimelineSlice, 0, len(tl.slices))
+	start := 0
+	if len(tl.slices) == maxTimelineSlices {
+		start = (tl.cur + 1) % maxTimelineSlices
+	}
+	for i := range tl.slices {
+		sl := tl.slices[(start+i)%len(tl.slices)]
 		sl.Attempts = append([]TimelineAttempt(nil), sl.Attempts...)
-		out.Slices[i] = sl
+		out.Slices = append(out.Slices, sl)
 	}
 	return out
 }
@@ -350,7 +389,7 @@ func (s *Runtime) finishTimeline(t *Task, state string) {
 		slog.String("verb", snap.Verb), slog.String("state", state),
 		slog.Duration("elapsed", time.Duration(snap.ElapsedNS)),
 		slog.Int("slices", len(snap.Slices)+snap.DroppedSlices), slog.Int("retries", snap.Retries),
-		slog.String("timeline", FormatTaskTimeline(snap)))
+		slog.String("timeline", FormatTaskTimelineSummary(snap, timelineLogAttempts)))
 }
 
 // TaskTimelines returns the timelines of up to maxLiveTimelines unfinished
@@ -400,33 +439,99 @@ func conflictKeyName(kind dbstore.ConflictKind, obj types.ObjID, name string) st
 // task log record and the harness.
 func FormatTaskTimeline(tl TaskTimeline) string {
 	var b strings.Builder
-	ms := func(ns int64) string { return time.Duration(ns).Round(10 * time.Microsecond).String() }
-	fmt.Fprintf(&b, "task %d #%d:%s (verb on #%d) state=%s elapsed=%s retries=%d slices=%d",
-		tl.TaskID, tl.This, tl.Verb, tl.VerbLoc, tl.State, ms(tl.ElapsedNS), tl.Retries, len(tl.Slices)+tl.DroppedSlices)
-	for i, sl := range tl.Slices {
-		if tl.DroppedSlices > 0 && i == timelineKeepFirst {
-			fmt.Fprintf(&b, "\n  ... %d slices dropped ...", tl.DroppedSlices)
-		}
-		fmt.Fprintf(&b, "\n  slice at=%s admission_wait=%s queue=%s wall=%s:", ms(sl.AtNS), ms(sl.AdmissionWaitNS), ms(sl.QueueNS), ms(sl.WallNS))
+	writeTimelineHeader(&b, tl)
+	if tl.DroppedSlices > 0 {
+		fmt.Fprintf(&b, "\n  ... %d earlier slices dropped ...", tl.DroppedSlices)
+	}
+	for _, sl := range tl.Slices {
+		writeTimelineSlice(&b, sl)
 		for _, a := range sl.Attempts {
-			fmt.Fprintf(&b, " [%s at=%s vm=%s ticks=%d", a.Outcome, ms(a.AtNS), ms(a.WallNS), a.Ticks)
-			if a.Conflict != "" {
-				fmt.Fprintf(&b, " stale=%s", a.Conflict)
-				if a.Conflicts > 1 {
-					fmt.Fprintf(&b, "+%d", a.Conflicts-1)
-				}
-			}
-			if a.Gate != "" {
-				fmt.Fprintf(&b, " gate=%q excl_wait=%s", a.Gate, ms(a.ExclusiveWaitNS))
-			}
-			if a.SharedWaitNS > 0 {
-				fmt.Fprintf(&b, " shared_wait=%s behind_excl=%s", ms(a.SharedWaitNS), ms(a.SharedBlockedNS))
-			}
-			b.WriteByte(']')
+			writeTimelineAttempt(&b, a)
 		}
 		if sl.DroppedAttempts > 0 {
 			fmt.Fprintf(&b, " +%d attempts", sl.DroppedAttempts)
 		}
 	}
 	return b.String()
+}
+
+// FormatTaskTimelineSummary renders a bounded form of a timeline, for the slow
+// task log record: the header, the attempt outcomes and gate waits summed
+// over the recorded slices, and the first and last keep recorded attempts,
+// each under its slice line.
+func FormatTaskTimelineSummary(tl TaskTimeline, keep int) string {
+	type at struct{ slice, attempt int }
+	var all []at
+	outcomes := map[string]int{}
+	var exclWait, sharedWait, blocked int64
+	dropped := 0
+	for i, sl := range tl.Slices {
+		dropped += sl.DroppedAttempts
+		for j, a := range sl.Attempts {
+			all = append(all, at{i, j})
+			outcomes[a.Outcome]++
+			exclWait += a.ExclusiveWaitNS
+			sharedWait += a.SharedWaitNS
+			blocked += a.SharedBlockedNS
+		}
+	}
+	var b strings.Builder
+	writeTimelineHeader(&b, tl)
+	names := make([]string, 0, len(outcomes))
+	for name := range outcomes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(&b, "\n  recorded: slices=%d (earlier dropped=%d) attempts=%d (dropped=%d)", len(tl.Slices), tl.DroppedSlices, len(all), dropped)
+	for _, name := range names {
+		fmt.Fprintf(&b, " %s=%d", name, outcomes[name])
+	}
+	fmt.Fprintf(&b, " excl_wait=%s shared_wait=%s behind_excl=%s", timelineDur(exclWait), timelineDur(sharedWait), timelineDur(blocked))
+	shown := all
+	omitted := 0
+	if len(all) > 2*keep {
+		omitted = len(all) - 2*keep
+		shown = append(append([]at(nil), all[:keep]...), all[len(all)-keep:]...)
+	}
+	lastSlice := -1
+	for i, p := range shown {
+		if omitted > 0 && i == keep {
+			fmt.Fprintf(&b, "\n  ... %d attempts omitted ...", omitted)
+			lastSlice = -1
+		}
+		if p.slice != lastSlice {
+			writeTimelineSlice(&b, tl.Slices[p.slice])
+			lastSlice = p.slice
+		}
+		writeTimelineAttempt(&b, tl.Slices[p.slice].Attempts[p.attempt])
+	}
+	return b.String()
+}
+
+func timelineDur(ns int64) string { return time.Duration(ns).Round(10 * time.Microsecond).String() }
+
+func writeTimelineHeader(b *strings.Builder, tl TaskTimeline) {
+	fmt.Fprintf(b, "task %d #%d:%s (verb on #%d) state=%s elapsed=%s retries=%d slices=%d",
+		tl.TaskID, tl.This, tl.Verb, tl.VerbLoc, tl.State, timelineDur(tl.ElapsedNS), tl.Retries, len(tl.Slices)+tl.DroppedSlices)
+}
+
+func writeTimelineSlice(b *strings.Builder, sl TimelineSlice) {
+	fmt.Fprintf(b, "\n  slice at=%s admission_wait=%s queue=%s wall=%s:", timelineDur(sl.AtNS), timelineDur(sl.AdmissionWaitNS), timelineDur(sl.QueueNS), timelineDur(sl.WallNS))
+}
+
+func writeTimelineAttempt(b *strings.Builder, a TimelineAttempt) {
+	fmt.Fprintf(b, " [%s at=%s vm=%s ticks=%d", a.Outcome, timelineDur(a.AtNS), timelineDur(a.WallNS), a.Ticks)
+	if a.Conflict != "" {
+		fmt.Fprintf(b, " stale=%s", a.Conflict)
+		if a.Conflicts > 1 {
+			fmt.Fprintf(b, "+%d", a.Conflicts-1)
+		}
+	}
+	if a.Gate != "" {
+		fmt.Fprintf(b, " gate=%q excl_wait=%s", a.Gate, timelineDur(a.ExclusiveWaitNS))
+	}
+	if a.SharedWaitNS > 0 {
+		fmt.Fprintf(b, " shared_wait=%s behind_excl=%s", timelineDur(a.SharedWaitNS), timelineDur(a.SharedBlockedNS))
+	}
+	b.WriteByte(']')
 }

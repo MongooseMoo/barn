@@ -15,8 +15,8 @@ import (
 // harness print the same lines).
 
 // SharedGateStats is the store's shared commit gate accounting: commits that
-// took the gate and their wait, and the subset that queued behind an exclusive
-// holder or request.
+// took the gate and their wait, and the subset of tracked commits (census
+// tracking on) that queued behind an exclusive holder or request.
 type SharedGateStats struct {
 	Commits       uint64
 	WaitNS        int64
@@ -115,11 +115,11 @@ func FormatCommitGate(r CommitGateReport, top int) []string {
 			ahead = append(ahead, fmt.Sprintf("other=%d", h.OtherAhead))
 		}
 		meanDepth := 0.0
-		if h.Count > 0 {
-			meanDepth = float64(h.DepthSum) / float64(h.Count)
+		if h.Tracked > 0 {
+			meanDepth = float64(h.DepthSum) / float64(h.Tracked)
 		}
-		lines = append(lines, fmt.Sprintf("  hold #%d:%s by %s%s n=%d total=%s max=%s ticks=%d wait=%s wait_max=%s wait_p50%s wait_p99%s queue_depth_mean=%.2f max=%d ahead=[%s]",
-			h.This, h.Verb, h.Cause, builtin, h.Count, durStr(int64(h.Total)), durStr(int64(h.Max)), h.Ticks,
+		lines = append(lines, fmt.Sprintf("  hold #%d:%s by %s%s n=%d total=%s max=%s tracked=%d ticks=%d wait=%s wait_max=%s wait_p50%s wait_p99%s queue_depth_mean=%.2f max=%d ahead=[%s]",
+			h.This, h.Verb, h.Cause, builtin, h.Count, durStr(int64(h.Total)), durStr(int64(h.Max)), h.Tracked, h.Ticks,
 			durStr(int64(h.Wait)), durStr(int64(h.WaitMax)), histBound(h.WaitHist.Quantile(0.5)), histBound(h.WaitHist.Quantile(0.99)),
 			meanDepth, h.DepthMax, strings.Join(ahead, " ")))
 	}
@@ -212,9 +212,9 @@ func FormatConflictCensus(c dbstore.ConflictCensus, committed int64, top int, tr
 		if row.OtherLabels > 0 {
 			by = append(by, fmt.Sprintf("other=%d", row.OtherLabels))
 		}
-		lines = append(lines, fmt.Sprintf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d hot_renewed=%d hot_refused=%d hot_declined=%d stale_at_read=%-6s%s by=[%s]",
+		lines = append(lines, fmt.Sprintf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s%s by=[%s]",
 			row.Kind, keyStr(row.Kind, row.ObjID, row.Name), row.Lost, pct(row.Lost, c.LostTxns), row.Sole, row.Refused,
-			row.HotRenewed, row.HotRefused, row.HotDeclined, stale, perCommand, strings.Join(by, " ")))
+			stale, perCommand, strings.Join(by, " ")))
 		if tracked {
 			lines = append(lines, conflictDiagLines(row.Diag)...)
 		}
@@ -242,6 +242,14 @@ func FormatConflictCensus(c dbstore.ConflictCensus, committed int64, top int, tr
 			break
 		}
 		lines = append(lines, fmt.Sprintf("    %s() at=%s calls=%d", b.Builtin, siteStr(b.Site), b.Calls))
+	}
+	o := c.HotReadOverflow
+	lines = append(lines, fmt.Sprintf("  hot-read renewals by slot: %d slots, overflow renewed=%d refused=%d declined=%d", len(c.HotReads), o.Renewed, o.Refused, o.Declined))
+	for i, h := range c.HotReads {
+		if i >= top {
+			break
+		}
+		lines = append(lines, fmt.Sprintf("    #%d.%s renewed=%d refused=%d declined=%d", h.ObjID, h.Name, h.Renewed, h.Refused, h.Declined))
 	}
 	var hist []string
 	var slices, totalAttempts uint64

@@ -12,14 +12,22 @@ import (
 
 // A real suspended-task row commit must account the same shared-gate wait as
 // an object-writing commit. The held exclusive grant makes the wait causal.
+// With census tracking on, the wait also counts as queued behind Exclusive.
 func TestTaskRowSharedGateWaitAccounting(t *testing.T) {
-	for _, objectWrite := range []bool{false, true} {
+	for _, tc := range []struct {
+		objectWrite, tracking bool
+	}{{false, false}, {true, false}, {false, true}, {true, true}} {
+		objectWrite := tc.objectWrite
 		name := "task_rows_only"
 		if objectWrite {
 			name = "task_rows_and_object"
 		}
+		if tc.tracking {
+			name += "/tracking"
+		}
 		t.Run(name, func(t *testing.T) {
 			store := taskRowStore(t)
+			store.SetConflictCensusTracking(tc.tracking)
 			grant, err := store.AcquireExclusive(context.Background())
 			if err != nil {
 				t.Fatal(err)
@@ -78,9 +86,14 @@ func TestTaskRowSharedGateWaitAccounting(t *testing.T) {
 			if wait := <-observed; wait != total {
 				t.Fatalf("observer wait=%s, counter wait=%s", wait, total)
 			}
-			// It queued behind the exclusive grant, so it counts as blocked.
-			if blocked, blockedWait := store.SharedGateBlocked(); blocked != 1 || blockedWait != total || !sawBlocked.Load() {
-				t.Fatalf("blocked accounting: count=%d wait=%s observer=%v; want 1, %s, true", blocked, blockedWait, sawBlocked.Load(), total)
+			// It queued behind the exclusive grant: with tracking it counts as
+			// blocked, without it nothing is recorded.
+			wantBlocked, wantWait := uint64(0), time.Duration(0)
+			if tc.tracking {
+				wantBlocked, wantWait = 1, total
+			}
+			if blocked, blockedWait := store.SharedGateBlocked(); blocked != wantBlocked || blockedWait != wantWait || sawBlocked.Load() != tc.tracking {
+				t.Fatalf("blocked accounting: count=%d wait=%s observer=%v; want %d, %s, %v", blocked, blockedWait, sawBlocked.Load(), wantBlocked, wantWait, tc.tracking)
 			}
 		})
 	}

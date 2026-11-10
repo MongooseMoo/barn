@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -233,8 +234,8 @@ func TestConflictCensusVerbGoodputAndBuiltinCalls(t *testing.T) {
 	}
 }
 
-// A hot-read renewal counts on the slot's row, and a renewed transaction that
-// then loses on that slot counts as renewed then lost.
+// A hot-read renewal counts on the slot's HotReads row, and a renewed
+// transaction that then loses on that slot counts as renewed then lost.
 func TestConflictCensusCountsHotRenewalsPerKey(t *testing.T) {
 	s, counter, _ := hotReadFixture(t)
 	s.SetConflictCensusTracking(true)
@@ -252,10 +253,71 @@ func TestConflictCensusCountsHotRenewalsPerKey(t *testing.T) {
 	if ec := next.Commit(); ec == types.E_NONE {
 		t.Fatalf("renewed transaction committed over a newer write")
 	}
-	row := censusRow(t, s.ConflictCensus(), ConflictProperty, counter, "handle")
-	if row.HotRenewed != 1 || row.HotRefused != 0 || row.HotDeclined != 0 || row.Diag.RenewedThenLost != 1 {
-		t.Errorf("renewed %d refused %d declined %d renewed_then_lost %d, want 1 0 0 1",
-			row.HotRenewed, row.HotRefused, row.HotDeclined, row.Diag.RenewedThenLost)
+	c := s.ConflictCensus()
+	want := []HotReadCount{{ObjID: counter, Name: "handle", Renewed: 1}}
+	if !slices.Equal(c.HotReads, want) {
+		t.Errorf("hot reads %+v, want %+v", c.HotReads, want)
+	}
+	if row := censusRow(t, c, ConflictProperty, counter, "handle"); row.Diag.RenewedThenLost != 1 {
+		t.Errorf("renewed_then_lost %d, want 1", row.Diag.RenewedThenLost)
+	}
+}
+
+// A renewal of property #1.foo does not make a loss on verb #1:foo renewed
+// then lost; only the property's loss is.
+func TestRenewedThenLostCountsOnlyPropertySlots(t *testing.T) {
+	s := NewStore()
+	tx := &StoreTxn{
+		store:         s,
+		conflictLabel: ConflictLabel{Obj: types.ObjNothing},
+		diag:          &txnConflictDiag{definer: types.ObjNothing, renewed: map[propertyReadKey]struct{}{{objID: 1, name: "foo"}: {}}},
+		conflicts: []ReadConflict{
+			{Kind: ConflictVerb, ObjID: 1, Name: "foo"},
+			{Kind: ConflictProperty, ObjID: 1, Name: "foo"},
+		},
+	}
+	tx.lostValidation()
+	c := s.ConflictCensus()
+	if got := censusRow(t, c, ConflictVerb, 1, "foo").Diag.RenewedThenLost; got != 0 {
+		t.Errorf("verb row renewed_then_lost %d, want 0", got)
+	}
+	if got := censusRow(t, c, ConflictProperty, 1, "foo").Diag.RenewedThenLost; got != 1 {
+		t.Errorf("property row renewed_then_lost %d, want 1", got)
+	}
+	if got := pathRow(t, c, ConflictVerb, 1, "foo").RenewedThenLost; got != 0 {
+		t.Errorf("verb path renewed_then_lost %d, want 0", got)
+	}
+	if got := pathRow(t, c, ConflictProperty, 1, "foo").RenewedThenLost; got != 1 {
+		t.Errorf("property path renewed_then_lost %d, want 1", got)
+	}
+}
+
+// Hot-read outcomes never make census key rows, with tracking off or on: a
+// refused renewal leaves one key row, the stale read it was refused for, and
+// with tracking on the hot slot's refusal is in HotReads.
+func TestHotReadOutcomesDoNotMakeKeyRows(t *testing.T) {
+	for _, tracking := range []bool{false, true} {
+		s, counter, other := hotReadFixture(t)
+		s.SetConflictCensusTracking(tracking)
+		tx := s.BeginSnapshot(0)
+		readValue(t, tx, other, "plain")
+		commitValue(t, s, other, "plain", types.NewInt(1))
+		commitValue(t, s, counter, "handle", types.NewInt(7))
+		if _, ec, next := tx.FindPropertyRenewing(counter, "handle"); ec != types.E_NONE || next != tx {
+			t.Fatalf("tracking %v: renewed past a stale earlier read (ec=%v)", tracking, ec)
+		}
+		tx.Release()
+		c := s.ConflictCensus()
+		if len(c.Keys) != 1 || c.Keys[0].ObjID != other {
+			t.Errorf("tracking %v: keys %+v, want only #%d.plain", tracking, c.Keys, other)
+		}
+		var want []HotReadCount
+		if tracking {
+			want = []HotReadCount{{ObjID: counter, Name: "handle", Refused: 1}}
+		}
+		if !slices.Equal(c.HotReads, want) {
+			t.Errorf("tracking %v: hot reads %+v, want %+v", tracking, c.HotReads, want)
+		}
 	}
 }
 

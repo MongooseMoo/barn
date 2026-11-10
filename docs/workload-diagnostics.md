@@ -339,19 +339,30 @@ comparison.
 The running server and the in-process harness report the same contention
 data from one implementation (`engine/diag_report.go`). Two levels:
 
-- Always on: exclusive commit gate holds per holder and shared gate waits.
+- Always on, at the cost the server already paid before these diagnostics:
+  exclusive commit gate holds per holder and shared gate waits.
   `GET /debug/commit-gate` serves them as JSON; each hold row is the task's
   root verb, the cause (the frame that called an irreversible builtin, or an
-  escalation reason), the builtin (`exec`, `sqlite_execute`, ...), count,
-  total/max hold, VM ticks run under the gate, acquire wait (total, max,
-  histogram), the queue depth ahead at each acquire and who was ahead (the
-  exclusive owner and queued exclusive requests by label, `shared` for shared
-  owners or requests). `Shared` counts commits that took the shared gate and
-  the subset that queued behind an exclusive holder or request, with their
-  waits. Hot-read renewals made, refused and declined are counted per
-  property row of the conflict census.
-- With `CONFLICT_CENSUS = 1` (harness: `BARN_MONGOOSE_STALE_READS=1`), the
-  conflict census adds three tables and each task keeps a timeline:
+  escalation reason), count and total/max hold. `Shared` counts commits that
+  took the shared gate and their wait.
+- With `CONFLICT_CENSUS = 1` (harness: `BARN_MONGOOSE_STALE_READS=1`), slices
+  and commits take the commit gate's tracked path, the conflict census adds
+  four tables and each task keeps a timeline. With tracking off none of this
+  takes a lock, allocates, or adds work under the commit gate's or census's
+  mutex.
+  - Gate hold detail: tracked slices' holds are rows of their own, also
+    split by the builtin that opened the boundary (`exec`,
+    `sqlite_execute`, ...), with the number of holds (`tracked`), VM ticks
+    run under the gate, acquire wait (total, max,
+    histogram), the queue depth ahead at each acquire and who was ahead (the
+    exclusive owner and queued exclusive requests by label, `(unlabeled)` for
+    an untracked slice or the store's checkpoint snapshot, `shared` for shared
+    owners or requests; the gate looks at the first 64 queued requests and
+    names 8). `Shared` adds the tracked commits that queued behind an
+    exclusive holder or request, with their waits.
+  - `HotReads`: hot-read renewals made, refused and declined per property
+    slot (at most 1024 slots, then an overflow row). They are a table of
+    their own, so a renewed slot that never lost has no census key row.
   - `Paths`: losses per (key, loser root verb by its defining object, read
     site): attempt number, where validation was lost (`final`, `suspend`,
     `boundary`, `coarse`), for boundary losses the builtin and calling
@@ -374,8 +385,10 @@ data from one implementation (`engine/diag_report.go`). Two levels:
     `GET /debug/task-timelines` lists running tasks' timelines and the latest
     32 finished ones that took a second or more; such a task that is a player's
     command also logs one INFO `slow task timeline` record (background loops
-    that suspend between slices are kept but not logged). Bounds: 64 slices (first 4 and latest),
-    8 attempts per slice.
+    that suspend between slices are kept but not logged). The record holds
+    the totals and the first and last 3 attempts; the endpoint has the whole
+    timeline. Bounds: the latest 16 slices, 8 attempts per slice. Switching
+    tracking off through `Runtime.SetDiagnosticsTracking` releases them.
 
 When the server stops it logs one INFO `diagnostics summary` record: headline
 attributes and the text report in `report`. The harness prints the same

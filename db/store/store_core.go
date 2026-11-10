@@ -194,8 +194,9 @@ type Store struct {
 	// the gate exclusively skip it and are not counted).
 	sharedGateWaits  atomic.Uint64
 	sharedGateWaitNS atomic.Int64
-	// sharedGateBlocked/sharedGateBlockedNS are the subset of those that had
-	// to queue behind an exclusive holder or request, and their wait.
+	// sharedGateBlocked/sharedGateBlockedNS are the subset of those made by
+	// tracking transactions (conflict census tracking) that had to queue
+	// behind an exclusive holder or request, and their wait.
 	sharedGateBlocked   atomic.Uint64
 	sharedGateBlockedNS atomic.Int64
 	// propertyWriteElisions counts SetPropertyValue calls dropped because the
@@ -362,7 +363,8 @@ func (s *Store) SharedGateWait() (uint64, time.Duration) {
 }
 
 // SharedGateBlocked reports how many of those shared acquisitions queued
-// behind an exclusive holder or request, and their cumulative wait.
+// behind an exclusive holder or request, and their cumulative wait. Only
+// transactions begun with conflict census tracking on are counted.
 func (s *Store) SharedGateBlocked() (uint64, time.Duration) {
 	return s.sharedGateBlocked.Load(), time.Duration(s.sharedGateBlockedNS.Load())
 }
@@ -397,13 +399,17 @@ func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 // AcquireExclusive returns owner-held FIFO admission. Cancellation only
 // withdraws the wait; it never revokes a grant returned to executing code.
 func (s *Store) AcquireExclusive(ctx context.Context) (*commitgate.Grant, error) {
-	return s.AcquireExclusiveLabeled(ctx, nil)
+	return s.countEscalation(s.commitGate.Acquire(ctx, commitgate.Exclusive))
 }
 
-// AcquireExclusiveLabeled is AcquireExclusive for a requester named label; the
-// grant reports what was ahead of it (commitgate.Grant.Ahead).
-func (s *Store) AcquireExclusiveLabeled(ctx context.Context, label any) (*commitgate.Grant, error) {
-	g, err := s.commitGate.AcquireLabeled(ctx, commitgate.Exclusive, label)
+// AcquireExclusiveTracked is AcquireExclusive for a requester named label, for
+// diagnostics tracking; the grant reports what was ahead of it
+// (commitgate.Gate.AcquireTracked).
+func (s *Store) AcquireExclusiveTracked(ctx context.Context, label any) (*commitgate.Grant, error) {
+	return s.countEscalation(s.commitGate.AcquireTracked(ctx, commitgate.Exclusive, label))
+}
+
+func (s *Store) countEscalation(g *commitgate.Grant, err error) (*commitgate.Grant, error) {
 	if err == nil {
 		s.commitEscalations.Add(1)
 	}
