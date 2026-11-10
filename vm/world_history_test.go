@@ -66,7 +66,7 @@ func TestWorldHistoryAgreesAcrossTickBudgets(t *testing.T) {
 	baseline, state, _ := runCheckpointResumeCase(t, registry, program, nil, 30000, true)
 	for _, ticks := range []int64{30000, 60000} {
 		results, observed, checkpoints := runCheckpointResumeCase(t, registry, program, checkpointSuspendedVM, ticks, true)
-		if checkpoints == 0 || len(results) != len(baseline) || !state.Identical(observed) {
+		if checkpoints == 0 || len(results) != len(baseline) || !sameCheckpointedValue(state, observed) {
 			t.Fatalf("budget %d changed state/task count or reached no checkpoints", ticks)
 		}
 		for i, result := range results {
