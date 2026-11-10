@@ -5,6 +5,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
@@ -200,11 +201,37 @@ func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string
 		}
 	}
 
+	// The line table only covers lines that emit code, so a body ending in a
+	// compound statement stops before that statement's closing keyword
+	// (endif, endwhile, endfor, endfork, endtry), which emits none. Take
+	// following lines until the body's blocks balance.
+	for depth := blockDepth(program.Source[startLine-1 : endLine]); depth > 0 && endLine < len(program.Source); {
+		depth += blockDepth(program.Source[endLine : endLine+1])
+		endLine++
+	}
+
 	lines := make([]string, 0, endLine-startLine+1)
 	for i := startLine; i <= endLine; i++ {
 		lines = append(lines, program.Source[i-1])
 	}
 	return lines
+}
+
+// blockDepth returns the number of block statements opened minus the number
+// closed in lines.
+func blockDepth(lines []string) int {
+	lexer := parser.NewLexer(strings.Join(lines, "\n"))
+	depth := 0
+	for {
+		switch lexer.NextToken().Type {
+		case parser.TOKEN_EOF, parser.TOKEN_ILLEGAL:
+			return depth
+		case parser.TOKEN_IF, parser.TOKEN_WHILE, parser.TOKEN_FOR, parser.TOKEN_FORK, parser.TOKEN_TRY:
+			depth++
+		case parser.TOKEN_ENDIF, parser.TOKEN_ENDWHILE, parser.TOKEN_ENDFOR, parser.TOKEN_ENDFORK, parser.TOKEN_ENDTRY:
+			depth--
+		}
+	}
 }
 
 func oneLineForkBody(source string) string {
