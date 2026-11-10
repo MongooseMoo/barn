@@ -23,21 +23,22 @@ func (e *UnknownBuiltinError) Error() string {
 
 // lowerer lowers one validated semantic program to bytecode.
 type lowerer struct {
-	program              *bytecode.Program
-	constants            map[string]int       // Constant deduplication (exact typed value -> index)
-	variables            map[string]int       // Source variable name -> index mapping
-	internalVariables    map[string]int       // Compiler-only local name -> index mapping
-	loops                []loopContext        // Loop context stack for break/continue
-	handlerDepth         int                  // Active handlers in the current activation
-	tempCount            int                  // Counter for unique temporary variable names
-	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
-	scatterDepth         int                  // Active scatter-assignment nesting depth for reusable temp slots
-	registry             map[string]int       // Immutable builtin name-to-ID view
-	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
-	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
-	lastLine             int                  // Last emitted line number for LineInfo deduplication
-	err                  error                // First overflow/limit error; checked at Compile boundaries
-	importLayout         *barnImportLayout    // Set only while converting a native checkpoint.
+	program               *bytecode.Program
+	constants             map[string]int       // Constant deduplication (exact typed value -> index)
+	variables             map[string]int       // Source variable name -> index mapping
+	internalVariables     map[string]int       // Compiler-only local name -> index mapping
+	loops                 []loopContext        // Loop context stack for break/continue
+	handlerDepth          int                  // Active handlers in the current activation
+	tempCount             int                  // Counter for unique temporary variable names
+	propertyAssignDepth   int                  // Active property-assignment nesting depth for reusable temp slots
+	scatterDepth          int                  // Active scatter-assignment nesting depth for reusable temp slots
+	collectionAssignDepth int                  // Active index/range-assignment nesting depth for reusable temp slots
+	registry              map[string]int       // Immutable builtin name-to-ID view
+	indexContextVar       int                  // Variable slot used by index-boundary compilation (-1 = none)
+	indexBoundaryContext  indexBoundaryContext // Whether map boundaries resolve as keys or positions
+	lastLine              int                  // Last emitted line number for LineInfo deduplication
+	err                   error                // First overflow/limit error; checked at Compile boundaries
+	importLayout          *barnImportLayout    // Set only while converting a native checkpoint.
 }
 
 func newLowerer(registry map[string]int) *lowerer {
