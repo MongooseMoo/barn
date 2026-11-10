@@ -35,8 +35,10 @@ func (tx *StoreTxn) writesTouchAnon(writes *writeSet) bool {
 // version that a commit before the gate already superseded. The reads recorded
 // so far stay on the renewed transaction (those on objects this commit itself
 // republished at the versions it just gave them), so the slice's final commit
-// still validates everything the slice read. A validation loss returns E_INVARG
-// with ValidationFailed() set and leaves this transaction intact.
+// still validates everything the slice read. Keyed map reads are validated per
+// entry and carried per entry, re-based to the map the boundary published
+// (boundaryMapKeys). A validation loss returns E_INVARG with ValidationFailed()
+// set and leaves this transaction intact.
 func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
 	if tx == nil || tx.store == nil {
 		return tx, false, types.E_INVARG
@@ -47,8 +49,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	if tx.terminalErr != types.E_NONE {
 		return tx, false, tx.terminalErr
 	}
-	// The renewed transaction carries version-checked reads only.
-	tx.degradeMapKeys()
+	mapKeys := tx.boundaryMapKeys()
 	if errCode := tx.validateReads(); errCode != types.E_NONE {
 		tx.lostValidation()
 		return tx, false, errCode
@@ -172,6 +173,7 @@ func (tx *StoreTxn) CommitAndRenewCarryingReads() (next *StoreTxn, publishedWrit
 	next.propertyShapeScans = propertyShapeScans
 	next.verbReads = verbReads
 	next.verbScans = verbScans
+	next.carryBoundaryMapKeys(mapKeys)
 	next.waifs = tx.waifs
 	tx.carryConflictDiag(next, true)
 	return next, publishedWrites, types.E_NONE
@@ -197,6 +199,10 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	publishedWrites = tx.hasStagedWrites()
 	if tx.HasWrites() {
+		if tx.diag != nil && tx.diag.point == CommitFinal {
+			// A coarse builtin's renewal; the boundary marks its own point.
+			tx.diag.point = CommitCoarse
+		}
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			return tx, false, errCode
 		}
@@ -221,15 +227,29 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 // either path acquires publication locks.
 func (tx *StoreTxn) acquireSharedCommitGate() (*commitgate.Grant, error) {
 	started := time.Now()
-	grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+	var grant *commitgate.Grant
+	var err error
+	if tx.diag != nil {
+		// Tracking: the grant records whether it queued behind Exclusive.
+		grant, err = tx.store.commitGate.AcquireTracked(tx.commitContextOrBackground(), commitgate.Shared, nil)
+	} else {
+		grant, err = tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+	}
 	if err != nil {
 		return nil, err
 	}
 	waited := time.Since(started)
 	tx.store.sharedGateWaits.Add(1)
 	tx.store.sharedGateWaitNS.Add(int64(waited))
+	if tx.diag != nil {
+		if grant.Blocked() {
+			tx.store.sharedGateBlocked.Add(1)
+			tx.store.sharedGateBlockedNS.Add(int64(waited))
+		}
+		tx.diag.noteSharedGateWait(waited)
+	}
 	if tx.gateWait != nil {
-		tx.gateWait(waited)
+		tx.gateWait(waited, grant.Blocked())
 	}
 	return grant, nil
 }

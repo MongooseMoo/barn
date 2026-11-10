@@ -59,7 +59,7 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 
 	stub.site.Line, stub.ticks = 12, 50
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(3, 200, 120)
+	s.NoteSliceAttempts(ConflictLabel{Obj: 1, Verb: "v"}, 3, 200, 120)
 
 	census := s.ConflictCensus()
 	p := censusRow(t, census, ConflictProperty, a, "p")
@@ -69,7 +69,7 @@ func TestConflictDiagNamesWriterReaderAndUnchangedValue(t *testing.T) {
 
 	check := func(name string, d ConflictDiag, writer ConflictLabel, wsite ConflictSite, rsite ConflictSite, readTicks int64, unchanged uint64) {
 		t.Helper()
-		if len(d.Writers) != 1 || d.Writers[0] != (ConflictWriterCount{Label: writer, Site: wsite, Lost: 1}) || d.UnknownWriters != 0 {
+		if len(d.Writers) != 1 || d.Writers[0] != (ConflictWriterCount{Label: writer, Site: wsite, Lost: 1, PublishedBy: CommitPointCounts{Final: 1}}) || d.UnknownWriters != 0 {
 			t.Errorf("%s writers = %+v (unknown %d), want %v at %v", name, d.Writers, d.UnknownWriters, writer, wsite)
 		}
 		want := ConflictReadSiteCount{Site: rsite, Lost: 1, ReadTicks: readTicks, LossTicks: 50}
@@ -141,7 +141,7 @@ func TestConflictDiagSliceAttemptsHistogram(t *testing.T) {
 	s, _, _ := conflictFixture(t)
 	s.SetConflictCensusTracking(true)
 	for _, n := range []int{1, 1, maxSliceAttempts, maxSliceAttempts + 1, 1000, 0} {
-		s.NoteSliceAttempts(n, int64(n), int64(n-1))
+		s.NoteSliceAttempts(ConflictLabel{Obj: 1, Verb: "v"}, n, int64(n), int64(n-1))
 	}
 	if total := s.ConflictCensus().TotalTicks; total != 1+1+maxSliceAttempts+maxSliceAttempts+1+1000 {
 		t.Errorf("TotalTicks = %d", total)
@@ -183,7 +183,7 @@ func TestConflictDiagOffRecordsNothing(t *testing.T) {
 	readValue(t, loser, a, "p")
 	commitValue(t, s, a, "p", types.NewInt(5))
 	loseCommit(t, loser, b, "p")
-	s.NoteSliceAttempts(1, 10, 5)
+	s.NoteSliceAttempts(ConflictLabel{Obj: 1, Verb: "v"}, 1, 10, 5)
 	census := s.ConflictCensus()
 	if census.TotalTicks != 0 || census.WastedTicks != 0 {
 		t.Errorf("ticks with tracking off = %d total, %d wasted", census.TotalTicks, census.WastedTicks)

@@ -263,7 +263,7 @@ func (s *Runtime) CreateForkedTask(parent *task.State, forkInfo *types.ForkInfo)
 	s.populateContextDependencies(t.Context)
 	t.SetVM(vm.NewForkVM(s.store, s.session, taskID, forkInfo, forkProg, ticks))
 
-	t.StartTime = time.Now().Add(forkInfo.Delay)
+	t.StartTime = task.StartAfter(time.Now(), forkInfo.Delay)
 	t.Kind = task.TaskForked
 	t.IsForked = true
 	t.ForkInfo = forkInfo

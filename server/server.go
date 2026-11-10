@@ -31,6 +31,7 @@ type Server struct {
 	store               *dbstore.Store
 	loadedStore         atomic.Pointer[dbstore.Store]
 	runtime             *engine.Runtime
+	loadedRuntime       atomic.Pointer[engine.Runtime]
 	registry            *builtins.Registry
 	input               *InputProcessor
 	connManager         *ConnectionManager
@@ -68,8 +69,9 @@ func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle 
 // BuiltinRegistry is the immutable registry used by this server's runtime.
 func (s *Server) BuiltinRegistry() *builtins.Registry { return s.registry }
 
-// Runtime is the engine LoadDatabase built; nil before then.
-func (s *Server) Runtime() *engine.Runtime { return s.runtime }
+// Runtime is the engine LoadDatabase built; nil before then. Like Store, it
+// is safe to call from any goroutine.
+func (s *Server) Runtime() *engine.Runtime { return s.loadedRuntime.Load() }
 
 // Store is the store LoadDatabase built; nil before then. It is safe to call
 // from any goroutine, such as a debug endpoint started before the load.
@@ -128,6 +130,7 @@ func (s *Server) LoadDatabase() error {
 	s.store.SetConflictCensusTracking(s.options.ConflictCensus)
 	s.loadedStore.Store(s.store)
 	s.runtime = engine.NewRuntimeWithRegistry(s.store, s.options, s.registry)
+	s.loadedRuntime.Store(s.runtime)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
 

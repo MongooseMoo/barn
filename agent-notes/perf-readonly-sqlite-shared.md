@@ -98,5 +98,11 @@ Raw lines are in the campaign progress file
 
 ## Next step
 
-A valid master baseline on the 0342 dump needs the `home` deadline failures
-fixed or excluded first; then repeat the pairs. Not pushed; no PR.
+2026-11-10: Q ordered "do a sqlite pr/check". The `home` deadline failures
+are fixed on master (fork-delay fix). Master merged into this branch (two
+conflicts: the builtin-name argument in `sqliteExecOrQueryAsync` and the
+diagnostics commit-point marker in `CommitAndRenew`; both sides kept); it
+builds, vets, and the SQLite / external-read / renewal tests pass in
+builtins, db/store and engine. Next: interleaved master-vs-branch harness
+pairs on the 0342 dump from the scratch working directory, gated on idle
+CPU; then push and open the PR with those numbers.

@@ -31,6 +31,7 @@ type lowerer struct {
 	handlerDepth         int                  // Active handlers in the current activation
 	tempCount            int                  // Counter for unique temporary variable names
 	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
+	scatterDepth         int                  // Active scatter-assignment nesting depth for reusable temp slots
 	registry             map[string]int       // Immutable builtin name-to-ID view
 	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
 	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions

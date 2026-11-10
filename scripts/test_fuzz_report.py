@@ -1,16 +1,23 @@
-"""Real nightly logs and offline execution of the issue/dispatch script."""
+"""Real nightly logs, issue reporting, and the workflow's own campaign step."""
 
+import base64
+import hashlib
+import http.server
 import json
-import itertools
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import textwrap
+import threading
 import unittest
 from unittest.mock import mock_open, patch
 
-from fuzz_report import INLINE_LIMIT, TAIL_LIMIT, report, summarize
+from fuzz_report import (DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, issue_body, publish, report,
+                         summarize)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -206,101 +213,281 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(summary[0]["signature"], report(logs[0], "./vm", TARGET, "commit")["signature"])
 
 
-class IssueScriptTests(unittest.TestCase):
-    def execute(self, result, issues=(), checkout=True, logs=()):
-        workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
-        lines = workflow.split("          script: |\n", 1)[1].splitlines()
-        script = textwrap.dedent("\n".join(itertools.takewhile(
-            lambda line: not line.strip() or line.startswith("            "), lines)))
-        harness = r"""
-const fs = require('node:fs');
-const vm = require('node:vm');
-const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-const calls = [];
-const record = name => async args => {calls.push({name, ...args}); return {data: {number: 999}};};
-const github = {
-  paginate: async () => input.issues,
-  rest: {issues: {listForRepo: {}, create: record('create'), createComment: record('comment')},
-         actions: {createWorkflowDispatch: record('dispatch')}}
-};
-const context = {repo: {owner: 'test', repo: 'barn'}, sha: 'commit', serverUrl: 'https://github.com', runId: 1};
-const mockedRequire = name => name === 'node:fs' ? {existsSync: () => input.checkout, readdirSync: () => input.logs}
-  : name === 'node:child_process' ? {execFileSync: (command, args) => {
-      if (args.some(arg => arg.includes('success-'))) throw new Error('Successful campaign log passed to failure reporter');
-      return JSON.stringify(input.result);
-    }} : require(name);
-vm.runInNewContext('(async () => {' + input.script + '})()', {
-  require: mockedRequire, github, context,
-  process: {env: {FUZZ_TARGET: 'FuzzTarget', FUZZ_PACKAGE: './vm', CAMPAIGN_OUTCOME: 'failure', GITHUB_RUN_ATTEMPT: '1'}}
-}).then(() => process.stdout.write(JSON.stringify(calls))).catch(e => {console.error(e); process.exit(1);});
-"""
-        node = shutil.which("node")
-        if node is None:
-            # Self-hosted Actions runs JS actions with its bundled Node, without
-            # adding it to PATH for shell steps.
-            node = str(Path(os.environ["RUNNER_TEMP"]).parents[1] / "externals/node24/bin/node")
-        completed = subprocess.run([node, "-e", harness], input=json.dumps({
-            "script": script, "result": result, "issues": list(issues), "checkout": checkout, "logs": list(logs)}),
-            text=True, capture_output=True, check=True, cwd=ROOT)
-        return json.loads(completed.stdout)
+def decoded_record(body):
+    """The bytes a repair agent recreates from an issue body, and the sha256 it checks."""
+    match = re.search(r"sha256 ([0-9a-f]{64})\. .*?```base64\n(.*?)\n```", body, re.S)
+    return (base64.b64decode(match[2]), match[1]) if match else (None, None)
 
-    def test_new_signature_on_same_target_dispatches_and_repeat_comments(self):
+
+class FakeGitHub:
+    """Records REST calls in order; returns what publish() reads back."""
+
+    def __init__(self, issues=(), fail=(), commit_date="2026-11-10T06:00:00Z"):
+        self.issues, self.fail, self.calls = list(issues), set(fail), []
+        self.commit_date = commit_date
+
+    def __call__(self, method, path, payload=None):
+        self.calls.append((method, path, payload))
+        if (method, path) in self.fail:
+            raise RuntimeError(f"{method} {path}: HTTP 500")
+        if method == "GET" and path.startswith("/commits/"):
+            return {"commit": {"committer": {"date": self.commit_date}}}
+        if method == "GET":
+            return self.issues
+        if path == "/issues":
+            return {"number": 999, "body": payload["body"]}
+        return None
+
+    def names(self):
+        return [path.split("?")[0] for _, path, _ in self.calls if not path.startswith("/issues?")]
+
+
+class PublishTests(unittest.TestCase):
+    def run_publish(self, reports, issues=(), **kwargs):
+        github = FakeGitHub(issues)
+        status = publish(reports, github, "./vm", "FuzzTarget", "https://run", **kwargs)
+        return status, github
+
+    def test_new_signature_dispatches_and_repeat_comments(self):
         result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
-        calls = self.execute(result, [{"title": "Nightly fuzz failure: FuzzTarget", "body": "old signature"}])
-        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
-        self.assertEqual(calls[1]["inputs"], {"issue_number": "999"})
-        calls = self.execute(result, [{"number": 12, "body": calls[0]["body"]}])
-        self.assertEqual([c["name"] for c in calls], ["comment"])
-        self.assertEqual(calls[0]["issue_number"], 12)
+        _, github = self.run_publish(result, [{"number": 5, "body": "old signature"}])
+        self.assertEqual(github.names(), ["/issues", "/actions/workflows/claude-fix.yml/dispatches"])
+        self.assertEqual(github.calls[1][2]["labels"], ["claude-fix"])
+        self.assertEqual(github.calls[2][2], {"ref": "master", "inputs": {"issue_number": "999"}})
+        body = github.calls[1][2]["body"]
+        _, github = self.run_publish(result, [{"number": 12, "body": body}])
+        self.assertEqual(github.names(), ["/issues/12/comments"])
 
-    def test_successful_campaign_logs_are_retained_without_creating_failure_reports(self):
+    def closed_issue(self, closed_at, number=20):
+        body = issue_body(summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")[0],
+                          "./vm", "FuzzTarget", "https://run", None)
+        return {"number": number, "body": body, "state": "closed", "closed_at": closed_at}
+
+    def test_issue_closed_after_the_fuzzed_commit_gets_the_repeat(self):
+        # A cycle still fuzzing a commit from before the fix (#698 then #707).
         result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
-        calls = self.execute(result, logs=("run-001.log", "success-002.log"))
-        self.assertEqual([call["name"] for call in calls], ["create", "dispatch"])
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T06:26:13Z")])
+        self.assertEqual(github.names(), ["/commits/commit", "/issues/20/comments"])
+        self.assertIn("Commit commit predates this issue's closing", github.calls[-1][2]["body"])
 
-    def test_each_distinct_signature_of_the_night_is_reported_once(self):
-        # Synthetic two-failure night with the first failure refound once.
+    def test_issue_closed_before_the_fuzzed_commit_is_a_regression(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T05:00:00Z")])
+        self.assertEqual(github.names(),
+                         ["/commits/commit", "/issues", "/actions/workflows/claude-fix.yml/dispatches"])
+
+    def test_open_issue_wins_over_closed_ones_without_a_commit_lookup(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        open_issue = {**self.closed_issue(None, number=30), "state": "open"}
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T06:26:13Z"), open_issue])
+        self.assertEqual(github.names(), ["/issues/30/comments"])
+
+    def test_each_distinct_signature_is_reported_once(self):
         first = ("panic: first\ngithub.com/MongooseMoo/barn/vm.(*VM).Resume()\n /src/vm.go:1 +0x1\n"
                  "Failing input written to testdata/fuzz/FuzzTarget/aaaa\n")
         second = ("panic: second\ngithub.com/MongooseMoo/barn/vm.(*VM).Step()\n /src/vm.go:2 +0x1\n"
                   "Failing input written to testdata/fuzz/FuzzTarget/bbbb\n")
         result = summarize([first, second, first], "./vm", "FuzzTarget", "commit")
-        calls = self.execute(result)
-        self.assertEqual([c["name"] for c in calls], ["create", "dispatch", "create", "dispatch"])
-        self.assertIn("Times found in this run's campaigns: 2", calls[0]["body"])
-        self.assertIn("Times found in this run's campaigns: 1", calls[2]["body"])
-        # The first signature already has an open issue: comment there, new issue for the second.
-        calls = self.execute(result, [{"number": 12, "body": calls[0]["body"]}])
-        self.assertEqual([c["name"] for c in calls], ["comment", "create", "dispatch"])
-        self.assertEqual(calls[0]["issue_number"], 12)
+        _, github = self.run_publish(result)
+        dispatch = "/actions/workflows/claude-fix.yml/dispatches"
+        self.assertEqual(github.names(), ["/issues", dispatch, "/issues", dispatch])
+        self.assertIn("Campaigns in this report that found it: 2", github.calls[1][2]["body"])
+        self.assertIn("Campaigns in this report that found it: 1", github.calls[3][2]["body"])
 
     def test_infrastructure_never_dispatches_or_labels(self):
-        for checkout in [True, False]:
-            calls = self.execute(summarize(["signal: terminated"], "./vm", "FuzzTarget", "commit"), checkout=checkout)
-            self.assertEqual([c["name"] for c in calls], ["create"])
-            self.assertIn("infrastructure failure", calls[0]["title"])
-            self.assertEqual(calls[0]["labels"], [])
-
-    def test_saved_crash_signal_dispatches_repair(self):
-        log = ("fuzzing process hung or terminated unexpectedly: signal: segmentation fault\n"
-               "Failing input written to testdata/fuzz/FuzzTarget/synthetic-crash\n")
-        calls = self.execute(summarize([log], "./vm", "FuzzTarget", "commit"))
-        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
-        self.assertEqual(calls[0]["labels"], ["claude-fix"])
+        _, github = self.run_publish(summarize(["signal: terminated"], "./vm", "FuzzTarget", "commit"))
+        self.assertEqual(github.names(), ["/issues"])
+        self.assertIn("infrastructure failure", github.calls[1][2]["title"])
+        self.assertEqual(github.calls[1][2]["labels"], [])
 
     def test_unattributed_differential_panic_dispatches_with_native_evidence(self):
         result = summarize([UNATTRIBUTED_DIFFERENTIAL_PANIC], "./scripts", "ToastDifferential", "commit")
-        calls = self.execute(result)
-        self.assertEqual([c["name"] for c in calls], ["create", "dispatch"])
-        self.assertEqual(calls[0]["labels"], ["claude-fix"])
-        self.assertIn("Error: internal error: boom", calls[0]["body"])
+        github = FakeGitHub()
+        publish(result, github, "./scripts", "ToastDifferential", "https://run")
+        self.assertEqual(github.calls[1][2]["labels"], ["claude-fix"])
+        self.assertIn("Error: internal error: boom", github.calls[1][2]["body"])
 
     def test_body_keeps_corpus_fences_inside_code_block(self):
         result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
         result[0].update(input_text="go test fuzz v1\n```\n@someone", input_path="input", repro="bounded command")
-        body = self.execute(result)[0]["body"]
+        _, github = self.run_publish(result)
+        body = github.calls[1][2]["body"]
         self.assertIn("````text\ngo test fuzz v1\n```\n@someone\n````", body)
         self.assertIn("bounded command", body)
+
+    def test_reporting_error_is_raised(self):
+        github = FakeGitHub(fail={("POST", "/issues")})
+        with self.assertRaisesRegex(RuntimeError, "HTTP 500"):
+            publish(summarize(["panic: failure"], "./vm", "FuzzTarget", "commit"), github,
+                    "./vm", "FuzzTarget", "https://run")
+
+
+def step_script(workflow, name):
+    """The run: script of the named step, with this test's matrix values."""
+    step = workflow.split(f"name: {name}\n", 1)[1]
+    lines = step.split("        run: |\n", 1)[1].splitlines()
+    body = []
+    for line in lines:
+        if line.strip() and not line.startswith("          "):
+            break
+        body.append(line)
+    return (textwrap.dedent("\n".join(body))
+            .replace("${{ matrix.package }}", "./vm").replace("${{ matrix.target }}", "FuzzT"))
+
+
+class CampaignStepTests(unittest.TestCase):
+    """Runs fuzz.yml's own campaign and reporter steps with a fake go and GitHub API."""
+
+    FAKE_GO = r"""#!/usr/bin/env bash
+if [ "$1" = version ]; then echo "go version go1.27.1 linux/amd64"; exit 0; fi
+n=$(( $(cat "$WORK/attempts" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$WORK/attempts"
+echo "attempt $n" >> "$WORK/sequence"
+[ -n "${GITHUB_TOKEN:-}" ] && echo "token reached go test" >> "$WORK/sequence"
+if [ "$n" = 1 ]; then
+  mkdir -p vm/testdata/fuzz/FuzzT
+  cp "$WORK/record" vm/testdata/fuzz/FuzzT/abcd
+  echo "--- FAIL: FuzzT"
+  echo "    x_test.go:1: boom"
+  echo "    Failing input written to testdata/fuzz/FuzzT/abcd"
+  exit 1
+fi
+echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
+"""
+
+    def setUp(self):
+        self.bash = shutil.which("bash")
+        if self.bash is None:
+            self.skipTest("bash is required to run the workflow step")
+        self.work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.work, True)
+        (self.work / "scripts").mkdir()
+        for name in ("fuzz_report.py", "fuzz_retention.py"):
+            shutil.copy(ROOT / "scripts" / name, self.work / "scripts" / name)
+        (self.work / "vm").mkdir()
+        bin_dir = self.work / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "go").write_text(self.FAKE_GO, newline="\n")
+        (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n',
+                                         newline="\n")
+        for tool in ("go", "python3"):
+            (bin_dir / tool).chmod(0o755)
+        self.api_calls, self.failing, self.created = [], set(), []
+        test = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def reply(self, method):
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length)) if length else None
+                path = self.path.removeprefix("/repos/test/barn")
+                with open(test.work / "sequence", "a") as sequence:
+                    sequence.write(f"{method} {path.split('?')[0]}\n")
+                test.api_calls.append((method, path, payload))
+                if (method, path) in test.failing:
+                    status, data = 500, {"message": "boom"}
+                elif method == "GET":
+                    status, data = 200, test.created
+                elif path == "/issues":
+                    test.created.append({"number": 7, "body": payload["body"]})
+                    status, data = 201, {"number": 7}
+                else:
+                    status, data = 204, None
+                self.send_response(status)
+                self.end_headers()
+                if data is not None:
+                    self.wfile.write(json.dumps(data).encode())
+
+            def do_GET(self):
+                self.reply("GET")
+
+            def do_POST(self):
+                self.reply("POST")
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        temp = self.work / "runner-temp"
+        temp.mkdir()
+        self.env = {**os.environ, "PATH": f"{bin_dir.as_posix()}{os.pathsep}{os.environ['PATH']}",
+                    "WORK": self.work.as_posix(), "RUNNER_TEMP": temp.as_posix(),
+                    "GITHUB_OUTPUT": (self.work / "output").as_posix(), "GOCACHE": (self.work / "cache").as_posix(),
+                    "GITHUB_SHA": "commit", "GITHUB_TOKEN": "token", "GITHUB_REPOSITORY": "test/barn",
+                    "GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_port}",
+                    "GITHUB_SERVER_URL": "https://github.com", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
+                    "FUZZ_PACKAGE": "./vm", "FUZZ_TARGET": "FuzzT", "CAMPAIGN_OUTCOME": "failure",
+                    "ARTIFACT_URL": "https://artifact"}
+        workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        self.campaign = step_script(workflow, "Fuzz ${{ matrix.target }}")
+        self.reporter = step_script(workflow, "Open failure issues")
+
+    def run_step(self, script):
+        # Actions runs `shell: bash` as bash --noprofile --norc -eo pipefail.
+        path = self.work / "step.sh"
+        path.write_text(script, newline="\n")
+        return subprocess.run([self.bash, "--noprofile", "--norc", "-eo", "pipefail", path.as_posix()],
+                              cwd=self.work, env=self.env, text=True, capture_output=True, timeout=120)
+
+    def sequence(self):
+        return (self.work / "sequence").read_text().splitlines()
+
+    def logs(self):
+        return sorted(p.name for p in (self.work / "runner-temp/fuzz-logs").iterdir())
+
+    def test_finding_is_reported_with_its_exact_record_before_the_next_attempt(self):
+        record = b'go test fuzz v1\nstring("caf\xc3\xa9 ``` \\x00")\n'
+        (self.work / "record").write_bytes(record)
+        result = self.run_step(self.campaign)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        dispatch = "POST /actions/workflows/claude-fix.yml/dispatches"
+        self.assertEqual(self.sequence(), ["attempt 1", "GET /issues", "POST /issues", dispatch, "attempt 2"])
+        issue = self.api_calls[1][2]
+        self.assertEqual(issue["labels"], ["claude-fix"])
+        self.assertEqual(self.api_calls[2][2], {"ref": "master", "inputs": {"issue_number": "7"}})
+        data, digest = decoded_record(issue["body"])
+        self.assertEqual(data, record)
+        self.assertEqual(digest, hashlib.sha256(record).hexdigest())
+        self.assertIn("uploaded as artifact fuzz-failure-FuzzT when this job ends", issue["body"])
+        self.assertEqual(self.logs(), ["reported-001.log", "success-002.log"])
+        self.assertIn("cycle=finding", (self.work / "output").read_text())
+        # The finding is kept for the artifact step, and nothing is reported twice.
+        self.assertEqual((self.work / "vm/testdata/fuzz/FuzzT/abcd").read_bytes(), record)
+        result = self.run_step(self.reporter)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.api_calls), 3)
+
+    def test_failed_report_is_visible_and_retried_when_the_job_ends(self):
+        (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
+        self.failing = {("POST", "/issues")}
+        result = self.run_step(self.campaign)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error::Reporting vm/testdata/fuzz/FuzzT/abcd failed", result.stdout)
+        self.assertEqual(self.sequence(), ["attempt 1", "GET /issues", "POST /issues", "attempt 2"])
+        self.assertEqual(self.logs(), ["run-001.log", "success-002.log"])
+        self.failing = set()
+        result = self.run_step(self.reporter)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([f"{m} {p.split('?')[0]}" for m, p, _ in self.api_calls[2:]],
+                         ["GET /issues", "POST /issues", "POST /actions/workflows/claude-fix.yml/dispatches"])
+        self.assertIn("Failing inputs: https://artifact", self.api_calls[3][2]["body"])
+
+    def test_record_too_large_for_an_issue_is_reported_with_its_artifact(self):
+        (self.work / "record").write_bytes(b'go test fuzz v1\nstring("' + b"x" * RECORD_LIMIT + b'")\n')
+        result = self.run_step(self.campaign)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::notice::", result.stdout)
+        self.assertEqual(self.sequence(), ["attempt 1", "attempt 2"])
+        self.assertEqual(self.logs(), ["run-001.log", "success-002.log"])
+        result = self.run_step(self.reporter)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = self.api_calls[1][2]["body"]
+        self.assertIn("too large for an issue; use the failing-input artifact", body)
+        self.assertEqual(decoded_record(body), (None, None))
+        self.assertIn("Failing inputs: https://artifact", body)
+        self.assertEqual(len(self.api_calls), 3)
+        self.assertIn(f"{DEFERRED}) echo \"::notice::", self.campaign)
 
 
 if __name__ == "__main__":

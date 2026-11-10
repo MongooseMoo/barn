@@ -27,7 +27,7 @@ func TestRunGCRejectedBoundaryDoesNotRenewOrSweep(t *testing.T) {
 	before := ctx.StoreTxn
 	ctx.IsWizard = true
 	called := 0
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(string) bool {
 		called++
 		ctx.ConflictRetryRequested = true
 		return true

@@ -212,6 +212,16 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
+	// Every check that can fail without starting a process has passed. Only
+	// now does exec cross the irreversible-effect boundary, so a failing exec
+	// takes no commit gate and leaves the attempt re-runnable.
+	if ctx.Context != nil {
+		if !beginIrreversible(ctx, "exec") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+	}
+
 	// Get the task so we can suspend it
 	t := ctx.Task
 	if t == nil {
@@ -945,7 +955,7 @@ func systemDescriptors() []Descriptor {
 		function("malloc_stats", builtinMallocStats, 0, 0).plainArityError().withCapability(config.AllocatorStats),
 		function("memory_usage", builtinMemoryUsage, 0, 0),
 		function("log_cache_stats", builtinLogCacheStats, 0, 0),
-		function("exec", builtinExec, 1, 3, 4, 2, 4).withEffect(Irreversible),
+		function("exec", builtinExec, 1, 3, 4, 2, 4).withEffect(ImplementationOwned),
 		function("server_log", builtinServerLog, 1, 2, 2, -1).withEffect(Irreversible),
 		function("server_version", builtinServerVersion, 0, 1, -1),
 		function("time", builtinTime, 0, 0),

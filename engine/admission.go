@@ -40,11 +40,18 @@ func (s *Runtime) AdmissionStats() admission.Stats { return s.admission.Snapshot
 
 // Successful runtime shared acquisitions are visible under their task or hook.
 // An admitted owner excludes the wait from its principal's execution service.
-func sharedCommitWaitObserver(scope *admission.Scope, id metrics.Identity) func(time.Duration) {
-	return func(wait time.Duration) {
+// waits, when not nil, also accumulates them for the task's timeline.
+func sharedCommitWaitObserver(scope *admission.Scope, id metrics.Identity, waits *attemptWaits) func(time.Duration, bool) {
+	return func(wait time.Duration, blocked bool) {
 		metrics.ObserveRuntime(metrics.SharedCommitGate, id, wait, 0)
 		if scope != nil {
 			scope.Waited(wait)
+		}
+		if waits != nil {
+			waits.shared.Add(int64(wait))
+			if blocked {
+				waits.blocked.Add(int64(wait))
+			}
 		}
 	}
 }
@@ -72,7 +79,9 @@ func (s *Runtime) enterBackground(t *Task) (*admission.Scope, context.Context, c
 	t.SetCancelFunc(cancel)
 	started := time.Now()
 	scope, err := s.admission.Enter(ctx, backgroundAdmissionKey(t))
-	metrics.ObserveRuntime(metrics.BackgroundAdmission, taskRuntimeIdentity(t), time.Since(started), 0)
+	waited := time.Since(started)
+	metrics.ObserveRuntime(metrics.BackgroundAdmission, taskRuntimeIdentity(t), waited, 0)
+	s.timelineFor(t).noteAdmissionWait(waited)
 	return scope, ctx, cancel, err
 }
 

@@ -1,7 +1,5 @@
 package types
 
-import "time"
-
 // ForkBody exposes persistence metadata for a live fork descriptor. Executable
 // bytecode stays in its owning package, which already depends on types.
 // VariableNames returns a read-only view; snapshot callers copy its storage.
@@ -14,7 +12,7 @@ type ForkBody interface {
 type ForkInfo struct {
 	Body        ForkBody         // Live descriptor; nil for source-restored queued tasks
 	SourceLines []string         // Original source lines (for database serialization)
-	Delay       time.Duration    // Delay before execution
+	Delay       float64          // MOO delay in seconds before execution
 	VarName     string           // Variable to store task ID (empty = anonymous)
 	Variables   map[string]Value // Deep copy of variable environment
 	ThisObj     ObjID            // this context

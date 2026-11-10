@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fork c\xcfiWld (0)!ret\xf3\xf3\xf3\xf3\xf3\xf5\xf5\xf5\xf5uYn\xc81; endfork retur;")

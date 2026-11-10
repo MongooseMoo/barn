@@ -9,7 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"slices"
 	"strings"
-	"time"
 )
 
 // ForkBodyProgram extracts the fork body sub-program described by a bytecode
@@ -133,7 +132,7 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	thisValue := frame.ThisValue
 
 	forkInfo := &types.ForkInfo{
-		Delay:       time.Duration(delaySeconds * float64(time.Second)),
+		Delay:       delaySeconds,
 		VarName:     varName,
 		Body:        &bytecode.ForkBody{Parent: frame.Program, Offset: forkBodyIP, Length: forkBodyLen},
 		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),
@@ -209,8 +208,7 @@ func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string
 }
 
 func oneLineForkBody(source string) string {
-	lower := strings.ToLower(source)
-	forkIdx := strings.Index(lower, "fork")
+	forkIdx := indexASCIIFold(source, "fork")
 	if forkIdx < 0 {
 		return ""
 	}
@@ -219,7 +217,7 @@ func oneLineForkBody(source string) string {
 		return ""
 	}
 	bodyStart := forkIdx + headerEnd + 1
-	endIdx := strings.Index(strings.ToLower(source[bodyStart:]), "endfork")
+	endIdx := indexASCIIFold(source[bodyStart:], "endfork")
 	if endIdx < 0 {
 		return ""
 	}
@@ -227,6 +225,31 @@ func oneLineForkBody(source string) string {
 	body = strings.TrimPrefix(body, ";")
 	body = strings.TrimSpace(body)
 	return body
+}
+
+// indexASCIIFold returns the byte offset in s of the first ASCII
+// case-insensitive match of the lowercase ASCII pattern, or -1. Unlike
+// strings.ToLower, it never rewrites bytes, so the offset indexes s even when
+// s holds invalid UTF-8.
+func indexASCIIFold(s, lowerPattern string) int {
+	n := len(lowerPattern)
+	for i := 0; i+n <= len(s); i++ {
+		match := true
+		for j := 0; j < n; j++ {
+			c := s[i+j]
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != lowerPattern[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
 }
 
 // singleExceptCodes holds the codes list of a one-code clause, except (E_TYPE),

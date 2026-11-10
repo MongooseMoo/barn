@@ -333,3 +333,66 @@ excludes network/client delays and bytes waiting before the next transport read.
 A successful server write establishes neither client rendering nor audible receipt.
 Detailed collection adds work; do not use differently instrumented runs as a speed
 comparison.
+
+## Contention diagnostics in the binary
+
+The running server and the in-process harness report the same contention
+data from one implementation (`engine/diag_report.go`). Two levels:
+
+- Always on, at the cost the server already paid before these diagnostics:
+  exclusive commit gate holds per holder and shared gate waits.
+  `GET /debug/commit-gate` serves them as JSON; each hold row is the task's
+  root verb, the cause (the frame that called an irreversible builtin, or an
+  escalation reason), count and total/max hold. `Shared` counts commits that
+  took the shared gate and their wait.
+- With `CONFLICT_CENSUS = 1` (harness: `BARN_MONGOOSE_STALE_READS=1`), slices
+  and commits take the commit gate's tracked path, the conflict census adds
+  four tables and each task keeps a timeline. With tracking off none of this
+  takes a lock, allocates, or adds work under the commit gate's or census's
+  mutex.
+  - Gate hold detail: tracked slices' holds are rows of their own, also
+    split by the builtin that opened the boundary (`exec`,
+    `sqlite_execute`, ...), with the number of holds (`tracked`), VM ticks
+    run under the gate, acquire wait (total, max,
+    histogram), the queue depth ahead at each acquire and who was ahead (the
+    exclusive owner and queued exclusive requests by label, `(unlabeled)` for
+    an untracked slice or the store's checkpoint snapshot, `shared` for shared
+    owners or requests; the gate looks at the first 64 queued requests and
+    names 8). `Shared` adds the tracked commits that queued behind an
+    exclusive holder or request, with their waits.
+  - `HotReads`: hot-read renewals made, refused and declined per property
+    slot (at most 1024 slots, then an overflow row). They are a table of
+    their own, so a renewed slot that never lost has no census key row.
+  - `Paths`: losses per (key, loser root verb by its defining object, read
+    site): attempt number, where validation was lost (`final`, `suspend`,
+    `boundary`, `coarse`), for boundary losses the builtin and calling
+    `verb@line` with its slice tick, keyed map reads made whole and by which
+    path (`boundary`, `live-mutation`, `flush`, `rename`, `maphaskey`), losses after a
+    hot-read renewal of the slot, the winning writers with how they published,
+    and the wall time from the read to the loss (histogram) split into
+    exclusive gate wait, shared gate wait and the rest.
+  - `Verbs`: per root verb, slices, attempts, retries, committed vs wasted
+    ticks, retries per finished task (histogram, max) and the first
+    irreversible boundary of each attempt (mean tick, builtin and site).
+  - `BuiltinCalls`: calls of boundary-checking builtins (the Irreversible
+    descriptors, inline SQLite, create/recycle/chparent and the other coarse
+    builtins) by calling `verb@line`. Threaded SQLite calls are not counted.
+  - Task timelines: per task, each slice's start, background admission wait,
+    external completion queue time and wall time, and each attempt's VM time,
+    ticks, outcome (`commit`, `suspend`, `exception`, `lost`,
+    `lost-at-boundary`, `lost-final`, `error`), first stale key, exclusive gate
+    hold and wait, and shared gate wait (and the part behind an exclusive).
+    `GET /debug/task-timelines` lists running tasks' timelines and the latest
+    32 finished ones that took a second or more; such a task that is a player's
+    command also logs one INFO `slow task timeline` record (background loops
+    that suspend between slices are kept but not logged). The record holds
+    the totals and the first and last 3 attempts; the endpoint has the whole
+    timeline. Bounds: the latest 16 slices, 8 attempts per slice. Switching
+    tracking off through `Runtime.SetDiagnosticsTracking` releases them.
+
+When the server stops it logs one INFO `diagnostics summary` record: headline
+attributes and the text report in `report`. The harness prints the same
+report per player level and, for every failed or unsettled command, its MOO
+error, traceback and (with tracking) timeline. All tables are bounded and
+overflow into counted rows. Timeline and table recording cost time on every
+transaction; keep tracking off for performance comparisons.

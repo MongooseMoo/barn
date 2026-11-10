@@ -124,7 +124,7 @@ func (r *Registry) install(d Descriptor) {
 				// conflict surface as an uncatchable error. If it asks to stop,
 				// return without performing the effect; the VM unwinds and runTask
 				// re-runs the task.
-				if guarded && !beginIrreversible(ctx) {
+				if guarded && !beginIrreversible(ctx, name) {
 					return abortedAttempt()
 				}
 				ctx.IrreversibleSideEffect = true
@@ -234,10 +234,7 @@ func (s *Session) CallByNameWithExecution(name string, ctx *Execution, args []ty
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
 func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
-	// The redirect applies only to a protected builtin called from a verb whose
-	// `this` is not #0 (the bf_ wrapper itself, or any #0 verb, runs the real
-	// builtin).
-	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e) {
+	if s.offersRedirect(e, ctx) {
 		if redirect, ok := s.maybeProtectedRedirect(e, ctx, args); ok {
 			return redirect
 		}
@@ -246,6 +243,25 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 		return functionArgError(e.sig, args, err)
 	}
 	return e.fn(ctx, args)
+}
+
+// offersRedirect reports whether dispatch offers a call of e by ctx to
+// maybeProtectedRedirect. The redirect applies only to a protected builtin
+// called from a verb whose `this` is not #0 (the bf_ wrapper itself, or any #0
+// verb, runs the real builtin).
+func (s *Session) offersRedirect(e *builtinEntry, ctx *Execution) bool {
+	return ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntryFor(ctx, e)
+}
+
+// MayRedirectByID reports whether a call of builtin id made now by ctx may be
+// handed to #0:bf_<name> instead of running the builtin: true whenever dispatch
+// would try the redirect, whether or not the wrapper verb exists.
+func (s *Session) MayRedirectByID(id int, ctx *Execution) bool {
+	r := s.registry
+	if id < 0 || id >= len(r.entries) || r.entries[id] == nil {
+		return false
+	}
+	return s.offersRedirect(r.entries[id], ctx)
 }
 
 // maybeProtectedRedirect implements ToastStunt's protected-builtin dispatch.

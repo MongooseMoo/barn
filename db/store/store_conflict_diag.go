@@ -3,6 +3,7 @@ package store
 import (
 	"cmp"
 	"slices"
+	"time"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -35,6 +36,12 @@ import (
 //     slot's owner, perms, clear flag or type changed.
 //   - Wasted ticks: a loss's slice ticks at the loss, added in full to every key
 //     the loss was stale on.
+//   - Loss paths: every stale key of a loss also counts into the path (key,
+//     loser root verb by its defining object, read site), with the attempt
+//     number the engine gave (SetConflictOrigin) and the writer, so one table
+//     says which verb read which key where and lost, and to whom.
+//   - Verb goodput: NoteSliceAttempts counts each resolved slice's attempts and
+//     committed/wasted ticks per root verb.
 //
 // The site comes from a callback the runtime installs (SetConflictSiteFunc); a
 // transaction without one records no sites or ticks, and its losses count as
@@ -55,10 +62,12 @@ type ConflictSiteFunc func() (ConflictSite, int64)
 // ConflictWriterCount is the losses on a key caused by one writer: the label of
 // the transaction that published the rewrite and the site it staged it at. A
 // writer with no site callback has Site.Obj ObjNothing and an empty Verb.
+// PublishedBy splits the losses by the commit that published the rewrite.
 type ConflictWriterCount struct {
-	Label ConflictLabel
-	Site  ConflictSite
-	Lost  uint64
+	Label       ConflictLabel
+	Site        ConflictSite
+	Lost        uint64
+	PublishedBy CommitPointCounts
 }
 
 // ConflictReadSiteCount is the losses on a key whose first read was at one
@@ -78,11 +87,17 @@ type ConflictReadSiteCount struct {
 // WastedTicks sums the slice ticks at each loss. DetectedLosses counts the
 // losses the count-only early-abort check had detected on this key, and
 // SavableTicks sums the slice ticks from each detection to its loss
-// (store_early_detect.go).
+// (store_early_detect.go). OtherWriterRoots names the root labels behind
+// OtherWriters (the first maxConflictSites of them). Degraded counts the losses
+// whose read was a keyed map read made whole, by the path that made it whole,
+// and RenewedThenLost the losses on a slot a hot-read renewal had re-read.
 type ConflictDiag struct {
 	Writers          []ConflictWriterCount
 	OtherWriters     uint64
+	OtherWriterRoots []ConflictLabelCount
 	UnknownWriters   uint64
+	Degraded         DegradeCounts
+	RenewedThenLost  uint64
 	ReadSites        []ConflictReadSiteCount
 	OtherReadSites   uint64
 	UnknownReadSites uint64
@@ -104,6 +119,13 @@ const (
 	// maxSliceAttempts bounds the attempts histogram; one more bucket counts
 	// every slice that took more.
 	maxSliceAttempts = 64
+	// maxConflictPaths bounds the loss paths counted separately, and
+	// maxPathWriters the writers counted per path.
+	maxConflictPaths = 4096
+	maxPathWriters   = 4
+	// maxGoodputVerbs bounds the root verbs whose goodput is counted
+	// separately; the rest count into one overflow row.
+	maxGoodputVerbs = 1024
 )
 
 // txnConflictDiag is a tracking transaction's record of its sites and values.
@@ -121,11 +143,132 @@ type txnConflictDiag struct {
 	detectKey      propertyReadKey
 	detectTicks    int64
 	lastCheckClock uint64
+	// definer and attempt are SetConflictOrigin's: the object defining the
+	// task's root verb and the slice attempt this transaction belongs to.
+	definer types.ObjID
+	attempt int
+	// point is where this transaction validates next (SetConflictCommitPoint,
+	// NoteBoundary); boundary is the boundary NoteBoundary recorded.
+	point    CommitPoint
+	boundary boundarySite
+	// exclusiveWaitNS and sharedWaitNS sum the commit gate waits this
+	// transaction (and those it replaced) has had: exclusive ones the runtime
+	// reports (NoteCommitGateWait) and shared ones taken at commit. A read site
+	// keeps both sums and the wall clock at the read, so a loss can split the
+	// wall time from read to validation into gate waits and the rest.
+	exclusiveWaitNS int64
+	sharedWaitNS    int64
+	// degraded names, per keyed map read made whole by degradeMapKey, the
+	// path that made it whole.
+	degraded map[propertyReadKey]DegradePath
+	// renewed holds the slots a hot-read renewal re-read at a newer clock.
+	renewed map[propertyReadKey]struct{}
+}
+
+// boundarySite is an irreversible-effect boundary: the builtin that opened it,
+// the site calling it and the slice ticks then.
+type boundarySite struct {
+	builtin string
+	site    ConflictSite
+	ticks   int64
+}
+
+// CommitPoint is where a transaction validated: the slice's final commit, the
+// commit of a slice ending in suspension, the runtime's irreversible-effect
+// boundary (CommitAndRenewCarryingReads), or a coarse builtin's
+// CommitAndRenew.
+type CommitPoint uint8
+
+const (
+	CommitFinal CommitPoint = iota
+	CommitSuspend
+	CommitBoundary
+	CommitCoarse
+	commitPointCount
+)
+
+var commitPointNames = [...]string{"final", "suspend", "boundary", "coarse"}
+
+func (p CommitPoint) String() string {
+	if int(p) < len(commitPointNames) {
+		return commitPointNames[p]
+	}
+	return "unknown"
+}
+
+// DegradePath is the path that turned a keyed map read into a whole-property
+// read (degradeMapKey): the irreversible-effect boundary, for a keyed
+// assignment whose base was fetched and not yet written back (boundaryMapKeys;
+// the boundary carries every other keyed read per entry), a live mutation by a
+// coarse builtin, a flush of staged topology, a property rename, or a
+// maphaskey(obj.prop, key) that cannot stay keyed (ReadMapKeyedSlotWhole: the
+// call may redirect to #0:bf_maphaskey, or the key is not an ordered key).
+type DegradePath uint8
+
+const (
+	DegradeBoundary DegradePath = iota
+	DegradeLiveMutation
+	DegradeFlush
+	DegradeRename
+	DegradeMaphaskey
+	degradePathCount
+)
+
+var degradePathNames = [...]string{"boundary", "live-mutation", "flush", "rename", "maphaskey"}
+
+func (p DegradePath) String() string {
+	if int(p) < len(degradePathNames) {
+		return degradePathNames[p]
+	}
+	return "unknown"
+}
+
+// CommitPointCounts counts by commit point.
+type CommitPointCounts struct {
+	Final, Suspend, Boundary, Coarse uint64
+}
+
+func (c *CommitPointCounts) add(p CommitPoint) {
+	switch p {
+	case CommitSuspend:
+		c.Suspend++
+	case CommitBoundary:
+		c.Boundary++
+	case CommitCoarse:
+		c.Coarse++
+	default:
+		c.Final++
+	}
+}
+
+// DegradeCounts counts by degrade path.
+type DegradeCounts struct {
+	Boundary, LiveMutation, Flush, Rename, Maphaskey uint64
+}
+
+func (c *DegradeCounts) add(p DegradePath) {
+	switch p {
+	case DegradeLiveMutation:
+		c.LiveMutation++
+	case DegradeFlush:
+		c.Flush++
+	case DegradeRename:
+		c.Rename++
+	case DegradeMaphaskey:
+		c.Maphaskey++
+	default:
+		c.Boundary++
+	}
 }
 
 type conflictReadSite struct {
 	site  ConflictSite
 	ticks int64
+	// at, exclusiveWaitNS and sharedWaitNS are the wall clock and the
+	// transaction's gate wait sums at the read.
+	at              time.Time
+	exclusiveWaitNS int64
+	sharedWaitNS    int64
 }
 
 type conflictReadValue struct {
@@ -145,6 +288,8 @@ type writerEntry struct {
 	version uint64
 	label   ConflictLabel
 	site    ConflictSite
+	// point is the commit that published the version.
+	point CommitPoint
 }
 
 type writerRing struct {
@@ -186,10 +331,84 @@ func (tx *StoreTxn) carryConflictDiag(next *StoreTxn, reads bool) {
 	if tx.diag == nil || next.diag == nil {
 		return
 	}
-	next.diag.siteFn = tx.diag.siteFn
+	tx.diag.carryOrigin(next.diag)
 	if reads {
 		next.diag.readSites, next.diag.readValues = tx.diag.readSites, tx.diag.readValues
 		next.diag.hotReads = tx.diag.hotReads
+		next.diag.degraded = tx.diag.degraded
+		next.diag.renewed = tx.diag.renewed
+	}
+}
+
+// carryOrigin gives next, the record of a transaction replacing d's, d's site
+// callback, origin, boundary and gate waits so far. The commit point is not
+// carried: the replacement validates at the slice's final commit unless told
+// otherwise.
+func (d *txnConflictDiag) carryOrigin(next *txnConflictDiag) {
+	next.siteFn = d.siteFn
+	next.definer, next.attempt = d.definer, d.attempt
+	next.boundary = d.boundary
+	next.exclusiveWaitNS, next.sharedWaitNS = d.exclusiveWaitNS, d.sharedWaitNS
+}
+
+// SetConflictCommitPoint tells a tracking transaction where its next
+// validation happens. It does nothing on a transaction begun with tracking
+// off.
+func (tx *StoreTxn) SetConflictCommitPoint(point CommitPoint) {
+	if tx != nil && tx.diag != nil {
+		tx.diag.point = point
+	}
+}
+
+// NoteBoundary tells a tracking transaction that the runtime is taking it
+// across the irreversible-effect boundary builtin opened: its next validation
+// is at the boundary, and the site and slice ticks now are counted for the
+// task's root verb (the first boundary of each attempt; VerbGoodput). It does
+// nothing on a transaction begun with tracking off.
+func (tx *StoreTxn) NoteBoundary(builtin string) {
+	if tx == nil || tx.diag == nil {
+		return
+	}
+	d := tx.diag
+	d.point = CommitBoundary
+	b := boundarySite{builtin: builtin, site: ConflictSite{Obj: types.ObjNothing}}
+	if d.siteFn != nil {
+		b.site, b.ticks = d.siteFn()
+	}
+	d.boundary = b
+	census := &tx.store.conflicts
+	census.mu.Lock()
+	defer census.mu.Unlock()
+	row := census.verbRowLocked(ConflictLabel{Obj: d.definer, Verb: tx.conflictLabel.Verb})
+	row.Boundaries++
+	row.BoundaryTicks += b.ticks
+	row.addBoundarySite(b)
+}
+
+// NoteCommitGateWait adds an exclusive commit gate wait the runtime had while
+// running this transaction, for the gate wait between a loser's read and its
+// validation. It does nothing on a transaction begun with tracking off.
+func (tx *StoreTxn) NoteCommitGateWait(wait time.Duration) {
+	if tx != nil && tx.diag != nil {
+		tx.diag.exclusiveWaitNS += int64(wait)
+	}
+}
+
+// noteSharedGateWait adds a shared commit gate wait taken at commit.
+func (d *txnConflictDiag) noteSharedGateWait(wait time.Duration) {
+	d.sharedWaitNS += int64(wait)
+}
+
+// noteRenewed records that a hot-read renewal re-read rkey at a newer clock.
+func (d *txnConflictDiag) noteRenewed(rkey propertyReadKey) {
+	lazySet(&d.renewed, rkey, struct{}{})
+}
+
+// noteDegraded records that degradeMapKey made the keyed read of rkey whole
+// by path via.
+func (d *txnConflictDiag) noteDegraded(rkey propertyReadKey, via DegradePath) {
+	if _, seen := d.degraded[rkey]; !seen {
+		lazySet(&d.degraded, rkey, via)
 	}
 }
 
@@ -198,7 +417,8 @@ func (tx *StoreTxn) carryConflictDiag(next *StoreTxn, reads bool) {
 func (d *txnConflictDiag) noteRead(rkey propertyReadKey, prop *Property) {
 	if _, seen := d.readSites[rkey]; !seen && d.siteFn != nil {
 		site, ticks := d.siteFn()
-		lazySet(&d.readSites, rkey, conflictReadSite{site: site, ticks: ticks})
+		lazySet(&d.readSites, rkey, conflictReadSite{site: site, ticks: ticks, at: time.Now(),
+			exclusiveWaitNS: d.exclusiveWaitNS, sharedWaitNS: d.sharedWaitNS})
 	}
 	if prop != nil {
 		if _, seen := d.readValues[rkey]; !seen {
@@ -248,7 +468,7 @@ func (tx *StoreTxn) registerWritersLocked() {
 		if !ok {
 			site = ConflictSite{Obj: types.ObjNothing}
 		}
-		ring.add(writerEntry{version: prop.version, label: tx.conflictLabel, site: site})
+		ring.add(writerEntry{version: prop.version, label: tx.conflictLabel, site: site, point: tx.diag.point})
 	}
 	clear(tx.diag.writeSites)
 }
@@ -322,50 +542,78 @@ func (tx *StoreTxn) diagnoseMapKeyConflictLocked(c *ReadConflict, rkey propertyR
 	c.diag.unchanged = !live.clear && live.value.Type() == types.TYPE_MAP && mapEntriesUnchanged(live.value, st.reads)
 }
 
-// addDiagLocked counts what tracking recorded about the loss of c into count.
-// The caller holds census.mu.
+// addDiagLocked counts what tracking recorded about the loss of c into count,
+// and into the loss path of c, the loser's root verb and its read site. The
+// caller holds census.mu.
 func (tx *StoreTxn) addDiagLocked(census *conflictCensus, count *ConflictCount, c *ReadConflict, lossTicks int64) {
 	d := &count.Diag
 	d.WastedTicks += lossTicks
-	if c.Kind != ConflictProperty && c.Kind != ConflictMapKey {
-		return
-	}
-	if c.diag.compared {
-		d.ValueCompared++
-		if c.diag.unchanged {
-			d.ValueUnchanged++
+	var writer writerEntry
+	writerFound := false
+	var read conflictReadSite
+	readFound := false
+	if c.Kind == ConflictProperty || c.Kind == ConflictMapKey {
+		if c.diag.compared {
+			d.ValueCompared++
+			if c.diag.unchanged {
+				d.ValueUnchanged++
+			}
+		}
+		key := propertyReadKey{objID: c.ObjID, name: c.Name}
+		if via, ok := tx.diag.degraded[key]; ok {
+			d.Degraded.add(via)
+		}
+		if ring := census.writers[key]; ring != nil && c.diag.rewriteKnown {
+			writer, writerFound = ring.find(c.diag.rewriteVersion)
+		}
+		if writerFound {
+			d.addWriter(writer)
+		} else {
+			d.UnknownWriters++
+		}
+		read, readFound = tx.diag.readSites[key]
+		if readFound {
+			d.addReadSite(read.site, read.ticks, lossTicks)
+		} else {
+			d.UnknownReadSites++
+		}
+		if _, ok := tx.diag.renewed[key]; ok {
+			d.RenewedThenLost++
 		}
 	}
 	key := propertyReadKey{objID: c.ObjID, name: c.Name}
-	var writer writerEntry
-	found := false
-	if ring := census.writers[key]; ring != nil && c.diag.rewriteKnown {
-		writer, found = ring.find(c.diag.rewriteVersion)
-	}
-	if found {
-		d.addWriter(writer.label, writer.site)
-	} else {
-		d.UnknownWriters++
-	}
-	if rs, ok := tx.diag.readSites[key]; ok {
-		d.addReadSite(rs.site, rs.ticks, lossTicks)
-	} else {
-		d.UnknownReadSites++
-	}
+	tx.addPathLocked(census, c, key, lossTicks, writer, writerFound, read, readFound)
 }
 
-func (d *ConflictDiag) addWriter(label ConflictLabel, site ConflictSite) {
+func (d *ConflictDiag) addWriter(w writerEntry) {
 	for i := range d.Writers {
-		if w := &d.Writers[i]; w.Label == label && w.Site == site {
-			w.Lost++
+		if row := &d.Writers[i]; row.Label == w.label && row.Site == w.site {
+			row.Lost++
+			row.PublishedBy.add(w.point)
 			return
 		}
 	}
 	if len(d.Writers) >= maxConflictSites {
 		d.OtherWriters++
+		d.addOtherWriterRoot(w.label)
 		return
 	}
-	d.Writers = append(d.Writers, ConflictWriterCount{Label: label, Site: site, Lost: 1})
+	row := ConflictWriterCount{Label: w.label, Site: w.site, Lost: 1}
+	row.PublishedBy.add(w.point)
+	d.Writers = append(d.Writers, row)
+}
+
+// addOtherWriterRoot counts a writer beyond maxConflictSites by its root label.
+func (d *ConflictDiag) addOtherWriterRoot(label ConflictLabel) {
+	for i := range d.OtherWriterRoots {
+		if l := &d.OtherWriterRoots[i]; l.Obj == label.Obj && l.Verb == label.Verb {
+			l.Lost++
+			return
+		}
+	}
+	if len(d.OtherWriterRoots) < maxConflictSites {
+		d.OtherWriterRoots = append(d.OtherWriterRoots, ConflictLabelCount{Obj: label.Obj, Verb: label.Verb, Lost: 1})
+	}
 }
 
 func (d *ConflictDiag) addReadSite(site ConflictSite, readTicks, lossTicks int64) {
@@ -401,6 +649,10 @@ func (d ConflictDiag) snapshot() ConflictDiag {
 	slices.SortFunc(out.ReadSites, func(a, b ConflictReadSiteCount) int {
 		return cmp.Or(cmp.Compare(b.Lost, a.Lost), compareSite(a.Site, b.Site))
 	})
+	out.OtherWriterRoots = slices.Clone(d.OtherWriterRoots)
+	slices.SortFunc(out.OtherWriterRoots, func(a, b ConflictLabelCount) int {
+		return cmp.Or(cmp.Compare(b.Lost, a.Lost), cmp.Compare(a.Obj, b.Obj), cmp.Compare(a.Verb, b.Verb))
+	})
 	return out
 }
 
@@ -413,11 +665,12 @@ func (c ConflictCensus) WastedShare() float64 {
 	return 100 * float64(c.WastedTicks) / float64(c.TotalTicks)
 }
 
-// NoteSliceAttempts counts one task slice that resolved (committed, or failed
-// for good) after attempts attempts, having executed ticks over all of them, of
-// which rerunTicks belong to attempts it discarded and re-ran. It does nothing
-// unless tracking is on.
-func (s *Store) NoteSliceAttempts(attempts int, ticks, rerunTicks int64) {
+// NoteSliceAttempts counts one task slice of root verb verb (the object
+// defining it and its name) that resolved (committed, or failed for good) after
+// attempts attempts, having executed ticks over all of them, of which
+// rerunTicks belong to attempts it discarded and re-ran. It does nothing unless
+// tracking is on.
+func (s *Store) NoteSliceAttempts(verb ConflictLabel, attempts int, ticks, rerunTicks int64) {
 	if !s.conflicts.tracking.Load() || attempts < 1 {
 		return
 	}
@@ -427,4 +680,5 @@ func (s *Store) NoteSliceAttempts(attempts int, ticks, rerunTicks int64) {
 	census.attempts[min(attempts, maxSliceAttempts+1)-1]++
 	census.totalTicks += ticks
 	census.wastedTicks += rerunTicks
+	census.verbRowLocked(verb).add(attempts, ticks, rerunTicks)
 }

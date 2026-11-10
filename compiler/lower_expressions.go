@@ -280,6 +280,10 @@ func (c *lowerer) compileBuiltinCall(n *ir.BuiltinCallExpr) error {
 		return nil
 	}
 
+	if prop, ok := keyedMaphaskeyProperty(n); ok {
+		return c.compileKeyedMaphaskey(prop, n.Args[1], funcID)
+	}
+
 	// Check if any argument is a splice expression
 	hasSplice := hasSpliceArgs(n.Args)
 
@@ -373,6 +377,46 @@ func (c *lowerer) compileKeyedPropertyIndex(prop *ir.PropertyExpr, index ir.Expr
 	}
 	c.emit(bytecode.OP_INDEX_KEYED)
 	c.emitShort(name)
+	return nil
+}
+
+// keyedMaphaskeyProperty returns obj.prop of maphaskey(obj.prop, key): two
+// arguments, neither spliced, the first a property with a static name. That
+// call tests one entry of the map, case-insensitively, so the store can depend
+// on the entry alone. The three-argument form can ask for a case-sensitive
+// match, which depends on how the stored key is spelled; it stays a whole read.
+func keyedMaphaskeyProperty(n *ir.BuiltinCallExpr) (*ir.PropertyExpr, bool) {
+	if canonicalIdentifier(n.Name) != canonicalIdentifier("maphaskey") || len(n.Args) != 2 {
+		return nil, false
+	}
+	if _, splice := n.Args[1].(*ir.SpliceExpr); splice {
+		return nil, false
+	}
+	prop, ok := n.Args[0].(*ir.PropertyExpr)
+	if !ok || prop.Property == "" {
+		return nil, false
+	}
+	return prop, true
+}
+
+// compileKeyedMaphaskey compiles maphaskey(obj.prop, key). Evaluation order,
+// errors and ticks are those of GET_PROP, key, CALL_BUILTIN: OP_GET_PROP_KEYED
+// keeps obj under the value and OP_MAPHASKEY_KEYED, which charges nothing,
+// reports the entry and drops obj before the ordinary call.
+func (c *lowerer) compileKeyedMaphaskey(prop *ir.PropertyExpr, key ir.Expr, funcID int) error {
+	if err := c.compileNode(prop.Expr); err != nil {
+		return err
+	}
+	name := uint16(c.addConstant(types.NewStr(prop.Property)))
+	c.emit(bytecode.OP_GET_PROP_KEYED)
+	c.emitShort(name)
+	if err := c.compileNode(key); err != nil {
+		return err
+	}
+	c.emit(bytecode.OP_MAPHASKEY_KEYED)
+	c.emitShort(name)
+	c.emitShort(uint16(funcID))
+	c.emitCallBuiltin(funcID, 2)
 	return nil
 }
 

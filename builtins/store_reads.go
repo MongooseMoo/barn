@@ -28,19 +28,22 @@ func markLiveStoreMutated(ctx *Execution) {
 // mutation. It reports whether the act may proceed. False means the runtime is
 // abandoning this attempt at its irreversible-effect boundary (see
 // task.Context.BeforeIrreversibleEffect) and the builtin returns
-// abortedAttempt() having done nothing.
-func beginIrreversible(ctx *Execution) bool {
+// abortedAttempt() having done nothing. builtin names the builtin crossing the
+// boundary, for the runtime's commit gate accounting.
+func beginIrreversible(ctx *Execution, builtin string) bool {
 	if ctx == nil || ctx.Context == nil {
 		return true
 	}
 	tc := ctx.Context
+	// Counted per calling site for the conflict census; nothing without tracking.
+	tc.StoreTxn.NoteBuiltinCall(builtin)
 	if tc.ConflictRetryRequested {
 		return false
 	}
 	if tc.IrreversibleSideEffect || tc.LiveStoreMutated || tc.BeforeIrreversibleEffect == nil {
 		return true // the boundary is behind us, or this context has no retry to protect
 	}
-	return !tc.BeforeIrreversibleEffect()
+	return !tc.BeforeIrreversibleEffect(builtin)
 }
 
 // abortedAttempt is the result a builtin returns when beginIrreversible
@@ -51,9 +54,9 @@ func abortedAttempt() types.Result {
 
 // beforeCoarse is the prologue of every coarse builtin: cross the
 // irreversible-effect boundary, then flush staged topology to live. When ok is
-// false the builtin returns res as is.
-func beforeCoarse(ctx *Execution) (res types.Result, ok bool) {
-	if !beginIrreversible(ctx) {
+// false the builtin returns res as is. builtin names the calling builtin.
+func beforeCoarse(ctx *Execution, builtin string) (res types.Result, ok bool) {
+	if !beginIrreversible(ctx, builtin) {
 		return abortedAttempt(), false
 	}
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sync/atomic"
+
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -13,6 +15,9 @@ type Task struct {
 	task.State
 	machine *vm.VM
 	catalog *TaskManager
+	// timeline is the task's slice timeline while diagnostics tracking is on
+	// (task_timeline.go). It is one pointer so a task without it stays small.
+	timeline atomic.Pointer[taskTimeline]
 }
 
 func NewTask(id int64, owner types.ObjID, ticks int64, seconds float64) *Task {

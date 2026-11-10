@@ -16,7 +16,7 @@ func (tx *StoreTxn) MarkLiveMutated() {
 		tx.materializeVerbMemoMarks()
 		// The coarse path's live-mutation bookkeeping adopts, renumbers and
 		// forgets whole slots; keyed dependencies become whole reads first.
-		tx.degradeMapKeys()
+		tx.degradeMapKeysVia(DegradeLiveMutation)
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -361,7 +361,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	tx.validationFail = false
 	// A flush publishes the staged values as they are; a keyed write publishes
 	// its whole view, as any staged write does here.
-	tx.degradeMapKeys()
+	tx.degradeMapKeysVia(DegradeFlush)
 	writes := tx.writesByObject()
 	tx.store.mu.Lock()
 	if len(tx.waifs) != 0 {

@@ -61,6 +61,7 @@ func main() {
 	flag.StringVar(&cfg.DumpObjectRaw, "dump-obj-raw", "", "Dump raw database fields for an object")
 	flag.StringVar(&cfg.VerbLookup, "verb-lookup", "", "Show where a verb would be found")
 	flag.StringVar(&cfg.Ancestry, "ancestry", "", "Show full parent chain")
+	flag.StringVar(&cfg.GrepVerbs, "grep-verbs", "", "Print every verb source line matching a regular expression as #obj:verb:line: text")
 	flag.StringVar(&cfg.DumpPath, "dump", "", "Dump database, reload and verify it, then exit")
 	flag.BoolVar(&cfg.MemoryReport, "memory-report", false, "Load the database, collect garbage, print retained heap and property-slot counts, then exit")
 	flag.StringVar(&cfg.MemoryProfile, "memory-profile", "", "With -memory-report, also write a pprof heap profile to this path")

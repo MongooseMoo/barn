@@ -295,7 +295,7 @@ func sqliteRunStatement(opCtx context.Context, handle *sqliteHandle, sqlText str
 	return types.Ok(types.NewEmptyList())
 }
 
-func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+func sqliteExecOrQueryAsync(ctx *Execution, builtin string, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
 	id := runtimeIdentity(ctx)
 	store := ctx.Store
 	if ctx.Task != nil && !threadedCall(ctx) {
@@ -311,7 +311,7 @@ func sqliteExecOrQueryAsync(ctx *Execution, handle *sqliteHandle, sqlText string
 		// other inline statement before entering SQLite or waiting on its handle.
 		// A stale attempt must stop before executing any external operation.
 		// Threaded operations instead start only after the slice commits.
-		if !beginIrreversible(ctx) {
+		if !beginIrreversible(ctx, builtin) {
 			return abortedAttempt()
 		}
 		ctx.IrreversibleSideEffect = true
@@ -573,7 +573,7 @@ func builtinSqliteQuery(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 3 {
 		includeHeaders = args[2].Truthy()
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, args[1].Str(), nil, includeHeaders)
+	return sqliteExecOrQueryAsync(ctx, "sqlite_query", handle, args[1].Str(), nil, includeHeaders)
 }
 
 func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
@@ -603,7 +603,7 @@ func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
 	for _, value := range args[2].Elements() {
 		params = append(params, sqliteParamValue(value))
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, args[1].Str(), params, false)
+	return sqliteExecOrQueryAsync(ctx, "sqlite_execute", handle, args[1].Str(), params, false)
 }
 
 func builtinSqliteLastInsertRowID(ctx *Execution, args []types.Value) types.Result {

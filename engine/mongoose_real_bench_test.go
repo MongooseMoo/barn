@@ -26,6 +26,10 @@ package engine
 //   BARN_MONGOOSE_CENSUS_TOP  conflict-census rows printed per level (default 25)
 //   BARN_MONGOOSE_SOUND_DB    the deployment's sound.sqlite; copied to
 //                             files/sqlite/sound.sqlite before #0:server_started
+//   BARN_MONGOOSE_MOO_PATCH   path to a MOO program evaluated once as #2 after the
+//                             snapshot repairs and before the workload (independent
+//                             of BARN_MONGOOSE_REPAIR); it must return a true value
+//                             on success, and the test fails otherwise
 //   BARN_MONGOOSE_CPUPROFILE  write Go CPU profile (startup, warmup, measurement, drain)
 //   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
 //   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
@@ -41,6 +45,7 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -267,6 +272,16 @@ func (c *realCommandCompletion) blockers(now time.Time) string {
 	return strings.Join(out, " ")
 }
 
+// timeline renders the command task's slice timeline on following lines, or
+// says why there is none (it is recorded only with BARN_MONGOOSE_STALE_READS).
+func (c *realCommandCompletion) timeline() string {
+	tl, ok := c.task.Timeline()
+	if !ok {
+		return "\n    timeline: not recorded (set BARN_MONGOOSE_STALE_READS=1)"
+	}
+	return "\n    timeline: " + strings.ReplaceAll(FormatTaskTimeline(tl), "\n", "\n    ")
+}
+
 func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 	if c.task == nil {
 		return false, "missing-command-task"
@@ -306,18 +321,21 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 			}
 			readierStatus = fmt.Sprintf("{task=%d state=%s execution_active=%v lease=%d}", readier.ID, snapshot.State, snapshot.ExecutionActive, readierLease)
 		}
+		// Where the time went, while the task is still there to ask.
+		timeline := c.timeline()
 		c.task.Kill()
 		select {
 		case <-c.task.Done:
-			return false, "timeout:" + ctx.Err().Error()
+			return false, "timeout:" + ctx.Err().Error() + timeline
 		default:
-			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s readier=%s blocked-by=%s readiness=%s admission=%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, readierStatus, blockers, readiness, admissionStatus)
+			return false, fmt.Sprintf("unsettled:%v task=%d state=%s reading=%d ready=%v lease=%d saved=%v stack=%s readier=%s blocked-by=%s readiness=%s admission=%s%s", ctx.Err(), c.task.ID, state, reading, ready, lease, saved, frames, readierStatus, blockers, readiness, admissionStatus, timeline)
 		}
 	}
 	select {
 	case result := <-c.result:
 		if result.Flow == types.FlowException {
-			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack))
+			traceback := strings.Join(taskpkg.FormatTraceback(result.CallStack, result.ErrorMessage()), "\n    ")
+			return false, fmt.Sprintf("uncaught:%s task=%d stack=%s\n    %s%s", result.Error.String(), c.task.ID, realCommandFrames(result.CallStack), traceback, c.timeline())
 		}
 		return true, ""
 	default:
@@ -357,25 +375,34 @@ func startRealMOOProfile(t *testing.T, prefix string, players int) func() {
 	return stop
 }
 
-// copyBenchFile copies src over dst, creating dst's directory.
-func copyBenchFile(src, dst string) error {
+// copyBenchFile copies src over dst, creating dst's directory. When dst is
+// already the same file as src it returns copied=false without opening dst
+// for writing: os.Create would truncate src before the copy reads it.
+func copyBenchFile(src, dst string) (copied bool, err error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer in.Close()
+	srcInfo, err := in.Stat()
+	if err != nil {
+		return false, err
+	}
+	if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return false, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	out, err := os.Create(dst)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		return err
+		return false, err
 	}
-	return out.Close()
+	return true, out.Close()
 }
 
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
@@ -528,12 +555,19 @@ func TestMongooseRealWorkload(t *testing.T) {
 	}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
 	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
-		if err := copyBenchFile(catalog, "files/sqlite/sound.sqlite"); err != nil {
+		copied, err := copyBenchFile(catalog, "files/sqlite/sound.sqlite")
+		if err != nil {
 			t.Fatalf("install sound catalog: %v", err)
 		}
-		t.Logf("sound catalog: %s", catalog)
+		if copied {
+			t.Logf("sound catalog: %s", catalog)
+		} else {
+			t.Logf("sound catalog: %s (already in place at files/sqlite/sound.sqlite; not copied)", catalog)
+		}
 	} else {
-		t.Logf("sound catalog: none (BARN_MONGOOSE_SOUND_DB unset); `say` will raise")
+		// Not "say will raise": the snapshot repair below can still open a
+		// sound db, and its log line reports whether one is open.
+		t.Logf("sound catalog: none copied (BARN_MONGOOSE_SOUND_DB unset); see the snapshot repair line for the sound db state")
 	}
 	s.Session().LoadServerOptionsFromStore(store)
 	s.Session().LoadProtectedBuiltinsFromStore(store)
@@ -638,19 +672,32 @@ func TestMongooseRealWorkload(t *testing.T) {
 			"  endif",
 			"endfor",
 			"cloaked = `property_info(#36, \"cloaked\") ! E_PROPNF => add_property(#36, \"cloaked\", 0, {#36, \"r\"})';",
-			// The October checkpoint gives #71 a home at #62, whose inherited
-			// acceptable returns 0. Toast rejects that owner-driven move too.
-			// Repair this captured fixture defect to its designated player start.
-			"home_repaired = 0;",
-			"if (#71.home == #62 && !#62:acceptable(#71) && $player_start:acceptable(#71))",
-			"  #71.home = $player_start; home_repaired = 1;",
-			"endif",
 			"if (#2585.sql:is_open())",
 			"  sqlite_execute(#2585.sql.handle, \"CREATE TABLE IF NOT EXISTS assets (asset_location TEXT, duration REAL);\", {});",
 			"endif",
-			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked, {home_repaired, #71.home}};",
+			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
 		}, "\n")
-		t.Logf("snapshot home before repair: %s", s.EvalCommandOutput(2, "return #71.home;"))
+		// The checkpoint gives some players a home that refuses them (#71 and
+		// others at #62, whose inherited acceptable returns 0), so their `home`
+		// raises E_NACC in move(); Toast rejects that owner-driven move too.
+		// Repair every such player, once, to the designated player start. A
+		// missing accept verb refuses, as in move(). A player object with no
+		// home property (#10244, a nameless #5 child at #-1) has no home to refuse it.
+		homeRepair := strings.Join([]string{
+			"repaired = {};",
+			"for p in (players())",
+			"  h = `p.home ! E_PROPNF => $nothing';",
+			"  if (typeof(h) == OBJ && valid(h) && h != $player_start && !`h:accept(p) ! E_VERBNF => 0' && $player_start:accept(p))",
+			"    p.home = $player_start; repaired = {@repaired, p};",
+			"  endif",
+			"endfor",
+			"return {length(repaired), repaired};",
+		}, "\n")
+		homeOut := s.EvalCommandOutput(2, homeRepair)
+		if !strings.HasPrefix(homeOut, "{1, {") {
+			t.Fatalf("snapshot home repair failed: %s", homeOut)
+		}
+		t.Logf("snapshot home repair (as #2) {count, players moved to $player_start}: %s", homeOut)
 		var out string
 		for attempt := 0; attempt < 60; attempt++ {
 			out = s.EvalCommandOutput(2, repair)
@@ -662,7 +709,26 @@ func TestMongooseRealWorkload(t *testing.T) {
 		if !strings.HasPrefix(out, "{1, {1,") {
 			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
 		}
-		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked, home repair}: %s", out)
+		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
+	}
+	// BARN_MONGOOSE_MOO_PATCH applies a candidate MOO change to this loaded
+	// snapshot, so one dump can be measured with and without it. The file is
+	// evaluated once as #2 with ordinary builtins (set_verb_code etc.) and must
+	// itself check its work and return a true value (1) on success; a compile
+	// error, uncaught error, or false result fails the test with the raw output.
+	if path := os.Getenv("BARN_MONGOOSE_MOO_PATCH"); path != "" {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("BARN_MONGOOSE_MOO_PATCH: %v", err)
+		}
+		t.Logf("MOO patch %s sha256=%x", path, sha256.Sum256(src))
+		outcome := s.Eval(2, strings.Split(string(src), "\n"))
+		out := outcome.CommandOutput()
+		if outcome.Panic != nil || len(outcome.Diagnostics) > 0 ||
+			outcome.Result.Flow == types.FlowException || !outcome.Result.Val.Truthy() {
+			t.Fatalf("MOO patch %s failed: %s", path, out)
+		}
+		t.Logf("MOO patch (as #2) result: %s", out)
 	}
 	totalWeight := 0
 	for _, sh := range realShapes {
@@ -701,7 +767,12 @@ func TestMongooseRealWorkload(t *testing.T) {
 			maxLat    time.Duration
 			failMsgs  []string
 			unsettled int64
+			// details is every failed command's full report (error,
+			// traceback, timeline), up to maxFailDetails per player.
+			details        []string
+			detailsDropped int
 		}
+		const maxFailDetails = 100
 		stats := make([]gstat, active)
 		for i := range stats {
 			stats[i].shapes = make([]shapeStat, len(realShapes))
@@ -752,9 +823,17 @@ func TestMongooseRealWorkload(t *testing.T) {
 							if strings.HasPrefix(failure, "unsettled:") {
 								st.unsettled++
 							}
+							// The sample keeps the first line, so identical
+							// failures group; the details keep everything.
+							first, _, _ := strings.Cut(failure, "\n")
 							if len(st.failMsgs) < 5 {
 								st.failMsgs = append(st.failMsgs,
-									realShapes[sh].name+" -> "+failure)
+									realShapes[sh].name+" -> "+first)
+							}
+							if len(st.details) < maxFailDetails {
+								st.details = append(st.details, fmt.Sprintf("player=#%d %s -> %s", players[idx], realShapes[sh].name, failure))
+							} else {
+								st.detailsDropped++
 							}
 						}
 					}
@@ -926,6 +1005,14 @@ func TestMongooseRealWorkload(t *testing.T) {
 				t.Logf("  failure sample (x%d): %s", uniq[k], k)
 			}
 		}
+		for i := range stats {
+			for _, d := range stats[i].details {
+				t.Logf("  failed command: %s", d)
+			}
+			if stats[i].detailsDropped > 0 {
+				t.Logf("  failed command: player=#%d %d more not printed", players[i], stats[i].detailsDropped)
+			}
+		}
 	}
 
 	if mp := os.Getenv("BARN_MONGOOSE_MEMPROFILE"); mp != "" {
@@ -1082,92 +1169,8 @@ func readGCCPU() gcCPU {
 // add up to the lost commits: sole_cause is the share of lost commits stale on
 // exactly one key, and keys_per_loss the mean number of stale keys.
 func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed int64, top int, staleReads bool) {
-	var occurrences, sole uint64
-	for _, row := range census.Keys {
-		occurrences += row.Lost
-		sole += row.Sole
-	}
-	occurrences += census.Overflow.Lost
-	sole += census.Overflow.Sole
-	share := func(n, of uint64) float64 {
-		if of == 0 {
-			return 0
-		}
-		return float64(n) / float64(of) * 100
-	}
-	keysPerLoss := 0.0
-	if census.LostTxns > 0 {
-		keysPerLoss = float64(occurrences) / float64(census.LostTxns)
-	}
-	t.Logf("  conflicts: lost_commits=%d refused_renewals=%d keys=%d overflow_losses=%d sole_cause=%.1f%% keys_per_loss=%.2f",
-		census.LostTxns, census.RefusedRenewals, len(census.Keys), census.Overflow.Lost,
-		share(sole, census.LostTxns), keysPerLoss)
-	for i, row := range census.Keys {
-		if i >= top {
-			break
-		}
-		var key string
-		switch row.Kind {
-		case dbstore.ConflictProperty:
-			key = fmt.Sprintf("#%d.%s", row.ObjID, row.Name)
-		case dbstore.ConflictMapKey:
-			key = fmt.Sprintf("#%d.%s[]", row.ObjID, row.Name)
-		case dbstore.ConflictVerb:
-			key = fmt.Sprintf("#%d:%s", row.ObjID, row.Name)
-		case dbstore.ConflictVerbShape:
-			key = "(any verb or ancestry)"
-		case dbstore.ConflictWaif:
-			key = row.Name
-		default:
-			key = fmt.Sprintf("#%d", row.ObjID)
-		}
-		stale := "n/a"
-		if staleReads && row.Kind == dbstore.ConflictProperty {
-			stale = fmt.Sprintf("%.1f%%", share(row.StaleAtRead, row.Lost))
-		}
-		perCommand := 0.0
-		if committed > 0 {
-			perCommand = float64(row.Lost) / float64(committed)
-		}
-		var by []string
-		for _, label := range row.Labels {
-			by = append(by, fmt.Sprintf("#%d:%s=%d", label.Obj, label.Verb, label.Lost))
-		}
-		if row.OtherLabels > 0 {
-			by = append(by, fmt.Sprintf("other=%d", row.OtherLabels))
-		}
-		t.Logf("  conflict %-14s %-28s lost=%-6d %5.1f%% sole=%-6d refused=%-5d stale_at_read=%-6s per_command=%.2f by=[%s]",
-			row.Kind, key, row.Lost, share(row.Lost, census.LostTxns), row.Sole, row.Refused,
-			stale, perCommand, strings.Join(by, " "))
-		if staleReads {
-			logConflictDiag(t, row)
-		}
-	}
-	if staleReads {
-		var hist []string
-		var slices, totalAttempts uint64
-		for i, n := range census.SliceAttempts {
-			if n == 0 {
-				continue
-			}
-			label := fmt.Sprintf("%d", i+1)
-			if i == len(census.SliceAttempts)-1 {
-				label = fmt.Sprintf(">%d", i)
-			}
-			hist = append(hist, fmt.Sprintf("%s:%d", label, n))
-			slices += n
-			totalAttempts += n * uint64(i+1)
-		}
-		mean := 0.0
-		if slices > 0 {
-			mean = float64(totalAttempts) / float64(slices)
-		}
-		t.Logf("  diag attempts_per_slice slices=%d mean=%.3f total_ticks=%d wasted_ticks=%d wasted_share=%.1f%% hist=[%s]",
-			slices, mean, census.TotalTicks, census.WastedTicks, census.WastedShare(), strings.Join(hist, " "))
-		e := census.EarlyDetection
-		t.Logf("  diag early_detection checks=%d detected=%d detected_lost=%d detected_not_lost=%d savable_ticks=%d savable_share=%.1f%% undetected_lost=%d undetected_tracked=%d",
-			e.Checks, e.Detected, e.DetectedLost, e.DetectedNotLost, e.SavableTicks, e.SavableShare(census.WastedTicks),
-			e.UndetectedLost, e.UndetectedTracked)
+	for _, line := range FormatConflictCensus(census, committed, top, staleReads) {
+		t.Logf("  %s", line)
 	}
 }
 
@@ -1175,10 +1178,9 @@ func logConflictCensus(t *testing.T, census dbstore.ConflictCensus, committed in
 // window: every runtime phase (metrics/runtime.go), the shared commit gate
 // waits of ordinary commits (store), and admission's totals.
 type waitCounters struct {
-	phases           [metrics.PhaseCount]metrics.PhaseStats
-	sharedGateWaits  uint64
-	sharedGateWaited time.Duration
-	admission        admission.Stats
+	phases     [metrics.PhaseCount]metrics.PhaseStats
+	sharedGate SharedGateStats
+	admission  admission.Stats
 }
 
 func sampleWaitCounters(s *Runtime, store *dbstore.Store) waitCounters {
@@ -1186,7 +1188,7 @@ func sampleWaitCounters(s *Runtime, store *dbstore.Store) waitCounters {
 	for p := metrics.Phase(0); p < metrics.PhaseCount; p++ {
 		w.phases[p] = metrics.RuntimePhaseStats(p)
 	}
-	w.sharedGateWaits, w.sharedGateWaited = store.SharedGateWait()
+	w.sharedGate = s.SharedGate()
 	w.admission = s.AdmissionStats()
 	return w
 }
@@ -1215,27 +1217,9 @@ func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold)
 	}
 	t.Logf("  wall phases (count/total/max):%s", b.String())
 
-	var holdCount int64
-	var holdTotal, holdMax time.Duration
-	var top []string
-	for i, h := range holds {
-		holdCount += h.Count
-		holdTotal += h.Total
-		holdMax = max(holdMax, h.Max)
-		if i < 8 {
-			top = append(top, fmt.Sprintf("#%d:%s by %s n=%d total=%s max=%s", h.This, h.Verb, h.Cause, h.Count, latStr(h.Total), latStr(h.Max)))
-		}
+	for _, line := range FormatCommitGate(CommitGateReport{Holds: holds, Shared: after.sharedGate.Sub(before.sharedGate)}, 8) {
+		t.Logf("  %s", line)
 	}
-	t.Logf("  exclusive gate holds: count=%d total=%s max=%s top=[%s]", holdCount, latStr(holdTotal), latStr(holdMax), strings.Join(top, ", "))
-
-	sharedN := after.sharedGateWaits - before.sharedGateWaits
-	sharedWait := after.sharedGateWaited - before.sharedGateWaited
-	sharedMean := time.Duration(0)
-	if sharedN > 0 {
-		sharedMean = sharedWait / time.Duration(sharedN)
-	}
-	t.Logf("  shared gate wait at commit: commits=%d total=%s mean=%s (shared_commit_gate phase; exclusive acquire wait is commit_gate)",
-		sharedN, latStr(sharedWait), latStr(sharedMean))
 
 	a0, a1 := before.admission, after.admission
 	readmit := after.phases[metrics.Readmission].Sub(before.phases[metrics.Readmission])
@@ -1244,32 +1228,4 @@ func logWaitCounters(t *testing.T, before, after waitCounters, holds []GateHold)
 	t.Logf("  admission: preemptions=%d readmission_nonzero_waits=%d readmission_total=%s service=%s gate_wait=%s (shared+exclusive, clipped per segment) at_end active=%d queued=%d preempted=%d",
 		a1.Preemptions-a0.Preemptions, readmit.Count, latStr(time.Duration(readmit.TotalNS)),
 		latStr(a1.Service-a0.Service), latStr(a1.GateWait-a0.GateWait), a1.Active, a1.Queued, a1.Preempted)
-}
-
-// logConflictDiag prints what tracking recorded about one census row: who
-// wrote the version the losers read stale, where the losers first read the key
-// and how far into the slice, how many losses were on an unchanged value, and
-// the slice ticks thrown away by losses on the key (each loss's ticks are
-// counted in full on every key it was stale on).
-func logConflictDiag(t *testing.T, row dbstore.ConflictCount) {
-	d := row.Diag
-	site := func(s dbstore.ConflictSite) string {
-		if s.Obj == types.ObjNothing && s.Verb == "" {
-			return "?"
-		}
-		return fmt.Sprintf("#%d:%s@%d", s.Obj, s.Verb, s.Line)
-	}
-	unchanged := "n/a"
-	if d.ValueCompared > 0 {
-		unchanged = fmt.Sprintf("%d/%d", d.ValueUnchanged, d.ValueCompared)
-	}
-	t.Logf("      diag unchanged_value=%s wasted_ticks=%d detected_losses=%d savable_ticks=%d unknown_writer=%d other_writers=%d unknown_read_site=%d other_read_sites=%d",
-		unchanged, d.WastedTicks, d.DetectedLosses, d.SavableTicks, d.UnknownWriters, d.OtherWriters, d.UnknownReadSites, d.OtherReadSites)
-	for _, w := range d.Writers {
-		t.Logf("      writer root=#%d:%s at=%s lost=%d", w.Label.Obj, w.Label.Verb, site(w.Site), w.Lost)
-	}
-	for _, r := range d.ReadSites {
-		t.Logf("      read   at=%s lost=%d mean_read_tick=%.0f mean_loss_tick=%.0f",
-			site(r.Site), r.Lost, float64(r.ReadTicks)/float64(r.Lost), float64(r.LossTicks)/float64(r.Lost))
-	}
 }
