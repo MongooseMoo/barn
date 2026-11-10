@@ -523,7 +523,7 @@ func (tx *StoreTxn) RenameProperty(objID types.ObjID, from, to string) types.Err
 	}
 	// Keyed map dependencies and writes are kept by slot name; they become
 	// whole before the slot changes its name.
-	tx.degradeMapKeys()
+	tx.degradeMapKeysVia(DegradeRename)
 	obj := tx.mutableFacets(objID, facetProperties|facetPropOrder)
 	if !validLiveObject(obj) {
 		return types.E_INVIND

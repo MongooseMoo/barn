@@ -45,7 +45,7 @@ func censusStore(t *testing.T) *dbstore.Store {
 	if ec := loser.Commit(); ec == types.E_NONE {
 		t.Fatal("loser committed")
 	}
-	s.NoteSliceAttempts(2, 7, 3)
+	s.NoteSliceAttempts(dbstore.ConflictLabel{Obj: 1, Verb: "v"}, 2, 7, 3)
 	return s
 }
 

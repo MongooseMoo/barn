@@ -33,7 +33,7 @@ type StoreTxn struct {
 	locked                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	exclusiveGrant            *commitgate.Grant
-	gateWait                  func(time.Duration)
+	gateWait                  func(time.Duration, bool)
 	commitContext             context.Context
 	objects                   map[types.ObjID]*Object
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -183,7 +183,7 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		sampleReadClocks: s.conflicts.tracking.Load(),
 	}
 	if tx.sampleReadClocks {
-		tx.diag = &txnConflictDiag{}
+		tx.diag = &txnConflictDiag{definer: types.ObjNothing}
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
@@ -359,8 +359,9 @@ func (tx *StoreTxn) IsCommitGateExempt() bool {
 }
 
 // SetCommitWaitObserver carries occupancy accounting through transaction renewals.
-// Commit itself remains noncancellable once publication has begun.
-func (tx *StoreTxn) SetCommitWaitObserver(waited func(time.Duration)) {
+// Commit itself remains noncancellable once publication has begun. The observer
+// gets each shared gate wait and whether the request queued behind Exclusive.
+func (tx *StoreTxn) SetCommitWaitObserver(waited func(wait time.Duration, blocked bool)) {
 	if tx != nil {
 		tx.gateWait = waited
 	}

@@ -118,7 +118,7 @@ func TestSqliteAsyncErrorAlwaysResumesTask(t *testing.T) {
 	handle := newSQLiteHandle(1, ":memory:", nil, nil)
 	handle.closed = true
 
-	result := sqliteExecOrQueryAsync(ctx, handle, "SELECT 1", nil, false)
+	result := sqliteExecOrQueryAsync(ctx, "sqlite_query", handle, "SELECT 1", nil, false)
 	if result.Flow != types.FlowSuspend {
 		t.Fatalf("result flow = %v, want suspend", result.Flow)
 	}

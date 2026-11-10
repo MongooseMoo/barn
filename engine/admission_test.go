@@ -337,7 +337,7 @@ func TestAdmissionCapOneEscalatedSliceDoesNotYieldIntoDeadlock(t *testing.T) {
 		`add_property(#1, "v", 0, {player, "rw"});`+
 		`load_server_options();`)
 	gate := builtins.BuiltinFunc(func(ctx *builtins.Execution, _ []types.Value) types.Result {
-		if ctx.BeforeIrreversibleEffect() {
+		if ctx.BeforeIrreversibleEffect("test") {
 			return types.Result{Flow: types.FlowAbortAttempt}
 		}
 		ctx.IrreversibleSideEffect = true

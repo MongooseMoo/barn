@@ -163,7 +163,7 @@ func TestBuiltinExecFailedChecksDoNotCrossIrreversibleBoundary(t *testing.T) {
 			ctx, taskValue := sqliteAsyncCtx()
 			ctx.IsWizard = tc.wizard
 			crossings := 0
-			ctx.BeforeIrreversibleEffect = func() bool {
+			ctx.BeforeIrreversibleEffect = func(string) bool {
 				crossings++
 				return false
 			}
@@ -181,14 +181,17 @@ func TestBuiltinExecFailedChecksDoNotCrossIrreversibleBoundary(t *testing.T) {
 	}
 }
 
-// A valid exec() crosses the boundary once, before the process starts, and
-// then suspends the task until the process finishes.
+// A valid exec() crosses the boundary once, naming itself, before the process
+// starts, and then suspends the task until the process finishes.
 func TestBuiltinExecCrossesBoundaryBeforeStartingProcess(t *testing.T) {
 	program := installExecTestBinary(t)
 	ctx, taskValue := sqliteAsyncCtx()
 	crossings := 0
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(builtin string) bool {
 		crossings++
+		if builtin != "exec" {
+			t.Errorf("boundary crossed as %q, want exec", builtin)
+		}
 		if taskValue.IsExecSuspended || taskValue.GetState() != task.TaskRunning {
 			t.Errorf("boundary crossed after the process started")
 		}
@@ -223,7 +226,7 @@ func TestBuiltinExecStaleAttemptAbortsBeforeStartingProcess(t *testing.T) {
 	program := installExecTestBinary(t)
 	ctx, taskValue := sqliteAsyncCtx()
 	crossings := 0
-	ctx.BeforeIrreversibleEffect = func() bool {
+	ctx.BeforeIrreversibleEffect = func(string) bool {
 		crossings++
 		ctx.ConflictRetryRequested = true
 		return true

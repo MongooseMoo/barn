@@ -48,6 +48,7 @@ type Runtime struct {
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
 	gateHolds               gateHoldStats
+	slowTimelines           slowTimelines
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc

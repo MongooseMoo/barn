@@ -163,7 +163,7 @@ func (tx *StoreTxn) ReadMapKeyedSlotWhole(objID types.ObjID, name string) {
 	}
 	rkey := propertyReadKey{objID: objID, name: propertyNameKey(name)}
 	if st := tx.mapKeys[rkey]; st != nil {
-		tx.degradeMapKey(rkey, st)
+		tx.degradeMapKey(rkey, st, DegradeMaphaskey)
 	}
 }
 
@@ -244,24 +244,26 @@ func (tx *StoreTxn) SetPropertyMapKey(objID types.ObjID, name string, key, next 
 	return types.E_NONE
 }
 
-// degradeMapKeys turns every keyed dependency into a whole read of its slot at
+// degradeMapKeysVia turns every keyed dependency into a whole read of its slot at
 // the version the transaction first saw. A path that cannot validate per key or
-// apply entries to the live map (live mutation, flush) then behaves exactly as
-// it does for any property read.
-func (tx *StoreTxn) degradeMapKeys() {
+// apply entries to the live map (live mutation, flush, rename) then behaves
+// exactly as it does for any property read; via names that path for the census.
+func (tx *StoreTxn) degradeMapKeysVia(via DegradePath) {
 	for rkey, st := range tx.mapKeys {
-		tx.degradeMapKey(rkey, st)
+		tx.degradeMapKey(rkey, st, via)
 	}
 	tx.mapKeys = nil
 }
 
-// degradeMapKey turns the keyed dependency on one slot into a whole read.
-func (tx *StoreTxn) degradeMapKey(rkey propertyReadKey, st *mapKeyState) {
+// degradeMapKey turns the keyed dependency on one slot into a whole read, made
+// by path via.
+func (tx *StoreTxn) degradeMapKey(rkey propertyReadKey, st *mapKeyState, via DegradePath) {
 	if _, whole := tx.propertyReads[rkey]; !whole {
 		lazySet(&tx.propertyReads, rkey, st.version)
 		if tx.diag != nil {
 			// The whole read is at st.version, whose value is the baseline.
 			tx.diag.noteRead(rkey, &Property{value: st.baseline})
+			tx.diag.noteDegraded(rkey, via)
 		}
 	}
 	delete(tx.mapKeys, rkey)
@@ -280,7 +282,7 @@ func (tx *StoreTxn) boundaryMapKeys() map[propertyReadKey]*mapKeyState {
 	var carried map[propertyReadKey]*mapKeyState
 	for rkey, st := range tx.mapKeys {
 		if st.hasPendingBase {
-			tx.degradeMapKey(rkey, st)
+			tx.degradeMapKey(rkey, st, DegradeBoundary)
 			continue
 		}
 		if _, whole := tx.propertyReads[rkey]; whole {

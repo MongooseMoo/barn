@@ -124,7 +124,7 @@ func (r *Registry) install(d Descriptor) {
 				// conflict surface as an uncatchable error. If it asks to stop,
 				// return without performing the effect; the VM unwinds and runTask
 				// re-runs the task.
-				if guarded && !beginIrreversible(ctx) {
+				if guarded && !beginIrreversible(ctx, name) {
 					return abortedAttempt()
 				}
 				ctx.IrreversibleSideEffect = true

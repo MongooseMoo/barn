@@ -181,6 +181,7 @@ type Config struct {
 	TraceEnabled                                                               bool
 	TraceFilter                                                                string
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
+	GrepVerbs                                                                  string
 	EvalFile                                                                   string
 	StartLine, StartScript                                                     *string
 	StartScriptFirst                                                           bool
@@ -251,7 +252,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.MemoryReport {
 		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)
 	}
-	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
+	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" || cfg.GrepVerbs != "" {
 		store, err := dbtool.LoadStore(cfg.DatabasePath, options)
 		if err != nil {
 			return err
@@ -309,6 +310,12 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 				return err
 			}
 		}
+		if cfg.GrepVerbs != "" {
+			err := dbtool.GrepVerbs(out, errOut, store, cfg.GrepVerbs)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	specs, err := BuildListenerSpecs(cfg.Port, cfg.Listen, cfg.PortProvided)
@@ -357,7 +364,9 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	defer releaseListeners()
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux(srv.Store))
+		mux := debugMux(srv.Store)
+		registerRuntimeDiagnostics(mux, srv.Runtime)
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, mux)
 		if err != nil {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {
@@ -402,6 +411,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}()
 	err = srv.Start()
 	close(done)
+	logDiagnosticsSummary(srv.Runtime(), srv.Store())
 	if err != nil {
 		return fmt.Errorf("server: %w", err)
 	}

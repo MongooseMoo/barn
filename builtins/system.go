@@ -216,7 +216,7 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	// now does exec cross the irreversible-effect boundary, so a failing exec
 	// takes no commit gate and leaves the attempt re-runnable.
 	if ctx.Context != nil {
-		if !beginIrreversible(ctx) {
+		if !beginIrreversible(ctx, "exec") {
 			return abortedAttempt()
 		}
 		ctx.IrreversibleSideEffect = true

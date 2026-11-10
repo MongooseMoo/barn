@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -91,6 +92,36 @@ func DumpListVerbs(out, errOut io.Writer, store *dbstore.Store, spec string) err
 		}
 		fmt.Fprintf(out, "%3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
 			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
+	}
+	return nil
+}
+
+// GrepVerbs prints every verb source line in the database that matches the
+// regular expression pattern, as "#obj:verb:line: text", objects in id order
+// and verbs in their order on the object. The verb is named by its first name.
+func GrepVerbs(out, errOut io.Writer, store *dbstore.Store, pattern string) error {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	txn := store.DirectTxn()
+	for id := types.ObjID(0); id <= txn.MaxObject(); id++ {
+		obj, ok := store.Get(id)
+		if !ok {
+			continue
+		}
+		for i := 0; i < obj.VerbCount; i++ {
+			view, errCode := txn.VerbByIndex(id, i)
+			if errCode != types.E_NONE || len(view.Names) == 0 {
+				continue
+			}
+			for n, line := range view.Code {
+				if re.MatchString(line) {
+					fmt.Fprintf(out, "#%d:%s:%d: %s\n", id, view.Names[0], n+1, line)
+				}
+			}
+		}
 	}
 	return nil
 }

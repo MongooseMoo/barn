@@ -130,7 +130,7 @@ func TestFileScansDoNotRunWhenEffectBoundaryRefuses(t *testing.T) {
 			ctx, id := readlineFixture(t, "alpha\nneedle\nomega\n", "r-tf")
 			requireFileInt(t, builtinFileSeek(ctx, []types.Value{id, types.NewInt(13)}), 13)
 			crossings := 0
-			ctx.BeforeIrreversibleEffect = func() bool {
+			ctx.BeforeIrreversibleEffect = func(string) bool {
 				crossings++
 				ctx.ConflictRetryRequested = true
 				return true

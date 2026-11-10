@@ -151,11 +151,37 @@ func TestRunTaskRecordsExclusiveGateHoldByVerb(t *testing.T) {
 		holds[0].Count != 1 || holds[0].Total < held || holds[0].Max != holds[0].Total {
 		t.Fatalf("holds = %+v, want one #7:hold hold by #0:caller of at least %s", holds, held)
 	}
+	// Without tracking nothing more: no builtin, ticks or queue.
+	if holds[0].Builtin != "" || holds[0].Tracked != 0 || holds[0].Ticks != 0 {
+		t.Fatalf("hold builtin %q tracked %d ticks %d, want no tracked detail",
+			holds[0].Builtin, holds[0].Tracked, holds[0].Ticks)
+	}
 	assertCommitGateReleased(t, store)
 	s.ResetGateHolds()
 	if holds := s.GateHolds(); len(holds) != 0 {
 		t.Fatalf("holds after reset = %+v", holds)
 	}
+
+	// With tracking on, the hold also names the builtin that opened the
+	// boundary and counts the ticks run under the gate from it to the commit
+	// (the sleep call and the property write at least) and the empty queue it
+	// found.
+	store.SetConflictCensusTracking(true)
+	tracked := NewTaskFull(3104, 0, compileTestProgram(t, s.registry, `
+#0:caller();
+#0.write_value = 2;
+`), ticks, seconds)
+	tracked.Context.IsWizard = true
+	tracked.Context.Log = slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	tracked.This, tracked.VerbName = 7, "hold"
+	if err := s.runTask(tracked); err != nil {
+		t.Fatalf("tracked runTask failed: %v", err)
+	}
+	holds = s.GateHolds()
+	if len(holds) != 1 || holds[0].Builtin != "server_log" || holds[0].Tracked != 1 || holds[0].Ticks <= 0 || holds[0].DepthMax != 0 {
+		t.Fatalf("tracked holds = %+v, want one server_log hold with positive ticks and an empty queue", holds)
+	}
+	assertCommitGateReleased(t, store)
 }
 
 func TestRunTaskSuspendAfterIrreversibleEffectCommitsInsteadOfPhantomError(t *testing.T) {

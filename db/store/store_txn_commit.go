@@ -199,6 +199,10 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 	publishedWrites = tx.HasWrites()
 	if publishedWrites {
+		if tx.diag != nil && tx.diag.point == CommitFinal {
+			// A coarse builtin's renewal; the boundary marks its own point.
+			tx.diag.point = CommitCoarse
+		}
 		if errCode := tx.Commit(); errCode != types.E_NONE {
 			return tx, false, errCode
 		}
@@ -223,15 +227,29 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 // either path acquires publication locks.
 func (tx *StoreTxn) acquireSharedCommitGate() (*commitgate.Grant, error) {
 	started := time.Now()
-	grant, err := tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+	var grant *commitgate.Grant
+	var err error
+	if tx.diag != nil {
+		// Tracking: the grant records whether it queued behind Exclusive.
+		grant, err = tx.store.commitGate.AcquireTracked(tx.commitContextOrBackground(), commitgate.Shared, nil)
+	} else {
+		grant, err = tx.store.commitGate.Acquire(tx.commitContextOrBackground(), commitgate.Shared)
+	}
 	if err != nil {
 		return nil, err
 	}
 	waited := time.Since(started)
 	tx.store.sharedGateWaits.Add(1)
 	tx.store.sharedGateWaitNS.Add(int64(waited))
+	if tx.diag != nil {
+		if grant.Blocked() {
+			tx.store.sharedGateBlocked.Add(1)
+			tx.store.sharedGateBlockedNS.Add(int64(waited))
+		}
+		tx.diag.noteSharedGateWait(waited)
+	}
 	if tx.gateWait != nil {
-		tx.gateWait(waited)
+		tx.gateWait(waited, grant.Blocked())
 	}
 	return grant, nil
 }

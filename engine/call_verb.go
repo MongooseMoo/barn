@@ -361,7 +361,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	if ownership == vmOwnershipSweep {
 		hookIdentity.TaskID = t.ID
 	}
-	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, hookIdentity))
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, hookIdentity, nil))
 
 	// Propagate the already-published ownership to nested registry hooks.
 	switch ownership {
