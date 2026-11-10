@@ -74,9 +74,15 @@ documented the producer formats, and extended the existing check recursively
 with explicit native go-version/progress assertions. Existing GitHub-prefix
 and truncation checks remain. Other PR checks were still running.
 
+Second PR build completed the Python tests, then actionlint rejected the live
+custom barn-fuzz runner label because its required runner inventory was absent.
+Added .github/actionlint.yaml with that exact label after verifying all four
+group members expose it and reading actionlint's pinned configuration docs.
+No error suppression or wildcard label was introduced.
+
 ## Next step
 
-Run the edited fixture tests, publish the fixture-format repair, watch exact-head
+Publish the runner-label declaration and watch exact-head
 CI, fix red checks, normal merge, dispatch continuous native-only discovery, verify all
 actual runner assignments and a completed cycle's successor. Update this note
 with actual evidence before committing substantive work and before completion.
