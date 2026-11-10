@@ -6,8 +6,11 @@ against one already-dead Barn process generation (merge-queue Jepsen run
 42862358939, `crash: RuntimeError: owned Barn identity changed; refusing to signal`).
 
 ## State
-Cause established and fixed on branch fix/jepsen-double-crash (local commit,
-not pushed). Test
+Cause established and fixed on branch fix/jepsen-double-crash, pushed to
+origin; no PR yet. Q asked for the PR on 2026-11-10; the PreToolUse hook
+refused `gh pr create` because the PR body cites run facts (crash time, 36 ms
+gap, line numbers) that the parent session did not re-check itself in that
+turn. Draft body: the parent session's scratchpad pr-jepsen-body.md. Test
 scripts/test_mongoose_barn_process.py::test_startup_identity_is_checked_after_exec_finishes_writing_argv
 drives the real OwnedBarnServer.start() and real verify_owned against a fake
 /proc whose cmdline is empty right after Popen and full once the port listens.
@@ -122,5 +125,7 @@ lifecycle.jsonl lines 25-31 (large fields elided):
 - The fix has not run in the Jepsen workflow; only the unit test exercises it.
 
 ## Next step
-Push the branch, open a PR against master, watch the Jepsen workflow (needs
-the parent session's go-ahead: this agent does not push).
+Re-read the run 42862358939 evidence (lifecycle.jsonl rows 25-31,
+jepsen.log lines 3331/3335) and the cited source lines, correct the PR body to
+match, then open the PR against master once Q lifts the hook refusal, queue it
+with `gh pr merge --auto`, and watch the Jepsen workflow.
