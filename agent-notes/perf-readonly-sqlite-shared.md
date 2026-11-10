@@ -106,3 +106,19 @@ builds, vets, and the SQLite / external-read / renewal tests pass in
 builtins, db/store and engine. Next: interleaved master-vs-branch harness
 pairs on the 0342 dump from the scratch working directory, gated on idle
 CPU; then push and open the PR with those numbers.
+
+Pairs run (scratchpad `plan/runs/sqlite-pair/`, load 11-23% before each):
+master 309, 310, 319/s (abort 1.14-1.20%, failed=0); branch 336, 308/s
+(failed=0) and 403/s with failed=1. On the branch the say exclusive-gate
+holds are absent from the report (master: about 14 s per run). The failure
+in branch run 3: `player=#36 look -> killed-before-completion`, the harness
+label for a task whose Done closed with no result and no harness kill
+(mongoose_real_bench_test.go:342). It is not from this branch: a fourth
+pair gave master 306/s with the same failure (`player=#180 look ->
+killed-before-completion`) and branch 360/s with failed=0, and earlier
+master-based runs show it too. Its cause is unknown and is a separate
+defect. Valid runs: master 309, 310, 319/s; branch 336, 308, 360/s.
+Exclusive-gate hold total per run: master 15.5-16.1 s, branch 0.02-0.73 s.
+Abort: master 1.14-1.20%, branch 1.23%. p99: master 340-398 ms, branch
+404-507 ms (three runs each; not separable). No `conflict external` row in
+any branch run. PR opened with these numbers.
