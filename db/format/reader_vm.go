@@ -231,11 +231,17 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	isBarnFrame := metadata.Type() == types.TYPE_LIST &&
 		metadata.Len() >= 1 &&
 		metadata.Get(1).Type() == types.TYPE_STR &&
-		metadata.Get(1).Str() == barnVMFrameMarker
+		(metadata.Get(1).Str() == barnVMFrameMarker || metadata.Get(1).Str() == barnVMFrameMarkerV1)
 	if isBarnFrame {
 		frame, err = decodeVMFrameMetadata(metadata, pc)
 		if err != nil {
 			return frame, activation, err
+		}
+		if !frame.Rebuild.Legacy {
+			// The program is rebuilt at restore; until then the frame holds
+			// its named locals in saved order, as a Toast-shaped frame does.
+			frame.Program.VarNames = append([]string(nil), envNames...)
+			frame.Program.NumLocals = len(envNames)
 		}
 	} else {
 		frame.Native = &task.NativeFrameSnapshot{
@@ -270,8 +276,8 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ty
 	frame.StoredVerb = storedVerb
 	frame.VerbLoc = verbLoc
 	frame.VerbDebug = debug != 0
-	// A Barn frame arrives with its slots (and restored temporaries) already
-	// allocated by decodeVMFrameMetadata; a Toast-shaped frame only has names.
+	// A v1 Barn frame arrives with its slots (and restored temporaries)
+	// already allocated by decodeVMFrameMetadata; other frames only have names.
 	if len(frame.Locals) != frame.Program.NumLocals {
 		frame.Locals = make([]types.Value, frame.Program.NumLocals)
 		for i := range frame.Locals {
@@ -343,12 +349,47 @@ func (database *Database) readOrderedRtEnv(r *bufio.Reader) ([]string, []types.V
 	return names, values, nil
 }
 
-func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, error) {
+// frameFields reads Barn frame metadata by v1 element number. A v2 frame
+// folds v1 elements 2-6 (the bytecode) into its program identity element 2,
+// so its elements from v1's 7 on sit four places earlier.
+type frameFields struct {
+	value types.Value
+	shift int
+}
+
+func (f frameFields) index(n int) int {
+	if n >= 7 {
+		return n - f.shift
+	}
+	return n
+}
+
+func (f frameFields) has(n int) bool        { return f.value.Len() >= f.index(n) }
+func (f frameFields) get(n int) types.Value { return f.value.Get(f.index(n)) }
+
+func decodeVMFrameMetadata(metadata types.Value, pc int) (task.VMFrameSnapshot, error) {
 	var frame task.VMFrameSnapshot
-	if value.Type() != types.TYPE_LIST || value.Len() < 15 || value.Get(1).Type() != types.TYPE_STR || value.Get(1).Str() != barnVMFrameMarker {
+	if metadata.Type() != types.TYPE_LIST || metadata.Len() < 1 || metadata.Get(1).Type() != types.TYPE_STR {
 		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
 	}
-	if err := checkVMFrameShape(value); err != nil {
+	f := frameFields{value: metadata}
+	switch metadata.Get(1).Str() {
+	case barnVMFrameMarkerV1:
+		if metadata.Len() < 15 {
+			return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
+		}
+		frame.Rebuild = &task.RebuildSnapshot{Legacy: true}
+	case barnVMFrameMarker:
+		// The v2 writer always writes every element.
+		f.shift = 4
+		if metadata.Len() != f.index(24) {
+			return frame, fmt.Errorf("suspended activation has %d metadata elements, want %d", metadata.Len(), f.index(24))
+		}
+		frame.Rebuild = &task.RebuildSnapshot{}
+	default:
+		return frame, fmt.Errorf("suspended activation lacks Barn VM metadata")
+	}
+	if err := checkVMFrameShape(f); err != nil {
 		return frame, err
 	}
 
@@ -358,30 +399,29 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 			frame.CommandEnvironment[index] = types.NewObj(types.ObjNothing)
 		}
 	}
-	if value.Len() >= 21 {
-		environment := value.Get(21)
+	if f.has(21) {
+		environment := f.get(21)
 		if environment.Type() != types.TYPE_LIST || environment.Len() != len(frame.CommandEnvironment) {
 			return frame, fmt.Errorf("invalid command environment")
 		}
 		copy(frame.CommandEnvironment[:], environment.Elements())
 	}
-	if value.Len() >= 22 {
-		local := value.Get(22)
+	if f.has(22) {
+		local := f.get(22)
 		if local.Type() != types.TYPE_INT || local.Int() < 0 || local.Int() > bytecode.MaxLocals {
 			return frame, fmt.Errorf("invalid caller result local")
 		}
 		frame.ReturnLocal = int(local.Int())
 	}
-	if value.Len() >= 23 {
-		builtin := value.Get(23)
+	if f.has(23) {
+		builtin := f.get(23)
 		if builtin.Type() != types.TYPE_LIST || builtin.Len() != 2 || builtin.Get(1).Type() != types.TYPE_STR || builtin.Get(2).Type() != types.TYPE_INT {
 			return frame, fmt.Errorf("invalid builtin continuation")
 		}
 		frame.BuiltinCaller, frame.BuiltinPC = builtin.Get(1).Str(), int(builtin.Get(2).Int())
 	}
-	code := value.Get(2)
-	if value.Len() >= 20 {
-		encoded := value.Get(20)
+	if f.has(20) {
+		encoded := f.get(20)
 		if encoded.Type() != types.TYPE_STR {
 			return frame, fmt.Errorf("invalid builtin layout fingerprint")
 		}
@@ -391,17 +431,100 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 		}
 		copy(frame.Program.BuiltinLayout[:], layout)
 	}
+	var err error
+	if frame.Rebuild.Legacy {
+		err = decodeLegacyProgram(&frame, f)
+	} else {
+		err = decodeProgramIdentity(&frame, f)
+	}
+	if err != nil {
+		return frame, err
+	}
+	if err := decodeFrameState(&frame, f, pc); err != nil {
+		return frame, err
+	}
+	return frame, nil
+}
+
+// decodeProgramIdentity reads a v2 frame's program identity (element 2,
+// written by programIdentityValue) and its bound compiler temporaries.
+func decodeProgramIdentity(frame *task.VMFrameSnapshot, f frameFields) error {
+	identity := f.get(2)
+	if identity.Type() != types.TYPE_LIST || identity.Len() != 3 || identity.Get(1).Type() != types.TYPE_INT ||
+		identity.Get(2).Type() != types.TYPE_LIST || identity.Get(3).Type() != types.TYPE_STR {
+		return fmt.Errorf("suspended activation has invalid program identity")
+	}
+	fork := identity.Get(1).Int()
+	if fork < 0 || fork > math.MaxInt32 {
+		return fmt.Errorf("suspended activation has invalid fork index %d", fork)
+	}
+	frame.Program.Origin.Fork = int(fork)
+	native := identity.Get(2)
+	switch native.Len() {
+	case 0:
+	case 2:
+		vector, version := native.Get(1), native.Get(2)
+		if vector.Type() != types.TYPE_INT || version.Type() != types.TYPE_INT || vector.Int() < -1 || vector.Int() > math.MaxInt32 || version.Int() < 0 || version.Int() > math.MaxInt32 {
+			return fmt.Errorf("suspended activation has invalid native origin")
+		}
+		frame.Program.Origin.Native = true
+		frame.Program.Origin.NativeVector = int(vector.Int())
+		frame.Program.Origin.LanguageVersion = int(version.Int())
+	default:
+		return fmt.Errorf("suspended activation has invalid native origin")
+	}
+	fingerprint, err := hex.DecodeString(identity.Get(3).Str())
+	if err != nil || len(fingerprint) != len(frame.Rebuild.Fingerprint) {
+		return fmt.Errorf("suspended activation has invalid program fingerprint")
+	}
+	copy(frame.Rebuild.Fingerprint[:], fingerprint)
+	return readInternalLocals(f, func(slot int, value types.Value) error {
+		if slot < 0 || slot >= bytecode.MaxLocals {
+			return fmt.Errorf("suspended activation internal local slot %d outside [0, %d)", slot, bytecode.MaxLocals)
+		}
+		frame.Rebuild.Internal = append(frame.Rebuild.Internal, task.LocalSlot{Slot: slot, Value: value})
+		return nil
+	})
+}
+
+// readInternalLocals visits element 19, written by internalLocalsValue;
+// checkpoints predating that element leave the temporaries unbound.
+func readInternalLocals(f frameFields, visit func(slot int, value types.Value) error) error {
+	if !f.has(19) {
+		return nil
+	}
+	internal := f.get(19)
+	if internal.Type() != types.TYPE_LIST {
+		return fmt.Errorf("suspended activation internal locals must be a list")
+	}
+	for i := 1; i <= internal.Len(); i++ {
+		entry := internal.Get(i)
+		if entry.Type() != types.TYPE_LIST || entry.Len() != 2 || entry.Get(1).Type() != types.TYPE_INT {
+			return fmt.Errorf("suspended activation internal local %d is malformed", i)
+		}
+		if err := visit(int(entry.Get(1).Int()), entry.Get(2)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// decodeLegacyProgram reads a v1 frame's stored bytecode (elements 2-6) and
+// places its locals by slot. Restore accepts it only when it equals a
+// compile of the frame's source.
+func decodeLegacyProgram(frame *task.VMFrameSnapshot, f frameFields) error {
+	code := f.get(2)
 	frame.Program.Code = make([]byte, code.Len())
 	for i := 1; i <= code.Len(); i++ {
 		frame.Program.Code[i-1] = byte(code.Get(i).Int())
 	}
-	frame.Program.Constants = append([]types.Value(nil), value.Get(3).Elements()...)
-	names := value.Get(4)
+	frame.Program.Constants = append([]types.Value(nil), f.get(3).Elements()...)
+	names := f.get(4)
 	frame.Program.VarNames = make([]string, names.Len())
 	for i := 1; i <= names.Len(); i++ {
 		frame.Program.VarNames[i-1] = names.Get(i).Str()
 	}
-	lineInfo := value.Get(5)
+	lineInfo := f.get(5)
 	frame.Program.LineInfo = make([]bytecode.LineEntry, lineInfo.Len())
 	for i := 1; i <= lineInfo.Len(); i++ {
 		entry := lineInfo.Get(i)
@@ -410,36 +533,28 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 			Line:    int(entry.Get(2).Int()),
 		}
 	}
-	frame.Program.NumLocals = int(value.Get(6).Int())
+	frame.Program.NumLocals = int(f.get(6).Int())
 	if frame.Program.NumLocals < len(frame.Program.VarNames) || frame.Program.NumLocals > bytecode.MaxLocals {
-		return frame, fmt.Errorf("suspended activation has invalid local metadata: %d locals, %d names", frame.Program.NumLocals, len(frame.Program.VarNames))
+		return fmt.Errorf("suspended activation has invalid local metadata: %d locals, %d names", frame.Program.NumLocals, len(frame.Program.VarNames))
 	}
-	// Compiler temporaries live above the named variables and are restored
-	// from element 19 (written by internalLocalsValue); checkpoints predating
-	// that element simply leave them unbound.
+	// Compiler temporaries live above the named variables.
 	frame.Locals = make([]types.Value, frame.Program.NumLocals)
 	for i := range frame.Locals {
 		frame.Locals[i] = types.Unbound
 	}
-	if value.Len() >= 19 {
-		internal := value.Get(19)
-		if internal.Type() != types.TYPE_LIST {
-			return frame, fmt.Errorf("suspended activation internal locals must be a list")
+	return readInternalLocals(f, func(slot int, value types.Value) error {
+		if slot < len(frame.Program.VarNames) || slot >= frame.Program.NumLocals {
+			return fmt.Errorf("suspended activation internal local slot %d outside [%d, %d)", slot, len(frame.Program.VarNames), frame.Program.NumLocals)
 		}
-		for i := 1; i <= internal.Len(); i++ {
-			entry := internal.Get(i)
-			if entry.Type() != types.TYPE_LIST || entry.Len() != 2 || entry.Get(1).Type() != types.TYPE_INT {
-				return frame, fmt.Errorf("suspended activation internal local %d is malformed", i)
-			}
-			slot := int(entry.Get(1).Int())
-			if slot < len(frame.Program.VarNames) || slot >= frame.Program.NumLocals {
-				return frame, fmt.Errorf("suspended activation internal local slot %d outside [%d, %d)", slot, len(frame.Program.VarNames), frame.Program.NumLocals)
-			}
-			frame.Locals[slot] = entry.Get(2)
-		}
-	}
+		frame.Locals[slot] = value
+		return nil
+	})
+}
 
-	handlers := value.Get(7)
+// decodeFrameState reads the activation state every Barn frame version
+// shares: handlers, flags, call context, continuations, pending reasons.
+func decodeFrameState(frame *task.VMFrameSnapshot, f frameFields, pc int) error {
+	handlers := f.get(7)
 	frame.ExceptStack = make([]bytecode.Handler, handlers.Len())
 	for i := 1; i <= handlers.Len(); i++ {
 		saved := handlers.Get(i)
@@ -454,7 +569,7 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 		}
 		if saved.Len() >= 7 {
 			if saved.Get(7).Type() != types.TYPE_INT {
-				return frame, fmt.Errorf("invalid handler group base")
+				return fmt.Errorf("invalid handler group base")
 			}
 			handler.ExceptBase = int(saved.Get(7).Int())
 		}
@@ -464,11 +579,11 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 		frame.ExceptStack[i-1] = handler
 	}
 
-	legacyError, err := decodePendingError(value.Get(8))
+	legacyError, err := decodePendingError(f.get(8))
 	if err != nil {
-		return frame, err
+		return err
 	}
-	flags := value.Get(9)
+	flags := f.get(9)
 	frame.VerbDebug = flags.Get(1).Truthy()
 	frame.DiscardReturn = flags.Get(2).Truthy()
 	frame.IsVerbCall = flags.Get(3).Truthy()
@@ -477,14 +592,14 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 	// Barn frames written before the activation's thread mode was recorded
 	// carry a constant 0 threaded flag; they ran in Toast's default mode.
 	frame.ThreadMode = flags.Len() < 6 || flags.Get(6).Truthy()
-	frame.Caller = value.Get(10).Obj()
-	frame.Args = append([]types.Value(nil), value.Get(11).Elements()...)
-	frame.SavedThisObj = value.Get(12).Obj()
-	frame.SavedThisValue = value.Get(13)
-	frame.SavedVerb = value.Get(14).Str()
-	frame.SavedProgrammer = value.Get(15).Obj()
-	if value.Len() >= 16 {
-		moveState := value.Get(16)
+	frame.Caller = f.get(10).Obj()
+	frame.Args = append([]types.Value(nil), f.get(11).Elements()...)
+	frame.SavedThisObj = f.get(12).Obj()
+	frame.SavedThisValue = f.get(13)
+	frame.SavedVerb = f.get(14).Str()
+	frame.SavedProgrammer = f.get(15).Obj()
+	if f.has(16) {
+		moveState := f.get(16)
 		if moveState.Type() == types.TYPE_LIST && moveState.Len() >= 6 {
 			frame.MoveContinuation = &task.MoveContinuationSnapshot{
 				Stage:         int(moveState.Get(1).Int()),
@@ -498,15 +613,15 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 	}
 	var legacyReturn types.Value
 	hasLegacyReturn := false
-	if value.Len() >= 17 {
-		pendingReturn := value.Get(17)
+	if f.has(17) {
+		pendingReturn := f.get(17)
 		if pendingReturn.Type() == types.TYPE_LIST && pendingReturn.Len() >= 2 {
 			hasLegacyReturn = pendingReturn.Get(1).Truthy()
 			legacyReturn = pendingReturn.Get(2)
 		}
 	}
-	if value.Len() >= 18 {
-		recycleState := value.Get(18)
+	if f.has(18) {
+		recycleState := f.get(18)
 		if recycleState.Type() == types.TYPE_LIST && recycleState.Len() >= 5 {
 			frame.RecycleContinuation = &task.RecycleContinuationSnapshot{
 				Object:      recycleState.Get(1),
@@ -521,10 +636,7 @@ func decodeVMFrameMetadata(value types.Value, pc int) (task.VMFrameSnapshot, err
 		}
 	}
 	frame.IP = pc
-	if err := decodePendingReasons(&frame, value, legacyError, hasLegacyReturn, legacyReturn); err != nil {
-		return frame, err
-	}
-	return frame, nil
+	return decodePendingReasons(frame, f, legacyError, hasLegacyReturn, legacyReturn)
 }
 
 func decodePendingError(value types.Value) (task.VMErrorSnapshot, error) {
@@ -546,11 +658,11 @@ func decodePendingError(value types.Value) (task.VMErrorSnapshot, error) {
 	return pending, nil
 }
 
-func decodePendingReasons(frame *task.VMFrameSnapshot, metadata types.Value, legacyError task.VMErrorSnapshot, hasReturn bool, legacyReturn types.Value) error {
+func decodePendingReasons(frame *task.VMFrameSnapshot, f frameFields, legacyError task.VMErrorSnapshot, hasReturn bool, legacyReturn types.Value) error {
 	returnOwner, errorOwner := 0, 0
 	canonical := false
-	if metadata.Len() >= 24 {
-		control := metadata.Get(24)
+	if f.has(24) {
+		control := f.get(24)
 		if control.Type() != types.TYPE_LIST {
 			return fmt.Errorf("invalid pending control state")
 		}
@@ -585,6 +697,14 @@ func decodePendingReasons(frame *task.VMFrameSnapshot, metadata types.Value, leg
 				frame.PendingReasons = append(frame.PendingReasons, task.PendingReasonSnapshot{Kind: task.PendingJump, TargetIP: int(row.Get(1).Int()), HandlerDepth: int(row.Get(2).Int()), FinallyIP: int(row.Get(3).Int()), Stack: append([]types.Value(nil), row.Get(4).Elements()...)})
 			}
 		}
+	}
+	if !frame.Rebuild.Legacy {
+		// The v2 writer always writes canonical reasons. Their cleanup owners
+		// are checked against the rebuilt program by vm.RestoreVMSnapshot.
+		if !canonical {
+			return fmt.Errorf("suspended activation lacks canonical pending reasons")
+		}
+		return nil
 	}
 	if !canonical {
 		if legacyError.Present {
@@ -633,8 +753,9 @@ func decodePendingReasons(frame *task.VMFrameSnapshot, metadata types.Value, leg
 // indexes without its own type check. Get, Elements and Str panic on a value of
 // another type, and Len counts a string's bytes or a map's entries, so each
 // field read element by element must be a list long enough for its reads.
-// value is a list of at least 15 elements.
-func checkVMFrameShape(value types.Value) error {
+// It is a list of at least 15 v1 elements. Elements 2-5 hold bytecode only in
+// a v1 frame; decodeProgramIdentity checks a v2 frame's element 2.
+func checkVMFrameShape(f frameFields) error {
 	isList := func(v types.Value, minLen int) bool {
 		return v.Type() == types.TYPE_LIST && v.Len() >= minLen
 	}
@@ -670,12 +791,15 @@ func checkVMFrameShape(value types.Value) error {
 		{14, "verb", func(v types.Value) bool { return v.Type() == types.TYPE_STR }},
 	}
 	for _, check := range checks {
-		if !check.ok(value.Get(check.field)) {
+		if check.field < 7 && f.shift != 0 {
+			continue
+		}
+		if !check.ok(f.get(check.field)) {
 			return fmt.Errorf("suspended activation has invalid %s metadata", check.name)
 		}
 	}
-	if value.Len() >= 18 {
-		recycleState := value.Get(18)
+	if f.has(18) {
+		recycleState := f.get(18)
 		if isList(recycleState, 5) {
 			for i := 2; i <= 4; i++ {
 				if !isList(recycleState.Get(i), 0) {

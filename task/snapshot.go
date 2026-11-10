@@ -156,9 +156,32 @@ type PendingReasonSnapshot struct {
 	Stack        []types.Value
 }
 
+// RebuildSnapshot marks a Barn frame read from a database. Its program is not
+// stored: restore compiles Program.Source as Program.Origin names and runs
+// that program, or refuses the task when it is not what the frame ran.
+type RebuildSnapshot struct {
+	// Legacy marks a frame written with its bytecode (marker v1). Program
+	// holds that bytecode, and Origin is unknown: restore accepts the frame
+	// only when a compile of the source has equal Code and Constants.
+	Legacy bool
+	// Fingerprint is bytecode.Program.Fingerprint of the program the frame
+	// ran (marker v2).
+	Fingerprint [32]byte
+	// Internal holds the bound compiler temporaries by slot (marker v2).
+	// Named locals are in Program.VarNames and Locals, in saved order.
+	Internal []LocalSlot
+}
+
+// LocalSlot is one zero-based local slot and its value.
+type LocalSlot struct {
+	Slot  int
+	Value types.Value
+}
+
 // VMFrameSnapshot is one activation and its operand-stack segment.
 type VMFrameSnapshot struct {
 	Native              *NativeFrameSnapshot
+	Rebuild             *RebuildSnapshot
 	Program             bytecode.Program
 	IP                  int
 	Locals              []types.Value
@@ -248,6 +271,11 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 		}
 		for index, value := range frame.Locals {
 			frame.Locals[index] = transform(value)
+		}
+		if frame.Rebuild != nil {
+			for index := range frame.Rebuild.Internal {
+				frame.Rebuild.Internal[index].Value = transform(frame.Rebuild.Internal[index].Value)
+			}
 		}
 		for index, value := range frame.Stack {
 			frame.Stack[index] = transform(value)

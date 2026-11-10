@@ -10,7 +10,14 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-const barnVMFrameMarker = "__barn_vm_frame_v1"
+// barnVMFrameMarker heads a Barn frame's metadata. A v2 frame stores no
+// bytecode: element 2 names the compile of the frame's source that produced
+// its program and that program's fingerprint, and every later element is a
+// v1 element from 7 on. A v1 frame stored the bytecode in elements 2-6.
+const (
+	barnVMFrameMarker   = "__barn_vm_frame_v2"
+	barnVMFrameMarkerV1 = "__barn_vm_frame_v1"
+)
 
 func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	start := snapshot.StartTime
@@ -66,7 +73,7 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 	}
 	// An empty source is an empty program, which Toast writes as the "."
 	// terminator alone (execute.cc write_activ -> dbio_write_program).
-	// Restore executes the bytecode in vmFrameMetadata, not the source.
+	// Restore runs the compile of this source that vmFrameMetadata names.
 	if err := w.writeString("language version 17"); err != nil {
 		return err
 	}
@@ -245,11 +252,7 @@ func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation ty
 func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 	return types.NewList([]types.Value{
 		types.NewStr(barnVMFrameMarker),
-		bytesValue(frame.Program.Code),
-		types.NewList(frame.Program.Constants),
-		stringsValue(frame.Program.VarNames),
-		lineInfoValue(frame.Program.LineInfo),
-		types.NewInt(int64(frame.Program.NumLocals)),
+		programIdentityValue(&frame.Program),
 		handlersValue(frame.ExceptStack),
 		pendingErrorValue(task.VMErrorSnapshot{}), // fixed legacy slot, no duplicate reason state
 		types.NewList([]types.Value{
@@ -275,6 +278,22 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		types.NewInt(int64(frame.ReturnLocal)),
 		types.NewList([]types.Value{types.NewStr(frame.BuiltinCaller), types.NewInt(int64(frame.BuiltinPC))}),
 		pendingControlValue(frame),
+	})
+}
+
+// programIdentityValue is {fork, native, fingerprint}: the program's
+// bytecode.Origin, with native {} or {vector, language version}, and the
+// hex SHA-256 bytecode.Program.Fingerprint.
+func programIdentityValue(program *bytecode.Program) types.Value {
+	native := types.NewList(nil)
+	if program.Origin.Native {
+		native = types.NewList([]types.Value{types.NewInt(int64(program.Origin.NativeVector)), types.NewInt(int64(program.Origin.LanguageVersion))})
+	}
+	fingerprint := program.Fingerprint()
+	return types.NewList([]types.Value{
+		types.NewInt(int64(program.Origin.Fork)),
+		native,
+		types.NewStr(hex.EncodeToString(fingerprint[:])),
 	})
 }
 
@@ -348,33 +367,6 @@ func objectIDsValue(ids []types.ObjID) types.Value {
 		values[i] = types.NewObj(id)
 	}
 	return types.NewList(values)
-}
-
-func bytesValue(values []byte) types.Value {
-	result := make([]types.Value, len(values))
-	for i, value := range values {
-		result[i] = types.NewInt(int64(value))
-	}
-	return types.NewList(result)
-}
-
-func stringsValue(values []string) types.Value {
-	result := make([]types.Value, len(values))
-	for i, value := range values {
-		result[i] = types.NewStr(value)
-	}
-	return types.NewList(result)
-}
-
-func lineInfoValue(entries []bytecode.LineEntry) types.Value {
-	result := make([]types.Value, len(entries))
-	for i, entry := range entries {
-		result[i] = types.NewList([]types.Value{
-			types.NewInt(int64(entry.StartIP)),
-			types.NewInt(int64(entry.Line)),
-		})
-	}
-	return types.NewList(result)
 }
 
 func handlersValue(handlers []bytecode.Handler) types.Value {

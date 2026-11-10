@@ -28,7 +28,7 @@ func TestPendingErrorReasonPrivateMetadataRoundTrip(t *testing.T) {
 
 func TestPendingErrorReasonLegacyAndInvalidMetadata(t *testing.T) {
 	legacyFrame := pendingReasonCodecFrame(t)
-	base := vmFrameMetadata(legacyFrame)
+	base := legacyVMFrameMetadata(legacyFrame)
 	legacy := types.NewList([]types.Value{types.NewBool(true), types.NewInt(int64(types.E_MAXREC)), types.NewInt(73)})
 	withPending := func(pending types.Value) types.Value {
 		fields := append([]types.Value(nil), base.Elements()[:23]...)
@@ -93,7 +93,7 @@ func pendingReasonCodecProgram(t *testing.T, source string, depth int) task.VMFr
 
 func TestPendingReasonLegacyAmbiguousOwnershipRejected(t *testing.T) {
 	frame := pendingReasonCodecProgram(t, "try return 73; finally try return 99; finally x=1; endtry endtry", 2)
-	fields := append([]types.Value(nil), vmFrameMetadata(frame).Elements()[:23]...)
+	fields := append([]types.Value(nil), legacyVMFrameMetadata(frame).Elements()[:23]...)
 	fields[7] = pendingErrorValue(task.VMErrorSnapshot{Present: true, Code: types.E_TYPE})
 	if _, err := decodeVMFrameMetadata(types.NewList(fields), frame.IP); err == nil {
 		t.Fatal("accepted ambiguous legacy pending ownership")
@@ -111,7 +111,7 @@ func TestPendingReasonLegacyExplicitOwnersMigrate(t *testing.T) {
 	if frame.Program.FinallyContains(inner, outer) {
 		outer, inner = inner, outer
 	}
-	fields := append([]types.Value(nil), vmFrameMetadata(frame).Elements()...)
+	fields := append([]types.Value(nil), legacyVMFrameMetadata(frame).Elements()...)
 	fields[7] = pendingErrorValue(task.VMErrorSnapshot{Present: true, Code: types.E_TYPE})
 	fields[16] = pendingReturnValue(types.NewInt(73), true)
 	fields[23] = types.NewList([]types.Value{types.NewInt(int64(outer)), types.NewInt(int64(inner)), types.NewEmptyList()})
