@@ -83,7 +83,9 @@ class FuzzOpsTests(unittest.TestCase):
             ((True, []), "BROKEN: continuous mode is on but no continuous cycle"),
             ((True, [self.cycle(**done, idle_minutes=10)]), "BETWEEN CYCLES"),
             ((True, [self.cycle(**done, idle_minutes=95)]), "BROKEN: nothing queued or running 1h 35m"),
-            ((True, [self.cycle(**{**done, "accept": "failure"}, idle_minutes=95)]), "STOPPED BY ACCEPTANCE"),
+            ((True, [self.cycle(**{**done, "accept": "failure"}, idle_minutes=10)]), "WAITING FOR WATCHDOG"),
+            ((True, [self.cycle(**{**done, "accept": "failure"}, idle_minutes=95)]),
+             "BROKEN: nothing queued or running 1h 35m after cycle 42766490058 (acceptance failure)"),
             ((True, [self.cycle(**done, idle_minutes=95, title="Nightly fuzz / dedicated-once / native-only")]),
              "BROKEN: continuous mode is on but no continuous cycle"),
         ]
