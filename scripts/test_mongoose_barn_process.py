@@ -292,6 +292,55 @@ class BarnProcessTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "identity changed"):
                 owner.verify_owned()
 
+    def test_startup_identity_is_checked_after_exec_finishes_writing_argv(self):
+        # Linux releases the Popen parent inside exec before writing the new
+        # argv, so /proc/<pid>/cmdline reads empty right after Popen returns
+        # (merge-queue Jepsen run 42862358939, generation 4).
+        owner, root = self.owner()
+        child = owner.proc
+        owner.proc = owner.pidfd = owner.start_ticks = None
+        proc = root / "fake-proc" / str(child.pid)
+        proc.mkdir(parents=True)
+        (proc / "exe").symlink_to(owner.executable)
+        (proc / "cwd").symlink_to(owner.run_dir)
+        argv = b"\0".join(os.fsencode(value) for value in owner.command) + b"\0"
+        text = ('msg="operator endpoint listening" addr=127.0.0.1:8123\n'
+                'msg="debug endpoint listening" addr=127.0.0.1:8124\n')
+
+        def spawn(*args, **kwargs):
+            (proc / "cmdline").write_bytes(b"")  # mid-exec: mm->env_end not yet set
+            owner.log_path.write_text(text)
+            self.profile(owner)
+            return child
+
+        def listening(*args):
+            (proc / "cmdline").write_bytes(argv)  # exec finished before Barn could listen
+
+        response = Mock(status=200)
+        response.read.return_value = b"ready\n"
+        context = Mock()
+        context.__enter__ = Mock(return_value=response)
+        context.__exit__ = Mock(return_value=False)
+        try:
+            with patch.object(barn, "Path", side_effect=lambda value: root / "fake-proc" if value == "/proc" else Path(value)), \
+                 patch.object(barn.socket, "socket"), patch.object(barn.subprocess, "Popen", side_effect=spawn), \
+                 patch.object(barn.os, "pidfd_open", return_value=77), \
+                 patch.object(barn, "process_state", return_value={"start_ticks": 444}), \
+                 patch.object(barn.bench, "wait_port", side_effect=listening), \
+                 patch.object(barn.urllib.request, "urlopen", return_value=context), \
+                 patch.object(barn.time, "monotonic", side_effect=[0, 1, 2]), \
+                 patch.object(barn.time, "sleep"), \
+                 patch.object(barn.signal, "pidfd_send_signal") as send:
+                self.assertEqual(owner.start(), 2)
+                (proc / "cmdline").write_bytes(b"unrelated\0")
+                with self.assertRaisesRegex(RuntimeError, "identity changed"):
+                    owner.verify_owned()
+        finally:
+            if owner.log_file:
+                owner.log_file.close()
+        self.assertTrue(owner._ownership_established)
+        send.assert_not_called()
+
     def test_established_identity_mismatch_never_signals(self):
         owner, _ = self.owner()
         with patch.object(owner, "verify_owned", side_effect=RuntimeError("identity changed")), \
