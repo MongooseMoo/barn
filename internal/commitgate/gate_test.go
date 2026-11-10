@@ -48,7 +48,7 @@ func TestGrantRecordsAheadAndBlocked(t *testing.T) {
 	l := <-last
 	defer l.Release()
 	want := Ahead{HolderExclusive: true, Holder: "#9655:arm by #0:bf_exec exec()", Depth: 2,
-		Exclusive: []string{"#2:say by retry budget spent"}, Shared: 1}
+		Exclusive: []any{"#2:say by retry budget spent"}, Shared: 1}
 	got := l.Ahead()
 	if got.HolderExclusive != want.HolderExclusive || got.Holder != want.Holder || got.Depth != want.Depth ||
 		got.Shared != want.Shared || len(got.Exclusive) != 1 || got.Exclusive[0] != want.Exclusive[0] {

@@ -397,12 +397,12 @@ func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 // AcquireExclusive returns owner-held FIFO admission. Cancellation only
 // withdraws the wait; it never revokes a grant returned to executing code.
 func (s *Store) AcquireExclusive(ctx context.Context) (*commitgate.Grant, error) {
-	return s.AcquireExclusiveLabeled(ctx, "")
+	return s.AcquireExclusiveLabeled(ctx, nil)
 }
 
 // AcquireExclusiveLabeled is AcquireExclusive for a requester named label; the
 // grant reports what was ahead of it (commitgate.Grant.Ahead).
-func (s *Store) AcquireExclusiveLabeled(ctx context.Context, label string) (*commitgate.Grant, error) {
+func (s *Store) AcquireExclusiveLabeled(ctx context.Context, label any) (*commitgate.Grant, error) {
 	g, err := s.commitGate.AcquireLabeled(ctx, commitgate.Exclusive, label)
 	if err == nil {
 		s.commitEscalations.Add(1)

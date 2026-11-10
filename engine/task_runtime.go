@@ -101,9 +101,6 @@ func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope boo
 				ctx.CommandDiagnostic.TaskFinished(t.ID, state.String())
 			}
 			s.finishTimeline(t, state.String())
-			if s.store != nil {
-				s.store.NoteTaskRetries(dbstore.ConflictLabel{Obj: t.VerbLoc, Verb: t.VerbName}, int(t.retries.Load()))
-			}
 		}
 	}()
 	var completion taskCompletion
@@ -164,19 +161,20 @@ func (s *Runtime) runTaskSliceAdmitted(t *Task, scope *admission.Scope, ownsScop
 	var executedTicks int64
 	// rerunTicks sums the ticks of the attempts this slice discarded and re-ran.
 	var rerunTicks int64
-	gate := sliceGate{holds: &s.gateHolds, key: GateHolder{This: t.This, Verb: t.VerbName}}
+	gate := sliceGate{holds: &s.gateHolds, this: t.This, verb: t.VerbName}
 	// The task's timeline, while diagnostics tracking is on (task_timeline.go).
 	tl := s.timelineFor(t)
 	var queueWait time.Duration
 	if !execReadyAt.IsZero() {
 		queueWait = started.Sub(execReadyAt)
 	}
-	tl.beginSlice(started, time.Duration(t.admissionWait.Swap(0)), queueWait)
-	defer func() { tl.endSlice(time.Now()) }()
-	var waits attemptWaits
-	var timelineWaits *attemptWaits
+	tl.beginSlice(started, queueWait)
+	defer tl.endSlice()
+	// The attempt's shared gate waits, for the timeline; nil (no allocation)
+	// without one.
+	var waits *attemptWaits
 	if tl != nil {
-		timelineWaits = &waits
+		waits = new(attemptWaits)
 	}
 	defer func() {
 		metrics.ObserveRuntime(metrics.Slice, id, time.Since(started), executedTicks)
@@ -285,7 +283,7 @@ retryAttempt:
 		gateWait, err := gate.acquire(taskCtx, s.store, cause, "", gateTicksAtLaunch)
 		metrics.ObserveRuntime(metrics.CommitGate, id, gateWait, 0)
 		scope.Waited(gateWait)
-		tl.noteGate(gate.key, gateWait)
+		tl.noteGate(gate.holder(cause, ""), gateWait)
 		if err != nil {
 			t.SetState(task.TaskKilled)
 			return err
@@ -332,7 +330,7 @@ retryAttempt:
 	ctx.StoreTxn = s.store.BeginSnapshot(0)
 	ctx.StoreTxn.SetConflictLabel(t.This, t.VerbName)
 	ctx.StoreTxn.SetConflictOrigin(t.VerbLoc, attempt+1)
-	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id, timelineWaits))
+	ctx.StoreTxn.SetCommitWaitObserver(sharedCommitWaitObserver(scope, id, waits))
 	ctx.StoreTxn.SetCommitContext(taskCtx)
 	// The task's own row: a kill that committed since the last slice stops it,
 	// and a resume's value is what its suspend() returns. The attempt's commit
@@ -388,7 +386,7 @@ retryAttempt:
 		}
 		scope.Waited(gateWait)
 		t.ExcludeExecutionWait(gateWait)
-		tl.noteGate(gate.key, gateWait)
+		tl.noteGate(gate.hold.key, gateWait)
 		// For the census: the wait sits between the attempt's reads and the
 		// boundary's validation, and the boundary is where it validates next.
 		ctx.StoreTxn.NoteCommitGateWait(gateWait)
@@ -524,8 +522,7 @@ retryAttempt:
 		// remains the backstop against a writer that keeps winning.
 		ctx.ConflictRetryRequested = false
 		metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
-		tl.endAttempt("lost-at-boundary", vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
-		t.retries.Add(1)
+		tl.endAttempt("lost-at-boundary", vmElapsed, attemptTicks, ctx.StoreTxn, waits)
 		rerunTicks += attemptTicks
 		lostAttemptTicks = attemptTicks
 		gate.release(ctx.StoreTxn)
@@ -572,8 +569,7 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				metrics.ObserveRuntime(metrics.RetryWaste, id, vmElapsed, attemptTicks)
-				tl.endAttempt("lost", vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
-				t.retries.Add(1)
+				tl.endAttempt("lost", vmElapsed, attemptTicks, ctx.StoreTxn, waits)
 				rerunTicks += attemptTicks
 				lostAttemptTicks = attemptTicks
 				s.discardCreatedForks(t)
@@ -623,7 +619,7 @@ retryAttempt:
 		case result.Flow == types.FlowException:
 			outcome = "exception"
 		}
-		tl.endAttempt(outcome, vmElapsed, attemptTicks, ctx.StoreTxn, &waits)
+		tl.endAttempt(outcome, vmElapsed, attemptTicks, ctx.StoreTxn, waits)
 	}
 	// Counted only with census tracking on.
 	s.store.NoteSliceAttempts(dbstore.ConflictLabel{Obj: t.VerbLoc, Verb: t.VerbName}, attempt+1, executedTicks, rerunTicks)
@@ -1021,19 +1017,34 @@ type sliceGate struct {
 	// everHeld records that the slice held the gate at some point, for the
 	// slow-slice log.
 	everHeld bool
-	// holds, when set, records each hold under key, timed from heldSince.
-	holds     *gateHoldStats
-	key       GateHolder
-	heldSince time.Time
-	// machine is the slice's VM, set at launch; ticksAtAcquire is its tick
-	// count when the gate was taken (or the slice entry ticks for a gate taken
-	// before the attempt ran), so a hold knows the ticks run under it.
-	machine        *vm.VM
+	// holds, when set, records each hold under its holder.
+	holds *gateHoldStats
+	// this and verb are the task's, for the holder of each hold.
+	this types.ObjID
+	verb string
+	// machine is the slice's VM, set at launch, so a hold can count the ticks
+	// run under it.
+	machine *vm.VM
+	// hold is the current hold, made at each acquire so the slice carries one
+	// pointer rather than the record.
+	hold *sliceHold
+}
+
+// sliceHold is one exclusive hold: who holds it (also the commitgate label
+// requests queued behind it see), since when, the VM's tick count when it was
+// taken (or the attempt's starting ticks for a gate taken before the attempt
+// ran), the acquire wait and what was in front of it.
+type sliceHold struct {
+	key            GateHolder
+	heldSince      time.Time
 	ticksAtAcquire int64
-	// wait and ahead are the current hold's acquire wait and what was in front
-	// of it, recorded with the hold.
-	wait  time.Duration
-	ahead commitgate.Ahead
+	wait           time.Duration
+	ahead          commitgate.Ahead
+}
+
+// holder names the slice's current or next hold.
+func (g *sliceGate) holder(cause, builtin string) GateHolder {
+	return GateHolder{This: g.this, Verb: g.verb, Cause: cause, Builtin: builtin}
 }
 
 // GateHolder names the task verb that held the exclusive commit gate and why
@@ -1142,13 +1153,18 @@ func (h *gateHoldStats) observe(key GateHolder, held time.Duration, ticks int64,
 	}
 }
 
-// holderLabel names an exclusive requester; an unlabeled one is the store's
-// own (a checkpoint snapshot).
-func holderLabel(label string) string {
-	if label == "" {
+// holderLabel names an exclusive requester from its commitgate label: a task
+// slice's *GateHolder (its sliceHold's key, never written after the acquire),
+// or none for the store's own (a checkpoint snapshot).
+func holderLabel(label any) string {
+	switch l := label.(type) {
+	case *GateHolder:
+		return l.label()
+	case nil:
 		return "(store snapshot)"
+	default:
+		return fmt.Sprint(l)
 	}
-	return label
 }
 
 func (g *GateHold) addAhead(label string) {
@@ -1218,34 +1234,37 @@ const (
 // attempt, so a hold can count the ticks run under it.
 func (g *sliceGate) attach(machine *vm.VM) {
 	g.machine = machine
-	if g.held() && g.ticksAtAcquire == gateTicksAtLaunch {
-		g.ticksAtAcquire = machine.Ticks
+	if g.held() && g.hold.ticksAtAcquire == gateTicksAtLaunch {
+		g.hold.ticksAtAcquire = machine.Ticks
 	}
 }
 
 // acquire takes the gate and reports how long that took, whether or not it
 // succeeded. The hold is recorded under cause and builtin (the irreversible
 // builtin that made the slice take it, or empty); its ticks are counted from
-// baseTicks when baseTicks >= 0, else from the slice VM's ticks now.
+// the slice VM's ticks now (gateTicksFromVM) or at the attempt's launch
+// (gateTicksAtLaunch).
 func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause, builtin string, baseTicks int64) (time.Duration, error) {
-	g.key.Cause, g.key.Builtin = cause, builtin
+	// The record is the commitgate label too: requests queued behind this one
+	// see the hold as it was taken, rendered only if reported (holderLabel).
+	hold := &sliceHold{key: g.holder(cause, builtin), ticksAtAcquire: baseTicks}
 	waitStart := time.Now()
-	grant, err := store.AcquireExclusiveLabeled(ctx, g.key.label())
+	grant, err := store.AcquireExclusiveLabeled(ctx, &hold.key)
 	wait := time.Since(waitStart)
 	if err != nil {
 		return wait, err
 	}
 	g.grant = grant
 	g.everHeld = true
-	g.heldSince = time.Now()
-	g.wait, g.ahead = wait, grant.Ahead()
-	g.ticksAtAcquire = baseTicks
+	hold.heldSince = time.Now()
+	hold.wait, hold.ahead = wait, grant.Ahead()
 	if baseTicks == gateTicksFromVM {
-		g.ticksAtAcquire = 0
+		hold.ticksAtAcquire = 0
 		if g.machine != nil {
-			g.ticksAtAcquire = g.machine.Ticks
+			hold.ticksAtAcquire = g.machine.Ticks
 		}
 	}
+	g.hold = hold
 	return wait, nil
 }
 
@@ -1272,12 +1291,14 @@ func (g *sliceGate) drop() {
 	}
 	g.grant.Release()
 	g.grant = nil
+	hold := g.hold
+	g.hold = nil
 	if g.holds != nil {
 		var ticks int64
-		if g.machine != nil && g.ticksAtAcquire >= 0 {
-			ticks = g.machine.Ticks - g.ticksAtAcquire
+		if g.machine != nil && hold.ticksAtAcquire >= 0 {
+			ticks = g.machine.Ticks - hold.ticksAtAcquire
 		}
-		g.holds.observe(g.key, time.Since(g.heldSince), ticks, g.wait, g.ahead)
+		g.holds.observe(hold.key, time.Since(hold.heldSince), ticks, hold.wait, hold.ahead)
 	}
 }
 

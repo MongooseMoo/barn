@@ -16,13 +16,8 @@ type Task struct {
 	machine *vm.VM
 	catalog *TaskManager
 	// timeline is the task's slice timeline while diagnostics tracking is on
-	// (task_timeline.go); admissionWait is the background admission wait before
-	// the slice about to run, read by that slice's timeline entry.
-	timeline      atomic.Pointer[taskTimeline]
-	admissionWait atomic.Int64
-	// retries counts the attempts this task discarded and re-ran over all its
-	// slices, for the census's retries per task.
-	retries atomic.Int64
+	// (task_timeline.go). It is one pointer so a task without it stays small.
+	timeline atomic.Pointer[taskTimeline]
 }
 
 func NewTask(id int64, owner types.ObjID, ticks int64, seconds float64) *Task {

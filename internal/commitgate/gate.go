@@ -22,58 +22,69 @@ type Gate struct {
 	writer   bool
 	sequence uint64
 	// writerLabel is the exclusive owner's label, for Ahead.
-	writerLabel string
+	writerLabel any
 }
 
 // Ahead is what stood in front of an exclusive request when it was queued:
 // the exclusive owner's label (Holder, with HolderExclusive set) or the number
 // of shared owners, and the requests queued before it, exclusive ones by label
 // and shared ones counted. Depth is the number of queued requests ahead.
+// Labels are whatever the requesters passed to AcquireLabeled (nil when they
+// passed none); the gate only stores them, so naming them costs nothing until
+// the owner renders them.
 type Ahead struct {
 	HolderExclusive bool
-	Holder          string
+	Holder          any
 	SharedOwners    int
 	Depth           int
-	Exclusive       []string
+	Exclusive       []any
 	Shared          int
 }
 
 // Grant is an opaque, single-release capability. Cancellation can withdraw a
 // queued request, but cannot revoke a capability already returned to its owner.
+//
+// Fields are ordered so the small ones share a word: every commit allocates a
+// Grant.
 type Grant struct {
 	gate   *Gate
-	mode   Mode
 	ticket uint64
 	ready  chan struct{}
-	active bool
 	wait   time.Duration
+	// excl is an exclusive request's label and what was in front of it; nil
+	// for a shared request.
+	excl   *exclusiveRequest
+	mode   Mode
+	active bool
 	// blocked: the request was not granted when it was queued. A shared
 	// request is only held back by an exclusive owner or an exclusive request
 	// queued ahead of it, so for Shared this means it waited behind Exclusive.
 	blocked bool
-	// label and ahead are AcquireLabeled's: the request's label and, for an
-	// exclusive request, what was in front of it.
-	label string
+}
+
+// exclusiveRequest is AcquireLabeled's record of an exclusive request.
+type exclusiveRequest struct {
+	label any
 	ahead Ahead
 }
 
 func (g *Gate) Acquire(ctx context.Context, mode Mode) (*Grant, error) {
-	return g.AcquireLabeled(ctx, mode, "")
+	return g.AcquireLabeled(ctx, mode, nil)
 }
 
 // AcquireLabeled is Acquire for a request named label. An exclusive request
 // also records what was in front of it (Grant.Ahead), and while it owns the
 // gate its label is what later exclusive requests see as the holder.
-func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label string) (*Grant, error) {
+func (g *Gate) AcquireLabeled(ctx context.Context, mode Mode, label any) (*Grant, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	g.mu.Lock()
 	g.sequence++
-	r := &Grant{gate: g, mode: mode, ticket: g.sequence, ready: make(chan struct{}), label: label}
+	r := &Grant{gate: g, mode: mode, ticket: g.sequence, ready: make(chan struct{})}
 	if mode == Exclusive {
-		r.ahead = g.aheadLocked()
+		r.excl = &exclusiveRequest{label: label, ahead: g.aheadLocked()}
 	}
 	g.queue = append(g.queue, r)
 	g.dispatchLocked()
@@ -118,7 +129,7 @@ func (g *Gate) dispatchLocked() {
 		r.active = true
 		if r.mode == Exclusive {
 			g.writer = true
-			g.writerLabel = r.label
+			g.writerLabel = r.excl.label
 		} else {
 			g.readers++
 		}
@@ -135,7 +146,7 @@ func (g *Gate) releaseLocked(r *Grant) bool {
 	r.active = false
 	if r.mode == Exclusive {
 		g.writer = false
-		g.writerLabel = ""
+		g.writerLabel = nil
 	} else {
 		g.readers--
 	}
@@ -155,7 +166,12 @@ func (r *Grant) Blocked() bool { return r.blocked }
 
 // Ahead reports what was in front of an exclusive request when it was queued;
 // it is empty for a shared one.
-func (r *Grant) Ahead() Ahead { return r.ahead }
+func (r *Grant) Ahead() Ahead {
+	if r.excl == nil {
+		return Ahead{}
+	}
+	return r.excl.ahead
+}
 
 // aheadLocked describes the owners and the queue as a new request finds them.
 func (g *Gate) aheadLocked() Ahead {
@@ -165,7 +181,7 @@ func (g *Gate) aheadLocked() Ahead {
 	}
 	for _, q := range g.queue {
 		if q.mode == Exclusive {
-			a.Exclusive = append(a.Exclusive, q.label)
+			a.Exclusive = append(a.Exclusive, q.excl.label)
 		} else {
 			a.Shared++
 		}

@@ -81,7 +81,7 @@ func (s *Runtime) enterBackground(t *Task) (*admission.Scope, context.Context, c
 	scope, err := s.admission.Enter(ctx, backgroundAdmissionKey(t))
 	waited := time.Since(started)
 	metrics.ObserveRuntime(metrics.BackgroundAdmission, taskRuntimeIdentity(t), waited, 0)
-	t.admissionWait.Store(int64(waited))
+	s.timelineFor(t).noteAdmissionWait(waited)
 	return scope, ctx, cancel, err
 }
 

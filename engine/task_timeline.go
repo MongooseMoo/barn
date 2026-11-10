@@ -69,7 +69,8 @@ type TimelineSlice struct {
 // in the VM, Ticks executed. Outcome is one of commit, suspend, exception,
 // lost (validation lost at the commit, re-run), lost-at-boundary (stale at the
 // irreversible-effect boundary, re-run), lost-final (validation lost, not
-// re-runnable), killed, error or running. Conflict names the first stale key of
+// re-runnable), error (the attempt ended any other way: a failed commit, a
+// kill, a launch error) or running. Conflict names the first stale key of
 // a lost attempt and Conflicts how many there were. Gate names the exclusive
 // commit gate hold the attempt took (cause and builtin), ExclusiveWaitNS its
 // acquire wait; SharedWaitNS sums the attempt's shared gate waits at commit
@@ -95,6 +96,20 @@ type taskTimeline struct {
 	tl TaskTimeline
 	// sliceStart is the current slice's start, for its WallNS.
 	sliceStart time.Time
+	// pendingAdmission is the background admission wait before the slice
+	// about to begin.
+	pendingAdmission time.Duration
+}
+
+// noteAdmissionWait records the background admission wait before the next
+// slice.
+func (tl *taskTimeline) noteAdmissionWait(wait time.Duration) {
+	if tl == nil {
+		return
+	}
+	tl.mu.Lock()
+	tl.pendingAdmission = wait
+	tl.mu.Unlock()
 }
 
 // attemptWaits accumulates an attempt's commit gate waits; the observer can
@@ -128,13 +143,16 @@ func (s *Runtime) timelineFor(t *Task) *taskTimeline {
 	return tl
 }
 
-// beginSlice opens a slice starting at started.
-func (tl *taskTimeline) beginSlice(started time.Time, admissionWait, queue time.Duration) {
+// beginSlice opens a slice starting at started, queue after the external
+// completion that readied it.
+func (tl *taskTimeline) beginSlice(started time.Time, queue time.Duration) {
 	if tl == nil {
 		return
 	}
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
+	admissionWait := tl.pendingAdmission
+	tl.pendingAdmission = 0
 	if tl.tl.Start.IsZero() {
 		tl.tl.Start = started
 	}
@@ -202,7 +220,10 @@ func (tl *taskTimeline) endAttempt(outcome string, wall time.Duration, ticks int
 	if tl == nil {
 		return
 	}
-	shared, blocked := waits.take()
+	var shared, blocked int64
+	if waits != nil {
+		shared, blocked = waits.take()
+	}
 	var conflicts []dbstore.ReadConflict
 	if strings.HasPrefix(outcome, "lost") {
 		conflicts = txn.Conflicts()
@@ -227,11 +248,12 @@ func (tl *taskTimeline) endAttempt(outcome string, wall time.Duration, ticks int
 	}
 }
 
-// endSlice closes the current slice at now.
-func (tl *taskTimeline) endSlice(now time.Time) {
+// endSlice closes the current slice now.
+func (tl *taskTimeline) endSlice() {
 	if tl == nil {
 		return
 	}
+	now := time.Now()
 	tl.mu.Lock()
 	defer tl.mu.Unlock()
 	if sl := tl.currentLocked(); sl != nil {
@@ -309,6 +331,9 @@ func (s *Runtime) finishTimeline(t *Task, state string) {
 	tl.tl.Finished = true
 	tl.mu.Unlock()
 	snap := tl.snapshot(state, true)
+	if s.store != nil {
+		s.store.NoteTaskRetries(dbstore.ConflictLabel{Obj: snap.VerbLoc, Verb: snap.Verb}, snap.Retries)
+	}
 	if time.Duration(snap.ElapsedNS) < slowTimelineThreshold {
 		return
 	}
