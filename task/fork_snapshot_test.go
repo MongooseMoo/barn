@@ -43,6 +43,18 @@ func TestPersistenceSnapshotUsesSourceRestoredForkProgramMetadata(t *testing.T) 
 	}
 }
 
+// An empty fork body has no statements, so its program has no line entries;
+// the snapshot must still carry a writable first line.
+func TestPersistenceSnapshotEmptyForkProgramUsesLineOne(t *testing.T) {
+	program := &bytecode.Program{Code: []byte{byte(bytecode.OP_RETURN_NONE)}}
+	tk := NewStateFull(8103, 0, program, 1000, 1)
+	tk.ForkInfo = &types.ForkInfo{}
+	saved := tk.PersistenceSnapshotLocked()
+	if saved.Fork == nil || saved.Fork.FirstLine != 1 {
+		t.Fatalf("empty fork program metadata=%+v", saved.Fork)
+	}
+}
+
 func TestPersistenceSnapshotHandlesTypedNilForkDescriptor(t *testing.T) {
 	tk := NewStateFull(8102, 0, nil, 1000, 1)
 	var body *bytecode.ForkBody
