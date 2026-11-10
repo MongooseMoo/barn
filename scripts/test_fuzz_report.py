@@ -16,7 +16,8 @@ import threading
 import unittest
 from unittest.mock import mock_open, patch
 
-from fuzz_report import DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, publish, report, summarize
+from fuzz_report import (DEFERRED, INLINE_LIMIT, RECORD_LIMIT, TAIL_LIMIT, issue_body, publish, report,
+                         summarize)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,13 +222,16 @@ def decoded_record(body):
 class FakeGitHub:
     """Records REST calls in order; returns what publish() reads back."""
 
-    def __init__(self, issues=(), fail=()):
+    def __init__(self, issues=(), fail=(), commit_date="2026-11-10T06:00:00Z"):
         self.issues, self.fail, self.calls = list(issues), set(fail), []
+        self.commit_date = commit_date
 
     def __call__(self, method, path, payload=None):
         self.calls.append((method, path, payload))
         if (method, path) in self.fail:
             raise RuntimeError(f"{method} {path}: HTTP 500")
+        if method == "GET" and path.startswith("/commits/"):
+            return {"commit": {"committer": {"date": self.commit_date}}}
         if method == "GET":
             return self.issues
         if path == "/issues":
@@ -253,6 +257,30 @@ class PublishTests(unittest.TestCase):
         body = github.calls[1][2]["body"]
         _, github = self.run_publish(result, [{"number": 12, "body": body}])
         self.assertEqual(github.names(), ["/issues/12/comments"])
+
+    def closed_issue(self, closed_at, number=20):
+        body = issue_body(summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")[0],
+                          "./vm", "FuzzTarget", "https://run", None)
+        return {"number": number, "body": body, "state": "closed", "closed_at": closed_at}
+
+    def test_issue_closed_after_the_fuzzed_commit_gets_the_repeat(self):
+        # A cycle still fuzzing a commit from before the fix (#698 then #707).
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T06:26:13Z")])
+        self.assertEqual(github.names(), ["/commits/commit", "/issues/20/comments"])
+        self.assertIn("Commit commit predates this issue's closing", github.calls[-1][2]["body"])
+
+    def test_issue_closed_before_the_fuzzed_commit_is_a_regression(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T05:00:00Z")])
+        self.assertEqual(github.names(),
+                         ["/commits/commit", "/issues", "/actions/workflows/claude-fix.yml/dispatches"])
+
+    def test_open_issue_wins_over_closed_ones_without_a_commit_lookup(self):
+        result = summarize(["panic: failure"], "./vm", "FuzzTarget", "commit")
+        open_issue = {**self.closed_issue(None, number=30), "state": "open"}
+        _, github = self.run_publish(result, [self.closed_issue("2026-11-10T06:26:13Z"), open_issue])
+        self.assertEqual(github.names(), ["/issues/30/comments"])
 
     def test_each_distinct_signature_is_reported_once(self):
         first = ("panic: first\ngithub.com/MongooseMoo/barn/vm.(*VM).Resume()\n /src/vm.go:1 +0x1\n"

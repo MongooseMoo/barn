@@ -3,6 +3,7 @@ interpreting or executing corpus contents."""
 
 import argparse
 import base64
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -194,8 +195,17 @@ def issue_body(result, package, target, run_url, artifact_url):
     ] if part)
 
 
+def utc(stamp):
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
 def publish(reports, api, package, target, run_url, artifact_url=None, immediate=False):
     """Open an issue (and dispatch its repair) or comment, per signature.
+
+    A signature whose issue was closed after the fuzzed commit was made is
+    commented on that issue: the fix that closed it is not in the commit. A
+    signature whose issue closed before the commit is a regression and gets a
+    new issue.
 
     With immediate, nothing is posted when a record is too large to travel in
     the issue: it is reported when the job ends, with its uploaded artifact.
@@ -205,19 +215,32 @@ def publish(reports, api, package, target, run_url, artifact_url=None, immediate
         return DEFERRED
     issues, page = [], 1
     while True:
-        batch = api("GET", f"/issues?state=open&per_page=100&page={page}")
+        batch = api("GET", f"/issues?state=all&per_page=100&page={page}")
         issues += [issue for issue in batch if "pull_request" not in issue]
         if len(batch) < 100:
             break
         page += 1
+    commit_times = {}
     for result in reports:
         infrastructure = result["kind"] == "infrastructure"
         body = issue_body(result, package, target, run_url, artifact_url)
         marker = body.split("\n", 1)[0]
-        existing = next((issue for issue in issues if marker in (issue.get("body") or "")), None)
+        matching = [issue for issue in issues if marker in (issue.get("body") or "")]
+        existing = next((issue for issue in matching if issue.get("state") != "closed"), None)
         if existing:
             api("POST", f"/issues/{existing['number']}/comments", {"body": body})
             continue
+        closed = [issue for issue in matching if issue.get("closed_at")]
+        if closed:
+            commit = result["commit"]
+            if commit not in commit_times:
+                commit_times[commit] = utc(api("GET", f"/commits/{commit}")["commit"]["committer"]["date"])
+            latest = max(closed, key=lambda issue: utc(issue["closed_at"]))
+            if utc(latest["closed_at"]) > commit_times[commit]:
+                note = (f"Commit {commit} predates this issue's closing, so it does not have the fix; "
+                        "no new issue or repair was started.")
+                api("POST", f"/issues/{latest['number']}/comments", {"body": f"{note}\n\n{body}"})
+                continue
         title = (f"Nightly fuzz infrastructure failure: {target}" if infrastructure
                  else f"Nightly fuzz failure: {target}")
         issue = api("POST", "/issues", {"title": title, "body": body,
