@@ -357,25 +357,34 @@ func startRealMOOProfile(t *testing.T, prefix string, players int) func() {
 	return stop
 }
 
-// copyBenchFile copies src over dst, creating dst's directory.
-func copyBenchFile(src, dst string) error {
+// copyBenchFile copies src over dst, creating dst's directory. When dst is
+// already the same file as src it returns copied=false without opening dst
+// for writing: os.Create would truncate src before the copy reads it.
+func copyBenchFile(src, dst string) (copied bool, err error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer in.Close()
+	srcInfo, err := in.Stat()
+	if err != nil {
+		return false, err
+	}
+	if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
+		return false, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	out, err := os.Create(dst)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		return err
+		return false, err
 	}
-	return out.Close()
+	return true, out.Close()
 }
 
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
@@ -528,10 +537,15 @@ func TestMongooseRealWorkload(t *testing.T) {
 	}
 	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
 	if catalog := os.Getenv("BARN_MONGOOSE_SOUND_DB"); catalog != "" {
-		if err := copyBenchFile(catalog, "files/sqlite/sound.sqlite"); err != nil {
+		copied, err := copyBenchFile(catalog, "files/sqlite/sound.sqlite")
+		if err != nil {
 			t.Fatalf("install sound catalog: %v", err)
 		}
-		t.Logf("sound catalog: %s", catalog)
+		if copied {
+			t.Logf("sound catalog: %s", catalog)
+		} else {
+			t.Logf("sound catalog: %s (already in place at files/sqlite/sound.sqlite; not copied)", catalog)
+		}
 	} else {
 		t.Logf("sound catalog: none (BARN_MONGOOSE_SOUND_DB unset); `say` will raise")
 	}
