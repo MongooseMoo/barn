@@ -66,9 +66,20 @@ jobs:
       - &setup-uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
+      # Claude's installer writes under $HOME, which the runners on one host
+      # share: a run installing while another ran the downloaded installer
+      # binary failed with "Text file busy". Each run installs into its own
+      # temporary home, and the action uses that binary instead of installing.
+      - &install-claude
+        name: Install Claude Code for this run
+        run: |
+          set -o pipefail
+          curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
+
       - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          path_to_claude_code_executable: &claude-bin ${{ runner.temp }}/claude-home/.local/bin/claude
           # Nightly fuzz dispatches as github-actions[bot].
           allowed_bots: github-actions
           settings: .github/claude-fix-settings.json
@@ -147,10 +158,12 @@ jobs:
       - *conformance-checkout
       - *setup-go
       - *setup-uv
+      - *install-claude
 
       - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          path_to_claude_code_executable: *claude-bin
           # A merge-queue merge can be attributed to the queue's bot.
           allowed_bots: github-merge-queue
           settings: .github/claude-fix-settings.json
