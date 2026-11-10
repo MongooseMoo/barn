@@ -1,7 +1,9 @@
 name: Claude fix
 
 # Runs Claude Code on one issue and leaves a pull request for review.
-# Nightly fuzz dispatches this for each newly opened failure issue: issues it
+# Nightly fuzz dispatches this for each newly opened failure issue, as soon as
+# a lane saves the finding (or when its job ends for a record too large to
+# carry in the issue): issues it
 # opens with GITHUB_TOKEN start no `issues` workflows, but workflow_dispatch is
 # exempt. A maintainer can also start it by adding the `claude-fix` label.
 on:
@@ -73,9 +75,13 @@ jobs:
             jobs' tests too. Start potentially hanging reproductions with timeout, and clean up only
             PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
 
-            1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, download its
-               failing inputs with `gh run download <run-id> -n fuzz-failure-<target>` from the linked run, and
-               copy the input the issue names into <package>/testdata/fuzz/<Target>/, then reproduce with
+            1. Read the issue: `gh issue view ${{ env.ISSUE }} --comments`. For a fuzz failure, recreate the
+               input it names in <package>/testdata/fuzz/<Target>/. Fuzz lanes report a finding while they are
+               still running, so the issue body normally holds the exact record in a base64 block: decode that
+               block's contents with `base64 -d` into the path the issue names, and check `sha256sum` against the
+               issue. Only if the issue has no such block, download its failing inputs with
+               `gh run download <run-id> -n fuzz-failure-<target>` from the linked run (uploaded when that job
+               ends) and copy the named input. Then reproduce with
                `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
                The artifact can hold inputs for other failures found the same night; use only this issue's input.
             2. Before fixing, check for the same bug already filed or being fixed. One bug can appear under two
