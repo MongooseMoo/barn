@@ -16,7 +16,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// it queues its checkpoint request as a commit-deferred effect.
 	// file_count_lines and file_grep became Irreversible because their scans
 	// move the shared file cursor, just like file_readline and file_seek.
-	const expected = "1c65ff23ae88787b06c0a2fdb3baaf7d8bdd89d252e10b2f39ff20313e47d4e3"
+	// exec became ImplementationOwned: it crosses the boundary itself, after its
+	// argument, permission and path checks and just before starting the process.
+	const expected = "afb7076529a2aa4d0ae0021d9ff4c061c6bab47adf7bf2e6bf74cdba8a84da0d"
 	type contract struct {
 		Name       string
 		Signature  *Signature

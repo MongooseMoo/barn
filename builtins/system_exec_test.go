@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -129,6 +131,109 @@ func TestBuiltinExecRejectsNonStringEnvironmentEntries(t *testing.T) {
 	})
 	if result.Error != types.E_INVARG {
 		t.Fatalf("exec error = %v, want %v", result.Error, types.E_INVARG)
+	}
+}
+
+// An exec() that fails its own checks starts no process, so it must not cross
+// the irreversible-effect boundary: no exclusive commit gate, no
+// commit-and-renew, and the attempt stays re-runnable.
+func TestBuiltinExecFailedChecksDoNotCrossIrreversibleBoundary(t *testing.T) {
+	program := installExecTestBinary(t)
+	str := types.NewStr
+	cmd := func(parts ...types.Value) types.Value { return types.NewList(parts) }
+	cases := []struct {
+		name   string
+		wizard bool
+		args   []types.Value
+		want   types.ErrorCode
+	}{
+		{"not wizard", false, []types.Value{cmd(str(program))}, types.E_PERM},
+		{"empty command", true, []types.Value{cmd()}, types.E_INVARG},
+		{"non-string program", true, []types.Value{cmd(types.NewInt(1))}, types.E_TYPE},
+		{"non-string argument", true, []types.Value{cmd(str(program), types.NewInt(1))}, types.E_TYPE},
+		{"missing program", true, []types.Value{cmd(str("test_does_not_exist"))}, types.E_INVARG},
+		{"absolute path", true, []types.Value{cmd(str("/" + program))}, types.E_INVARG},
+		{"parent escape", true, []types.Value{cmd(str("../" + program))}, types.E_INVARG},
+		{"inner escape", true, []types.Value{cmd(str("foo/../../" + program))}, types.E_INVARG},
+		{"invalid input", true, []types.Value{cmd(str(program)), str("invalid~input")}, types.E_INVARG},
+		{"non-string environment", true, []types.Value{cmd(str(program)), str(""), cmd(types.NewInt(1))}, types.E_INVARG},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, taskValue := sqliteAsyncCtx()
+			ctx.IsWizard = tc.wizard
+			crossings := 0
+			ctx.BeforeIrreversibleEffect = func() bool {
+				crossings++
+				return false
+			}
+			result := admitTestBuiltin("exec", ctx, tc.args)
+			if result.Flow != types.FlowException || result.Error != tc.want {
+				t.Fatalf("exec = %+v, want %v", result, tc.want)
+			}
+			if crossings != 0 || ctx.IrreversibleSideEffect {
+				t.Fatalf("crossings = %d irreversible = %v, want 0 and false", crossings, ctx.IrreversibleSideEffect)
+			}
+			if taskValue.IsExecSuspended || taskValue.GetState() != task.TaskRunning {
+				t.Fatalf("exec-suspended = %v state = %v, want a running task", taskValue.IsExecSuspended, taskValue.GetState())
+			}
+		})
+	}
+}
+
+// A valid exec() crosses the boundary once, before the process starts, and
+// then suspends the task until the process finishes.
+func TestBuiltinExecCrossesBoundaryBeforeStartingProcess(t *testing.T) {
+	program := installExecTestBinary(t)
+	ctx, taskValue := sqliteAsyncCtx()
+	crossings := 0
+	ctx.BeforeIrreversibleEffect = func() bool {
+		crossings++
+		if taskValue.IsExecSuspended || taskValue.GetState() != task.TaskRunning {
+			t.Errorf("boundary crossed after the process started")
+		}
+		return false
+	}
+	result := admitTestBuiltin("exec", ctx, []types.Value{
+		types.NewList([]types.Value{types.NewStr(program), types.NewStr("-test.run=^TestExecInputHelper$")}),
+		types.NewStr("hello"),
+		types.NewList([]types.Value{types.NewStr("BARN_EXEC_INPUT_HELPER=1")}),
+	})
+	if result.Flow != types.FlowSuspend {
+		t.Fatalf("exec flow = %v, want suspend", result.Flow)
+	}
+	if crossings != 1 || !ctx.IrreversibleSideEffect {
+		t.Fatalf("crossings = %d irreversible = %v, want 1 and true", crossings, ctx.IrreversibleSideEffect)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for taskValue.GetState() == task.TaskSuspended && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := taskValue.GetState(); got != task.TaskQueued {
+		t.Fatalf("task state = %v, want queued after the process finished", got)
+	}
+	if got := taskValue.WakeValue.Get(2).Str(); got != "hello" {
+		t.Fatalf("child stdin = %q, want %q", got, "hello")
+	}
+}
+
+// When the runtime abandons a stale attempt at the boundary, exec() returns
+// without starting the process, leaving the task running and re-runnable.
+func TestBuiltinExecStaleAttemptAbortsBeforeStartingProcess(t *testing.T) {
+	program := installExecTestBinary(t)
+	ctx, taskValue := sqliteAsyncCtx()
+	crossings := 0
+	ctx.BeforeIrreversibleEffect = func() bool {
+		crossings++
+		ctx.ConflictRetryRequested = true
+		return true
+	}
+	result := admitTestBuiltin("exec", ctx, []types.Value{types.NewList([]types.Value{types.NewStr(program)})})
+	if result.Flow != types.FlowAbortAttempt || crossings != 1 || ctx.IrreversibleSideEffect {
+		t.Fatalf("exec = %+v crossings = %d irreversible = %v, want aborted before effect", result, crossings, ctx.IrreversibleSideEffect)
+	}
+	if taskValue.IsExecSuspended || taskValue.ExecCancelFunc != nil || taskValue.GetState() != task.TaskRunning {
+		t.Fatalf("exec-suspended = %v state = %v, want a running task with no process", taskValue.IsExecSuspended, taskValue.GetState())
 	}
 }
 
