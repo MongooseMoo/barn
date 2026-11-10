@@ -106,11 +106,14 @@ func (vm *VM) executeIndexKeyed() error {
 // #0:bf_maphaskey hands that wrapper the whole map, and a key orderedLookupKey
 // rejects makes the answer depend on other keys, so either reads the slot whole.
 func (vm *VM) executeMaphaskeyKeyed() error {
-	propName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "property")
+	// Read both operands before validating either: a non-debug frame pushes
+	// the error and resumes at frame.IP, which must be the next instruction.
+	nameIndex := int(vm.ReadShort())
+	funcID := int(vm.ReadShort())
+	propName, err := vm.staticNameFromConstant(nameIndex, "property")
 	if err != nil {
 		return err
 	}
-	funcID := int(vm.ReadShort())
 	key := vm.Pop()
 	coll := vm.Pop()
 	objVal := vm.Pop()
