@@ -1,8 +1,7 @@
 name: Nightly fuzz
 run-name: Nightly fuzz / ${{ inputs.compute-mode }}${{ inputs.campaign == 'native-only' && ' / native-only' || '' }}
 
-# Workstation Task Scheduler continues dispatching the default legacy mode at
-# 03:17 Mountain. Dedicated modes use only the explicitly verified runner group.
+# Every discovery job runs in the server's dedicated runner group.
 # fuzz-controller.yml replenishes continuous cycles: GitHub rejects a workflow
 # whose workflow_run trigger names itself.
 on:
@@ -11,8 +10,8 @@ on:
       compute-mode:
         description: Compute pool and cycle lifetime
         type: choice
-        default: legacy
-        options: [legacy, dedicated-once, dedicated-continuous]
+        default: dedicated-once
+        options: [dedicated-once, dedicated-continuous]
       campaign:
         description: Native discovery alone or with Toast comparison
         type: choice
@@ -27,14 +26,16 @@ defaults:
     shell: bash
 
 concurrency:
-  group: nightly-fuzz-${{ inputs.compute-mode == 'legacy' && 'legacy' || 'dedicated' }}
+  group: nightly-fuzz-dedicated
   cancel-in-progress: false
 
 jobs:
   route:
     if: github.event_name == 'workflow_dispatch'
     name: Validate compute routing
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on:
+      group: barn-bug-discovery
+      labels: [self-hosted, Linux, X64, barn-fuzz]
     timeout-minutes: 5
     outputs:
       runner: ${{ steps.route.outputs.runner }}
@@ -49,7 +50,6 @@ jobs:
         env:
           COMPUTE_MODE: ${{ inputs.compute-mode }}
           FUZZ_CAMPAIGN: ${{ inputs.campaign }}
-          CI_RUNNER_LABELS: ${{ vars.CI_RUNNER_LABELS }}
           FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
           FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
           FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
@@ -149,7 +149,9 @@ jobs:
             log="$logs/run-$(printf %03d "$run").log"
             if {
               go version
-              go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -parallel=2 -timeout="$((remaining + 600))s"
+              # Keep the original failing seed so quarantine can remove its
+              # exact bytes from the disposable cache before retrying.
+              go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=2 -timeout="$((remaining + 600))s"
             } 2>&1 | tee "$log"; then
               mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
@@ -160,7 +162,7 @@ jobs:
                 --target '${{ matrix.target }}' --commit "$GITHUB_SHA" --campaign-outcome failure |
               python3 -c 'import json, sys; r = json.load(sys.stdin)[0]; print(r["input_path"] if r["kind"] != "infrastructure" and r["input_path"] else "")')
             if [ -z "$input" ]; then echo "cycle=infrastructure" >> "$GITHUB_OUTPUT"; exit 1; fi
-            mv "$input" "$found/"
+            python3 scripts/fuzz_retention.py quarantine --cache "$GOCACHE" --package '${{ matrix.package }}' --target '${{ matrix.target }}' --input "$input" --found "$found"
           done
           echo "cycle=$([ "$status" = 0 ] && echo clean || echo finding)" >> "$GITHUB_OUTPUT"
           exit "$status"

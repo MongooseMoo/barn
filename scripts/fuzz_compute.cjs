@@ -22,17 +22,11 @@ function dedicated(config) {
 function configure({context, core}) {
   const selected = campaign();
   const mode = process.env.COMPUTE_MODE;
-  if (!['legacy', 'dedicated-once', 'dedicated-continuous'].includes(mode)) throw new Error('Invalid compute mode');
-  let result;
-  if (mode === 'legacy') {
-    // GitHub allows at most 256 matrix jobs. Let available runners set capacity.
-    result = {runner: JSON.parse(process.env.CI_RUNNER_LABELS || '["ubuntu-latest"]'), parallel: 256};
-  } else {
-    if (context.ref !== 'refs/heads/master') throw new Error('Dedicated compute requires trusted master');
-    result = dedicated(process.env);
-    if (mode === 'dedicated-continuous' && process.env.FUZZ_CONTINUOUS_ENABLED !== 'true') {
-      throw new Error('Continuous discovery is stopped');
-    }
+  if (!['dedicated-once', 'dedicated-continuous'].includes(mode)) throw new Error('Invalid compute mode');
+  if (context.ref !== 'refs/heads/master') throw new Error('Dedicated compute requires trusted master');
+  const result = dedicated(process.env);
+  if (mode === 'dedicated-continuous' && process.env.FUZZ_CONTINUOUS_ENABLED !== 'true') {
+    throw new Error('Continuous discovery is stopped');
   }
   core.setOutput('runner', JSON.stringify(result.runner));
   core.setOutput('parallel', result.parallel);
