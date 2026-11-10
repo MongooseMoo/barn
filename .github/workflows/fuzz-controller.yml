@@ -28,9 +28,9 @@ jobs:
       github.event.workflow_run.head_branch == 'master' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       vars.FUZZ_CONTINUOUS_ENABLED == 'true'
-    # The dedicated group admits only fuzz.yml, so this dispatch-only job uses
-    # the ordinary CI selector, as fuzz.yml's routing job does.
-    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    runs-on:
+      group: barn-bug-discovery
+      labels: [self-hosted, Linux, X64, barn-fuzz]
     permissions:
       contents: read
       actions: write

@@ -12,13 +12,45 @@ import shutil
 MAX_BYTES = 256 * 1024 * 1024
 
 
-def transfer(mode, root, cache, package, target, head, go_version, profile, logs=None, campaign=None):
-    if mode not in ("capture", "restore"):
-        raise ValueError("unknown corpus transfer mode")
+def native_corpus(cache, package, target):
     if not re.fullmatch(r"\./[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", package):
         raise ValueError("package must be a relative Go package")
     if not re.fullmatch(r"Fuzz[a-zA-Z0-9_]+", target):
         raise ValueError("target must be a Go fuzz function")
+    return cache / "fuzz/github.com/MongooseMoo/barn" / package.removeprefix("./") / target
+
+
+def quarantine(cache, package, target, source, found):
+    """Keep an unminimized finding, removing its exact disposable replay copies."""
+    native = native_corpus(cache, package, target)
+    if source.parent != Path(package) / "testdata/fuzz" / target or source.is_symlink():
+        raise ValueError("finding must be a regular record in this target's testdata")
+    data = source.read_bytes()
+    if not data.startswith(b"go test fuzz v1\n"):
+        raise ValueError("finding is not a Go fuzz record")
+    found.mkdir(parents=True, exist_ok=True)
+    destination = found / source.name
+    if destination.exists():
+        # A static f.Add seed cannot be removed from a disposable cache. Keep
+        # the original evidence and stop instead of repeating it for 30 minutes.
+        raise ValueError("finding repeated after quarantine; no new campaign work")
+    shutil.copyfile(source, destination)
+    removed = 0
+    if native.exists():
+        for path in native.iterdir():
+            if path.is_symlink() or not path.is_file():
+                raise ValueError(f"unexpected corpus entry: {path}")
+            if path.read_bytes() == data:
+                path.unlink()
+                removed += 1
+    source.unlink()
+    print(json.dumps({"quarantined": str(destination), "removed_replay_copies": removed}))
+
+
+def transfer(mode, root, cache, package, target, head, go_version, profile, logs=None, campaign=None):
+    if mode not in ("capture", "restore"):
+        raise ValueError("unknown corpus transfer mode")
+    native = native_corpus(cache, package, target)
     lane = root / package.removeprefix("./") / target
     manifest_path = lane / "manifest.json"
     if manifest_path.exists() and manifest_path.stat().st_size > MAX_BYTES:
@@ -38,7 +70,6 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
             raise ValueError("retained corpus and provenance exceed 256 MiB")
         if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ValueError(f"retained corpus digest mismatch: {digest}")
-    native = cache / "fuzz/github.com/MongooseMoo/barn" / package.removeprefix("./") / target
     if mode == "capture":
         records.mkdir(parents=True, exist_ok=True)
         sources = [(native, "interesting"),
@@ -106,17 +137,26 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("restore", "capture"))
+    parser.add_argument("mode", choices=("restore", "capture", "quarantine"))
     parser.add_argument("--root", type=Path, default=Path(".fuzz/retained"))
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--package", required=True)
     parser.add_argument("--target", required=True)
-    parser.add_argument("--head", required=True)
-    parser.add_argument("--go-version", required=True)
+    parser.add_argument("--head")
+    parser.add_argument("--go-version")
+    parser.add_argument("--input", type=Path)
+    parser.add_argument("--found", type=Path)
     parser.add_argument("--profile", type=Path, default=Path("profiles/toast/stock-wsl-testdb.json"))
     parser.add_argument("--logs", type=Path)
     parser.add_argument("--campaign", choices=("", "clean", "finding", "infrastructure"))
     args = parser.parse_args()
+    if args.mode == "quarantine":
+        if args.input is None or args.found is None:
+            parser.error("quarantine requires --input and --found")
+        quarantine(args.cache, args.package, args.target, args.input, args.found)
+        return
+    if args.head is None or args.go_version is None:
+        parser.error("capture and restore require --head and --go-version")
     transfer(args.mode, args.root, args.cache, args.package, args.target,
              args.head, args.go_version, hashlib.sha256(args.profile.read_bytes()).hexdigest(), args.logs,
              args.campaign)

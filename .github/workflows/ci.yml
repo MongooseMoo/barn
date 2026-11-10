@@ -111,6 +111,11 @@ jobs:
           --with 'lambdamoo-db @ git+https://github.com/MongooseMoo/lambdamoo-db-py.git@40d1bb3f13812ade4d848e341eb528493bf999c8'
           python -m unittest discover -s scripts -p 'test_*.py' -v
 
+      - name: Audit discovery workflows
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml
+          uvx --from zizmor==1.32.0 zizmor --offline --no-progress .github/workflows/fuzz.yml .github/workflows/fuzz-controller.yml
+
   conformance:
     name: MOO conformance suite
     needs: tested

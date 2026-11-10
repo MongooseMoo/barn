@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fuzz_retention import transfer
+from fuzz_retention import quarantine, transfer
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +68,37 @@ class RetentionTests(unittest.TestCase):
             with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "digest mismatch"):
                 self.run_transfer(mode)
 
+    def test_baseline_finding_is_kept_without_replaying_its_cached_original(self):
+        # Actual run 42692025227 found the same seed 75 times during baseline
+        # replay. Go's saved input must be unminimized to identify the original.
+        record = (ROOT / "db/format/testdata/fuzz/FuzzReadDatabase/6b8992e5372061cb").read_bytes()
+        source = Path("vm/testdata/fuzz") / TARGET / "failed"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(record)
+        (self.native / "original").write_bytes(record)
+        (self.native / "restored-sha256").write_bytes(record)
+        (self.native / "other").write_bytes(RECORD)
+        found = self.root / "found"
+        quarantine(self.cache, "./vm", TARGET, source, found)
+        self.assertEqual((found / "failed").read_bytes(), record)
+        self.assertFalse(source.exists())
+        self.assertEqual([p.name for p in self.native.iterdir()], ["other"])
+        # The workflow's EXIT trap returns saved findings to testdata before
+        # capture, so artifacts retain the finding even though replay excludes it.
+        source.write_bytes((found / "failed").read_bytes())
+        summary = self.run_transfer()
+        self.assertEqual(summary["per_source"], {"interesting": 1, "testdata": 1})
+        with self.assertRaisesRegex(ValueError, "repeated after quarantine"):
+            quarantine(self.cache, "./vm", TARGET, source, found)
+        self.assertEqual((found / "failed").read_bytes(), record)
+
+    def test_quarantine_rejects_a_path_outside_the_target(self):
+        source = self.root / "unrelated"
+        source.write_bytes(RECORD)
+        with self.assertRaisesRegex(ValueError, "this target"):
+            quarantine(self.cache, "./vm", TARGET, source, self.root / "found")
+        self.assertEqual(source.read_bytes(), RECORD)
+
     def test_native_census_sums_per_campaign_high_water_marks(self):
         logs = self.root / "logs"
         logs.mkdir()
@@ -102,6 +133,18 @@ class RetentionTests(unittest.TestCase):
             self.run_transfer(logs=logs)
         self.assertEqual((self.lane / "inputs" / self.digest).read_bytes(), RECORD)
         self.assertEqual(json.loads((self.lane / "census.json").read_text())["completed_executions"], 0)
+
+    def test_real_baseline_findings_do_not_masquerade_as_mutation_work(self):
+        logs = self.root / "logs"
+        logs.mkdir()
+        raw = (ROOT / "scripts/fixtures/fuzz/42692025227-baseline.log").read_bytes()
+        (logs / "run-001.log").write_bytes(raw)
+        with self.assertRaisesRegex(ValueError, "zero measured"):
+            self.run_transfer(logs=logs, campaign="finding")
+        self.assertEqual((self.lane / "logs/run-001.log").read_bytes(), raw)
+        census = json.loads((self.lane / "census.json").read_text())
+        self.assertEqual(census["completed_executions"], 0)
+        self.assertEqual(census["campaign"], "finding")
 
     def test_storage_exhaustion_does_not_delete_existing_inputs(self):
         (self.native / "input").write_bytes(RECORD)
