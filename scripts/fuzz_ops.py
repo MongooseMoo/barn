@@ -45,7 +45,9 @@ GUEST_PROBE = (
     'for s in 1 2 3 4; do u=actions.runner.MongooseMoo.mongoose-barn-fuzz-$s.service; '
     'printf "listener %s %s %s %s\\n" "$s" "$(systemctl is-active $u)" '
     '"$(systemctl show $u -p NRestarts --value)" "$(systemctl show $u -p MemoryMax --value)"; done; '
-    'journalctl -q --since -24h --no-pager -o short-iso --grep "OOM killer|oom-kill" | sed "s/^/oom /"; '
+    # One kernel line per kill, naming its cgroup and task. systemd's "killed
+    # by the OOM killer" lines repeat on daemon-reload and are not kills.
+    'journalctl -q -k --since -24h --no-pager -o short-iso --grep "oom-kill:" | sed "s/^/oom /"; '
     'df -P / | awk "NR==2{print \\"disk\\", \\$5}"; '
     'free -m | awk "NR==2{print \\"memory\\", \\$3, \\$2}"; '
     'cut -d" " -f1-3 /proc/loadavg | sed "s/^/load /"')
@@ -134,7 +136,7 @@ def verdict(enabled, cycles, runners, probe=None):
             if listener["memory_max"] == "infinity":
                 problems.append(f"guest listener {slot} has no memory bound: .github/runner/listener.conf is not applied")
         if probe["oom"]:
-            problems.append(f"{len(probe['oom'])} OOM journal lines in the last 24h; last: {probe['oom'][-1]}")
+            problems.append(f"{len(probe['oom'])} kernel OOM kills in the last 24h; last: {probe['oom'][-1]}")
         for key in ("disk", "hostdisk"):
             if probe.get(key, 0) >= 85:
                 problems.append(f"{'guest' if key == 'disk' else 'host'} disk {probe[key]}% full")
