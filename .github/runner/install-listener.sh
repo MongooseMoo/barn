@@ -1,6 +1,9 @@
 #!/bin/bash
 # Run as root inside the compute guest; registration token arrives on stdin.
 set -euo pipefail
+# listener.conf (restart and memory bound) sits next to this script.
+source_dir=$(cd "$(dirname "$0")" && pwd)
+test -f "$source_dir/listener.conf"
 test "$(id -u)" = 0
 test "$(hostname)" = barn-compute
 test "$(systemd-detect-virt)" = kvm
@@ -30,4 +33,8 @@ runuser -u runner -- ./config.sh --unattended --url https://github.com/MongooseM
     --runnergroup barn-bug-discovery --labels barn-fuzz --work _work
 unset registration_token
 ./svc.sh install runner
+dropin=/etc/systemd/system/actions.runner.MongooseMoo.mongoose-barn-fuzz-${slot}.service.d
+install -d -m 0755 "$dropin"
+install -m 0644 "$source_dir/listener.conf" "$dropin/barn.conf"
+systemctl daemon-reload
 ./svc.sh start

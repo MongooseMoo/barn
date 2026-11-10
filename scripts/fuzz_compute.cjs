@@ -98,13 +98,41 @@ async function accept({github, context, core}) {
   if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
 }
 
+const CONTINUOUS = new Map([
+  ['Nightly fuzz / dedicated-continuous', 'native-and-toast'],
+  ['Nightly fuzz / dedicated-continuous / native-only', 'native-only']
+]);
+// Only dedicated cycles compete with a successor: legacy runs (the nightly
+// workstation dispatch) use their own concurrency group and runner pool.
+const dedicatedRun = run => run.display_title?.startsWith('Nightly fuzz / dedicated-');
+
+async function accepted(github, context, runId) {
+  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+    ...context.repo, run_id: runId, filter: 'latest', per_page: 100
+  });
+  return jobs.some(job => job.name === ACCEPT && job.conclusion === 'success');
+}
+
+async function dedicatedCycleActive(github, context) {
+  for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+      ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', status, per_page: 100
+    });
+    if (runs.some(run => run.id !== context.runId && dedicatedRun(run))) return true;
+  }
+  return false;
+}
+
+async function dispatchSuccessor(github, context, selected) {
+  await github.rest.actions.createWorkflowDispatch({
+    ...context.repo, workflow_id: 'fuzz.yml', ref: 'master',
+    inputs: {'compute-mode': 'dedicated-continuous', campaign: selected}
+  });
+}
+
 async function replenish({github, context, core}) {
   const source = context.payload.workflow_run;
-  const campaigns = new Map([
-    ['Nightly fuzz / dedicated-continuous', 'native-and-toast'],
-    ['Nightly fuzz / dedicated-continuous / native-only', 'native-only']
-  ]);
-  const selected = campaigns.get(source?.display_title);
+  const selected = CONTINUOUS.get(source?.display_title);
   if (context.eventName !== 'workflow_run' || context.ref !== 'refs/heads/master' ||
       source?.event !== 'workflow_dispatch' || source.head_branch !== 'master' ||
       source.path !== '.github/workflows/fuzz.yml' || !['success', 'failure'].includes(source.conclusion) ||
@@ -119,15 +147,9 @@ async function replenish({github, context, core}) {
     return;
   }
   dedicated(process.env);
-  const sourceJobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-    ...context.repo, run_id: source.id, filter: 'latest', per_page: 100
-  });
-  if (!sourceJobs.some(job => job.name === ACCEPT && job.conclusion === 'success')) {
+  if (!await accepted(github, context, source.id)) {
     throw new Error('The source cycle was not accepted; continuous discovery stops here');
   }
-  // Only dedicated cycles compete with a successor: legacy runs (the nightly
-  // workstation dispatch) use their own concurrency group and runner pool.
-  const dedicatedRun = run => run.display_title?.startsWith('Nightly fuzz / dedicated-');
   const {data: latest} = await github.rest.actions.listWorkflowRuns({
     ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', per_page: 100
   });
@@ -135,20 +157,52 @@ async function replenish({github, context, core}) {
     core.info('A newer dedicated fuzz dispatch exists; no successor submitted');
     return;
   }
-  for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
-    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-      ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', status, per_page: 100
-    });
-    if (runs.some(run => run.id !== context.runId && dedicatedRun(run))) {
-      core.info('Another dedicated fuzz cycle already exists; no successor submitted');
-      return;
-    }
+  if (await dedicatedCycleActive(github, context)) {
+    core.info('Another dedicated fuzz cycle already exists; no successor submitted');
+    return;
   }
-  await github.rest.actions.createWorkflowDispatch({
-    ...context.repo, workflow_id: 'fuzz.yml', ref: 'master',
-    inputs: {'compute-mode': 'dedicated-continuous', campaign: selected}
-  });
+  await dispatchSuccessor(github, context, selected);
   core.info('Submitted one dedicated successor');
 }
 
-module.exports = {dedicated, configure, accept, replenish};
+// Gives replenish this long to submit a successor before the watchdog does.
+const WATCHDOG_GRACE_MS = 30 * 60 * 1000;
+
+// Scheduled recovery for a chain that lost its successor (a failed or missing
+// controller run, a dispatch lost during a runner outage). It never restarts
+// after a cycle that failed acceptance: that stop is replenish's check.
+async function watchdog({github, context, core}) {
+  if (context.eventName !== 'schedule' || context.ref !== 'refs/heads/master') {
+    throw new Error('The watchdog runs only on the master schedule');
+  }
+  if (process.env.FUZZ_CONTINUOUS_ENABLED !== 'true') {
+    core.info('Watchdog: continuous discovery is stopped; nothing to do');
+    return;
+  }
+  dedicated(process.env);
+  if (await dedicatedCycleActive(github, context)) {
+    core.info('Watchdog: a dedicated cycle is queued or running; chain is alive');
+    return;
+  }
+  const {data: latest} = await github.rest.actions.listWorkflowRuns({
+    ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', per_page: 100
+  });
+  const last = latest.workflow_runs.find(run => CONTINUOUS.has(run.display_title));
+  if (!last) {
+    core.info('Watchdog: no continuous cycle in the latest 100 dispatches; nothing to resume');
+    return;
+  }
+  const idle = Date.now() - Date.parse(last.updated_at);
+  if (idle < WATCHDOG_GRACE_MS) {
+    core.info(`Watchdog: cycle ${last.id} ended ${Math.round(idle / 60000)} min ago; replenish still has time`);
+    return;
+  }
+  if (!await accepted(github, context, last.id)) {
+    core.warning(`Watchdog: cycle ${last.id} was not accepted; continuous discovery stays stopped`);
+    return;
+  }
+  await dispatchSuccessor(github, context, CONTINUOUS.get(last.display_title));
+  core.info(`Watchdog: resumed the chain after cycle ${last.id}; submitted one dedicated successor`);
+}
+
+module.exports = {dedicated, configure, accept, replenish, watchdog};
