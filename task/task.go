@@ -875,6 +875,26 @@ func (t *State) SetTaskLocal(val types.Value) {
 // zero so the runtime never auto-wakes it — only an explicit resume() does.
 var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 
+// maxDurationSeconds is the most whole seconds a time.Duration holds.
+const maxDurationSeconds = math.MaxInt64 / int64(time.Second)
+
+// StartAfter returns the instant a MOO delay of seconds after now ends,
+// mirroring ToastStunt's double_to_start_tv for fork and suspend
+// (tasks.cc:102-112). A delay too long for a time.Duration (about 292 years)
+// is added to now as whole seconds, so it lands in the far future instead of
+// overflowing into the past. Past IndefiniteSuspendStartTime, where Toast's own
+// time_t arithmetic overflows, the result saturates at that sentinel.
+func StartAfter(now time.Time, seconds float64) time.Time {
+	if seconds < float64(maxDurationSeconds) {
+		return now.Add(time.Duration(seconds * float64(time.Second)))
+	}
+	whole := math.Floor(seconds)
+	if whole >= float64(IndefiniteSuspendStartTime.Unix()-now.Unix()) {
+		return IndefiniteSuspendStartTime
+	}
+	return time.Unix(now.Unix()+int64(whole), int64(now.Nanosecond())+int64((seconds-whole)*float64(time.Second)))
+}
+
 // SuspendSeconds suspends this task using MOO duration semantics.
 func (t *State) SuspendSeconds(seconds float64) {
 	switch {
@@ -890,8 +910,7 @@ func (t *State) SuspendSeconds(seconds float64) {
 		t.Suspend(0)
 		_ = t.Resume(types.NewInt(0))
 	default:
-		duration := time.Duration(seconds * float64(time.Second))
-		t.Suspend(duration)
+		t.suspendUntil(StartAfter(time.Now(), seconds))
 	}
 }
 
@@ -899,14 +918,20 @@ func (t *State) SuspendSeconds(seconds float64) {
 // yield with no wake deadline, so any WakeTime left over from an earlier timed
 // suspend is cleared rather than letting the scheduler treat the yield as due.
 func (t *State) Suspend(duration time.Duration) {
+	var wake time.Time
+	if duration > 0 {
+		wake = time.Now().Add(duration)
+	}
+	t.suspendUntil(wake)
+}
+
+// suspendUntil suspends the task until wake; a zero wake has no deadline.
+func (t *State) suspendUntil(wake time.Time) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
 	t.setStateLocked(TaskSuspended)
 	t.suspendGen++
-	t.WakeTime = time.Time{}
-	if duration > 0 {
-		t.WakeTime = time.Now().Add(duration)
-	}
+	t.WakeTime = wake
 	t.notifyScheduleLocked()
 }
 
