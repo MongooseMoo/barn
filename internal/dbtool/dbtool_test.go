@@ -36,6 +36,26 @@ func TestDumpVerbCodePreservesTextContract(t *testing.T) {
 	}
 }
 
+// GrepVerbs prints each matching source line as #obj:verb:line: text, nothing
+// for no match, and rejects an invalid pattern.
+func TestGrepVerbs(t *testing.T) {
+	store := inspectionStore(t)
+	var out, errOut bytes.Buffer
+	if err := GrepVerbs(&out, &errOut, store, `"se+n"`); err != nil {
+		t.Fatalf("GrepVerbs: %v\nstderr: %s", err, errOut.String())
+	}
+	if got, want := out.String(), "#1:look:1: return \"seen\";\n"; got != want {
+		t.Fatalf("GrepVerbs output %q, want %q", got, want)
+	}
+	out.Reset()
+	if err := GrepVerbs(&out, &errOut, store, `nowhere`); err != nil || out.Len() != 0 {
+		t.Fatalf("no match: err %v output %q", err, out.String())
+	}
+	if err := GrepVerbs(&out, &errOut, store, `(`); err == nil {
+		t.Fatal("invalid pattern accepted")
+	}
+}
+
 func TestInspectionCommandsUseSharedStore(t *testing.T) {
 	store := inspectionStore(t)
 	tests := []struct {

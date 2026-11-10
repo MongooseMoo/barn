@@ -46,6 +46,24 @@ Built and committed on the branch; not pushed, no PR.
   MOO error, traceback and timeline; the stale "say will raise" sound line is
   reworded (the fixture repair block was not touched).
 - docs/workload-diagnostics.md: "Contention diagnostics in the binary".
+- G10: `barn -grep-verbs REGEX` (internal/dbtool GrepVerbs) prints
+  `#obj:verb:line: text`. Inherited property values in full and several
+  queries per load already exist through `-eval` and `-eval-file`.
+- Measured (16 players, fixture copy of the 2026-11-10T0143 dump, gated under
+  25% CPU): goodput tracking off base 133, 99 (both runs had unsettled `home`
+  commands) vs new 151, 142; tracking on base 87, 197 vs new 155, 154. The
+  spread between runs of one binary is larger than any difference. Go
+  benchmarks: per command no new allocation, -30 B; per commit unchanged;
+  +2 allocations per exclusive gate acquire.
+
+## Run evidence
+
+A tracked 16-player run named the whole #2585.handle story in one table:
+866 losses, all at the boundary opened by `sqlite_execute()` at
+`#6128:lookup_cache_version@7` (mean tick 8211), read at `#2585:handle@1`,
+read-to-loss wall mean 12.04 ms of which 11.61 ms was exclusive gate wait,
+200 of them after a hot-read renewal; the `exec()` hold of `#9655:arm` was
+ahead of the say holders in most acquires.
 
 ## Decisions and why
 
@@ -74,6 +92,7 @@ Built and committed on the branch; not pushed, no PR.
 
 ## Next step
 
-Apply the skill doc draft in the main checkout; read a tracked harness run's
-report against a fresh diagnosis. G10 (inspection tooling: inherited
-property view, batch inspection, verb-code grep) was not started.
+Apply the skill doc draft in the main checkout. Open a PR when the
+coordinator asks (CI has not run on this branch). `do_command` tasks in the
+harness may not carry `FromCommand`, so their slow timelines are kept for the
+endpoint but possibly not logged; check before relying on the log record.

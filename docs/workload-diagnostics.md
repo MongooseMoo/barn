@@ -372,8 +372,9 @@ data from one implementation (`engine/diag_report.go`). Two levels:
     `lost-at-boundary`, `lost-final`, `error`), first stale key, exclusive gate
     hold and wait, and shared gate wait (and the part behind an exclusive).
     `GET /debug/task-timelines` lists running tasks' timelines and the latest
-    32 finished ones that took a second or more; each such task also logs one
-    INFO `slow task timeline` record. Bounds: 64 slices (first 4 and latest),
+    32 finished ones that took a second or more; such a task that is a player's
+    command also logs one INFO `slow task timeline` record (background loops
+    that suspend between slices are kept but not logged). Bounds: 64 slices (first 4 and latest),
     8 attempts per slice.
 
 When the server stops it logs one INFO `diagnostics summary` record: headline

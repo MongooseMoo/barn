@@ -21,8 +21,10 @@ import (
 // at most maxTimelineSlices slices (the first timelineKeepFirst and the latest
 // ones; the rest are counted in DroppedSlices) of at most maxTimelineAttempts
 // attempts each. A finished task whose timeline spans at least
-// slowTimelineThreshold is logged once ("slow task timeline", INFO) and kept in
-// a ring of the latest maxSlowTimelines for /debug/task-timelines.
+// slowTimelineThreshold is kept in a ring of the latest maxSlowTimelines for
+// /debug/task-timelines, and logged once ("slow task timeline", INFO) when it
+// is a player's command (a background loop that suspends between slices
+// outlives the threshold by design).
 
 const (
 	maxTimelineSlices     = 64
@@ -338,6 +340,11 @@ func (s *Runtime) finishTimeline(t *Task, state string) {
 		return
 	}
 	s.slowTimelines.add(snap)
+	if !t.FromCommand {
+		// A background loop that suspends between slices outlives the
+		// threshold by design; only a player's command is logged.
+		return
+	}
 	slog.LogAttrs(s.ctx, slog.LevelInfo, "slow task timeline",
 		slog.Int64("task_id", snap.TaskID), slog.Int64("this", int64(snap.This)),
 		slog.String("verb", snap.Verb), slog.String("state", state),
