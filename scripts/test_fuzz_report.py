@@ -87,6 +87,24 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
+    def test_failed_check_signature_is_its_location(self):
+        # Real native tee log of a FuzzReadDatabase failed check (no stack).
+        log = (FIXTURES / "native" / "42692025227-baseline.log").read_text()
+        result = report(log, "./db/format", "FuzzReadDatabase", "commit")
+        self.assertEqual(result["kind"], "failed check")
+        self.assertEqual(result["barn_frames"], [])
+        self.assertEqual(result["signature"], hashlib.sha256(
+            b"FuzzReadDatabase|failed check|reader_fuzz_test.go:82").hexdigest())
+        # Another check line in the same target is another finding.
+        other = report(log.replace("reader_fuzz_test.go:82:", "reader_fuzz_test.go:97:"),
+                       "./db/format", "FuzzReadDatabase", "commit")
+        self.assertNotEqual(result["signature"], other["signature"])
+        # The same check with input-dependent message values is the same finding.
+        same = report(log.replace("suspended task 0 frame 0 locals differs",
+                                  "suspended task 3 frame 7 locals differs"),
+                      "./db/format", "FuzzReadDatabase", "commit")
+        self.assertEqual(result["signature"], same["signature"])
+
     def test_real_toast_differential_divergence(self):
         # Real output of scripts/fuzz_differential.py over the runner's fuzz
         # cache, run inside WSL Debian (2026-11-06).

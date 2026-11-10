@@ -39,7 +39,7 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     signal = re.search(r"^.*(?:signal:|terminated by unexpected signal|Killed\s+).*?$", text, re.M)
     panic = re.search(r"^.*(?:panic:|fatal error:).*?$", text, re.M)
     hang = re.search(r"^.*fuzzing process hung or terminated unexpectedly:.*$", text, re.M)
-    check = re.search(r"^\s*\S+\.go:\d+: .+$", text, re.M)
+    check = re.search(r"^\s*(\S+\.go:\d+): .+$", text, re.M)
     saved = re.search(r"Failing input written to (testdata/fuzz/[^\s]+)", text)
     setup = re.search(r"^.*\[(?:build|setup) failed\].*$", text, re.M)
     # scripts/fuzz_differential.py's report: the first diverging program.
@@ -108,6 +108,10 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     elif recovered_panics and kind == "panic" and not frames:
         # Deduplicate by observed native error, without assigning a source/frame.
         top = recovered_panics[0]
+    elif kind == "failed check" and check and not frames:
+        # A failed check prints no stack, so its file:line tells checks in one
+        # target apart. The message is left out: it often embeds input values.
+        top = check[1]
     signature = hashlib.sha256(f"{target}|{kind}|{top}".encode()).hexdigest()
     if saved:
         relative = Path(saved[1])
