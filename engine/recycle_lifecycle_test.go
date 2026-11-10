@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,52 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestNumberedRecycleStaysTransactional(t *testing.T) {
+	for _, hooks := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hooks=%t", hooks), func(t *testing.T) {
+			store := protectedRedirectStore(t)
+			for _, name := range []string{"recycles", "exits"} {
+				if ec := store.DirectTxn().DefineProperty(0, name, dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			}
+			room, ec := store.DirectTxn().CreateObject([]types.ObjID{1}, 2)
+			if ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			addVerb := func(id types.ObjID, name, body string) {
+				t.Helper()
+				if _, ec := store.AddVerb(id, dbstore.NewVerb([]string{name}, 2,
+					dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+					dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{body})); ec != types.E_NONE {
+					t.Fatal(ec)
+				}
+			}
+			if hooks {
+				addVerb(1, "recycle", "#0.recycles = #0.recycles + 1;")
+				addVerb(1, "exitfunc", "#0.exits = #0.exits + 1;")
+			}
+			addVerb(0, "recycle_probe", fmt.Sprintf(
+				"o = create(#1); move(o, #%d); c = create(#1); move(c, o); recycle(o); "+
+					"n = create(#1); recycle(n); return {!valid(o), !valid(n), valid(c) && c.location == #-1, length(#%d.contents) == 0, #0.recycles, #0.exits};", room, room))
+			rt := NewRuntime(store)
+			defer rt.Stop()
+			result, err := rt.RunServerVerbTask(0, "recycle_probe", nil, 2)
+			calls := int64(0)
+			if hooks {
+				calls = 2
+			}
+			want := types.NewList([]types.Value{types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(calls), types.NewInt(calls)})
+			if err != nil || result.Flow != types.FlowReturn || !result.Val.Equal(want) {
+				t.Fatalf("recycle result=%+v error=%v, want %s", result, err, want)
+			}
+			if holds := rt.GateHolds(); len(holds) != 0 {
+				t.Fatalf("ordinary numbered recycle acquired the exclusive commit gate: %+v", holds)
+			}
+		})
+	}
+}
 
 func TestSequentialRecycleAfterCoarseMovesCompletes(t *testing.T) {
 	store, _ := buildConcurrencyStore(t, 0, 0)

@@ -105,11 +105,11 @@ func TestSessionCachesAndRecycleGuardsAreIsolated(t *testing.T) {
 	if s1.startRecycle(objectID) {
 		t.Fatal("one registry acquired its own recycle guard twice")
 	}
-	s1.EndRecycle(objectID)
+	s1.EndRecycle(types.NewAnon(objectID))
 	if s2.startRecycle(objectID) {
 		t.Fatal("ending one registry's guard affected the other registry")
 	}
-	s2.EndRecycle(objectID)
+	s2.EndRecycle(types.NewAnon(objectID))
 }
 
 func TestSessionConnectionAndHeldInputStateIsIsolatedAndClosed(t *testing.T) {
