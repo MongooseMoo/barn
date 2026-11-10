@@ -1,0 +1,10 @@
+listener 1 active 0 3670016000
+listener 2 active 0 3670016000
+listener 3 active 0 3670016000
+listener 4 active 0 3670016000
+oom 2026-11-10T06:43:13+0000 barn-compute kernel: oom-kill:constraint=CONSTRAINT_NONE,nodemask=(null),cpuset=/,mems_allowed=0,global_oom,task_memcg=/system.slice/actions.runner.MongooseMoo.mongoose-barn-fuzz-2.service,task=vm.test,pid=303035,uid=1000
+disk 8%
+memory 2819 16004
+load 7.41 7.50 7.64
+host active 0
+hostdisk 8%
