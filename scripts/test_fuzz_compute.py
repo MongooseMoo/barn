@@ -163,12 +163,26 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         result = self.watchdog(title="Nightly fuzz / dedicated-continuous")
         self.assertEqual(self.dispatches(result), [{"compute-mode": "dedicated-continuous", "campaign": "native-and-toast"}])
 
-    def test_watchdog_leaves_a_live_stopped_or_unaccepted_chain_alone(self):
+    def test_watchdog_resumes_after_an_unaccepted_cycle(self):
+        # Q, 2026-11-10 ("Restart after any cycle"): controller runs at 11:30,
+        # 13:39, 15:48 and 17:59 stopped on unaccepted cycles and nothing
+        # resumed the chain. Replenish still refuses; the watchdog resumes.
+        for jobs in ([{"name": "Accept discovery cycle", "conclusion": "failure"}],
+                     [{"name": "Accept discovery cycle", "conclusion": "skipped"}], []):
+            with self.subTest(jobs=jobs):
+                result = self.watchdog(jobs=jobs)
+                self.assertNotIn("error", result)
+                self.assertEqual(self.dispatches(result),
+                                 [{"compute-mode": "dedicated-continuous", "campaign": "native-only"}])
+                self.assertIn("(not accepted)", result["info"][-1])
+        self.assertIn("error", self.execute(source={**SOURCE, "conclusion": "failure"},
+                                            jobs=[{"name": "Accept discovery cycle", "conclusion": "failure"}]))
+
+    def test_watchdog_leaves_a_live_or_stopped_chain_alone(self):
         cases = {
             "cycle running": {"active": [DEDICATED_CYCLE]},
             "replenish still has time": {"ended_minutes_ago": 5},
             "stopped": {"env": {**CONFIG, "FUZZ_CONTINUOUS_ENABLED": "false"}},
-            "not accepted": {"jobs": [{"name": "Accept discovery cycle", "conclusion": "failure"}]},
             "no continuous cycle": {"latest": [LEGACY_CYCLE, {"id": 13, "display_title": "Nightly fuzz / dedicated-once"}]},
         }
         for name, kwargs in cases.items():

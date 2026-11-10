@@ -169,8 +169,10 @@ async function replenish({github, context, core}) {
 const WATCHDOG_GRACE_MS = 30 * 60 * 1000;
 
 // Scheduled recovery for a chain that lost its successor (a failed or missing
-// controller run, a dispatch lost during a runner outage). It never restarts
-// after a cycle that failed acceptance: that stop is replenish's check.
+// controller run, a dispatch lost during a runner outage, or a cycle that
+// failed acceptance). Q, 2026-11-10: "Restart after any cycle". Replenish
+// still stops at once on an unaccepted cycle; the cycle stays red, and only
+// this watchdog resumes the chain after the grace period.
 async function watchdog({github, context, core}) {
   if (context.eventName !== 'schedule' || context.ref !== 'refs/heads/master') {
     throw new Error('The watchdog runs only on the master schedule');
@@ -197,12 +199,9 @@ async function watchdog({github, context, core}) {
     core.info(`Watchdog: cycle ${last.id} ended ${Math.round(idle / 60000)} min ago; replenish still has time`);
     return;
   }
-  if (!await accepted(github, context, last.id)) {
-    core.warning(`Watchdog: cycle ${last.id} was not accepted; continuous discovery stays stopped`);
-    return;
-  }
+  const verdict = await accepted(github, context, last.id) ? 'accepted' : 'not accepted';
   await dispatchSuccessor(github, context, CONTINUOUS.get(last.display_title));
-  core.info(`Watchdog: resumed the chain after cycle ${last.id}; submitted one dedicated successor`);
+  core.info(`Watchdog: resumed the chain after cycle ${last.id} (${verdict}); submitted one dedicated successor`);
 }
 
 module.exports = {dedicated, configure, accept, replenish, watchdog};

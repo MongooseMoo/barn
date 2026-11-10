@@ -150,14 +150,15 @@ def verdict(enabled, cycles, runners, probe=None):
         state = f"RUNNING: cycle {active['id']} is {active['status']}"
     elif last is None:
         state = "BROKEN: continuous mode is on but no continuous cycle exists; run start"
-    elif last["accept"] != "success":
-        state = (f"STOPPED BY ACCEPTANCE: cycle {last['id']} was not accepted ({last['accept']}); "
-                 "read its Accept discovery cycle job, then run start")
+    elif last["accept"] != "success" and last["idle_minutes"] < GRACE_MINUTES:
+        state = (f"WAITING FOR WATCHDOG: cycle {last['id']} was not accepted ({last['accept']}) and ended "
+                 f"{last['idle_minutes']}m ago; the watchdog resumes it after {GRACE_MINUTES}m")
     elif last["idle_minutes"] < GRACE_MINUTES:
         state = f"BETWEEN CYCLES: cycle {last['id']} ended {last['idle_minutes']}m ago; the controller submits the next"
     else:
-        state = (f"BROKEN: nothing queued or running {duration(last['idle_minutes'])} after accepted cycle "
-                 f"{last['id']}; the watchdog resumes it within {GRACE_MINUTES}m, or run start")
+        state = (f"BROKEN: nothing queued or running {duration(last['idle_minutes'])} after cycle {last['id']} "
+                 f"(acceptance {last['accept']}); the watchdog should have resumed it: check scheduled "
+                 "controller runs, or run start")
     return state, problems
 
 
