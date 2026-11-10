@@ -97,14 +97,14 @@ func TestExtractForkNumbersBodiesInCodeOrder(t *testing.T) {
 func TestFingerprintCoversWhatTheFrameRuns(t *testing.T) {
 	base := compileLines(t, compiler.New(recompileBuiltins), recompileSources[5])
 	mutations := map[string]func(*bytecode.Program){
-		"code":      func(p *bytecode.Program) { p.Code[0] ^= 1 },
-		"constant":  func(p *bytecode.Program) { p.Constants[len(p.Constants)-1] = p.Constants[len(p.Constants)-2] },
-		"names":     func(p *bytecode.Program) { p.VarNames[0] = "z" },
-		"lines":     func(p *bytecode.Program) { p.LineInfo[0].Line++ },
-		"locals":    func(p *bytecode.Program) { p.NumLocals++ },
-		"fork":      func(p *bytecode.Program) { p.Origin.Fork = 1 },
-		"native":    func(p *bytecode.Program) { p.Origin.Native = true },
-		"layout":    func(p *bytecode.Program) { p.BuiltinLayout[0] ^= 1 },
+		"code":     func(p *bytecode.Program) { p.Code[0] ^= 1 },
+		"constant": func(p *bytecode.Program) { p.Constants[len(p.Constants)-1] = p.Constants[len(p.Constants)-2] },
+		"names":    func(p *bytecode.Program) { p.VarNames[0] = "z" },
+		"lines":    func(p *bytecode.Program) { p.LineInfo[0].Line++ },
+		"locals":   func(p *bytecode.Program) { p.NumLocals++ },
+		"fork":     func(p *bytecode.Program) { p.Origin.Fork = 1 },
+		"native":   func(p *bytecode.Program) { p.Origin.Native = true },
+		"layout":   func(p *bytecode.Program) { p.BuiltinLayout[0] ^= 1 },
 	}
 	for name, mutate := range mutations {
 		program := *base
