@@ -80,9 +80,29 @@ Added .github/actionlint.yaml with that exact label after verifying all four
 group members expose it and reading actionlint's pinned configuration docs.
 No error suppression or wildcard label was introduced.
 
+Third PR build passed actionlint and Python tests. Zizmor's only reported
+unsuppressed finding is dangerous-triggers on the controller's workflow_run.
+Read its audit and inline-ignore docs and re-read the full controller and
+replenish source. The workflow filters source event, branch and repository;
+helper also validates workflow path, mode, completion and successful acceptance.
+Checkout uses the default branch and no artifacts are read. The checker flags
+the trigger category. The existing architecture requires a completion event
+with a fresh variable snapshot; changing it would depart from the approved plan.
+
+Q approved the exact one-line dangerous-triggers exception with "You may".
+Applied it only to workflow_run, with its trust boundary documented inline.
+The remaining workflow audits and cycle acceptance requirements stay intact.
+
+Latest independent check evidence for this PR head: Checkpoint durability
+campaign passed in 4m35s; Serializable histories and negative control passed
+in 5m10s. Both evidence artifacts are present and unexpired. MOO conformance
+passed in 11m22s. Build & unit tests failed only at the workflow
+audit after its Python tests and actionlint passed. The Windows nightly task
+was queried again and remains Disabled. No discovery activation was dispatched.
+
 ## Next step
 
-Publish the runner-label declaration and watch exact-head
-CI, fix red checks, normal merge, dispatch continuous native-only discovery, verify all
+Publish the approved one-line audit exception, finish exact-head CI, normal
+merge, dispatch continuous native-only discovery, verify all
 actual runner assignments and a completed cycle's successor. Update this note
 with actual evidence before committing substantive work and before completion.
