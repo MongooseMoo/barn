@@ -653,19 +653,32 @@ func TestMongooseRealWorkload(t *testing.T) {
 			"  endif",
 			"endfor",
 			"cloaked = `property_info(#36, \"cloaked\") ! E_PROPNF => add_property(#36, \"cloaked\", 0, {#36, \"r\"})';",
-			// The October checkpoint gives #71 a home at #62, whose inherited
-			// acceptable returns 0. Toast rejects that owner-driven move too.
-			// Repair this captured fixture defect to its designated player start.
-			"home_repaired = 0;",
-			"if (#71.home == #62 && !#62:acceptable(#71) && $player_start:acceptable(#71))",
-			"  #71.home = $player_start; home_repaired = 1;",
-			"endif",
 			"if (#2585.sql:is_open())",
 			"  sqlite_execute(#2585.sql.handle, \"CREATE TABLE IF NOT EXISTS assets (asset_location TEXT, duration REAL);\", {});",
 			"endif",
-			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked, {home_repaired, #71.home}};",
+			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
 		}, "\n")
-		t.Logf("snapshot home before repair: %s", s.EvalCommandOutput(2, "return #71.home;"))
+		// The checkpoint gives some players a home that refuses them (#71 and
+		// others at #62, whose inherited acceptable returns 0), so their `home`
+		// raises E_NACC in move(); Toast rejects that owner-driven move too.
+		// Repair every such player, once, to the designated player start. A
+		// missing accept verb refuses, as in move(). A player object with no
+		// home property (#10244, a nameless #5 child at #-1) has no home to refuse it.
+		homeRepair := strings.Join([]string{
+			"repaired = {};",
+			"for p in (players())",
+			"  h = `p.home ! E_PROPNF => $nothing';",
+			"  if (typeof(h) == OBJ && valid(h) && h != $player_start && !`h:accept(p) ! E_VERBNF => 0' && $player_start:accept(p))",
+			"    p.home = $player_start; repaired = {@repaired, p};",
+			"  endif",
+			"endfor",
+			"return {length(repaired), repaired};",
+		}, "\n")
+		homeOut := s.EvalCommandOutput(2, homeRepair)
+		if !strings.HasPrefix(homeOut, "{1, {") {
+			t.Fatalf("snapshot home repair failed: %s", homeOut)
+		}
+		t.Logf("snapshot home repair (as #2) {count, players moved to $player_start}: %s", homeOut)
 		var out string
 		for attempt := 0; attempt < 60; attempt++ {
 			out = s.EvalCommandOutput(2, repair)
@@ -677,7 +690,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		if !strings.HasPrefix(out, "{1, {1,") {
 			t.Fatalf("snapshot repair did not establish its prerequisites: %s", out)
 		}
-		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked, home repair}: %s", out)
+		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
 	}
 	totalWeight := 0
 	for _, sh := range realShapes {

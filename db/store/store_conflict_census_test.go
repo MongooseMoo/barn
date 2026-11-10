@@ -530,12 +530,17 @@ func TestCensusCountsRefusedRenewals(t *testing.T) {
 		t.Fatalf("renewed past a stale earlier read (ec=%v)", ec)
 	}
 
+	// The stale earlier read is the refusal's key; the hot slot it refused to
+	// renew counts the refusal on its own row.
 	census := s.ConflictCensus()
-	if census.LostTxns != 0 || census.RefusedRenewals != 1 || len(census.Keys) != 1 {
-		t.Fatalf("census = %+v, want one refusal on one key", census)
+	if census.LostTxns != 0 || census.RefusedRenewals != 1 || len(census.Keys) != 2 {
+		t.Fatalf("census = %+v, want one refusal on the stale key and one on the hot slot", census)
 	}
 	if row := censusRow(t, census, ConflictProperty, other, "plain"); row.Refused != 1 || row.Lost != 0 || row.Sole != 0 || len(row.Labels) != 0 {
 		t.Fatalf("#%d.plain = %+v, want Refused 1 only", other, row)
+	}
+	if row := censusRow(t, census, ConflictProperty, counter, "handle"); row.HotRefused != 1 || row.Refused != 0 || row.Lost != 0 {
+		t.Fatalf("#%d.handle = %+v, want HotRefused 1 only", counter, row)
 	}
 }
 

@@ -1,5 +1,14 @@
 # Nightly fuzz failure logs
 
+Top-level `.log` files are GitHub-prefixed job logs. `native/*.log` files are
+the original per-campaign tee logs from retained-corpus artifacts, beginning
+with `go version` and native fuzz progress. The fixture check validates both
+producer formats and rejects tool-truncation markers recursively.
+
+`native/42692025227-baseline.log` is the first FuzzReadDatabase campaign from
+run 42692025227's retained-corpus artifact. It records a real failed check
+during baseline replay, with no mutation execution statistics.
+
 Raw `gh run view <run> --log-failed` output captured for this change:
 
 - `42201471629.log`: issue 610, unexpected termination/hang wording, saved input.

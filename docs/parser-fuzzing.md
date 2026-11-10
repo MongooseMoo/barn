@@ -122,10 +122,10 @@ verb bodies accidentally when retaining local-corpus failures.
 These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/414).
 PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` gives each native
 target thirty minutes, with two Go fuzz workers per target. The default
-`legacy` mode preserves the workstation's 3:17 AM America/Denver task
-`Barn - Nightly fuzz` and its `CI_RUNNER_LABELS` hosted fallback. It allows
-the full matrix to schedule on available runners, up to GitHub's 256-job
-matrix limit, rather than imposing a smaller job cap.
+`dedicated-once` mode and `dedicated-continuous` mode run exclusively on the
+server's `barn-bug-discovery` runner group. This includes routing, acceptance
+and controller jobs. Legacy workstation routing and its nightly-task installer
+have been removed; disable any previously installed `Barn - Nightly fuzz` task.
 A failed job opens an issue with its
 run and artifact links; subsequent failures for the same target add those links
 to its existing open issue. Setup failures are reported separately from failed
@@ -135,7 +135,7 @@ are focused assertions and per-input isolation; Go supplies the mutation,
 coverage instrumentation and minimization described in its
 [fuzzing documentation](https://go.dev/doc/security/fuzz/).
 
-The `compute-mode` dispatch input also accepts `dedicated-once` and
+The `compute-mode` dispatch input accepts `dedicated-once` and
 `dedicated-continuous`. Both require master, runner group `barn-bug-discovery`,
 `FUZZ_RUNNER_POLICY_VERIFIED=true` and nonempty JSON `FUZZ_RUNNER_LABELS`
 including `self-hosted` and `barn-fuzz`. Missing configuration fails before
@@ -161,7 +161,12 @@ Each native job starts with an isolated public-only fuzz cache and clears
 captures successful interesting inputs as well as testdata findings, verifies
 SHA-256 identities, and records package/target, source head, Go version, pinned
 profile digest and origins. Corpus plus provenance is bounded to 256 MiB per
-target. Exhaustion fails without deleting retained records. A census preserves
+target. Exhaustion fails without deleting retained records. Campaigns disable
+minimization so a saved failure identifies its original replay bytes. The
+retention helper preserves that finding and removes identical copies only from
+the disposable native replay cache before the next attempt. An unremovable
+static seed that fails again stops promptly. Saved findings return to testdata
+before capture and remain in the retained artifacts. A census preserves
 the raw logs and sums the highest native `execs` count from each campaign;
 zero measured executions is inconclusive and fails. This is execution work,
 not a claim of valid MOO program or distinct bug counts.
@@ -193,8 +198,8 @@ or issue report is not accepted.
 A completed continuous dispatch's completion starts the separate
 `fuzz-controller.yml` workflow with a new repository-variable snapshot (GitHub
 rejects a workflow whose `workflow_run` trigger names itself). It runs on the
-ordinary CI selector, since the dedicated group admits only `fuzz.yml`, and only
-dispatches. The controller checks the stop switch and dedicated configuration,
+same server group, whose selected-workflow policy admits both trusted master
+workflow paths, and only dispatches. The controller checks the stop switch and dedicated configuration,
 accepts only a trusted master source dispatch whose acceptance job passed, and
 submits one successor with the same `campaign` selection only when there is no
 newer or active dispatch. An
@@ -208,10 +213,6 @@ Trigger delivery, runner policy, a completed dedicated cycle and corpus replay
 after restart must be verified during activation; source changes and offline
 controller tests do not establish live acceptance.
 
-Install or update the nightly trigger as the logged-in runner owner with
-`./scripts/install-nightly-fuzz-task.ps1`. It uses the existing authenticated
-GitHub CLI and follows the workstation's Mountain timezone, including daylight
-saving. Q must remain logged on, as for the Barn runner tasks. Missed triggers
-are not run later in the day. GitHub cron is disabled because its scheduled
-events arrived many hours late. A dispatch can still wait for GitHub or runner
-availability; this is not a guarantee against outages.
+There is no workstation discovery trigger. Ordinary PR CI retains its existing
+runner ownership. A discovery dispatch can still wait for GitHub or server
+runner availability; this is not a guarantee against outages.

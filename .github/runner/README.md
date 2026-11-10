@@ -2,7 +2,9 @@
 
 This guest runs Barn's public fuzz workloads. It does not run the production
 world. Its organization runner group is `barn-bug-discovery`, selected only for
-`MongooseMoo/barn/.github/workflows/fuzz.yml@refs/heads/master`. Do not add its
+`MongooseMoo/barn/.github/workflows/fuzz.yml@refs/heads/master` and
+`MongooseMoo/barn/.github/workflows/fuzz-controller.yml@refs/heads/master`.
+Routing, workers, acceptance and replenishment all use this group. Do not add its
 listeners to the ordinary `barn` runner pool or the privileged repair workflow.
 
 The guest has 8 virtual CPUs, 16 GiB RAM and a 120 GiB virtual disk. Its host

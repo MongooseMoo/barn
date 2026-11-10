@@ -25,7 +25,23 @@ implementation:
 
 ## State
 
-Built and committed on the branch; not pushed, no PR.
+Built and committed on the branch; not pushed, no PR. Master merged in after
+#684 (harness home repair), #685 (the boundary validates and carries keyed map
+reads per entry) and #686 (exec crosses the boundary itself, after its checks):
+
+- The boundary now degrades only a keyed assignment's pending base
+  (`boundaryMapKeys` -> `degradeMapKey(rkey, st, DegradeBoundary)`); live
+  mutation, flush and rename degrade through `degradeMapKeysVia(path)`, which
+  loops over `degradeMapKey`. `Degraded.Boundary` therefore counts only
+  pending-base slots; a plain keyed read lost at the boundary is a `map-key`
+  path with `LostAt.Boundary` and no degrade.
+- `builtinExec` passes `"exec"` to `beginIrreversible`, so exec gate holds and
+  boundary sites keep their builtin (curl already passed `"curl"`).
+- Tests: the boundary path test expects a map-key loss with no degrade; new
+  `TestConflictPathCountsPendingBaseDegradedAtBoundary` and
+  `TestConflictPathCarriedKeyedReadLosesAtFinalCommit` (a carried keyed read
+  keeps its pre-boundary read site and loses at the final point); the exec
+  boundary test asserts the builtin name.
 
 - db/store/store_conflict_paths.go (new): census `Paths`, `Verbs`,
   `BuiltinCalls`; `SetConflictOrigin`, `NoteBoundary`, `NoteCommitGateWait`,
@@ -89,6 +105,14 @@ ahead of the say holders in most acquires.
   draft").
 - The first cut cost one allocation and ~210 B per command and 96 B per commit
   with tracking off; fixed before measuring (see State/Decisions).
+- `TestCensusCountsRefusedRenewals` was red on the branch before the merge
+  (only focused tests had been run): the always-on per-key `HotRefused` gives
+  the refused hot slot its own row, so the census has two keys. The test now
+  expects that row.
+- The merge's only textual conflict was `degradeMapKeys`; the exec call site
+  merged cleanly but did not compile (`beginIrreversible` takes the builtin
+  name on this branch), and master's exec tests used the old
+  `func() bool` hook.
 
 ## Next step
 

@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -61,13 +62,11 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
             text=True, capture_output=True, check=True, cwd=cwd)
         return json.loads(result.stdout)
 
-    def test_legacy_uses_available_runners_and_preserves_fallback(self):
-        result = self.execute("configure", {"COMPUTE_MODE": "legacy"})
-        self.assertEqual(result["output"], {"runner": '["ubuntu-latest"]', "parallel": 256,
-                                            "campaign": "native-and-toast"})
-        result = self.execute("configure", {"COMPUTE_MODE": "legacy", "CI_RUNNER_LABELS": '["existing-wsl"]'})
-        self.assertEqual(json.loads(result["output"]["runner"]), ["existing-wsl"])
-        self.assertEqual(result["output"]["parallel"], 256)
+    def test_legacy_cannot_route_to_the_workstation(self):
+        result = self.execute("configure", {**CONFIG, "COMPUTE_MODE": "legacy",
+                                            "CI_RUNNER_LABELS": '["existing-wsl"]'})
+        self.assertIn("error", result)
+        self.assertEqual(result["output"], {})
 
     def test_dedicated_requires_explicit_policy_labels_and_master(self):
         env = {**CONFIG, "COMPUTE_MODE": "dedicated-once"}
@@ -83,9 +82,9 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
 
     def test_campaign_selection_is_validated_before_routing(self):
         for selected in ("native-and-toast", "native-only"):
-            result = self.execute("configure", {"COMPUTE_MODE": "legacy", "FUZZ_CAMPAIGN": selected})
+            result = self.execute("configure", {**CONFIG, "COMPUTE_MODE": "dedicated-once", "FUZZ_CAMPAIGN": selected})
             self.assertEqual(result["output"]["campaign"], selected)
-        result = self.execute("configure", {"COMPUTE_MODE": "legacy", "FUZZ_CAMPAIGN": "unknown"})
+        result = self.execute("configure", {**CONFIG, "COMPUTE_MODE": "dedicated-once", "FUZZ_CAMPAIGN": "unknown"})
         self.assertIn("error", result)
         self.assertEqual(result["output"], {})
 
@@ -262,6 +261,25 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         result = self.execute(env={**CONFIG, "FUZZ_RUNNER_LABELS": ""})
         self.assertIn("error", result)
         self.assertEqual(result["calls"], [])
+
+    def test_every_discovery_job_requires_the_server_group(self):
+        for workflow in ("fuzz.yml", "fuzz-controller.yml"):
+            text = (ROOT / ".github/workflows" / workflow).read_text()
+            self.assertNotIn("CI_RUNNER_LABELS", text)
+            # Check every runs-on, including control jobs, so adding a job with
+            # a workstation selector fails the existing PR test command.
+            selectors = re.findall(r"^    runs-on:(.*(?:\n      [^\n]+)*)", text, re.M)
+            self.assertTrue(selectors)
+            for selector in selectors:
+                self.assertIn(selector, (
+                    "\n      group: barn-bug-discovery\n      labels: [self-hosted, Linux, X64, barn-fuzz]",
+                    " ${{ fromJSON(needs.route.outputs.runner) }}"))
+        self.assertFalse((ROOT / "scripts/install-nightly-fuzz-task.ps1").exists())
+
+    def test_campaign_keeps_the_original_seed_for_quarantine(self):
+        text = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        self.assertIn("-fuzzminimizetime=0", text)
+        self.assertIn("scripts/fuzz_retention.py quarantine", text)
 
 
 if __name__ == "__main__":

@@ -309,6 +309,179 @@ func TestMapKeyWritebackOfAStaleBaseIsAWholeWrite(t *testing.T) {
 	mustLose(t, ta, ConflictProperty)
 }
 
+// crossBoundary runs the irreversible-effect boundary on tx and returns the
+// renewed transaction.
+func crossBoundary(t *testing.T, tx *StoreTxn) *StoreTxn {
+	t.Helper()
+	next, _, ec := tx.CommitAndRenewCarryingReads()
+	if ec != types.E_NONE {
+		t.Fatalf("boundary = %v, conflicts %v", ec, tx.Conflicts())
+	}
+	return next
+}
+
+// A transaction that crosses the irreversible-effect boundary between its keyed
+// access and its commit still commits beside a writer of another entry, and
+// both entries land.
+func TestMapKeyBoundaryWithDifferentEntriesBothCommit(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+	defer tb.Release()
+	va, _ := keyedRead(t, ta, "a")
+	keyedWrite(t, ta, "a", va.Int()+1)
+	vb, _ := keyedRead(t, tb, "b")
+	keyedWrite(t, tb, "b", vb.Int()+10)
+	mustCommit(t, tb)
+	next := crossBoundary(t, ta)
+	defer next.Release()
+	keyedWrite(t, next, "a", 3)
+	mustCommit(t, next)
+	if a, _ := liveEntry(t, s, "a"); a != 3 {
+		t.Fatalf("a = %d, want 3", a)
+	}
+	if b, _ := liveEntry(t, s, "b"); b != 11 {
+		t.Fatalf("b = %d, want 11 (lost by the boundary publication)", b)
+	}
+}
+
+// The boundary validates each entry read: a commit to the same entry loses it.
+func TestMapKeyBoundaryWithTheSameEntryLoses(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1))
+	ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	va, _ := keyedRead(t, ta, "a")
+	keyedWrite(t, ta, "a", va.Int()+1)
+	vb, _ := keyedRead(t, tb, "a")
+	keyedWrite(t, tb, "a", vb.Int()+10)
+	mustCommit(t, tb)
+	next, published, ec := ta.CommitAndRenewCarryingReads()
+	if ec == types.E_NONE || published || next != ta || !ta.ValidationFailed() {
+		t.Fatalf("boundary = (%v, published=%v), validation failed %v; want a lost validation", ec, published, ta.ValidationFailed())
+	}
+	found := false
+	for _, c := range ta.Conflicts() {
+		found = found || c.Kind == ConflictMapKey
+	}
+	if !found {
+		t.Fatalf("conflicts %v; want a map-key conflict", ta.Conflicts())
+	}
+	if a, _ := liveEntry(t, s, "a"); a != 11 {
+		t.Fatalf("a = %d, want 11", a)
+	}
+}
+
+// The renewed transaction carries the keyed reads, re-based to the map the
+// boundary published: a later change to an entry read before the boundary
+// loses the final commit, a change to another entry does not, and the
+// transaction's own published entry is not a conflict.
+func TestMapKeyBoundaryCarriesKeyedReads(t *testing.T) {
+	for _, tc := range []struct {
+		name, later string
+		ownWrite    bool
+		lose        bool
+	}{
+		{name: "read entry changed", later: "a", lose: true},
+		{name: "own entry changed", later: "a", ownWrite: true, lose: true},
+		{name: "other entry changed", later: "c"},
+		{name: "own entry unchanged", ownWrite: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+			ta := s.BeginSnapshot(0)
+			keyedRead(t, ta, "a")
+			if tc.ownWrite {
+				keyedWrite(t, ta, "a", 2)
+			}
+			next := crossBoundary(t, ta)
+			defer next.Release()
+			if tc.later != "" {
+				tb := s.BeginSnapshot(0)
+				keyedWrite(t, tb, tc.later, 9)
+				mustCommit(t, tb)
+				tb.Release()
+			}
+			keyedWrite(t, next, "b", 5)
+			if tc.lose {
+				mustLose(t, next, ConflictMapKey)
+				return
+			}
+			mustCommit(t, next)
+			if b, _ := liveEntry(t, s, "b"); b != 5 {
+				t.Fatalf("b = %d, want 5", b)
+			}
+		})
+	}
+}
+
+// A whole read of the map still depends on every entry across the boundary.
+func TestMapKeyBoundaryWholeReadStillConflicts(t *testing.T) {
+	t.Run("crosser reads whole", func(t *testing.T) {
+		s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+		ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+		defer ta.Release()
+		defer tb.Release()
+		if _, ec := ta.PropertyValue(0, "m"); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		keyedWrite(t, tb, "b", 3)
+		mustCommit(t, tb)
+		if _, _, ec := ta.CommitAndRenewCarryingReads(); ec == types.E_NONE || !ta.ValidationFailed() {
+			t.Fatalf("boundary = %v; want a lost validation", ec)
+		}
+	})
+	t.Run("other reads whole", func(t *testing.T) {
+		s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+		ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+		defer tb.Release()
+		if _, ec := tb.PropertyValue(0, "m"); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		if ec := tb.SetObjectName(0, "touched"); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		keyedRead(t, ta, "a")
+		keyedWrite(t, ta, "a", 2)
+		next := crossBoundary(t, ta)
+		defer next.Release()
+		mustLose(t, tb, ConflictProperty)
+	})
+}
+
+// A keyed assignment whose base was fetched before the boundary and whose
+// writeback comes after it was built on the map before the boundary. The slot
+// is validated whole there, so an entry another commit changed in between is
+// never overwritten by that stale base.
+func TestMapKeyBoundaryWithPendingBaseIsValidatedWhole(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	ta, tb := s.BeginSnapshot(0), s.BeginSnapshot(0)
+	defer ta.Release()
+	defer tb.Release()
+	keyedWrite(t, ta, "a", 2)
+	view, keyed, ec := ta.MapPropertyForKey(0, "m", true)
+	if ec != types.E_NONE || !keyed {
+		t.Fatalf("base fetch = %v, keyed %v", ec, keyed)
+	}
+	keyedWrite(t, tb, "b", 11)
+	mustCommit(t, tb)
+	next, _, ec := ta.CommitAndRenewCarryingReads()
+	if ec == types.E_NONE {
+		defer next.Release()
+		stale := view.Value.MapSet(types.NewStr("c"), types.NewInt(1))
+		if ec := next.SetPropertyMapKey(0, "m", types.NewStr("c"), stale, 0); ec != types.E_NONE {
+			t.Fatal(ec)
+		}
+		mustCommit(t, next)
+		if b, _ := liveEntry(t, s, "b"); b != 11 {
+			t.Fatalf("b = %d, want 11 (overwritten by the stale base)", b)
+		}
+		return
+	}
+	if !ta.ValidationFailed() {
+		t.Fatalf("boundary = %v without a lost validation", ec)
+	}
+}
+
 // A live mutation turns keyed dependencies into whole reads.
 func TestMapKeyLiveMutationDegradesToWholeReads(t *testing.T) {
 	s := mapKeyStore(t, kv("a", 1))

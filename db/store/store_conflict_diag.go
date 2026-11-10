@@ -158,7 +158,7 @@ type txnConflictDiag struct {
 	// wall time from read to validation into gate waits and the rest.
 	exclusiveWaitNS int64
 	sharedWaitNS    int64
-	// degraded names, per keyed map read made whole by degradeMapKeys, the
+	// degraded names, per keyed map read made whole by degradeMapKey, the
 	// path that made it whole.
 	degraded map[propertyReadKey]DegradePath
 	// renewed holds the slots a hot-read renewal re-read at a newer clock.
@@ -197,8 +197,10 @@ func (p CommitPoint) String() string {
 }
 
 // DegradePath is the path that turned a keyed map read into a whole-property
-// read (degradeMapKeys): the irreversible-effect boundary, a live mutation by
-// a coarse builtin, a flush of staged topology, or a property rename.
+// read (degradeMapKey): the irreversible-effect boundary, for a keyed
+// assignment whose base was fetched and not yet written back (boundaryMapKeys;
+// the boundary carries every other keyed read per entry), a live mutation by a
+// coarse builtin, a flush of staged topology, or a property rename.
 type DegradePath uint8
 
 const (
@@ -397,7 +399,7 @@ func (d *txnConflictDiag) noteRenewed(rkey propertyReadKey) {
 	lazySet(&d.renewed, rkey, struct{}{})
 }
 
-// noteDegraded records that degradeMapKeys made the keyed read of rkey whole
+// noteDegraded records that degradeMapKey made the keyed read of rkey whole
 // by path via.
 func (d *txnConflictDiag) noteDegraded(rkey propertyReadKey, via DegradePath) {
 	if _, seen := d.degraded[rkey]; !seen {

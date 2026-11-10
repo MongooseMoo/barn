@@ -18,14 +18,14 @@ func pathRow(t *testing.T, census ConflictCensus, kind ConflictKind, objID types
 	return ConflictPath{}
 }
 
-// A keyed read of #0.m["a"] made whole at the irreversible-effect boundary,
-// after an exclusive gate wait, loses there to a writer's final commit. Its
-// path names the loser's root verb by its definer, the read site, the attempt,
-// that the loss was at the boundary opened by sqlite_execute at its calling
-// site and slice tick, that the read was a degraded keyed read, the gate wait
-// between the read and the loss, and the writer and how it published. The verb
-// row counts the boundary with its tick.
-func TestConflictPathAtBoundaryNamesBuiltinGateWaitAndDegradedRead(t *testing.T) {
+// A keyed read of #0.m["a"], after an exclusive gate wait, loses at the
+// irreversible-effect boundary, which validates it per entry, to a writer's
+// final commit of that entry. Its path names the loser's root verb by its
+// definer, the read site, the attempt, that the loss was at the boundary opened
+// by sqlite_execute at its calling site and slice tick, that the read stayed
+// keyed, the gate wait between the read and the loss, and the writer and how it
+// published. The verb row counts the boundary with its tick.
+func TestConflictPathAtBoundaryNamesBuiltinAndGateWait(t *testing.T) {
 	s := mapKeyStore(t, kv("a", 1))
 	s.SetConflictCensusTracking(true)
 
@@ -53,7 +53,7 @@ func TestConflictPathAtBoundaryNamesBuiltinGateWaitAndDegradedRead(t *testing.T)
 	}
 
 	census := s.ConflictCensus()
-	p := pathRow(t, census, ConflictProperty, 0, "m")
+	p := pathRow(t, census, ConflictMapKey, 0, "m")
 	t.Logf("path = %+v", p)
 	if p.Loser != (ConflictLabel{Obj: 7, Verb: "say"}) || p.ReadSite != (ConflictSite{Obj: 7, Verb: "stored", Line: 6}) {
 		t.Errorf("loser %v read site %v, want #7:say read at #7:stored@6", p.Loser, p.ReadSite)
@@ -68,8 +68,8 @@ func TestConflictPathAtBoundaryNamesBuiltinGateWaitAndDegradedRead(t *testing.T)
 	if len(p.BoundarySites) != 1 || p.BoundarySites[0] != wantBoundary {
 		t.Errorf("boundary sites %+v, want %+v", p.BoundarySites, wantBoundary)
 	}
-	if p.Degraded != (DegradeCounts{Boundary: 1}) {
-		t.Errorf("degraded %+v, want one keyed read made whole at the boundary", p.Degraded)
+	if p.Degraded != (DegradeCounts{}) {
+		t.Errorf("degraded %+v, want the keyed read validated per entry", p.Degraded)
 	}
 	// The wait is reported, not slept, so the wall clock window can be shorter
 	// than it here; in the runtime the reported wait is inside the window.
@@ -80,12 +80,87 @@ func TestConflictPathAtBoundaryNamesBuiltinGateWaitAndDegradedRead(t *testing.T)
 	if len(p.Writers) != 1 || p.Writers[0].Label != writer || p.Writers[0].PublishedBy != (CommitPointCounts{Final: 1}) {
 		t.Errorf("writers %+v, want %v published by a final commit", p.Writers, writer)
 	}
-	if d := censusRow(t, census, ConflictProperty, 0, "m").Diag; d.Degraded != (DegradeCounts{Boundary: 1}) {
-		t.Errorf("key degraded %+v, want boundary=1", d.Degraded)
-	}
 	if len(census.Verbs) != 1 || census.Verbs[0].Verb != (ConflictLabel{Obj: 7, Verb: "say"}) ||
 		census.Verbs[0].Boundaries != 1 || census.Verbs[0].BoundaryTicks != 333 {
 		t.Errorf("verbs %+v, want #7:say with one boundary at tick 333", census.Verbs)
+	}
+}
+
+// A keyed assignment whose base was fetched and not yet written back when the
+// boundary comes is validated whole there, so a commit to another entry loses
+// it. The path and the key row count the read as degraded at the boundary.
+func TestConflictPathCountsPendingBaseDegradedAtBoundary(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1), kv("b", 1))
+	s.SetConflictCensusTracking(true)
+
+	loser := s.BeginSnapshot(0)
+	defer loser.Release()
+	loser.SetConflictLabel(5, "say")
+	loser.SetConflictOrigin(7, 1)
+	loser.SetConflictSiteFunc((&stubSite{site: ConflictSite{Obj: 7, Verb: "stored", Line: 6}}).fn)
+	if _, keyed, ec := loser.MapPropertyForKey(0, "m", true); ec != types.E_NONE || !keyed {
+		t.Fatalf("base fetch = %v, keyed %v", ec, keyed)
+	}
+	loser.NoteBoundary("exec")
+
+	winner := s.BeginSnapshot(0)
+	keyedWrite(t, winner, "b", 11)
+	mustCommit(t, winner)
+	winner.Release()
+
+	if _, _, ec := loser.CommitAndRenewCarryingReads(); ec == types.E_NONE || !loser.ValidationFailed() {
+		t.Fatalf("boundary validation did not lose: %v", ec)
+	}
+	census := s.ConflictCensus()
+	p := pathRow(t, census, ConflictProperty, 0, "m")
+	if p.LostAt != (CommitPointCounts{Boundary: 1}) || p.Degraded != (DegradeCounts{Boundary: 1}) {
+		t.Errorf("lost at %+v degraded %+v, want the boundary for both", p.LostAt, p.Degraded)
+	}
+	if len(p.BoundarySites) != 1 || p.BoundarySites[0].Builtin != "exec" {
+		t.Errorf("boundary sites %+v, want exec", p.BoundarySites)
+	}
+	if d := censusRow(t, census, ConflictProperty, 0, "m").Diag; d.Degraded != (DegradeCounts{Boundary: 1}) {
+		t.Errorf("key degraded %+v, want boundary=1", d.Degraded)
+	}
+}
+
+// A keyed read the boundary carries keeps its read site on the renewed
+// transaction: a later commit to that entry loses the slice's final commit,
+// counted at the final point under the read site before the boundary, with no
+// boundary site and no degrade.
+func TestConflictPathCarriedKeyedReadLosesAtFinalCommit(t *testing.T) {
+	s := mapKeyStore(t, kv("a", 1))
+	s.SetConflictCensusTracking(true)
+
+	loser := s.BeginSnapshot(0)
+	loser.SetConflictLabel(5, "say")
+	loser.SetConflictOrigin(7, 1)
+	stub := &stubSite{site: ConflictSite{Obj: 7, Verb: "stored", Line: 6}}
+	loser.SetConflictSiteFunc(stub.fn)
+	keyedRead(t, loser, "a")
+	stub.site.Line = 9
+	loser.NoteBoundary("sqlite_execute")
+	next, _, ec := loser.CommitAndRenewCarryingReads()
+	if ec != types.E_NONE {
+		t.Fatalf("boundary = %v, conflicts %v", ec, loser.Conflicts())
+	}
+	defer next.Release()
+
+	winner := s.BeginSnapshot(0)
+	keyedWrite(t, winner, "a", 5)
+	mustCommit(t, winner)
+	winner.Release()
+
+	keyedWrite(t, next, "b", 2)
+	if ec := next.Commit(); ec == types.E_NONE || !next.ValidationFailed() {
+		t.Fatalf("final commit did not lose: %v", ec)
+	}
+	p := pathRow(t, s.ConflictCensus(), ConflictMapKey, 0, "m")
+	if p.ReadSite != (ConflictSite{Obj: 7, Verb: "stored", Line: 6}) {
+		t.Errorf("read site %v, want #7:stored@6 from before the boundary", p.ReadSite)
+	}
+	if p.LostAt != (CommitPointCounts{Final: 1}) || len(p.BoundarySites) != 0 || p.Degraded != (DegradeCounts{}) {
+		t.Errorf("lost at %+v boundary sites %+v degraded %+v, want final, none, none", p.LostAt, p.BoundarySites, p.Degraded)
 	}
 }
 
