@@ -1,6 +1,8 @@
 package builtins
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -242,6 +244,103 @@ func FuzzParseHTTPChunkedBody(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		parseHTTPChunkedBody(data, 0)
+	})
+}
+
+// Style bits for buildValidChunkedEncoding.
+const (
+	chunkStyleUpperHex      = 1 << iota // A-F instead of a-f in chunk sizes
+	chunkStyleLeadingZeros              // "00" before every chunk size
+	chunkStyleExtensions                // ";ext=v" after every data chunk size
+	chunkStyleLastExtension             // ";last" after the zero-size line's size
+	chunkStyleTrailer                   // one trailer field before the final CRLF
+)
+
+// buildValidChunkedEncoding encodes body as an HTTP/1.1 chunked body
+// (RFC 9112 section 7.1). Each byte of cuts sets the next chunk's length to
+// byte+1 (clamped to what is left); once cuts runs out the rest of body is one
+// chunk. Only forms accepted by both parseHTTPChunkedBody and Toast's
+// http_parser.c are produced: hex size, optional ";" extension, CRLF, data,
+// CRLF, then "0", optional trailer fields, and the final CRLF.
+func buildValidChunkedEncoding(body, cuts []byte, style uint8) []byte {
+	sizeText := func(n int) string {
+		s := strconv.FormatInt(int64(n), 16)
+		if style&chunkStyleUpperHex != 0 {
+			s = strings.ToUpper(s)
+		}
+		if style&chunkStyleLeadingZeros != 0 {
+			s = "00" + s
+		}
+		return s
+	}
+
+	var enc []byte
+	rest := body
+	for i := 0; len(rest) > 0; i++ {
+		n := len(rest)
+		if i < len(cuts) {
+			n = min(int(cuts[i])+1, len(rest))
+		}
+		enc = append(enc, sizeText(n)...)
+		if style&chunkStyleExtensions != 0 {
+			enc = append(enc, ";ext=v"...)
+		}
+		enc = append(enc, "\r\n"...)
+		enc = append(enc, rest[:n]...)
+		enc = append(enc, "\r\n"...)
+		rest = rest[n:]
+	}
+	enc = append(enc, sizeText(0)...)
+	if style&chunkStyleLastExtension != 0 {
+		enc = append(enc, ";last"...)
+	}
+	enc = append(enc, "\r\n"...)
+	if style&chunkStyleTrailer != 0 {
+		enc = append(enc, "Trailer-Field: value\r\n"...)
+	}
+	return append(enc, "\r\n"...)
+}
+
+// FuzzParseHTTPChunkedBodyValidEncoding checks decoding, not just termination:
+// a valid chunked encoding placed after arbitrary bytes (start offset) and
+// followed by arbitrary bytes (pipelined input) must decode to the original
+// body, report the absolute end offset of the encoding as consumed, and be
+// complete; every strict prefix of it must be reported not complete.
+func FuzzParseHTTPChunkedBodyValidEncoding(f *testing.F) {
+	f.Add([]byte(""), []byte("Wikipedia in\r\n\r\nchunks."), []byte{3, 4, 13}, []byte(""), uint8(0))
+	f.Add([]byte("HTTP/1.1 200 OK\r\n\r\n"), []byte("hello"), []byte{}, []byte("GET / HTTP/1.1\r\n"), uint8(0x1f))
+	f.Add([]byte("x"), []byte(""), []byte{}, []byte("0\r\n\r\n"), uint8(chunkStyleTrailer))
+	f.Add([]byte(""), []byte("\x00\xff\r\n0\r\n\r\n~"), []byte{0, 0, 255}, []byte(""), uint8(chunkStyleExtensions|chunkStyleUpperHex))
+
+	f.Fuzz(func(t *testing.T, prefix, body, cuts, suffix []byte, style uint8) {
+		// The strict-prefix loop is quadratic in the encoding length.
+		if len(body) > 1024 || len(prefix) > 64 || len(suffix) > 64 {
+			return
+		}
+		enc := buildValidChunkedEncoding(body, cuts, style)
+		data := make([]byte, 0, len(prefix)+len(enc)+len(suffix))
+		data = append(data, prefix...)
+		data = append(data, enc...)
+		data = append(data, suffix...)
+		start := len(prefix)
+		end := start + len(enc)
+
+		got, consumed, complete := parseHTTPChunkedBody(data, start)
+		if !complete {
+			t.Fatalf("valid encoding %q at offset %d not complete", enc, start)
+		}
+		if want := EncodeRawToBinary(body); got != want {
+			t.Fatalf("encoding %q decoded to %q, want %q", enc, got, want)
+		}
+		if consumed != end {
+			t.Fatalf("encoding %q at offset %d consumed %d, want %d", enc, start, consumed, end)
+		}
+
+		for n := start; n < end; n++ {
+			if got, consumed, complete := parseHTTPChunkedBody(data[:n], start); complete {
+				t.Fatalf("strict prefix %q of encoding %q reported complete: body %q, consumed %d", data[start:n], enc, got, consumed)
+			}
+		}
 	})
 }
 
