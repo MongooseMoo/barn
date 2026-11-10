@@ -18,14 +18,17 @@ func TestNestingLimitUnaryAndParentheses(t *testing.T) {
 			"list":        strings.Repeat("{", depth) + "1" + strings.Repeat("}", depth) + ";",
 			"map":         strings.Repeat("[1 -> ", depth) + "1" + strings.Repeat("]", depth) + ";",
 			"power":       strings.Repeat("1 ^ ", depth) + "1;",
-			"assignment":  strings.Repeat("a = ", depth) + "1;",
-			"additive":    "1" + strings.Repeat(" + 1", depth) + ";",
-			"postfix":     "a" + strings.Repeat("[1]", depth) + ";",
-			"property":    "a" + strings.Repeat(".b", depth) + ";",
-			"if":          strings.Repeat("if (1)\n", depth) + "return 1;\n" + strings.Repeat("endif\n", depth),
-			"while":       strings.Repeat("while (0)\n", depth) + "return 1;\n" + strings.Repeat("endwhile\n", depth),
-			"try":         strings.Repeat("try\n", depth) + "return 1;\n" + strings.Repeat("except (ANY)\nendtry\n", depth),
-			"elseif":      "if (1)\n" + strings.Repeat("elseif (1)\n", depth-1) + "return 1;\nendif",
+			// Fully parenthesized operands, as FormatMOOFullyParenthesized emits.
+			"grouped power": strings.Repeat("1 ^ (", depth-1) + "1 ^ 1" + strings.Repeat(")", depth-1) + ";",
+			"grouped unary": strings.Repeat("!(", depth-1) + "!1" + strings.Repeat(")", depth-1) + ";",
+			"assignment":    strings.Repeat("a = ", depth) + "1;",
+			"additive":      "1" + strings.Repeat(" + 1", depth) + ";",
+			"postfix":       "a" + strings.Repeat("[1]", depth) + ";",
+			"property":      "a" + strings.Repeat(".b", depth) + ";",
+			"if":            strings.Repeat("if (1)\n", depth) + "return 1;\n" + strings.Repeat("endif\n", depth),
+			"while":         strings.Repeat("while (0)\n", depth) + "return 1;\n" + strings.Repeat("endwhile\n", depth),
+			"try":           strings.Repeat("try\n", depth) + "return 1;\n" + strings.Repeat("except (ANY)\nendtry\n", depth),
+			"elseif":        "if (1)\n" + strings.Repeat("elseif (1)\n", depth-1) + "return 1;\nendif",
 		} {
 			t.Run(fmt.Sprintf("%s/%d", name, depth), func(t *testing.T) {
 				_, err := parser.NewParser(source).ParseProgram()
