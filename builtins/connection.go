@@ -140,6 +140,12 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 		return types.Err(types.E_INVARG)
 	}
 
+	return types.Ok(types.NewInt(int64(queuedOutputLength(ctx, conn, target))))
+}
+
+// queuedOutputLength counts the MOO output bytes queued for target: the
+// connection's buffer plus this task's deferred notifications to target.
+func queuedOutputLength(ctx *Execution, conn Connection, target types.ObjID) int {
 	length := conn.BufferedOutputLength()
 	if ctx != nil {
 		for _, effect := range ctx.PendingEffects {
@@ -152,7 +158,7 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 			}
 		}
 	}
-	return types.Ok(types.NewInt(int64(length)))
+	return length
 }
 
 func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
