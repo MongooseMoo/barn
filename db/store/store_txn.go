@@ -84,8 +84,16 @@ type StoreTxn struct {
 	// verbMemoSeen holds, per memo entry, what recordVerbMemoHit has already
 	// recorded for this txn. It is dropped wherever the scan marks are.
 	verbMemoSeen map[*verbDispatchMemoEntry]uint8
-	terminalErr  types.ErrorCode
-	liveMutated  bool
+	// usedPropMemo, propMemoDisabled and propMemoHits are the same for the
+	// store-level property resolution memo: a reading txn that resolved through
+	// it holds read marks on the slots that supplied the answer but none on the
+	// rest of the walk path, and must instead fail validation if
+	// props.shapeChangeTS moved past its snapshot (lookupPropMemo).
+	usedPropMemo     bool
+	propMemoDisabled bool
+	propMemoHits     []propResolveKey
+	terminalErr      types.ErrorCode
+	liveMutated      bool
 	// mapKeys holds per-key dependencies and writes on map-valued slots
 	// reached through keyed access (store_txn_mapkeys.go). A slot with a
 	// whole read in propertyReads is validated by that read instead.
@@ -388,9 +396,10 @@ func (tx *StoreTxn) readPublishedAfter(clock uint64) bool {
 			return true
 		}
 	}
-	// Memoized verb resolutions record no per-object versions; they may
-	// reflect a verb shape change made after clock.
-	return tx.usedVerbMemo && tx.store.dispatch.shapeChangeTS.Load() > clock
+	// Memoized verb and property resolutions record no per-object versions
+	// along their paths; they may reflect a shape change made after clock.
+	return tx.usedVerbMemo && tx.store.dispatch.shapeChangeTS.Load() > clock ||
+		tx.usedPropMemo && tx.store.props.shapeChangeTS.Load() > clock
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {

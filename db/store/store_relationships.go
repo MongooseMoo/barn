@@ -63,7 +63,7 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
-	s.noteVerbShapeChanged()
+	s.noteResolutionShapeChanged()
 	for _, oldParentID := range obj.parents {
 		oldParent := s.load(oldParentID)
 		if !validLiveObject(oldParent) {

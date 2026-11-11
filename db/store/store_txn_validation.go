@@ -50,6 +50,11 @@ func (tx *StoreTxn) validateReadsLocked() types.ErrorCode {
 		}
 	}
 	tx.validateMapKeysLocked(&errCode)
+	if tx.usedPropMemo && !tx.liveMutated {
+		if changed := tx.store.props.shapeChangeTS.Load(); changed > tx.readTS {
+			tx.noteConflict(&errCode, types.E_INVARG, ReadConflict{Kind: ConflictPropertyMemoShape, ObjID: types.ObjNothing, Read: tx.readTS, Live: changed})
+		}
+	}
 	if !isolationprobe.Fault("verb-reads") {
 		tx.validateVerbReadsLocked(&errCode)
 	}
