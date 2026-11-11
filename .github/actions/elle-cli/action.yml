@@ -19,7 +19,7 @@ runs:
     - name: Build pinned checker
       shell: bash
       env:
-        ELLE_COMMIT: 9c2a18b3719f573dab06ae05c955c9c9d5225673
+        ELLE_COMMIT: 3c2504815945cd4ab1b5cc0142d2fe206e1ee285
       run: |
         set -euo pipefail
         checker="$RUNNER_TEMP/elle-cli-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"

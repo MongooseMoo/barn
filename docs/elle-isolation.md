@@ -98,7 +98,7 @@ Go, Java 21, Leiningen and Graphviz. Build the same pinned CLI used in CI:
 
 ```sh
 git clone https://github.com/ligurio/elle-cli.git /tmp/barn-elle-cli
-git -C /tmp/barn-elle-cli checkout --detach 9c2a18b3719f573dab06ae05c955c9c9d5225673
+git -C /tmp/barn-elle-cli checkout --detach 3c2504815945cd4ab1b5cc0142d2fe206e1ee285
 cd /tmp/barn-elle-cli
 JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
 ```
@@ -113,6 +113,10 @@ python3 scripts/check_elle.py \
 
 The output directory must be new. Defaults are seeds 412, 395 and 396, with 40
 rounds each, plus one run of the first seed under each deliberate fault.
+The driver also replays the saved checkpoint drop-append history from CI run
+42981299875. Elle 0.2.7 deadlocked on this input; the pinned Elle 0.2.8 must
+reject it with an explicit `false`, exit 1 and an anomaly witness. Its input,
+checker log and witness are retained with the generated histories.
 Replay one workload with `--seeds 412 --rounds 40`; a seed reproduces generated
 operations, while worker scheduling can change. Preserve the original EDN to
 replay the exact observed history. `results.json` records the checker commands.

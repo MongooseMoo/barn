@@ -60,10 +60,26 @@ The rented host is a Xeon Platinum 8260 (24 cores, 48 threads), matching the
 provider's Wolfhound hardware listing, not the recalled EPYC Greyhound. The
 private account's product label is unverified.
 
-The pinned Elle CLI uses Elle 0.2.7. Upstream Elle issue #32 describes a fold
-thread-pool deadlock fixed by PR #33. This is a candidate explanation only;
-the saved history has not yet reproduced it under a captured thread dump.
-The old CI jar path from provenance was absent in the local WSL probe.
+The pinned Elle CLI uses Elle 0.2.7. The exact saved history reproduced the
+hang under the same Java 21 runtime: the 60-second replay exited 124. The
+thread dump has the main thread waiting on Elle analysis and worker threads
+waiting inside history folds and SparseHistory.get_index, matching upstream
+Elle issue #32 and its merged fix #33. The upstream CLI update to Elle 0.2.8
+completed the identical input with verdict `false`, exit 1, and a
+`G-single-item.txt` anomaly witness. Raw input identity was checked byte for
+byte. The replay input and thread dump are beside the downloaded CI artifact.
+
+The repair updates the existing shared action's checker pin and its current
+documentation, retains the exact history under scripts/fixtures/elle, and
+runs it through the existing check_elle driver before generated histories.
+The driver's existing verdict/exit/witness validation is shared by both input
+sources. The fixture was checked byte for byte against the CI artifact.
+No checker timeout or verdict requirement is relaxed. Full verification stays
+in PR CI; local replay was limited to the saved regression input.
+
+An explicit PR-description edit question is pending, as required by Q's
+publishing rule. It asks to add the checker repair to #753's description.
+Publication, CI, normal merge and deployment were already authorized.
 
 ## Next step
 
