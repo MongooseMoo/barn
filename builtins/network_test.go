@@ -3,6 +3,7 @@ package builtins
 import (
 	"sync"
 	"testing"
+	"time"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -110,6 +111,8 @@ type stubConnManager struct {
 	switches    []stubSwitch
 	switchedOld types.ObjID
 	switchedNew types.ObjID
+	dialTimeout time.Duration
+	dialErr     error
 }
 
 type stubSwitch struct {
@@ -157,7 +160,11 @@ func (m *stubConnManager) RemoveListener(desc listener.Descriptor) error {
 	m.removed = desc
 	return nil
 }
-func (m *stubConnManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+func (m *stubConnManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
+	m.dialTimeout = timeout
+	if m.dialErr != nil {
+		return types.ObjNothing, m.dialErr
+	}
 	return types.ObjID(-8), nil
 }
 func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {

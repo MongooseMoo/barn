@@ -177,6 +177,21 @@ func TestClosedOptionMutationSkipsWakeAndHeldDrain(t *testing.T) {
 	}
 }
 
+// Toast bf_set_connection_option (src/server.cc:2982-2988) checks permission
+// before it looks the connection up.
+func TestSetConnectionOptionChecksPermissionBeforeConnection(t *testing.T) {
+	ctx := ctxWithConnManager(&stubConnManager{})
+	ctx.Programmer = 5
+	args := []types.Value{types.NewObj(7), types.NewStr("hold-input"), types.NewInt(1)}
+	if result := admitTestBuiltin("set_connection_option", ctx, args); !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("nonwizard other unconnected = %+v, want E_PERM", result)
+	}
+	ctx.IsWizard = true
+	if result := admitTestBuiltin("set_connection_option", ctx, args); !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("wizard unconnected = %+v, want E_INVARG", result)
+	}
+}
+
 var singleOptionBoolSink bool
 var singleOptionResultSink types.Result
 var connectionOptionsSnapshotSink map[string]types.Value

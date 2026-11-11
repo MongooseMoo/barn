@@ -314,19 +314,20 @@ func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 
 	propName := nameVal.Str()
 
-	prop, ok, err := localPropertyForRead(ctx, objID, propName)
-	if err != types.E_NONE {
-		return types.Err(err)
-	}
-	if !ok || !prop.Defined {
-		return types.Err(types.E_PROPNF)
-	}
+	// Toast bf_delete_prop checks object write permission before the lookup.
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	if !allowed {
 		return types.Err(types.E_PERM)
+	}
+	prop, ok, err := localPropertyForRead(ctx, objID, propName)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if !ok || !prop.Defined {
+		return types.Err(types.E_PROPNF)
 	}
 
 	deleteErr := readTxn(ctx).DeleteDefinedProperty(objID, propName)
@@ -365,16 +366,10 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Find property in chain
+	// Find property in chain; Toast bf_clear_prop reports a missing property
+	// before any permission check.
 	foundProp, err := findPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
-		hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
-		isWizard := errCode == types.E_NONE && hasWizard
-		objectOwner, ownerErr := objectOwnerForRead(ctx, objID)
-		isObjectOwner := ownerErr == types.E_NONE && ctx.Programmer == objectOwner
-		if !isWizard && !isObjectOwner {
-			return types.Err(types.E_PERM)
-		}
 		return types.Err(err)
 	}
 

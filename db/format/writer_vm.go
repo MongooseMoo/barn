@@ -24,7 +24,14 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	if start.IsZero() {
 		start = time.Now()
 	}
-	if _, err := fmt.Fprintf(w.w, "%d %d ", start.Add(500*time.Millisecond).Unix(), snapshot.ID); err != nil {
+	startSeconds := start.Add(500 * time.Millisecond).Unix()
+	if start.Equal(task.IndefiniteSuspendStartTime) {
+		// Toast writes an indefinite suspension's INTNUM_MAX start time with
+		// "%d" (tasks.cc:1918), which prints its low 32 bits: -1. On load that
+		// time is past, so the task resumes with its wake value at once.
+		startSeconds = -1
+	}
+	if _, err := fmt.Fprintf(w.w, "%d %d ", startSeconds, snapshot.ID); err != nil {
 		return err
 	}
 	if err := w.writeValue(snapshot.WakeValue); err != nil {

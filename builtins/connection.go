@@ -1,7 +1,11 @@
 package builtins
 
 import (
+	"context"
+	"errors"
 	"sort"
+	"syscall"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -343,11 +347,37 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	conn, err := cm.OpenNetworkConnection(args[0].Str(), port)
+	conn, err := cm.OpenNetworkConnection(args[0].Str(), port, outboundConnectTimeout(ctx))
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		// network.cc network_open_connection: make_raise_pack(E_INVARG,
+		// "Connection failure", strerror(errno)).
+		detail := err.Error()
+		var errno syscall.Errno
+		if errors.As(err, &errno) {
+			detail = errno.Error()
+		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			detail = syscall.ETIMEDOUT.Error()
+		}
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Connection failure"), types.NewStr(detail)}),
+		}
 	}
 	return types.Ok(types.NewObj(conn))
+}
+
+// outboundConnectTimeout reads $server_options.outbound_connect_timeout at call
+// time with default 5, as Toast's server_int_option does; Toast passes it to
+// set_timer as an unsigned seconds count (network.cc:1122).
+func outboundConnectTimeout(ctx *Execution) time.Duration {
+	seconds := int64(5)
+	if options, err := findPropertyForRead(ctx, 0, "server_options"); err == types.E_NONE && options.Value.Type() == types.TYPE_OBJ {
+		if prop, err := findPropertyForRead(ctx, options.Value.Obj(), "outbound_connect_timeout"); err == types.E_NONE && prop.Value.Type() == types.TYPE_INT {
+			seconds = int64(uint32(prop.Value.Int()))
+		}
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func connectionDescriptors() []Descriptor {

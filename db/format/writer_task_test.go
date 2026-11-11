@@ -130,6 +130,47 @@ func TestWriteSuspendedTasksRejectsLossyCheckpoint(t *testing.T) {
 	}
 }
 
+// Toast prints an indefinite suspension's INTNUM_MAX start time with "%d"
+// (tasks.cc:1918), which writes -1; reloading that past time resumes the task.
+func TestIndefiniteSuspensionWritesToastStartTime(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots(nil, []task.Snapshot{{
+		ID:            23,
+		Owner:         2,
+		State:         task.TaskSuspended,
+		ReadingPlayer: types.ObjNothing,
+		StartTime:     task.IndefiniteSuspendStartTime,
+		WakeValue:     types.NewInt(0),
+		TaskLocal:     types.NewInt(0),
+		CallStack:     []types.ActivationFrame{{This: 7, ThisValue: types.NewObj(7), Player: 2, Programmer: 2, Caller: types.ObjNothing, Verb: "hold", StoredVerb: "hold", VerbLoc: 7}},
+		VM: &task.VMSnapshot{Frames: []task.VMFrameSnapshot{{
+			Program: bytecode.Program{
+				Code:     []byte{byte(bytecode.OP_RETURN_NONE)},
+				LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
+				Source:   []string{"return;"},
+			},
+			This: 7, ThisValue: types.NewObj(7), Player: 2, Verb: "hold", StoredVerb: "hold", Caller: types.ObjNothing, VerbLoc: 7,
+		}}},
+	}})
+	if err := writer.writeSuspendedTasks(); err != nil {
+		t.Fatalf("writeSuspendedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if got := buf.String(); !strings.Contains(got, "\n-1 23 ") {
+		t.Fatalf("indefinite suspension start line missing \"-1 23 \" in:\n%s", got)
+	}
+	database := &Database{Version: 17}
+	if err := database.readSuspendedTasks(bufio.NewReader(bytes.NewReader(buf.Bytes()))); err != nil {
+		t.Fatalf("readSuspendedTasks: %v", err)
+	}
+	if got := database.SuspendedTasks[0].Snapshot.StartTime.Unix(); got != -1 {
+		t.Fatalf("restored start time = %d, want -1", got)
+	}
+}
+
 func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())

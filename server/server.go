@@ -40,6 +40,7 @@ type Server struct {
 	listenerSpecs       []listener.Spec
 	listenersReserved   bool
 	checkpointInterval  time.Duration
+	nextCheckpointNano  atomic.Int64 // checkpoint timer's due time; 0 when none is armed
 	ordinaryDumpStarted atomic.Bool
 	options             config.Options
 	running             bool
@@ -317,9 +318,6 @@ func (s *Server) Start() error {
 	signals, stopSignals := listenSignals()
 	defer stopSignals()
 
-	// Start the execution runtime.
-	s.input.Start()
-
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
 	if _, err := s.ReserveListeners(); err != nil {
@@ -362,6 +360,11 @@ func (s *Server) Start() error {
 		slog.Warn("#0:server_started() failed", slog.Any("err", err))
 	}
 	s.runtime.ReleaseStartupFinalization()
+
+	// Start dispatching tasks only now: Toast runs restored and newly queued
+	// tasks from its main loop, after start scripts, checkpointed-connection
+	// hooks and #0:server_started have returned.
+	s.input.Start()
 
 	// Start listening for connections
 	if s.lifecycle != nil {
@@ -410,10 +413,12 @@ func (s *Server) checkpointLoop() {
 	}
 	ticker := time.NewTicker(s.checkpointInterval)
 	defer ticker.Stop()
+	s.nextCheckpointNano.Store(time.Now().Add(s.checkpointInterval).UnixNano())
 
 	for {
 		select {
 		case <-ticker.C:
+			s.nextCheckpointNano.Store(time.Now().Add(s.checkpointInterval).UnixNano())
 			if err := s.requestCheckpoint(); err != nil {
 				return
 			}

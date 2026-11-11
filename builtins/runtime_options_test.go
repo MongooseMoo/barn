@@ -1,9 +1,12 @@
 package builtins
 
 import (
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -98,6 +101,40 @@ func TestOpenNetworkConnectionDisabledReturnsPerm(t *testing.T) {
 	result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(1)})
 	if result.Flow != types.FlowException || result.Error != types.E_PERM {
 		t.Fatalf("open_network_connection result = flow %v error %s, want E_PERM", result.Flow, result.Error)
+	}
+}
+
+// Toast reads $server_options.outbound_connect_timeout at call time
+// (network.cc:1122) and raises {E_INVARG, "Connection failure", strerror}
+// when the connect fails.
+func TestOpenNetworkConnectionUsesServerTimeoutAndRaisesConnectionFailure(t *testing.T) {
+	cm := &stubConnManager{dialErr: syscall.ECONNREFUSED}
+	ctx := ctxWithConnManager(cm)
+	ctx.IsWizard = true
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: true}
+	txn := ctx.Store.DirectTxn()
+	system, errCode := txn.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+	if errCode != types.E_NONE || system != 0 {
+		t.Fatalf("create system = %v, %s; want #0", system, errCode)
+	}
+	options, errCode := txn.CreateObject([]types.ObjID{types.ObjNothing}, system, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("create options: %s", errCode)
+	}
+	if errCode := txn.DefineProperty(system, "server_options", dbstore.NewProperty(types.NewObj(options), system, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define server_options: %s", errCode)
+	}
+	if errCode := txn.DefineProperty(options, "outbound_connect_timeout", dbstore.NewProperty(types.NewInt(30), system, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define outbound_connect_timeout: %s", errCode)
+	}
+
+	result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(1)})
+	if cm.dialTimeout != 30*time.Second {
+		t.Fatalf("dial timeout = %v, want 30s", cm.dialTimeout)
+	}
+	want := types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Connection failure"), types.NewStr(syscall.ECONNREFUSED.Error())})
+	if result.Flow != types.FlowException || result.Error != types.E_INVARG || !result.Val.Equal(want) {
+		t.Fatalf("result = %+v, want raise %s", result, want.String())
 	}
 }
 

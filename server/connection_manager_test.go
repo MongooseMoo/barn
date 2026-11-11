@@ -819,6 +819,35 @@ func TestAcceptedConnectionIsPublishedWithListenerMetadata(t *testing.T) {
 	}
 }
 
+// Toast's SIGALRM runs the head of its sorted real-time timer list: a connect
+// timer only when it is due strictly before the checkpoint timer.
+func TestExpireEarliestOutboundConnectFiresOnlyTimerBeforeCheckpoint(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	now := time.Now()
+	var canceled []string
+	add := func(name string, deadline time.Time) {
+		cm.pendingDials[&pendingDial{deadline: deadline, cancel: func() { canceled = append(canceled, name) }}] = struct{}{}
+	}
+	add("late", now.Add(20*time.Second))
+	add("early", now.Add(10*time.Second))
+
+	if cm.ExpireEarliestOutboundConnect(now.Add(10 * time.Second)) {
+		t.Fatal("connect due with the checkpoint timer fired before it")
+	}
+	if !cm.ExpireEarliestOutboundConnect(now.Add(time.Hour)) {
+		t.Fatal("connect due before the checkpoint timer did not fire")
+	}
+	if !cm.ExpireEarliestOutboundConnect(time.Time{}) {
+		t.Fatal("connect did not fire with no checkpoint timer armed")
+	}
+	if cm.ExpireEarliestOutboundConnect(time.Time{}) {
+		t.Fatal("fired with no pending connect")
+	}
+	if len(canceled) != 2 || canceled[0] != "early" || canceled[1] != "late" {
+		t.Fatalf("canceled = %v, want [early late]", canceled)
+	}
+}
+
 func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -840,7 +869,7 @@ func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
 	}()
 
 	addr := listener.Addr().(*net.TCPAddr)
-	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port))
+	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port), 5*time.Second)
 	if err != nil {
 		t.Fatalf("OpenNetworkConnection: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MongooseMoo/barn/config"
 
@@ -27,7 +28,7 @@ type ConnectionManager interface {
 	ListenerInfos() []listener.Info
 	AddListener(spec listener.Spec) (listener.Descriptor, error)
 	RemoveListener(desc listener.Descriptor) error
-	OpenNetworkConnection(host string, port int64) (types.ObjID, error)
+	OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error)
 	ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error)
 }
 
@@ -1306,12 +1307,13 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	// Toast bf_set_connection_option checks permission before the connection.
+	if !ctx.IsWizard && player != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
 	conn := resolveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
-	}
-	if !ctx.IsWizard && player != ctx.Programmer {
-		return types.Err(types.E_PERM)
 	}
 
 	if args[1].Type() != types.TYPE_STR {
