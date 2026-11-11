@@ -50,7 +50,7 @@ type idAllocator struct {
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized
 	// committer (holding only store.mu.RLock) can allocate an id and CAS-max them
 	// without the exclusive lock. After NewStore, allocateID(), casMaxID() and
-	// ResetMaxObject() are the only mutators.
+	// ResetMaxObject() are the only mutators (AddRecycledSlot uses casMaxID).
 	max        atomic.Int64
 	highWater  atomic.Int64
 	recycledMu sync.Mutex    // guards recycled against concurrent decentralized recyclers
@@ -710,6 +710,14 @@ func (s *Store) AddAnonymous(obj *Object) {
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
 	casMaxID(&s.ids.highWater, obj.id)
+}
+
+// AddRecycledSlot counts a numbered slot loaded as recycled. The slot holds no
+// object, but max_object() and the next create() must stay above it, as Toast
+// keeps recycled slots in num_objects across a restart.
+func (s *Store) AddRecycledSlot(id types.ObjID) {
+	casMaxID(&s.ids.highWater, id)
+	casMaxID(&s.ids.max, id)
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {
