@@ -93,6 +93,22 @@ def checkpoint_markers(data):
     return markers
 
 
+def stop_records(data):
+    """The elle build's boundary records in data: one JSON line per stop,
+    {"msg": "checkpoint stop", "point", "occurrence", "pid", "artifacts"},
+    written to stderr just before the process sends itself SIGSTOP
+    (internal/isolationprobe/enabled.go checkpointStop)."""
+    records = []
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and row.get("msg") == "checkpoint stop":
+            records.append(row)
+    return records
+
+
 def _artifact_digest(path):
     """sha256 of a regular checkpoint artifact; None when it is absent."""
     row = file_identity(path)
@@ -271,11 +287,15 @@ class OwnedBarnServer:
     host = "127.0.0.1"
 
     def __init__(self, executable, db, run_dir, port, *, config=CONFIG, registry=REGISTRY, profile_id=PROFILE_ID,
-                 recovered_input=None):
+                 recovered_input=None, environment=None):
         """recovered_input declares that db is an interrupted checkpoint's output whose
         publication journal Barn's loader will recover (a dict naming its provenance).
-        Without it, a pending journal on db refuses the launch."""
+        Without it, a pending journal on db refuses the launch.
+
+        environment adds variables to the inherited environment, e.g. the elle
+        build's BARN_ELLE_CHECKPOINT_STOP or BARN_ELLE_FAULT; it is recorded."""
         self.recovered_input = recovered_input
+        self.environment = dict(environment or {})
         self.executable = executable.resolve(strict=True)
         self.db, self.run_dir, self.port = db.resolve(), run_dir.resolve(), port
         self.config, self.registry = config.resolve(strict=True), registry.resolve(strict=True)
@@ -315,6 +335,7 @@ class OwnedBarnServer:
                          "runtime_logs": str(self.run_dir / "logs"),
                          "runtime_log_level": log_level, "recovered_input": recovered_input,
                          "cpu_scope": CPU_SCOPE, "collectors": "off",
+                         "added_environment": dict(self.environment),
                          "runtime_environment": {key: os.environ.get(key) for key in
                              ("GOGC", "GOMEMLIMIT", "GOMAXPROCS", "BARN_RUNTIME_DIAGNOSTICS")}}
 
@@ -334,9 +355,16 @@ class OwnedBarnServer:
     def _validate_profile(self):
         row = json.loads(self.profile_path.read_text())
         features = row.get("features")
+        # Barn completes checkpoint recovery before it hashes --db for the
+        # manifest (internal/app/app.go) and never writes --db after loading,
+        # so the manifest names the file now at db. Only a declared recovered
+        # input may differ from the pre-launch file.
+        loaded = bench.sha256_file(self.db)
+        self.identity["loaded_database_sha256"] = loaded
         if (row.get("profile_id") != self.profile_id or row.get("implementation") != "barn" or
                 row.get("runtime_os") != "linux" or
-                row.get("database_checksum") != self.identity["prepared_database_sha256"] or
+                row.get("database_checksum") != loaded or
+                (self.recovered_input is None and loaded != self.identity["prepared_database_sha256"]) or
                 row.get("config_checksum") != self.identity["config_sha256"] or
                 not isinstance(features, dict) or
                 any(key not in features or type(features[key]) is not type(value) or features[key] != value
@@ -345,30 +373,26 @@ class OwnedBarnServer:
         self.identity["profile_manifest_sha256"] = bench.sha256_file(self.profile_path)
         self.identity["runtime_profile"] = row
 
-    def start(self):
-        started = time.monotonic()
+    def _spawn(self):
+        """Check the launch inputs, then start the owned process."""
         if self.profile_path.exists():
             raise RuntimeError("refusing to overwrite a Barn runtime profile")
         if any(file_identity(path) is not None for path in
                (self.checkpoint_path, self.sidecar_path, self.journal_path)):
             raise RuntimeError("checkpoint output pair/journal must be absent before launch")
-        if file_identity(self.db) is None:
-            # Barn hashes --db for the manifest (internal/app/app.go:352) before
-            # recovery could restore a first publication's database (app.go:388).
-            raise RuntimeError("input database is absent; Barn cannot build its profile manifest before "
-                               "recovery would create it")
         if self.recovered_input is None and file_identity(self.input_journal_path) is not None:
             raise RuntimeError("input database has a pending checkpoint publication journal; "
                                "only a declared recovered-input launch may recover it")
+        if file_identity(self.db) is None and file_identity(self.input_journal_path) is None:
+            raise RuntimeError("input database is absent and has no publication journal to recover it")
         self._checkpoint_launch_verified = True
         if bench.sha256_file(self.executable) != self.identity["executable_sha256"]:
             raise RuntimeError("Barn executable changed before launch")
         if bench.sha256_file(self.config) != self.identity["config_sha256"]:
             raise RuntimeError("Barn configuration changed before launch")
-        # Barn hashes --db for its manifest (internal/app/app.go:352) before
-        # LoadDatabase recovers a pending journal (app.go:388, reader.go:163),
-        # so the manifest names this pre-launch file in both modes.
-        self.identity["prepared_database_sha256"] = bench.sha256_file(self.db)
+        # A first publication's journal leaves no database at db until
+        # recovery restores its saved next pair.
+        self.identity["prepared_database_sha256"] = _artifact_digest(self.db)
         self.identity["input_pair"] = pair_digest(self.db)
         self.identity["input_journal_sha256"] = _artifact_digest(self.input_journal_path)
         with socket.socket() as reservation:
@@ -378,7 +402,8 @@ class OwnedBarnServer:
         self._log_identity = (opened.st_dev, opened.st_ino)
         try:
             self.proc = subprocess.Popen(self.command, cwd=self.run_dir, stdin=subprocess.DEVNULL,
-                                         stdout=self.log_file, stderr=subprocess.STDOUT)
+                                         stdout=self.log_file, stderr=subprocess.STDOUT,
+                                         env=dict(os.environ, **self.environment) if self.environment else None)
             self.pidfd = os.pidfd_open(self.proc.pid)
             self.start_ticks = process_state(self.proc.pid)["start_ticks"]
         except Exception:
@@ -390,6 +415,44 @@ class OwnedBarnServer:
             except Exception as cleanup_error:
                 self.identity["startup_cleanup_failure"] = str(cleanup_error)
             raise
+
+    def _await_stop(self, offset, deadline, waiting_for):
+        """Wait for the elle build's `checkpoint stop` record after offset, then for /proc state T."""
+        while True:
+            records = stop_records(self._log_since(offset, live=True))
+            if records:
+                break
+            if self.proc.poll() is not None:
+                raise RuntimeError(f"owned Barn exited (code {self.proc.returncode}) before reaching {waiting_for}")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"no checkpoint stop record for {waiting_for}")
+            time.sleep(0.01)
+        observed_ns = time.monotonic_ns()
+        state = run_state(self.proc.pid)
+        until = time.monotonic() + 5
+        while state != "T" and time.monotonic() < until and self.proc.poll() is None:
+            time.sleep(0.01)
+            state = run_state(self.proc.pid)
+        self.paused = state == "T"
+        return {"record": records[0], "records": len(records), "observed_state": state,
+                "record_observed_ns": observed_ns, "requested": waiting_for, "owned_pid": self.proc.pid}
+
+    def wait_stop(self, boundary, requested, timeout):
+        """After a checkpoint request, wait until the process stops itself at requested ("point:N")."""
+        return self._await_stop(boundary["log_offset_bytes"], time.monotonic() + timeout, requested)
+
+    def start_until_stop(self, requested, timeout=180):
+        """Launch with a stop armed in startup recovery (before any listener), and
+        return once the process has stopped itself there instead of becoming ready."""
+        self._spawn()
+        stopped = self._await_stop(0, time.monotonic() + timeout, requested)
+        self.verify_owned()
+        self._ownership_established = True
+        return stopped
+
+    def start(self):
+        started = time.monotonic()
+        self._spawn()
         # Popen returns once the kernel releases the parent inside exec, before
         # it writes the new argv: /proc/<pid>/cmdline reads empty until then.
         # A listening Barn has finished exec, so its identity is checkable.
@@ -523,11 +586,19 @@ class OwnedBarnServer:
 
     def _recovered_pair(self):
         """The pair Barn's loader selected for a recovered input. Barn never writes
-        its --db path after loading, so this is stable once the server is ready."""
+        its --db path after loading, so this is stable once the server is ready.
+
+        A database Barn loaded without a sidecar is recorded with
+        waif_identities None: whether that pair is permitted is the snapshot
+        oracle's decision, not a launch failure."""
         if file_identity(self.input_journal_path) is not None:
             raise RuntimeError("recovered input still has its publication journal after startup")
+        sidecar = Path(str(self.db) + ".waifids")
         try:
-            return self._published_pair(self.db, Path(str(self.db) + ".waifids"), None)
+            if file_identity(sidecar) is None:
+                row, _ = stable_file_digest(self.db)
+                return {"database": row, "waif_identities": None}
+            return self._published_pair(self.db, sidecar, None)
         except PairRejected as error:
             raise RuntimeError(f"recovered input pair is not intact: {error}") from error
 

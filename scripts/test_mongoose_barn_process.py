@@ -662,13 +662,56 @@ class LiveCheckpointOwnerTests(OwnerFixture, unittest.TestCase):
         self.assertEqual(owner.identity["input_pair"], {"database": barn.bench.sha256_file(owner.db),
                                                         "waif_identities": None})
 
-    def test_absent_input_is_refused_before_launch(self):
+    def test_absent_input_needs_a_journal_to_recover_it(self):
         owner, _ = self.owner()
         owner.db.unlink()
         with patch.object(barn.subprocess, "Popen") as spawn:
             with self.assertRaisesRegex(RuntimeError, "input database is absent"):
                 owner.start()
         spawn.assert_not_called()
+        # A first publication interrupted after its journal: Barn recovers the
+        # saved next pair before building its manifest (internal/app/app.go).
+        owner.input_journal_path.write_text("{}")
+        owner.recovered_input = {"kind": "interrupted-checkpoint-output"}
+        owner.proc = owner.pidfd = owner.start_ticks = None
+        with patch.object(barn.socket, "socket"), \
+             patch.object(barn.subprocess, "Popen", side_effect=RuntimeError("spawned")):
+            with self.assertRaisesRegex(RuntimeError, "spawned"):
+                owner.start()
+        self.assertIsNone(owner.identity["prepared_database_sha256"])
+        self.assertIsNone(owner.identity["input_pair"])
+
+    def test_manifest_names_the_database_recovery_selected(self):
+        owner, _ = self.owner()
+        self.profile(owner)
+        owner.db.write_bytes(b"what recovery restored")
+        row = json.loads(owner.profile_path.read_text())
+        owner.profile_path.write_text(json.dumps(dict(row, database_checksum=barn.bench.sha256_file(owner.db))))
+        # An ordinary launch never changes its input, so a different file is refused.
+        with self.assertRaisesRegex(RuntimeError, "profile does not match"):
+            owner._validate_profile()
+        owner.recovered_input = {"kind": "interrupted-checkpoint-output"}
+        owner._validate_profile()
+        self.assertEqual(owner.identity["loaded_database_sha256"], barn.bench.sha256_file(owner.db))
+        # The manifest must still name the file actually at --db.
+        owner.profile_path.write_text(json.dumps(row))
+        with self.assertRaisesRegex(RuntimeError, "profile does not match"):
+            owner._validate_profile()
+
+    def test_added_environment_reaches_the_process_and_is_recorded(self):
+        owner, _ = self.owner()
+        owner.environment = {"BARN_ELLE_CHECKPOINT_STOP": "checkpoint/staged:2"}
+        owner.proc = owner.pidfd = owner.start_ticks = None
+        with patch.object(barn.socket, "socket"), \
+             patch.object(barn.subprocess, "Popen", side_effect=RuntimeError("spawned")) as spawn:
+            with self.assertRaisesRegex(RuntimeError, "spawned"):
+                owner.start()
+        env = spawn.call_args.kwargs["env"]
+        self.assertEqual(env["BARN_ELLE_CHECKPOINT_STOP"], "checkpoint/staged:2")
+        self.assertEqual(env.get("PATH"), os.environ.get("PATH"))
+        constructed = barn.OwnedBarnServer(owner.executable, owner.db, owner.run_dir, 1, config=owner.config,
+                                           registry=owner.registry, environment={"BARN_ELLE_FAULT": "x"})
+        self.assertEqual(constructed.identity["added_environment"], {"BARN_ELLE_FAULT": "x"})
 
     def test_recovered_pair_is_the_intact_pair_left_after_recovery(self):
         owner, _ = self.owner()
@@ -685,6 +728,83 @@ class LiveCheckpointOwnerTests(OwnerFixture, unittest.TestCase):
         sidecar.write_bytes(b"barn-waif-identities-v1 " + b"0" * 64 + b"\n")
         with self.assertRaisesRegex(RuntimeError, "not intact"):
             owner._recovered_pair()
+        # A database loaded without its sidecar is evidence for the oracle, not a launch failure.
+        sidecar.unlink()
+        pair = owner._recovered_pair()
+        self.assertEqual((pair["database"]["sha256"], pair["waif_identities"]),
+                         (barn.bench.sha256_file(owner.db), None))
+
+    def test_stop_records_are_the_json_boundary_lines_only(self):
+        data = (b'time=now level=INFO msg="checkpoint started"\n'
+                b'{"msg":"checkpoint stop","point":"checkpoint/staged","occurrence":2,"pid":9,"artifacts":["a"]}\n'
+                b'{"level":"INFO","msg":"checkpoint complete"}\n'
+                b'not json at all\n'
+                b'{"msg":"checkpoint stop","point":"checkpoint/capture"')
+        self.assertEqual(barn.stop_records(data), [{"msg": "checkpoint stop", "point": "checkpoint/staged",
+                                                    "occurrence": 2, "pid": 9, "artifacts": ["a"]}])
+
+    def test_wait_stop_needs_the_record_then_reports_the_kernel_state(self):
+        owner, _ = self.owner()
+        self.owned_log(owner)
+        with owner.log_path.open("ab") as stream:
+            stream.write(b'{"msg":"checkpoint stop","point":"checkpoint/capture","occurrence":1}\n')
+        boundary = {"log_offset_bytes": owner.log_path.stat().st_size}
+        record = json.dumps({"msg": "checkpoint stop", "point": "checkpoint/staged", "occurrence": 2,
+                             "pid": 123456, "artifacts": []}).encode() + b"\n"
+        reads = iter([False, True])
+
+        def sleep(_):
+            if next(reads, True):
+                with owner.log_path.open("ab") as stream:
+                    stream.write(record)
+
+        with patch.object(barn, "run_state", side_effect=["R", "T"]), patch.object(barn.time, "sleep", side_effect=sleep):
+            stopped = owner.wait_stop(boundary, "checkpoint/staged:2", 30)
+        # Only a record after the request boundary counts.
+        self.assertEqual(stopped["record"]["point"], "checkpoint/staged")
+        self.assertEqual((stopped["observed_state"], stopped["owned_pid"], owner.paused), ("T", 123456, True))
+        owner.log_file.close()
+
+    def test_wait_stop_reports_exit_and_timeout_without_a_record(self):
+        owner, _ = self.owner()
+        self.owned_log(owner)
+        boundary = {"log_offset_bytes": 0}
+        owner.proc.poll.return_value = 2
+        owner.proc.returncode = 2
+        with self.assertRaisesRegex(RuntimeError, "exited .* before reaching checkpoint/serialize:1"):
+            owner.wait_stop(boundary, "checkpoint/serialize:1", 30)
+        owner.proc.poll.return_value = None
+        with patch.object(barn.time, "sleep"):
+            with self.assertRaisesRegex(TimeoutError, "no checkpoint stop record"):
+                owner.wait_stop(boundary, "checkpoint/serialize:1", 0)
+        owner.log_file.close()
+
+    def test_start_until_stop_returns_at_the_recovery_stop_without_readiness(self):
+        owner, _ = self.owner()
+        owner.recovered_input = {"kind": "interrupted-checkpoint-output"}
+        owner.input_journal_path.write_text("{}")
+        child = owner.proc
+        owner.proc = owner.pidfd = owner.start_ticks = None
+
+        def spawn(*args, **kwargs):
+            kwargs["stdout"].write(json.dumps({"msg": "checkpoint stop", "point":
+                                               "checkpoint/recovery-database-restored", "occurrence": 1,
+                                               "pid": child.pid}).encode() + b"\n")
+            kwargs["stdout"].flush()
+            return child
+
+        with patch.object(barn.socket, "socket"), patch.object(barn.subprocess, "Popen", side_effect=spawn), \
+             patch.object(barn.os, "pidfd_open", return_value=77), \
+             patch.object(barn, "process_state", return_value={"start_ticks": 444}), \
+             patch.object(barn, "run_state", return_value="T"), \
+             patch.object(owner, "verify_owned") as guard, patch.object(barn.bench, "wait_port") as port:
+            stopped = owner.start_until_stop("checkpoint/recovery-database-restored:1")
+        port.assert_not_called()
+        guard.assert_called_once()
+        self.assertEqual((stopped["record"]["point"], stopped["observed_state"]),
+                         ("checkpoint/recovery-database-restored", "T"))
+        self.assertTrue(owner.paused and owner._ownership_established)
+        owner.log_file.close()
 
     def test_checkpoint_markers_read_text_and_json_records(self):
         data = (b'time=now level=INFO msg="checkpoint started"\n'

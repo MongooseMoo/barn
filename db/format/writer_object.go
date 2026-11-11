@@ -249,7 +249,7 @@ func (w *Writer) writeProperties(obj *store.SnapshotObject) error {
 			continue
 		}
 
-		if err := w.writeProperty(prop); err != nil {
+		if err := w.writeProperty(checkpointRowFault(name, prop)); err != nil {
 			return err
 		}
 	}

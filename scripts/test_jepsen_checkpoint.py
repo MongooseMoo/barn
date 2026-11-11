@@ -1067,11 +1067,14 @@ class ProvenanceTests(unittest.TestCase):
             args = SimpleNamespace(db=root / "Test.db", barn=root / "barn", elle_jar=root / "elle.jar",
                                    jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
                                    phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
-                                   workloads=["smoke", "keyed"])
+                                   workloads=["smoke", "keyed"], stages=["staged-2"], stage_seconds=8,
+                                   control=None)
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
-                                             "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"]})
+                                             "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"],
+                                             "stages": ["staged-2"], "stage_seconds": 8, "control": None})
+        self.assertEqual(row["stage_schedule"], {"staged-2": jc.STAGE_SCHEDULE["staged-2"]})
         self.assertEqual(row["live_checkpoints"], {"deadline_seconds": jc.CHECKPOINT_DEADLINE,
                                                    "delay_span": jc.DELAY_SPAN,
                                                    "first_delay_seconds": jc.FIRST_DELAY_SECONDS})
@@ -1203,7 +1206,7 @@ class FakeServer:
 class CampaignTests(unittest.TestCase):
     server_type = FakeServer
 
-    def campaign(self, probe_fails=False):
+    def campaign(self, probe_fails=False, **options):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -1240,7 +1243,7 @@ class CampaignTests(unittest.TestCase):
         output.mkdir()
         campaign = jc.Campaign(root / "barn", root / "Test.db", output,
                                lambda port: FakeTransport(port, script), server_class=server_class,
-                               port_source=lambda: next(ports), probe_deadline=0)
+                               port_source=lambda: next(ports), probe_deadline=0, **options)
         return campaign, log, servers, output
 
     def test_generations_launch_from_the_fixture_then_the_latest_verified_pair(self):
@@ -1418,6 +1421,238 @@ class LiveCampaignTests(CampaignTests):
         recovery = next(row for row in jc.load_jsonl(output / "lifecycle.jsonl")
                         if row["event"] == "recovery-observation" and row["generation"] == 1)
         self.assertEqual((recovery["epoch"], recovery["rows"]), (0, [[1], [5]]))
+
+
+class FakeStageServer(FakeLiveServer):
+    """FakeLiveServer whose elle stop spec (environment) makes it stop itself."""
+
+    def __init__(self, *args, environment=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.environment = environment or {}
+        self.unreachable = False
+
+    def _stopped(self, requested):
+        point, occurrence = requested.rsplit(":", 1)
+        self.paused = True
+        return {"record": {"msg": "checkpoint stop", "point": point, "occurrence": int(occurrence), "pid": 4242},
+                "observed_state": "T", "owned_pid": 4242, "requested": requested}
+
+    def wait_stop(self, boundary, requested, timeout):
+        self.log.append(("wait-stop", requested, self.environment.get(jc.STOP_ENV)))
+        if self.unreachable:
+            raise TimeoutError(f"no checkpoint stop record for {requested}")
+        return self._stopped(requested)
+
+    def start_until_stop(self, requested, timeout):
+        self.log.append(("start-until-stop", self.db.name, requested, self.environment.get(jc.STOP_ENV)))
+        return self._stopped(requested)
+
+
+class StageCampaignTests(CampaignTests):
+    server_type = FakeStageServer
+
+    def test_each_generation_is_armed_with_its_step_and_stops_there(self):
+        campaign, log, servers, output = self.campaign(stages=["staged-2", "double-crash"])
+        campaign.launch("initial")
+        self.assertEqual(servers[0].environment, {jc.STOP_ENV: "checkpoint/staged:2"})
+        self.assertEqual(campaign.fault("stage-crash")["value"], {"crashed": 0, "generation": 1})
+        # Occurrence 2: one acknowledged live checkpoint, then the stopping request.
+        self.assertEqual([entry[0] for entry in log if entry[0] in ("sigalrm", "wait", "wait-stop", "crash")],
+                         ["sigalrm", "wait", "sigalrm", "wait-stop", "crash"])
+        self.assertEqual(servers[1].environment, {jc.STOP_ENV: "checkpoint/database-renamed:2"})
+        self.assertEqual(servers[1].db, Path(str(servers[0].db) + ".new"))
+        self.assertEqual(campaign.fault("stage-crash")["value"], {"crashed": 1, "generation": 2})
+        stopper, relaunched = servers[2], servers[3]
+        self.assertEqual(stopper.environment, {jc.STOP_ENV: "checkpoint/recovery-database-restored:1"})
+        self.assertEqual(stopper.db, relaunched.db)  # the same files are recovered again
+        self.assertEqual(relaunched.environment, {})  # the schedule is used up
+        self.assertIn(("start-until-stop", "input.db.new.new", "checkpoint/recovery-database-restored:1",
+                       "checkpoint/recovery-database-restored:1"), log)
+        rows = jc.load_jsonl(output / "lifecycle.jsonl")
+        stops = [row for row in rows if row["event"] == "checkpoint-stop"]
+        self.assertEqual([(row["stage"], row["record"]["point"], row["observed_state"]) for row in stops],
+                         [("staged-2", "checkpoint/staged", "T"), ("double-crash", "checkpoint/database-renamed", "T")])
+        second = next(row for row in rows if row["event"] == "recovery-stop")
+        self.assertEqual((second["generation"], second["crashed_generation"], second["record"]["point"]),
+                         (2, 1, "checkpoint/recovery-database-restored"))
+        self.assertTrue(second["forensic"])
+        self.assertTrue((output / "gen-002-recovery-forensic").is_dir())
+        self.assertEqual([row.get("stage") for row in rows if row["event"] == "admit"],
+                         ["staged-2", "double-crash", None])
+
+    def test_an_unreached_stop_is_recorded_and_fails_the_campaign(self):
+        campaign, log, servers, output = self.campaign(stages=["capture-1"])
+        campaign.launch("initial")
+        servers[0].unreachable = True
+        reply = campaign.fault("stage-crash")
+        self.assertEqual((reply["type"], reply["error"]["kind"]), ("info", "lifecycle"))
+        row = next(row for row in jc.load_jsonl(output / "lifecycle.jsonl") if row["event"] == "stage-unreached")
+        self.assertEqual((row["stage"], row["requested_stop"]), ("capture-1", "checkpoint/capture:1"))
+        self.assertIn("no checkpoint stop record", row["error"])
+
+    def test_stage_crash_needs_an_armed_step(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        self.assertEqual(servers[0].environment, {})
+        reply = campaign.fault("stage-crash")
+        self.assertIn("has no armed stage step", reply["error"]["message"])
+
+    def test_a_control_fault_reaches_every_process(self):
+        campaign, log, servers, output = self.campaign(stages=["pair-renamed-1"], control="checkpoint-drop-append")
+        campaign.launch("initial")
+        campaign.fault("stage-crash")
+        self.assertEqual(servers[0].environment, {jc.FAULT_ENV: "checkpoint-drop-append",
+                                                  jc.STOP_ENV: "checkpoint/pair-renamed:1"})
+        self.assertEqual(servers[1].environment, {jc.FAULT_ENV: "checkpoint-drop-append"})
+
+
+def stage_run(step, *, seq=2, record=None, state="T", frozen=None, exit_code=-9, cuts=("completed checkpoint 1",),
+              recovered=A, classes=(), witnesses=()):
+    """Lifecycle rows and a snapshot_checks row for one stage crash."""
+    spec = jc.STAGE_SCHEDULE[step]
+    point, occurrence = spec["point"], spec["occurrence"]
+    lifecycle = [{"event": "checkpoint-stop", "generation": 0, "seq": seq, "stage": step, "owned_pid": 4242,
+                  "observed_state": state, "record": record or {"point": point, "occurrence": occurrence, "pid": 4242},
+                  "artifacts": {"stage": frozen or spec["frozen"], "journal": None, "output": A}},
+                 {"event": "checkpoint-crash", "generation": 0, "seq": seq, "result": {"exit_code": exit_code},
+                  "restart": {"kind": "interrupted-checkpoint-output"}}]
+    recovery = {"generation": 0, "seq": seq, "recovered": recovered, "candidate_cuts": list(cuts),
+                "selected_cut": cuts[0] if cuts else None, "witnesses": list(witnesses), "classes": list(classes)}
+    return lifecycle, recovery
+
+
+class StageCoverageTests(unittest.TestCase):
+    def coverage(self, lifecycle, recoveries, selected):
+        rows, findings = jc.stage_coverage(lifecycle, selected, recoveries)
+        return {row["stage"]: row for row in rows}, findings
+
+    def test_a_reached_killed_and_recovered_step_is_healthy_and_the_rest_not_selected(self):
+        lifecycle, recovery = stage_run("staged-2")
+        rows, findings = self.coverage(lifecycle, [recovery], ["staged-2"])
+        self.assertEqual(findings, [])
+        row = rows["staged-2"]
+        self.assertEqual((row["requested"], row["reached"], row["stopped_state"], row["frozen_stage"],
+                          row["killed_exit"], row["selected_cut"], row["verdict"]),
+                         ("checkpoint/staged:2", "checkpoint/staged:2", "T", "sidecar-prepared", -9,
+                          "completed checkpoint 1", "healthy"))
+        self.assertEqual({name for name, row in rows.items() if row["verdict"] == "not-selected"},
+                         set(jc.STAGE_SCHEDULE) - {"staged-2"})
+
+    def test_a_selected_step_never_reached_is_incomplete(self):
+        rows, findings = self.coverage([{"event": "stage-unreached", "stage": "capture-1",
+                                         "error": "TimeoutError: no checkpoint stop record"}], [], ["capture-1"])
+        self.assertEqual(findings, [(jc.INCOMPLETE, "stage capture-1: checkpoint/capture:1 was not reached: "
+                                                    "TimeoutError: no checkpoint stop record")])
+        self.assertEqual(rows["capture-1"]["verdict"], jc.INCOMPLETE)
+        rows, findings = self.coverage([], [], ["capture-1"])
+        self.assertEqual(findings[0][1], "stage capture-1: checkpoint/capture:1 was not reached: no checkpoint-stop "
+                                         "was recorded")
+
+    def test_the_actual_record_and_frozen_files_decide_not_the_request(self):
+        lifecycle, recovery = stage_run("staged-2", record={"point": "checkpoint/serialize", "occurrence": 2,
+                                                            "pid": 4242})
+        _, findings = self.coverage(lifecycle, [recovery], ["staged-2"])
+        self.assertEqual([kind for kind, _ in findings], [jc.INVALID])
+        lifecycle, recovery = stage_run("staged-2", record={"point": "checkpoint/staged", "occurrence": 2, "pid": 7})
+        _, findings = self.coverage(lifecycle, [recovery], ["staged-2"])
+        self.assertIn("from owned PID 4242", findings[0][1])
+        lifecycle, recovery = stage_run("staged-2", frozen="staging")
+        rows, findings = self.coverage(lifecycle, [recovery], ["staged-2"])
+        self.assertEqual(findings, [(jc.INVALID, "stage staged-2: stopped at checkpoint/staged:2 but the frozen "
+                                                 "files are stage 'staging', not 'sidecar-prepared'")])
+        self.assertEqual(rows["staged-2"]["verdict"], jc.INVALID)
+
+    def test_no_stop_state_no_kill_or_no_recovery_is_incomplete(self):
+        lifecycle, recovery = stage_run("serialize-1", state="R", exit_code=0, cuts=("unchanged input",))
+        _, findings = self.coverage(lifecycle, [dict(recovery, recovered=None)], ["serialize-1"])
+        self.assertEqual([kind for kind, _ in findings], [jc.INCOMPLETE] * 3)
+
+    def test_recovery_must_be_the_plan_table_cut(self):
+        lifecycle, recovery = stage_run("journal-published-2", cuts=("pending checkpoint 2",), recovered=F)
+        rows, findings = self.coverage(lifecycle, [recovery], ["journal-published-2"])
+        self.assertEqual(findings, [(jc.RECOVERY, f"stage journal-published-2: recovered pair {F} is "
+                                                  f"['pending checkpoint 2'], not the plan table's completed cut")])
+        self.assertEqual(rows["journal-published-2"]["verdict"], jc.RECOVERY)
+
+    def test_the_snapshot_oracle_class_is_the_step_verdict(self):
+        lifecycle, recovery = stage_run("pair-renamed-1", cuts=("pending checkpoint 2",), recovered=F,
+                                        classes=[jc.CORRECTNESS], witnesses=["duplicate-token"])
+        rows, findings = self.coverage(lifecycle, [recovery], ["pair-renamed-1"])
+        self.assertEqual(findings, [])  # the oracle reports its own findings
+        self.assertEqual((rows["pair-renamed-1"]["verdict"], rows["pair-renamed-1"]["witnesses"]),
+                         (jc.CORRECTNESS, ["duplicate-token"]))
+
+    def double_crash(self, second_journal):
+        lifecycle, recovery = stage_run("double-crash")
+        journal = {"next": F, "previous": A}
+        lifecycle[0]["artifacts"].update(journal=journal, stage="database-renamed")
+        lifecycle.append({"event": "recovery-stop", "generation": 1, "crashed_generation": 0, "seq": 2,
+                          "owned_pid": 99, "observed_state": "T", "forensic": [{"copy": "x"}],
+                          "record": {"point": "checkpoint/recovery-database-restored", "occurrence": 1, "pid": 99},
+                          "result": {"exit_code": -9},
+                          "artifacts": {"stage": "database-renamed", "journal": second_journal, "output": A}})
+        return self.coverage(lifecycle, [recovery], ["double-crash"])
+
+    def test_double_crash_recovery_converges_to_the_same_pair(self):
+        rows, findings = self.double_crash({"next": F, "previous": A})
+        self.assertEqual(findings, [])
+        row = rows["double-crash"]
+        self.assertEqual((row["second_reached"], row["first_expected"], row["second_expected"], row["verdict"]),
+                         ("checkpoint/recovery-database-restored:1", A, A, "healthy"))
+        rows, findings = self.double_crash({"next": F, "previous": S0})
+        self.assertEqual([kind for kind, _ in findings], [jc.RECOVERY])
+        self.assertIn("repeated recovery does not converge", findings[0][1])
+
+    def test_double_crash_needs_the_second_stop(self):
+        lifecycle, recovery = stage_run("double-crash")
+        _, findings = self.coverage(lifecycle, [recovery], ["double-crash"])
+        self.assertEqual(findings, [(jc.INCOMPLETE, "stage double-crash: no second stop during recovery "
+                                                    "(checkpoint/recovery-database-restored:1) was recorded")])
+
+
+class ControlTests(unittest.TestCase):
+    def results(self, witnesses, reached="checkpoint/pair-renamed:1", exit_code=-9):
+        return {"recoveries": [{"witnesses": witnesses}],
+                "coverage": [{"stage": "pair-renamed-1", "requested": "checkpoint/pair-renamed:1", "reached": reached,
+                              "killed_exit": exit_code}]}
+
+    def test_a_control_passes_only_with_its_designated_witness_at_its_stage(self):
+        passed = jc.control_result("checkpoint-duplicate-append", self.results(["duplicate-token", "partial-transaction"]))
+        self.assertEqual((passed["passed"], passed["witness"], passed["observed_witnesses"]),
+                         (True, "duplicate-token", ["duplicate-token", "partial-transaction"]))
+        for results in (self.results(["lost-checkpointed-update"]), self.results([]),
+                        self.results(["duplicate-token"], reached=None), self.results(["duplicate-token"], exit_code=0)):
+            with self.subTest(results=results):
+                self.assertFalse(jc.control_result("checkpoint-duplicate-append", results)["passed"])
+
+
+class WitnessTests(unittest.TestCase):
+    """The snapshot oracle names the rule behind each finding (CONTROLS witnesses)."""
+
+    def test_designated_witnesses(self):
+        case = SnapshotOracleTests.lawful(None)
+        rows, _ = case.build(A, rows={1: [1, 1]})
+        self.assertIn("duplicate-token", rows[0]["witnesses"])
+        rows, _ = SnapshotOracleTests.lawful(None).build(A, rows={1: []})
+        self.assertEqual(rows[0]["witnesses"], ["lost-checkpointed-update"])
+        self.assertEqual(rows[0]["classes"], [jc.CORRECTNESS])
+
+    def test_a_database_kept_without_its_sidecar_is_a_mixed_pair(self):
+        # First publication interrupted between the renames: the output has the
+        # next database and no sidecar; the faulty recovery keeps it that way.
+        mixed = {"database": F["database"], "waif_identities": None}
+        case = Recovery(stage="database-renamed", journal=(F, None), output=mixed)
+        case.completed = None
+        case.txn([["append", 1, 1]], send=310, complete=320)
+        rows, findings = case.build(mixed, rows={1: [1]})
+        self.assertIn((jc.CORRECTNESS, f"checkpoint-crash of generation 0: mixed pair accepted: the recovered "
+                                       f"database is pending checkpoint 2's, but its WAIF identities are None, not "
+                                       f"{F['waif_identities']}"), findings)
+        self.assertIn("mixed-pair", rows[0]["witnesses"])
+        # The mixed output on disk is never itself a permitted pending cut.
+        self.assertEqual(jc.pending_pairs(case.artifacts, None), [F])
+        rows, findings = case.build(F, rows={1: [1]})
+        self.assertEqual(findings, [])
 
 
 class RecoveryObservationCodeTests(unittest.TestCase):

@@ -124,6 +124,23 @@
   (->> (gen/mix (mapv #(family-txns % phase-offset) families))
        (gen/stagger (/ 1 rate))))
 
+(defn stage-generator
+  "The elle build's deterministic stage schedule: one client phase per step,
+  each with one :stage-crash, which the adapter runs at the stop point armed
+  for that generation (scripts/jepsen_checkpoint.py STAGE_SCHEDULE); then a
+  client phase on the last recovered generation and the final checkpoint.
+  Each phase's keys are disjoint (3000000 + 100000 per step)."
+  [rate families stages stage-seconds]
+  (apply gen/phases
+         (concat
+           (for [step (range stages)]
+             (gen/time-limit stage-seconds
+                             (gen/clients (txns rate families (+ 3000000 (* step 100000)))
+                                          [(gen/sleep 3) (nemesis-op :stage-crash)])))
+           [(gen/time-limit stage-seconds (gen/clients (txns rate families (+ 3000000 (* stages 100000)))))
+            (gen/nemesis (nemesis-op :resume))
+            (gen/nemesis (nemesis-op :checkpoint))])))
+
 (defn generator
   "Phase 1: clients with pause/resume. Phase 2: an explicit checkpoint. Phase
   3: clients with pause/resume and crash/restart. Live phase (unless
@@ -132,7 +149,9 @@
   checkpoint and recover from its actual artifacts. Phase 4: a final
   checkpoint. gen/phases waits for every outstanding operation before the
   next phase."
-  [{:keys [phase1 phase3 phase-live rate families]}]
+  [{:keys [phase1 phase3 phase-live rate families stages stage-seconds]}]
+  (if (pos? stages)
+    (stage-generator rate families stages stage-seconds)
   (let [pausing  [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
         crashing (into pausing [(gen/sleep 5) (nemesis-op :crash)])
         live     [(gen/sleep 3) (nemesis-op :live-checkpoint) (gen/sleep 3) (nemesis-op :checkpoint-crash)]]
@@ -145,7 +164,7 @@
               (gen/nemesis (nemesis-op :resume))]
              (when (pos? phase-live)
                [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
-             [(gen/nemesis (nemesis-op :checkpoint))]))))
+             [(gen/nemesis (nemesis-op :checkpoint))])))))
 
 (defn barn-test [{:keys [adapter-port concurrency client-timeout-ms] :as options}]
   (assoc tests/noop-test
@@ -160,7 +179,7 @@
                                                :fs #{:pause :resume}})
                          (map->AdapterNemesis {:port adapter-port :timeout-ms 600000
                                                :fs #{:crash :checkpoint :live-checkpoint
-                                                     :checkpoint-crash}})])
+                                                     :checkpoint-crash :stage-crash}})])
          :generator   (generator options)
          ; Verdicts come from the pinned Elle CLI and the checkpoint baselines.
          :checker     (checker/unbridled-optimism)))
@@ -186,6 +205,9 @@
    [nil "--phase1 SECONDS" :default 60 :parse-fn parse-long]
    [nil "--phase3 SECONDS" :default 90 :parse-fn parse-long]
    [nil "--phase-live SECONDS" :default 60 :parse-fn parse-long]
+   ; With --stages N > 0, the stage schedule replaces the phases above.
+   [nil "--stages N" :default 0 :parse-fn parse-long]
+   [nil "--stage-seconds SECONDS" :default 10 :parse-fn parse-long]
    [nil "--rate OPS" :default 20 :parse-fn parse-long]
    [nil "--concurrency N" :default 8 :parse-fn parse-long]
    [nil "--client-timeout-ms MS" :default 60000 :parse-fn parse-long]

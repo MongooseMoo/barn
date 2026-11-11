@@ -244,6 +244,15 @@ and then sends `SIGSTOP` to itself. The process that owns it resumes it with
 `SIGCONT` or kills it. An unknown point or a non-Unix platform is a startup
 error.
 
+Three checkpoint faults serve the Jepsen stage schedule's negative controls
+(`scripts/jepsen_checkpoint.py` `CONTROLS`): `checkpoint-mixed-pair` makes
+recovery keep the next database without its WAIF identity sidecar instead of
+restoring a pair (`db/format/checkpoint_publication.go` `recoverCheckpointPair`);
+`checkpoint-drop-append` and `checkpoint-duplicate-append` make the writer omit
+or repeat the last token of each nonempty list in a property named `jp*`, the
+Jepsen property rows (`db/format/checkpoint_fault.go`). Their tests in
+`db/format/checkpoint_fault_test.go` skip unless `BARN_ELLE_FAULT` names them.
+
 ## Task lifecycle ordering
 
 The same CI driver runs `TestUncaughtHandlerBeforeYieldedParent` with healthy

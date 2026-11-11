@@ -43,7 +43,7 @@ jobs:
 
   record:
     name: Record pass
-    needs: campaign
+    needs: [campaign, stages]
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -117,4 +117,87 @@ jobs:
         with:
           name: jepsen-evidence-${{ github.sha }}
           path: jepsen-evidence.tar.gz
+          if-no-files-found: warn
+
+  # Deterministic checkpoint-stage schedule on the elle build's stop points,
+  # the double crash, and the three negative controls through the same
+  # adapter and checker (scripts/jepsen_checkpoint.py STAGE_SCHEDULE, CONTROLS).
+  stages:
+    name: Checkpoint stage schedule and negative controls
+    needs: tested
+    if: needs.tested.outputs.hit != 'true'
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check runner device
+        run: test -c /dev/null
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build pinned checker
+        uses: ./.github/actions/elle-cli
+      - name: Build elle Barn
+        run: go build -tags elle -o bin/barn-elle ./cmd/barn/
+      # The stop points and checkpoint faults compile only into the elle
+      # build; ci.yml's untagged go test never runs these.
+      - name: Elle checkpoint tests
+        run: |
+          set -euo pipefail
+          go test -tags elle ./internal/isolationprobe ./db/format -run 'Checkpoint' -count=1
+          for fault in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
+            BARN_ELLE_FAULT="$fault" go test -tags elle ./db/format -run 'TestCheckpoint(RowFaults|MixedPairFault)' -count=1 -v
+          done
+      - name: Build Jepsen workload
+        working-directory: tests/jepsen-checkpoint
+        run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: moo-conformance-tests
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          enable-cache: true
+      # Stage schedule exit status as for the campaign; each control exits 0
+      # only when its designated witness is reported (6 otherwise). Every run
+      # executes so one failure keeps the others' evidence.
+      - name: Run stage schedule and controls
+        run: |
+          set -uo pipefail
+          run() {
+            uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
+              --barn bin/barn-elle \
+              --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
+              --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
+              --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
+              --workloads smoke,props,keyed "$@"
+          }
+          status=0
+          run --stages all --output jepsen-stage-evidence/schedule --jepsen-timeout 420 || status=1
+          for control in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
+            run --control "$control" --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 180 || status=1
+          done
+          exit "$status"
+      - name: Archive raw evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d jepsen-stage-evidence ]; then
+            tar -czf jepsen-stage-evidence.tar.gz jepsen-stage-evidence
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: jepsen-stage-evidence-${{ github.sha }}
+          path: jepsen-stage-evidence.tar.gz
           if-no-files-found: warn

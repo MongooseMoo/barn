@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -349,6 +350,14 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	// Managed clients use a TCP connection as their startup signal. Publish
 	// complete profile evidence before reserving a connectable game socket.
 	if cfg.ProfileManifest != "" {
+		// The manifest names the database this process will load. Complete or
+		// roll back an interrupted checkpoint publication first, as
+		// LoadDatabase would, so it hashes the pair recovery selects (a
+		// first publication's database does not exist until then).
+		if err := format.RecoverCheckpoint(cfg.DatabasePath); err != nil {
+			state.Failed()
+			return fmt.Errorf("recover checkpoint publication: %w", err)
+		}
 		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options, Registry: srv.BuiltinRegistry()})
 		if err != nil {
 			return fmt.Errorf("build profile manifest: %w", err)
