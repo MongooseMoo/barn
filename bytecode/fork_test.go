@@ -33,6 +33,31 @@ func TestForkBodyExtractsProgramAndReportsMetadata(t *testing.T) {
 	}
 }
 
+func TestForkBodyIsExtractedOncePerProgram(t *testing.T) {
+	parent := &Program{
+		Code:       []byte{byte(OP_PUSH), 0, byte(OP_RETURN_NONE)},
+		Constants:  []types.Value{types.NewInt(1)},
+		VarNames:   []string{"local"},
+		NumLocals:  1,
+		ForkBodies: &ForkBodies{},
+	}
+	body := &ForkBody{Parent: parent, Offset: 2, Length: 1}
+	first, second := body.ExtractProgram(), body.ExtractProgram()
+	if first == nil || first != second {
+		t.Fatalf("second extraction=%p, want the cached %p", second, first)
+	}
+	if first.ForkBodies == nil || first.ForkBodies == parent.ForkBodies {
+		t.Fatal("a cached body needs its own cache: its fork offsets are in its own coordinates")
+	}
+	if other := (&ForkBody{Parent: parent, Offset: 0, Length: 2}).ExtractProgram(); other == nil || other == first {
+		t.Fatalf("a different range returned %p, want its own body", other)
+	}
+	uncached := &Program{Code: parent.Code, Constants: parent.Constants, VarNames: parent.VarNames, NumLocals: 1}
+	if a, b := uncached.ExtractForkBody(2, 1), uncached.ExtractForkBody(2, 1); a == b {
+		t.Fatal("a program without a cache shared one extraction")
+	}
+}
+
 func TestForkBodyPreservesWideOffsetAndLength(t *testing.T) {
 	const offset, length = 70000, 80000
 	parent := &Program{Code: instructionPadding(offset + length), VarNames: []string{"wide"}, LineInfo: []LineEntry{{StartIP: offset, Line: 29}}}
