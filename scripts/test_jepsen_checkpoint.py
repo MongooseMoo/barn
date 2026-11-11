@@ -69,9 +69,11 @@ class TxnCodeTests(unittest.TestCase):
         self.assertEqual([jc.family_of(key) for key in (0, 1000004, PROPS, PROPS + 1000003, KEYED + 7)],
                          ["smoke", "smoke", "props", "props", "keyed"])
         self.assertEqual(jc.family_of(3 * jc.FAMILY_SPAN), "effects")
-        self.assertIsNone(jc.family_of(4 * jc.FAMILY_SPAN))
+        self.assertEqual(jc.family_of(4 * jc.FAMILY_SPAN), "authority")
+        self.assertEqual(jc.family_of(5 * jc.FAMILY_SPAN), "topology")
+        self.assertIsNone(jc.family_of(6 * jc.FAMILY_SPAN))
         with self.assertRaises(ValueError):
-            jc.txn_code([["r", 4 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
+            jc.txn_code([["r", 6 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
         with self.assertRaises(ValueError):  # effects rows need the generation's effects objects
             jc.txn_code([["r", 3 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
         with self.assertRaises(ValueError):
@@ -1071,13 +1073,13 @@ class ProvenanceTests(unittest.TestCase):
                                    jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
                                    phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
                                    workloads=["smoke", "keyed"], stages=["staged-2"], stage_seconds=8,
-                                   control=None, tasks=True)
+                                   control=None, tasks=True, dwell=9)
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
                                              "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"],
                                              "stages": ["staged-2"], "stage_seconds": 8, "control": None,
-                                             "tasks": True})
+                                             "tasks": True, "dwell": 9})
         self.assertEqual(row["task_lane"]["hold_seconds"], jc.HOLD_SECONDS)
         self.assertEqual(row["stage_schedule"], {"staged-2": jc.STAGE_SCHEDULE["staged-2"]})
         self.assertEqual(row["live_checkpoints"], {"deadline_seconds": jc.CHECKPOINT_DEADLINE,

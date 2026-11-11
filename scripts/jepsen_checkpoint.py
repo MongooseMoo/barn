@@ -126,6 +126,16 @@ CONTROLS = {
     # the lost attempt's deferred notifications instead of discarding them, so
     # the effects receiver sees an operation's notification twice.
     "pending-effect-retry": {"witness": "duplicated-live-retry-effect", "family": "effects"},
+    # No stage step: store validation faults (db/store/store_txn_validation.go,
+    # store_hot_read.go). The shaped families' write-skew shapes (topology
+    # t-cross-1/2 through room contents reads; authority v-observe against
+    # v-mutate through the verb dispatch memo) become a two-transaction
+    # anti-dependency cycle, which Elle names G2-item (the in-process verb-memo
+    # fault's witness in elle.yml). These need overlapping transactions: run
+    # them with --dwell and a higher rate and concurrency.
+    "relationship-reads": {"witness": "elle:G2-item", "family": "topology"},
+    "verb-memo": {"witness": "elle:G2-item", "family": "authority"},
+    "hot-memo-guard": {"witness": "elle:G2-item", "family": "authority"},
 }
 # Ceiling for one live checkpoint to log completion or failure. Not measured.
 CHECKPOINT_DEADLINE = 60.0
@@ -175,6 +185,10 @@ def epoch_code(generation):
 #          object, read and appended directly inside effects_code, which
 #          also notifies the receiver connection and rewrites a hot property
 #          to force validation conflicts (plan section 4).
+#   authority, topology: shaped families (SHAPED, below). Key base + role
+#          names one row of the generation's family objects; each
+#          transaction is one shape, run as one verb call by a nonwizard
+#          identity (plan section 3 rows 3 and 4).
 FAMILY_SPAN = 10 ** 7
 FAMILIES = {"smoke": {"base": 0, "key-count": 5},
             "props": {"base": FAMILY_SPAN, "key-count": 8},
@@ -267,7 +281,12 @@ def txn_code(txn, layout=None, op_id=0, observation=False):
             raise ValueError(f"micro-operation {mop!r} has a key in no row family")
         if family != "smoke" and layout is None:
             raise ValueError(f"{family} micro-operation {mop!r} needs the generation's row layout")
-        if family == "effects":
+        if family in SHAPED:
+            if not observation or f != "r":
+                raise ValueError(f"{family} transactions run as shaped verb calls (shaped_code); txn_code only "
+                                 f"reads their rows for observations")
+            statements.append(f"out = {{@out, {shaped_row_expr(family, key, layout)}}};")
+        elif family == "effects":
             if not observation:
                 # A client transaction (one family per transaction, core.clj txns).
                 return effects_code(txn, layout, op_id)
@@ -399,6 +418,375 @@ def drain_code(effects, token):
     """Send the drain sentinel and read the option connection's flush-command."""
     return (f'notify(#{effects["receiver"]}, "{DRAIN_PREFIX} {token}"); '
             f'return connection_option(#{effects["option"]}, "flush-command");')
+
+
+# ---------------------------------------------------------------------------
+# Shaped families (plan section 3 rows 3 and 4): authority and topology.
+#
+# Each transaction is one call to a verb on the family's per-generation ops
+# object. The verb's owner is the acting nonwizard identity, so the call runs
+# with that identity's permissions; the client connection is a fresh
+# programmer (Test.db do_login_command) and the wizard only builds the objects
+# and owns the chown control verb (Toast set_prop_info refuses a nonwizard
+# owner change, property.cc:173-176). Every verb returns {reads, appends,
+# observations}: one entry per read micro-op (its list, or an error literal),
+# one per append (1, or the error literal of a denied append), and the values
+# the family invariants check. An expected error is caught around exactly one
+# builtin call or one property assignment, each of which has no effect when it
+# raises; any other error escapes and the task is a native-error :info.
+
+def _value(expr):
+    """expr's value, or its error literal ("E_PERM") when it raises."""
+    return f"(typeof(e = `{expr} ! ANY') == ERR ? toliteral(e) | e)"
+
+
+def _caught(expr, ok='"ok"'):
+    """ok when expr succeeds, else its error literal."""
+    return f"(typeof(e = `{expr} ! ANY') == ERR ? toliteral(e) | {ok})"
+
+
+def _dwell(dwell):
+    """Wall time between a transaction's reads and writes (--dwell), so
+    concurrent transactions overlap on the real binary: dwell string_hash
+    calls over a 1 MiB string. A tick loop cannot do it: 10000 iterations
+    cost 10005 ticks but 0.34 ms in Barn, and fg_ticks is 60000; 20 of these
+    hashes cost 68 ticks and 33 ms (bin/moo, measured)."""
+    if dwell <= 0:
+        return []
+    return ['dwell_s = "xxxxxxxxxxxxxxxx";', "for dwell_i in [1..16]", "  dwell_s = dwell_s + dwell_s;", "endfor",
+            f"for dwell_i in [1..{dwell}]", "  string_hash(dwell_s);", "endfor"]
+
+
+P_FLAGS = ("", "r", "w", "rw")   # p-mutate kinds 0-3; kind 4 is the chown control
+AUTHORITY_ROLES = {"mp": 0, "d": 1, "mf": 2, "dsp": 3, "vx": 4}
+TOPOLOGY_ROLES = {"cr1": 0, "cr2": 1, "ch1": 2, "ch2": 3, "created": 4, "recycled": 5, "moves": 6, "reparents": 7}
+# name: (weight, micro-ops by role name). A transaction's shape is identified
+# by its exact (function, role) sequence, so every shape of a family differs.
+AUTHORITY_SHAPES = {
+    "p-mutate": (3, [["r", "mp"], ["append", "mp"]]),
+    "p-read": (2, [["r", "mp"], ["r", "d"]]),
+    "p-write": (3, [["r", "mp"], ["r", "d"], ["append", "d"]]),
+    "f-mutate": (3, [["r", "mf"], ["append", "mf"]]),
+    "f-observe": (3, [["r", "mf"]]),
+    "v-mutate": (2, [["r", "vx"], ["r", "dsp"], ["append", "dsp"]]),
+    "v-observe": (3, [["r", "dsp"], ["append", "vx"]]),
+    "v-read": (1, [["r", "dsp"], ["r", "vx"]]),
+}
+TOPOLOGY_SHAPES = {
+    "t-create-1": (1, [["append", "cr1"], ["append", "ch1"]]),
+    "t-create-2": (1, [["append", "cr2"], ["append", "ch2"]]),
+    "t-cross-1": (2, [["r", "cr1"], ["append", "cr2"], ["append", "ch1"]]),
+    "t-cross-2": (2, [["r", "cr2"], ["append", "cr1"], ["append", "ch2"]]),
+    "t-read": (1, [["r", "cr1"], ["r", "cr2"], ["r", "ch1"], ["r", "ch2"]]),
+    "c-create": (3, [["append", "created"]]),
+    "c-move": (3, [["r", "moves"], ["append", "moves"]]),
+    "c-reparent": (2, [["r", "reparents"], ["append", "reparents"]]),
+    "c-recycle": (2, [["r", "recycled"], ["append", "recycled"]]),
+    "c-observe": (3, [["r", "created"], ["r", "recycled"], ["r", "moves"], ["r", "reparents"]]),
+}
+SHAPED = {"authority": (AUTHORITY_ROLES, AUTHORITY_SHAPES), "topology": (TOPOLOGY_ROLES, TOPOLOGY_SHAPES)}
+
+
+def shape_table(family):
+    """The shapes Jepsen draws from (core.clj shaped-txns): roles as integers."""
+    roles, shapes = SHAPED[family]
+    return [{"name": name, "weight": weight, "mops": [[f, roles[role]] for f, role in mops]}
+            for name, (weight, mops) in shapes.items()]
+
+
+FAMILIES.update({"authority": {"base": 4 * FAMILY_SPAN, "shapes": shape_table("authority")},
+                 "topology": {"base": 5 * FAMILY_SPAN, "shapes": shape_table("topology")}})
+
+
+def identify_shape(family, txn):
+    """The shape name of a shaped family's transaction, or ValueError."""
+    roles, shapes = SHAPED[family]
+    base = FAMILIES[family]["base"]
+    signature = []
+    for mop in txn:
+        if not (isinstance(mop, list) and len(mop) == 3 and type(mop[1]) is int and family_of(mop[1]) == family):
+            raise ValueError(f"{family} transaction holds a micro-operation {mop!r} outside the family")
+        f, key, value = mop
+        if not ((f == "append" and type(value) is int) or (f == "r" and value is None)):
+            raise ValueError(f"malformed micro-operation {mop!r}")
+        signature.append([f, key - base])
+    for name, (_, mops) in shapes.items():
+        if signature == [[f, roles[role]] for f, role in mops]:
+            values = {value for f, _, value in txn if f == "append"}
+            if len(values) > 1:
+                raise ValueError(f"{family} transaction {txn!r} appends more than one value")
+            return name
+    raise ValueError(f"{family} transaction {txn!r} matches no shape")
+
+
+# Identities are nonwizard programmers made by the wizard; "wizard" verbs are
+# owned by the setup connection's (wizard) player.
+def _identities(names):
+    statements = []
+    for name in names:
+        statements += [f"{name} = create($nothing);", f"{name}.owner = {name};", f"set_player_flag({name}, 1);",
+                       f"{name}.programmer = 1;"]
+    return statements
+
+
+def _verbs(owners, verbs):
+    statements = []
+    for name, (owner, lines) in verbs.items():
+        who = owners[owner]
+        statements.append(f'add_verb(o, {{{who}, "xd", "{name}"}}, {{"this", "none", "this"}});')
+        statements.append(f'if (set_verb_code(o, "{name}", {_moo_lines(lines)})) return "{name} does not compile"; endif')
+    return statements
+
+
+def authority_verbs(dwell):
+    """The authority verbs: name -> (identity, lines)."""
+    d = _dwell(dwell)
+    return {
+        "p_flags": ("own", ["{v} = args;", "m = this.mp;", f"f = {_moo_lines(P_FLAGS)}[v % 5 + 1];", *d,
+                            "r = " + _caught('set_property_info(this.po, "x", {this.own, f})') + ";",
+                            "this.mp = {@m, v};", "return {{m}, {1}, {r}};"]),
+        "p_chown": ("wizard", ["{v} = args;", "m = this.mp;", 'info = property_info(this.po, "x");',
+                               "new = info[1] == this.own ? this.wr | this.own;", *d,
+                               'set_property_info(this.po, "x", {new, info[2]});',
+                               "this.mp = {@m, v};", "return {{m}, {1}, {toint(new)}};"]),
+        "p_read": ("rd", ["m = this.mp;", "x = " + _value("this.po.x") + ";",
+                          "c = " + _caught('set_property_info(this.po, "x", {this.rd, ""})') + ";",
+                          "return {{m, x}, {}, {c}};"]),
+        "p_write": ("wr", ["{v} = args;", "m = this.mp;", "x = " + _value("this.po.x") + ";", *d,
+                           "if (typeof(x) == LIST)", "  a = " + _caught("this.po.x = {@x, v}", "1") + ";",
+                           "else", "  a = x;", "endif", "return {{m, x}, {a}, {}};"]),
+        "f_mutate": ("own", ["{v} = args;", "m = this.mf;", "k = v % 3;", *d,
+                             "if (k == 0)",
+                             '  if ("y" in properties(this.fa))',
+                             "    r = " + _caught('delete_property(this.fa, "y")', '"deleted"') + ";",
+                             "  else",
+                             "    r = " + _caught('add_property(this.fa, "y", {v}, {this.own, "r"})', '"added"') + ";",
+                             "  endif",
+                             "elseif (k == 1)",
+                             '  if (is_clear_property(this.fc, "z"))',
+                             "    r = " + _caught("this.fc.z = {v}", '"set"') + ";",
+                             "  else",
+                             "    r = " + _caught('clear_property(this.fc, "z")', '"cleared"') + ";",
+                             "  endif",
+                             "else",
+                             "  dest = parent(this.fc) == this.fa ? this.fb | this.fa;",
+                             "  r = " + _caught("chparent(this.fc, dest)", "toint(dest)") + ";",
+                             "endif",
+                             "this.mf = {@m, v};", "return {{m}, {1}, {r}};"]),
+        "f_observe": ("rd", ["m = this.mf;",
+                             'y = "y" in properties(this.fa) ? 1 | 0;',
+                             "fy = " + _value("this.fc.y") + ";", "fz = " + _value("this.fc.z") + ";",
+                             "cz = " + _value('is_clear_property(this.fc, "z")') + ";",
+                             "p = toint(parent(this.fc));",
+                             "dy = " + _caught('delete_property(this.fa, "y")') + ";",
+                             "cy = " + _caught('clear_property(this.fc, "y")') + ";",
+                             "return {{m}, {}, {y, fy, fz, cz, p, dy, cy}};"]),
+        "v_mutate": ("own", ["{v} = args;", "x = this.va.log;", "cur = this.vc:probe();",
+                             'own = "probe" in verbs(this.vc);',
+                             'code = {"return " + toliteral({@cur, v}) + ";"};', "k = v % 3;", *d,
+                             "if (k == 0)",
+                             '  set_verb_code(own ? this.vc | parent(this.vc), "probe", code);',
+                             "elseif (k == 1 && own)",
+                             '  set_verb_code(parent(this.vc), "probe", code);', '  delete_verb(this.vc, "probe");',
+                             "elseif (k == 1)",
+                             '  add_verb(this.vc, {this.own, "rxd", "probe"}, {"this", "none", "this"});',
+                             '  set_verb_code(this.vc, "probe", code);',
+                             "else",
+                             "  dest = parent(this.vc) == this.va ? this.vb | this.va;",
+                             '  set_verb_code(own ? this.vc | dest, "probe", code);', "  chparent(this.vc, dest);",
+                             "endif",
+                             "return {{x, cur}, {1}, {k}};"]),
+        "v_observe": ("wr", ["{v} = args;", "cur = this.vc:probe();", *d, "this.va.log = {@this.va.log, v};",
+                             "return {{cur}, {1}, {}};"]),
+        "v_read": ("rd", ["return {{this.vc:probe(), this.va.log}, {}, {}};"]),
+    }
+
+
+AUTHORITY_LAYOUT = ("ops", "owner", "reader", "writer", "po", "fa", "fb", "fc", "va", "vb", "vc")
+
+
+def authority_setup_code(dwell=0):
+    """Wizard setup: identities, objects, markers and verbs; returns AUTHORITY_LAYOUT as integers."""
+    statements = _identities(("own", "rd", "wr")) + [
+        "o = create($nothing);",
+        'po = create($nothing, own); add_property(po, "x", {}, {own, "rw"});',
+        'fa = create($nothing, own); fa.r = 1; add_property(fa, "y", {0}, {own, "r"}); '
+        'add_property(fa, "z", {-1}, {own, "r"});',
+        'fb = create($nothing, own); add_property(fb, "z", {-2}, {own, "r"});',
+        "fc = create(fa, own);",
+        "va = create($nothing, own); vb = create($nothing, own);",
+        'for q in ({va, vb}) add_verb(q, {own, "rxd", "probe"}, {"this", "none", "this"}); '
+        'set_verb_code(q, "probe", {"return {};"}); endfor',
+        "vc = create(va, own);",
+        'add_property(va, "log", {}, {wr, "r"});',
+        'add_property(o, "mp", {}, {own, "r"}); add_property(o, "mf", {}, {own, "r"});',
+    ]
+    for name in ("own", "rd", "wr", "po", "fa", "fb", "fc", "va", "vb", "vc"):
+        statements.append(f'add_property(o, "{name}", {name}, {{player, "r"}});')
+    statements += _verbs({"own": "own", "rd": "rd", "wr": "wr", "wizard": "player"}, authority_verbs(dwell))
+    statements.append("return {toint(o), toint(own), toint(rd), toint(wr), toint(po), toint(fa), toint(fb), "
+                      "toint(fc), toint(va), toint(vb), toint(vc)};")
+    return " ".join(statements)
+
+
+def topology_verbs(dwell):
+    """The topology verbs: name -> (identity, lines). BUILDER mutates, READER observes."""
+    d = _dwell(dwell)
+    churn = "all = {@this.rooms[3].contents, @this.rooms[4].contents, @this.rooms[5].contents};"
+    return {
+        "tokens": ("rd", ["r = {};", "for x in (args[1])", "  r = {@r, x.tok};", "endfor", "return r;"]),
+        "t_create": ("bld", ["{i, v} = args;", "x = create(this.tqs[i]);", "x.tok = v;", "move(x, this.rooms[i]);",
+                             "return {{}, {1, 1}, {}};"]),
+        "t_cross": ("bld", ["{i, j, v} = args;", "r = this:tokens(this.rooms[i].contents);", *d,
+                            "x = create(this.tqs[i]);", "x.tok = v;", "move(x, this.rooms[j]);",
+                            "return {{r}, {1, 1}, {}};"]),
+        "t_read": ("rd", ["return {{this:tokens(this.rooms[1].contents), this:tokens(this.rooms[2].contents), "
+                          "this:tokens(children(this.tqs[1])), this:tokens(children(this.tqs[2]))}, {}, {}};"]),
+        "c_create": ("bld", ["{v} = args;", "x = create(this.tqs[3]);", "x.tok = v;", "move(x, this.rooms[3]);",
+                             "this.created = {@this.created, v};", "return {{}, {1}, {toint(x)}};"]),
+        "c_move": ("bld", ["{v} = args;", "m = this.moves;", churn, *d, "r = {};", "if (all)", "  x = all[1];",
+                           "  dest = this.rooms[3 + v % 3];",
+                           "  if (dest == x.location)", "    dest = this.rooms[3 + (v + 1) % 3];", "  endif",
+                           "  move(x, dest);", "  r = {x.tok, toint(dest)};", "endif",
+                           "this.moves = {@m, v};", "return {{m}, {1}, {r}};"]),
+        "c_reparent": ("bld", ["{v} = args;", "m = this.reparents;", churn, *d, "r = {};", "if (all)",
+                               "  x = all[1];", "  dest = parent(x) == this.tqs[3] ? this.tqs[4] | this.tqs[3];",
+                               "  chparent(x, dest);", "  r = {x.tok, toint(dest)};", "endif",
+                               "this.reparents = {@m, v};", "return {{m}, {1}, {r}};"]),
+        "c_recycle": ("bld", ["{v} = args;", "g = this.recycled;", churn, *d, "r = {0, -1};", "if (all)",
+                              "  x = all[1];", "  r = {x.tok, toint(x)};", "  recycle(x);", "endif",
+                              "this.graves[v] = r;", "this.recycled = {@g, v};", "return {{g}, {1}, {r}};"]),
+        "c_observe": ("rd", [
+            "rooms = {};",
+            "for t in ({this.rooms[3], this.rooms[4], this.rooms[5]})",
+            "  items = {};",
+            "  for x in (t.contents)",
+            "    items = {@items, valid(x) ? {toint(x), 1, x.tok, toint(x.location), toint(parent(x)), "
+            "`x:kind() ! ANY => 0'} | {toint(x), 0}};",
+            "  endfor",
+            "  rooms = {@rooms, items};",
+            "endfor",
+            "kids = {};",
+            "for q in ({this.tqs[3], this.tqs[4]})",
+            "  items = {};",
+            "  for x in (children(q))",
+            "    items = {@items, valid(x) ? {toint(x), 1, x.tok, toint(parent(x))} | {toint(x), 0}};",
+            "  endfor",
+            "  kids = {@kids, items};",
+            "endfor",
+            "graves = {};",
+            "for v in (mapkeys(this.graves))",
+            "  {t, n} = this.graves[v];",
+            "  graves = {@graves, {v, t, n, valid(toobj(n)) && `toobj(n).tok ! ANY => 0' == t}};",
+            "endfor",
+            "return {{this.created, this.recycled, this.moves, this.reparents}, {}, {rooms, kids, graves}};"]),
+    }
+
+
+TOPOLOGY_LAYOUT = ("ops", "builder", "reader", "room_parent", "t1", "t2", "t3", "t4", "t5", "tq0", "tq1", "tq2",
+                   "tq3", "tq4")
+
+
+def topology_setup_code(dwell=0):
+    """Wizard setup: identities, rooms, parents, ledgers and verbs; returns TOPOLOGY_LAYOUT as integers."""
+    statements = _identities(("bld", "rd")) + [
+        "o = create($nothing);",
+        'rp = create($nothing, bld); add_verb(rp, {bld, "rxd", "accept"}, {"this", "none", "this"}); '
+        'set_verb_code(rp, "accept", {"return 1;"});',
+        "rooms = {}; for i in [1..5] rooms = {@rooms, create(rp, bld)}; endfor",
+        'tq0 = create($nothing, bld); add_property(tq0, "tok", 0, {bld, "r"});',
+        "tqs = {}; for i in [1..4] tqs = {@tqs, create(tq0, bld)}; endfor",
+        'for i in [3..4] add_verb(tqs[i], {bld, "rxd", "kind"}, {"this", "none", "this"}); '
+        'set_verb_code(tqs[i], "kind", {tostr("return ", i, ";")}); endfor',
+        'add_property(o, "rooms", rooms, {player, "r"}); add_property(o, "tqs", tqs, {player, "r"});',
+    ]
+    for name in ("created", "recycled", "moves", "reparents"):
+        statements.append(f'add_property(o, "{name}", {{}}, {{bld, "r"}});')
+    statements.append('add_property(o, "graves", [], {bld, "r"});')
+    statements += _verbs({"bld": "bld", "rd": "rd"}, topology_verbs(dwell))
+    statements.append("ids = {toint(o), toint(bld), toint(rd), toint(rp)}; "
+                      "for r in (rooms) ids = {@ids, toint(r)}; endfor ids = {@ids, toint(tq0)}; "
+                      "for q in (tqs) ids = {@ids, toint(q)}; endfor return ids;")
+    return " ".join(statements)
+
+
+SETUP = {"authority": (authority_setup_code, AUTHORITY_LAYOUT), "topology": (topology_setup_code, TOPOLOGY_LAYOUT)}
+
+
+def parse_shaped_layout(family, value):
+    """A shaped family's setup reply: its layout object numbers by name."""
+    names = SETUP[family][1]
+    if not (isinstance(value, list) and len(value) == len(names) and _int_list(value)):
+        raise ValueError(f"{family} setup did not return {len(names)} object numbers: {value!r}")
+    return dict(zip(names, value))
+
+
+def shaped_row_expr(family, key, layout):
+    """A wizard expression reading one shaped row (campaign observations)."""
+    objects = (layout or {}).get(family)
+    if not objects:
+        raise ValueError(f"{family} rows need the generation's {family} objects")
+    role = key - FAMILIES[family]["base"]
+    if family == "authority":
+        rows = {0: f"#{objects['ops']}.mp", 1: f"#{objects['po']}.x", 2: f"#{objects['ops']}.mf",
+                3: f"#{objects['vc']}:probe()", 4: f"#{objects['va']}.log"}
+    else:
+        ops = f"#{objects['ops']}"
+        rows = {0: f"{ops}:tokens(#{objects['t1']}.contents)", 1: f"{ops}:tokens(#{objects['t2']}.contents)",
+                2: f"{ops}:tokens(children(#{objects['tq1']}))", 3: f"{ops}:tokens(children(#{objects['tq2']}))",
+                4: f"{ops}.created", 5: f"{ops}.recycled", 6: f"{ops}.moves", 7: f"{ops}.reparents"}
+    if role not in rows:
+        raise ValueError(f"{family} key {key} names no row")
+    return rows[role]
+
+
+def shaped_code(family, txn, layout):
+    """The one verb call running a shaped transaction."""
+    objects = (layout or {}).get(family)
+    if not objects:
+        raise ValueError(f"{family} micro-operations need the generation's {family} objects")
+    shape = identify_shape(family, txn)
+    v = next((value for f, _, value in txn if f == "append"), None)
+    calls = {"p-mutate": f"p_chown({v})" if v is not None and v % 5 == 4 else f"p_flags({v})",
+             "p-read": "p_read()", "p-write": f"p_write({v})", "f-mutate": f"f_mutate({v})",
+             "f-observe": "f_observe()", "v-mutate": f"v_mutate({v})", "v-observe": f"v_observe({v})",
+             "v-read": "v_read()",
+             "t-create-1": f"t_create(1, {v})", "t-create-2": f"t_create(2, {v})",
+             "t-cross-1": f"t_cross(1, 2, {v})", "t-cross-2": f"t_cross(2, 1, {v})", "t-read": "t_read()",
+             "c-create": f"c_create({v})", "c-move": f"c_move({v})", "c-reparent": f"c_reparent({v})",
+             "c-recycle": f"c_recycle({v})", "c-observe": "c_observe()"}
+    return f"return #{objects['ops']}:{calls[shape]};"
+
+
+def complete_shaped(family, txn, result):
+    """Map a shaped verb's {reads, appends, observations} reply to a completion.
+
+    The effective value keeps each read that returned a list and each append
+    that returned 1; a read or append that returned an error literal had no
+    effect and is listed under denied instead. Anything else is :info.
+    """
+    if not result.success:
+        return {"type": "info", "error": native_error(result)}
+    shape = identify_shape(family, txn)
+    value = result.value
+    reads = [mop for mop in txn if mop[0] == "r"]
+    appends = [mop for mop in txn if mop[0] == "append"]
+    if not (isinstance(value, list) and len(value) == 3 and isinstance(value[0], list) and len(value[0]) == len(reads)
+            and isinstance(value[1], list) and len(value[1]) == len(appends) and isinstance(value[2], list)
+            and all(_int_list(item) or isinstance(item, str) for item in value[0])
+            and all(item == 1 or isinstance(item, str) for item in value[1])):
+        return {"type": "info", "error": {"kind": "malformed-response", "value": repr(value)}}
+    observed, written = iter(value[0]), iter(value[1])
+    effective, denied = [], []
+    for f, key, item in txn:
+        outcome = next(observed) if f == "r" else next(written)
+        if isinstance(outcome, str):
+            denied.append([f, key, outcome])
+        elif f == "r":
+            effective.append([f, key, outcome])
+        else:
+            effective.append([f, key, item])
+    return {"type": "ok", "value": effective, "denied": denied, "shape": shape, "observations": value[2]}
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +1131,7 @@ def provenance(args, output):
     return {
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
-                        "workloads", "stages", "stage_seconds", "control", "tasks")},
+                        "workloads", "stages", "stage_seconds", "control", "tasks", "dwell")},
         "task_lane": {"kinds": list(TASK_KINDS), "hold_seconds": HOLD_SECONDS, "fork_delay_seconds": FORK_DELAY,
                       "release_deadline_seconds": RELEASE_DEADLINE},
         "effects_lane": {"drain_deadline_seconds": DRAIN_DEADLINE},
@@ -784,8 +1172,10 @@ def free_port():
 class Campaign:
     def __init__(self, executable, source_db, output, transport_factory, *, server_class=None, port_source=free_port,
                  probe_deadline=PROBE_DEADLINE, seed=1, stages=(), control=None, tasks=False, effects=False,
-                 receiver_class=Receiver, release_deadline=RELEASE_DEADLINE):
+                 receiver_class=Receiver, release_deadline=RELEASE_DEADLINE, shaped=(), dwell=0):
         self.executable, self.output = executable, output
+        self.shaped = list(shaped)          # selected shaped families: build their objects at every launch
+        self.dwell = dwell                  # tick loop between a shaped verb's reads and writes
         self.tasks = tasks                  # task lane: plant held tasks before checkpoints
         self.effects = effects              # effects family selected: drain the receiver at observations
         self.receiver_class = receiver_class
@@ -1141,6 +1531,8 @@ class Campaign:
             if type(effects_object) is not int:
                 raise RuntimeError(f"effects object was not created: {effects_object!r}")
             layout["effects"] = dict(effects, object=effects_object)
+        for family in self.shaped:
+            layout[family] = parse_shaped_layout(family, self.evaluate(port, SETUP[family][0](self.dwell)))
         if self.evaluate(port, epoch_code(generation)) != generation:
             raise RuntimeError(f"epoch marker of generation {generation} was not written")
         self.record({"event": "admit", "generation": generation, "kind": kind, "port": port,
@@ -1420,11 +1812,20 @@ class ClientSession:
 
     def __init__(self, campaign):
         self.campaign, self.transport, self.generation = campaign, None, None
+        # Shaped families run from a fresh programmer connection, so the
+        # wizard runs no workload code (shaped_code).
+        self.shaped_transport, self.shaped_generation = None, None
 
     def close(self):
         if self.transport is not None:
             self.transport.disconnect()
         self.transport = self.generation = None
+        self.close_shaped()
+
+    def close_shaped(self):
+        if self.shaped_transport is not None:
+            self.shaped_transport.disconnect()
+        self.shaped_transport = self.shaped_generation = None
 
     def txn(self, op_id, client, txn):
         """Journal the request, run it, and journal the completion before replying."""
@@ -1441,19 +1842,29 @@ class ClientSession:
         if live is None:
             return {"type": "fail", "generation": None, "error": {"kind": "no-live-generation"}}
         generation, port = live
-        code = txn_code(txn, layout, op_id)
-        if self.transport is None or self.generation != generation:
-            self.close()
+        family = family_of(txn[0][1]) if txn and isinstance(txn[0], list) and len(txn[0]) == 3 \
+            and type(txn[0][1]) is int else None
+        shaped = family in SHAPED
+        code = shaped_code(family, txn, layout) if shaped else txn_code(txn, layout, op_id)
+        current = (self.shaped_transport, self.shaped_generation) if shaped else (self.transport, self.generation)
+        if current[0] is None or current[1] != generation:
+            if shaped:
+                self.close_shaped()
+            else:
+                self.close()
             transport = campaign.transport_factory(port)
             try:
-                transport.connect("wizard")
+                transport.connect("programmer" if shaped else "wizard")
             except Exception as error:
                 transport.disconnect()
                 # The transaction was never sent.
                 return {"type": "fail", "generation": generation,
                         "error": {"kind": "connect", "message": f"{type(error).__name__}: {error}"}}
-            self.transport, self.generation = transport, generation
-        transport = self.transport
+            if shaped:
+                self.shaped_transport, self.shaped_generation = transport, generation
+            else:
+                self.transport, self.generation = transport, generation
+        transport = self.shaped_transport if shaped else self.transport
         campaign.touch(generation, [key for _, key, _ in txn])
         campaign.journal({"event": "send", "id": op_id, "generation": generation, "port": port,
                           "code": code, "phase": phase})
@@ -1461,10 +1872,14 @@ class ClientSession:
             result = transport.execute(code)
         except Exception as error:
             raw = transport.last_raw
-            self.close()
+            if shaped:
+                self.close_shaped()
+            else:
+                self.close()
             return {"type": "info", "generation": generation, "raw": raw,
                     "error": {"kind": "transport", "message": f"{type(error).__name__}: {error}"}}
-        return dict(complete_txn(txn, result), generation=generation, raw=transport.last_raw)
+        completion = complete_shaped(family, txn, result) if shaped else complete_txn(txn, result)
+        return dict(completion, generation=generation, raw=transport.last_raw)
 
 
 class AdapterHandler(socketserver.StreamRequestHandler):
@@ -1663,6 +2078,36 @@ def edn(value):
     raise ValueError(f"unsupported EDN value {value!r}")
 
 
+def elle_ops(ops):
+    """ops ready for Elle: each invocation completed :ok carries the ok value's
+    micro-ops (reads nil), so an append a shaped family reported denied
+    appears nowhere; an :ok pair with no effective micro-op is dropped."""
+    completions, pending = {}, {}
+    for index, op in enumerate(ops):
+        if op["type"] == "invoke":
+            pending[op["process"]] = index
+        elif op["process"] in pending:
+            completions[pending.pop(op["process"])] = index
+    dropped, ready = set(), []
+    for index, op in enumerate(ops):
+        if index in dropped:
+            continue
+        done = completions.get(index)
+        if op["type"] == "invoke" and done is not None and ops[done]["type"] == "ok":
+            if not ops[done]["value"]:
+                dropped.add(done)
+                continue
+            op = dict(op, value=[[f, key, None if f == "r" else item] for f, key, item in ops[done]["value"]])
+        ready.append(op)
+    return ready
+
+
+def elle_anomalies(directory):
+    """Anomaly names Elle wrote witnesses for (<directory>/<anomaly>.txt)."""
+    directory = Path(directory)
+    return sorted(path.stem for path in directory.glob("*.txt")) if directory.is_dir() else []
+
+
 def elle_history(ops):
     """One generation's ops in the EDN form the Go Elle recorder writes."""
     lines = []
@@ -1785,10 +2230,13 @@ def epoch_transactions(journal, generation):
             continue
         value = (requests.get(op_id) or {}).get("value") or []
         done = completes.get(op_id) or {}
+        # An ok completion's value is its effective micro-ops: a shaped
+        # family's denied append had no effect (complete_shaped).
+        effective = done["value"] if done.get("type") == "ok" and "value" in done else value
         txns.append({"id": op_id, "value": value, "send_ns": send["monotonic_ns"],
                      "type": done.get("type"), "complete_ns": done.get("monotonic_ns"),
                      "error": done.get("error") or {}, "result": done.get("value") if done.get("type") == "ok" else None,
-                     "writes": [(key, item) for f, key, item in value if f == "append"]})
+                     "writes": [(key, item) for f, key, item in effective or [] if f == "append"]})
     return txns
 
 
@@ -2383,6 +2831,277 @@ def effect_checks(lifecycle, journal, receipts):
     return results, findings
 
 
+def shaped_transactions(journal, family):
+    """Every ok shaped transaction of family: id, generation, request value,
+    effective value, denied micro-ops, shape and observations."""
+    requests, sends = {}, {}
+    txns = []
+    for row in journal:
+        event = row.get("event")
+        if event == "request":
+            requests[row.get("id")] = row
+        elif event == "send":
+            sends[row.get("id")] = row
+        elif event == "complete" and row.get("type") == "ok" and "shape" in row:
+            request = requests.get(row.get("id")) or {}
+            value = request.get("value") or []
+            if not value or family_of(value[0][1]) != family:
+                continue
+            txns.append({"id": row.get("id"), "generation": (sends.get(row.get("id")) or {}).get("generation"),
+                         "request": value, "value": row.get("value") or [], "denied": row.get("denied") or [],
+                         "shape": row["shape"], "observations": row.get("observations") or []})
+    return txns
+
+
+def _reads(txn):
+    """{role: list} for the effective reads and {role: literal} for the denied ones."""
+    base = FAMILIES[family_of(txn["request"][0][1])]["base"]
+    read = {key - base: items for f, key, items in txn["value"] if f == "r"}
+    denied = {key - base: literal for f, key, literal in txn["denied"]}
+    return read, denied
+
+
+def _append_value(txn):
+    return next(value for f, _, value in txn["request"] if f == "append")
+
+
+def replay_permissions(markers):
+    """PO.x's owner role and flags after the P-machine markers in order (initial: OWNER, "rw")."""
+    owner, flags = "owner", "rw"
+    for v in markers:
+        if v % 5 == 4:
+            owner = "writer" if owner == "owner" else "owner"
+        elif owner == "owner":
+            flags = P_FLAGS[v % 5]
+    return owner, flags
+
+
+def replay_definitions(markers):
+    """F-machine state after the markers: y defined on FA, FA.y's value, FC.z's
+    local value (None while clear) and FC's parent ("fa"/"fb")."""
+    state = {"y": True, "y_value": [0], "z_local": None, "parent": "fa"}
+    for v in markers:
+        kind = v % 3
+        if kind == 0:
+            if state["y"]:
+                state["y"] = False
+            else:
+                state.update(y=True, y_value=[v])
+        elif kind == 1:
+            state["z_local"] = v if state["z_local"] is None else None
+        else:
+            state.update(parent="fb" if state["parent"] == "fa" else "fa", z_local=None)
+    return state
+
+
+def authority_expectations(txn, objects):
+    """[(witness, what, expected, observed)] for one ok P or F transaction,
+    from the markers it read in the same task. V-machine transactions are Elle's."""
+    shape, observations = txn["shape"], txn["observations"]
+    read, denied = _reads(txn)
+    roles = AUTHORITY_ROLES
+    checks = []
+    if shape.startswith("p-"):
+        markers = read.get(roles["mp"], [])
+        owner, flags = replay_permissions(markers)
+        if shape == "p-mutate":
+            v = _append_value(txn)
+            if v % 5 == 4:
+                new = objects["writer"] if owner == "owner" else objects["owner"]
+                checks.append(("mutation-outcome", "chown result", [new], observations))
+            else:
+                checks.append(("mutation-outcome", f"set_property_info flags {P_FLAGS[v % 5]!r}",
+                               ["ok" if owner == "owner" else "E_PERM"], observations))
+            return checks
+        readable = "r" in flags or (shape == "p-write" and owner == "writer")
+        got_read = "list" if roles["d"] in read else denied.get(roles["d"])
+        checks.append(("stale-permission" if (got_read == "list") != readable else "error-precedence",
+                       f"read of PO.x (owner {owner}, flags {flags!r})", "list" if readable else "E_PERM",
+                       got_read))
+        if shape == "p-read":
+            checks.append(("error-precedence", "READER chown of PO.x", ["E_PERM"], observations))
+        else:
+            writable = readable and ("w" in flags or owner == "writer")
+            got_write = "written" if any(f == "append" for f, _, _ in txn["value"]) else \
+                next((literal for f, _, literal in txn["denied"] if f == "append"), None)
+            checks.append(("stale-permission" if (got_write == "written") != writable else "error-precedence",
+                           f"append to PO.x (owner {owner}, flags {flags!r})", "written" if writable else "E_PERM",
+                           got_write))
+        return checks
+    if shape.startswith("f-"):
+        state = replay_definitions(read.get(roles["mf"], []))
+        if shape == "f-mutate":
+            v = _append_value(txn)
+            kind = v % 3
+            # The state before this mutation decides its action.
+            expected = ["deleted" if state["y"] else "added"] if kind == 0 else \
+                ["cleared" if state["z_local"] is not None else "set"] if kind == 1 else \
+                [objects["fb"] if state["parent"] == "fa" else objects["fa"]]
+            checks.append(("mutation-outcome", f"definition mutation kind {kind}", expected, observations))
+            return checks
+        if not (isinstance(observations, list) and len(observations) == 7):
+            return [("mutation-outcome", "f-observe observations", "seven values", observations)]
+        has_y = state["parent"] == "fa" and state["y"]
+        z_value = [state["z_local"]] if state["z_local"] is not None else ([-1] if state["parent"] == "fa" else [-2])
+        expected = [("stale-definition", '"y" in properties(FA)', 1 if state["y"] else 0),
+                    ("stale-definition", "FC.y", state["y_value"] if has_y else "E_PROPNF"),
+                    ("stale-inheritance", "FC.z", z_value),
+                    ("stale-inheritance", 'is_clear_property(FC, "z")', 1 if state["z_local"] is None else 0),
+                    ("stale-inheritance", "parent(FC)", objects[state["parent"]]),
+                    ("error-precedence", 'READER delete_property(FA, "y")', "E_PERM"),
+                    ("error-precedence", 'READER clear_property(FC, "y")', "E_PERM" if has_y else "E_PROPNF")]
+        return [(witness, what, want, got) for (witness, what, want), got in zip(expected, observations)]
+    return checks
+
+
+def authority_coverage(txn):
+    """Coverage labels for one ok authority transaction (from what it observed)."""
+    shape, observations = txn["shape"], txn["observations"]
+    read, denied = _reads(txn)
+    labels = [shape]
+    if shape == "p-mutate":
+        v = _append_value(txn)
+        labels.append("p-chown" if v % 5 == 4 else f"p-flags:{observations[0] if observations else None}")
+    elif shape in ("p-read", "p-write"):
+        labels.append(f"{shape}:read-" + ("permitted" if AUTHORITY_ROLES["d"] in read else
+                                          str(denied.get(AUTHORITY_ROLES["d"]))))
+        if shape == "p-write":
+            labels.append("p-write:" + ("written" if any(f == "append" for f, _, _ in txn["value"]) else "denied"))
+    elif shape == "f-mutate" and observations:
+        kind = _append_value(txn) % 3
+        labels.append(f"f-mutate:{kind}:" + (str(observations[0]) if kind < 2 else "reparented"))
+    elif shape == "f-observe" and len(observations) == 7:
+        labels.append("f-observe:FC.y-" + ("present" if isinstance(observations[1], list) else str(observations[1])))
+        labels.append(f"f-observe:clear-{observations[6]}")
+    elif shape == "v-mutate" and observations:
+        labels.append(f"v-mutate:{observations[0]}")
+    return labels
+
+
+AUTHORITY_COVERAGE = ("p-mutate", "p-read", "p-write", "f-mutate", "f-observe", "v-mutate", "v-observe", "v-read",
+                      "p-chown", "p-flags:ok", "p-flags:E_PERM", "p-read:read-permitted", "p-read:read-E_PERM",
+                      "p-write:written", "p-write:denied", "f-mutate:0:added", "f-mutate:0:deleted",
+                      "f-mutate:1:set", "f-mutate:1:cleared", "f-mutate:2:reparented", "f-observe:FC.y-present",
+                      "f-observe:FC.y-E_PROPNF", "f-observe:clear-E_PERM", "f-observe:clear-E_PROPNF",
+                      "v-mutate:0", "v-mutate:1", "v-mutate:2")
+
+
+def topology_violations(txn, objects):
+    """[(witness, message)] for one ok c-observe snapshot (see the module note
+    in agent-notes/jepsen-authority-topology.md for the invariants)."""
+    read, _ = _reads(txn)
+    roles = TOPOLOGY_ROLES
+    created, recycled = read.get(roles["created"], []), read.get(roles["recycled"], [])
+    observations = txn["observations"]
+    if not (isinstance(observations, list) and len(observations) == 3):
+        return [("token-not-conserved", f"malformed observation {observations!r}")]
+    rooms, kids, graves = observations
+    problems = []
+    by_v = {}
+    for grave in graves:
+        v, token, obj, back = grave
+        by_v[v] = (token, obj)
+        if back:
+            problems.append(("invalid-reference", f"recycled object #{obj} (token {token}) is valid with its token"))
+    if sorted(by_v) != sorted(recycled):
+        problems.append(("token-not-conserved", f"graves {sorted(by_v)} do not match the RECYCLED ledger {recycled}"))
+    gone = [token for v, (token, _) in sorted(by_v.items()) if token]
+    if len(set(gone)) != len(gone):
+        problems.append(("duplicate-recycle", f"a token was recycled twice: {gone}"))
+    unknown = [token for token in gone if token not in created]
+    if unknown:
+        problems.append(("token-not-conserved", f"recycled tokens {unknown} were never created"))
+    live = sorted(set(created) - set(gone))
+    room_ids = [objects["t3"], objects["t4"], objects["t5"]]
+    parent_ids = {objects["tq3"]: 3, objects["tq4"]: 4}
+    seen = []
+    for room, items in zip(room_ids, rooms):
+        for item in items:
+            if not item[1]:
+                problems.append(("invalid-reference", f"room #{room} holds invalid object #{item[0]}"))
+                continue
+            obj, _, token, location, parent, kind = item
+            seen.append(token)
+            if location != room:
+                problems.append(("reciprocal-topology", f"#{obj} (token {token}) is in room #{room}'s contents but "
+                                                        f"its location is #{location}"))
+            if parent not in parent_ids:
+                problems.append(("reciprocal-topology", f"#{obj} (token {token}) has parent #{parent}"))
+            elif kind != parent_ids[parent]:
+                problems.append(("stale-dispatch", f"#{obj} (token {token}) with parent #{parent} dispatched "
+                                                   f"kind() to {kind}"))
+    if sorted(seen) != live:
+        problems.append(("token-not-conserved", f"rooms hold tokens {sorted(seen)}; live tokens are {live}"))
+    children = []
+    for parent, items in zip(parent_ids, kids):
+        for item in items:
+            if not item[1]:
+                problems.append(("invalid-reference", f"#{parent}'s children hold invalid object #{item[0]}"))
+                continue
+            obj, _, token, actual = item
+            children.append(token)
+            if actual != parent:
+                problems.append(("reciprocal-topology", f"#{obj} (token {token}) is a child of #{parent} but its "
+                                                        f"parent is #{actual}"))
+    if sorted(children) != live:
+        problems.append(("token-not-conserved", f"children hold tokens {sorted(children)}; live tokens are {live}"))
+    return problems
+
+
+def topology_coverage(txn):
+    shape, observations = txn["shape"], txn["observations"]
+    labels = [shape.rsplit("-", 1)[0] if shape[-1].isdigit() else shape]
+    if shape in ("c-move", "c-reparent") and observations and observations[0]:
+        labels.append(f"{shape}:applied")
+    elif shape == "c-recycle" and observations and observations[0] and observations[0][0]:
+        labels.append("c-recycle:applied")
+    return labels
+
+
+TOPOLOGY_COVERAGE = ("t-create", "t-cross", "t-read", "c-create", "c-move", "c-reparent", "c-recycle", "c-observe",
+                     "c-move:applied", "c-reparent:applied", "c-recycle:applied")
+
+
+def shaped_checks(lifecycle, journal, families):
+    """The authority and topology invariants and coverage. Returns (results,
+    [(class, witness, message)]). Elle checks the rows separately."""
+    layouts = {row["generation"]: row.get("rows") or {} for row in lifecycle if row.get("event") == "admit"}
+    findings, results = [], {}
+    for family in families:
+        counts, checked, found = {}, 0, []
+        txns = shaped_transactions(journal, family)
+        for txn in txns:
+            objects = layouts.get(txn["generation"], {}).get(family)
+            if objects is None:
+                found.append((INVALID, f"{family}-layout", f"operation {txn['id']}: generation "
+                                                           f"{txn['generation']} recorded no {family} objects"))
+                continue
+            where = f"generation {txn['generation']} operation {txn['id']} ({txn['shape']})"
+            if family == "authority":
+                labels = authority_coverage(txn)
+                for witness, what, expected, observed in authority_expectations(txn, objects):
+                    if expected != observed:
+                        found.append((CORRECTNESS, witness, f"{where}: {what}: expected {expected!r}, "
+                                                            f"observed {observed!r}"))
+            else:
+                labels = topology_coverage(txn)
+                if txn["shape"] == "c-observe":
+                    for witness, problem in topology_violations(txn, objects):
+                        found.append((CORRECTNESS, witness, f"{where}: {problem}"))
+            checked += 1
+            for label in labels:
+                counts[label] = counts.get(label, 0) + 1
+        required = AUTHORITY_COVERAGE if family == "authority" else TOPOLOGY_COVERAGE
+        missing = [label for label in required if not counts.get(label)]
+        for label in missing:
+            found.append((INCOMPLETE, f"{family}-coverage", f"{family}: no successful transaction showed {label}"))
+        results[family] = {"checked": checked, "coverage": dict(sorted(counts.items())), "missing": missing,
+                           "denied": sum(len(txn["denied"]) for txn in txns),
+                           "witnesses": sorted({witness for kind, witness, _ in found if kind == CORRECTNESS})}
+        findings += found
+    return results, findings
+
+
 def outcome_counts(history):
     counts = {}
     for op in history:
@@ -2706,6 +3425,11 @@ def analyze(inputs, output, jar, java):
         results["effects"], effect_problems = effect_checks(lifecycle, journal, receipts)
         for kind, witness, message in effect_problems:
             find(kind, message, witness)
+    shaped = [name for name in families if name in SHAPED]
+    if shaped:
+        results["shaped"], shaped_problems = shaped_checks(lifecycle, journal, shaped)
+        for kind, witness, message in shaped_problems:
+            find(kind, message, witness)
     if stages:
         results["coverage"], coverage_problems = stage_coverage(lifecycle, stages, results["recoveries"])
         for kind, message in coverage_problems:
@@ -2721,15 +3445,15 @@ def analyze(inputs, output, jar, java):
     observed |= {row["observed_generation"] for row in lifecycle
                  if row.get("event") == "recovery-observation" and row.get("observed_generation") is not None}
     for generation in sorted(set(buckets) | observed):
-        ops = buckets.get(generation, []) + observation_ops(lifecycle, generation)
+        ops = elle_ops(buckets.get(generation, []) + observation_ops(lifecycle, generation))
         if not any(op["type"] == "ok" for op in ops):
             results["elle"].append({"generation": generation, "skipped": "no :ok transactions"})
             continue
         history_path = output / f"gen-{generation:03d}.edn"
         history_path.write_text(elle_history(ops), encoding="utf-8")
+        graphs = output / f"graphs-gen-{generation:03d}"
         command = [java, "-jar", str(jar), "-m", "list-append", "-c", "serializable",
-                   "--directory", str(output / f"graphs-gen-{generation:03d}"),
-                   "--max-plot-bytes", "2000000", str(history_path)]
+                   "--directory", str(graphs), "--max-plot-bytes", "2000000", str(history_path)]
         exit_code, text = check_elle.run(command, output / f"gen-{generation:03d}-elle.log")
         row = {"generation": generation, "ops": len(ops), "command": command, "exit_code": exit_code}
         try:
@@ -2738,7 +3462,12 @@ def analyze(inputs, output, jar, java):
             find(INVALID, f"generation {generation}: {error}")
         verdict = row.get("verdict")
         if verdict == "false":
-            find(CORRECTNESS, f"generation {generation}: Elle rejected the history (exit {exit_code})")
+            row["anomalies"] = elle_anomalies(graphs)
+            for anomaly in row["anomalies"]:
+                find(CORRECTNESS, f"generation {generation}: Elle rejected the history with {anomaly} "
+                                  f"({graphs.name}/{anomaly}.txt)", f"elle:{anomaly}")
+            if not row["anomalies"]:
+                find(CORRECTNESS, f"generation {generation}: Elle rejected the history (exit {exit_code})")
         elif verdict == "unknown":
             find(INCOMPLETE, f"generation {generation}: Elle could not decide (exit {exit_code})")
         elif verdict == "true" and exit_code != 0:
@@ -2773,7 +3502,8 @@ def control_result(control, results):
 def run_campaign(args, output):
     campaign = Campaign(args.barn.resolve(strict=True), args.db, output, socket_transport_factory(), seed=args.seed,
                         stages=args.stages, control=args.control, tasks=args.tasks,
-                        effects="effects" in args.workloads)
+                        effects="effects" in args.workloads,
+                        shaped=[name for name in args.workloads if name in SHAPED], dwell=args.dwell)
     adapter = None
     try:
         (output / "provenance.json").write_text(json.dumps(provenance(args, output), indent=2, default=str) + "\n",
@@ -2830,6 +3560,9 @@ def main(argv=None):
     parser.add_argument("--tasks", action="store_true",
                         help="task lane: plant held test tasks before every graceful checkpoint and before each "
                              "generation's first live checkpoint, release them after the restart's recovery read")
+    parser.add_argument("--dwell", type=int, default=0,
+                        help="string_hash calls over a 1 MiB string (about 1.7 ms each) between each "
+                             "authority/topology verb's reads and writes, so concurrent transactions overlap")
     parser.add_argument("--control", choices=sorted(CONTROLS),
                         help="elle build only: run the negative control's fault and stage step; exit 0 only if "
                              "its designated witness is reported")
@@ -2892,6 +3625,9 @@ def main(argv=None):
               flush=True)
     if results.get("effects"):
         print(f"effects: {json.dumps(results['effects'])}", flush=True)
+    for family, row in (results.get("shaped") or {}).items():
+        print(f"{family}: {row['checked']} checked transactions, {row['denied']} denied micro-ops, missing "
+              f"{row['missing']}, witnesses {row['witnesses']}, coverage {json.dumps(row['coverage'])}", flush=True)
     for row in results.get("coverage", []):
         print(f"stage {row['stage']}: requested {row['requested']}, reached {row.get('reached')}, "
               f"state {row.get('stopped_state')}, frozen {row.get('frozen_stage')}, exit {row.get('killed_exit')}, "

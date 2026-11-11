@@ -109,18 +109,39 @@
 ; client windows (the live cycle's sleeps) before its checkpoint-crash.
 (def closing-seconds 6)
 
+; Append values of the shaped families: one run-wide counter, so a value is
+; unique per key across every phase and generation.
+(def shaped-values (AtomicLong.))
+
+(defn shaped-txns
+  "A shaped family's transactions (scripts/jepsen_checkpoint.py SHAPED):
+  a weighted choice of one shape, whose micro-ops are [f role]; the key is
+  base + role and every append of the transaction carries the same fresh
+  value. Every generation has fresh row objects, so keys need no phase offset."
+  [{:keys [base shapes]}]
+  (let [weighted (vec (mapcat (fn [{:keys [weight mops]}] (repeat weight mops)) shapes))]
+    (fn []
+      (let [v (.incrementAndGet ^AtomicLong shaped-values)]
+        {:type  :invoke
+         :f     :txn
+         :value (mapv (fn [[f role]] [(keyword f) (+ base role) (when (= f "append") v)])
+                      (jrand/nth weighted))}))))
+
 (defn family-txns
   "Elle's list-append transactions for one row family. Values are unique per
   key only within one la/gen instance, and each instance starts its keys and
   values afresh, so each family and client phase gets a disjoint key range
   (base + phase offset): (key, value) then identifies one append across every
-  generation of the run. The adapter maps a key to its family's MOO rows."
-  [{:keys [base key-count]} phase-offset]
-  (->> (la/gen {:key-count key-count :min-txn-length 1 :max-txn-length 4
-                :max-writes-per-key 64})
-       (gen/map (fn [op]
-                  (update op :value
-                          (fn [txn] (mapv (fn [[f k v]] [f (+ base phase-offset k) v]) txn)))))))
+  generation of the run. The adapter maps a key to its family's MOO rows.
+  A family with shapes uses shaped-txns instead."
+  [{:keys [base key-count shapes] :as family} phase-offset]
+  (if (seq shapes)
+    (shaped-txns family)
+    (->> (la/gen {:key-count key-count :min-txn-length 1 :max-txn-length 4
+                  :max-writes-per-key 64})
+         (gen/map (fn [op]
+                    (update op :value
+                            (fn [txn] (mapv (fn [[f k v]] [f (+ base phase-offset k) v]) txn))))))))
 
 (defn txns
   "A uniform random mixture of the selected families' transactions."
