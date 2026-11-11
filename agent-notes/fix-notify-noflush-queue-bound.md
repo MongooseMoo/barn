@@ -20,7 +20,9 @@ Make Barn pass `builtins/notify_semantics.yaml::no_flush_notify_returns_zero_whe
   deferred notifications to the target), also used by buffered_output_length.
 - Go tests added in builtins/network_test.go; they fail without the fix and pass
   with it, also under -race. go vet ./..., go build ./... pass.
-- PR opened; waiting on CI.
+- Committed locally on the branch. Not pushed: the agent-guards PreToolUse hook
+  refused push + `gh pr create` because Q's own words have not ordered this PR
+  (the order came from team-lead, which is not Q's consent).
 
 ## Decisions and why
 - Residual after Toast's push is taken as 0: Barn writes accepted output
@@ -35,4 +37,5 @@ Make Barn pass `builtins/notify_semantics.yaml::no_flush_notify_returns_zero_whe
 - None so far.
 
 ## Next step
-Watch CI on the PR; merge on green.
+Once Q orders it: push the branch, `gh pr create --base master`,
+`gh pr merge <n> --auto --merge`, watch checks, confirm merged.
