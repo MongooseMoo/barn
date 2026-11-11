@@ -37,6 +37,32 @@ def run(command, log, env=None):
     return result.returncode, log.read_text(encoding="utf-8")
 
 
+def check_history(java, jar, history, case, record):
+    errors = []
+    label, model, fault = record["case"], record["model"], record["fault"]
+    if not history.is_file() or history.stat().st_size == 0:
+        errors.append(f"{label}/{model}: missing or empty history")
+        return record, errors
+    graphs = case / f"graphs-{model}"
+    cli = [java, "-jar", str(jar), "-m", model, "-c", "serializable",
+           "--directory", str(graphs), "--max-plot-bytes", "2000000", str(history)]
+    exit_code, output = run(cli, case / f"{model}-elle.log")
+    record.update(elle_command=cli, exit_code=exit_code)
+    try:
+        actual = verdict(output, history)
+        record["verdict"] = actual
+        expected = "false" if fault else "true"
+        expected_exit = 1 if fault else 0
+        if exit_code != expected_exit or actual != expected:
+            errors.append(f"{label}/{model}: exit={exit_code}, verdict={actual}, expected={expected}/{expected_exit}")
+        if fault and actual == "false" and not list(graphs.rglob("*.txt")):
+            errors.append(f"{label}/{model}: rejected without an anomaly witness")
+        print(f"{label}/{model}: {actual} (expected {expected})", flush=True)
+    except ValueError as error:
+        errors.append(f"{label}/{model}: {error}")
+    return record, errors
+
+
 def lifecycle_verdict(code, output, fault):
     name = "TestUncaughtHandlerBeforeYieldedParent"
     status = "FAIL" if fault else "PASS"
@@ -67,6 +93,17 @@ def main():
     args.jar = args.jar.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     results, errors = [], []
+    # Preserve and replay the real CI input that deadlocked Elle 0.2.7.
+    case = args.output / "checkpoint-drop-append"
+    case.mkdir()
+    history = case / "list-append.edn"
+    fixture = Path(__file__).resolve().parent / "fixtures/elle/checkpoint-drop-append.edn"
+    history.write_bytes(fixture.read_bytes())
+    record, failures = check_history(args.java, args.jar, history, case, {
+        "case": case.name, "seed": None, "model": "list-append",
+        "fault": "checkpoint-drop-append", "go_command": None})
+    results.append(record)
+    errors.extend(failures)
     # Serializable histories do not establish scheduler order. Require the real
     # fork/handler/parent assertion separately, with its historical defect.
     for fault in ("", "finished-task-index"):
@@ -106,28 +143,11 @@ def main():
             # register checking is required for healthy cases only.
             if fault and model == "rw-register":
                 continue
-            if not history.is_file() or history.stat().st_size == 0:
-                errors.append(f"{label}/{model}: missing or empty history")
-                continue
-            graphs = case / f"graphs-{model}"
-            cli = [args.java, "-jar", str(args.jar), "-m", model, "-c", "serializable",
-                   "--directory", str(graphs), "--max-plot-bytes", "2000000", str(history)]
-            exit_code, output = run(cli, case / f"{model}-elle.log")
-            record = {"case": label, "seed": seed, "model": model, "fault": fault,
-                      "go_command": command, "elle_command": cli, "exit_code": exit_code}
-            try:
-                actual = verdict(output, history)
-                record["verdict"] = actual
-                expected = "false" if fault else "true"
-                expected_exit = 1 if fault else 0
-                if exit_code != expected_exit or actual != expected:
-                    errors.append(f"{label}/{model}: exit={exit_code}, verdict={actual}, expected={expected}/{expected_exit}")
-                if fault and actual == "false" and not list(graphs.rglob("*.txt")):
-                    errors.append(f"{label}/{model}: rejected without an anomaly witness")
-                print(f"{label}/{model}: {actual} (expected {expected})", flush=True)
-            except ValueError as error:
-                errors.append(f"{label}/{model}: {error}")
+            record, failures = check_history(args.java, args.jar, history, case, {
+                "case": label, "seed": seed, "model": model, "fault": fault,
+                "go_command": command})
             results.append(record)
+            errors.extend(failures)
     (args.output / "results.json").write_text(json.dumps(
         {"results": results, "errors": errors}, indent=2) + "\n", encoding="utf-8")
     for error in errors:

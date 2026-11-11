@@ -7,9 +7,11 @@ world. Its organization runner group is `barn-bug-discovery`, selected only for
 Routing, workers, acceptance and replenishment all use this group. Do not add its
 listeners to the ordinary `barn` runner pool or the privileged repair workflow.
 
-The guest has 8 virtual CPUs, 16 GiB RAM and a 120 GiB virtual disk. Its host
-service caps memory at 20 GiB without swap and CPU at eight cores, with low CPU
-and IO weight. A separate 260 GiB loop filesystem bounds guest/base/rollback
+The guest has 24 virtual CPUs, 16 GiB RAM and a 120 GiB virtual disk. Its host
+service caps memory at 20 GiB without swap and CPU time at 24 logical CPUs
+(`CPUQuota=2400%`), half of the host's 48 logical CPUs, with low CPU and IO
+weight. Four concurrent fuzz jobs use six workers each. A separate 260 GiB
+loop filesystem bounds guest/base/rollback
 images together. The console journal has its own namespace capped at 256 MiB.
 The host firewall table selects only the `barncompute` account. Public DNS and
 HTTP(S) are allowed; host, private, metadata and IPv6 destinations are rejected.

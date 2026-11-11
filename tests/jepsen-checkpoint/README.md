@@ -64,6 +64,10 @@ no repeated or never-sent token. The recovered rows are also appended to the
 crashed generation's Elle history as a read-only observation. SIGKILL is
 process-crash evidence, not power-loss evidence.
 
+The final checkpoint follows a 6 s client-only closing phase, so the
+generation a crash or checkpoint-crash restarted as the last time limit
+expired still gets client transactions before it is checkpointed.
+
 The stage schedule (`--stages all` or a list of `STAGE_SCHEDULE` steps; needs
 Barn built with `-tags elle`) replaces the fixed and live phases with one
 client phase per step (`--stage-seconds`, default 10). Each generation is

@@ -110,6 +110,15 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	} else {
 		t.SetState(task.TaskSuspended)
 		t.WakeTime = saved.StartTime
+		if now := time.Now(); t.StartTime.After(now) {
+			// A live timed suspension keeps its start in StartTime and its
+			// deadline in WakeTime; the checkpoint saved only the deadline
+			// (task.State.PersistenceSnapshotLocked). Readiness waits for the
+			// later of the two (readyDeadlineLocked), so a future StartTime
+			// would hold an early resume() until the deadline; Toast's
+			// resume_task runs it at once. queued_tasks() lists WakeTime.
+			t.StartTime, t.QueueTime = now, now
+		}
 		if saved.StartTime.Unix() < 0 {
 			// Older 64-bit Toast servers wrote an indefinite suspension's
 			// INTNUM_MAX start time through "%d" as -1; Toast's reader treats a
