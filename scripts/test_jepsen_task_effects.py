@@ -239,6 +239,17 @@ class TaskCheckTests(unittest.TestCase):
         lifecycle[2]["state"]["results"] = {token_of("suspend"): [["suspend"]]}
         self.assertEqual(witnesses(lane.check(lifecycle=lifecycle)[1]), ["ran-before-release"])
 
+    def test_leftovers_of_an_incomplete_release_are_lost_tasks_not_early_runs(self):
+        # CI run 42977648003: releases that never completed were checkpointed
+        # with the fork's result and the other tasks still queued.
+        lane = TaskLane()
+        lane.complete, lane.after_ids = False, lane.held_ids[1:]
+        lane.records = {token_of("fork"): lane.records[token_of("fork")]}
+        lifecycle = lane.lifecycle()
+        lifecycle.append({"event": "task-recovery", "generation": 2, "plant": 1, "ok": True,
+                          "state": {"ids": lane.held_ids[1:], "results": dict(lane.records)}, "present": []})
+        self.assertEqual(witnesses(lane.check(lifecycle=lifecycle)[1]), ["lost-task"])
+
     def test_effect_task_delivers_once_after_release_and_never_before(self):
         lane = TaskLane()
         lane.receipts = lane.receipts * 2

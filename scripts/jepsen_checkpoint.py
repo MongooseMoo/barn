@@ -2214,8 +2214,17 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
                                                f"{tids} are missing from queued_tasks", summary)
             else:
                 status = "partial"
-                find(CORRECTNESS, "ran-before-release", f"{where}: results {results} were written before the "
-                                                        f"driver released tasks {present}", summary)
+                earlier = sorted(release["generation"] for release in releases.get(seq, [])
+                                 if release["generation"] < generation and not release.get("complete"))
+                if earlier:
+                    # A checkpoint taken after an incomplete release captured
+                    # its leftovers; the lost tasks were reported at that release.
+                    find(CORRECTNESS, "lost-task", f"{where}: tasks {present} are still queued with results "
+                                                   f"{results} left by the incomplete release in generation "
+                                                   f"{earlier[-1]}", summary)
+                else:
+                    find(CORRECTNESS, "ran-before-release", f"{where}: results {results} were written before the "
+                                                            f"driver released tasks {present}", summary)
             launch["status"] = status
             admit = admits.get(generation) or {}
             restart = admit.get("restart") or {}
