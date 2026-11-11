@@ -95,6 +95,9 @@ func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 			return nil, fmt.Errorf("add loaded object #%d: %w", b.ID(), err)
 		}
 	}
+	for _, id := range database.RecycledObjs {
+		s.AddRecycledSlot(id)
+	}
 	// Nothing reads the store yet, so the loaded objects' slots can be moved
 	// onto shared bases in place.
 	s.ShareLoadedPropertySlots(database.propPool)
