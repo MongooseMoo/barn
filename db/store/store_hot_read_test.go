@@ -416,6 +416,7 @@ func TestRenewalAccountsForEveryTxnField(t *testing.T) {
 		"verbScans": carried, "taskReads": carried, "externalRead": carried, "externalEpoch": carried, "taskWrites": declines, "waifs": carried, "usedVerbMemo": carried,
 		"verbMemoDisabled": carried, "verbMemoHits": carried, "gateWait": carried,
 		"commitContext": carried, "conflictLabel": carried,
+		"overlapsHold": carried, "holdClock": carried, // The earlier hold clock is kept with the carried reads.
 		"direct": declines, "gateExempt": declines, "exclusiveGrant": declines,
 		"scalarWrites": declines, "relationshipWrites": declines, "propertyDefines": declines,
 		"propertyDefinitionDeletes": declines, "propertyRenames": declines, "propertyDeletes": declines, "verbWrites": declines,

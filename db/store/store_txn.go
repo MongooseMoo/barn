@@ -52,8 +52,17 @@ type StoreTxn struct {
 	taskWrites map[int64]TaskRow
 	// externalRead is set once the txn has read external state at external
 	// write epoch externalEpoch (store_external_reads.go).
-	externalRead   bool
-	externalEpoch  uint64
+	externalRead  bool
+	externalEpoch uint64
+	// overlapsHold is set when the snapshot may include part of an attempt
+	// that held the commit gate exclusively and had not yet committed: its
+	// boundary publications and live mutations are visible at once, its later
+	// writes only at its commit. holdClock is the clock at that hold's grant
+	// (0 when the hold is not known): everything the holder published carries
+	// a later version. A transaction that read such a version is validated and
+	// committed like a writer even when it stages nothing (mustValidateReads).
+	overlapsHold   bool
+	holdClock      uint64
 	validationFail bool
 	waifs          map[types.WaifIdentity]*waifTxnImage
 	// usedVerbMemo: this txn resolved at least one verb through the store-level
@@ -163,11 +172,29 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 }
 
 func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
+	// Sampled before the clock: any exclusive hold active when the clock is
+	// read was then either already active (odd) or taken since (moved).
+	gen := s.commitGate.ExclusiveGeneration()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// A snapshot taken at an explicit timestamp (tests) may fall inside any
+	// past hold, so it is always treated as overlapping an unknown one.
+	overlapsHold, holdClock := true, uint64(0)
 	if readTS == 0 {
 		readTS = s.currentReadTSAndRegister()
+		// The grant clock is read between the two generation samples, so when
+		// they agree it belongs to the hold active at both, or to an earlier one
+		// (smaller, which only makes the tests below more cautious). When they
+		// differ a hold began or ended meanwhile and which one is not known.
+		grantClock := s.exclusiveGrantClock.Load()
+		switch after := s.commitGate.ExclusiveGeneration(); {
+		case after != gen:
+		case gen&1 == 1 && readTS > grantClock:
+			holdClock = grantClock
+		default:
+			overlapsHold = false
+		}
 	} else {
 		s.registerReadTS(readTS)
 	}
@@ -189,6 +216,8 @@ func (s *Store) BeginSnapshot(readTS uint64) *StoreTxn {
 		// readClocks is left nil and allocated by the first sampled read.
 		conflictLabel:    ConflictLabel{Obj: types.ObjNothing},
 		sampleReadClocks: s.conflicts.tracking.Load(),
+		overlapsHold:     overlapsHold,
+		holdClock:        holdClock,
 	}
 	if tx.sampleReadClocks {
 		tx.diag = &txnConflictDiag{definer: types.ObjNothing}
@@ -313,7 +342,55 @@ func (tx *StoreTxn) HasStagedVerbDeletes() bool {
 // HasWrites reports whether a commit has anything to do: staged writes to
 // publish, or an external read to validate (store_external_reads.go).
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && !tx.direct && tx.terminalErr == types.E_NONE && (tx.hasStagedWrites() || tx.externalRead)
+	return tx != nil && !tx.direct && tx.terminalErr == types.E_NONE && (tx.hasStagedWrites() || tx.mustValidateReads())
+}
+
+// mustValidateReads reports whether the transaction's reads must be validated
+// at commit even when it staged nothing: it read external state
+// (store_external_reads.go), or it read something an exclusive holder
+// published before committing the rest of its attempt (overlapsHold). Commit
+// then waits on the shared gate for that holder to commit and validates every
+// read against it. A transaction that read nothing the holder published is
+// serialized at its snapshot, before the holder, as any read-only one is. A
+// transaction whose own attempt holds the gate (gateExempt) is exempt: nothing
+// else commits before it.
+func (tx *StoreTxn) mustValidateReads() bool {
+	return tx.externalRead || (tx.overlapsHold && !tx.gateExempt && tx.readPublishedAfter(tx.holdClock))
+}
+
+// readPublishedAfter reports whether any read recorded in the read set saw a
+// version published after clock. These are the versions validation checks.
+func (tx *StoreTxn) readPublishedAfter(clock uint64) bool {
+	for _, reads := range [...]map[types.ObjID]uint64{tx.scalarReads, tx.relationshipReads, tx.propertyScans, tx.propertyShapeScans, tx.verbScans} {
+		for _, version := range reads {
+			if version > clock {
+				return true
+			}
+		}
+	}
+	for _, version := range tx.propertyReads {
+		if version > clock {
+			return true
+		}
+	}
+	for _, st := range tx.mapKeys {
+		if st.version > clock {
+			return true
+		}
+	}
+	for _, version := range tx.verbReads {
+		if version > clock {
+			return true
+		}
+	}
+	for _, image := range tx.waifs {
+		if image.base.Timestamp() > clock {
+			return true
+		}
+	}
+	// Memoized verb resolutions record no per-object versions; they may
+	// reflect a verb shape change made after clock.
+	return tx.usedVerbMemo && tx.store.dispatch.shapeChangeTS.Load() > clock
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {

@@ -315,6 +315,13 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.verbScans = maps.Clone(tx.verbScans)
 	next.taskReads = maps.Clone(tx.taskReads)
 	next.externalRead, next.externalEpoch = tx.externalRead, tx.externalEpoch
+	// The carried reads were made on tx's snapshot; keep the earlier hold clock.
+	if tx.overlapsHold {
+		if !next.overlapsHold || tx.holdClock < next.holdClock {
+			next.holdClock = tx.holdClock
+		}
+		next.overlapsHold = true
+	}
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
