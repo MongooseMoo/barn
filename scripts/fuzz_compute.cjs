@@ -37,7 +37,26 @@ function configure({context, core}) {
 const ACCEPT = 'Accept discovery cycle';
 const DIFFERENTIAL = 'ToastDifferential';
 const SUCCESSOR = 'Submit continuous successor';
-const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, ACCEPT, SUCCESSOR]);
+const JEPSEN = 'JepsenExploration';
+const EXPLORE = 'Explore Jepsen';
+const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, JEPSEN, ACCEPT, SUCCESSOR]);
+
+// scripts/jepsen_explore.py's batch report. A defect class leaves the job red
+// and is accepted; an incomplete batch (a run without results, or only an
+// incomplete or invalid experiment) is not, and neither is a missing report.
+function jepsenProblems(job, report, onlyFailed) {
+  if (!job || !['success', 'failure'].includes(job.conclusion)) return [`${JEPSEN}: job ${job?.conclusion ?? 'missing'}`];
+  if (!onlyFailed(job, EXPLORE)) return [`${JEPSEN}: a step other than the exploration failed`];
+  if (!report) return [`${JEPSEN}: no batch report`];
+  if (!Array.isArray(report.runs) || !report.runs.length) return [`${JEPSEN}: no run completed`];
+  if (!report.complete || report.runs.some(run => run.evidence_retained !== true)) {
+    return [`${JEPSEN}: a run kept no results`];
+  }
+  if (report.outcome !== (job.conclusion === 'success' ? 'clean' : 'finding')) {
+    return [`${JEPSEN}: batch ${report.outcome} with job ${job.conclusion}`];
+  }
+  return [];
+}
 
 // A cycle is accepted when every lane completed measured work and kept its
 // evidence. A saved finding or a real divergence leaves its job red and is
@@ -94,8 +113,12 @@ async function accept({github, context, core}) {
   } else if (outcome !== (differential.conclusion === 'success' ? 'success' : 'divergence')) {
     problems.push(`${DIFFERENTIAL}: outcome ${outcome ?? 'missing'} with job ${differential.conclusion}`);
   }
+  const reportFile = 'jepsen-exploration/report.json';
+  const report = fs.existsSync(reportFile) ? JSON.parse(fs.readFileSync(reportFile, 'utf8')) : undefined;
+  problems.push(...jepsenProblems(jobs.find(job => job.name === JEPSEN), report, onlyFailed));
   core.info(JSON.stringify({campaign: selected, lanes: lanes.length,
-    differential: selected === 'native-only' ? 'not-run-native-only' : outcome ?? null, problems}));
+    differential: selected === 'native-only' ? 'not-run-native-only' : outcome ?? null,
+    jepsen: report?.outcome ?? null, problems}));
   if (problems.length) throw new Error(`Cycle not accepted: ${problems.join('; ')}`);
 }
 

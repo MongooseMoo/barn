@@ -1265,14 +1265,17 @@ class ProvenanceTests(unittest.TestCase):
                                    phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
                                    workloads=["smoke", "keyed"], stages=["staged-2"], stage_seconds=8,
                                    control=None, tasks=True, dwell=9, phase_transport=10,
-                                   transport_kinds=["pre-send", "pause"])
+                                   transport_kinds=["pre-send", "pause"], hot_keys=2,
+                                   replay=root / "jepsen.jar")
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
                                              "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"],
                                              "stages": ["staged-2"], "stage_seconds": 8, "control": None,
                                              "tasks": True, "dwell": 9, "phase_transport": 10,
-                                             "transport_kinds": ["pre-send", "pause"]})
+                                             "transport_kinds": ["pre-send", "pause"], "hot_keys": 2})
+        # --replay's input is recorded with its hash.
+        self.assertEqual((row["replay"]["size_bytes"], len(row["replay"]["sha256"])), (10, 64))
         self.assertEqual((row["transport_lane"]["recovery_bound_seconds"],
                           row["transport_lane"]["recovery_bound_derivation"]),
                          (jc.RECOVERY_BOUND, jc.RECOVERY_BOUND_DERIVATION))
@@ -1281,7 +1284,12 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(row["live_checkpoints"], {"deadline_seconds": jc.CHECKPOINT_DEADLINE,
                                                    "delay_span": jc.DELAY_SPAN,
                                                    "first_delay_seconds": jc.FIRST_DELAY_SECONDS})
-        self.assertEqual(row["families"], {"smoke": jc.FAMILIES["smoke"], "keyed": jc.FAMILIES["keyed"]})
+        # --hot-keys replaces each list-append family's key count, nothing else.
+        self.assertEqual(row["families"], {"smoke": {**jc.FAMILIES["smoke"], "key-count": 2},
+                                           "keyed": {**jc.FAMILIES["keyed"], "key-count": 2}})
+        self.assertEqual(jc.selected_families(["smoke", "authority"]),
+                         {"smoke": jc.FAMILIES["smoke"], "authority": jc.FAMILIES["authority"]})
+        self.assertEqual(jc.selected_families(["authority"], 3), {"authority": jc.FAMILIES["authority"]})
         self.assertEqual((row["barn"]["size_bytes"], row["checker_jar"]["size_bytes"],
                           row["jepsen"]["jar"]["size_bytes"], row["fixture"]["database"]["size_bytes"]),
                          (4, 8, 10, 7))
@@ -2258,6 +2266,68 @@ class TransportCheckTests(unittest.TestCase):
             jc.main(common + ["--output", str(root / "a")])
             jc.main(common + ["--output", str(root / "b"), "--control", "transport-stall", "--phase-transport", "20"])
         self.assertEqual(seen, [(list(jc.TRANSPORT_KINDS), 0), (["pause"], 20)])
+
+
+def phased_run():
+    """healthy_run whose client invocations carry the phase core.clj tags them with."""
+    run = healthy_run()
+    for row, phase in zip([row for row in run.history if row["type"] == "invoke"], (0, 0, 1000000, 4000000)):
+        row["phase"] = phase
+    return run
+
+
+class ReplayTests(unittest.TestCase):
+    directory, elle, assertFinding = AnalyzeTests.directory, AnalyzeTests.elle, AnalyzeTests.assertFinding
+
+    def test_replay_input_keeps_each_client_transaction_and_its_phase_in_order(self):
+        run = phased_run()
+        run.history.insert(0, {"process": "nemesis", "type": "info", "f": "pause", "value": None})
+        replay = jc.replay_invokes(run.history)
+        self.assertEqual([(row["phase"], row["value"]) for row in replay],
+                         [(0, [["append", 1, 1], ["r", 1, None]]), (0, [["append", 1, 2]]),
+                          (1000000, [["append", 1, 3], ["r", 1, None]]), (4000000, [["append", 1, 4], ["r", 1, None]])])
+        # A replay.jsonl is itself a valid recording.
+        self.assertEqual(jc.replay_invokes(replay), replay)
+
+    def test_recording_without_phases_or_transactions_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "no phase"):
+            jc.replay_invokes(healthy_run().history)
+        with self.assertRaisesRegex(ValueError, "no client transactions"):
+            jc.replay_invokes([{"process": "nemesis", "type": "info", "f": "crash"}])
+
+    def replayed(self, recorded):
+        root = self.directory(phased_run())
+        (root / "replay.jsonl").write_text("".join(json.dumps(row) + "\n" for row in recorded), encoding="utf-8")
+        with self.elle():
+            return jc.analyze(root, root, Path("elle.jar"), "java")
+
+    def test_replay_that_sent_the_recorded_prefix_is_healthy(self):
+        recorded = jc.replay_invokes(phased_run().history)
+        # The closing phase's time limit ended it before its second transaction.
+        recorded.append({"type": "invoke", "f": "txn", "phase": 4000000, "value": [["append", 1, 5]]})
+        results, findings = self.replayed(recorded)
+        self.assertEqual(findings, [])
+        self.assertEqual(results["replay"], [
+            {"phase": 0, "recorded": 2, "sent": 2, "prefix": True},
+            {"phase": 1000000, "recorded": 1, "sent": 1, "prefix": True},
+            {"phase": 4000000, "recorded": 2, "sent": 1, "prefix": True}])
+
+    def test_replay_that_sent_other_transactions_is_invalid(self):
+        recorded = jc.replay_invokes(phased_run().history)
+        recorded[0], recorded[1] = recorded[1], recorded[0]
+        results, findings = self.replayed(recorded)
+        self.assertEqual(jc.verdict_of(findings), jc.INVALID)
+        self.assertFinding(findings, jc.INVALID, "replay phase 0")
+
+    def test_main_refuses_an_unphased_recording_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            healthy_run().write(root / "old")
+            (root / "elle.jar").write_bytes(b"jar")
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                jc.main(["--output", str(root / "new"), "--elle-jar", str(root / "elle.jar"), "--barn", "b",
+                         "--db", "d", "--jepsen-jar", "j", "--replay", str(root / "old" / "history.jsonl")])
+            self.assertFalse((root / "new").exists())
 
 
 if __name__ == "__main__":

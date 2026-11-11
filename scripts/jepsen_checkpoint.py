@@ -63,6 +63,13 @@ original operation id. After every fault, recover() requires a fresh probe, a
 completed live checkpoint and a client :ok sent after the heal within
 RECOVERY_BOUND; transport_checks checks all of it from lifecycle and journal
 rows, and the transport-stall control must fail that check.
+
+--replay (plan section 6) re-executes a recorded run: Jepsen sends the
+recording's client transactions again, each phase its own in recorded order,
+under the same fault schedule and seed; the OS interleaving may differ.
+replay.jsonl keeps what was to be sent and analysis checks the sent
+transactions against it (replay_fidelity). scripts/jepsen_explore.py drives
+exploratory batches and re-executions.
 """
 from __future__ import annotations
 
@@ -542,6 +549,15 @@ def shape_table(family):
 
 FAMILIES.update({"authority": {"base": 4 * FAMILY_SPAN, "shapes": shape_table("authority")},
                  "topology": {"base": 5 * FAMILY_SPAN, "shapes": shape_table("topology")}})
+
+
+def selected_families(workloads, hot_keys=0):
+    """The selected families as Jepsen gets them. hot_keys > 0 replaces the
+    key count of each list-append family (the shaped families have fixed
+    roles), so fewer keys concentrate the same rate on fewer rows."""
+    return {name: dict(FAMILIES[name], **({"key-count": hot_keys} if hot_keys and "key-count" in FAMILIES[name]
+                                          else {}))
+            for name in workloads}
 
 
 def identify_shape(family, txn):
@@ -1213,7 +1229,8 @@ def provenance(args, output):
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
                         "workloads", "stages", "stage_seconds", "control", "tasks", "dwell", "phase_transport",
-                        "transport_kinds")},
+                        "transport_kinds", "hot_keys")},
+        "replay": _file_row(args.replay) if args.replay else None,
         "transport_lane": {"read_timeout_seconds": READ_TIMEOUT, "pause_hold_seconds": PAUSE_HOLD,
                            "arm_deadline_seconds": ARM_DEADLINE, "late_deadline_seconds": LATE_DEADLINE,
                            "truncate_bytes": TRUNCATE_BYTES, "slow_read_bytes": SLOW_READ_BYTES,
@@ -1225,7 +1242,7 @@ def provenance(args, output):
         "stage_schedule": {name: STAGE_SCHEDULE[name] for name in args.stages},
         "live_checkpoints": {"deadline_seconds": CHECKPOINT_DEADLINE, "delay_span": DELAY_SPAN,
                              "first_delay_seconds": FIRST_DELAY_SECONDS},
-        "families": {name: FAMILIES[name] for name in args.workloads},
+        "families": selected_families(args.workloads, args.hot_keys),
         "jvm_heap": JVM_HEAP, "probe_deadline_seconds": PROBE_DEADLINE,
         "barn": _file_row(args.barn), "config": _file_row(CONFIG), "profile_id": PROFILE_ID,
         "source_tree": {"head": _command_output(["git", "rev-parse", "HEAD"], barn_process.ROOT),
@@ -2219,6 +2236,37 @@ class AdapterServer(socketserver.ThreadingTCPServer):
 
 def load_jsonl(path):
     return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def replay_invokes(history):
+    """The client transactions of a recorded history (or of a replay.jsonl
+    made from one), in recorded order, as --replay sends them: core.clj tags
+    each with the phase it was generated in. ValueError when there are none
+    or one has no phase (a history recorded before phases were tagged)."""
+    invokes = [{"process": op["process"], "type": "invoke", "f": "txn", "phase": op.get("phase"),
+                "value": op["value"]} for op in history
+               if type(op.get("process")) is int and op.get("type") == "invoke" and op.get("f") == "txn"]
+    if not invokes:
+        raise ValueError("the recording holds no client transactions")
+    if any(type(op["phase"]) is not int for op in invokes):
+        raise ValueError("the recording's client transactions carry no phase (recorded before --replay existed)")
+    return invokes
+
+
+def replay_fidelity(recorded, history):
+    """Per phase, how many of the recorded transactions the replay sent. A
+    phase's time limit may end it early, so the sent transactions must be a
+    prefix of the recorded ones in the same order; anything else means the
+    replay did not send what was recorded."""
+    sent = [op for op in history if type(op.get("process")) is int and op.get("type") == "invoke"
+            and op.get("f") == "txn"]
+    rows = []
+    phases = {op.get("phase") for op in recorded} | {op.get("phase") for op in sent}
+    for phase in sorted(phases, key=lambda phase: (phase is None, phase or 0)):
+        want = [op["value"] for op in recorded if op.get("phase") == phase]
+        got = [op["value"] for op in sent if op.get("phase") == phase]
+        rows.append({"phase": phase, "recorded": len(want), "sent": len(got), "prefix": got == want[:len(got)]})
+    return rows
 
 
 ADAPTER_SIDE = ("adapter-timeout", "adapter-io")  # Jepsen gave up without the adapter's reply
@@ -3830,6 +3878,13 @@ def analyze(inputs, output, jar, java):
         find(INCOMPLETE, "Jepsen wrote no history.jsonl")
         return results, findings
     results["outcomes"] = outcome_counts(history)
+    if (inputs / "replay.jsonl").exists():
+        results["replay"] = replay_fidelity(load_jsonl(inputs / "replay.jsonl"), history)
+        for row in results["replay"]:
+            if not row["prefix"]:
+                find(INVALID, f"replay phase {row['phase']}: the sent transactions are not the recorded ones in order")
+        if not any(row["sent"] for row in results["replay"]):
+            find(INCOMPLETE, "replay sent none of the recorded transactions")
     for label, count in results["outcomes"].items():
         if label.endswith((":native-error", ":malformed-response")):
             find(INCOMPLETE, f"{count} client completions were {label}")
@@ -3985,7 +4040,10 @@ def run_campaign(args, output):
                    "--transport-kinds", json.dumps(args.transport_kinds),
                    "--stages", str(len(args.stages)), "--stage-seconds", str(args.stage_seconds),
                    "--concurrency", str(args.concurrency), "--seed", str(args.seed),
-                   "--families", json.dumps([dict(FAMILIES[name], name=name) for name in args.workloads])]
+                   "--families", json.dumps([dict(family, name=name) for name, family in
+                                             selected_families(args.workloads, args.hot_keys).items()])]
+        if args.replay:
+            command += ["--replay", str(output / "replay.jsonl")]
         campaign.record({"event": "jepsen", "command": command})
         with (output / "jepsen.log").open("wb") as log:
             # Jepsen writes its store/ (history.edn, jepsen.log) under its cwd.
@@ -4038,7 +4096,20 @@ def main(argv=None):
     parser.add_argument("--control", choices=sorted(CONTROLS),
                         help="run the negative control's fault (elle build, except transport-stall) and stage step; "
                              "exit 0 only if its designated witness is reported")
+    parser.add_argument("--hot-keys", type=int, default=0,
+                        help="key count of every selected list-append family (default: each family's own)")
+    parser.add_argument("--replay", type=Path,
+                        help="a recorded history.jsonl (or replay.jsonl): send its client transactions again, each in "
+                             "its own phase, instead of generated ones; pass the recording's other parameters too")
     args = parser.parse_args(argv)
+    if args.hot_keys < 0:
+        parser.error("--hot-keys must be positive (0 keeps each family's key count)")
+    replay = None
+    if args.replay:
+        try:
+            replay = replay_invokes(load_jsonl(args.replay))
+        except (OSError, ValueError, KeyError) as error:
+            parser.error(f"--replay {args.replay}: {error}")
     args.transport_kinds = [name for name in args.transport_kinds.split(",") if name]
     if [name for name in args.transport_kinds if name not in TRANSPORT_KINDS] or not args.transport_kinds \
             or len(set(args.transport_kinds)) != len(args.transport_kinds):
@@ -4069,6 +4140,9 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=False)
     inputs = output
     if args.analyze is None:
+        if replay is not None:
+            # Kept with the evidence: analysis checks what was sent against it.
+            (output / "replay.jsonl").write_text("".join(json.dumps(op) + "\n" for op in replay), encoding="utf-8")
         run_campaign(args, output)
     else:
         inputs = args.analyze.resolve(strict=True)

@@ -32,6 +32,12 @@ def job(name, conclusion="success", failed=None):
     return {"name": name, "conclusion": conclusion, "steps": steps}
 
 
+EXPLORE = "Explore Jepsen"
+JEPSEN_OK = job("JepsenExploration")
+CLEAN_BATCH = {"outcome": "clean", "complete": True, "runs": [{"name": "00-baseline", "evidence_retained": True}]}
+FINDING_BATCH = {**CLEAN_BATCH, "outcome": "finding"}
+
+
 class ComputeTests(unittest.TestCase):
     def execute(self, method="replenish", env=None, source=None, active=(), latest=10, ref="refs/heads/master",
                 jobs=ACCEPTED, cwd=ROOT, event=None):
@@ -257,9 +263,17 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertIn("group: nightly-fuzz-controller-${{ github.event_name }}", controller)
         self.assertIn("    if: github.event_name == 'schedule' && vars.FUZZ_CONTINUOUS_ENABLED == 'true'", controller)
 
-    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast"):
+    def accept(self, jobs, lanes, outcome="success", campaign="native-and-toast", jepsen=JEPSEN_OK,
+               batch=CLEAN_BATCH):
+        """Runs accept(); the Jepsen exploration job and its report are added
+        unless jepsen or batch is None."""
+        if jepsen is not None:
+            jobs = jobs + [jepsen]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            if batch is not None:
+                (root / "jepsen-exploration").mkdir()
+                (root / "jepsen-exploration/report.json").write_text(json.dumps(batch))
             for target, census in lanes.items():
                 lane = root / ".fuzz/retained/vm" / target
                 lane.mkdir(parents=True)
@@ -333,6 +347,57 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         for name, (jobs, lanes, outcome) in cases.items():
             with self.subTest(name):
                 self.assertIn("error", self.accept(jobs, lanes, outcome))
+
+    def test_jepsen_batch_with_a_defect_is_red_and_accepted(self):
+        lanes = {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
+        for campaign, differential, outcome in (("native-and-toast", job("ToastDifferential"), "success"),
+                                                ("native-only", job("ToastDifferential", "skipped"), None)):
+            with self.subTest(campaign=campaign):
+                clean = self.accept([job("FuzzA"), differential], lanes, outcome, campaign)
+                self.assertNotIn("error", clean)
+                self.assertEqual(json.loads(clean["info"][-1])["jepsen"], "clean")
+                red = self.accept([job("FuzzA"), differential], lanes, outcome, campaign,
+                                  jepsen=job("JepsenExploration", "failure", EXPLORE), batch=FINDING_BATCH)
+                self.assertNotIn("error", red)
+
+    def test_incomplete_or_unreported_jepsen_batch_is_rejected(self):
+        lanes = {"FuzzA": {"completed_executions": 5, "campaign": "clean"}}
+        failed = job("JepsenExploration", "failure", EXPLORE)
+        cases = {
+            "missing job": (None, CLEAN_BATCH),
+            "cancelled job": (job("JepsenExploration", "cancelled"), CLEAN_BATCH),
+            "setup failed": (job("JepsenExploration", "failure", "Build Jepsen workload"), FINDING_BATCH),
+            "upload failed": ({"name": "JepsenExploration", "conclusion": "failure", "steps": [
+                                  {"name": EXPLORE, "conclusion": "failure"},
+                                  {"name": "Upload exploration evidence", "conclusion": "failure"}]}, FINDING_BATCH),
+            "no report": (JEPSEN_OK, None),
+            "no runs": (JEPSEN_OK, {**CLEAN_BATCH, "runs": []}),
+            "run without results": (failed, {**FINDING_BATCH, "complete": False,
+                                             "runs": [{"evidence_retained": True}, {"evidence_retained": False}]}),
+            "incomplete batch": (failed, {**CLEAN_BATCH, "outcome": "incomplete"}),
+            "clean batch on a red job": (failed, CLEAN_BATCH),
+            "finding on a green job": (JEPSEN_OK, FINDING_BATCH),
+        }
+        for name, (jepsen, batch) in cases.items():
+            with self.subTest(name):
+                result = self.accept([job("FuzzA"), job("ToastDifferential")], lanes, jepsen=jepsen, batch=batch)
+                self.assertIn("JepsenExploration", result.get("error", ""))
+
+    def test_jepsen_exploration_job_feeds_acceptance_and_never_records_a_pass(self):
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        explore = fuzz.split("\n  jepsen:\n")[1].split("\n  accept:\n")[0]
+        self.assertIn("\n    name: JepsenExploration\n", explore)
+        self.assertTrue(explore.startswith("    needs: route\n"))
+        self.assertIn(f"\n      - name: {EXPLORE}\n", explore)
+        self.assertIn("scripts/jepsen_explore.py batch", explore)
+        self.assertNotIn("tested-tree", explore)
+        self.assertNotIn("issues: write", explore)
+        # The transport and fixture pin is read from jepsen.yml, not copied.
+        self.assertNotIn(re.search(r"CONFORMANCE_REF: (\w+)", (ROOT / ".github/workflows/jepsen.yml").read_text())[1],
+                         fuzz)
+        accept = fuzz.split("\n  accept:\n")[1].split("\n  successor:\n")[0]
+        self.assertIn("    needs: [route, fuzz, differential, jepsen]\n", accept)
+        self.assertIn("name: jepsen-exploration-report", accept)
 
     def test_controller_completion_failure_wrong_mode_and_foreign_repo_cannot_replenish(self):
         for field, value in [("event", "workflow_run"), ("conclusion", "cancelled"),

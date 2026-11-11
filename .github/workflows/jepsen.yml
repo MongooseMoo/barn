@@ -115,13 +115,22 @@ jobs:
           # stalled-recovery from lifecycle and journal rows.
           run --control transport-stall --workloads smoke --phase1 10 --phase3 0 --phase-live 0 \
             --phase-transport 20 --output jepsen-evidence-transport-stall --jepsen-timeout 180 || status=1
+          # Re-execution (scripts/jepsen_explore.py): a short run, then --replay
+          # of its recorded transactions; analysis rejects a replay that sent
+          # anything but each phase's recorded transactions in order.
+          run --workloads smoke,authority --phase1 20 --phase3 30 --phase-live 0 --seed 7 \
+            --output jepsen-evidence-replay-source --jepsen-timeout 300 || status=1
+          run --workloads smoke,authority --phase1 20 --phase3 30 --phase-live 0 --seed 7 \
+            --replay jepsen-evidence-replay-source/history.jsonl \
+            --output jepsen-evidence-replay --jepsen-timeout 300 || status=1
           exit "$status"
       - name: Archive raw evidence
         if: always()
         run: |
           set -euo pipefail
           dirs=()
-          for dir in jepsen-evidence jepsen-evidence-transport-stall; do
+          for dir in jepsen-evidence jepsen-evidence-transport-stall jepsen-evidence-replay-source \
+              jepsen-evidence-replay; do
             if [ -d "$dir" ]; then dirs+=("$dir"); fi
           done
           if [ "${#dirs[@]}" -gt 0 ]; then

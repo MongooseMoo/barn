@@ -145,10 +145,28 @@
                     (update op :value
                             (fn [txn] (mapv (fn [[f k v]] [f (+ base phase-offset k) v]) txn))))))))
 
+(defn read-replay
+  "--replay: the recorded client invocations (scripts/jepsen_checkpoint.py
+  writes them as replay.jsonl), grouped by the :phase each was generated in,
+  in recorded order. Only the transaction is kept: process and time are
+  assigned afresh, so the OS schedule may differ from the recording."
+  [path]
+  (with-open [r (io/reader path)]
+    (->> (line-seq r)
+         (remove #(re-matches #"\s*" %))
+         (map #(json/read-str % :key-fn keyword))
+         (map (fn [op] {:type :invoke :f :txn :phase (:phase op) :value (mapv decode-mop (:value op))}))
+         (group-by :phase))))
+
 (defn txns
-  "A uniform random mixture of the selected families' transactions."
-  [rate families phase-offset]
-  (->> (gen/mix (mapv #(family-txns % phase-offset) families))
+  "A uniform random mixture of the selected families' transactions, or with
+  --replay the phase's recorded transactions in order. Every op carries its
+  phase (the key phase offset), which the history records for a later replay."
+  [{:keys [rate families replay]} phase-offset]
+  (->> (if replay
+         (get replay phase-offset [])
+         (gen/mix (mapv #(family-txns % phase-offset) families)))
+       (gen/map #(assoc % :phase phase-offset))
        (gen/stagger (/ 1 rate))))
 
 (defn stage-generator
@@ -157,14 +175,14 @@
   for that generation (scripts/jepsen_checkpoint.py STAGE_SCHEDULE); then a
   client phase on the last recovered generation and the final checkpoint.
   Each phase's keys are disjoint (3000000 + 100000 per step)."
-  [rate families stages stage-seconds]
+  [{:keys [stages stage-seconds] :as options}]
   (apply gen/phases
          (concat
            (for [step (range stages)]
              (gen/time-limit stage-seconds
-                             (gen/clients (txns rate families (+ 3000000 (* step 100000)))
+                             (gen/clients (txns options (+ 3000000 (* step 100000)))
                                           [(gen/sleep 3) (nemesis-op :stage-crash)])))
-           [(gen/time-limit stage-seconds (gen/clients (txns rate families (+ 3000000 (* stages 100000)))))
+           [(gen/time-limit stage-seconds (gen/clients (txns options (+ 3000000 (* stages 100000)))))
             (gen/nemesis (nemesis-op :resume))
             (gen/nemesis (nemesis-op :checkpoint))])))
 
@@ -184,9 +202,9 @@
   cycle; gen/phases then waits for the restart, and without the closing
   phase the restarted generation would reach the final checkpoint with no
   client operation (scripts/jepsen_checkpoint.py obligations)."
-  [{:keys [phase1 phase3 phase-live phase-transport transport-kinds rate families stages stage-seconds]}]
+  [{:keys [phase1 phase3 phase-live phase-transport transport-kinds stages] :as options}]
   (if (pos? stages)
-    (stage-generator rate families stages stage-seconds)
+    (stage-generator options)
   (let [pausing   [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
         crashing  (into pausing [(gen/sleep 5) (nemesis-op :crash)])
         live      [(gen/sleep 3) (nemesis-op :live-checkpoint) (gen/sleep 3) (nemesis-op :checkpoint-crash)]
@@ -194,17 +212,17 @@
                                transport-kinds))]
     (apply gen/phases
            (concat
-             [(gen/time-limit phase1 (gen/clients (txns rate families 0) (gen/cycle pausing)))
+             [(gen/time-limit phase1 (gen/clients (txns options 0) (gen/cycle pausing)))
               (gen/nemesis (nemesis-op :resume))
               (gen/nemesis (nemesis-op :checkpoint))
-              (gen/time-limit phase3 (gen/clients (txns rate families 1000000) (gen/cycle crashing)))
+              (gen/time-limit phase3 (gen/clients (txns options 1000000) (gen/cycle crashing)))
               (gen/nemesis (nemesis-op :resume))]
              (when (pos? phase-live)
-               [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
+               [(gen/time-limit phase-live (gen/clients (txns options 2000000) (gen/cycle live)))])
              (when (pos? phase-transport)
                [(gen/time-limit phase-transport
-                                (gen/clients (txns rate families 5000000) (gen/cycle transport)))])
-             [(gen/time-limit closing-seconds (gen/clients (txns rate families 4000000)))
+                                (gen/clients (txns options 5000000) (gen/cycle transport)))])
+             [(gen/time-limit closing-seconds (gen/clients (txns options 4000000)))
               (gen/nemesis (nemesis-op :checkpoint))])))))
 
 (defn barn-test [{:keys [adapter-port concurrency client-timeout-ms] :as options}]
@@ -259,7 +277,10 @@
    [nil "--seed N" :default 1 :parse-fn parse-long]
    ; The selected row families, [{"name" ..., "base" ..., "key-count" ...}],
    ; from scripts/jepsen_checkpoint.py, which owns the family table.
-   [nil "--families JSON" :parse-fn #(json/read-str % :key-fn keyword)]])
+   [nil "--families JSON" :parse-fn #(json/read-str % :key-fn keyword)]
+   ; Recorded client invocations to send instead of generated ones, each
+   ; phase its own (read-replay); the phases and nemesis schedule are kept.
+   [nil "--replay PATH" :parse-fn read-replay]])
 
 (defn -main [& args]
   (let [{:keys [options errors]} (cli/parse-opts args cli-options)]
@@ -269,7 +290,8 @@
         (println "usage: --adapter-port PORT --history PATH --families JSON" errors))
       (System/exit 2))
     ; Binds jepsen.random (stagger timing) only; Elle's transaction generator
-    ; and real concurrency are not reproduced by the seed.
+    ; and real concurrency are not reproduced by the seed. --replay reproduces
+    ; the transactions, not the interleaving.
     (let [test (jrand/with-seed (:seed options) (jepsen/run! (barn-test options)))]
       (write-history! (:history options) (:history test))
       (info "wrote" (count (:history test)) "history ops to" (:history options))
