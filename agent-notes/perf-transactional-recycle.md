@@ -109,7 +109,7 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
   A second baseline capture and the candidate capture each retain all 32 cases
   with ten complete samples and exit zero. Raw files and the complete median
   table are in `experiments/recycle-scaling/`.
-- Eight-worker median goodput improved 1.80x to 3.34x across the matrix. Candidate
+- Final eight-worker median throughput improved 1.79x to 3.47x across the matrix. Candidate
   exclusive gate holds are zero in every retained sample. Precommitted objects
   still incur ordinary MVCC retries. These are diagnostic-enabled synthetic
   results on a shared host, not production goodput or linear-scaling evidence.
@@ -171,9 +171,10 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
   scenarios passed on the repaired Barn and Toast with admission included.
 - Evidence: `.tmp/recycle-oracle/results-ci-pinned-toast.xml`,
   `results-query-recreate-toast.xml`, and `results-repaired-candidate.xml`, with
-  corresponding admission records. The final performance candidate will be
-  remeasured after the complete repairs, including tuple normalization; prior
-  measurements remain retained history.
+  corresponding admission records. The final performance candidate includes
+  all repairs and tuple normalization. Its 320 samples completed with exit zero;
+  `candidate-final.txt` and the refreshed median table retain this measurement.
+  Prior complete candidates remain retained history.
 
 ## Literature
 
@@ -192,8 +193,8 @@ owner; it does not establish MOO lifecycle semantics or a speedup.
 
 ## Next step
 
-Measure the repaired source using a temporary benchmark ref, then publish the
-source repairs and complete raw evidence together to the existing PR branch.
+Publish the source repairs and complete final raw evidence together to the
+existing PR branch. The temporary benchmark ref is no longer needed for measurement.
 Finish required CI on that head, preserve archives outside the worktree, make
 the PR ready, and normal-merge when checks are clear. Clean up task worktrees and
 branches, including the temporary benchmark ref.
