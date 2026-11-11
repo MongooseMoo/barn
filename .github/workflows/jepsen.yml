@@ -212,7 +212,8 @@ jobs:
           # binary has no barrier, so overlap comes from rate, concurrency and
           # the --dwell wait (string_hash calls, about 1.7 ms each) between each
           # verb's reads and writes: a memo fault needs a shape change to commit
-          # inside a memo-hitting observer's window.
+          # inside a memo-hitting observer's window, so v_observe dwells
+          # OBSERVE_DWELL times as long (scripts/jepsen_checkpoint.py).
           for control in relationship-reads verb-memo hot-memo-guard; do
             family=authority
             if [ "$control" = relationship-reads ]; then family=topology; fi

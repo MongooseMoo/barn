@@ -168,6 +168,14 @@ class ShapeTests(unittest.TestCase):
             self.assertIn(f'add_verb(o, {{{identity}, "xd", "{verb}"}}', code)
         self.assertIn("for dwell_i in [1..7]", code)
         self.assertNotIn("dwell_i", jc.authority_setup_code())
+        # v_observe's snapshot-to-va.log window is OBSERVE_DWELL times the others' dwell.
+        verbs = jc.authority_verbs(7)
+        observe = verbs["v_observe"][1]
+        self.assertIn(f"for dwell_i in [1..{jc.OBSERVE_DWELL * 7}]", observe)
+        self.assertGreater(jc.OBSERVE_DWELL, 1)
+        self.assertLess(observe.index(f"for dwell_i in [1..{jc.OBSERVE_DWELL * 7}]"),
+                        observe.index("this.va.log = {@this.va.log, v};"))
+        self.assertIn("for dwell_i in [1..7]", verbs["v_mutate"][1])
         self.assertEqual(jc.parse_shaped_layout("topology", list(range(14)))["tq4"], 13)
         with self.assertRaises(ValueError):
             jc.parse_shaped_layout("authority", [1, 2])

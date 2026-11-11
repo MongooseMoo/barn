@@ -584,6 +584,15 @@ def _verbs(owners, verbs):
     return statements
 
 
+# v_observe dwells this many times longer than the other verbs. The memo
+# faults act inside one observer attempt, from its snapshot to its read of
+# va.log: hot-memo-guard (db/store/store_hot_read.go renewAtCurrentClock) needs
+# a v_mutate shape change and another observer's va.log commit both to land
+# there, and with equal dwells that window was one mutator attempt long, so
+# the control saw 0 or 1 Elle cycles per run.
+OBSERVE_DWELL = 4
+
+
 def authority_verbs(dwell):
     """The authority verbs: name -> (identity, lines)."""
     d = _dwell(dwell)
@@ -642,7 +651,8 @@ def authority_verbs(dwell):
                              '  set_verb_code(own ? this.vc | dest, "probe", code);', "  chparent(this.vc, dest);",
                              "endif",
                              "return {{x, cur}, {1}, {k}};"]),
-        "v_observe": ("wr", ["{v} = args;", "cur = this.vc:probe();", *d, "this.va.log = {@this.va.log, v};",
+        "v_observe": ("wr", ["{v} = args;", "cur = this.vc:probe();", *_dwell(OBSERVE_DWELL * dwell),
+                             "this.va.log = {@this.va.log, v};",
                              "return {{cur}, {1}, {}};"]),
         "v_read": ("rd", ["return {{this.vc:probe(), this.va.log}, {}, {}};"]),
     }
@@ -4030,7 +4040,8 @@ def main(argv=None):
                              "generation's first live checkpoint, release them after the restart's recovery read")
     parser.add_argument("--dwell", type=int, default=0,
                         help="string_hash calls over a 1 MiB string (about 1.7 ms each) between each "
-                             "authority/topology verb's reads and writes, so concurrent transactions overlap")
+                             "authority/topology verb's reads and writes, so concurrent transactions overlap "
+                             "(v_observe dwells OBSERVE_DWELL times as long)")
     parser.add_argument("--phase-transport", type=int, default=0,
                         help="seconds of transport faults (plan section 5) with bounded recovery checks; 0 disables")
     parser.add_argument("--transport-kinds", default=",".join(TRANSPORT_KINDS),
