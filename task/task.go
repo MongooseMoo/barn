@@ -130,6 +130,7 @@ type State struct {
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
 	doneClosed       bool // guards Done against double-close
+	resultPending    bool // terminal callback taken, not yet run; Done waits (CloseDoneIfSettled)
 	scheduleChanged  chan<- struct{}
 	executionActive  bool // runtime-owned physical execution lease
 	admissionPending bool // selected by one dispatcher, not yet executing
@@ -233,6 +234,26 @@ func (t *State) TakeOnComplete() func(Result types.Result) {
 	return onComplete
 }
 
+// TakeOnCompleteForDelivery removes the terminal callback for the execution
+// that is ending the task and marks its result pending, so a settle racing
+// that execution cannot acknowledge Done before the callback has run. The
+// caller must call ResultDelivered once the callback has run or been dropped.
+func (t *State) TakeOnCompleteForDelivery() func(Result types.Result) {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	onComplete := t.OnComplete
+	t.OnComplete = nil
+	t.resultPending = onComplete != nil
+	return onComplete
+}
+
+// ResultDelivered ends the pending delivery begun by TakeOnCompleteForDelivery.
+func (t *State) ResultDelivered() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	t.resultPending = false
+}
+
 func (t *State) SetOnFailure(callback func(error)) {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
@@ -254,6 +275,24 @@ func (t *State) CloseDone() {
 	t.Mu.Lock()
 	defer t.Mu.Unlock()
 	if t.Done == nil || t.doneClosed {
+		return
+	}
+	t.doneClosed = true
+	close(t.Done)
+}
+
+// CloseDoneIfSettled closes Done when the task has terminated (Completed or
+// Killed) and no terminal result is still being delivered. State and pending
+// delivery are read under one lock: a settle by an execution that suspended
+// and released its lease may run while another execution is finishing the
+// task, after it published the terminal state but before its callback ran.
+func (t *State) CloseDoneIfSettled() {
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+	if t.Status != TaskCompleted && t.Status != TaskKilled {
+		return
+	}
+	if t.resultPending || t.Done == nil || t.doneClosed {
 		return
 	}
 	t.doneClosed = true

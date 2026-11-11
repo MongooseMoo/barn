@@ -64,6 +64,43 @@ func TestRealCommandSynchronousCompletionClosesAfterFlush(t *testing.T) {
 	}
 }
 
+// A suspended slice settles after it releases its execution lease, so another
+// worker may already be finishing the task: it has published TaskCompleted but
+// not yet delivered the result. That stale settle must not acknowledge Done,
+// or a waiter wakes to a terminal task with no result (seen in the Mongoose
+// harness as a `look` "killed-before-completion" with state=completed).
+func TestStaleSettleCannotAcknowledgeDoneBeforeResultDelivery(t *testing.T) {
+	store := newConflictTestStore(t)
+	admissionVerb(t, store, "do_command", "return 1;")
+	rt := newTestRuntimeWithBuiltins(t, store)
+	defer rt.Stop()
+	var running *Task
+	closedDuringDelivery := false
+	onStart := func(id int64) {
+		running = rt.GetTask(id)
+		running.Done = make(chan struct{})
+		running.SetOnComplete(func(types.Result) {
+			rt.settleTaskResult(running, nil) // the stale worker's settle, in the window
+			select {
+			case <-running.Done:
+				closedDuringDelivery = true
+			default:
+			}
+		})
+	}
+	if _, err := rt.RunServerVerbTaskWithArgstr(0, "do_command", nil, 0, "", onStart); err != nil {
+		t.Fatal(err)
+	}
+	if closedDuringDelivery {
+		t.Fatal("Done was acknowledged before the result was delivered")
+	}
+	select {
+	case <-running.Done:
+	default:
+		t.Fatal("the finishing execution did not acknowledge Done after delivery")
+	}
+}
+
 func TestRealCommandCompletionRejectsTerminalErrorsAndKills(t *testing.T) {
 	for _, killed := range []bool{false, true} {
 		queued := NewTask(1, 0, 30000, 3)
