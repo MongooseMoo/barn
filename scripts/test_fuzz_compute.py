@@ -43,7 +43,7 @@ const calls = [], output = {}, info = [];
 const core = {setOutput: (k,v) => output[k] = v, info: message => info.push(message),
  warning: message => info.push(message)};
 const context = {repo: {owner:'test',repo:'barn'}, ref:input.ref, runId:20,
- eventName: input.event || {configure: 'workflow_dispatch', watchdog: 'schedule'}[input.method] || 'workflow_run',
+ eventName: input.event || {configure: 'workflow_dispatch', successor: 'workflow_dispatch', watchdog: 'schedule'}[input.method] || 'workflow_run',
  payload: {workflow_run:input.source}};
 const github = {paginate: async (method,args) => {calls.push(args); return args.run_id ? input.jobs : input.active;}, rest: {actions: {
  listJobsForWorkflowRun: async () => ({}),
@@ -112,7 +112,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 self.assertEqual([dispatch["inputs"] for dispatch in dispatches], [
                     {"compute-mode": "dedicated-continuous", "campaign": "native-only"}])
         for kwargs in ({"env": {**CONFIG, "FUZZ_CONTINUOUS_ENABLED": "false"}},
-                       {"active": [DEDICATED_CYCLE]}, {"latest": 11}, {"jobs": []}):
+                       {"active": [DEDICATED_CYCLE]}, {"latest": 11}):
             result = self.execute(source=source, **kwargs)
             self.assertFalse(any("dispatch" in call for call in result["calls"]))
 
@@ -138,13 +138,70 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertNotIn("error", result)
         self.assertEqual(len([call for call in result["calls"] if "dispatch" in call]), 1)
 
-    def test_unaccepted_cycle_stops_the_chain(self):
+    def test_unaccepted_cycle_still_replenishes(self):
+        # Q, 2026-11-10: "Restart after any cycle". Controller runs at 11:30,
+        # 13:39, 15:48 and 17:59 stopped the chain on unaccepted cycles.
         for jobs in ([], [{"name": "Accept discovery cycle", "conclusion": "failure"}],
                      [{"name": "Accept discovery cycle", "conclusion": "skipped"}]):
             with self.subTest(jobs=jobs):
                 result = self.execute(source={**SOURCE, "conclusion": "failure"}, jobs=jobs)
+                self.assertNotIn("error", result)
+                self.assertEqual(len([call for call in result["calls"] if "dispatch" in call]), 1)
+                self.assertIn("(not accepted)", result["info"][-1])
+
+    def successor(self, env=None, **kwargs):
+        env = {**CONFIG, "COMPUTE_MODE": "dedicated-continuous", "FUZZ_CAMPAIGN": "native-only",
+               "ACCEPT_RESULT": "failure", **(env or {})}
+        return self.execute("successor", env=env, **kwargs)
+
+    def test_cycle_submits_its_own_successor_after_any_acceptance(self):
+        # Runs 42766490058 and 42897395293 were dispatched by the controller
+        # with GITHUB_TOKEN; GitHub created no workflow_run for their
+        # completion and the chain stopped. The cycle now submits the next.
+        for campaign in ("native-only", "native-and-toast"):
+            for acceptance in ("success", "failure", "skipped", "cancelled"):
+                with self.subTest(campaign=campaign, acceptance=acceptance):
+                    result = self.successor({"FUZZ_CAMPAIGN": campaign, "ACCEPT_RESULT": acceptance})
+                    self.assertNotIn("error", result)
+                    self.assertEqual(self.dispatches(result),
+                                     [{"compute-mode": "dedicated-continuous", "campaign": campaign}])
+
+    def test_successor_respects_stop_switch_and_existing_cycles(self):
+        result = self.successor({"FUZZ_CONTINUOUS_ENABLED": "false"})
+        self.assertNotIn("error", result)
+        self.assertEqual(result["calls"], [])
+        # The running cycle itself (runId 20) does not block its successor.
+        result = self.successor(active=[{"id": 20, "display_title": "Nightly fuzz / dedicated-continuous"},
+                                        LEGACY_CYCLE])
+        self.assertEqual(len(self.dispatches(result)), 1)
+        result = self.successor(active=[DEDICATED_CYCLE])
+        self.assertEqual(self.dispatches(result), [])
+
+    def test_successor_requires_trusted_continuous_dispatch(self):
+        for kwargs in ({"env": {"COMPUTE_MODE": "dedicated-once"}}, {"ref": "refs/heads/topic"},
+                       {"event": "workflow_run"}, {"env": {"FUZZ_RUNNER_POLICY_VERIFIED": "false"}},
+                       {"env": {"FUZZ_CAMPAIGN": "unknown"}}):
+            with self.subTest(kwargs=kwargs):
+                result = self.successor(**kwargs)
                 self.assertIn("error", result)
-                self.assertFalse(any("dispatch" in call for call in result["calls"]))
+                self.assertEqual(self.dispatches(result), [])
+
+    def test_successor_job_runs_after_every_cycle_outcome(self):
+        fuzz = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        job = fuzz.split("\n  successor:\n")[1]
+        self.assertIn("    needs: [route, accept]\n", job)
+        self.assertIn("    if: ${{ always() && github.event_name == 'workflow_dispatch' && "
+                      "inputs.compute-mode == 'dedicated-continuous' && needs.route.result == 'success' }}", job)
+        self.assertIn("    name: Submit continuous successor\n", job)
+        self.assertIn("      actions: write\n", job)
+        self.assertIn(".successor({github, context, core})", job)
+
+    def test_successor_job_is_not_counted_as_a_lane(self):
+        jobs = [job("FuzzA"), job("ToastDifferential", "skipped"),
+                {"name": "Submit continuous successor", "conclusion": None, "steps": []}]
+        result = self.accept(jobs, {"FuzzA": {"completed_executions": 7, "campaign": "clean"}},
+                             outcome=None, campaign="native-only")
+        self.assertNotIn("error", result)
 
     def watchdog(self, ended_minutes_ago=45, title="Nightly fuzz / dedicated-continuous / native-only", **kwargs):
         ended = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - ended_minutes_ago * 60))
@@ -164,9 +221,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
         self.assertEqual(self.dispatches(result), [{"compute-mode": "dedicated-continuous", "campaign": "native-and-toast"}])
 
     def test_watchdog_resumes_after_an_unaccepted_cycle(self):
-        # Q, 2026-11-10 ("Restart after any cycle"): controller runs at 11:30,
-        # 13:39, 15:48 and 17:59 stopped on unaccepted cycles and nothing
-        # resumed the chain. Replenish still refuses; the watchdog resumes.
+        # Q, 2026-11-10 ("Restart after any cycle").
         for jobs in ([{"name": "Accept discovery cycle", "conclusion": "failure"}],
                      [{"name": "Accept discovery cycle", "conclusion": "skipped"}], []):
             with self.subTest(jobs=jobs):
@@ -175,8 +230,6 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                 self.assertEqual(self.dispatches(result),
                                  [{"compute-mode": "dedicated-continuous", "campaign": "native-only"}])
                 self.assertIn("(not accepted)", result["info"][-1])
-        self.assertIn("error", self.execute(source={**SOURCE, "conclusion": "failure"},
-                                            jobs=[{"name": "Accept discovery cycle", "conclusion": "failure"}]))
 
     def test_watchdog_leaves_a_live_or_stopped_chain_alone(self):
         cases = {

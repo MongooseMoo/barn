@@ -195,20 +195,26 @@ opens its issue as before, yet the cycle is still accepted. A setup failure,
 zero measured work, an inconclusive differential or a failed upload, cache save
 or issue report is not accepted.
 
-A completed continuous dispatch's completion starts the separate
-`fuzz-controller.yml` workflow with a new repository-variable snapshot (GitHub
-rejects a workflow whose `workflow_run` trigger names itself). It runs on the
-same server group, whose selected-workflow policy admits both trusted master
-workflow paths, and only dispatches. The controller checks the stop switch and dedicated configuration,
-accepts only a trusted master source dispatch whose acceptance job passed, and
-submits one successor with the same `campaign` selection only when there is no
-newer or active dispatch. An
-unaccepted cycle stops the chain with a red controller run. Setting the switch to anything
-other than `true` prevents replenishment; cancel an active run separately when
-immediate stopping is required. The controller uses its new run's variable
-snapshot; the switch does not interrupt an already-running controller. No extra credential or variables REST read is
-used. See GitHub's [completion event rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
-and [token dispatch rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+Every continuous dispatch ends with a `Submit continuous successor` job. It runs
+after any cycle, accepted, unaccepted or cancelled, as long as routing passed. It
+reads the stop switch when it starts, checks the dedicated configuration, and
+submits one successor with the same `campaign` selection unless another
+dedicated cycle is already queued or running. The successor waits in the
+`nightly-fuzz-dedicated` concurrency group until the current cycle ends.
+Setting the switch to anything other than `true` stops the chain; cancel an
+active run separately when immediate stopping is required.
+
+The cycle submits its own successor because a separate `workflow_run`
+controller missed cycles: GitHub created no completion event for runs
+42766490058 and 42897395293, both dispatched by the controller with
+`GITHUB_TOKEN`, while it did for every cycle a person dispatched. A
+`GITHUB_TOKEN` `workflow_dispatch` does create the run (see GitHub's
+[GITHUB_TOKEN trigger rules](https://docs.github.com/en/actions/concepts/security/github_token)).
+`fuzz-controller.yml` remains as a backup on the same server group: its
+`replenish` job runs after a person's dispatch completes and does nothing when
+a newer dispatch exists, and its `watchdog` runs on a schedule that GitHub has
+been creating late or not at all (2 of about 34 due runs on 2026-11-10; see
+[community discussion 206019](https://github.com/orgs/community/discussions/206019)).
 Trigger delivery, runner policy, a completed dedicated cycle and corpus replay
 after restart must be verified during activation; source changes and offline
 controller tests do not establish live acceptance.

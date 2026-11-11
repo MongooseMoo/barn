@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Check on and manage the dedicated continuous fuzz chain.
 
-The chain is fuzz.yml dispatched as dedicated-continuous; fuzz-controller.yml
-submits each successor (replenish) and resumes a stalled chain (watchdog),
-both in scripts/fuzz_compute.cjs. Workers are the listeners in runner group
+The chain is fuzz.yml dispatched as dedicated-continuous; each cycle's last job
+submits its successor before the cycle ends (successor). fuzz-controller.yml is
+the backup (replenish after a person's dispatch, watchdog on a schedule GitHub
+rarely runs), all in scripts/fuzz_compute.cjs. Workers are the listeners in runner group
 barn-bug-discovery, inside the compute guest on mongoose.world
 (.github/runner/README.md).
 
@@ -31,9 +32,7 @@ DEDICATED = "Nightly fuzz / dedicated-"
 CONTINUOUS = "Nightly fuzz / dedicated-continuous"
 ACTIVE = {"queued", "in_progress", "waiting", "pending", "requested"}
 ACCEPT = "Accept discovery cycle"
-NOT_LANES = {"Validate compute routing", "ToastDifferential", ACCEPT}
-# fuzz_compute.cjs WATCHDOG_GRACE_MS: replenish's window before the watchdog acts.
-GRACE_MINUTES = 30
+NOT_LANES = {"Validate compute routing", "ToastDifferential", ACCEPT, "Submit continuous successor"}
 HOST = "root@mongoose.world"
 KNOWN_HOSTS = (Path.home() / ".ssh" / "barn-compute-known-hosts").as_posix()
 SLOTS = (1, 2, 3, 4)
@@ -160,15 +159,11 @@ def verdict(enabled, cycles, runners, probe=None):
         state = f"RUNNING: cycle {active['id']} is {active['status']}"
     elif last is None:
         state = "BROKEN: continuous mode is on but no continuous cycle exists; run start"
-    elif last["accept"] != "success" and last["idle_minutes"] < GRACE_MINUTES:
-        state = (f"WAITING FOR WATCHDOG: cycle {last['id']} was not accepted ({last['accept']}) and ended "
-                 f"{last['idle_minutes']}m ago; the watchdog resumes it after {GRACE_MINUTES}m")
-    elif last["idle_minutes"] < GRACE_MINUTES:
-        state = f"BETWEEN CYCLES: cycle {last['id']} ended {last['idle_minutes']}m ago; the controller submits the next"
     else:
+        # A cycle submits its successor before it ends, so none queued is broken.
         state = (f"BROKEN: nothing queued or running {duration(last['idle_minutes'])} after cycle {last['id']} "
-                 f"(acceptance {last['accept']}); the watchdog should have resumed it: check scheduled "
-                 "controller runs, or run start")
+                 f"(acceptance {last['accept']}); its Submit continuous successor job submitted nothing: "
+                 "read that job's log, or run start")
     return state, problems
 
 
