@@ -186,6 +186,17 @@ func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string
 	if startLine <= 0 || endLine <= 0 {
 		return nil
 	}
+	// Line entries inside the body are not in source order: a try whose
+	// except codes are not constant evaluates them first, under entries for
+	// both the try line and the except line at the same IP, so LineForIP of
+	// the first IP names the except line. Span every entry in the body.
+	for _, entry := range program.LineInfo {
+		if entry.StartIP < bodyIP || entry.StartIP >= bodyIP+bodyLen || entry.Line <= 0 {
+			continue
+		}
+		startLine = min(startLine, entry.Line)
+		endLine = max(endLine, entry.Line)
+	}
 	if endLine < startLine {
 		endLine = startLine
 	}
