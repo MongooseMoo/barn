@@ -9,7 +9,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// A :recycle verb that suspends finishes the recycle in a later slice. When
+// An anonymous object's :recycle verb that suspends finishes in a later slice. When
 // that slice loses validation at the recycle's irreversible boundary the
 // attempt is abandoned, so the caller must not run another instruction on it:
 // not a try/except handler, not the statement after recycle().
@@ -48,7 +48,7 @@ func TestRecycleFinishAbortStopsAttemptAfterSuspendedHook(t *testing.T) {
 			defer s.Stop()
 			ticks, seconds := foregroundTaskLimits(newTestRegistry())
 			program := compileTestProgram(t, s.registry,
-				`o = create(#0); try recycle(o); except (ANY) probe(); endtry probe(); return valid(o);`)
+				`o = create(#0, 1); try recycle(o); except (ANY) probe(); endtry probe(); return valid(o);`)
 			tk := NewTaskFull(5701, 0, program, ticks, seconds)
 			tk.Context.IsWizard = true
 			s.taskManager.RegisterTask(tk)

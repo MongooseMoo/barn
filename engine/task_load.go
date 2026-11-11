@@ -16,7 +16,7 @@ import (
 func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	restored := 0
 	for _, saved := range queued {
-		if saved == nil || saved.ID <= 0 || len(saved.Code) == 0 {
+		if saved == nil || saved.ID <= 0 {
 			continue
 		}
 		if err := s.loadQueuedTask(saved); err != nil {

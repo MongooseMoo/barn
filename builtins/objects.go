@@ -295,10 +295,6 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewObj(newID))
 }
 
-func beginRecycle(ctx *Execution, id types.ObjID) bool {
-	return ctx.Session.startRecycle(id)
-}
-
 func (r *Session) startRecycle(id types.ObjID) bool {
 	state := &r.runtime.recycle
 	state.mu.Lock()
@@ -310,8 +306,9 @@ func (r *Session) startRecycle(id types.ObjID) bool {
 	return true
 }
 
-// RestoreRecycleGuards atomically reserves objects whose recycle lifecycle
-// continuations were restored from persistent task state.
+// RestoreRecycleGuards atomically reserves anonymous objects whose recycle
+// continuations were restored from persistent task state. Numbered objects do
+// not have a recycle reservation.
 func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
 	state := &r.runtime.recycle
 	state.mu.Lock()
@@ -333,16 +330,16 @@ func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
 	return true
 }
 
-func endRecycle(ctx *Execution, id types.ObjID) {
-	ctx.Session.EndRecycle(id)
-}
-
-// EndRecycle releases the reservation after completion or an exitfunc error.
-func (r *Session) EndRecycle(id types.ObjID) {
+// EndRecycle releases an anonymous reservation after completion or a callback
+// error. Numbered objects permit overlapping recycle hooks and need no guard.
+func (r *Session) EndRecycle(object types.Value) {
+	if !object.IsAnonymous() {
+		return
+	}
 	state := &r.runtime.recycle
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	delete(state.ids, id)
+	delete(state.ids, object.ID())
 }
 
 func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
@@ -431,15 +428,17 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 		Object: args[0], OldParents: oldParents, OldChildren: oldChildren,
 		OldContents: oldContents, OldLocation: oldLocation,
 	}
-	// A session-wide recycle reservation is observable by other tasks and
-	// cannot be undone by replaying a VM checkpoint. Validate before acquiring
-	// it, just as for the later live topology mutation.
-	if !beginIrreversible(ctx, "recycle") {
-		return abortedAttempt()
-	}
-	ctx.IrreversibleSideEffect = true
-	if !beginRecycle(ctx, objID) {
-		return types.Err(types.E_INVARG)
+	// Only anonymous objects have a recycle guard (Toast objects.cc bf_recycle).
+	// Its session-wide reservation is observable, so validate before acquiring it.
+	// A numbered object's hook and cleanup can remain in the retryable transaction.
+	if args[0].IsAnonymous() {
+		if !beginIrreversible(ctx, "recycle") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+		if !session.startRecycle(objID) {
+			return types.Err(types.E_INVARG)
+		}
 	}
 	if ctx.PushRecycleLifecycle != nil {
 		return ctx.PushRecycleLifecycle(request)
@@ -451,14 +450,15 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 // FinishRecycleLifecycle applies topology cleanup after the object's recycle
 // verb has completed on either the owning VM or a synchronous test host.
 func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hookResult types.Result) types.Result {
-	// The reservation may have survived a committed suspension. A failed
-	// validation must leave it held for the restored continuation, including
-	// the early error paths that otherwise release it without a topology write.
-	if !beginIrreversible(ctx, "recycle") {
-		return abortedAttempt()
+	if request.Object.IsAnonymous() {
+		// A failed resumed attempt must leave its committed anonymous reservation
+		// held for the restored continuation, including the early error paths.
+		if !beginIrreversible(ctx, "recycle") {
+			return abortedAttempt()
+		}
+		ctx.IrreversibleSideEffect = true
+		defer ctx.Session.EndRecycle(request.Object)
 	}
-	ctx.IrreversibleSideEffect = true
-	defer endRecycle(ctx, request.Object.ID())
 	store := ctx.Store
 	tx := readTxn(ctx)
 	objID := request.Object.ID()
@@ -495,9 +495,6 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
-	if res, ok := beforeCoarse(ctx, "recycle"); !ok {
-		return res
-	}
 	for _, contentID := range oldContents {
 		content := moveObjectReferenceForRead(ctx, contentID)
 		if ec := applyRecycleMove(ctx, contentID, objID); ec != types.E_NONE {
@@ -589,14 +586,16 @@ func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hoo
 // NextRecycleExit moves one current content, or the object itself, to nothing.
 // The VM invokes exitfunc before requesting the next move.
 func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Value, types.Result) {
-	if !beginIrreversible(ctx, "recycle") {
-		return types.None, types.None, abortedAttempt()
-	}
-	ctx.IrreversibleSideEffect = true
-	if result, ok := beforeCoarse(ctx, "recycle"); !ok {
-		return types.None, types.None, result
+	if object.IsAnonymous() {
+		if result, ok := beforeCoarse(ctx, "recycle"); !ok {
+			return types.None, types.None, result
+		}
+		ctx.IrreversibleSideEffect = true
 	}
 	tx := readTxn(ctx)
+	if !tx.Valid(object.ID()) {
+		return types.None, types.None, types.Err(types.E_INVARG)
+	}
 	contents, ec := tx.Contents(object.ID())
 	if ec != types.E_NONE {
 		return types.None, types.None, types.Err(ec)
@@ -623,6 +622,14 @@ func NextRecycleExit(ctx *Execution, object types.Value) (types.Value, types.Val
 }
 
 func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.ErrorCode {
+	if !ctx.LiveStoreMutated {
+		return readTxn(ctx).MoveObject(object, types.ObjNothing, 0)
+	}
+	// A prior coarse operation already holds the commit gate. Flush any later
+	// staged topology before the direct move and adopt only the relationships it changes.
+	if ec := flushStagedBeforeCoarse(ctx); ec != types.E_NONE {
+		return ec
+	}
 	if errCode := ctx.Store.DirectTxn().MoveObject(object, types.ObjNothing, 0); errCode != types.E_NONE {
 		return errCode
 	}

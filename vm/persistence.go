@@ -167,7 +167,7 @@ func RestoreVMSnapshot(
 			frame.SavedThreadMode = snapshot.Frames[n-1].ThreadMode
 		}
 		machine.Frames = append(machine.Frames, frame)
-		if recycleContinuation != nil {
+		if recycleContinuation != nil && recycleContinuation.request.Object.IsAnonymous() {
 			recycleIDs = append(recycleIDs, recycleContinuation.request.Object.ID())
 		}
 	}

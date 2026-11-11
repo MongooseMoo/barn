@@ -19,7 +19,10 @@ func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) ty
 		return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 	}
 	if err := vm.startVerbCall(request.Object, "recycle", nil); err != nil {
-		if errorCode(err) == types.E_VERBNF {
+		// Toast continues cleanup when call_verb refuses the hook at the frame
+		// limit, just as when no hook exists. An error raised inside a running
+		// hook still follows the ordinary continuation error path.
+		if ec := errorCode(err); ec == types.E_VERBNF || ec == types.E_MAXREC {
 			return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 		}
 		return moveLifecycleErrorResult(err)
@@ -43,7 +46,7 @@ func (vm *VM) resumeRecycleLifecycle(state *recycleContinuation, hookResult type
 	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
 	if hookResult.IsError() && hookResult.Error != types.E_VERBNF {
 		if state.exitCallback {
-			vm.Builtins.EndRecycle(state.request.Object.ID())
+			vm.Builtins.EndRecycle(state.request.Object)
 			return hookResult
 		}
 		return builtins.FinishRecycleLifecycle(execution, state.request, hookResult)
@@ -54,7 +57,7 @@ func (vm *VM) resumeRecycleLifecycle(state *recycleContinuation, hookResult type
 			return result
 		}
 		if result.IsError() {
-			vm.Builtins.EndRecycle(state.request.Object.ID())
+			vm.Builtins.EndRecycle(state.request.Object)
 			return result
 		}
 		if target.IsNone() {
@@ -67,7 +70,7 @@ func (vm *VM) resumeRecycleLifecycle(state *recycleContinuation, hookResult type
 			continue
 		}
 		if err := vm.startVerbCall(target, "exitfunc", []types.Value{content}); err != nil {
-			vm.Builtins.EndRecycle(state.request.Object.ID())
+			vm.Builtins.EndRecycle(state.request.Object)
 			return moveLifecycleErrorResult(err)
 		}
 		state.exitCallback = true

@@ -45,7 +45,7 @@ func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
 	machine := retryTestVM(t, `try return 73; finally suspend(); endtry`)
 	store, session := machine.Store, machine.Builtins
 	machine.CurrentFrame().RecycleContinuation = &recycleContinuation{request: builtins.RecycleLifecycleRequest{
-		Object:      types.NewObj(12),
+		Object:      types.NewAnon(12),
 		OldParents:  []types.ObjID{1, 2},
 		OldChildren: []types.ObjID{3},
 		OldContents: []types.ObjID{4, 5},
@@ -68,12 +68,31 @@ func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
 		t.Fatal("restored recycle continuation is nil")
 	}
 	request := frame.RecycleContinuation.request
-	if !request.Object.Equal(types.NewObj(12)) || !slices.Equal(request.OldParents, []types.ObjID{1, 2}) ||
+	if !request.Object.Equal(types.NewAnon(12)) || !slices.Equal(request.OldParents, []types.ObjID{1, 2}) ||
 		!slices.Equal(request.OldChildren, []types.ObjID{3}) || !slices.Equal(request.OldContents, []types.ObjID{4, 5}) ||
 		request.OldLocation != 6 {
 		t.Fatalf("restored recycle request = %#v", request)
 	}
 	if _, err := RestoreVMSnapshot(snapshot, store, session, task.NewContext()); err == nil {
 		t.Fatal("second restore of in-flight recycle succeeded, want recycle guard conflict")
+	}
+}
+
+func TestNumberedRecycleContinuationDoesNotReserveObject(t *testing.T) {
+	machine := retryTestVM(t, `try return 73; finally suspend(); endtry`)
+	machine.CurrentFrame().RecycleContinuation = &recycleContinuation{
+		request: builtins.RecycleLifecycleRequest{Object: types.NewObj(12)},
+	}
+	machine.yielded = true
+	snapshot := machine.PersistenceVMSnapshot()
+	for range 2 {
+		restored, err := RestoreVMSnapshot(snapshot, machine.Store, machine.Builtins, task.NewContext())
+		if err != nil {
+			t.Fatalf("numbered recycle restore: %v", err)
+		}
+		frame := restored.CurrentFrame()
+		if frame == nil || frame.RecycleContinuation == nil || !frame.RecycleContinuation.request.Object.Equal(types.NewObj(12)) {
+			t.Fatal("numbered recycle continuation was not restored")
+		}
 	}
 }
