@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/MongooseMoo/barn/types"
@@ -37,7 +38,23 @@ type Program struct {
 	// program built anywhere else has none, and its calls take the uncached
 	// path. It is not part of what the program means.
 	CallSites *CallSites
+
+	// ForkBodies is runtime scratch holding the fork bodies already extracted
+	// from this program, so each body is extracted once, not on every fork. The
+	// compiler makes it, and extraction gives every body it caches its own; a
+	// program built anywhere else has none and extracts on every fork. It is
+	// not part of what the program means.
+	ForkBodies *ForkBodies
 }
+
+// ForkBodies maps a fork body's range in its parent program to the extracted
+// sub-program. Programs are shared by every task running them, so the map is
+// safe for concurrent use; a cached sub-program is shared the same way.
+type ForkBodies struct {
+	bodies sync.Map // forkBodyRange -> *Program
+}
+
+type forkBodyRange struct{ ip, length int }
 
 // CallSites holds one runtime slot per constant of a program. Programs are
 // shared by every task running them, so each slot is read and written
@@ -293,6 +310,23 @@ func (h *Handler) CodesLocal() (slot int, ok bool) {
 // existing program. The sub-program shares the same constants and variable
 // names but has its own code slice (the fork body + OP_RETURN_NONE).
 func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
+	if p == nil || p.ForkBodies == nil {
+		return p.extractForkBody(bodyIP, bodyLen)
+	}
+	key := forkBodyRange{ip: bodyIP, length: bodyLen}
+	if cached, ok := p.ForkBodies.bodies.Load(key); ok {
+		return cached.(*Program)
+	}
+	body := p.extractForkBody(bodyIP, bodyLen)
+	if body == nil {
+		return nil
+	}
+	body.ForkBodies = &ForkBodies{}
+	stored, _ := p.ForkBodies.bodies.LoadOrStore(key, body)
+	return stored.(*Program)
+}
+
+func (p *Program) extractForkBody(bodyIP, bodyLen int) *Program {
 	bodyEnd, ok := p.forkBodyEnd(bodyIP, bodyLen)
 	if !ok {
 		return nil
