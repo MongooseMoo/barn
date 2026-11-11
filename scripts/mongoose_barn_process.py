@@ -94,6 +94,12 @@ def process_state(pid, *, proc_root=Path("/proc"), clock_ticks=None):
             "high_water_rss_kib": int(high.group(1)) if high else None}
 
 
+def run_state(pid, *, proc_root=Path("/proc")):
+    """The single-letter scheduler state of pid (e.g. 'T' once SIGSTOP has taken effect)."""
+    stat = (proc_root / str(pid) / "stat").read_text()
+    return stat[stat.rfind(")") + 2:].split()[0]
+
+
 def endpoint_addresses(text):
     addresses = {}
     for line in text.splitlines():
@@ -393,10 +399,22 @@ class OwnedBarnServer:
         self.verify_owned()
         signal.pidfd_send_signal(self.pidfd, number)
 
-    def pause(self):
-        """Freeze the owned process (SIGSTOP); connections stay open."""
+    def pause(self, timeout=5.0):
+        """Freeze the owned process (SIGSTOP); connections stay open.
+
+        Returns the /proc state observed once the kernel has stopped it ('T').
+        """
         self._signal_running(signal.SIGSTOP)
         self.paused = True
+        deadline = time.monotonic() + timeout
+        while True:
+            state = run_state(self.proc.pid)
+            if state == "T" or time.monotonic() >= deadline:
+                break
+            time.sleep(0.01)
+        if state != "T":
+            raise RuntimeError(f"owned Barn process was not observed stopped after SIGSTOP (state {state!r})")
+        return state
 
     def resume(self):
         """Continue a process frozen by pause() (SIGCONT)."""

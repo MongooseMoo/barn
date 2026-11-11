@@ -15,6 +15,12 @@ concurrency:
   group: jepsen-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The MOO transport (SocketTransport) and the public Test.db fixture come
+  # from this fixed moo-conformance-tests commit. Moving it is a deliberate
+  # change to this file; the pass record names it too.
+  CONFORMANCE_REF: cacd8bccda337d26043721ac3905dda8c145758d
+
 jobs:
   # Skip when a run of this repository already passed on this exact tree
   # (see .github/actions/tested-tree). A manual dispatch always runs.
@@ -33,6 +39,7 @@ jobs:
         with:
           mode: check
           name: jepsen
+          extra: ${{ env.CONFORMANCE_REF }}
 
   record:
     name: Record pass
@@ -46,6 +53,7 @@ jobs:
         with:
           mode: record
           name: jepsen
+          extra: ${{ env.CONFORMANCE_REF }}
 
   campaign:
     name: Checkpoint durability campaign
@@ -75,16 +83,18 @@ jobs:
       - name: Build Jepsen workload
         working-directory: tests/jepsen-checkpoint
         run: JAVA_CMD="$JAVA_HOME/bin/java" lein uberjar
-      # The MOO transport (SocketTransport) and the public Test.db fixture.
       - name: Checkout moo-conformance-tests
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: MongooseMoo/moo-conformance-tests
+          ref: ${{ env.CONFORMANCE_REF }}
           path: moo-conformance-tests
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           enable-cache: true
+      # Exit status: 0 healthy, 1 correctness violation, 3 recovery/progress
+      # failure, 4 incomplete experiment, 5 invalid harness evidence.
       - name: Run campaign
         run: |
           set -euo pipefail

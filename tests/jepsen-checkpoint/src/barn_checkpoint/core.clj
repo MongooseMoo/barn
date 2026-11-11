@@ -3,10 +3,12 @@
 
   Every client and nemesis operation is a JSON line sent to the lifecycle and
   MOO transport adapter in scripts/jepsen_checkpoint.py, which owns the Barn
-  process generations. Completions carry the adapter's :generation and raw
-  native response. The finished history is written as JSON lines; the adapter
-  splits it per process generation and checks it with the pinned Elle CLI and
-  the explicit checkpoint baselines."
+  process generations. Each client request carries a run-unique operation id
+  that the adapter journals and echoes; completions carry it as :op-id with
+  the adapter's :generation and raw native response. The finished history is
+  written as JSON lines; the adapter reconciles it with its journal, splits it
+  per process generation and checks it with the pinned Elle CLI and the
+  explicit checkpoint baselines."
   (:gen-class)
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
@@ -22,7 +24,8 @@
                     [tests :as tests]])
   (:import (java.io BufferedReader BufferedWriter EOFException IOException
                     InputStreamReader OutputStreamWriter)
-           (java.net InetSocketAddress Socket SocketTimeoutException)))
+           (java.net InetSocketAddress Socket SocketTimeoutException)
+           (java.util.concurrent.atomic AtomicLong)))
 
 (defn adapter-connect
   "Opens one adapter connection. timeout-ms bounds each reply; the adapter
@@ -62,19 +65,27 @@
                       :raw (:raw reply))
       (= :ok outcome) (assoc :value (mapv decode-mop (:value reply))))))
 
-(defrecord Client [port timeout-ms conn]
+(defrecord Client [port timeout-ms ids conn]
   client/Client
   (open! [this test node]
     (assoc this :conn (adapter-connect port timeout-ms)))
   (setup! [this test] this)
   (invoke! [this test op]
-    (try
-      (complete op (request! conn {:op "txn" :value (:value op)}))
-      ; The adapter may have sent the transaction; the outcome is unknown.
-      (catch SocketTimeoutException e
-        (assoc op :type :info :error {:kind "adapter-timeout"}))
-      (catch IOException e
-        (assoc op :type :info :error {:kind "adapter-io" :message (.getMessage e)}))))
+    ; ids is shared by every client of the run: the id names this operation
+    ; in the adapter journal and in the completion (:op-id).
+    (let [id (.incrementAndGet ^AtomicLong ids)
+          op (assoc op :op-id id)]
+      (try
+        (let [reply (request! conn {:op "txn" :id id :process (:process op) :value (:value op)})]
+          (when (not= id (:id reply))
+            (throw (IOException. (str "adapter reply for operation " (:id reply)
+                                      " arrived for operation " id))))
+          (complete op reply))
+        ; The adapter may have sent the transaction; the outcome is unknown.
+        (catch SocketTimeoutException e
+          (assoc op :type :info :error {:kind "adapter-timeout"}))
+        (catch IOException e
+          (assoc op :type :info :error {:kind "adapter-io" :message (.getMessage e)})))))
   (teardown! [this test])
   (close! [this test] (adapter-close conn)))
 
@@ -128,7 +139,8 @@
          :nodes       ["n1"]
          :ssh         {:dummy? true}
          :concurrency concurrency
-         :client      (map->Client {:port adapter-port :timeout-ms client-timeout-ms})
+         :client      (map->Client {:port adapter-port :timeout-ms client-timeout-ms
+                                    :ids (AtomicLong.)})
          :nemesis     (nemesis/compose
                         [(map->AdapterNemesis {:port adapter-port :timeout-ms 600000
                                                :fs #{:pause :resume}})
