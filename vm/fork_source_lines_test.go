@@ -17,3 +17,11 @@ func TestCheckpointedForkBodyKeepsTrailingBlockClose(t *testing.T) {
 		t.Run(name, func(t *testing.T) { checkCheckpointResumeEquivalence(t, source) })
 	}
 }
+
+// A try whose except codes are computed evaluates them first, under line
+// entries for both the try line and the except line, so the fork body's first
+// IP maps to the except line. The saved source must still start at the try.
+func TestCheckpointedForkBodyKeepsTryBeforeComputedCodes(t *testing.T) {
+	source := "n = {};\nfork (0)\n  try\n    n;\n  except (E_PERM, @n)\n  endtry\nendfork\nsuspend(0);\nreturn 1;"
+	checkCheckpointResumeEquivalence(t, source)
+}
