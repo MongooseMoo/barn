@@ -339,8 +339,28 @@ func (c *realCommandCompletion) wait(ctx context.Context) (bool, string) {
 		}
 		return true, ""
 	default:
-		return false, "killed-before-completion"
+		return false, "killed-before-completion " + c.killDetail()
 	}
+}
+
+// killDetail says what stopped a task that settled without a result: its final
+// state and its published task row, whose By names the task whose kill_task()
+// committed the kill (builtins/tasks.go). With no killed row, the stop came
+// from a cancelled task context instead.
+func (c *realCommandCompletion) killDetail() string {
+	detail := fmt.Sprintf("task=%d state=%s", c.task.ID, c.task.GetState())
+	if c.runtime == nil {
+		return detail + " row=unknown" + c.timeline()
+	}
+	row, ok := c.runtime.store.TaskRow(c.task.ID)
+	if !ok {
+		return detail + " row=none" + c.timeline()
+	}
+	detail += fmt.Sprintf(" row={status=%d by=%d owner=#%d}", row.Status, row.By, row.Owner)
+	if killer := c.runtime.GetTask(row.By); killer != nil {
+		detail += fmt.Sprintf(" killer={task=%d this=#%d verb=%s state=%s}", killer.ID, killer.This, killer.VerbName, killer.GetState())
+	}
+	return detail + c.timeline()
 }
 
 // startRealMOOProfile uses the same collector as /debug/pprof/moo. Collect only
