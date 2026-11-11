@@ -120,6 +120,39 @@ runtime log, and exits with one result class:
 `results.json` lists every finding with its class, and `families` gives each
 selected family's successful transactions with a read and with a write.
 
+## Task lane and effects lane (plan section 4)
+
+`--tasks` plants a set of test-owned tasks before every graceful checkpoint
+and before each generation's first live checkpoint: a delayed fork behind a
+gate, a suspension with locals at two frames and a pending operand, one holding
+an anonymous object and a WAIF reachable only from its continuation (and
+task_local), one whose verb is edited while it waits, one killed after the
+restart, one holding a recycled object, and one that notifies the receiver only
+after release. They run as a fresh nonwizard programmer and wait in timed
+suspensions (an indefinite `suspend()` resumes with 0 at load). Each launch
+reads every plant's held state before admission, then the driver releases it
+(`resume(tid, {token, "wake"})`, gate, `kill_task`) and waits for every result.
+`task_checks` gives each defect its own witness: `lost-task`,
+`wrong-wake-value`, `duplicated-continuation`, `wrong-alias`,
+`killed-task-ran`, `wrong-task-perms`, `wrong-program-after-edit`,
+`recycled-reference-valid`, `ran-before-release`, `unexpected-task`,
+`effect-before-release`. Once per campaign the harness flips the saved
+program fingerprint of one planted task in the first graceful checkpoint
+(rewriting the sidecar's digest header) and launches from that pair: Barn must
+drop exactly that task with its declared ERROR record and restore the rest
+(`invalid-task-policy`); a deliberately invalid task is not a lost valid task.
+Expectations are pinned on the managed Toast oracle by
+moo-conformance-tests `server/restart_held_task_semantics.yaml`.
+
+The `effects` family adds a receiver and an option connection per generation.
+Each effects transaction reads a hot property, notifies the receiver, crosses
+`set_connection_option`'s irreversible boundary on odd operation ids, appends
+its rows and rewrites the hot property. A drain sentinel at every observation
+proves earlier notifications arrived. `effect_checks` reports
+`duplicated-live-retry-effect`, `invented-effect` and `lost-effect`, and needs
+nonzero `barn.commit_retries` as evidence that conflicts were forced.
+`receipts.jsonl` holds every line the receivers got.
+
 Run (Linux, Java 21, from the repository root):
 
 ```bash

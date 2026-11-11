@@ -103,7 +103,7 @@ jobs:
             --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
             --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
             --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
-            --workloads smoke,props,keyed \
+            --workloads smoke,props,keyed,effects --tasks \
             --output jepsen-evidence --jepsen-timeout 600
       - name: Archive raw evidence
         if: always()
@@ -187,6 +187,11 @@ jobs:
           for control in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
             run --control "$control" --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 180 || status=1
           done
+          # Effects lane control (no stage step): a live-process commit-conflict
+          # retry publishes the lost attempt's notifications; the effect
+          # checker must report duplicated-live-retry-effect.
+          run --control pending-effect-retry --workloads effects --phase1 20 --phase3 10 --phase-live 0 \
+            --output jepsen-stage-evidence/control-pending-effect-retry --jepsen-timeout 180 || status=1
           exit "$status"
       - name: Archive raw evidence
         if: always()

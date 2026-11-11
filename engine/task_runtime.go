@@ -580,7 +580,13 @@ retryAttempt:
 				rerunTicks += attemptTicks
 				lostAttemptTicks = attemptTicks
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+				if isolationprobe.Fault("pending-effect-retry") {
+					// Elle build only: publish the lost attempt's deferred effects
+					// (the Jepsen effects lane's negative control).
+					builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
+				} else {
+					builtins.DiscardPendingEffects(s.session.NewExecution(ctx, &t.State))
+				}
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				if os.Getenv("BARN_DEBUG_RETRY") != "" {
 					slog.Warn("DEBUG-RETRY",

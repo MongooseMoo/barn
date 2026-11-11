@@ -46,6 +46,14 @@ boundary record and stopped state instead of a random delay, then follows the
 checkpoint-crash path. stage_coverage reports what each step reached, killed
 and recovered. --control runs one negative control (CONTROLS) and passes only
 on its designated witness.
+
+The task lane (--tasks, plan section 4) plants test-owned held tasks before
+checkpoints and releases them through a MOO-held driver only after the next
+launch has read their state; task_checks is its lifecycle checker. The effects
+family notifies a receiver connection and crosses set_connection_option's
+irreversible boundary under forced conflicts; effect_checks reads the
+receiver's lines (receipts.jsonl). Neither puts a fork/suspend/effect sequence
+into an Elle transaction.
 """
 from __future__ import annotations
 
@@ -114,6 +122,10 @@ CONTROLS = {
     "checkpoint-mixed-pair": {"stage": "database-renamed-1", "witness": "mixed-pair"},
     "checkpoint-drop-append": {"stage": "pair-renamed-1", "witness": "lost-checkpointed-update", "family": "props"},
     "checkpoint-duplicate-append": {"stage": "pair-renamed-1", "witness": "duplicate-token", "family": "props"},
+    # No stage step: engine/task_runtime.go's commit-conflict retry publishes
+    # the lost attempt's deferred notifications instead of discarding them, so
+    # the effects receiver sees an operation's notification twice.
+    "pending-effect-retry": {"witness": "duplicated-live-retry-effect", "family": "effects"},
 }
 # Ceiling for one live checkpoint to log completion or failure. Not measured.
 CHECKPOINT_DEADLINE = 60.0
@@ -159,10 +171,15 @@ def epoch_code(generation):
 #   keyed: key K is entry K of the map property jm of holder K mod 2 (a map
 #          held directly, then a clear inherited slot), mostly through keyed
 #          access; see keyed_code.
+#   effects: key K is the list in property jeK of the generation's effects
+#          object, read and appended directly inside effects_code, which
+#          also notifies the receiver connection and rewrites a hot property
+#          to force validation conflicts (plan section 4).
 FAMILY_SPAN = 10 ** 7
 FAMILIES = {"smoke": {"base": 0, "key-count": 5},
             "props": {"base": FAMILY_SPAN, "key-count": 8},
-            "keyed": {"base": 2 * FAMILY_SPAN, "key-count": 4}}
+            "keyed": {"base": 2 * FAMILY_SPAN, "key-count": 4},
+            "effects": {"base": 3 * FAMILY_SPAN, "key-count": 4}}
 # Fresh row objects for each generation, so its rows start empty: four
 # property-row objects, then the keyed parent defining jm, a child holding
 # its own map and a child whose slot stays clear.
@@ -230,11 +247,13 @@ def keyed_code(f, key, value, layout, mode):
     return f"{obj}.jm[{key}] = {{@{entry}, {value}}};"
 
 
-def txn_code(txn, layout=None, op_id=0):
+def txn_code(txn, layout=None, op_id=0, observation=False):
     """One MOO task running txn's micro-operations in order and returning its reads.
 
     Smoke rows append to the per-boot row map and the durable ledger. Property
     and keyed rows need the generation's layout; op_id picks the keyed mode.
+    A client transaction of effects rows is effects_code; a campaign
+    observation reads effects rows only, with no notification or hot write.
     """
     statements, smoke, appends = ["out = {};"], False, False
     for mop in txn:
@@ -248,7 +267,12 @@ def txn_code(txn, layout=None, op_id=0):
             raise ValueError(f"micro-operation {mop!r} has a key in no row family")
         if family != "smoke" and layout is None:
             raise ValueError(f"{family} micro-operation {mop!r} needs the generation's row layout")
-        if family == "props":
+        if family == "effects":
+            if not observation:
+                # A client transaction (one family per transaction, core.clj txns).
+                return effects_code(txn, layout, op_id)
+            statements.append(effects_row_code(f, key, value, layout))
+        elif family == "props":
             statements.append(props_code(f, key, value, layout))
         elif family == "keyed":
             statements.append(keyed_code(f, key, value, layout, op_id % 4))
@@ -269,7 +293,7 @@ def txn_code(txn, layout=None, op_id=0):
 
 def observation_code(keys, layout):
     """Read every listed row in one task."""
-    return txn_code([["r", key, None] for key in keys], layout)
+    return txn_code([["r", key, None] for key in keys], layout, observation=True)
 
 
 def recovery_observation_code(generation, keys, layout):
@@ -304,6 +328,276 @@ def parse_recovery_observation(value, keys, generation):
 
 def probe_write_code(token):
     return f"#0.jepsen_probe = {token}; return #0.jepsen_probe;"
+
+
+# ---------------------------------------------------------------------------
+# Effects lane (plan section 4): a receiver connection and an option
+# connection per generation, both logged in as fresh programmers.
+
+# One effects object per generation: the jeK rows, a hot counter every effects
+# transaction rewrites, and pre, which a boundary transaction writes before
+# its irreversible call so the boundary publishes it.
+EFFECTS_CODE = ('e = create(#-1); add_property(e, "hot", 0, {#0, "r"}); add_property(e, "pre", 0, {#0, "r"}); '
+                'return toint(e);')
+EFFECT_PREFIX = "jepsen-effect"
+DRAIN_PREFIX = "jepsen-drain"
+TASK_EFFECT_PREFIX = "jepsen-task"
+# Ceiling for a drain sentinel to reach the receiver. Not measured.
+DRAIN_DEADLINE = 30.0
+
+
+def boundary_op(op_id):
+    """Odd operation ids cross set_connection_option's irreversible boundary."""
+    return op_id % 2 == 1
+
+
+def effects_row_code(f, key, value, layout):
+    """A direct read or append of effects row key (property jeK of the effects object)."""
+    effects = layout.get("effects") if layout else None
+    if not effects:
+        raise ValueError("effects micro-operations need the generation's effects objects")
+    obj, prop = f"#{effects['object']}", f"je{key}"
+    if f == "r":
+        return f"out = {{@out, `{obj}.{prop} ! E_PROPNF => {{}}'}};"
+    return (f"try {obj}.{prop} = {{@{obj}.{prop}, {value}}}; "
+            f"except (E_PROPNF) add_property({obj}, \"{prop}\", {{{value}}}, {{#0, \"r\"}}); endtry")
+
+
+def effects_code(txn, layout, op_id):
+    """An effects transaction.
+
+    h = E.hot is read first; notify(R, "<prefix> <op> pre") is deferred to
+    commit. A boundary transaction then writes E.pre and calls
+    set_connection_option(C, "flush-command", ...): a stale hot read makes
+    the attempt re-run before the option is set, and the boundary publishes
+    E.pre and so flushes the pre notification there. The row micro-ops follow
+    the boundary, so every row write publishes at the final commit and the
+    transaction stays atomic for Elle. Last, E.hot = h + 1 and the post
+    notification. The receiver's lines, not notify's return value, establish
+    delivery (effect_checks).
+    """
+    effects = layout.get("effects") if layout else None
+    if not effects:
+        raise ValueError("effects micro-operations need the generation's effects objects")
+    obj, receiver, option = f"#{effects['object']}", f"#{effects['receiver']}", f"#{effects['option']}"
+    statements = ["out = {};", f"h = {obj}.hot;", f'notify({receiver}, "{EFFECT_PREFIX} {op_id} pre");']
+    if boundary_op(op_id):
+        statements += [f"{obj}.pre = {op_id};",
+                       f'set_connection_option({option}, "flush-command", "{EFFECT_PREFIX}-{op_id}");']
+    for mop in txn:
+        if not (isinstance(mop, list) and len(mop) == 3 and type(mop[1]) is int and family_of(mop[1]) == "effects"):
+            raise ValueError(f"effects transaction holds a micro-operation {mop!r} outside the effects family")
+        f, key, value = mop
+        if not ((f == "append" and type(value) is int) or (f == "r" and value is None)):
+            raise ValueError(f"malformed micro-operation {mop!r}")
+        statements.append(effects_row_code(f, key, value, layout))
+    statements +=[f"{obj}.hot = h + 1;", f'notify({receiver}, "{EFFECT_PREFIX} {op_id} post");', "return out;"]
+    return " ".join(statements)
+
+
+def drain_code(effects, token):
+    """Send the drain sentinel and read the option connection's flush-command."""
+    return (f'notify(#{effects["receiver"]}, "{DRAIN_PREFIX} {token}"); '
+            f'return connection_option(#{effects["option"]}, "flush-command");')
+
+
+# ---------------------------------------------------------------------------
+# Task lane (plan section 4): test-owned tasks held across a checkpoint and
+# restart behind a MOO-held driver, released only after the recovery read.
+# Semantics pinned on the managed Toast oracle by moo-conformance-tests
+# server/restart_held_task_semantics.yaml (timed suspension, task-only anon
+# and WAIF aliases, programmer ownership, verb edited while suspended, recycled
+# reference, kill after restart); a delayed fork's locals and an indefinite
+# suspend's resume-at-load by audit/task_scheduling_toast_oracle.yaml and
+# server/restart_task_semantics.yaml. An indefinite suspend() resumes with 0 at
+# load, so every held suspension is timed (HOLD_SECONDS) and released by
+# resume(). A queued fork cannot be resumed, so its body first polls a gate.
+
+HOLD_SECONDS = 3600
+FORK_DELAY = 10
+# Ceiling for every released continuation to record its result. Not measured;
+# it covers FORK_DELAY.
+RELEASE_DEADLINE = 45.0
+TASK_KINDS = ("fork", "suspend", "values", "edit", "cancel", "recycle", "effect", "invalid")
+# Released with resume(tid, {token, "wake"}); cancel is killed instead and
+# fork passes its gate.
+RESUMED_KINDS = ("suspend", "values", "edit", "recycle", "effect", "invalid")
+
+
+def _moo_lines(lines):
+    return "{" + ", ".join(json.dumps(line) for line in lines) + "}"
+
+
+# Verbs on the scenario object. Owner "p" is the nonwizard programmer the
+# tasks run as; "wizard" verbs are wizard-only builtins (task_local, and
+# notify to another player) behind a helper.
+TASK_VERBS = {
+    "record": ("p", ["k = args[1];",
+                     "this.results[k] = {@(maphaskey(this.results, k) ? this.results[k] | {}), args[2]};"]),
+    "set_local": ("wizard", ["set_task_local(args[1]);"]),
+    "get_local": ("wizard", ["return task_local();"]),
+    "spawn": ("p", ["fork tid (0)", "  this:(args[1])(@listdelete(args, 1));", "endfork", "suspend(0);",
+                    "return tid;"]),
+    "fork_hold": ("p", ["tok = args[1];", "lv = {tok, \"fork-local\"};", f"fork tid ({FORK_DELAY})",
+                        "  while (!this.gate)", "    suspend(1);", "  endwhile",
+                        "  this:record(tok, {\"fork\", lv, toint(task_perms()), task_id()});", "endfork", "return tid;"]),
+    "suspend_inner": ("p", ["inner_local = {args[1], \"inner\"};", f"v = suspend({HOLD_SECONDS});",
+                            "return {v, inner_local, toint(task_perms())};"]),
+    "suspend_body": ("p", ["marker = {args[1], \"outer\"};",
+                           "this:record(args[1], {\"suspend\", marker, task_id(), this:suspend_inner(args[1])});"]),
+    "values_body": ("p", ["tok = args[1];", "a = create(args[2], 1);", "a.tok = tok;", "b = {a, a};",
+                          "w = args[3]:new();", "w.tok = tok;", "w2 = w;", "this:set_local({tok, a, w});",
+                          f"v = suspend({HOLD_SECONDS});", "c = b[1];", "c.tok = tok + 1;", "w2.tok = tok + 2;",
+                          "held = this:get_local();",
+                          "this:record(tok, {\"values\", v, valid(a), typeof(a), a == b[1], b[1] == b[2], "
+                          "a == held[2], a.tok, typeof(w), w == w2, w == held[3], w.tok, toint(task_perms())});"]),
+    "edit_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"edit\", \"old\", v});"]),
+    "cancel_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"cancel\", \"ran\", v});"]),
+    # The task whose saved program the harness invalidates once (invalidate_task_fingerprint).
+    "invalid_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"invalid\", v});"]),
+    "recycle_body": ("p", ["h = args[2];", f"v = suspend({HOLD_SECONDS});",
+                           "this:record(args[1], {\"recycle\", valid(h), typeof(h), h == args[2], v});"]),
+    "effect_body": ("wizard", [f"v = suspend({HOLD_SECONDS});",
+                               f"notify(this.receiver, tostr(\"{TASK_EFFECT_PREFIX} \", args[1]));",
+                               "this:record(args[1], {\"effect\", v});"]),
+}
+EDITED_CODE = ["this:record(args[1], {\"edit\", \"new\", args});"]
+
+
+def task_setup_code():
+    """Create the programmer, the scenario object, its anon parent and WAIF
+    class, and every scenario verb; returns {p, o, ap, wc} as integers."""
+    statements = ["p = create($nothing);", "p.owner = p;", "set_player_flag(p, 1);", "p.programmer = 1;",
+                  "ap = create($nothing, p);", 'add_property(ap, "tok", 0, {p, "rw"});',
+                  "wc = create($waif, p);", 'add_property(wc, ":tok", 0, {p, "rw"});',
+                  "o = create($nothing, p);", 'add_property(o, "results", [], {p, "rw"});',
+                  'add_property(o, "gate", 0, {p, "rw"});', 'add_property(o, "receiver", #-1, {p, "rw"});']
+    for name, (owner, lines) in TASK_VERBS.items():
+        who = "p" if owner == "p" else "player"
+        statements.append(f'add_verb(o, {{{who}, "xd", "{name}"}}, {{"this", "none", "this"}});')
+        statements.append(f'if (set_verb_code(o, "{name}", {_moo_lines(lines)})) return "{name} does not compile"; endif')
+    statements.append("return {toint(p), toint(o), toint(ap), toint(wc)};")
+    return " ".join(statements)
+
+
+def task_spawn_code(setup, kind, token, extra=None):
+    """Start one scenario task; returns its task id."""
+    o = f"#{setup['object']}"
+    if kind == "fork":
+        return f"return {o}:fork_hold({token});"
+    args = {"suspend": "", "edit": "", "cancel": "", "effect": "", "invalid": "",
+            "values": f", #{setup['anon_parent']}, #{setup['waif_class']}",
+            "recycle": f", #{extra}"}[kind]
+    return f'return {o}:spawn("{kind}_body", {token}{args});'
+
+
+def task_state_code(setup):
+    """{queued task ids, the scenario object's results or 0 when it is not valid}."""
+    o = f"#{setup['object']}"
+    return ("ids = {}; for t in (queued_tasks()) ids = {@ids, t[1]}; endfor "
+            f"return {{ids, valid({o}) ? {o}.results | 0}};")
+
+
+def task_release_code(plant, receiver):
+    """The driver: open the fork gate, point effect tasks at the receiver, kill
+    cancel tasks and resume every suspension with {token, "wake"}."""
+    o = f"#{plant['setup']['object']}"
+    statements = [f"{o}.receiver = #{receiver};" if receiver is not None else "", f"{o}.gate = 1;"]
+    for task in plant["tasks"]:
+        if task.get("invalidated"):
+            continue  # dropped at load; resume() would raise E_INVARG
+        if task["kind"] == "cancel":
+            statements.append(f"kill_task({task['tid']});")
+        elif task["kind"] in RESUMED_KINDS:
+            statements.append(f'resume({task["tid"]}, {{{task["token"]}, "wake"}});')
+    statements.append("return 1;")
+    return " ".join(statement for statement in statements if statement)
+
+
+class Receiver:
+    """A harness connection logged in as a fresh programmer (Test.db
+    do_login_command), whose every later output line is journaled with its
+    arrival time by a reader thread until the server closes it."""
+
+    def __init__(self, transport_factory, port, on_line):
+        self.transport = transport_factory(port)
+        self.transport.connect("programmer")
+        result = self.transport.execute("return toint(player);")
+        if not result.success or type(result.value) is not int:
+            self.transport.disconnect()
+            raise RuntimeError(f"receiver login did not name its player: {result.value!r}")
+        self.player = result.value
+        self.on_line = on_line
+        self.thread = None
+
+    def start(self):
+        sock = self.transport.sock
+        sock.settimeout(None)
+
+        def read():
+            buffer = b""
+            while True:
+                try:
+                    data = sock.recv(65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                buffer += data
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    text = type(self.transport)._strip_telnet_commands(line).decode("utf-8", "replace").rstrip("\r")
+                    self.on_line(text, time.monotonic_ns())
+
+        self.thread = threading.Thread(target=read, daemon=True)
+        self.thread.start()
+        return self
+
+    def close(self):
+        self.transport.disconnect()
+        if self.thread is not None:
+            self.thread.join(5)
+
+
+DROPPED_TASK_MESSAGE = "dropped suspended task: saved program does not match its source"
+
+
+def invalidate_task_fingerprint(text, tid):
+    """Flip one hex digit of suspended task tid's first saved program fingerprint.
+
+    In a Barn-written checkpoint the task section starts with the line
+    "<start> <tid> <wake value...>" after "N suspended tasks", and each saved
+    frame's program identity list ends with its 64-hex-digit fingerprint,
+    which precedes that frame's builtin-layout hex (db/format/writer_vm.go
+    programIdentityValue). The first 64-hex line after the header is
+    therefore the first frame's fingerprint. Barn's loader recompiles the
+    frame's source, finds the fingerprint different and drops only that task
+    (engine/task_load.go LoadSuspendedTasks). Returns (new text, line number).
+    """
+    lines = text.split("\n")
+    start = next((index for index, line in enumerate(lines) if line.endswith(" suspended tasks")), None)
+    if start is None:
+        raise ValueError("checkpoint has no suspended tasks section")
+    header = next((index for index in range(start + 1, len(lines))
+                   if len(lines[index].split()) >= 2 and lines[index].split()[1] == str(tid)
+                   and lines[index].split()[0].lstrip("-").isdigit()), None)
+    if header is None:
+        raise ValueError(f"suspended task {tid} is not in the checkpoint")
+    target = next((index for index in range(header + 1, len(lines))
+                   if len(lines[index]) == 64 and all(c in "0123456789abcdef" for c in lines[index])), None)
+    if target is None:
+        raise ValueError(f"suspended task {tid} has no saved program fingerprint")
+    line = lines[target]
+    lines[target] = ("1" if line[0] == "0" else "0") + line[1:]
+    return "\n".join(lines), target + 1
+
+
+def parse_task_state(value):
+    if not (isinstance(value, list) and len(value) == 2 and _int_list(value[0])
+            and (value[1] == 0 or isinstance(value[1], dict))):
+        raise ValueError(f"malformed task state {value!r}")
+    results = None if value[1] == 0 else {int(key): records for key, records in value[1].items()}
+    return {"ids": value[0], "results": results}
 
 
 def _int_list(value):
@@ -449,7 +743,10 @@ def provenance(args, output):
     return {
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
-                        "workloads", "stages", "stage_seconds", "control")},
+                        "workloads", "stages", "stage_seconds", "control", "tasks")},
+        "task_lane": {"kinds": list(TASK_KINDS), "hold_seconds": HOLD_SECONDS, "fork_delay_seconds": FORK_DELAY,
+                      "release_deadline_seconds": RELEASE_DEADLINE},
+        "effects_lane": {"drain_deadline_seconds": DRAIN_DEADLINE},
         "stage_schedule": {name: STAGE_SCHEDULE[name] for name in args.stages},
         "live_checkpoints": {"deadline_seconds": CHECKPOINT_DEADLINE, "delay_span": DELAY_SPAN,
                              "first_delay_seconds": FIRST_DELAY_SECONDS},
@@ -486,8 +783,20 @@ def free_port():
 
 class Campaign:
     def __init__(self, executable, source_db, output, transport_factory, *, server_class=None, port_source=free_port,
-                 probe_deadline=PROBE_DEADLINE, seed=1, stages=(), control=None):
+                 probe_deadline=PROBE_DEADLINE, seed=1, stages=(), control=None, tasks=False, effects=False,
+                 receiver_class=Receiver, release_deadline=RELEASE_DEADLINE):
         self.executable, self.output = executable, output
+        self.tasks = tasks                  # task lane: plant held tasks before checkpoints
+        self.effects = effects              # effects family selected: drain the receiver at observations
+        self.receiver_class = receiver_class
+        self.release_deadline = release_deadline
+        self.plants = []                    # every task-plant record (task lane)
+        self.live_planted = set()           # generations whose live lane planted a set
+        self.invalidated = False            # the invalid-task policy check ran (invalidate)
+        self.connections = []               # this generation's receiver and option connections
+        self.drains = 0
+        self.receipts_lock = threading.Lock()
+        self.receipts_path = output / "receipts.jsonl"
         self.stages = list(stages)          # STAGE_SCHEDULE steps, armed one per generation in order
         self.next_stage = 0
         self.armed = {}                     # generation -> the step its stop spec selects
@@ -531,6 +840,13 @@ class Campaign:
             stream.write(line)
             stream.flush()
             os.fsync(stream.fileno())
+
+    def receipt(self, generation, line, received_ns):
+        """Journal one line the receiver connection of generation got."""
+        row = json.dumps({"generation": generation, "line": line, "monotonic_ns": received_ns}) + "\n"
+        with self.receipts_lock, self.receipts_path.open("a", encoding="utf-8") as stream:
+            stream.write(row)
+            stream.flush()
 
     def phase(self):
         """Fault phase for a journal record; the caller holds self.lock."""
@@ -608,6 +924,159 @@ class Campaign:
             row.update(ok=ok, value=value, failed_attempts=errors, seconds=seconds,
                        deadline_seconds=self.probe_deadline)
         self.record(row)
+        if self.effects:
+            self.drain(reason)
+
+    def drain(self, reason):
+        """Effects lane: notify a sentinel to the receiver and wait for it. The
+        receiver's output is FIFO and a flushed notify is written before its
+        task replies (server/connection.go SendNotification), so the sentinel's
+        arrival proves every earlier completed notify arrived. Also records the
+        option connection's flush-command and Barn's commit retry counter
+        (coverage only)."""
+        generation = self.generation
+        with self.lock:
+            live = self.live
+        effects = (self.layouts.get(generation) or {}).get("effects")
+        self.drains += 1
+        token = f"{generation} {self.drains}"
+        row = {"event": "effect-drain", "generation": generation, "reason": reason, "token": token}
+        if live is None or effects is None or self.server.paused:
+            row.update(ok=False, skipped="generation not live and running with an effects receiver")
+            self.record(row)
+            return
+        sent_ns = time.monotonic_ns()
+        try:
+            row["option"] = self.evaluate(live[1], drain_code(effects, token))
+        except Exception as error:
+            row.update(ok=False, error=f"{type(error).__name__}: {error}")
+            self.record(row)
+            return
+        expected, deadline = f"{DRAIN_PREFIX} {token}", time.monotonic() + DRAIN_DEADLINE
+        received = None
+        while received is None and time.monotonic() < deadline:
+            with self.receipts_lock:
+                lines = self.receipts_path.read_text(encoding="utf-8").splitlines() \
+                    if self.receipts_path.exists() else []
+            received = next((json.loads(line)["monotonic_ns"] for line in reversed(lines)
+                             if json.loads(line)["line"] == expected and json.loads(line)["generation"] == generation),
+                            None)
+            if received is None:
+                time.sleep(0.05)
+        row.update(ok=received is not None, sent_ns=sent_ns, received_ns=received,
+                   deadline_seconds=DRAIN_DEADLINE, commit_retries=self.commit_retries())
+        self.record(row)
+
+    def commit_retries(self):
+        """barn.commit_retries from the owned debug endpoint, or None."""
+        address = ((getattr(self.server, "identity", None) or {}).get("endpoints") or {}).get("debug")
+        if not address:
+            return None
+        try:
+            import urllib.request
+            with urllib.request.urlopen(f"http://{address}/debug/vars", timeout=5) as response:
+                return json.loads(response.read().decode("utf-8")).get("barn.commit_retries")
+        except Exception:
+            return None
+
+    # -- task lane ---------------------------------------------------------
+
+    def plant(self, point):
+        """Create one scenario set of held tasks and verify every task is queued
+        with no result before the caller checkpoints."""
+        generation, (_, port) = self.generation, self.live
+        seq = len(self.plants) + 1
+        value = self.evaluate(port, task_setup_code())
+        if not (isinstance(value, list) and len(value) == 4 and _int_list(value)):
+            raise RuntimeError(f"task setup failed: {value!r}")
+        setup = dict(zip(("programmer", "object", "anon_parent", "waif_class"), value))
+        recycled = self.evaluate(port, "return toint(create($nothing));")
+        tasks = []
+        for index, kind in enumerate(TASK_KINDS):
+            token = 1000000 + seq * 100 + index
+            tid = self.evaluate(port, task_spawn_code(setup, kind, token, recycled))
+            if type(tid) is not int:
+                raise RuntimeError(f"task {kind} did not start: {tid!r}")
+            tasks.append({"kind": kind, "token": token, "tid": tid})
+        o = f"#{setup['object']}"
+        self.evaluate(port, f'set_verb_code({o}, "edit_body", {_moo_lines(EDITED_CODE)}); '
+                            f"recycle(#{recycled}); return 1;")
+        state = parse_task_state(self.evaluate(port, task_state_code(setup)))
+        plant = {"seq": seq, "point": point, "generation": generation, "setup": setup, "tasks": tasks,
+                 "recycled": recycled, "verified": state, "planted_ns": time.monotonic_ns()}
+        self.record(dict(plant, event="task-plant"))
+        missing = [task["tid"] for task in tasks if task["tid"] not in state["ids"]]
+        if missing or state["results"]:
+            raise RuntimeError(f"task plant {seq} is not held: tasks {missing} not queued, results {state['results']}")
+        self.plants.append(plant)
+        return plant
+
+    def task_recovery(self, generation, port):
+        """Before admission and before any release: every plant's held state in
+        the database this generation loaded. Returns the plants still held."""
+        held = []
+        for plant in self.plants:
+            def attempt(plant=plant):
+                return parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
+            ok, state, errors, seconds = self.bounded(attempt)
+            tids = [task["tid"] for task in plant["tasks"] if not task.get("invalidated")]
+            present = [tid for tid in tids if ok and tid in state["ids"]]
+            if not ok or state["results"] is None:
+                status = "absent" if ok else "unreadable"
+            elif len(present) == len(tids) and not state["results"]:
+                status = "held"
+            elif not present:
+                status = "completed"
+            else:
+                status = "partial"
+            self.record({"event": "task-recovery", "generation": generation, "plant": plant["seq"], "ok": ok,
+                         "state": state, "present": present, "status": status, "failed_attempts": errors,
+                         "seconds": seconds})
+            if status == "held":
+                held.append(plant)
+        return held
+
+    def open_connections(self, generation, port):
+        """The generation's receiver (journaling to receipts.jsonl) and option
+        connection, each a fresh programmer."""
+        receiver = self.receiver_class(self.transport_factory, port,
+                                       lambda line, ns: self.receipt(generation, line, ns)).start()
+        self.connections.append(receiver)
+        option = self.receiver_class(self.transport_factory, port, lambda line, ns: None).start()
+        self.connections.append(option)
+        self.record({"event": "effect-connections", "generation": generation, "receiver": receiver.player,
+                     "option": option.player})
+        return {"receiver": receiver.player, "option": option.player}
+
+    def close_connections(self):
+        for connection in self.connections:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        self.connections = []
+
+    def release(self, generation, port, plants, receiver):
+        """The driver, run after the recovery read: release every held plant and
+        wait until each released continuation recorded its result and the
+        plant's tasks left the queue."""
+        for plant in plants:
+            self.evaluate(port, task_release_code(plant, receiver))
+            released_ns = time.monotonic_ns()
+            expected = {task["token"] for task in plant["tasks"]
+                        if task["kind"] != "cancel" and not task.get("invalidated")}
+            tids = {task["tid"] for task in plant["tasks"] if not task.get("invalidated")}
+            deadline, state = time.monotonic() + self.release_deadline, None
+            while True:
+                state = parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
+                done = state["results"] is not None and expected <= set(state["results"]) \
+                    and not tids & set(state["ids"])
+                if done or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.25)
+            self.record({"event": "task-release", "generation": generation, "plant": plant["seq"],
+                         "released_ns": released_ns, "receiver": receiver, "complete": done, "state": state,
+                         "deadline_seconds": self.release_deadline})
 
     @staticmethod
     def _copy_pair(database, sidecar, sha256, sidecar_sha256, target):
@@ -628,6 +1097,7 @@ class Campaign:
         output path in place (Barn's loader recovers its journal), or from a
         copy of the unchanged input when no checkpoint output existed.
         """
+        self.close_connections()
         self.generation += 1
         generation, source = self.generation, self.source
         run_dir = self.output / f"gen-{generation:03d}"
@@ -660,8 +1130,17 @@ class Campaign:
         self.server = server
         server.start()
         self.observe_recovery(generation, port, restart)
+        held = self.task_recovery(generation, port) if self.plants else []
+        effects = self.open_connections(generation, port) if (self.tasks or self.effects) else None
+        if held:
+            self.release(generation, port, held, effects["receiver"])
         recovered = parse_ledger(self.evaluate(port, ADMIT_CODE))
         layout = parse_layout(self.evaluate(port, ROWS_CODE))
+        if self.effects:
+            effects_object = self.evaluate(port, EFFECTS_CODE)
+            if type(effects_object) is not int:
+                raise RuntimeError(f"effects object was not created: {effects_object!r}")
+            layout["effects"] = dict(effects, object=effects_object)
         if self.evaluate(port, epoch_code(generation)) != generation:
             raise RuntimeError(f"epoch marker of generation {generation} was not written")
         self.record({"event": "admit", "generation": generation, "kind": kind, "port": port,
@@ -728,6 +1207,8 @@ class Campaign:
         if self.server.paused:
             self.server.resume()
         self.observe("checkpoint")
+        if self.tasks:
+            self.plant("graceful-checkpoint")
         _, port = self.live
         baseline = parse_ledger(self.evaluate(port, LEDGER_CODE))
         self._quiesce()
@@ -743,7 +1224,41 @@ class Campaign:
                        "waif_identities": outputs["waif_identities"]["path"],
                        "waif_identities_sha256": outputs["waif_identities"]["sha256"],
                        "baseline": baseline, "baseline_generation": generation}
+        if self.tasks and not self.invalidated:
+            self.invalidate(generation)
         return {"checkpointed": generation, "generation": self.launch("checkpoint")}
+
+    def invalidate(self, generation):
+        """Once per campaign: copy the verified pair, flip the saved program
+        fingerprint of the latest plant's "invalid" task, rewrite the sidecar's
+        database digest header to match, and make that pair the launch source.
+        Barn must drop exactly that task and restore the rest (plan section 4:
+        a deliberately invalid task is not a lost valid task)."""
+        plant = self.plants[-1]
+        task = next(item for item in plant["tasks"] if item["kind"] == "invalid")
+        directory = self.output / f"gen-{generation:03d}-invalidated"
+        directory.mkdir()
+        database, sidecar = directory / "input.db", directory / "input.db.waifids"
+        # Bytes throughout: no newline translation inside saved strings.
+        original = Path(self.source["database"]).read_bytes().decode("utf-8", "surrogateescape")
+        text, line = invalidate_task_fingerprint(original, task["tid"])
+        database.write_bytes(text.encode("utf-8", "surrogateescape"))
+        digest = barn_process.bench.sha256_file(database)
+        header, _, rest = Path(self.source["waif_identities"]).read_bytes().partition(b"\n")
+        if not header.startswith(b"barn-waif-identities-v1 "):
+            raise RuntimeError(f"unexpected WAIF identity sidecar header {header!r}")
+        sidecar.write_bytes(f"barn-waif-identities-v1 {digest}\n".encode() + rest)
+        before = dict(self.source)
+        self.source.update(database=str(database), database_sha256=digest, waif_identities=str(sidecar),
+                           waif_identities_sha256=barn_process.bench.sha256_file(sidecar))
+        task["invalidated"] = True
+        self.invalidated = True
+        self.record({"event": "task-invalidate", "generation": generation, "plant": plant["seq"], "tid": task["tid"],
+                     "token": task["token"], "line": line,
+                     "from": {key: before[key] for key in ("database", "database_sha256", "waif_identities",
+                                                           "waif_identities_sha256")},
+                     "to": {key: self.source[key] for key in ("database", "database_sha256", "waif_identities",
+                                                              "waif_identities_sha256")}})
 
     def _request_checkpoint(self, purpose, **extra):
         """SIGALRM one checkpoint; the previous one was acknowledged or its process is gone."""
@@ -758,6 +1273,14 @@ class Campaign:
     def live_checkpoint(self):
         """Checkpoint while clients continue; acknowledged by `checkpoint complete` and the published pair."""
         generation = self.generation
+        if self.tasks and not self.stages and generation not in self.live_planted:
+            # Held through this checkpoint A and the generation's checkpoint-crash,
+            # so recovery runs the real journal path (task_checks: present iff the
+            # selected cut is A or F).
+            if self.server.paused:
+                self.server.resume()
+            self.live_planted.add(generation)
+            self.plant("live-checkpoint")
         seq, boundary = self._request_checkpoint("live")
         result = self.server.wait_checkpoint(boundary, CHECKPOINT_DEADLINE)
         self.record(dict(result, event="checkpoint-" + result["status"], generation=generation, seq=seq))
@@ -881,6 +1404,7 @@ class Campaign:
     def finish(self):
         with self.lifecycle:
             self._quiesce()
+            self.close_connections()
             if self.server is None or self.server.proc is None or self.server.proc.poll() is not None:
                 return
             try:
@@ -1353,6 +1877,12 @@ def snapshot_cut_violations(cut, generation, epoch, start_epoch, rows, txns):
     return problems
 
 
+def held_task_count(lifecycle, generation):
+    """Task-lane tasks generation's launch found queued (task-recovery rows)."""
+    return sum(len(row.get("present") or []) for row in lifecycle
+               if row.get("event") == "task-recovery" and row.get("generation") == generation)
+
+
 def snapshot_checks(lifecycle, journal):
     """Check each checkpoint-crash recovery. Returns (rows, [(class, message)]).
 
@@ -1430,10 +1960,14 @@ def snapshot_checks(lifecycle, journal):
                      f"{where}: mixed pair accepted: the recovered database is {mixed['name']}'s, but its WAIF "
                      f"identities are {recovered['waif_identities']}, not {mixed['pair']['waif_identities']}")
             continue
-        if observation["tasks"] != start["tasks"]:
-            find(row, INCOMPLETE, "restored-task", f"{where}: {observation['tasks']} queued tasks recovered, "
-                                                   f"{start['tasks']} at the generation's own launch; a restored "
-                                                   f"task could have changed the observed rows")
+        # Task-lane plants are held behind their driver (they cannot change the
+        # rows before release) and task_checks judges them; count only the rest.
+        recovered_tasks = observation["tasks"] - held_task_count(lifecycle, generation + 1)
+        launch_tasks = start["tasks"] - held_task_count(lifecycle, generation)
+        if recovered_tasks != launch_tasks:
+            find(row, INCOMPLETE, "restored-task", f"{where}: {recovered_tasks} queued tasks recovered outside the "
+                                                   f"task lane, {launch_tasks} at the generation's own launch; a "
+                                                   f"restored task could have changed the observed rows")
         txns = epoch_transactions(journal, generation)
         rows = None if observation.get("rows") is None else dict(zip(observation["keys"], observation["rows"]))
         if rows is not None:
@@ -1554,6 +2088,299 @@ def stage_coverage(lifecycle, selected, recoveries):
         failed = [kind for kind in PRECEDENCE if kind in problems or kind in recovery.get("classes", [])]
         row["verdict"] = failed[0] if failed else "healthy"
     return rows, findings
+
+
+# ---------------------------------------------------------------------------
+# Task lifecycle checker (plan section 4). Separate from Elle and the append
+# oracle: a fork/suspend/release sequence is never one Elle transaction.
+
+def expected_task_record(task, programmer):
+    """The record a released task of kind must write once, from its token."""
+    token, kind = task["token"], task["kind"]
+    wake = [token, "wake"]
+    return {"fork": ["fork", [token, "fork-local"], programmer, task["tid"]],
+            "suspend": ["suspend", [token, "outer"], task["tid"], [wake, [token, "inner"], programmer]],
+            "values": ["values", wake, 1, 12, 1, 1, 1, token + 1, 13, 1, 1, token + 2, programmer],
+            "edit": ["edit", "old", wake],
+            "invalid": ["invalid", wake],
+            "recycle": ["recycle", 0, 1, 1, wake],
+            "effect": ["effect", wake]}.get(kind)
+
+
+def record_witness(kind, record, expected):
+    """The witness naming how record departs from expected (None when equal)."""
+    if record == expected:
+        return None
+    if not isinstance(record, list) or len(record) != len(expected) or record[0] != expected[0]:
+        return "wrong-task-record"
+    if kind == "edit" and record[1] != "old":
+        return "wrong-program-after-edit"
+    if kind == "recycle" and record[1] != 0:
+        return "recycled-reference-valid"
+    wake_at = {"suspend": None, "values": 1, "edit": 2, "recycle": 4, "effect": 1, "invalid": 1}.get(kind)
+    if kind == "suspend":
+        inner = record[3] if isinstance(record[3], list) and len(record[3]) == 3 else [None, None, None]
+        if inner[0] != expected[3][0]:
+            return "wrong-wake-value"
+        if inner[2] != expected[3][2]:
+            return "wrong-task-perms"
+        return "wrong-locals"
+    if wake_at is not None and record[wake_at] != expected[wake_at]:
+        return "wrong-wake-value"
+    if kind in ("fork", "values") and record[-1 if kind == "values" else 2] != expected[-1 if kind == "values" else 2]:
+        return "wrong-task-perms"
+    if kind == "values":
+        return "wrong-alias"
+    if kind == "fork":
+        return "wrong-locals" if record[1] != expected[1] else "wrong-task-id"
+    return "wrong-task-record"
+
+
+def _selected_cut_names(recoveries, generation):
+    row = next((item for item in recoveries or [] if item.get("generation") == generation), None)
+    return None if row is None else row.get("candidate_cuts")
+
+
+def task_checks(lifecycle, receipts, recoveries, live=False):
+    """Check every task-lane plant. Returns (results, [(class, witness, message)]).
+
+    Per launch (task-recovery): a plant is held (every task queued, no result),
+    completed (no task queued, results present) or absent (scenario object not
+    valid); anything else is a finding. The generation launched from a plant's
+    own graceful checkpoint must find it held; the recovery after a live plant's
+    checkpoint-crash must find it held when the selected cut is A or F and absent
+    when only the unchanged input fits. Per release: each task's record exactly
+    once with its expected content, cancel never, and every task out of the queue.
+    """
+    findings, rows = [], []
+
+    def find(kind, witness, message, row=None):
+        findings.append((kind, witness, message))
+        if row is not None and witness not in row["witnesses"]:
+            row["witnesses"].append(witness)
+
+    plants = {row["seq"]: row for row in lifecycle if row.get("event") == "task-plant"}
+    admits = {row["generation"]: row for row in lifecycle if row.get("event") == "admit"}
+    releases = {}
+    for row in lifecycle:
+        if row.get("event") == "task-release":
+            releases.setdefault(row["plant"], []).append(row)
+    effect_lines = {}
+    for receipt in receipts:
+        line = receipt.get("line", "")
+        if line.startswith(TASK_EFFECT_PREFIX + " "):
+            key = (receipt.get("generation"), line[len(TASK_EFFECT_PREFIX) + 1:].strip())
+            effect_lines[key] = effect_lines.get(key, 0) + 1
+    for seq, plant in sorted(plants.items()):
+        programmer = plant["setup"]["programmer"]
+        summary = {"plant": seq, "point": plant["point"], "generation": plant["generation"], "launches": [],
+                   "releases": [], "witnesses": []}
+        rows.append(summary)
+        invalid = {row["tid"] for row in lifecycle if row.get("event") == "task-invalidate" and row["plant"] == seq}
+        all_tids = [task["tid"] for task in plant["tasks"]]
+        if len(set(all_tids)) != len(all_tids):
+            find(INVALID, "task-plant", f"plant {seq}: task ids {all_tids} repeat", summary)
+        tids = [tid for tid in all_tids if tid not in invalid]
+        for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq):
+            generation, state = recovery["generation"], recovery.get("state") or {}
+            where = f"plant {seq} at the launch of generation {generation}"
+            launch = {"generation": generation, "status": "unreadable"}
+            summary["launches"].append(launch)
+            if not recovery.get("ok"):
+                find(INCOMPLETE, "task-unreadable", f"{where}: held state unreadable: "
+                                                    f"{recovery.get('failed_attempts')}", summary)
+                continue
+            ids = state.get("ids") or []
+            if invalid & set(ids):
+                find(CORRECTNESS, "invalid-task-policy", f"{where}: the deliberately invalidated task(s) "
+                                                         f"{sorted(invalid & set(ids))} were restored", summary)
+            if len(set(ids)) != len(ids):
+                find(CORRECTNESS, "duplicated-continuation", f"{where}: queued_tasks repeats a task id: {ids}",
+                     summary)
+            present = [tid for tid in tids if tid in ids]
+            results = state.get("results")
+            if results is None:
+                status = "absent"
+                if present:
+                    find(CORRECTNESS, "lost-task", f"{where}: tasks {present} are queued but their scenario "
+                                                   f"object is not valid", summary)
+            elif not results and len(present) == len(tids):
+                status = "held"
+            elif results and not present:
+                status = "completed"
+            elif not results:
+                status = "partial"
+                find(CORRECTNESS, "lost-task", f"{where}: held tasks {sorted(set(tids) - set(present))} of "
+                                               f"{tids} are missing from queued_tasks", summary)
+            else:
+                status = "partial"
+                earlier = sorted(release["generation"] for release in releases.get(seq, [])
+                                 if release["generation"] < generation and not release.get("complete"))
+                if earlier:
+                    # A checkpoint taken after an incomplete release captured
+                    # its leftovers; the lost tasks were reported at that release.
+                    find(CORRECTNESS, "lost-task", f"{where}: tasks {present} are still queued with results "
+                                                   f"{results} left by the incomplete release in generation "
+                                                   f"{earlier[-1]}", summary)
+                else:
+                    find(CORRECTNESS, "ran-before-release", f"{where}: results {results} were written before the "
+                                                            f"driver released tasks {present}", summary)
+            launch["status"] = status
+            admit = admits.get(generation) or {}
+            restart = admit.get("restart") or {}
+            expected = None
+            if plant["point"] == "graceful-checkpoint" and admit.get("kind") == "checkpoint" \
+                    and admit.get("baseline_generation") == plant["generation"]:
+                expected, why = "held", "it was planted before this verified checkpoint"
+            elif plant["point"] == "live-checkpoint" and restart.get("generation") == plant["generation"]:
+                cuts = _selected_cut_names(recoveries, plant["generation"])
+                if cuts:
+                    if all(name == "unchanged input" for name in cuts):
+                        expected, why = "absent", "only the unchanged input (before the plant) fits the recovery"
+                    elif "unchanged input" not in cuts:
+                        expected, why = "held", f"the recovery selected {cuts}, captured after the plant"
+            if expected == "held" and status != "held" and status != "partial":
+                find(CORRECTNESS, "lost-task", f"{where}: {status}, but {why}", summary)
+            elif expected == "absent" and status != "absent":
+                find(CORRECTNESS, "unexpected-task", f"{where}: {status}, but {why}", summary)
+        for release in releases.get(seq, []):
+            generation, state = release["generation"], release.get("state") or {}
+            where = f"plant {seq} released in generation {generation}"
+            results = state.get("results") or {}
+            queued = [tid for tid in tids if tid in (state.get("ids") or [])]
+            summary["releases"].append({"generation": generation, "complete": release.get("complete")})
+            if queued:
+                find(CORRECTNESS, "lost-task", f"{where}: tasks {queued} still queued "
+                                               f"{release.get('deadline_seconds')}s after release", summary)
+            for task in plant["tasks"]:
+                token, kind = task["token"], task["kind"]
+                records = results.get(token) or results.get(str(token)) or []
+                if task["tid"] in invalid:
+                    if records:
+                        find(CORRECTNESS, "invalid-task-policy", f"{where}: the invalidated task {task['tid']} "
+                                                                 f"ran and recorded {records}", summary)
+                    continue
+                if kind == "cancel":
+                    if records:
+                        find(CORRECTNESS, "killed-task-ran", f"{where}: killed task {task['tid']} recorded "
+                                                             f"{records}", summary)
+                    continue
+                if not records:
+                    find(CORRECTNESS, "lost-task", f"{where}: {kind} task {task['tid']} (token {token}) never "
+                                                   f"recorded a result", summary)
+                    continue
+                if len(records) > 1:
+                    find(CORRECTNESS, "duplicated-continuation", f"{where}: {kind} task {task['tid']} recorded "
+                                                                 f"{len(records)} times: {records}", summary)
+                wanted = expected_task_record(task, programmer)
+                witness = record_witness(kind, records[0], wanted)
+                if witness:
+                    find(CORRECTNESS, witness, f"{where}: {kind} task {task['tid']} recorded {records[0]}, "
+                                               f"expected {wanted}", summary)
+                if kind == "effect":
+                    count = effect_lines.get((generation, str(token)), 0)
+                    if count != 1:
+                        find(CORRECTNESS, "duplicated-effect" if count > 1 else "lost-effect",
+                             f"{where}: the receiver got the effect task's token {token} {count} times", summary)
+        released_in = {release["generation"] for release in releases.get(seq, [])}
+        for task in plant["tasks"]:
+            if task["kind"] != "effect":
+                continue
+            for (generation, token), count in effect_lines.items():
+                if token == str(task["token"]) and generation not in released_in:
+                    find(CORRECTNESS, "effect-before-release",
+                         f"plant {seq}: the receiver of generation {generation} got effect token {token} "
+                         f"{count} times, with no release of the plant in that generation", summary)
+    if plants:
+        if not any(release.get("complete") for items in releases.values() for release in items):
+            findings.append((INCOMPLETE, "task-coverage", "task lane: no plant was released to completion"))
+        graceful = [seq for seq, plant in plants.items() if plant["point"] == "graceful-checkpoint"]
+        if not any(release.get("complete") for seq in graceful for release in releases.get(seq, [])):
+            findings.append((INCOMPLETE, "task-coverage", "task lane: no graceful-checkpoint plant was released "
+                                                          "after its restart"))
+        if live:
+            crashed = [row for row in rows if row["point"] == "live-checkpoint" and any(
+                launch["status"] == "held" and admits.get(launch["generation"], {}).get("kind") == "checkpoint-crash"
+                for launch in row["launches"])]
+            if not crashed:
+                findings.append((INCOMPLETE, "task-coverage", "task lane: no live plant was recovered held through "
+                                                              "a checkpoint-crash"))
+    return rows, findings
+
+
+# ---------------------------------------------------------------------------
+# Effect checker (plan section 4): live-process retries must not duplicate an
+# externally visible effect; the receiver's lines are the delivery evidence.
+
+def effect_checks(lifecycle, journal, receipts):
+    """Returns (results, [(class, witness, message)])."""
+    findings = []
+    requests, sends, completes = {}, {}, {}
+    for row in journal:
+        table = {"request": requests, "send": sends, "complete": completes}.get(row.get("event"))
+        if table is not None:
+            table[row.get("id")] = row
+    sent = {}
+    for op_id, send in sends.items():
+        value = (requests.get(op_id) or {}).get("value") or []
+        if value and all(isinstance(mop, list) and len(mop) == 3 and type(mop[1]) is int
+                         and family_of(mop[1]) == "effects" for mop in value):
+            done = completes.get(op_id) or {}
+            sent[(send.get("generation"), op_id)] = {"type": done.get("type"), "complete_ns": done.get("monotonic_ns"),
+                                                     "boundary": boundary_op(op_id)}
+    counts = {}
+    for receipt in receipts:
+        parts = receipt.get("line", "").split()
+        if len(parts) == 3 and parts[0] == EFFECT_PREFIX and parts[1].lstrip("-").isdigit() \
+                and parts[2] in ("pre", "post"):
+            key = (receipt.get("generation"), int(parts[1]), parts[2])
+            counts[key] = counts.get(key, 0) + 1
+    for (generation, op_id, part), count in sorted(counts.items()):
+        if (generation, op_id) not in sent:
+            findings.append((CORRECTNESS, "invented-effect", f"generation {generation}: the receiver got "
+                                                             f"{op_id} {part}, which was not sent in that generation"))
+        elif count > 1:
+            findings.append((CORRECTNESS, "duplicated-live-retry-effect",
+                             f"generation {generation}: operation {op_id}'s {part} notification was received "
+                             f"{count} times"))
+    drains = {}
+    for row in lifecycle:
+        if row.get("event") == "effect-drain" and row.get("ok"):
+            drains[row["generation"]] = row
+            options = {"", ".flush"} | {f"{EFFECT_PREFIX}-{op}" for (g, op), item in sent.items()
+                                        if g == row["generation"] and item["boundary"]}
+            if row.get("option") not in options:
+                findings.append((CORRECTNESS, "invented-effect", f"generation {row['generation']}: drained "
+                                                                 f"flush-command {row.get('option')!r} was set by no "
+                                                                 f"boundary operation of that generation"))
+    for (generation, op_id), item in sorted(sent.items()):
+        pre, post = counts.get((generation, op_id, "pre"), 0), counts.get((generation, op_id, "post"), 0)
+        if post and not pre:
+            findings.append((CORRECTNESS, "lost-effect", f"generation {generation}: operation {op_id}'s post "
+                                                         f"notification arrived without its pre notification"))
+        drain = drains.get(generation)
+        if item["type"] == "ok" and drain is not None and item["complete_ns"] is not None \
+                and item["complete_ns"] < drain["sent_ns"] and not (pre and post):
+            findings.append((CORRECTNESS, "lost-effect", f"generation {generation}: operation {op_id} completed "
+                                                         f"ok before the drain, but its notifications arrived "
+                                                         f"pre {pre}, post {post} times"))
+    ok = [key for key, item in sent.items() if item["type"] == "ok"]
+    boundary = [key for key in ok if sent[key]["boundary"]]
+    retries = [row.get("commit_retries") for row in drains.values() if row.get("commit_retries") is not None]
+    results = {"sent": len(sent), "ok": len(ok), "ok_boundary": len(boundary), "drains": len(drains),
+               "max_commit_retries": max(retries) if retries else None,
+               "witnesses": sorted({witness for _, witness, _ in findings})}
+    if not ok:
+        findings.append((INCOMPLETE, "effect-coverage", "effects: no successful effects transaction"))
+    if not boundary:
+        findings.append((INCOMPLETE, "effect-coverage", "effects: no successful transaction crossed the "
+                                                        "set_connection_option boundary"))
+    if not drains:
+        findings.append((INCOMPLETE, "effect-coverage", "effects: no receiver drain succeeded"))
+    if not retries or max(retries) <= 0:
+        findings.append((INCOMPLETE, "effect-coverage", f"effects: validation conflicts were not shown to be "
+                                                        f"forced (barn.commit_retries {results['max_commit_retries']})"))
+    return results, findings
 
 
 def outcome_counts(history):
@@ -1736,17 +2563,22 @@ def obligations(buckets, lifecycle, families=("smoke",), live=False, staged=Fals
 PANIC_MESSAGES = ("panic in verb call", "panic in eval", "panic in task")
 CHECKPOINT_FAILURES = ("checkpoint failed", "final checkpoint failed", "emergency dump failed")
 RESTORE_FAILURES = ("failed to restore queued task", "failed to restore suspended task",
-                    "dropped suspended task: saved program does not match its source")
+                    DROPPED_TASK_MESSAGE)
 
 
 def log_findings(inputs, lifecycle):
     """Scan each launched generation's runtime logs. Returns ({generation: records}, [(class, message)]).
 
-    This scenario declares no expected diagnostic: a panic is a correctness
-    violation, a checkpoint or task-restore failure a recovery failure, and
-    any other ERROR record is unexamined evidence.
+    One diagnostic is declared: the task lane's deliberately invalidated task
+    (task-invalidate rows) is dropped at load with DROPPED_TASK_MESSAGE naming
+    its task_id; those records are expected, and each invalidated task needs
+    at least one. Otherwise a panic is a correctness violation, a checkpoint or
+    task-restore failure a recovery failure, and any other ERROR record is
+    unexamined evidence.
     """
     counts, findings = {}, []
+    invalid = {row["tid"]: row for row in lifecycle if row.get("event") == "task-invalidate"}
+    dropped = set()
     for generation in sorted(row["generation"] for row in lifecycle if row.get("event") == "admit"):
         directory = inputs / f"gen-{generation:03d}"
         try:
@@ -1771,6 +2603,9 @@ def log_findings(inputs, lifecycle):
                 findings.append((CORRECTNESS, f"{where}: panic: {line}"))
             elif message in CHECKPOINT_FAILURES:
                 findings.append((RECOVERY, f"{where}: checkpoint failure: {line}"))
+            elif message == DROPPED_TASK_MESSAGE and record.get("task_id") in invalid \
+                    and generation > invalid[record["task_id"]]["generation"]:
+                dropped.add(record["task_id"])
             elif message in RESTORE_FAILURES:
                 findings.append((RECOVERY, f"{where}: task restore failure: {line}"))
             elif isinstance(record, dict) and record.get("level") == "ERROR":
@@ -1783,6 +2618,10 @@ def log_findings(inputs, lifecycle):
         for number, line in enumerate(text.splitlines(), 1):
             if line.startswith(("panic: ", "fatal error: ")):
                 findings.append((CORRECTNESS, f"generation {generation} server.log:{number}: Go runtime crash: {line}"))
+    for tid, row in sorted(invalid.items()):
+        if tid not in dropped:
+            findings.append((INCOMPLETE, f"invalid-task policy: no generation after {row['generation']} logged "
+                                         f"{DROPPED_TASK_MESSAGE!r} for the invalidated task {tid}"))
     return counts, findings
 
 
@@ -1790,8 +2629,8 @@ def analyze(inputs, output, jar, java):
     """Check one finished campaign directory; returns (results, findings)."""
     findings = []
 
-    def find(kind, message):
-        findings.append({"class": kind, "message": message})
+    def find(kind, message, witness=None):
+        findings.append({"class": kind, "message": message, **({"witness": witness} if witness else {})})
 
     lifecycle = load_jsonl(inputs / "lifecycle.jsonl")
     for row in lifecycle:
@@ -1855,6 +2694,18 @@ def analyze(inputs, output, jar, java):
     results["recoveries"], snapshot_problems = snapshot_checks(lifecycle, journal)
     for kind, message in snapshot_problems:
         find(kind, message)
+    receipts = load_jsonl(inputs / "receipts.jsonl") if (inputs / "receipts.jsonl").exists() else []
+    parameters = (results.get("provenance") or {}).get("parameters", {})
+    if parameters.get("tasks") or any(row.get("event") == "task-plant" for row in lifecycle):
+        results["tasks"], task_problems = task_checks(lifecycle, receipts, results["recoveries"], live)
+        if not any(row.get("event") == "task-plant" for row in lifecycle):
+            task_problems.append((INCOMPLETE, "task-coverage", "task lane selected, but no plant was recorded"))
+        for kind, witness, message in task_problems:
+            find(kind, message, witness)
+    if "effects" in families:
+        results["effects"], effect_problems = effect_checks(lifecycle, journal, receipts)
+        for kind, witness, message in effect_problems:
+            find(kind, message, witness)
     if stages:
         results["coverage"], coverage_problems = stage_coverage(lifecycle, stages, results["recoveries"])
         for kind, message in coverage_problems:
@@ -1906,10 +2757,14 @@ def control_result(control, results):
     designated witness is among the recovery findings; any other outcome,
     healthy included, is a missed control."""
     spec = CONTROLS[control]
-    observed = sorted({witness for row in results.get("recoveries") or [] for witness in row.get("witnesses", [])})
-    stage = next((row for row in results.get("coverage") or [] if row["stage"] == spec["stage"]), {})
-    reached = stage.get("reached") == stage.get("requested") and stage.get("killed_exit") == -9
-    return {"name": control, "stage": spec["stage"], "witness": spec["witness"], "observed_witnesses": observed,
+    observed = sorted({witness for row in results.get("recoveries") or [] for witness in row.get("witnesses", [])}
+                      | {finding["witness"] for finding in results.get("findings") or [] if finding.get("witness")})
+    if "stage" in spec:
+        stage = next((row for row in results.get("coverage") or [] if row["stage"] == spec["stage"]), {})
+        reached = stage.get("reached") == stage.get("requested") and stage.get("killed_exit") == -9
+    else:
+        reached = True  # a live-process fault: no stage step to reach
+    return {"name": control, "stage": spec.get("stage"), "witness": spec["witness"], "observed_witnesses": observed,
             "stage_reached": reached, "passed": reached and spec["witness"] in observed}
 
 
@@ -1917,7 +2772,8 @@ def control_result(control, results):
 
 def run_campaign(args, output):
     campaign = Campaign(args.barn.resolve(strict=True), args.db, output, socket_transport_factory(), seed=args.seed,
-                        stages=args.stages, control=args.control)
+                        stages=args.stages, control=args.control, tasks=args.tasks,
+                        effects="effects" in args.workloads)
     adapter = None
     try:
         (output / "provenance.json").write_text(json.dumps(provenance(args, output), indent=2, default=str) + "\n",
@@ -1971,6 +2827,9 @@ def main(argv=None):
                         help="elle build only: 'all' or comma-separated STAGE_SCHEDULE steps "
                              f"({', '.join(STAGE_SCHEDULE)}); replaces the fixed and live phases")
     parser.add_argument("--stage-seconds", type=int, default=10, help="client seconds around each stage step")
+    parser.add_argument("--tasks", action="store_true",
+                        help="task lane: plant held test tasks before every graceful checkpoint and before each "
+                             "generation's first live checkpoint, release them after the restart's recovery read")
     parser.add_argument("--control", choices=sorted(CONTROLS),
                         help="elle build only: run the negative control's fault and stage step; exit 0 only if "
                              "its designated witness is reported")
@@ -1985,7 +2844,7 @@ def main(argv=None):
     if args.control:
         if args.stages:
             parser.error("--control selects its own stage step; do not combine it with --stages")
-        args.stages = [CONTROLS[args.control]["stage"]]
+        args.stages = [CONTROLS[args.control]["stage"]] if "stage" in CONTROLS[args.control] else []
         family = CONTROLS[args.control].get("family")
         if family and family not in args.workloads:
             parser.error(f"--control {args.control} needs the {family} row family in --workloads")
@@ -2026,6 +2885,13 @@ def main(argv=None):
     for row in results.get("recoveries", []):
         print(f"recovery after generation {row['generation']} (stage {row.get('stage')}): "
               f"{row.get('selected_cut', row.get('skipped', 'no permitted cut'))}", flush=True)
+    for row in results.get("tasks", []):
+        print(f"task plant {row['plant']} ({row['point']}, generation {row['generation']}): launches "
+              f"{[(item['generation'], item['status']) for item in row['launches']]}, releases "
+              f"{[(item['generation'], item['complete']) for item in row['releases']]}, witnesses {row['witnesses']}",
+              flush=True)
+    if results.get("effects"):
+        print(f"effects: {json.dumps(results['effects'])}", flush=True)
     for row in results.get("coverage", []):
         print(f"stage {row['stage']}: requested {row['requested']}, reached {row.get('reached')}, "
               f"state {row.get('stopped_state')}, frozen {row.get('frozen_stage')}, exit {row.get('killed_exit')}, "
