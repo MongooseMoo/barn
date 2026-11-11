@@ -72,6 +72,7 @@ func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueR
 	// Keep the established lock order (commitGate, then s.mu) used by Commit.
 	grant, _ := s.commitGate.Acquire(context.Background(), commitgate.Exclusive)
 	defer grant.Release()
+	s.noteExclusiveGrant()
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()

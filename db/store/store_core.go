@@ -226,6 +226,11 @@ type Store struct {
 	// interleave between its snapshot and its validation, it cannot lose again.
 	commitGate        commitgate.Gate
 	commitEscalations atomic.Uint64
+	// exclusiveGrantClock is the clock when the latest exclusive grant of
+	// commitGate was taken, recorded before its holder can publish anything
+	// (noteExclusiveGrant). BeginSnapshot uses it to tell whether a snapshot
+	// includes part of a holder's attempt.
+	exclusiveGrantClock atomic.Uint64
 	// externalWrites counts writes to state outside the store that tasks read
 	// optimistically (store_external_reads.go).
 	externalWrites atomic.Uint64
@@ -414,9 +419,18 @@ func (s *Store) AcquireExclusiveTracked(ctx context.Context, label any) (*commit
 
 func (s *Store) countEscalation(g *commitgate.Grant, err error) (*commitgate.Grant, error) {
 	if err == nil {
+		s.noteExclusiveGrant()
 		s.commitEscalations.Add(1)
 	}
 	return g, err
+}
+
+// noteExclusiveGrant records the clock at an exclusive grant of commitGate.
+// The caller holds the grant and has published nothing under it yet. No
+// ordinary commit can move the clock while the grant is held, so a snapshot
+// taken during the hold at a later clock may include the holder's publications.
+func (s *Store) noteExclusiveGrant() {
+	s.exclusiveGrantClock.Store(s.clock.Load())
 }
 
 func (s *Store) readTimestamp() uint64 {

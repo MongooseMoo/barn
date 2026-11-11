@@ -264,7 +264,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.terminalErr != types.E_NONE {
 		return tx.terminalErr
 	}
-	if !tx.hasStagedWrites() && !tx.externalRead {
+	if !tx.hasStagedWrites() && !tx.mustValidateReads() {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -408,7 +408,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.gateExempt {
 		isolationprobe.Note("exclusive_gate")
 	}
-	tx.externalRead = false
+	tx.externalRead, tx.overlapsHold = false, false
 	return types.E_NONE
 }
 

@@ -4,6 +4,7 @@ package commitgate
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,7 +27,16 @@ type Gate struct {
 	// active owner; an untracked owner leaves it stale, and stale means
 	// unlabeled.
 	labelOwner *Grant
+	// exclusiveGen moves once when an exclusive grant becomes active and once
+	// when it is released, so it is odd exactly while the gate is held
+	// exclusively. It is read without mu (ExclusiveGeneration).
+	exclusiveGen atomic.Uint64
 }
+
+// ExclusiveGeneration returns the gate's exclusive generation: odd while an
+// exclusive grant is active. Two equal readings mean no exclusive grant was
+// taken or released between them.
+func (g *Gate) ExclusiveGeneration() uint64 { return g.exclusiveGen.Load() }
 
 // Ahead is what stood in front of a tracked request when it was queued (see
 // AcquireTracked): the exclusive owner's label (Holder, with HolderExclusive
@@ -185,6 +195,7 @@ func (g *Gate) dispatchLocked() {
 		r.active = true
 		if r.mode == Exclusive {
 			g.writer = true
+			g.exclusiveGen.Add(1)
 			if r.tracked != nil {
 				g.labelOwner = r
 			}
@@ -204,6 +215,7 @@ func (g *Gate) releaseLocked(r *Grant) bool {
 	r.active = false
 	if r.mode == Exclusive {
 		g.writer = false
+		g.exclusiveGen.Add(1)
 	} else {
 		g.readers--
 	}
