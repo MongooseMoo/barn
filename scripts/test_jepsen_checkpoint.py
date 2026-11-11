@@ -4,6 +4,7 @@ import copy
 import io
 import json
 from pathlib import Path
+import re
 import socket
 import tempfile
 import threading
@@ -12,6 +13,11 @@ import unittest
 from unittest.mock import patch
 
 import jepsen_checkpoint as jc
+
+# ROWS_CODE's reply: property-row objects #20-#23, keyed parent #11, holder
+# #12 with its own map, holder #13 with a clear inherited slot.
+LAYOUT = [20, 21, 22, 23, 11, 12, 13]
+PROPS, KEYED = jc.FAMILIES["props"]["base"], jc.FAMILIES["keyed"]["base"]
 
 
 def ok(value):
@@ -44,9 +50,93 @@ class TxnCodeTests(unittest.TestCase):
                     jc.txn_code(txn)
 
     def test_observation_reads_every_listed_row_without_writing(self):
-        self.assertEqual(jc.observation_code([2, 7]),
-                         "rows = #0.jepsen_rows; return {(maphaskey(rows, 2) ? rows[2] | {}), "
-                         "(maphaskey(rows, 7) ? rows[7] | {})};")
+        layout = jc.parse_layout(LAYOUT)
+        code = jc.observation_code([2, PROPS + 5, KEYED + 1], layout)
+        self.assertEqual(code, jc.txn_code([["r", 2, None], ["r", PROPS + 5, None], ["r", KEYED + 1, None]], layout))
+        self.assertNotIn("#0.jepsen_rows =", code)
+        self.assertNotIn("add_property", code)
+        self.assertNotIn("jm[20000001] =", code)
+
+    def test_row_layout_is_seven_object_numbers(self):
+        self.assertEqual(jc.parse_layout(LAYOUT), {"props": [20, 21, 22, 23], "parent": 11, "keyed": [12, 13]})
+        for value in (LAYOUT[:6], LAYOUT + [1], [str(n) for n in LAYOUT], None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    jc.parse_layout(value)
+
+    def test_families_partition_keys_by_range(self):
+        self.assertEqual([jc.family_of(key) for key in (0, 1000004, PROPS, PROPS + 1000003, KEYED + 7)],
+                         ["smoke", "smoke", "props", "props", "keyed"])
+        self.assertIsNone(jc.family_of(3 * jc.FAMILY_SPAN))
+        with self.assertRaises(ValueError):
+            jc.txn_code([["r", 3 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
+        with self.assertRaises(ValueError):
+            jc.txn_code([["r", PROPS, None]])  # property rows need the generation's layout
+
+    def test_property_rows_read_and_append_their_own_property_directly(self):
+        # Keys 10000005 and 10000002: objects 5 % 4 and 2 % 4 of the layout.
+        code = jc.txn_code([["r", PROPS + 5, None], ["append", PROPS + 5, 9], ["r", PROPS + 5, None],
+                            ["append", PROPS + 2, 3]], jc.parse_layout(LAYOUT))
+        self.assertEqual(code, " ".join([
+            "out = {};",
+            "out = {@out, `#21.jp10000005 ! E_PROPNF => {}'};",
+            "try #21.jp10000005 = {@#21.jp10000005, 9}; "
+            "except (E_PROPNF) add_property(#21, \"jp10000005\", {9}, {#0, \"r\"}); endtry",
+            "out = {@out, `#21.jp10000005 ! E_PROPNF => {}'};",
+            "try #22.jp10000002 = {@#22.jp10000002, 3}; "
+            "except (E_PROPNF) add_property(#22, \"jp10000002\", {3}, {#0, \"r\"}); endtry",
+            "return out;"]))
+
+    def test_keyed_rows_by_mode(self):
+        layout = jc.parse_layout(LAYOUT)
+        txn = [["r", KEYED + 1, None], ["append", KEYED + 1, 4]]  # odd key: the inherited-slot holder #13
+        self.assertEqual(jc.txn_code(txn, layout, 4), " ".join([
+            "out = {};", "out = {@out, (maphaskey(#13.jm, 20000001) ? #13.jm[20000001] | {})};",
+            "#13.jm[20000001] = {@(maphaskey(#13.jm, 20000001) ? #13.jm[20000001] | {}), 4};", "return out;"]))
+        self.assertEqual(jc.txn_code(txn, layout, 7), jc.txn_code(txn, layout, 4))
+        self.assertEqual(jc.txn_code(txn, layout, 1), " ".join([
+            "out = {};", "out = {@out, `#13.jm[20000001] ! E_RANGE => {}'};",
+            "#13.jm[20000001] = {@`#13.jm[(#13.jm[20000001] = {}) == {} ? 20000001 | 20000001] "
+            "! E_RANGE => {}', 4};", "return out;"]))
+        self.assertEqual(jc.txn_code(txn, layout, 2), " ".join([
+            "out = {};", "m = #13.jm; out = {@out, (maphaskey(m, 20000001) ? m[20000001] | {})};",
+            "m = #13.jm; m[20000001] = {@(maphaskey(m, 20000001) ? m[20000001] | {}), 4}; #13.jm = m;",
+            "return out;"]))
+
+    def test_keyed_fixture_is_the_generated_code(self):
+        # vm/jepsen_keyed_rows_test.go runs these: the keyed pair on two entries
+        # of one map both commit, the whole-map pair loses validation.
+        fixture = json.loads((Path(jc.__file__).parent / "testdata" / "jepsen_keyed_txns.json").read_text())
+        self.assertEqual(fixture["layout"], LAYOUT)
+        layout = jc.parse_layout(fixture["layout"])
+        self.assertEqual([case["name"] for case in fixture["cases"]], ["keyed", "whole-map"])
+        for case in fixture["cases"]:
+            for row in case["txns"]:
+                with self.subTest(case=case["name"], op_id=row["op_id"]):
+                    self.assertEqual(jc.txn_code(row["txn"], layout, row["op_id"]), row["code"])
+
+    def test_keyed_modes_touch_the_map_only_through_keyed_shapes(self):
+        # The compiler emits keyed access only for o.jm[K], maphaskey(o.jm, K)
+        # and o.jm[K] = v (compiler/lower_expressions.go compileIndex and
+        # keyedMaphaskeyProperty, compiler/lower_assignments.go
+        # compileIndexAssign); any other mention of o.jm is a whole read.
+        layout = jc.parse_layout(LAYOUT)
+        txn = [["r", KEYED, None], ["append", KEYED, 1], ["r", KEYED + 1, None], ["append", KEYED + 3, 2]]
+        for op_id in (0, 1, 3):
+            code = jc.txn_code(txn, layout, op_id)
+            with self.subTest(op_id=op_id):
+                mentions = re.findall(r"(maphaskey\()?(#1[23]\.jm)(.)", code)
+                self.assertTrue(mentions)
+                self.assertTrue(all(call or after == "[" for call, _, after in mentions), mentions)
+                self.assertNotIn("jepsen_rows", code)
+                self.assertNotIn("jepsen_ledger", code)
+        self.assertIn("m = #12.jm;", jc.txn_code(txn, layout, 2))
+
+    def test_new_families_never_touch_the_common_rows_or_ledger(self):
+        layout = jc.parse_layout(LAYOUT)
+        for op_id in range(4):
+            code = jc.txn_code([["append", PROPS + 1, 1], ["r", KEYED, None], ["append", KEYED, 2]], layout, op_id)
+            self.assertNotIn("#0.", code)
 
 
 class OutcomeTests(unittest.TestCase):
@@ -147,7 +237,7 @@ class FakeCampaign:
 
     def __init__(self, live, factory):
         self.lock, self.live, self.transport_factory = threading.Lock(), live, factory
-        self.events, self.touched = [], {}
+        self.events, self.touched, self.layouts = [], {}, {}
 
     def journal(self, row):
         self.events.append(dict(row))
@@ -219,6 +309,15 @@ class SessionTests(unittest.TestCase):
         session.txn(3, 0, [["r", 1, None]])
         self.assertEqual([t.port for t in made], [9000, 9001])
         self.assertTrue(made[0].closed)
+
+    def test_row_family_code_uses_the_live_generation_layout_and_operation_id(self):
+        script = {"execute": lambda port, code: ok([[1]])}
+        session, campaign, _ = self.session((2, 9000), script)
+        campaign.layouts = {1: [99] * 7, 2: jc.parse_layout(LAYOUT)}
+        txn = [["r", KEYED, None]]
+        session.txn(6, 0, txn)
+        self.assertEqual(script["codes"], [(9000, jc.txn_code(txn, jc.parse_layout(LAYOUT), 6))])
+        self.assertIn("m = #12.jm;", script["codes"][0][1])
 
 
 def op(process, kind, value, generation=None, error=None, op_id=None):
@@ -320,7 +419,8 @@ class Run:
         self.journal.append({"event": "request", "id": op_id, "client": process, "value": txn})
         if generation is not None:
             self.journal.append({"event": "send", "id": op_id, "generation": generation, "port": 9000,
-                                 "code": jc.txn_code(txn), "phase": {"fault_seq": 0, "fault": None,
+                                 "code": jc.txn_code(txn, jc.parse_layout(LAYOUT), op_id),
+                                 "phase": {"fault_seq": 0, "fault": None,
                                                                      "paused": False}})
         done = {"event": "complete", "id": op_id, "type": kind, "generation": generation}
         if kind == "ok":
@@ -404,6 +504,28 @@ def healthy_run():
     return run
 
 
+def family_run(keyed_write_after_crash=True):
+    """healthy_run with property and keyed rows selected, each read and appended in every client generation."""
+    run = Run()
+    run.provenance = {"fixture": "synthetic", "parameters": {"workloads": ["smoke", "props", "keyed"]}}
+    for row in healthy_run().lifecycle:
+        run.lifecycle.append(row)
+    base = healthy_run()
+    run.history, run.journal, run.logs, run.server_logs = [], [], base.logs, base.server_logs
+    smoke = {0: [[["append", 1, 1], ["r", 1, None]], [["append", 1, 1], ["r", 1, [1]]]],
+             1: [[["append", 1, 3], ["r", 1, None]], [["append", 1, 3], ["r", 1, [3]]]],
+             2: [[["append", 1, 4], ["r", 1, None]], [["append", 1, 4], ["r", 1, [4]]]]}
+    for generation in (0, 1, 2):
+        run.client(0, generation, *smoke[generation])
+        for process, base_key in ((20, PROPS), (21, KEYED)):
+            key = base_key + generation
+            if base_key == KEYED and generation == 2 and not keyed_write_after_crash:
+                run.client(process, generation, [["r", key, None]], [["r", key, []]])
+                continue
+            run.client(process, generation, [["append", key, 7], ["r", key, None]], [["append", key, 7], ["r", key, [7]]])
+    return run
+
+
 class AnalyzeTests(unittest.TestCase):
     def directory(self, run):
         temporary = tempfile.TemporaryDirectory()
@@ -442,6 +564,35 @@ class AnalyzeTests(unittest.TestCase):
         # The final observation is a read-only transaction of the same generation.
         self.assertIn(f":process {jc.OBSERVER_PROCESS} :type :ok :f :txn :value [[:r 1 [1 2]]]", edn)
 
+    def test_selected_families_each_count_reads_and_writes_and_stay_out_of_the_ledger_check(self):
+        results, findings, root = self.analyze(family_run())
+        # Property and keyed tokens are not mirrored in #0.jepsen_ledger; counting
+        # them would report every acknowledged one as lost.
+        self.assertEqual(findings, [])
+        self.assertEqual([row["acknowledged_tokens"] for row in results["checkpoints"]], [1, 1, 1])
+        self.assertEqual(results["families"], {"selected": ["smoke", "props", "keyed"], "totals": {
+            "keyed": {"ok_reads": 3, "ok_writes": 3}, "props": {"ok_reads": 3, "ok_writes": 3},
+            "smoke": {"ok_reads": 3, "ok_writes": 3}}})
+        self.assertEqual(results["generations"][1]["families"]["keyed"], {"ok_reads": 1, "ok_writes": 1})
+        self.assertIn(f"[[:append {KEYED + 1} 7] [:r {KEYED + 1} [7]]]", (root / "gen-001.edn").read_text())
+
+    def test_selected_family_without_a_write_after_a_crash_is_incomplete(self):
+        results, findings, _ = self.analyze(family_run(keyed_write_after_crash=False))
+        self.assertEqual(jc.verdict_of(findings), jc.INCOMPLETE)
+        self.assertEqual(results["missing_obligations"], [
+            "after crash of generation 1: generation 2 has no successful keyed transaction with a write",
+            "before checkpoint of generation 2: generation 2 has no successful keyed transaction with a write"])
+        self.assertEqual(results["families"]["totals"]["keyed"], {"ok_reads": 3, "ok_writes": 2})
+
+    def test_unselected_family_is_not_an_obligation_and_unknown_one_is_invalid(self):
+        run = family_run(keyed_write_after_crash=False)
+        run.provenance["parameters"]["workloads"] = ["smoke", "props"]
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(findings, [])
+        run.provenance["parameters"]["workloads"] = ["smoke", "maps"]
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(findings, [{"class": jc.INVALID, "message": "provenance names unknown row families ['maps']"}])
+
     def test_post_crash_generation_without_success_no_longer_passes(self):
         # Generation 0 alone had a successful transaction. The aggregate
         # minimum (one comparison, one Elle-checked generation) was met.
@@ -467,11 +618,12 @@ class AnalyzeTests(unittest.TestCase):
         self.assertEqual(results["elle"][0]["verdict"], "true")
         self.assertEqual(jc.verdict_of(findings), jc.INCOMPLETE)
         self.assertFinding(findings, jc.INCOMPLETE,
-                           "after crash of generation 1: generation 2 has no successful client transaction with a read")
+                           "after crash of generation 1: generation 2 has no successful smoke transaction with a read")
         self.assertFinding(findings, jc.INCOMPLETE, "before crash of generation 1: generation 1 has no successful")
         self.assertFinding(findings, jc.INCOMPLETE, "generation 2: 1 client completions and no successful transaction")
         # Only the campaign's own observation makes generation 2 checkable.
-        self.assertEqual(results["generations"][2], {"completions": 1, "ok": 0, "ok_reads": 0, "ok_writes": 0})
+        self.assertEqual(results["generations"][2], {"completions": 1, "ok": 0, "ok_reads": 0, "ok_writes": 0,
+                                                     "families": {}})
 
     def test_barn_missing_reply_stays_unknown_in_its_generation(self):
         run = healthy_run()
@@ -651,11 +803,12 @@ class ProvenanceTests(unittest.TestCase):
                 (root / name).write_bytes(name.encode())
             args = SimpleNamespace(db=root / "Test.db", barn=root / "barn", elle_jar=root / "elle.jar",
                                    jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
-                                   rate=3, concurrency=4, seed=5, jepsen_timeout=6)
+                                   rate=3, concurrency=4, seed=5, jepsen_timeout=6, workloads=["smoke", "keyed"])
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "rate": 3, "concurrency": 4, "seed": 5,
-                                             "jepsen_timeout": 6})
+                                             "jepsen_timeout": 6, "workloads": ["smoke", "keyed"]})
+        self.assertEqual(row["families"], {"smoke": jc.FAMILIES["smoke"], "keyed": jc.FAMILIES["keyed"]})
         self.assertEqual((row["barn"]["size_bytes"], row["checker_jar"]["size_bytes"],
                           row["jepsen"]["jar"]["size_bytes"], row["fixture"]["database"]["size_bytes"]),
                          (4, 8, 10, 7))
@@ -685,6 +838,19 @@ class MainTests(unittest.TestCase):
             code = jc.main(["--analyze", str(archive), "--output", str(self.root / name),
                             "--elle-jar", str(self.jar)])
         return code, self.root / name
+
+    def test_workloads_name_distinct_known_families(self):
+        common = ["--output", str(self.root / "out"), "--elle-jar", str(self.jar), "--barn", "b", "--db", "d",
+                  "--jepsen-jar", "j"]
+        for workloads in ("smoke,maps", "props,props", ""):
+            with self.subTest(workloads=workloads), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    jc.main(common + ["--workloads", workloads])
+        seen = []
+        with patch.object(jc, "run_campaign", side_effect=lambda args, output: seen.append(args.workloads)), \
+             patch.object(jc, "analyze", return_value=({}, [])), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(jc.main(common + ["--workloads", "smoke,props,keyed"]), 0)
+        self.assertEqual(seen, [["smoke", "props", "keyed"]])
 
     def test_analyze_replay_of_an_archived_result_is_exact(self):
         archive = healthy_run().write(self.root / "archive")
@@ -777,11 +943,13 @@ class CampaignTests(unittest.TestCase):
         def evaluate(port, code):
             if code == jc.ADMIT_CODE:
                 return ok(ledger.get(port, {1: [1]}))
+            if code == jc.ROWS_CODE:
+                return ok([port % 100 + n for n in range(7)])
             if code.startswith("#0.jepsen_probe = "):
                 return ConnectionRefusedError("refused") if probe_fails else ok(int(code.split()[2][:-1]))
             if code == jc.PROBE_READ_CODE:
                 return ok(1)
-            if code.startswith("rows = #0.jepsen_rows; return {"):
+            if code.startswith("rows = #0.jepsen_rows; led = #0.jepsen_ledger; out = {}; out = "):
                 return ok([[7]] * code.count("maphaskey"))
             return ok({1: [1]})
         script = {"execute": evaluate}

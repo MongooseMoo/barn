@@ -15,6 +15,11 @@ acknowledgment. Disconnects and timeouts are :info unknowns. Histories are
 split per process generation and checked with the pinned Elle CLI, so Elle
 never treats uncheckpointed replies as durable.
 
+--workloads selects the row families the Jepsen clients mix (FAMILIES): the
+smoke map rows, property rows spread across objects, and keyed-map rows.
+Each selected family must show successful reads and writes around every
+fault, and Elle checks all of them per generation.
+
 The adapter journals every operation before it is sent and after it
 completes (journal.jsonl), so an interrupted run keeps its evidence; analysis
 reconciles that journal with Jepsen's history by operation id. Before each
@@ -69,6 +74,42 @@ ADMIT_CODE = (
 LEDGER_CODE = "return #0.jepsen_ledger;"
 PROBE_READ_CODE = "return #0.jepsen_probe;"
 
+# Row families, selected per campaign. A key's family is key // FAMILY_SPAN;
+# the Jepsen workload draws each family's transactions from its own Elle
+# list-append generator over keys base + phase offset + n (core.clj txns).
+#   smoke: entries of the map #0.jepsen_rows, mirrored in #0.jepsen_ledger;
+#          every transaction copies and rewrites both whole properties.
+#   props: key K is the list in property jpK of row object K mod 4, read and
+#          appended directly.
+#   keyed: key K is entry K of the map property jm of holder K mod 2 (a map
+#          held directly, then a clear inherited slot), mostly through keyed
+#          access; see keyed_code.
+FAMILY_SPAN = 10 ** 7
+FAMILIES = {"smoke": {"base": 0, "key-count": 5},
+            "props": {"base": FAMILY_SPAN, "key-count": 8},
+            "keyed": {"base": 2 * FAMILY_SPAN, "key-count": 4}}
+# Fresh row objects for each generation, so its rows start empty: four
+# property-row objects, then the keyed parent defining jm, a child holding
+# its own map and a child whose slot stays clear.
+ROWS_CODE = (
+    'objs = {}; for i in [1..4] objs = {@objs, toint(create(#-1))}; endfor '
+    'parent = create(#-1); add_property(parent, "jm", [], {#0, "r"}); '
+    'own = create(parent); own.jm = []; inh = create(parent); '
+    'return {@objs, toint(parent), toint(own), toint(inh)};')
+
+
+def family_of(key):
+    """The family owning key, or None."""
+    return next((name for name, family in FAMILIES.items()
+                 if family["base"] // FAMILY_SPAN == key // FAMILY_SPAN), None)
+
+
+def parse_layout(value):
+    """ROWS_CODE's reply: seven object numbers."""
+    if not (isinstance(value, list) and len(value) == 7 and all(type(item) is int for item in value)):
+        raise ValueError(f"row layout is not seven object numbers: {value!r}")
+    return {"props": value[:4], "parent": value[4], "keyed": value[5:]}
+
 
 # ---------------------------------------------------------------------------
 # MOO transactions and native outcome categorisation
@@ -77,31 +118,83 @@ def _list_at(name, key):
     return f"(maphaskey({name}, {key}) ? {name}[{key}] | {{}})"
 
 
-def txn_code(txn):
-    """One MOO task: append to the per-boot row and the durable ledger, read rows."""
-    statements = ["rows = #0.jepsen_rows;", "led = #0.jepsen_ledger;", "out = {};"]
-    appends = False
+def props_code(f, key, value, layout):
+    """A direct read or append of property row key; a missing property is {} until the first append adds it."""
+    objects = layout["props"]
+    obj, prop = f"#{objects[key % len(objects)]}", f"jp{key}"
+    if f == "r":
+        return f"out = {{@out, `{obj}.{prop} ! E_PROPNF => {{}}'}};"
+    return (f"try {obj}.{prop} = {{@{obj}.{prop}, {value}}}; "
+            f"except (E_PROPNF) add_property({obj}, \"{prop}\", {{{value}}}, {{#0, \"r\"}}); endtry")
+
+
+def keyed_code(f, key, value, layout, mode):
+    """A read or append of entry key of holder.jm.
+
+    Mode 0 and 3: maphaskey(o.jm, K) and o.jm[K], read and assigned, which the
+    compiler emits as keyed access (compiler/lower_expressions.go compileIndex
+    and keyedMaphaskeyProperty, compiler/lower_assignments.go compileIndexAssign).
+    Mode 1: a keyed read through a catch expression; the append's index
+    expression first writes {} to the same entry, which the captured map must
+    not see. Mode 2: whole-map read and replacement.
+    """
+    holders = layout["keyed"]
+    obj = f"#{holders[key % len(holders)]}"
+    if mode == 2:
+        if f == "r":
+            return f"m = {obj}.jm; out = {{@out, {_list_at('m', key)}}};"
+        return f"m = {obj}.jm; m[{key}] = {{@{_list_at('m', key)}, {value}}}; {obj}.jm = m;"
+    if mode == 1:
+        if f == "r":
+            return f"out = {{@out, `{obj}.jm[{key}] ! E_RANGE => {{}}'}};"
+        captured = f"`{obj}.jm[({obj}.jm[{key}] = {{}}) == {{}} ? {key} | {key}] ! E_RANGE => {{}}'"
+        return f"{obj}.jm[{key}] = {{@{captured}, {value}}};"
+    entry = f"(maphaskey({obj}.jm, {key}) ? {obj}.jm[{key}] | {{}})"
+    if f == "r":
+        return f"out = {{@out, {entry}}};"
+    return f"{obj}.jm[{key}] = {{@{entry}, {value}}};"
+
+
+def txn_code(txn, layout=None, op_id=0):
+    """One MOO task running txn's micro-operations in order and returning its reads.
+
+    Smoke rows append to the per-boot row map and the durable ledger. Property
+    and keyed rows need the generation's layout; op_id picks the keyed mode.
+    """
+    statements, smoke, appends = ["out = {};"], False, False
     for mop in txn:
         if not (isinstance(mop, list) and len(mop) == 3 and type(mop[1]) is int):
             raise ValueError(f"malformed micro-operation {mop!r}")
         f, key, value = mop
-        if f == "append" and type(value) is int:
-            appends = True
+        if not ((f == "append" and type(value) is int) or (f == "r" and value is None)):
+            raise ValueError(f"malformed micro-operation {mop!r}")
+        family = family_of(key)
+        if family is None:
+            raise ValueError(f"micro-operation {mop!r} has a key in no row family")
+        if family != "smoke" and layout is None:
+            raise ValueError(f"{family} micro-operation {mop!r} needs the generation's row layout")
+        if family == "props":
+            statements.append(props_code(f, key, value, layout))
+        elif family == "keyed":
+            statements.append(keyed_code(f, key, value, layout, op_id % 4))
+        elif f == "append":
+            smoke = appends = True
             statements.append(f"rows[{key}] = {{@{_list_at('rows', key)}, {value}}};")
             statements.append(f"led[{key}] = {{@{_list_at('led', key)}, {value}}};")
-        elif f == "r" and value is None:
-            statements.append(f"out = {{@out, {_list_at('rows', key)}}};")
         else:
-            raise ValueError(f"malformed micro-operation {mop!r}")
+            smoke = True
+            statements.append(f"out = {{@out, {_list_at('rows', key)}}};")
+    if smoke:
+        statements[:0] = ["rows = #0.jepsen_rows;", "led = #0.jepsen_ledger;"]
     if appends:
         statements += ["#0.jepsen_rows = rows;", "#0.jepsen_ledger = led;"]
     statements.append("return out;")
     return " ".join(statements)
 
 
-def observation_code(keys):
-    """Read every listed per-boot row in one task."""
-    return "rows = #0.jepsen_rows; return {" + ", ".join(_list_at("rows", key) for key in keys) + "};"
+def observation_code(keys, layout):
+    """Read every listed row in one task."""
+    return txn_code([["r", key, None] for key in keys], layout)
 
 
 def probe_write_code(token):
@@ -250,7 +343,8 @@ def provenance(args, output):
     affinity = getattr(os, "sched_getaffinity", None)
     return {
         "parameters": {name: getattr(args, name) for name in
-                       ("phase1", "phase3", "rate", "concurrency", "seed", "jepsen_timeout")},
+                       ("phase1", "phase3", "rate", "concurrency", "seed", "jepsen_timeout", "workloads")},
+        "families": {name: FAMILIES[name] for name in args.workloads},
         "jvm_heap": JVM_HEAP, "probe_deadline_seconds": PROBE_DEADLINE,
         "barn": _file_row(args.barn), "config": _file_row(CONFIG), "profile_id": PROFILE_ID,
         "source_tree": {"head": _command_output(["git", "rev-parse", "HEAD"], barn_process.ROOT),
@@ -295,6 +389,7 @@ class Campaign:
         self.journal_lock = threading.Lock()
         self.live = None                    # (generation, port) while clients may send
         self.touched = {}                   # generation -> every row key a client sent
+        self.layouts = {}                   # generation -> its row objects (parse_layout)
         self.fault_seq, self.active_fault = 0, None
         self.probes = 0
         self.server = None
@@ -389,7 +484,7 @@ class Campaign:
             row.update(ok=False, skipped="generation not live and running")
         else:
             def attempt():
-                value = self.evaluate(live[1], observation_code(keys))
+                value = self.evaluate(live[1], observation_code(keys, self.layouts.get(generation)))
                 if not (isinstance(value, list) and len(value) == len(keys) and all(_int_list(v) for v in value)):
                     raise RuntimeError(f"malformed observation {value!r}")
                 return value
@@ -418,12 +513,14 @@ class Campaign:
         self.server = server
         server.start()
         recovered = parse_ledger(self.evaluate(port, ADMIT_CODE))
+        layout = parse_layout(self.evaluate(port, ROWS_CODE))
         self.record({"event": "admit", "generation": generation, "kind": kind, "port": port,
                      "source": {key: value for key, value in source.items() if key != "baseline"},
                      "baseline_generation": source["baseline_generation"],
                      "baseline": None if source["baseline"] is None else ledger_json(source["baseline"]),
-                     "recovered": ledger_json(recovered), "server": server.identity})
+                     "recovered": ledger_json(recovered), "rows": layout, "server": server.identity})
         with self.lock:
+            self.layouts[generation] = layout
             self.live = (generation, port)
         self.probe("launch")
         return generation
@@ -528,13 +625,14 @@ class ClientSession:
         return reply
 
     def _run(self, op_id, txn):
-        code = txn_code(txn)
         campaign = self.campaign
         with campaign.lock:
             live, phase = campaign.live, campaign.phase()
+            layout = None if live is None else campaign.layouts.get(live[0])
         if live is None:
             return {"type": "fail", "generation": None, "error": {"kind": "no-live-generation"}}
         generation, port = live
+        code = txn_code(txn, layout, op_id)
         if self.transport is None or self.generation != generation:
             self.close()
             transport = campaign.transport_factory(port)
@@ -755,8 +853,9 @@ def elle_history(ops):
 
 
 def append_tokens(ops, types):
+    """Appended smoke tokens: only smoke rows are mirrored in the durable ledger."""
     return {(key, value) for op in ops if op["type"] in types
-            for f, key, value in op["value"] if f == "append"}
+            for f, key, value in op["value"] if f == "append" and family_of(key) == "smoke"}
 
 
 def durability_violations(baseline, recovered, acked, attempted):
@@ -813,9 +912,12 @@ def outcome_counts(history):
 
 
 def generation_stats(buckets):
+    """Per generation: completions, successful transactions, and successful
+    transactions with a read and with a write, overall and per row family."""
     stats = {}
     for generation, ops in buckets.items():
-        row = stats.setdefault(generation, {"completions": 0, "ok": 0, "ok_reads": 0, "ok_writes": 0})
+        row = stats.setdefault(generation, {"completions": 0, "ok": 0, "ok_reads": 0, "ok_writes": 0,
+                                            "families": {}})
         for op in ops:
             if op["type"] == "invoke":
                 continue
@@ -825,27 +927,44 @@ def generation_stats(buckets):
                 row["ok"] += 1
                 row["ok_reads"] += "r" in functions
                 row["ok_writes"] += "append" in functions
+                for family in {family_of(key) for _, key, _ in op["value"]}:
+                    counts = row["families"].setdefault(str(family), {"ok_reads": 0, "ok_writes": 0})
+                    counts["ok_reads"] += any(f == "r" and family_of(k) == family for f, k, _ in op["value"])
+                    counts["ok_writes"] += any(f == "append" and family_of(k) == family for f, k, _ in op["value"])
     return stats
+
+
+def family_totals(stats):
+    """Successful transactions with a read and with a write per family, over every generation."""
+    totals = {}
+    for row in stats.values():
+        for family, counts in row["families"].items():
+            total = totals.setdefault(family, {"ok_reads": 0, "ok_writes": 0})
+            total["ok_reads"] += counts["ok_reads"]
+            total["ok_writes"] += counts["ok_writes"]
+    return dict(sorted(totals.items()))
 
 
 FAULT_EVENTS = ("admit", "pause", "resume", "crash", "checkpoint")
 
 
-def obligations(buckets, lifecycle):
+def obligations(buckets, lifecycle, families=("smoke",)):
     """Every obligation of the fixed pause/checkpoint/crash scenario that the evidence does not meet.
 
     Returns (stats, [(class, message)]). A probe or observation that ran and
     failed is a recovery/progress failure; anything absent is incomplete.
+    Each selected row family needs its own successful reads and writes.
     """
     stats = generation_stats(buckets)
     missing = []
 
     def useful(generation, when):
-        row = stats.get(generation, {})
-        for key, what in (("ok_reads", "read"), ("ok_writes", "write")):
-            if not row.get(key):
-                missing.append((INCOMPLETE, f"{when}: generation {generation} has no successful client "
-                                            f"transaction with a {what}"))
+        row = stats.get(generation, {}).get("families", {})
+        for family in families:
+            for key, what in (("ok_reads", "read"), ("ok_writes", "write")):
+                if not row.get(family, {}).get(key):
+                    missing.append((INCOMPLETE, f"{when}: generation {generation} has no successful {family} "
+                                                f"transaction with a {what}"))
 
     def nearby(index, step, event, reason, generation):
         index += step
@@ -1014,7 +1133,14 @@ def analyze(inputs, output, jar, java):
     for row in results["checkpoints"]:
         for problem in row["violations"]:
             find(CORRECTNESS, f"generation {row['generation']} ({row['kind']}): {problem}")
-    results["generations"], missing = obligations(buckets, lifecycle)
+    # Campaigns recorded before row families existed ran the smoke rows only.
+    families = (results.get("provenance") or {}).get("parameters", {}).get("workloads") or ["smoke"]
+    unknown = [name for name in families if name not in FAMILIES]
+    if unknown:
+        find(INVALID, f"provenance names unknown row families {unknown}")
+    families = [name for name in families if name in FAMILIES]
+    results["generations"], missing = obligations(buckets, lifecycle, families)
+    results["families"] = {"selected": families, "totals": family_totals(results["generations"])}
     results["missing_obligations"] = [message for _, message in missing]
     for kind, message in missing:
         find(kind, message)
@@ -1066,7 +1192,8 @@ def run_campaign(args, output):
         command = [args.java, JVM_HEAP, "-Djava.awt.headless=true", "-jar", str(args.jepsen_jar.resolve(strict=True)),
                    "--adapter-port", str(adapter.server_address[1]), "--history", str(output / "history.jsonl"),
                    "--phase1", str(args.phase1), "--phase3", str(args.phase3), "--rate", str(args.rate),
-                   "--concurrency", str(args.concurrency), "--seed", str(args.seed)]
+                   "--concurrency", str(args.concurrency), "--seed", str(args.seed),
+                   "--families", json.dumps([dict(FAMILIES[name], name=name) for name in args.workloads])]
         campaign.record({"event": "jepsen", "command": command})
         with (output / "jepsen.log").open("wb") as log:
             # Jepsen writes its store/ (history.edn, jepsen.log) under its cwd.
@@ -1098,7 +1225,13 @@ def main(argv=None):
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--jepsen-timeout", type=int, default=900)
+    parser.add_argument("--workloads", default="smoke",
+                        help=f"comma-separated row families to mix: {', '.join(FAMILIES)}")
     args = parser.parse_args(argv)
+    args.workloads = args.workloads.split(",")
+    unknown = [name for name in args.workloads if name not in FAMILIES]
+    if unknown or len(set(args.workloads)) != len(args.workloads):
+        parser.error(f"--workloads must name distinct families from {', '.join(FAMILIES)}")
     if not args.elle_jar.is_file():
         parser.error("--elle-jar must name the built pinned elle-cli jar")
     if args.analyze is None and not (args.barn and args.db and args.jepsen_jar):
@@ -1129,6 +1262,9 @@ def main(argv=None):
               f"{len(row['violations'])} violations", flush=True)
     for row in results.get("elle", []):
         print(f"elle generation {row['generation']}: {row.get('verdict', row.get('skipped'))}", flush=True)
+    for family, counts in (results.get("families") or {}).get("totals", {}).items():
+        print(f"family {family}: {counts['ok_reads']} successful transactions with a read, "
+              f"{counts['ok_writes']} with a write", flush=True)
     for finding in findings:
         print(f"{finding['class']}: {finding['message']}", file=sys.stderr)
     print(f"verdict: {verdict}", flush=True)

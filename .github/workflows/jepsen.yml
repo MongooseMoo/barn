@@ -103,6 +103,7 @@ jobs:
             --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
             --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
             --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
+            --workloads smoke,props,keyed \
             --output jepsen-evidence --jepsen-timeout 600
       - name: Archive raw evidence
         if: always()
