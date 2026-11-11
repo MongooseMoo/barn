@@ -1,9 +1,12 @@
 name: Nightly fuzz controller
 
-# Submits the next dedicated-continuous fuzz cycle when one completes. This is
-# its own workflow because GitHub rejects a workflow_run trigger that names its
-# own workflow. It reads no artifacts and runs no candidate code: workflow_run
-# runs this file and its checkout from the default branch.
+# Backup for the fuzz.yml job "Submit continuous successor", which submits each
+# next cycle itself. GitHub creates no workflow_run event for a cycle dispatched
+# with GITHUB_TOKEN, so the completion path below fires only after a cycle a
+# person dispatched, and GitHub rarely runs the schedule. This is its own
+# workflow because GitHub rejects a workflow_run trigger that names its own
+# workflow. It reads no artifacts and runs no candidate code: workflow_run and
+# schedule run this file and its checkout from the default branch.
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers] Own master dispatches only; default-branch checkout; no artifact reads.
     workflows: [Nightly fuzz]
@@ -24,8 +27,8 @@ concurrency:
 
 jobs:
   replenish:
-    # Only a source dispatch whose Accept discovery cycle job passed can
-    # replenish, findings or not; fuzz_compute.cjs checks that and the rest.
+    # Restart after any cycle, accepted or not; fuzz_compute.cjs checks the
+    # source, the stop switch and that no newer or active cycle exists.
     if: >-
       github.event.workflow_run.event == 'workflow_dispatch' &&
       contains(fromJSON('["success","failure"]'), github.event.workflow_run.conclusion) &&

@@ -2,8 +2,8 @@ name: Nightly fuzz
 run-name: Nightly fuzz / ${{ inputs.compute-mode }}${{ inputs.campaign == 'native-only' && ' / native-only' || '' }}
 
 # Every discovery job runs in the server's dedicated runner group.
-# fuzz-controller.yml replenishes continuous cycles: GitHub rejects a workflow
-# whose workflow_run trigger names itself.
+# A continuous cycle submits its own successor in its last job;
+# fuzz-controller.yml only resumes a stalled chain on its schedule.
 on:
   workflow_dispatch:
     inputs:
@@ -372,3 +372,33 @@ jobs:
           FUZZ_CAMPAIGN: ${{ needs.route.outputs.campaign }}
         with:
           script: await require('./scripts/fuzz_compute.cjs').accept({github, context, core});
+
+  successor:
+    needs: [route, accept]
+    # Restart after any cycle, accepted or not, and after a cancelled one;
+    # FUZZ_CONTINUOUS_ENABLED is the stop switch. GitHub sends no workflow_run
+    # event when a GITHUB_TOKEN-dispatched run completes, so this job, not a
+    # controller, submits the next cycle.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.compute-mode == 'dedicated-continuous' && needs.route.result == 'success' }}
+    name: Submit continuous successor
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ${{ fromJSON(needs.route.outputs.runner) }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          COMPUTE_MODE: ${{ inputs.compute-mode }}
+          FUZZ_CAMPAIGN: ${{ needs.route.outputs.campaign }}
+          FUZZ_RUNNER_LABELS: ${{ vars.FUZZ_RUNNER_LABELS }}
+          FUZZ_RUNNER_POLICY_VERIFIED: ${{ vars.FUZZ_RUNNER_POLICY_VERIFIED }}
+          FUZZ_MAX_PARALLEL: ${{ vars.FUZZ_MAX_PARALLEL }}
+          FUZZ_CONTINUOUS_ENABLED: ${{ vars.FUZZ_CONTINUOUS_ENABLED }}
+          ACCEPT_RESULT: ${{ needs.accept.result }}
+        with:
+          retries: 3
+          script: await require('./scripts/fuzz_compute.cjs').successor({github, context, core});

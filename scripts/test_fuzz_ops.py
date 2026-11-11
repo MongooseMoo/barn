@@ -90,9 +90,8 @@ class FuzzOpsTests(unittest.TestCase):
         cases = [
             ((False, [self.current]), "STOPPED: FUZZ_CONTINUOUS_ENABLED"),
             ((True, []), "BROKEN: continuous mode is on but no continuous cycle"),
-            ((True, [self.cycle(**done, idle_minutes=10)]), "BETWEEN CYCLES"),
+            ((True, [self.cycle(**done, idle_minutes=2)]), "BROKEN: nothing queued or running 2m"),
             ((True, [self.cycle(**done, idle_minutes=95)]), "BROKEN: nothing queued or running 1h 35m"),
-            ((True, [self.cycle(**{**done, "accept": "failure"}, idle_minutes=10)]), "WAITING FOR WATCHDOG"),
             ((True, [self.cycle(**{**done, "accept": "failure"}, idle_minutes=95)]),
              "BROKEN: nothing queued or running 1h 35m after cycle 42766490058 (acceptance failure)"),
             ((True, [self.cycle(**done, idle_minutes=95, title="Nightly fuzz / dedicated-once / native-only")]),
@@ -102,10 +101,6 @@ class FuzzOpsTests(unittest.TestCase):
             with self.subTest(expected):
                 state, _ = fuzz_ops.verdict(enabled, cycles, [])
                 self.assertTrue(state.startswith(expected), state)
-
-    def test_grace_matches_the_watchdog(self):
-        source = (Path(__file__).resolve().parent / "fuzz_compute.cjs").read_text()
-        self.assertIn(f"const WATCHDOG_GRACE_MS = {fuzz_ops.GRACE_MINUTES} * 60 * 1000;", source)
 
     def test_render_is_plain_lines(self):
         status = {"state": "RUNNING: x", "problems": [], "enabled": True, "max_parallel": "4",

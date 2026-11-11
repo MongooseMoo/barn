@@ -36,7 +36,8 @@ function configure({context, core}) {
 
 const ACCEPT = 'Accept discovery cycle';
 const DIFFERENTIAL = 'ToastDifferential';
-const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, ACCEPT]);
+const SUCCESSOR = 'Submit continuous successor';
+const NOT_LANES = new Set(['Validate compute routing', DIFFERENTIAL, ACCEPT, SUCCESSOR]);
 
 // A cycle is accepted when every lane completed measured work and kept its
 // evidence. A saved finding or a real divergence leaves its job red and is
@@ -130,6 +131,36 @@ async function dispatchSuccessor(github, context, selected) {
   });
 }
 
+// The last job of every continuous cycle submits the next one, accepted or not
+// (Q, 2026-11-10: "Restart after any cycle"). A separate workflow_run
+// controller cannot: GitHub creates no completion event for a run dispatched
+// with GITHUB_TOKEN, so runs 42766490058 and 42897395293, both dispatched by
+// the controller, ended with no controller run and the chain stopped. A
+// GITHUB_TOKEN workflow_dispatch does create the successor run.
+async function successor({github, context, core}) {
+  const selected = campaign();
+  if (context.eventName !== 'workflow_dispatch' || context.ref !== 'refs/heads/master' ||
+      process.env.COMPUTE_MODE !== 'dedicated-continuous') {
+    throw new Error('A successor follows only a trusted master continuous dispatch');
+  }
+  // Job-level vars are read when this job starts, after the cycle's lanes.
+  if (process.env.FUZZ_CONTINUOUS_ENABLED !== 'true') {
+    core.info('Continuous discovery is stopped; no successor submitted');
+    return;
+  }
+  dedicated(process.env);
+  if (await dedicatedCycleActive(github, context)) {
+    core.info('Another dedicated fuzz cycle already exists; no successor submitted');
+    return;
+  }
+  await dispatchSuccessor(github, context, selected);
+  core.info(`Submitted one dedicated successor (acceptance ${process.env.ACCEPT_RESULT || 'unknown'})`);
+}
+
+// fuzz-controller.yml's completion path. GitHub fires it only for a cycle that
+// a person dispatched; that cycle's own successor job usually submits first,
+// and then this finds the newer dispatch and does nothing. It covers a cycle
+// whose fuzz.yml predates the successor job or whose successor job failed.
 async function replenish({github, context, core}) {
   const source = context.payload.workflow_run;
   const selected = CONTINUOUS.get(source?.display_title);
@@ -147,9 +178,6 @@ async function replenish({github, context, core}) {
     return;
   }
   dedicated(process.env);
-  if (!await accepted(github, context, source.id)) {
-    throw new Error('The source cycle was not accepted; continuous discovery stops here');
-  }
   const {data: latest} = await github.rest.actions.listWorkflowRuns({
     ...context.repo, workflow_id: 'fuzz.yml', event: 'workflow_dispatch', per_page: 100
   });
@@ -161,18 +189,18 @@ async function replenish({github, context, core}) {
     core.info('Another dedicated fuzz cycle already exists; no successor submitted');
     return;
   }
+  const verdict = await accepted(github, context, source.id) ? 'accepted' : 'not accepted';
   await dispatchSuccessor(github, context, selected);
-  core.info('Submitted one dedicated successor');
+  core.info(`Submitted one dedicated successor (${verdict})`);
 }
 
-// Gives replenish this long to submit a successor before the watchdog does.
+// Gives a cycle's successor job this long before the watchdog acts.
 const WATCHDOG_GRACE_MS = 30 * 60 * 1000;
 
-// Scheduled recovery for a chain that lost its successor (a failed or missing
-// controller run, a dispatch lost during a runner outage, or a cycle that
-// failed acceptance). Q, 2026-11-10: "Restart after any cycle". Replenish
-// still stops at once on an unaccepted cycle; the cycle stays red, and only
-// this watchdog resumes the chain after the grace period.
+// Scheduled recovery for a chain that lost its successor (a successor job that
+// never ran or failed, or a dispatch lost during a runner outage). GitHub runs
+// this schedule rarely (2 of about 34 due runs on 2026-11-10), so it is only
+// a backup to the successor job.
 async function watchdog({github, context, core}) {
   if (context.eventName !== 'schedule' || context.ref !== 'refs/heads/master') {
     throw new Error('The watchdog runs only on the master schedule');
@@ -204,4 +232,4 @@ async function watchdog({github, context, core}) {
   core.info(`Watchdog: resumed the chain after cycle ${last.id} (${verdict}); submitted one dedicated successor`);
 }
 
-module.exports = {dedicated, configure, accept, replenish, watchdog};
+module.exports = {dedicated, configure, accept, successor, replenish, watchdog};
