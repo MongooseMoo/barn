@@ -10,7 +10,7 @@ barn, and the unused OAuth App and claude.ai custom connector deleted.
 ## State
 
 - `docs/live/index.html`: plain-text page (headings, paragraphs, lists; one
-  `role=status` summary line). Every 2 minutes it reads fuzz.yml runs, jobs of
+  `role=status` summary line). Every 6 minutes it reads fuzz.yml runs, jobs of
   the current and previous dedicated cycle, controller runs, newest 40 issues
   (titles starting "Nightly fuzz") and newest 40 PRs (head `claude/issue-*`).
   No token. Checked in Chrome from a local server on 2026-11-11 against live
@@ -28,6 +28,10 @@ barn, and the unused OAuth App and claude.ai custom connector deleted.
 - Run state comes from jobs: GitHub reported run 42955669432 as `queued`
   while four lanes were in progress.
 - Lane set mirrors `fuzz_compute.cjs` NOT_LANES.
+- Refresh every 6 minutes (Q, 2026-11-11, chose this over 3 minutes with 3
+  requests): at most 6 requests per refresh, 10 refreshes an hour = the 60
+  unauthenticated limit. The first version refreshed every 2 minutes (180 an
+  hour) and would have run out after about 20 minutes.
 
 ## Surprises
 
@@ -36,5 +40,6 @@ barn, and the unused OAuth App and claude.ai custom connector deleted.
 
 ## Next step
 
-After merge: turn on Pages (master, `/docs`) and open
-https://mongoosemoo.github.io/barn/live/ to confirm it loads.
+Pages is on (master, `/docs`); https://mongoosemoo.github.io/barn/live/
+loaded live data on 2026-11-11. After the refresh change merges, confirm the
+page says "every 6 minutes".

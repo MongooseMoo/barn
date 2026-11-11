@@ -41,13 +41,16 @@
 <h2>Automatic repair PRs, newest first</h2>
 <ul id="repairs"></ul>
 
-<p class="muted">Reads GitHub's public API from this browser, with no sign-in, every 2 minutes.
-GitHub allows 60 unauthenticated requests an hour per address; each refresh makes about 6.</p>
+<p class="muted">Reads GitHub's public API from this browser, with no sign-in, every 6 minutes.
+GitHub allows 60 unauthenticated requests an hour per address; each refresh makes at most 6,
+so 10 refreshes an hour fit.</p>
 </main>
 <script>
 "use strict";
 const API = "https://api.github.com/repos/MongooseMoo/barn";
-const REFRESH_MS = 2 * 60 * 1000;
+// At most 6 requests per refresh; 60 unauthenticated requests an hour allow one every 6 minutes.
+const REFRESH_MINUTES = 6;
+const REFRESH_MS = REFRESH_MINUTES * 60 * 1000;
 // Jobs that are not fuzz lanes (fuzz_compute.cjs NOT_LANES).
 const NOT_LANES = new Set(["Validate compute routing", "ToastDifferential",
   "Accept discovery cycle", "Submit continuous successor"]);
@@ -170,7 +173,7 @@ async function refresh() {
   } catch (error) {
     const summary = document.getElementById("summary");
     summary.className = "bad";
-    summary.textContent = `Could not read GitHub: ${error.message}. Retrying in 2 minutes.`;
+    summary.textContent = `Could not read GitHub: ${error.message}. Retrying in ${REFRESH_MINUTES} minutes.`;
     document.getElementById("updated").textContent = rateNote;
   }
 }
