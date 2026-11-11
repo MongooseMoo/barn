@@ -34,8 +34,9 @@ package engine
 //   BARN_MONGOOSE_MOOPROFILE prefix for MOO profiles, one per measured player level
 //   BARN_MONGOOSE_LOG_DIR    capture existing debug diagnostics as JSON run logs
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
-//   BARN_MONGOOSE_GOGC        GC target percentage (cmd/barn sets 400; a test process
-//                             otherwise runs at Go's default, which the log line states)
+//   BARN_MONGOOSE_GOGC        GC target percentage; unset (and GOGC unset), the
+//                             server's default config.DefaultGCPercent, as cmd/barn
+//                             applies it; the log line states what is in effect
 //   BARN_MONGOOSE_MEMLIMIT_MIB soft memory limit in MiB (cmd/barn -gomemlimit-mib)
 //   BARN_MONGOOSE_MEMSTATS    non-empty returns load garbage to the system after load,
 //                             as server.LoadDatabase does, logs memory before the
@@ -1060,6 +1061,8 @@ func applyBenchGCSettings(t *testing.T) {
 			t.Fatalf("BARN_MONGOOSE_GOGC=%q: %v", v, err)
 		}
 		debug.SetGCPercent(percent)
+	} else if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(config.DefaultGCPercent)
 	}
 	if v := os.Getenv("BARN_MONGOOSE_MEMLIMIT_MIB"); v != "" {
 		mib, err := strconv.Atoi(v)

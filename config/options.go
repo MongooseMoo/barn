@@ -34,6 +34,10 @@ type Options struct {
 // every `say`, which cost about 125 ms of file reads per command.
 const DefaultSQLiteCacheKiB = 256 * 1024
 
+// DefaultGCPercent is the collector target the server runs at when neither its
+// -gogc flag nor the GOGC environment variable sets one.
+const DefaultGCPercent = 400
+
 const maxSQLiteCacheKiB = 64 * 1024 * 1024
 
 // SQLiteCacheSizeKiB returns the configured page cache, or the default.

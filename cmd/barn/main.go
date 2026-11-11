@@ -9,14 +9,13 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/internal/app"
 	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/server"
 )
-
-const defaultGOGCPercent = 400
 
 type stringListFlag []string
 
@@ -100,7 +99,7 @@ func main() {
 	if *gogc >= 0 {
 		debug.SetGCPercent(*gogc)
 	} else if os.Getenv("GOGC") == "" {
-		debug.SetGCPercent(defaultGOGCPercent)
+		debug.SetGCPercent(config.DefaultGCPercent)
 	}
 
 	ctx, stop := interruptContext()
