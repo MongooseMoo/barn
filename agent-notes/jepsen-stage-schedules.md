@@ -26,6 +26,12 @@ capture:1, serialize:1, staged:2, journal-published:1, journal-published:2, data
 - Lost-update control drops a token in the writer rather than reusing a stale snapshot: one seam in `writeProperties` serves both row controls.
 - Stage campaign is its own job in `jepsen.yml` so the fixed campaign's 20 min budget is unchanged.
 
+## CI run 42964137644 (first #748 run): stages job red
+- Controls: drop-append and duplicate-append passed with their witnesses (every process `added_environment` BARN_ELLE_FAULT=<control>); mixed-pair missed (froze at both-renamed). The duplicate tokens and the gen-0 Elle rejection the lead saw are the duplicate-append control's expected witness, not a healthy-run defect; the healthy schedule's processes had only BARN_ELLE_CHECKPOINT_STOP.
+- Schedule: capture-1, serialize-1, staged-2 froze at the expected stage. Every rename-stage step (journal-published-1/2, database-renamed-1/2, pair-renamed-1, double-crash) froze at `both-renamed`: e.g. gen-003 (journal-published:1) frozen files show output = journal next, temp gone, server.log ends `checkpoint started` then the stop record, no `checkpoint complete`. So the process ran past its stop point before stopping. Double crash then had nothing to restore, so its recovery stop never fired (TimeoutError).
+- Cause: `stopSelf` (`internal/isolationprobe/stop_unix.go`) uses `kill(getpid(), SIGSTOP)`, a process-directed signal the kernel may deliver to another thread (signal(7); POSIX kill only guarantees delivery to the sender when no other thread has it unblocked), so the checkpoint goroutine's thread keeps running until the group stop reaches it.
+- Fix: on Linux, `tgkill(getpid(), gettid(), SIGSTOP)` with the OS thread locked (`internal/isolationprobe/stop_linux.go`), so the calling thread itself dequeues SIGSTOP on its return from the syscall. Other platforms now refuse the stop at startup (`stop_other.go`, `elle && !linux`) instead of giving an inexact one. Test `TestCheckpointStopNoCodeRunsAfterStop` (25 helper launches; the helper pins its main goroutine to the thread group leader, as in Barn the checkpoint runs off the leader, and writes a marker right after Pause returns): failed on attempt 0 in WSL Linux with the old `kill`, passes `-count=3` with `tgkill`.
+
 ## Surprises
 - The recovery-time stop fires during LoadDatabase, before the listener, so that launch waits for the stop record instead of readiness.
 - PR C's `_recovered_pair` raises on a missing sidecar, so a mixed (database without sidecar) pair failed the launch instead of reaching the oracle.
