@@ -1497,11 +1497,22 @@ class Campaign:
         self.plants.append(plant)
         return plant
 
-    def task_recovery(self, generation, port):
-        """Before admission and before any release: every plant's held state in
-        the database this generation loaded. Returns the plants still held."""
-        held = []
+    def retire(self, generation, baseline):
+        """generation launches from the verified pair of generation baseline (None:
+        the original fixture), so every plant made after baseline was rolled back
+        with its world: Barn reissues its task ids and object numbers there, so
+        it is never read or judged again (task_retirements)."""
         for plant in self.plants:
+            if "retired" not in plant and plant["generation"] > (-1 if baseline is None else baseline):
+                plant["retired"] = generation
+                self.record({"event": "task-retire", "generation": generation, "plant": plant["seq"],
+                             "plant_generation": plant["generation"], "baseline_generation": baseline})
+
+    def task_recovery(self, generation, port):
+        """Before admission and before any release: every unretired plant's held
+        state in the database this generation loaded. Returns the plants still held."""
+        held = []
+        for plant in (item for item in self.plants if "retired" not in item):
             def attempt(plant=plant):
                 return parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
             ok, state, errors, seconds = self.bounded(attempt)
@@ -1616,6 +1627,8 @@ class Campaign:
         self.server = server
         server.start()
         self.observe_recovery(generation, port, restart)
+        if restart is None:
+            self.retire(generation, source["baseline_generation"])
         held = self.task_recovery(generation, port) if self.plants else []
         effects = self.open_connections(generation, port) if (self.tasks or self.effects) else None
         if held:
@@ -2885,6 +2898,26 @@ def _selected_cut_names(recoveries, generation):
     return None if row is None else row.get("candidate_cuts")
 
 
+def task_retirements(plants, admits):
+    """{plant seq: the generation that retired it}. A generation launched from a
+    verified pair (no restart; kind crash or checkpoint) of baseline generation
+    B, or from the original fixture (B = -1), rolls back every plant made after
+    B: its world, and with it the plant's task ids and object numbers, is gone,
+    and Barn reissues those numbers. Such a plant is not judged at that launch
+    or later. A plant at or before B stays fully judged. Derived from the admit
+    rows, not from the campaign's task-retire records."""
+    retired = {}
+    for generation in sorted(admits):
+        admit = admits[generation]
+        if admit.get("kind") == "initial" or admit.get("restart") is not None:
+            continue
+        baseline = -1 if admit.get("baseline_generation") is None else admit["baseline_generation"]
+        for seq, plant in plants.items():
+            if seq not in retired and baseline < plant["generation"] < generation:
+                retired[seq] = generation
+    return retired
+
+
 def task_checks(lifecycle, receipts, recoveries, live=False):
     """Check every task-lane plant. Returns (results, [(class, witness, message)]).
 
@@ -2905,6 +2938,7 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
 
     plants = {row["seq"]: row for row in lifecycle if row.get("event") == "task-plant"}
     admits = {row["generation"]: row for row in lifecycle if row.get("event") == "admit"}
+    retired = task_retirements(plants, admits)
     releases = {}
     for row in lifecycle:
         if row.get("event") == "task-release":
@@ -2925,7 +2959,10 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
         if len(set(all_tids)) != len(all_tids):
             find(INVALID, "task-plant", f"plant {seq}: task ids {all_tids} repeat", summary)
         tids = [tid for tid in all_tids if tid not in invalid]
-        for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq):
+        if seq in retired:
+            summary["retired"] = retired[seq]
+        for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq
+                         and row["generation"] < retired.get(seq, float("inf"))):
             generation, state = recovery["generation"], recovery.get("state") or {}
             where = f"plant {seq} at the launch of generation {generation}"
             launch = {"generation": generation, "status": "unreadable"}

@@ -2009,6 +2009,72 @@ class TransportCampaignTests(unittest.TestCase):
         self.assertFalse(fault["recovery"]["client"]["ok"])
 
 
+class TaskRetirementTests(unittest.TestCase):
+    """A crash relaunched from an older verified pair rolls back later plants,
+    and Barn reissues their task ids (run 43009839220: plant 6 got plant 3's
+    tids 2236 and 2244 after the transport lane's crash-restart)."""
+
+    def lifecycle(self, plant_one_at_4=(11, 12)):
+        def plant(seq, generation, point, tids):
+            return {"event": "task-plant", "seq": seq, "generation": generation, "point": point,
+                    "setup": {"programmer": 90 + seq}, "tasks": [{"tid": tid, "kind": "fork", "token": seq * 100 + i}
+                                                                for i, tid in enumerate(tids)]}
+
+        def admit(generation, kind, baseline):
+            return {"event": "admit", "generation": generation, "kind": kind, "baseline_generation": baseline,
+                    "restart": None}
+
+        def recovery(generation, seq, ids, results):
+            return {"event": "task-recovery", "generation": generation, "plant": seq, "ok": True,
+                    "state": {"ids": ids, "results": results}}
+
+        return [
+            admit(0, "initial", None),
+            plant(1, 0, "graceful-checkpoint", [11, 12]),          # captured by generation 0's checkpoint
+            recovery(1, 1, [11, 12], {}), admit(1, "checkpoint", 0),
+            plant(2, 1, "live-checkpoint", [21, 22]),              # after the baseline: rolled back below
+            {"event": "task-retire", "generation": 2, "plant": 2, "plant_generation": 1, "baseline_generation": 0},
+            recovery(2, 1, [11, 12], {}), admit(2, "crash", 0),    # relaunch from generation 0's pair
+            plant(3, 2, "graceful-checkpoint", [21, 23]),          # reissued tid 21
+            recovery(3, 1, list(plant_one_at_4), {}),
+            recovery(3, 2, [21, 23], None),                        # plant 2's object number now holds another object
+            recovery(3, 3, [21, 23], {}), admit(3, "checkpoint", 2),
+        ]
+
+    def correctness(self, lifecycle):
+        _, findings = jc.task_checks(lifecycle, [], [])
+        return [(witness, message) for kind, witness, message in findings if kind == jc.CORRECTNESS]
+
+    def test_retirement_follows_the_relaunched_pair_baseline(self):
+        lifecycle = self.lifecycle()
+        plants = {row["seq"]: row for row in lifecycle if row["event"] == "task-plant"}
+        admits = {row["generation"]: row for row in lifecycle if row["event"] == "admit"}
+        self.assertEqual(jc.task_retirements(plants, admits), {2: 2})
+
+    def test_a_rolled_back_plant_is_not_judged_by_reissued_task_ids(self):
+        self.assertEqual(self.correctness(self.lifecycle()), [])
+        with patch.object(jc, "task_retirements", return_value={}):
+            self.assertEqual(self.correctness(self.lifecycle()), [
+                ("lost-task", "plant 2 at the launch of generation 3: tasks [21] are queued but their scenario "
+                              "object is not valid")])
+
+    def test_a_lost_task_of_a_plant_at_or_before_the_baseline_is_still_caught(self):
+        self.assertEqual(self.correctness(self.lifecycle(plant_one_at_4=[11])), [
+            ("lost-task", "plant 1 at the launch of generation 3: held tasks [12] of [11, 12] are missing from "
+                          "queued_tasks")])
+
+    def test_the_campaign_retires_and_stops_reading_rolled_back_plants(self):
+        campaign, _, _, output = CampaignTests.campaign(SimpleNamespace(server_type=FakeServer, recoveries=None,
+                                                                         addCleanup=self.addCleanup))
+        campaign.plants = [{"seq": 1, "generation": 0}, {"seq": 2, "generation": 3}]
+        campaign.retire(5, 0)
+        campaign.retire(6, None)
+        self.assertEqual([plant.get("retired") for plant in campaign.plants], [6, 5])
+        self.assertEqual([(row["plant"], row["generation"], row["baseline_generation"])
+                          for row in jc.load_jsonl(output / "lifecycle.jsonl")], [(2, 5, 0), (1, 6, None)])
+        self.assertEqual(campaign.task_recovery(7, 9000), [])  # nothing left to read
+
+
 def transport_evidence():
     """A pre-send fault (operation 1) and a disconnect-after-send fault
     (operation 2), each healed and recovered by client operations 3 and 4."""

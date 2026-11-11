@@ -27,6 +27,16 @@ Re-check against merged E and F:
 - `effect_checks` and `shaped_checks` treat `info` completions as unknown, so client faults may land on any family's transaction.
 
 ## Surprises
+- First CI run of PR #762 (run 43009839220): transport checks clean (every kind applied, recovery under 4 s, stall control witnessed). The campaign was still red with a task-lane `lost-task`. The transport crash-restart relaunches from generation 0's verified pair, which rolls back past live plants 2-5. Barn then reissues their task ids and object numbers to plant 6 (tids 2236/2244 shared with plant 3; #431 reused). `Campaign.task_recovery` (jepsen_checkpoint.py:1504) and `task_checks` (:2938-2950) still judge the rolled-back plants by number. This is a harness defect in the task lane, not a Barn defect. Proposed fix: retire plants newer than the launch's baseline generation. Reported to the lead, who approved the retire fix.
+
+Retire semantics (lead's constraints, implemented):
+- A generation launched from a verified pair (no restart; kind `crash` or `checkpoint`) whose baseline generation is B (B = -1 for the original fixture) retires every plant with plant.generation > B. Those plants' world was rolled back, and Barn reissues their task ids and object numbers.
+- `Campaign.retire` records one `task-retire` row per plant, and `task_recovery` never reads a retired plant again.
+- `task_retirements` in the analysis derives retirement independently from the admit rows. `task_checks` skips a plant's recovery rows from its retire generation on.
+- Plants at or before B are never retired and stay fully judged, so a lost task there is still a correctness violation.
+- Checkpoint-crash restarts (restart set) never retire.
+- Fixture `TaskRetirementTests` reproduces the tid collision. It shows the false `lost-task` when retirement is patched out, and that a lost task of a plant at or before B is still caught.
+- Unverified, not in scope: a live plant whose checkpoint-crash recovered the unchanged input is also out of its world. Later plants in that generation could reissue its tids. The existing check expects it `absent` at that launch, but later launches still read it. Not observed in CI.
 
 ## Next step
 Read the merged diff of PR E and F to the harness, then implement.
