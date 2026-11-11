@@ -2074,6 +2074,69 @@ class TaskRetirementTests(unittest.TestCase):
                           for row in jc.load_jsonl(output / "lifecycle.jsonl")], [(2, 5, 0), (1, 6, None)])
         self.assertEqual(campaign.task_recovery(7, 9000), [])  # nothing left to read
 
+    def crash_lifecycle(self, cut_after_first="unchanged input"):
+        """Live plant 2 (generation 0) is absent after generation 0's
+        checkpoint-crash; live plant 3 (generation 1) reissues its tid 21 and
+        is recovered held after generation 1's checkpoint-crash."""
+        def plant(seq, generation, tids):
+            return {"event": "task-plant", "seq": seq, "generation": generation, "point": "live-checkpoint",
+                    "setup": {"programmer": 90 + seq}, "tasks": [{"tid": tid, "kind": "fork", "token": seq * 100 + i}
+                                                                for i, tid in enumerate(tids)]}
+
+        def restarted(generation):
+            return {"event": "admit", "generation": generation, "kind": "checkpoint-crash",
+                    "baseline_generation": None, "restart": {"generation": generation - 1}}
+
+        def recovery(generation, seq, ids, results, status):
+            return {"event": "task-recovery", "generation": generation, "plant": seq, "ok": True,
+                    "state": {"ids": ids, "results": results}, "status": status}
+
+        lifecycle = [
+            {"event": "admit", "generation": 0, "kind": "initial", "baseline_generation": None, "restart": None},
+            plant(2, 0, [21, 22]),
+            recovery(1, 2, [], None, "absent"), restarted(1),
+            plant(3, 1, [21, 23]),
+            recovery(2, 2, [21, 23], None, "absent"),     # plant 2's object number now holds another object
+            recovery(2, 3, [21, 23], {}, "held"), restarted(2),
+        ]
+        cuts = [{"generation": 0, "candidate_cuts": [cut_after_first]},
+                {"generation": 1, "candidate_cuts": ["completed checkpoint 2"]}]
+        return lifecycle, cuts
+
+    def test_a_plant_absent_after_its_checkpoint_crash_is_retired_from_the_next_launch(self):
+        lifecycle, cuts = self.crash_lifecycle()
+        plants = {row["seq"]: row for row in lifecycle if row["event"] == "task-plant"}
+        admits = {row["generation"]: row for row in lifecycle if row["event"] == "admit"}
+        self.assertEqual(jc.task_retirements(plants, admits, lifecycle), {2: 2})
+
+        def correctness(retirements=jc.task_retirements):
+            with patch.object(jc, "task_retirements", retirements):
+                _, findings = jc.task_checks(lifecycle, [], cuts)
+            return [(witness, message) for kind, witness, message in findings if kind == jc.CORRECTNESS]
+        self.assertEqual(correctness(), [])
+        self.assertEqual(correctness(lambda *args: {}), [
+            ("lost-task", "plant 2 at the launch of generation 2: tasks [21] are queued but their scenario "
+                          "object is not valid")])
+
+    def test_absence_where_the_selected_cut_kept_the_plant_is_still_a_lost_task(self):
+        lifecycle, cuts = self.crash_lifecycle(cut_after_first="completed checkpoint 1")
+        _, findings = jc.task_checks(lifecycle, [], cuts)
+        self.assertIn((jc.CORRECTNESS, "lost-task",
+                       "plant 2 at the launch of generation 1: absent, but the recovery selected "
+                       "['completed checkpoint 1'], captured after the plant"), findings)
+
+    def test_the_campaign_retires_a_crashed_generation_plant_it_finds_absent(self):
+        campaign, _, _, output = CampaignTests.campaign(SimpleNamespace(server_type=FakeServer, recoveries=None,
+                                                                         addCleanup=self.addCleanup))
+        campaign.plants = [{"seq": 1, "generation": 0, "setup": {}, "tasks": [{"tid": 5}]},
+                           {"seq": 2, "generation": 3, "setup": {}, "tasks": [{"tid": 6}]}]
+        with patch.object(jc, "task_state_code", return_value="state"), \
+             patch.object(jc, "parse_task_state", return_value={"ids": [], "results": None}):
+            campaign.task_recovery(4, 9000, {"generation": 3, "kind": "interrupted-checkpoint-output"})
+        self.assertEqual([plant.get("retired") for plant in campaign.plants], [None, 5])
+        retire = [row for row in jc.load_jsonl(output / "lifecycle.jsonl") if row["event"] == "task-retire"]
+        self.assertEqual([(row["plant"], row["generation"], row["absent_at"]) for row in retire], [(2, 5, 4)])
+
 
 def transport_evidence():
     """A pre-send fault (operation 1) and a disconnect-after-send fault

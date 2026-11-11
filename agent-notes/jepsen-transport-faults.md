@@ -36,7 +36,11 @@ Retire semantics (lead's constraints, implemented):
 - Plants at or before B are never retired and stay fully judged, so a lost task there is still a correctness violation.
 - Checkpoint-crash restarts (restart set) never retire.
 - Fixture `TaskRetirementTests` reproduces the tid collision. It shows the false `lost-task` when retirement is patched out, and that a lost task of a plant at or before B is still caught.
-- Unverified, not in scope: a live plant whose checkpoint-crash recovered the unchanged input is also out of its world. Later plants in that generation could reissue its tids. The existing check expects it `absent` at that launch, but later launches still read it. Not observed in CI.
+- Second path, settled at the lead's request: a live plant rolled back by its own checkpoint-crash.
+  - Before the fix, `launch` retired only when `restart is None`, so this path never retired. `task_checks` expected `absent` only at the launch whose `restart.generation` equals the plant's generation. Every later launch still read and judged the plant by tid and object number.
+  - Now `task_recovery(generation, port, restart)` checks plants made in the crashed generation. If the restarted launch finds one `absent`, it is judged at that launch (still `lost-task` when the selected cut is A or F) and retired from the next launch on, recorded as `task-retire` with `absent_at`.
+  - `task_retirements` derives the same from the admit rows and the task-recovery rows.
+  - Fixtures cover the tid collision on this path (false `lost-task` without retirement) and an absent plant whose selected cut kept it (still `lost-task`).
 
 ## Next step
 Read the merged diff of PR E and F to the harness, then implement.

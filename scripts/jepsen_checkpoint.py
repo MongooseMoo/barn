@@ -1508,9 +1508,14 @@ class Campaign:
                 self.record({"event": "task-retire", "generation": generation, "plant": plant["seq"],
                              "plant_generation": plant["generation"], "baseline_generation": baseline})
 
-    def task_recovery(self, generation, port):
+    def task_recovery(self, generation, port, restart=None):
         """Before admission and before any release: every unretired plant's held
-        state in the database this generation loaded. Returns the plants still held."""
+        state in the database this generation loaded. Returns the plants still held.
+
+        After a checkpoint-crash restart, a plant made in the crashed generation
+        that this launch finds absent was rolled back with the recovered cut (the
+        unchanged input): this launch's read is still judged, and the plant is
+        retired from the next launch on (task_retirements)."""
         held = []
         for plant in (item for item in self.plants if "retired" not in item):
             def attempt(plant=plant):
@@ -1531,6 +1536,11 @@ class Campaign:
                          "seconds": seconds})
             if status == "held":
                 held.append(plant)
+            elif status == "absent" and restart is not None and plant["generation"] == restart["generation"]:
+                plant["retired"] = generation + 1
+                self.record({"event": "task-retire", "generation": generation + 1, "plant": plant["seq"],
+                             "plant_generation": plant["generation"], "absent_at": generation,
+                             "restart_kind": restart["kind"]})
         return held
 
     def open_connections(self, generation, port):
@@ -1629,7 +1639,7 @@ class Campaign:
         self.observe_recovery(generation, port, restart)
         if restart is None:
             self.retire(generation, source["baseline_generation"])
-        held = self.task_recovery(generation, port) if self.plants else []
+        held = self.task_recovery(generation, port, restart) if self.plants else []
         effects = self.open_connections(generation, port) if (self.tasks or self.effects) else None
         if held:
             self.release(generation, port, held, effects["receiver"])
@@ -2898,18 +2908,35 @@ def _selected_cut_names(recoveries, generation):
     return None if row is None else row.get("candidate_cuts")
 
 
-def task_retirements(plants, admits):
-    """{plant seq: the generation that retired it}. A generation launched from a
-    verified pair (no restart; kind crash or checkpoint) of baseline generation
-    B, or from the original fixture (B = -1), rolls back every plant made after
-    B: its world, and with it the plant's task ids and object numbers, is gone,
-    and Barn reissues those numbers. Such a plant is not judged at that launch
-    or later. A plant at or before B stays fully judged. Derived from the admit
-    rows, not from the campaign's task-retire records."""
+def task_retirements(plants, admits, lifecycle=()):
+    """{plant seq: the first generation at which it is no longer judged}.
+
+    A rolled-back plant's world, and with it its task ids and object numbers,
+    is gone, and Barn reissues those numbers, so it is not judged from then on:
+    - a generation launched from a verified pair (no restart; kind crash or
+      checkpoint) of baseline generation B, or from the original fixture
+      (B = -1), rolls back every plant made after B: not judged at that launch
+      or later. A plant at or before B stays fully judged;
+    - after a checkpoint-crash restart, a plant made in the crashed generation
+      that the restarted launch found absent (status absent: the recovered cut
+      is the unchanged input before the plant) is judged at that launch, where
+      task_checks expects it absent only if the selected cut allows, and not
+      from the next launch on.
+    Derived from the admit and task-recovery rows, not from the campaign's
+    task-retire records."""
+    absent = {(row["generation"], row["plant"]) for row in lifecycle
+              if row.get("event") == "task-recovery" and row.get("status") == "absent"}
     retired = {}
     for generation in sorted(admits):
         admit = admits[generation]
-        if admit.get("kind") == "initial" or admit.get("restart") is not None:
+        restart = admit.get("restart")
+        if restart is not None:
+            for seq, plant in plants.items():
+                if seq not in retired and plant["generation"] == restart.get("generation") \
+                        and (generation, seq) in absent:
+                    retired[seq] = generation + 1
+            continue
+        if admit.get("kind") == "initial":
             continue
         baseline = -1 if admit.get("baseline_generation") is None else admit["baseline_generation"]
         for seq, plant in plants.items():
@@ -2938,7 +2965,7 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
 
     plants = {row["seq"]: row for row in lifecycle if row.get("event") == "task-plant"}
     admits = {row["generation"]: row for row in lifecycle if row.get("event") == "admit"}
-    retired = task_retirements(plants, admits)
+    retired = task_retirements(plants, admits, lifecycle)
     releases = {}
     for row in lifecycle:
         if row.get("event") == "task-release":
