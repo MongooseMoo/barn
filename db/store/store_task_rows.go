@@ -177,7 +177,10 @@ func (tx *StoreTxn) publishTaskRowsLocked() []PublishedTaskRow {
 // nothing, so, like a read-only transaction, it is serialized at its snapshot.
 // A transaction that read external state is the exception: that read was made
 // after the snapshot, so the transaction is serialized here instead and every
-// read it made is validated (store_external_reads.go).
+// read it made is validated (store_external_reads.go). So is one whose snapshot
+// may include half of an exclusive holder's attempt (StoreTxn.overlapsHold): its
+// snapshot is not a consistent point to serialize at, and the shared gate below
+// waits for that holder's commit before the validation.
 // It still takes the shared commit gate, so an attempt holding the gate
 // exclusively cannot lose to it.
 func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode types.ErrorCode) {
@@ -194,7 +197,7 @@ func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode 
 	tx.conflicts = tx.conflicts[:0]
 	s := tx.store
 	errCode = types.E_NONE
-	if tx.externalRead {
+	if tx.mustValidateReads() {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		s.commitMu.Lock()
@@ -208,6 +211,6 @@ func (tx *StoreTxn) commitTaskRowsOnly() (published []PublishedTaskRow, errCode 
 		tx.lostValidation()
 		return nil, errCode
 	}
-	tx.externalRead = false
+	tx.externalRead, tx.overlapsHold = false, false
 	return tx.publishTaskRowsLocked(), types.E_NONE
 }
