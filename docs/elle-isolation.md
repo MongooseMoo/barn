@@ -256,6 +256,13 @@ or repeat the last token of each nonempty list in a property named `jp*`, the
 Jepsen property rows (`db/format/checkpoint_fault.go`). Their tests in
 `db/format/checkpoint_fault_test.go` skip unless `BARN_ELLE_FAULT` names them.
 
+The Jepsen effects lane has one live-process control, `pending-effect-retry`:
+the commit-conflict retry in `engine/task_runtime.go` publishes the lost
+attempt's deferred effects instead of discarding them, so a notification from a
+retried transaction reaches its receiver twice. The Jepsen run
+`--control pending-effect-retry` passes only when the effect checker reports
+`duplicated-live-retry-effect`.
+
 ## Task lifecycle ordering
 
 The same CI driver runs `TestUncaughtHandlerBeforeYieldedParent` with healthy

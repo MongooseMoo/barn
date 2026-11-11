@@ -68,8 +68,11 @@ class TxnCodeTests(unittest.TestCase):
     def test_families_partition_keys_by_range(self):
         self.assertEqual([jc.family_of(key) for key in (0, 1000004, PROPS, PROPS + 1000003, KEYED + 7)],
                          ["smoke", "smoke", "props", "props", "keyed"])
-        self.assertIsNone(jc.family_of(3 * jc.FAMILY_SPAN))
+        self.assertEqual(jc.family_of(3 * jc.FAMILY_SPAN), "effects")
+        self.assertIsNone(jc.family_of(4 * jc.FAMILY_SPAN))
         with self.assertRaises(ValueError):
+            jc.txn_code([["r", 4 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
+        with self.assertRaises(ValueError):  # effects rows need the generation's effects objects
             jc.txn_code([["r", 3 * jc.FAMILY_SPAN, None]], jc.parse_layout(LAYOUT))
         with self.assertRaises(ValueError):
             jc.txn_code([["r", PROPS, None]])  # property rows need the generation's layout
@@ -1005,8 +1008,8 @@ class SnapshotOracleTests(unittest.TestCase):
     def test_a_restored_task_makes_the_observation_untrustworthy(self):
         result = self.lawful().build(A, tasks=1, rows={1: [1]})
         self.assertEqual(self.messages(result, jc.INCOMPLETE),
-                         ["checkpoint-crash of generation 0: 1 queued tasks recovered, 0 at the generation's own "
-                          "launch; a restored task could have changed the observed rows"])
+                         ["checkpoint-crash of generation 0: 1 queued tasks recovered outside the task lane, 0 at "
+                          "the generation's own launch; a restored task could have changed the observed rows"])
 
     def test_recovered_rows_join_the_crashed_generation_elle_history(self):
         case = self.lawful()
@@ -1068,12 +1071,14 @@ class ProvenanceTests(unittest.TestCase):
                                    jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
                                    phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
                                    workloads=["smoke", "keyed"], stages=["staged-2"], stage_seconds=8,
-                                   control=None)
+                                   control=None, tasks=True)
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
         self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
                                              "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"],
-                                             "stages": ["staged-2"], "stage_seconds": 8, "control": None})
+                                             "stages": ["staged-2"], "stage_seconds": 8, "control": None,
+                                             "tasks": True})
+        self.assertEqual(row["task_lane"]["hold_seconds"], jc.HOLD_SECONDS)
         self.assertEqual(row["stage_schedule"], {"staged-2": jc.STAGE_SCHEDULE["staged-2"]})
         self.assertEqual(row["live_checkpoints"], {"deadline_seconds": jc.CHECKPOINT_DEADLINE,
                                                    "delay_span": jc.DELAY_SPAN,
