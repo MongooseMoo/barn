@@ -13,6 +13,27 @@ disposable Barn server on the public Test.db profile
   (`.github/actions/elle-cli`, serializable), and checks the recovered ledger
   against each explicit checkpoint baseline.
 
+`--workloads` selects the row families the clients mix (default `smoke`; CI
+runs `smoke,props,keyed`). Each family has its own Elle list-append generator
+over its own key range (`FAMILIES` in `scripts/jepsen_checkpoint.py`, passed to
+this project as `--families`):
+
+- `smoke`: entries of the map `#0.jepsen_rows`, mirrored in the durable
+  `#0.jepsen_ledger`; every transaction copies and rewrites both properties.
+- `props`: one list property per key on four row objects, read and appended
+  directly, with repeated reads, read-your-writes and intermediate writes.
+- `keyed`: entries of the map property `jm` on a child holding its own map and
+  on a child whose slot is inherited and clear. By operation id, transactions
+  use keyed `o.jm[K]`/`maphaskey(o.jm, K)` access, a captured map whose index
+  expression writes the same entry, or a whole-map read and replacement.
+  `vm/jepsen_keyed_rows_test.go` runs the generated keyed MOO
+  (`scripts/testdata/jepsen_keyed_txns.json`) and shows two transactions on
+  different entries both commit, which a whole-map pair cannot.
+
+Each generation's admission creates fresh row objects, so every family's
+rows start empty in each generation. Only smoke rows are compared with the
+checkpoint ledger.
+
 A checkpoint is a graceful owned SIGTERM whose database/WAIF pair the owner
 verified; the baseline is the ledger read just before it. Every later
 generation starts from a copy of the latest verified pair. Disconnects and
@@ -29,8 +50,9 @@ history); after every resume and launch it requires a fresh-connection write
 and read within 30 s.
 
 Analysis checks each scenario obligation (pause observed as a stopped owned
-PID, SIGKILL observed, verified checkpoint, successful reads and writes before
-and after each crash and checkpoint, the next generation admitted from the
+PID, SIGKILL observed, verified checkpoint, successful reads and writes of each
+selected family before and after each crash and checkpoint, the next
+generation admitted from the
 expected pair, final observations, progress probes) and each generation's
 runtime log, and exits with one result class:
 
@@ -42,7 +64,8 @@ runtime log, and exits with one result class:
 | 4 | incomplete-experiment | missing obligation, unexamined ERROR record, native error, Elle undecided, no history |
 | 5 | invalid-harness-evidence | journal contradiction, adapter timeout, missing journal or provenance |
 
-`results.json` lists every finding with its class.
+`results.json` lists every finding with its class, and `families` gives each
+selected family's successful transactions with a read and with a write.
 
 Run (Linux, Java 21, from the repository root):
 

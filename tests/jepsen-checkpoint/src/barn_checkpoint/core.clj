@@ -105,31 +105,37 @@
 
 (defn nemesis-op [f] {:type :info :f f})
 
-(defn txns
-  "Elle's list-append transactions. Values are unique per key only within one
-  la/gen instance, and each instance starts its keys and values afresh, so
-  each client phase gets a disjoint key range: (key, value) then identifies
-  one append across every generation of the run."
-  [rate key-offset]
-  (->> (la/gen {:key-count 5 :min-txn-length 1 :max-txn-length 4
+(defn family-txns
+  "Elle's list-append transactions for one row family. Values are unique per
+  key only within one la/gen instance, and each instance starts its keys and
+  values afresh, so each family and client phase gets a disjoint key range
+  (base + phase offset): (key, value) then identifies one append across every
+  generation of the run. The adapter maps a key to its family's MOO rows."
+  [{:keys [base key-count]} phase-offset]
+  (->> (la/gen {:key-count key-count :min-txn-length 1 :max-txn-length 4
                 :max-writes-per-key 64})
        (gen/map (fn [op]
                   (update op :value
-                          (fn [txn] (mapv (fn [[f k v]] [f (+ key-offset k) v]) txn)))))
+                          (fn [txn] (mapv (fn [[f k v]] [f (+ base phase-offset k) v]) txn)))))))
+
+(defn txns
+  "A uniform random mixture of the selected families' transactions."
+  [rate families phase-offset]
+  (->> (gen/mix (mapv #(family-txns % phase-offset) families))
        (gen/stagger (/ 1 rate))))
 
 (defn generator
   "Phase 1: clients with pause/resume. Phase 2: an explicit checkpoint. Phase
   3: clients with pause/resume and crash/restart. Phase 4: a final checkpoint.
   gen/phases waits for every outstanding operation before the next phase."
-  [{:keys [phase1 phase3 rate]}]
+  [{:keys [phase1 phase3 rate families]}]
   (let [pausing  [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
         crashing (into pausing [(gen/sleep 5) (nemesis-op :crash)])]
     (gen/phases
-      (gen/time-limit phase1 (gen/clients (txns rate 0) (gen/cycle pausing)))
+      (gen/time-limit phase1 (gen/clients (txns rate families 0) (gen/cycle pausing)))
       (gen/nemesis (nemesis-op :resume))
       (gen/nemesis (nemesis-op :checkpoint))
-      (gen/time-limit phase3 (gen/clients (txns rate 1000000) (gen/cycle crashing)))
+      (gen/time-limit phase3 (gen/clients (txns rate families 1000000) (gen/cycle crashing)))
       (gen/nemesis (nemesis-op :resume))
       (gen/nemesis (nemesis-op :checkpoint)))))
 
@@ -173,13 +179,17 @@
    [nil "--rate OPS" :default 20 :parse-fn parse-long]
    [nil "--concurrency N" :default 8 :parse-fn parse-long]
    [nil "--client-timeout-ms MS" :default 60000 :parse-fn parse-long]
-   [nil "--seed N" :default 1 :parse-fn parse-long]])
+   [nil "--seed N" :default 1 :parse-fn parse-long]
+   ; The selected row families, [{"name" ..., "base" ..., "key-count" ...}],
+   ; from scripts/jepsen_checkpoint.py, which owns the family table.
+   [nil "--families JSON" :parse-fn #(json/read-str % :key-fn keyword)]])
 
 (defn -main [& args]
   (let [{:keys [options errors]} (cli/parse-opts args cli-options)]
-    (when (or (seq errors) (nil? (:adapter-port options)) (nil? (:history options)))
+    (when (or (seq errors) (nil? (:adapter-port options)) (nil? (:history options))
+              (empty? (:families options)))
       (binding [*out* *err*]
-        (println "usage: --adapter-port PORT --history PATH" errors))
+        (println "usage: --adapter-port PORT --history PATH --families JSON" errors))
       (System/exit 2))
     ; Binds jepsen.random (stagger timing) only; Elle's transaction generator
     ; and real concurrency are not reproduced by the seed.
