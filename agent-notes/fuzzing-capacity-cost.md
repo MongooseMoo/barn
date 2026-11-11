@@ -50,8 +50,8 @@ earlier discussion note has been consolidated into this implementation note.
 
 ## Next step
 
-Obtain the explicit PR-post authorization required by Q's publishing rule,
-then publish the concrete change and run the existing PR checks. Once checks
+Q explicitly authorized PR publication, CI, merge and deployment on November 11.
+Publish the concrete change and run the existing PR checks. Once checks
 and review requirements are satisfied, normally merge the change. Stop
 successor dispatch through the existing fuzz-ops command and let active work
 finish; preserve its findings and corpus. Deploy the reviewed service file,
