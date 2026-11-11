@@ -15,9 +15,11 @@ Fixed, each with a Go test that fails without the fix:
   `property.cc:246-251`); `clear_property` reports E_PROPNF before permissions
   (`property.cc:276-279`); `set_connection_option` checks permission before the
   connection (`server.cc:2982-2988`).
-- An indefinitely suspended task is written with start time `-1`, the value
-  Toast's `%d` prints for its 64-bit `INTNUM_MAX` (`tasks.cc:1304-1307,1918`), so it
-  resumes with its wake value after a restart (`db/format/writer_vm.go`).
+- A suspended task saved with a negative start time (older 64-bit Toast wrote an
+  indefinite suspension's `INTNUM_MAX` through `%d` as `-1`) loads as indefinite,
+  as the CI Toast oracle MongooseMoo/toaststunt `eaaa1972` reads it
+  (`engine/task_load.go`). Barn already kept its own indefinite suspensions
+  suspended across a restart, which the conformance test pins.
 - `Server.Start` starts task dispatch after start scripts, checkpointed-connection
   hooks and `#0:server_started` (`server/server.go`).
 - `open_network_connection` honors `$server_options.outbound_connect_timeout`,
@@ -31,8 +33,10 @@ commit and has no bounded per-connection queue.
 
 ## Decisions and why
 
-- The indefinite-suspend change is in the writer only, so a Barn checkpoint and a
-  Toast checkpoint hold the same bytes and Barn's existing loader handles both.
+- An earlier version of this branch wrote `-1` to make indefinite suspensions resume
+  after restart, matching the WSL stock binary (`aecc51e9`). The conformance CI oracle
+  (`eaaa1972`) fixed that `%d` bug and keeps the task suspended, so the writer change
+  was dropped and only the reader compatibility kept.
 - Dispatch starts after `server_started`, not behind a new gate: the runtime already
   runs server hooks synchronously on the caller's goroutine, and the input queue is
   buffered, so nothing before it needs the dispatcher.
