@@ -1666,5 +1666,56 @@ class RecoveryObservationCodeTests(unittest.TestCase):
                     jc.parse_recovery_observation(value, [7], 3)
 
 
+class LateRestartTests(unittest.TestCase):
+    """The live lane's time limit expiring during a checkpoint-crash (barn PR #751's run 42984792666).
+
+    Generation 13's checkpoint-crash restarted generation 14; its launch probe
+    was followed 4.6 ms later by the final checkpoint's observation, with no
+    client transaction between them. core.clj's closing client phase sits
+    between that restart and the final checkpoint.
+    """
+
+    def lifecycle(self):
+        stage = jc.barn_process.CHECKPOINT_STAGES[0]
+        return [
+            {"event": "observation", "generation": 13, "reason": "checkpoint-crash", "keys": [1], "ok": True,
+             "value": [[1]]},
+            {"event": "checkpoint-request", "generation": 13, "seq": 16, "purpose": "crash"},
+            {"event": "checkpoint-stop", "generation": 13, "seq": 16, "observed_state": "T",
+             "artifacts": {"stage": stage}},
+            {"event": "checkpoint-crash", "generation": 13, "seq": 16, "result": {"exit_code": -9},
+             "forensic": [{"source": "input.db.new", "copy": "gen-013-forensic/input.db.new"}]},
+            {"event": "recovery-observation", "generation": 14, "observed_generation": 13, "keys": [1], "ok": True},
+            {"event": "admit", "generation": 14, "kind": "checkpoint-crash", "restart": {"seq": 16},
+             "server": {"recovered_pair": {"database": "input.db.new"}}},
+            {"event": "probe", "generation": 14, "reason": "launch", "ok": True},
+            {"event": "observation", "generation": 14, "reason": "checkpoint", "keys": [], "ok": True, "value": []},
+            {"event": "checkpoint", "generation": 14, "result": {"final_checkpoint": {"verified": True}}},
+            {"event": "admit", "generation": 15, "kind": "checkpoint", "baseline_generation": 14},
+            {"event": "probe", "generation": 15, "reason": "launch", "ok": True},
+        ]
+
+    def generation_14(self, buckets):
+        _, missing = jc.obligations(buckets, self.lifecycle(), families=("smoke",), live=True)
+        return [(kind, message) for kind, message in missing if "generation 14" in message]
+
+    def test_restart_with_no_closing_window_is_incomplete(self):
+        crashed = [{"type": "ok", "value": [["append", 1, 1], ["r", 1, [1]]]}]
+        self.assertEqual(self.generation_14({13: crashed}), [
+            (jc.INCOMPLETE, "after checkpoint-crash of generation 13: generation 14 has no successful smoke "
+                            "transaction with a read"),
+            (jc.INCOMPLETE, "after checkpoint-crash of generation 13: generation 14 has no successful smoke "
+                            "transaction with a write"),
+            (jc.INCOMPLETE, "before checkpoint of generation 14: generation 14 has no successful smoke "
+                            "transaction with a read"),
+            (jc.INCOMPLETE, "before checkpoint of generation 14: generation 14 has no successful smoke "
+                            "transaction with a write")])
+
+    def test_closing_window_meets_the_restarted_generation_obligations(self):
+        crashed = [{"type": "ok", "value": [["append", 1, 1], ["r", 1, [1]]]}]
+        closing = [{"type": "ok", "value": [["append", 4000001, 1], ["r", 4000001, [1]]]}]
+        self.assertEqual(self.generation_14({13: crashed, 14: closing}), [])
+
+
 if __name__ == "__main__":
     unittest.main()
