@@ -105,6 +105,10 @@
 
 (defn nemesis-op [f] {:type :info :f f})
 
+; The closing client phase's length: a live-lane generation gets two 3 s
+; client windows (the live cycle's sleeps) before its checkpoint-crash.
+(def closing-seconds 6)
+
 (defn family-txns
   "Elle's list-append transactions for one row family. Values are unique per
   key only within one la/gen instance, and each instance starts its keys and
@@ -146,9 +150,14 @@
   3: clients with pause/resume and crash/restart. Live phase (unless
   phase-live is 0): clients continue through SIGALRM live checkpoints and
   checkpoint-crashes, which stop and kill Barn at a random moment of a
-  checkpoint and recover from its actual artifacts. Phase 4: a final
-  checkpoint. gen/phases waits for every outstanding operation before the
-  next phase."
+  checkpoint and recover from its actual artifacts. Closing phase: clients
+  only, on the last generation. Phase 4: a final checkpoint. gen/phases
+  waits for every outstanding operation before the next phase.
+
+  A time limit can expire during the crash or checkpoint-crash that ends a
+  cycle; gen/phases then waits for the restart, and without the closing
+  phase the restarted generation would reach the final checkpoint with no
+  client operation (scripts/jepsen_checkpoint.py obligations)."
   [{:keys [phase1 phase3 phase-live rate families stages stage-seconds]}]
   (if (pos? stages)
     (stage-generator rate families stages stage-seconds)
@@ -164,7 +173,8 @@
               (gen/nemesis (nemesis-op :resume))]
              (when (pos? phase-live)
                [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
-             [(gen/nemesis (nemesis-op :checkpoint))])))))
+             [(gen/time-limit closing-seconds (gen/clients (txns rate families 4000000)))
+              (gen/nemesis (nemesis-op :checkpoint))])))))
 
 (defn barn-test [{:keys [adapter-port concurrency client-timeout-ms] :as options}]
   (assoc tests/noop-test
