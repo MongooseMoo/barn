@@ -153,6 +153,36 @@ proves earlier notifications arrived. `effect_checks` reports
 nonzero `barn.commit_retries` as evidence that conflicts were forced.
 `receipts.jsonl` holds every line the receivers got.
 
+## Transport lane (plan section 5)
+
+`--phase-transport SECONDS` adds a client phase in which the nemesis cycles
+`--transport-kinds` (default all), two seconds apart. Faults touch only the
+owned test connections and the owned Barn PID:
+
+| Kind | Fault | Classification |
+|---|---|---|
+| `pre-send` | the next transaction's connection is closed before its send record | `:fail` (`injected-pre-send`), never sent |
+| `disconnect-after-send` | socket shut down right after the eval line is written | `:info` |
+| `lose-reply` | socket shut down unread once the reply is readable | `:info` |
+| `truncate-reply` | 8 reply bytes read, then the socket is closed | `:info`, partial raw kept |
+| `slow-reader` | the reply is read 16 bytes at a time, 20 ms apart | `:ok` (or `:info` on timeout) |
+| `pause` | SIGSTOP for 4 s, longer than SocketTransport's 3 s read timeout, then SIGCONT | in-flight replies arrive late |
+| `crash-restart` | `crash` (SIGKILL, relaunch from the verified pair) | as the crash fault |
+
+No client transaction is retried. A stream whose read timed out is never
+reused: the late reader reads it for up to 30 s and journals `late-reply`
+under the original operation id; reconciliation accepts a late reply only for
+a sent operation that completed `:info`. After every fault the adapter checks
+bounded recovery: within 10 s of the heal, a fresh probe write and read, one
+SIGALRM checkpoint reaching `checkpoint complete` (requested only after the
+probe succeeded) and a client transaction sent after the heal completing
+`:ok`. The bound and its derivation from healthy CI runs are in
+`RECOVERY_BOUND_DERIVATION` and `provenance.json`. `transport_checks` reads only
+lifecycle and journal rows: a misclassified fault is invalid evidence, an
+unapplied kind incomplete, and a missed bound a recovery failure with witness
+`stalled-recovery`. `--control transport-stall` (ordinary binary) never sends
+the pause's SIGCONT and passes only on that witness.
+
 Run (Linux, Java 21, from the repository root):
 
 ```bash

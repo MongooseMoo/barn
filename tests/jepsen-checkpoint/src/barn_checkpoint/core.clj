@@ -94,7 +94,9 @@
   (setup! [this test]
     (assoc this :conn (adapter-connect port timeout-ms)))
   (invoke! [this test op]
-    (let [reply (request! conn {:op (name (:f op))})]
+    ; :value carries the transport kind of a :transport op.
+    (let [reply (request! conn (cond-> {:op (name (:f op))}
+                                 (some? (:value op)) (assoc :value (:value op))))]
       (assoc op :type :info
                 :value (:value reply)
                 :error (:error reply)
@@ -171,20 +173,25 @@
   3: clients with pause/resume and crash/restart. Live phase (unless
   phase-live is 0): clients continue through SIGALRM live checkpoints and
   checkpoint-crashes, which stop and kill Barn at a random moment of a
-  checkpoint and recover from its actual artifacts. Closing phase: clients
-  only, on the last generation. Phase 4: a final checkpoint. gen/phases
-  waits for every outstanding operation before the next phase.
+  checkpoint and recover from its actual artifacts. Transport phase (unless
+  phase-transport is 0): clients continue while the nemesis cycles the
+  selected transport kinds, each followed by the adapter's bounded recovery
+  check. Closing phase: clients only, on the last generation. Phase 4: a
+  final checkpoint. gen/phases waits for every outstanding operation before
+  the next phase.
 
   A time limit can expire during the crash or checkpoint-crash that ends a
   cycle; gen/phases then waits for the restart, and without the closing
   phase the restarted generation would reach the final checkpoint with no
   client operation (scripts/jepsen_checkpoint.py obligations)."
-  [{:keys [phase1 phase3 phase-live rate families stages stage-seconds]}]
+  [{:keys [phase1 phase3 phase-live phase-transport transport-kinds rate families stages stage-seconds]}]
   (if (pos? stages)
     (stage-generator rate families stages stage-seconds)
-  (let [pausing  [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
-        crashing (into pausing [(gen/sleep 5) (nemesis-op :crash)])
-        live     [(gen/sleep 3) (nemesis-op :live-checkpoint) (gen/sleep 3) (nemesis-op :checkpoint-crash)]]
+  (let [pausing   [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
+        crashing  (into pausing [(gen/sleep 5) (nemesis-op :crash)])
+        live      [(gen/sleep 3) (nemesis-op :live-checkpoint) (gen/sleep 3) (nemesis-op :checkpoint-crash)]
+        transport (vec (mapcat (fn [kind] [(gen/sleep 2) {:type :info :f :transport :value kind}])
+                               transport-kinds))]
     (apply gen/phases
            (concat
              [(gen/time-limit phase1 (gen/clients (txns rate families 0) (gen/cycle pausing)))
@@ -194,6 +201,9 @@
               (gen/nemesis (nemesis-op :resume))]
              (when (pos? phase-live)
                [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
+             (when (pos? phase-transport)
+               [(gen/time-limit phase-transport
+                                (gen/clients (txns rate families 5000000) (gen/cycle transport)))])
              [(gen/time-limit closing-seconds (gen/clients (txns rate families 4000000)))
               (gen/nemesis (nemesis-op :checkpoint))])))))
 
@@ -210,7 +220,7 @@
                                                :fs #{:pause :resume}})
                          (map->AdapterNemesis {:port adapter-port :timeout-ms 600000
                                                :fs #{:crash :checkpoint :live-checkpoint
-                                                     :checkpoint-crash :stage-crash}})])
+                                                     :checkpoint-crash :stage-crash :transport}})])
          :generator   (generator options)
          ; Verdicts come from the pinned Elle CLI and the checkpoint baselines.
          :checker     (checker/unbridled-optimism)))
@@ -236,6 +246,10 @@
    [nil "--phase1 SECONDS" :default 60 :parse-fn parse-long]
    [nil "--phase3 SECONDS" :default 90 :parse-fn parse-long]
    [nil "--phase-live SECONDS" :default 60 :parse-fn parse-long]
+   [nil "--phase-transport SECONDS" :default 0 :parse-fn parse-long]
+   ; The transport kinds to cycle, ["pre-send", ...], from
+   ; scripts/jepsen_checkpoint.py, which owns TRANSPORT_KINDS.
+   [nil "--transport-kinds JSON" :default [] :parse-fn json/read-str]
    ; With --stages N > 0, the stage schedule replaces the phases above.
    [nil "--stages N" :default 0 :parse-fn parse-long]
    [nil "--stage-seconds SECONDS" :default 10 :parse-fn parse-long]

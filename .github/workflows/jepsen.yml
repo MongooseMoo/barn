@@ -94,23 +94,38 @@ jobs:
         with:
           enable-cache: true
       # Exit status: 0 healthy, 1 correctness violation, 3 recovery/progress
-      # failure, 4 incomplete experiment, 5 invalid harness evidence.
+      # failure, 4 incomplete experiment, 5 invalid harness evidence. The
+      # transport-stall control exits 0 only when its designated witness is
+      # reported (6 otherwise). Both run so one failure keeps the other's evidence.
       - name: Run campaign
         run: |
-          set -euo pipefail
-          uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
-            --barn bin/barn \
-            --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
-            --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
-            --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
-            --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1 \
-            --output jepsen-evidence --jepsen-timeout 600
+          set -uo pipefail
+          run() {
+            uv run --project moo-conformance-tests --frozen python scripts/jepsen_checkpoint.py \
+              --barn bin/barn \
+              --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
+              --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
+              --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
+          }
+          status=0
+          run --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1 \
+            --phase-transport 60 --output jepsen-evidence --jepsen-timeout 600 || status=1
+          # Transport lane control (ordinary binary, no stage step): the pause
+          # kind never sends SIGCONT, so the bounded recovery check must report
+          # stalled-recovery from lifecycle and journal rows.
+          run --control transport-stall --workloads smoke --phase1 10 --phase3 0 --phase-live 0 \
+            --phase-transport 20 --output jepsen-evidence-transport-stall --jepsen-timeout 180 || status=1
+          exit "$status"
       - name: Archive raw evidence
         if: always()
         run: |
           set -euo pipefail
-          if [ -d jepsen-evidence ]; then
-            tar -czf jepsen-evidence.tar.gz jepsen-evidence
+          dirs=()
+          for dir in jepsen-evidence jepsen-evidence-transport-stall; do
+            if [ -d "$dir" ]; then dirs+=("$dir"); fi
+          done
+          if [ "${#dirs[@]}" -gt 0 ]; then
+            tar -czf jepsen-evidence.tar.gz "${dirs[@]}"
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

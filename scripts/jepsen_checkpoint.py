@@ -54,6 +54,15 @@ family notifies a receiver connection and crosses set_connection_option's
 irreversible boundary under forced conflicts; effect_checks reads the
 receiver's lines (receipts.jsonl). Neither puts a fork/suspend/effect sequence
 into an Elle transaction.
+
+The transport lane (--phase-transport, plan section 5) cycles TRANSPORT_KINDS
+on owned connections and the owned PID: a fault before the send record leaves
+the transaction :fail, any fault after it :info. A stream whose read timed out
+is never reused; Campaign.late_reader journals its late reply under the
+original operation id. After every fault, recover() requires a fresh probe, a
+completed live checkpoint and a client :ok sent after the heal within
+RECOVERY_BOUND; transport_checks checks all of it from lifecycle and journal
+rows, and the transport-stall control must fail that check.
 """
 from __future__ import annotations
 
@@ -62,6 +71,7 @@ import json
 import os
 import platform
 import random
+import select
 import shutil
 import socket
 import socketserver
@@ -83,7 +93,39 @@ PROBE_DEADLINE = 30.0
 # Elle process for the campaign's own final observations; Jepsen client
 # processes stay far below it.
 OBSERVER_PROCESS = 10 ** 9
-FAULTS = ("pause", "resume", "crash", "checkpoint", "live-checkpoint", "checkpoint-crash", "stage-crash")
+FAULTS = ("pause", "resume", "crash", "checkpoint", "live-checkpoint", "checkpoint-crash", "stage-crash", "transport")
+
+# Transport lane (plan section 5): the nemesis op "transport" names one kind.
+# The client kinds are armed by Campaign.transport and applied to the next
+# client transaction at the adapter/SocketTransport boundary: pre-send tears
+# the connection down before the send record (the transaction is never sent,
+# so it is :fail); the in-flight kinds act after the eval line was written
+# (RecordingTransport), so the outcome stays :info. pause stops the owned PID
+# longer than the read timeout, so in-flight replies arrive late on streams
+# the clients already dropped; crash-restart is Campaign.crash.
+TRANSPORT_KINDS = ("pre-send", "disconnect-after-send", "truncate-reply", "lose-reply", "slow-reader", "pause",
+                   "crash-restart")
+CLIENT_KINDS = ("pre-send", "disconnect-after-send", "truncate-reply", "lose-reply", "slow-reader")
+IN_FLIGHT_KINDS = ("disconnect-after-send", "truncate-reply", "lose-reply")
+# SocketTransport.connect's socket timeout at the pinned CONFORMANCE_REF
+# (moo_conformance/transport.py: self.sock.settimeout(3)); every recv waits
+# at most this long.
+READ_TIMEOUT = 3.0
+PAUSE_HOLD = 4.0            # > READ_TIMEOUT: in-flight replies of a pause arrive late
+ARM_DEADLINE = 10.0         # for a client transaction to consume an armed fault
+LATE_DEADLINE = 30.0        # a timed-out stream is read this long for its late reply
+TRUNCATE_BYTES = 8          # truncate-reply keeps this many reply bytes, then closes
+SLOW_READ_BYTES, SLOW_READ_PAUSE = 16, 0.02   # slow-reader: 16-byte reads, 20 ms apart
+# Bound on recovery after a transport fault heals: a fresh probe write and
+# read, one completed live checkpoint, and a client transaction sent after
+# the heal completing :ok, each within this many seconds of the heal.
+RECOVERY_BOUND = 10.0
+RECOVERY_BOUND_DERIVATION = (
+    "Healthy CI campaign runs on the self-hosted runner: run 42971081227 (PR 749, Q-barn-wsl-x64-03) and "
+    "run 43006012087 (PR 760, the merged six-family configuration). Probe write+read 0.287-0.304 s over 55 "
+    "probes; live checkpoint 8-21 ms; first client :ok after a heal while clients ran at most 1.912 s. The "
+    "healthy worst sum is about 2.2 s; 10 s (about 4.5x) is the explicit ceiling. The nemesis-only resume "
+    "between Jepsen phases (12.9 s, no client running) is not a recovery latency and was excluded.")
 
 # Deterministic stage schedule (plan section 2 interruption table) for the
 # elle build's stop points (internal/isolationprobe/checkpoint.go). Each step
@@ -136,6 +178,10 @@ CONTROLS = {
     "relationship-reads": {"witness": "elle:G2-item", "family": "topology"},
     "verb-memo": {"witness": "elle:G2-item", "family": "authority"},
     "hot-memo-guard": {"witness": "elle:G2-item", "family": "authority"},
+    # No elle fault (ordinary binary): the transport lane's pause kind never
+    # sends SIGCONT, so the owned process stays stopped past RECOVERY_BOUND and
+    # transport_checks must reject the recovery from lifecycle/journal rows.
+    "transport-stall": {"witness": "stalled-recovery", "transport": "pause"},
 }
 # Ceiling for one live checkpoint to log completion or failure. Not measured.
 CHECKPOINT_DEADLINE = 60.0
@@ -1032,15 +1078,25 @@ def ledger_from_json(data):
 
 
 class _EofWatch:
-    """Socket proxy recording whether the peer closed during a read."""
+    """Socket proxy recording whether the peer closed during a read and every
+    byte received; it applies a reading transport kind (truncate-reply,
+    slow-reader) to the reply it reads."""
 
-    def __init__(self, sock):
-        self.sock, self.eof = sock, False
+    def __init__(self, sock, fault=None):
+        self.sock, self.eof, self.fault, self.received = sock, False, fault, bytearray()
 
     def recv(self, size):
+        if self.fault == "truncate-reply":
+            if self.received:
+                raise ConnectionError(f"injected reply truncation after {len(self.received)} bytes")
+            size = min(size, TRUNCATE_BYTES)
+        elif self.fault == "slow-reader":
+            time.sleep(SLOW_READ_PAUSE)
+            size = min(size, SLOW_READ_BYTES)
         data = self.sock.recv(size)
         if not data:
             self.eof = True
+        self.received += data
         return data
 
     def __getattr__(self, name):
@@ -1048,23 +1104,48 @@ class _EofWatch:
 
 
 def recording_transport_class(base):
-    """SocketTransport keeping each raw framed reply; EOF before the frame ends raises."""
+    """SocketTransport keeping each raw framed reply; EOF before the frame ends raises.
+
+    fault, set by ClientSession for one execute, is an in-flight or reading
+    transport kind. A failed read keeps the bytes it did receive as last_raw.
+    """
 
     class RecordingTransport(base):
         last_raw = None
+        fault = None
+
+        def _send(self, message):
+            super()._send(message)
+            if self.fault not in ("disconnect-after-send", "lose-reply") or not message.startswith("; "):
+                return
+            detail = "immediately"
+            if self.fault == "lose-reply":
+                readable = select.select([self.sock], [], [], READ_TIMEOUT)[0]
+                detail = "with the reply readable" if readable else f"with no reply within {READ_TIMEOUT}s"
+            self.sock.shutdown(socket.SHUT_RDWR)
+            raise ConnectionError(f"injected {self.fault} after the request was sent, {detail}")
 
         def _receive(self):
             self.last_raw = None
             real = self.sock
-            watch = self.sock = _EofWatch(real)
+            watch = self.sock = _EofWatch(real, self.fault)
             try:
                 raw = super()._receive()
+            except BaseException:
+                self.last_raw = bytes(watch.received).decode("utf-8", "replace") or None
+                raise
             finally:
                 self.sock = real
             self.last_raw = raw
             if watch.eof:
                 raise ConnectionError("server closed the connection before the framed reply completed")
             return raw
+
+        def receive_late(self, timeout):
+            """Read the reply of a request whose read timed out (Campaign.late_reader)."""
+            self.fault = None
+            self.sock.settimeout(timeout)
+            return self._receive()
 
     return RecordingTransport
 
@@ -1131,7 +1212,13 @@ def provenance(args, output):
     return {
         "parameters": {name: getattr(args, name) for name in
                        ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
-                        "workloads", "stages", "stage_seconds", "control", "tasks", "dwell")},
+                        "workloads", "stages", "stage_seconds", "control", "tasks", "dwell", "phase_transport",
+                        "transport_kinds")},
+        "transport_lane": {"read_timeout_seconds": READ_TIMEOUT, "pause_hold_seconds": PAUSE_HOLD,
+                           "arm_deadline_seconds": ARM_DEADLINE, "late_deadline_seconds": LATE_DEADLINE,
+                           "truncate_bytes": TRUNCATE_BYTES, "slow_read_bytes": SLOW_READ_BYTES,
+                           "slow_read_pause_seconds": SLOW_READ_PAUSE, "recovery_bound_seconds": RECOVERY_BOUND,
+                           "recovery_bound_derivation": RECOVERY_BOUND_DERIVATION},
         "task_lane": {"kinds": list(TASK_KINDS), "hold_seconds": HOLD_SECONDS, "fork_delay_seconds": FORK_DELAY,
                       "release_deadline_seconds": RELEASE_DEADLINE},
         "effects_lane": {"drain_deadline_seconds": DRAIN_DEADLINE},
@@ -1172,8 +1259,13 @@ def free_port():
 class Campaign:
     def __init__(self, executable, source_db, output, transport_factory, *, server_class=None, port_source=free_port,
                  probe_deadline=PROBE_DEADLINE, seed=1, stages=(), control=None, tasks=False, effects=False,
-                 receiver_class=Receiver, release_deadline=RELEASE_DEADLINE, shaped=(), dwell=0):
+                 receiver_class=Receiver, release_deadline=RELEASE_DEADLINE, shaped=(), dwell=0,
+                 recovery_bound=RECOVERY_BOUND, pause_hold=PAUSE_HOLD, arm_deadline=ARM_DEADLINE):
         self.executable, self.output = executable, output
+        self.recovery_bound, self.pause_hold, self.arm_deadline = recovery_bound, pause_hold, arm_deadline
+        self.armed_transport = None         # the client transport kind the next transaction applies
+        self.completions = []               # every client completion: id, sent_ns, complete_ns, type, kind
+        self.late_readers = []              # threads reading timed-out streams for their late replies
         self.shaped = list(shaped)          # selected shaped families: build their objects at every launch
         self.dwell = dwell                  # tick loop between a shaped verb's reads and writes
         self.tasks = tasks                  # task lane: plant held tasks before checkpoints
@@ -1264,21 +1356,24 @@ class Campaign:
             raise RuntimeError(f"lifecycle evaluation failed: {native_error(result)}; raw={transport.last_raw!r}")
         return result.value
 
-    def bounded(self, attempt):
+    def bounded(self, attempt, deadline=None):
         """Retry attempt() on fresh connections until it succeeds or the deadline passes."""
+        deadline = self.probe_deadline if deadline is None else deadline
         started, errors = time.monotonic(), []
         while True:
             try:
                 return True, attempt(), errors, time.monotonic() - started
             except Exception as error:
                 errors.append(f"{type(error).__name__}: {error}")
-                if time.monotonic() - started >= self.probe_deadline:
+                if time.monotonic() - started >= deadline:
                     return False, None, errors, time.monotonic() - started
                 time.sleep(0.5)
 
-    def probe(self, reason):
-        """Require useful work after a heal or restart: a fresh write, then a fresh read."""
+    def probe(self, reason, deadline=None):
+        """Require useful work after a heal or restart: a fresh write, then a fresh read.
+        Returns the recorded probe row."""
         generation, (_, port) = self.generation, self.live
+        deadline = self.probe_deadline if deadline is None else deadline
         self.probes += 1
         token = self.probes
 
@@ -1289,10 +1384,11 @@ class Campaign:
                 raise RuntimeError(f"probe replies are not integers: {written!r}, {read!r}")
             return {"written": written, "read": read}
 
-        ok, value, errors, seconds = self.bounded(attempt)
-        self.record({"event": "probe", "generation": generation, "reason": reason, "token": token, "ok": ok,
-                     "value": value, "failed_attempts": errors, "seconds": seconds,
-                     "deadline_seconds": self.probe_deadline})
+        ok, value, errors, seconds = self.bounded(attempt, deadline)
+        row = {"event": "probe", "generation": generation, "reason": reason, "token": token, "ok": ok,
+               "value": value, "failed_attempts": errors, "seconds": seconds, "deadline_seconds": deadline}
+        self.record(row)
+        return row
 
     def observe(self, reason):
         """Read every row any client touched in this generation, retired keys included."""
@@ -1401,11 +1497,27 @@ class Campaign:
         self.plants.append(plant)
         return plant
 
-    def task_recovery(self, generation, port):
-        """Before admission and before any release: every plant's held state in
-        the database this generation loaded. Returns the plants still held."""
-        held = []
+    def retire(self, generation, baseline):
+        """generation launches from the verified pair of generation baseline (None:
+        the original fixture), so every plant made after baseline was rolled back
+        with its world: Barn reissues its task ids and object numbers there, so
+        it is never read or judged again (task_retirements)."""
         for plant in self.plants:
+            if "retired" not in plant and plant["generation"] > (-1 if baseline is None else baseline):
+                plant["retired"] = generation
+                self.record({"event": "task-retire", "generation": generation, "plant": plant["seq"],
+                             "plant_generation": plant["generation"], "baseline_generation": baseline})
+
+    def task_recovery(self, generation, port, restart=None):
+        """Before admission and before any release: every unretired plant's held
+        state in the database this generation loaded. Returns the plants still held.
+
+        After a checkpoint-crash restart, a plant made in the crashed generation
+        that this launch finds absent was rolled back with the recovered cut (the
+        unchanged input): this launch's read is still judged, and the plant is
+        retired from the next launch on (task_retirements)."""
+        held = []
+        for plant in (item for item in self.plants if "retired" not in item):
             def attempt(plant=plant):
                 return parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
             ok, state, errors, seconds = self.bounded(attempt)
@@ -1424,6 +1536,11 @@ class Campaign:
                          "seconds": seconds})
             if status == "held":
                 held.append(plant)
+            elif status == "absent" and restart is not None and plant["generation"] == restart["generation"]:
+                plant["retired"] = generation + 1
+                self.record({"event": "task-retire", "generation": generation + 1, "plant": plant["seq"],
+                             "plant_generation": plant["generation"], "absent_at": generation,
+                             "restart_kind": restart["kind"]})
         return held
 
     def open_connections(self, generation, port):
@@ -1520,7 +1637,9 @@ class Campaign:
         self.server = server
         server.start()
         self.observe_recovery(generation, port, restart)
-        held = self.task_recovery(generation, port) if self.plants else []
+        if restart is None:
+            self.retire(generation, source["baseline_generation"])
+        held = self.task_recovery(generation, port, restart) if self.plants else []
         effects = self.open_connections(generation, port) if (self.tasks or self.effects) else None
         if held:
             self.release(generation, port, held, effects["receiver"])
@@ -1577,7 +1696,7 @@ class Campaign:
     def pause(self):
         state = self.server.pause()
         self.record({"event": "pause", "generation": self.generation, "observed_state": state})
-        return {"generation": self.generation}
+        return {"generation": self.generation, "observed_state": state}
 
     def resume(self):
         if self.server.paused:
@@ -1749,8 +1868,157 @@ class Campaign:
         return {"crashed": generation, "generation": self.launch("checkpoint-crash", restart)}
 
     def environment(self):
-        """Variables every owned process of this campaign gets (the control's fault)."""
-        return {FAULT_ENV: self.control} if self.control else {}
+        """Variables every owned process of this campaign gets (the control's elle fault)."""
+        return {FAULT_ENV: self.control} if self.control and "transport" not in CONTROLS[self.control] else {}
+
+    # -- transport lane (plan section 5) ------------------------------------
+
+    def take_transport_fault(self, op_id, generation):
+        """Called by a client session with a connection, before the send record:
+        the armed client transport kind, now applied to operation op_id, or None."""
+        with self.lock:
+            fault, self.armed_transport = self.armed_transport, None
+        if fault is None:
+            return None
+        fault.update(op_id=op_id, generation=generation, applied_ns=time.monotonic_ns())
+        self.journal({"event": "transport-fault-applied", "fault_seq": fault["fault_seq"], "kind": fault["kind"],
+                      "id": op_id, "generation": generation})
+        fault["applied"].set()
+        return fault
+
+    def completed(self, op_id, reply, sent_ns):
+        """Note one client completion for recover(); sent_ns is None if it was never sent."""
+        with self.lock:
+            self.completions.append({"id": op_id, "sent_ns": sent_ns, "complete_ns": time.monotonic_ns(),
+                                     "type": reply.get("type"), "kind": (reply.get("error") or {}).get("kind")})
+
+    def late_reader(self, transport, op_id, generation):
+        """Own a stream whose read timed out: read its late reply to LATE_DEADLINE,
+        journal it under the original operation id, close it. The stream is never
+        given another request, so the late reply can answer nothing else."""
+        def read():
+            started, row = time.monotonic(), {"event": "late-reply", "id": op_id, "generation": generation}
+            try:
+                transport.receive_late(LATE_DEADLINE)
+                row.update(ok=True, raw=transport.last_raw)
+            except Exception as error:
+                row.update(ok=False, raw=transport.last_raw, error=f"{type(error).__name__}: {error}")
+            finally:
+                transport.disconnect()
+            self.journal(dict(row, seconds=time.monotonic() - started))
+
+        thread = threading.Thread(target=read, daemon=True)
+        with self.lock:
+            self.late_readers.append(thread)
+        thread.start()
+
+    def _owned_state(self):
+        try:
+            return barn_process.run_state(self.server.proc.pid)
+        except Exception as error:
+            return f"unavailable: {type(error).__name__}: {error}"
+
+    def transport(self, kind):
+        """Apply one transport kind, heal it, and check bounded recovery."""
+        if kind not in TRANSPORT_KINDS:
+            raise ValueError(f"unknown transport kind {kind!r}")
+        row = {"event": "transport-fault", "generation": self.generation, "kind": kind, "fault_seq": self.fault_seq}
+        if kind in CLIENT_KINDS:
+            fault = {"kind": kind, "fault_seq": self.fault_seq, "applied": threading.Event()}
+            with self.lock:
+                self.armed_transport = fault
+            fault["applied"].wait(self.arm_deadline)
+            with self.lock:
+                if self.armed_transport is fault:
+                    self.armed_transport = None
+            # take_transport_fault may have taken it just before the disarm.
+            if "op_id" in fault and fault["applied"].wait(1.0):
+                row.update(op_id=fault["op_id"], applied_generation=fault["generation"],
+                           applied_ns=fault["applied_ns"])
+            else:
+                row["unapplied"] = f"no client transaction took the armed fault within {self.arm_deadline}s"
+            heal_ns = time.monotonic_ns()
+        elif kind == "pause":
+            row["observed_state"] = self.pause()["observed_state"]
+            time.sleep(self.pause_hold)
+            row["held_seconds"] = self.pause_hold
+            heal_ns = time.monotonic_ns()
+            if self.control == "transport-stall":
+                row["healed"] = False   # the stall control: SIGCONT is never sent
+            else:
+                self.resume()
+                row["healed"] = True
+        else:
+            heal_ns = time.monotonic_ns()
+            row["crash"] = self.crash()
+        row["recovery"] = self.recover(heal_ns)
+        self.record(row)
+        return {"kind": kind, "generation": self.generation, "recovered": row["recovery"]["ok"]}
+
+    def recover(self, heal_ns):
+        """Bounded recovery after a heal: within recovery_bound of heal_ns, a fresh
+        probe write and read, then one live checkpoint reaching `checkpoint complete`,
+        and a client transaction sent after the heal completing :ok. Records each
+        latency from the heal, the client failure kinds meanwhile and, on failure,
+        the owned PID's state. No checkpoint is requested unless the probe succeeded,
+        so a stopped server is neither resumed nor left with a queued request."""
+        deadline_ns = heal_ns + int(self.recovery_bound * 1e9)
+
+        def remaining():
+            return max(0.0, (deadline_ns - time.monotonic_ns()) / 1e9)
+
+        def since_heal():
+            return (time.monotonic_ns() - heal_ns) / 1e9
+
+        result = {"heal_ns": heal_ns, "bound_seconds": self.recovery_bound}
+        probe = self.probe("recovery", remaining()) if self.live is not None else None
+        result["probe"] = {"ok": False, "skipped": "no live generation"} if probe is None else \
+            {"ok": probe["ok"], "token": probe["token"], "latency_seconds": since_heal(),
+             "failed_attempts": probe["failed_attempts"]}
+        if result["probe"]["ok"]:
+            self.checkpoint_seq += 1
+            seq, generation = self.checkpoint_seq, self.generation
+            boundary = self.server.request_checkpoint()
+            self.record({"event": "checkpoint-request", "generation": generation, "seq": seq, "purpose": "recovery",
+                         "boundary": boundary})
+            try:
+                done = self.server.wait_checkpoint(boundary, remaining())
+                late = False
+            except TimeoutError:
+                # One unacknowledged request at a time: wait for this one before
+                # going on, but it no longer counts as bounded progress.
+                done = self.server.wait_checkpoint(boundary, CHECKPOINT_DEADLINE)
+                late = True
+            self.record(dict(done, event="checkpoint-" + done["status"], generation=generation, seq=seq))
+            result["checkpoint"] = {"seq": seq, "status": done["status"], "latency_seconds": since_heal(),
+                                    "ok": done["status"] == "complete" and not late}
+        else:
+            result["checkpoint"] = {"ok": False, "skipped": "the probe did not succeed"}
+        failures, seen, first = {}, 0, None
+        while True:
+            with self.lock:
+                fresh = self.completions[seen:]
+                seen = len(self.completions)
+            for item in fresh:
+                if item["complete_ns"] < heal_ns:
+                    continue
+                if item["type"] == "ok" and item["sent_ns"] is not None and item["sent_ns"] >= heal_ns:
+                    first = item
+                    break
+                label = item["type"] + (":" + item["kind"] if item["kind"] else "")
+                failures[label] = failures.get(label, 0) + 1
+            if first is not None or remaining() <= 0:
+                break
+            time.sleep(0.02)
+        result["client"] = {"ok": first is not None, "failures": failures,
+                            **({"id": first["id"], "latency_seconds": (first["complete_ns"] - heal_ns) / 1e9}
+                               if first else {})}
+        result["ok"] = (result["probe"]["ok"] and result["probe"]["latency_seconds"] <= self.recovery_bound
+                        and result["checkpoint"]["ok"] and result["checkpoint"]["latency_seconds"] <= self.recovery_bound
+                        and result["client"]["ok"] and result["client"]["latency_seconds"] <= self.recovery_bound)
+        if not result["ok"]:
+            result["owned_state"] = self._owned_state()
+        return result
 
     def recovery_stop(self, generation, database, restart):
         """Double crash: start Barn on the interrupted output with a stop between
@@ -1771,16 +2039,19 @@ class Campaign:
                          crashed_generation=restart["generation"], seq=restart["seq"], artifacts=artifacts,
                          result=result, forensic=forensic, server=server.identity))
 
-    def fault(self, name):
+    def fault(self, name, value=None):
+        """Run one nemesis operation; value is its argument (the transport kind)."""
         with self.lifecycle:
             if self.server is None or self.failures:
                 return {"type": "info", "error": {"kind": "campaign-failed", "failures": self.failures}}
             with self.lock:
                 self.fault_seq += 1
                 seq, self.active_fault = self.fault_seq, name
-            self.journal({"event": "fault-begin", "fault_seq": seq, "f": name, "generation": self.generation})
+            self.journal(dict({"event": "fault-begin", "fault_seq": seq, "f": name, "generation": self.generation},
+                              **({} if value is None else {"value": value})))
             try:
-                reply = {"type": "ok", "value": getattr(self, name.replace("-", "_"))(),
+                method = getattr(self, name.replace("-", "_"))
+                reply = {"type": "ok", "value": method() if value is None else method(value),
                          "generation": self.generation}
             except Exception as error:
                 self._quiesce()
@@ -1797,6 +2068,12 @@ class Campaign:
         with self.lifecycle:
             self._quiesce()
             self.close_connections()
+            # Late replies are journaled before the analysis reads the journal;
+            # each reader gives up after LATE_DEADLINE.
+            with self.lock:
+                readers = list(self.late_readers)
+            for thread in readers:
+                thread.join(LATE_DEADLINE + 5)
             if self.server is None or self.server.proc is None or self.server.proc.poll() is not None:
                 return
             try:
@@ -1812,6 +2089,7 @@ class ClientSession:
 
     def __init__(self, campaign):
         self.campaign, self.transport, self.generation = campaign, None, None
+        self.sent_ns = None     # when the current transaction's send was recorded (None: never sent)
         # Shaped families run from a fresh programmer connection, so the
         # wizard runs no workload code (shaped_code).
         self.shaped_transport, self.shaped_generation = None, None
@@ -1830,8 +2108,10 @@ class ClientSession:
     def txn(self, op_id, client, txn):
         """Journal the request, run it, and journal the completion before replying."""
         self.campaign.journal({"event": "request", "id": op_id, "client": client, "value": txn})
+        self.sent_ns = None
         reply = self._run(op_id, txn)
         self.campaign.journal(dict(reply, event="complete", id=op_id))
+        self.campaign.completed(op_id, reply, self.sent_ns)
         return reply
 
     def _run(self, op_id, txn):
@@ -1865,19 +2145,42 @@ class ClientSession:
             else:
                 self.transport, self.generation = transport, generation
         transport = self.shaped_transport if shaped else self.transport
-        campaign.touch(generation, [key for _, key, _ in txn])
-        campaign.journal({"event": "send", "id": op_id, "generation": generation, "port": port,
-                          "code": code, "phase": phase})
-        try:
-            result = transport.execute(code)
-        except Exception as error:
-            raw = transport.last_raw
+        fault = campaign.take_transport_fault(op_id, generation)
+        kind = None if fault is None else fault["kind"]
+        if kind == "pre-send":
+            # The connection is torn down before the send record: never sent.
             if shaped:
                 self.close_shaped()
             else:
                 self.close()
+            return {"type": "fail", "generation": generation,
+                    "error": {"kind": "injected-pre-send", "fault_seq": fault["fault_seq"]}}
+        campaign.touch(generation, [key for _, key, _ in txn])
+        self.sent_ns = time.monotonic_ns()
+        campaign.journal({"event": "send", "id": op_id, "generation": generation, "port": port,
+                          "code": code, "phase": phase, **({"transport_fault": kind} if kind else {})})
+        transport.fault = kind
+        try:
+            result = transport.execute(code)
+        except Exception as error:
+            raw = transport.last_raw
+            transport.fault = None
+            if isinstance(error, socket.timeout):
+                # Never reuse a timed-out stream: drop it here (the next
+                # transaction reconnects) and let the late reader own it.
+                if shaped:
+                    self.shaped_transport = self.shaped_generation = None
+                else:
+                    self.transport = self.generation = None
+                campaign.late_reader(transport, op_id, generation)
+            elif shaped:
+                self.close_shaped()
+            else:
+                self.close()
             return {"type": "info", "generation": generation, "raw": raw,
-                    "error": {"kind": "transport", "message": f"{type(error).__name__}: {error}"}}
+                    "error": dict({"kind": "transport", "message": f"{type(error).__name__}: {error}"},
+                                  **({"transport_fault": kind} if kind else {}))}
+        transport.fault = None
         completion = complete_shaped(family, txn, result) if shaped else complete_txn(txn, result)
         return dict(completion, generation=generation, raw=transport.last_raw)
 
@@ -1892,7 +2195,7 @@ class AdapterHandler(socketserver.StreamRequestHandler):
                 if request.get("op") == "txn":
                     reply = session.txn(request.get("id"), request.get("process"), request["value"])
                 elif request.get("op") in FAULTS:
-                    reply = campaign.fault(request["op"])
+                    reply = campaign.fault(request["op"], request.get("value"))
                 else:
                     reply = {"type": "info", "error": {"kind": "unknown-request", "request": request}}
                 reply = dict(reply, id=request.get("id"))
@@ -1928,15 +2231,31 @@ def reconcile(history, journal):
     the generation of an operation Jepsen stopped waiting for from the
     adapter's send record (it stays :info), and marks an operation the
     adapter never sent as unsent.
+
+    A late reply (Campaign.late_reader) is read from the timed-out stream of
+    the operation it names; that operation must have been sent and completed
+    :info, and it stays :info.
     """
     events, contradictions = {}, []
     for row in journal:
-        if row.get("event") in ("request", "send", "complete"):
+        if row.get("event") in ("request", "send", "complete", "late-reply"):
             slot = events.setdefault(row.get("id"), {})
             if row["event"] in slot:
                 contradictions.append(f"journal records {row['event']} twice for operation {row.get('id')}")
             slot[row["event"]] = row
-    counts = {"pending": 0, "late": 0, "unsent": 0, "never_reached_adapter": 0}
+    counts = {"pending": 0, "late": 0, "unsent": 0, "never_reached_adapter": 0, "late_replies": 0,
+              "late_replies_unread": 0}
+    for op_id, slot in events.items():
+        late = slot.get("late-reply")
+        if late is None:
+            continue
+        counts["late_replies" if late.get("ok") else "late_replies_unread"] += 1
+        if slot.get("send") is None or (slot.get("complete") or {}).get("type") != "info":
+            contradictions.append(f"journal late reply for operation {op_id}, which was "
+                                  f"{'never sent' if slot.get('send') is None else 'not completed :info'}")
+        elif late.get("generation") != slot["send"].get("generation"):
+            contradictions.append(f"journal late reply for operation {op_id} names generation "
+                                  f"{late.get('generation')}, sent in {slot['send'].get('generation')}")
     invoked, seen, placed = {}, set(), []
     for position, op in enumerate(history):
         process = op.get("process")
@@ -2589,6 +2908,43 @@ def _selected_cut_names(recoveries, generation):
     return None if row is None else row.get("candidate_cuts")
 
 
+def task_retirements(plants, admits, lifecycle=()):
+    """{plant seq: the first generation at which it is no longer judged}.
+
+    A rolled-back plant's world, and with it its task ids and object numbers,
+    is gone, and Barn reissues those numbers, so it is not judged from then on:
+    - a generation launched from a verified pair (no restart; kind crash or
+      checkpoint) of baseline generation B, or from the original fixture
+      (B = -1), rolls back every plant made after B: not judged at that launch
+      or later. A plant at or before B stays fully judged;
+    - after a checkpoint-crash restart, a plant made in the crashed generation
+      that the restarted launch found absent (status absent: the recovered cut
+      is the unchanged input before the plant) is judged at that launch, where
+      task_checks expects it absent only if the selected cut allows, and not
+      from the next launch on.
+    Derived from the admit and task-recovery rows, not from the campaign's
+    task-retire records."""
+    absent = {(row["generation"], row["plant"]) for row in lifecycle
+              if row.get("event") == "task-recovery" and row.get("status") == "absent"}
+    retired = {}
+    for generation in sorted(admits):
+        admit = admits[generation]
+        restart = admit.get("restart")
+        if restart is not None:
+            for seq, plant in plants.items():
+                if seq not in retired and plant["generation"] == restart.get("generation") \
+                        and (generation, seq) in absent:
+                    retired[seq] = generation + 1
+            continue
+        if admit.get("kind") == "initial":
+            continue
+        baseline = -1 if admit.get("baseline_generation") is None else admit["baseline_generation"]
+        for seq, plant in plants.items():
+            if seq not in retired and baseline < plant["generation"] < generation:
+                retired[seq] = generation
+    return retired
+
+
 def task_checks(lifecycle, receipts, recoveries, live=False):
     """Check every task-lane plant. Returns (results, [(class, witness, message)]).
 
@@ -2609,6 +2965,7 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
 
     plants = {row["seq"]: row for row in lifecycle if row.get("event") == "task-plant"}
     admits = {row["generation"]: row for row in lifecycle if row.get("event") == "admit"}
+    retired = task_retirements(plants, admits, lifecycle)
     releases = {}
     for row in lifecycle:
         if row.get("event") == "task-release":
@@ -2629,7 +2986,10 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
         if len(set(all_tids)) != len(all_tids):
             find(INVALID, "task-plant", f"plant {seq}: task ids {all_tids} repeat", summary)
         tids = [tid for tid in all_tids if tid not in invalid]
-        for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq):
+        if seq in retired:
+            summary["retired"] = retired[seq]
+        for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq
+                         and row["generation"] < retired.get(seq, float("inf"))):
             generation, state = recovery["generation"], recovery.get("state") or {}
             where = f"plant {seq} at the launch of generation {generation}"
             launch = {"generation": generation, "status": "unreadable"}
@@ -3102,6 +3462,107 @@ def shaped_checks(lifecycle, journal, families):
     return results, findings
 
 
+def transport_checks(lifecycle, journal, kinds):
+    """The transport lane's classification, coverage and bounded recovery, from
+    lifecycle and journal rows only (independent of Elle). Returns (results,
+    [(class, witness, message)]).
+
+    A pre-send fault's operation must have no send record and complete :fail;
+    an in-flight fault's must have been sent and complete :info (slow-reader:
+    sent, :ok or :info). Every selected kind needs an applied fault. A recovery
+    that missed its bound is a recovery failure (witness stalled-recovery) with
+    its raw evidence; a passing one must name a client :ok that the journal
+    shows was sent after the heal.
+    """
+    requests, sends, completes = {}, {}, {}
+    for row in journal:
+        table = {"request": requests, "send": sends, "complete": completes}.get(row.get("event"))
+        if table is not None:
+            table[row.get("id")] = row
+    late = [row for row in journal if row.get("event") == "late-reply"]
+    findings, rows, applied, latencies = [], [], {kind: 0 for kind in kinds}, {}
+    for fault in (row for row in lifecycle if row.get("event") == "transport-fault"):
+        kind, recovery = fault.get("kind"), fault.get("recovery") or {}
+        where = f"transport fault {fault.get('fault_seq')} ({kind}, generation {fault.get('generation')})"
+        item = {"fault_seq": fault.get("fault_seq"), "kind": kind, "generation": fault.get("generation"),
+                "recovered": recovery.get("ok"), "witnesses": []}
+        rows.append(item)
+
+        def find(cls, witness, message):
+            if witness not in item["witnesses"]:
+                item["witnesses"].append(witness)
+            findings.append((cls, witness, f"{where}: {message}"))
+
+        if kind in CLIENT_KINDS:
+            op_id = fault.get("op_id")
+            if op_id is None:
+                find(INCOMPLETE, "transport-coverage", fault.get("unapplied", "the fault was not applied"))
+            else:
+                send, done = sends.get(op_id), completes.get(op_id) or {}
+                item.update(op_id=op_id, sent=send is not None, outcome=done.get("type"))
+                if kind == "pre-send":
+                    good = send is None and done.get("type") == "fail" and \
+                        (done.get("error") or {}).get("kind") == "injected-pre-send"
+                else:
+                    good = send is not None and send.get("transport_fault") == kind and \
+                        done.get("type") in (("ok", "info") if kind == "slow-reader" else ("info",))
+                if good:
+                    applied[kind] = applied.get(kind, 0) + 1
+                else:
+                    find(INVALID, "transport-misclassified",
+                         f"operation {op_id}: {'sent' if send is not None else 'never sent'} "
+                         f"(send fault {(send or {}).get('transport_fault')!r}), completed {done.get('type')!r} "
+                         f"({(done.get('error') or {}).get('kind')!r})")
+        elif kind == "pause":
+            item["observed_state"] = fault.get("observed_state")
+            if fault.get("observed_state") == "T":
+                applied[kind] = applied.get(kind, 0) + 1
+            else:
+                find(INCOMPLETE, "transport-coverage",
+                     f"owned PID was not observed stopped (state {fault.get('observed_state')!r})")
+        elif kind == "crash-restart":
+            crash = next((row for row in lifecycle if row.get("event") == "crash"
+                          and row.get("generation") == fault.get("generation")), None)
+            exit_code = ((crash or {}).get("result") or {}).get("exit_code")
+            item["exit_code"] = exit_code
+            if exit_code == -9:
+                applied[kind] = applied.get(kind, 0) + 1
+            else:
+                find(INCOMPLETE, "transport-coverage", f"SIGKILL was not observed (exit code {exit_code})")
+        else:
+            find(INVALID, "transport-kind", f"unknown transport kind {kind!r}")
+            continue
+        bound = recovery.get("bound_seconds")
+        if not recovery.get("ok"):
+            find(RECOVERY, "stalled-recovery",
+                 f"no bounded recovery within {bound}s of the heal: probe {recovery.get('probe')}, checkpoint "
+                 f"{recovery.get('checkpoint')}, client {recovery.get('client')}, owned PID state "
+                 f"{recovery.get('owned_state')!r}")
+            continue
+        client = recovery.get("client") or {}
+        send, done = sends.get(client.get("id")), completes.get(client.get("id")) or {}
+        if send is None or done.get("type") != "ok" or send["monotonic_ns"] < recovery.get("heal_ns", 0) or \
+                done["monotonic_ns"] - recovery["heal_ns"] > bound * 1e9:
+            find(INVALID, "recovery-evidence",
+                 f"recovery names client operation {client.get('id')}, which the journal does not show sent after "
+                 f"the heal and completed :ok within {bound}s")
+            continue
+        for part in ("probe", "checkpoint", "client"):
+            latencies.setdefault(kind, {}).setdefault(part, []).append(recovery[part]["latency_seconds"])
+        item["latencies"] = {part: recovery[part]["latency_seconds"] for part in ("probe", "checkpoint", "client")}
+        item["client_failures"] = client.get("failures")
+    for kind in kinds:
+        if not applied.get(kind):
+            findings.append((INCOMPLETE, "transport-coverage", f"transport: zero applied {kind} faults"))
+    results = {"faults": rows, "applied": applied,
+               "late_replies": {"read": sum(1 for row in late if row.get("ok")),
+                                "unread": sum(1 for row in late if not row.get("ok"))},
+               "max_latency_seconds": {kind: {part: max(values) for part, values in parts.items()}
+                                       for kind, parts in latencies.items()},
+               "witnesses": sorted({witness for _, witness, _ in findings})}
+    return results, findings
+
+
 def outcome_counts(history):
     counts = {}
     for op in history:
@@ -3430,6 +3891,11 @@ def analyze(inputs, output, jar, java):
         results["shaped"], shaped_problems = shaped_checks(lifecycle, journal, shaped)
         for kind, witness, message in shaped_problems:
             find(kind, message, witness)
+    if parameters.get("phase_transport") or any(row.get("event") == "transport-fault" for row in lifecycle):
+        kinds = parameters.get("transport_kinds") or list(TRANSPORT_KINDS)
+        results["transport"], transport_problems = transport_checks(lifecycle, journal, kinds)
+        for kind, witness, message in transport_problems:
+            find(kind, message, witness)
     if stages:
         results["coverage"], coverage_problems = stage_coverage(lifecycle, stages, results["recoveries"])
         for kind, message in coverage_problems:
@@ -3515,6 +3981,8 @@ def run_campaign(args, output):
                    "--adapter-port", str(adapter.server_address[1]), "--history", str(output / "history.jsonl"),
                    "--phase1", str(args.phase1), "--phase3", str(args.phase3),
                    "--phase-live", str(args.phase_live), "--rate", str(args.rate),
+                   "--phase-transport", str(args.phase_transport),
+                   "--transport-kinds", json.dumps(args.transport_kinds),
                    "--stages", str(len(args.stages)), "--stage-seconds", str(args.stage_seconds),
                    "--concurrency", str(args.concurrency), "--seed", str(args.seed),
                    "--families", json.dumps([dict(FAMILIES[name], name=name) for name in args.workloads])]
@@ -3563,10 +4031,22 @@ def main(argv=None):
     parser.add_argument("--dwell", type=int, default=0,
                         help="string_hash calls over a 1 MiB string (about 1.7 ms each) between each "
                              "authority/topology verb's reads and writes, so concurrent transactions overlap")
+    parser.add_argument("--phase-transport", type=int, default=0,
+                        help="seconds of transport faults (plan section 5) with bounded recovery checks; 0 disables")
+    parser.add_argument("--transport-kinds", default=",".join(TRANSPORT_KINDS),
+                        help=f"comma-separated transport kinds to cycle: {', '.join(TRANSPORT_KINDS)}")
     parser.add_argument("--control", choices=sorted(CONTROLS),
-                        help="elle build only: run the negative control's fault and stage step; exit 0 only if "
-                             "its designated witness is reported")
+                        help="run the negative control's fault (elle build, except transport-stall) and stage step; "
+                             "exit 0 only if its designated witness is reported")
     args = parser.parse_args(argv)
+    args.transport_kinds = [name for name in args.transport_kinds.split(",") if name]
+    if [name for name in args.transport_kinds if name not in TRANSPORT_KINDS] or not args.transport_kinds \
+            or len(set(args.transport_kinds)) != len(args.transport_kinds):
+        parser.error(f"--transport-kinds must name distinct kinds from {', '.join(TRANSPORT_KINDS)}")
+    if args.control and "transport" in CONTROLS[args.control]:
+        if args.phase_transport <= 0:
+            parser.error(f"--control {args.control} needs --phase-transport")
+        args.transport_kinds = [CONTROLS[args.control]["transport"]]
     args.workloads = args.workloads.split(",")
     unknown = [name for name in args.workloads if name not in FAMILIES]
     if unknown or len(set(args.workloads)) != len(args.workloads):
@@ -3628,6 +4108,11 @@ def main(argv=None):
     for family, row in (results.get("shaped") or {}).items():
         print(f"{family}: {row['checked']} checked transactions, {row['denied']} denied micro-ops, missing "
               f"{row['missing']}, witnesses {row['witnesses']}, coverage {json.dumps(row['coverage'])}", flush=True)
+    if results.get("transport"):
+        transport = results["transport"]
+        print(f"transport: applied {json.dumps(transport['applied'])}, late replies "
+              f"{json.dumps(transport['late_replies'])}, max recovery latency seconds "
+              f"{json.dumps(transport['max_latency_seconds'])}, witnesses {transport['witnesses']}", flush=True)
     for row in results.get("coverage", []):
         print(f"stage {row['stage']}: requested {row['requested']}, reached {row.get('reached')}, "
               f"state {row.get('stopped_state')}, frozen {row.get('frozen_stage')}, exit {row.get('killed_exit')}, "
