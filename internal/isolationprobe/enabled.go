@@ -3,7 +3,13 @@
 package isolationprobe
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -29,10 +35,10 @@ func SetCommitExclusionPair(active bool) { commitExclusionPair.Store(active) }
 // ActiveFault is the fault this process runs under, or "".
 func ActiveFault() string { return fault }
 
-var pause atomic.Pointer[func(string)]
+var pause atomic.Pointer[func(string, []string)]
 
 // SetPause installs fn to run at every Pause point, or removes it when nil.
-func SetPause(fn func(point string)) {
+func SetPause(fn func(point string, artifacts []string)) {
 	if fn == nil {
 		pause.Store(nil)
 		return
@@ -41,11 +47,64 @@ func SetPause(fn func(point string)) {
 }
 
 // Pause lets a workload hold the calling goroutine at a named point inside the
-// store, so an interleaving that is otherwise microseconds wide happens every run.
-func Pause(point string) {
+// store or checkpoint path, so an interleaving that is otherwise microseconds
+// wide happens every run. artifacts names the files that point concerns.
+func Pause(point string, artifacts ...string) {
 	if fn := pause.Load(); fn != nil {
-		(*fn)(point)
+		(*fn)(point, artifacts)
 	}
+}
+
+// InstallCheckpointStop is called once at command startup. With
+// BARN_ELLE_CHECKPOINT_STOP=<checkpoint point>:<occurrence> it installs a pause
+// callback that, on that occurrence of that point, writes one boundary record
+// line to record and then stops its own process with SIGSTOP. The parent that
+// owns the process resumes or kills it; there is no control channel.
+func InstallCheckpointStop(record io.Writer) error {
+	spec := os.Getenv("BARN_ELLE_CHECKPOINT_STOP")
+	if spec == "" {
+		return nil
+	}
+	if !canStopSelf {
+		return fmt.Errorf("BARN_ELLE_CHECKPOINT_STOP needs SIGSTOP, which this platform lacks")
+	}
+	fn, err := checkpointStop(spec, record, stopSelf)
+	if err != nil {
+		return err
+	}
+	SetPause(fn)
+	return nil
+}
+
+func checkpointStop(spec string, record io.Writer, stop func() error) (func(string, []string), error) {
+	point, count, found := strings.Cut(spec, ":")
+	occurrence, err := strconv.ParseUint(count, 10, 64)
+	if !found || err != nil || occurrence == 0 || !slices.Contains(CheckpointPoints, point) {
+		return nil, fmt.Errorf("invalid BARN_ELLE_CHECKPOINT_STOP %q: want <checkpoint point>:<occurrence from 1>, points %v", spec, CheckpointPoints)
+	}
+	var reached atomic.Uint64
+	return func(at string, artifacts []string) {
+		if at != point || reached.Add(1) != occurrence {
+			return
+		}
+		line, err := json.Marshal(struct {
+			Msg        string   `json:"msg"`
+			Point      string   `json:"point"`
+			Occurrence uint64   `json:"occurrence"`
+			PID        int      `json:"pid"`
+			Artifacts  []string `json:"artifacts"`
+		}{"checkpoint stop", point, occurrence, os.Getpid(), artifacts})
+		if err == nil {
+			// One unbuffered write: the record is out of the process before it stops.
+			_, err = record.Write(append(line, '\n'))
+		}
+		if err == nil {
+			err = stop()
+		}
+		if err != nil {
+			panic(fmt.Sprintf("checkpoint stop at %s occurrence %d: %v", point, occurrence, err))
+		}
+	}, nil
 }
 
 var counters = struct {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/internal/app"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/server"
@@ -88,6 +89,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer closeLogs()
+	// Only the elle checker build has this test-only stop; elsewhere it is a no-op.
+	if err := isolationprobe.InstallCheckpointStop(os.Stderr); err != nil {
+		slog.Error("checkpoint stop setup failed", slog.Any("err", err))
+		os.Exit(1)
+	}
 	if *gomem > 0 {
 		debug.SetMemoryLimit(int64(*gomem) * 1024 * 1024)
 	}
