@@ -1,7 +1,7 @@
 name: recycle_unrelated_tasks
-description: Recycling an object does not require unrelated queued tasks to drain.
+description: Recycle leaves unrelated tasks queued and reserves only anonymous objects across suspended hooks.
 requires:
-  builtins: [create, recycle, valid, queued_tasks, kill_task, add_property, add_verb, set_verb_code, suspend]
+  builtins: [create, recycle, valid, queued_tasks, kill_task, add_property, add_verb, set_verb_code, delete_verb, suspend]
 tests:
   - name: recycle_with_twelve_future_tasks
     steps:

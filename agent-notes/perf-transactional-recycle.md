@@ -22,6 +22,10 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
 - No production deployment, production database mutation or service restart.
 - The corrected candidate conformance file is included in the existing CI
   managed-regression command. No runner or workflow scheduling policy was changed.
+- PR: https://github.com/MongooseMoo/barn/pull/738 (draft during verification).
+- Initial production-tree CI build/unit, pinned Elle and checkpoint checks passed.
+  MOO conformance is still running. Final evidence/metadata publication will need
+  the required checks on that head as well.
 
 ## Decisions and why
 
@@ -100,11 +104,36 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
 - Go is the existing guest Actions tool-cache version 1.27.1. GOMAXPROCS is 8.
   Command: `go test -p 2 ./engine -run '^$' -bench '^BenchmarkRecycleScaling$'
   -benchtime=100ms -count=10`.
-- The first baseline run completed successfully, but part of the tool's captured
-  output was truncated. It is not accepted as the retained raw comparison. The
-  baseline is being recaptured with sufficient output capacity before changing
-  the guest checkout. Starting load on the second capture was 0.54, 0.70, 0.64.
-- No candidate performance result or production scalability claim yet.
+- The first baseline run completed but its capture was truncated; it is excluded.
+  A second baseline capture and the candidate capture each retain all 32 cases
+  with ten complete samples and exit zero. Raw files and the complete median
+  table are in `experiments/recycle-scaling/`.
+- Eight-worker median goodput improved 1.80x to 3.34x across the matrix. Candidate
+  exclusive gate holds are zero in every retained sample. Precommitted objects
+  still incur ordinary MVCC retries. These are diagnostic-enabled synthetic
+  results on a shared host, not production goodput or linear-scaling evidence.
+- The benchmark's Go code is identical between measured baseline and candidate.
+  The final evidence/metadata commit does not change the measured Go code.
+
+## Isolation and checkpoint evidence
+
+- Pinned Elle run: https://github.com/MongooseMoo/barn/actions/runs/42927123080 .
+  Both healthy models returned literal true with exit zero for seeds 412, 395
+  and 396. Injected isolation faults returned false with exit one and have saved
+  anomaly witnesses. `results.json` has `errors: []`.
+- Healthy seed 412 coverage: parallel=806, exclusive=677, exclusive_gate=860,
+  hot_renewal=2, verb_memo=478, suspend=481, fork=14. The other healthy seeds also
+  recorded nonzero counts for all required paths.
+- Checkpoint run: https://github.com/MongooseMoo/barn/actions/runs/42927122982 .
+  All eight generation histories have explicit true verdicts, with no recorded
+  durability violations. Native outcomes remain visible: ok=1974,
+  info:transport=104, fail:no-live-generation=61. Unknown transport outcomes were
+  not counted as successful transactions.
+- Downloaded the full raw archives under `.tmp/elle-pr-738` and
+  `.tmp/jepsen-pr-738`. They include histories, manifests, logs and anomaly
+  witnesses. Extracted inspection copies are in
+  `/tmp/barn-recycle-738-evidence` inside WSL Debian. Preserve these outside the
+  task worktree before cleanup.
 
 ## Literature
 
@@ -123,7 +152,6 @@ owner; it does not establish MOO lifecycle semantics or a speedup.
 
 ## Next step
 
-Publish the production change and independent PR; collect full CI and pinned
-Elle evidence. Complete baseline/candidate measurements on the guest, retain raw
-results and report their limits. Repair scoped failures, normal-merge when checks
-are clear, and clean up this task's worktree and branch.
+Publish the retained measurements and metadata completion. Finish required CI
+on that head, preserve archives outside the worktree, make the PR ready, and
+normal-merge when checks are clear. Then clean up this task's worktree and branch.
