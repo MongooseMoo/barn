@@ -103,7 +103,7 @@ jobs:
             --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
             --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
             --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
-            --workloads smoke,props,keyed,effects --tasks \
+            --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1000 \
             --output jepsen-evidence --jepsen-timeout 600
       - name: Archive raw evidence
         if: always()
@@ -192,6 +192,17 @@ jobs:
           # checker must report duplicated-live-retry-effect.
           run --control pending-effect-retry --workloads effects --phase1 20 --phase3 10 --phase-live 0 \
             --output jepsen-stage-evidence/control-pending-effect-retry --jepsen-timeout 180 || status=1
+          # Store validation controls (no stage step): each fault turns the
+          # shaped families' write-skew shapes into an Elle G2-item. The real
+          # binary has no barrier, so overlap comes from rate, concurrency and
+          # the --dwell loop between each verb's reads and writes.
+          for control in relationship-reads verb-memo hot-memo-guard; do
+            family=authority
+            if [ "$control" = relationship-reads ]; then family=topology; fi
+            run --control "$control" --workloads "$family" --phase1 45 --phase3 0 --phase-live 0 \
+              --rate 100 --concurrency 32 --dwell 10000 \
+              --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 240 || status=1
+          done
           exit "$status"
       - name: Archive raw evidence
         if: always()
