@@ -1,4 +1,7 @@
-//go:build elle && !unix
+//go:build elle && !linux
+
+// Only Linux can direct SIGSTOP at the calling thread (tgkill); a
+// process-directed stop elsewhere lets the stopping thread run on.
 
 package isolationprobe
 

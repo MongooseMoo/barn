@@ -241,8 +241,11 @@ and started with `BARN_ELLE_CHECKPOINT_STOP=<point>:<occurrence>` (occurrence
 from 1, counted per point) writes one JSON line to stderr on reaching that
 occurrence (`msg` `checkpoint stop`, `point`, `occurrence`, `pid`, `artifacts`)
 and then sends `SIGSTOP` to itself. The process that owns it resumes it with
-`SIGCONT` or kills it. An unknown point or a non-Unix platform is a startup
-error.
+`SIGCONT` or kills it. The stop is sent to the calling thread (`tgkill`), so
+the process stops before the code after the point runs; a process-directed
+`kill` can be delivered to another thread and let the checkpoint continue
+(Jepsen CI run 42964137644 froze every rename stop with both renames done).
+An unknown point or a non-Linux platform is a startup error.
 
 Three checkpoint faults serve the Jepsen stage schedule's negative controls
 (`scripts/jepsen_checkpoint.py` `CONTROLS`): `checkpoint-mixed-pair` makes

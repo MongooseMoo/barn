@@ -66,7 +66,7 @@ func InstallCheckpointStop(record io.Writer) error {
 		return nil
 	}
 	if !canStopSelf {
-		return fmt.Errorf("BARN_ELLE_CHECKPOINT_STOP needs SIGSTOP, which this platform lacks")
+		return fmt.Errorf("BARN_ELLE_CHECKPOINT_STOP needs a thread-directed SIGSTOP (Linux tgkill), which this platform lacks")
 	}
 	fn, err := checkpointStop(spec, record, stopSelf)
 	if err != nil {
