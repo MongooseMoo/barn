@@ -415,9 +415,9 @@ class BarnProcessTests(unittest.TestCase):
         owner, _ = self.owner()
         owner.log_file = owner.log_path.open("xb")
         owner.proc.returncode = -9
-        with patch.object(owner, "verify_owned") as guard, \
+        with patch.object(owner, "verify_owned") as guard, patch.object(barn, "run_state", return_value="T"), \
              patch.object(barn.signal, "pidfd_send_signal") as send, patch.object(barn.os, "close") as close:
-            owner.pause()
+            self.assertEqual(owner.pause(), "T")
             self.assertTrue(owner.paused)
             owner.resume()
             self.assertFalse(owner.paused)
@@ -432,6 +432,17 @@ class BarnProcessTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], -9)
         self.assertTrue(result["forced"])
         self.assertFalse(result["final_checkpoint"]["verified"])
+
+    def test_pause_requires_the_kernel_to_report_the_owned_process_stopped(self):
+        owner, _ = self.owner()
+        with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal"), \
+             patch.object(barn, "run_state", return_value="S"):
+            with self.assertRaisesRegex(RuntimeError, "not observed stopped"):
+                owner.pause(timeout=0)
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "77").mkdir()
+            (Path(directory) / "77" / "stat").write_text("77 (barn (x)) T 1 77 77 0 -1\n")
+            self.assertEqual(barn.run_state(77, proc_root=Path(directory)), "T")
 
     def test_fault_methods_refuse_changed_identity_or_exited_process(self):
         for method in ("pause", "resume", "crash"):

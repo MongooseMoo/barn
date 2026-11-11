@@ -1,8 +1,12 @@
 """Pure fixtures for the Jepsen checkpoint adapter: never launch Barn, Jepsen or Elle."""
+import contextlib
+import copy
+import io
 import json
 from pathlib import Path
 import socket
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -38,6 +42,11 @@ class TxnCodeTests(unittest.TestCase):
             with self.subTest(txn=txn):
                 with self.assertRaises(ValueError):
                     jc.txn_code(txn)
+
+    def test_observation_reads_every_listed_row_without_writing(self):
+        self.assertEqual(jc.observation_code([2, 7]),
+                         "rows = #0.jepsen_rows; return {(maphaskey(rows, 2) ? rows[2] | {}), "
+                         "(maphaskey(rows, 7) ? rows[7] | {})};")
 
 
 class OutcomeTests(unittest.TestCase):
@@ -133,53 +142,91 @@ class FakeTransport:
         self.closed = True
 
 
+class FakeCampaign:
+    """What ClientSession uses of Campaign: live generation, journal, touched keys."""
+
+    def __init__(self, live, factory):
+        self.lock, self.live, self.transport_factory = threading.Lock(), live, factory
+        self.events, self.touched = [], {}
+
+    def journal(self, row):
+        self.events.append(dict(row))
+
+    def phase(self):
+        return {"fault_seq": 3, "fault": None, "paused": False}
+
+    def touch(self, generation, keys):
+        self.touched.setdefault(generation, set()).update(keys)
+
+
 class SessionTests(unittest.TestCase):
     def session(self, live, script):
         made = []
         def factory(port):
             made.append(FakeTransport(port, script))
             return made[-1]
-        campaign = SimpleNamespace(lock=jc.threading.Lock(), live=live, transport_factory=factory)
+        campaign = FakeCampaign(live, factory)
         return jc.ClientSession(campaign), campaign, made
 
     def test_no_live_generation_is_an_unsent_failure(self):
-        session, _, made = self.session(None, {})
-        self.assertEqual(session.txn([["append", 1, 1]]),
+        session, campaign, made = self.session(None, {})
+        self.assertEqual(session.txn(1, 0, [["append", 1, 1]]),
                          {"type": "fail", "generation": None, "error": {"kind": "no-live-generation"}})
         self.assertEqual(made, [])
+        self.assertEqual([row["event"] for row in campaign.events], ["request", "complete"])
 
     def test_login_failure_is_failure_because_the_transaction_was_not_sent(self):
-        session, _, made = self.session((2, 9000), {"connect": ConnectionRefusedError("refused")})
-        reply = session.txn([["append", 1, 1]])
+        session, campaign, made = self.session((2, 9000), {"connect": ConnectionRefusedError("refused")})
+        reply = session.txn(1, 0, [["append", 1, 1]])
         self.assertEqual((reply["type"], reply["generation"], reply["error"]["kind"]), ("fail", 2, "connect"))
         self.assertTrue(made[0].closed)
+        self.assertNotIn("send", [row["event"] for row in campaign.events])
 
     def test_timeout_or_reset_after_send_is_unknown_and_drops_the_connection(self):
         for error in (socket.timeout("timed out"), ConnectionError("closed"), BrokenPipeError()):
             with self.subTest(error=error):
-                session, _, made = self.session((1, 9000), {"execute": lambda port, code, e=error: e})
-                reply = session.txn([["append", 1, 1]])
+                session, campaign, made = self.session((1, 9000), {"execute": lambda port, code, e=error: e})
+                reply = session.txn(4, 0, [["append", 1, 1]])
                 self.assertEqual((reply["type"], reply["generation"], reply["error"]["kind"]),
                                  ("info", 1, "transport"))
                 self.assertTrue(made[0].closed)
                 self.assertIsNone(session.transport)
+                self.assertEqual([(row["event"], row.get("type")) for row in campaign.events],
+                                 [("request", None), ("send", None), ("complete", "info")])
+
+    def test_send_is_journaled_with_generation_code_and_phase_before_execute(self):
+        seen = []
+        session, campaign, _ = self.session((1, 9000), {"execute": lambda port, code: (
+            seen.append([row["event"] for row in campaign.events]), ok([[5]]))[1]})
+        session.txn(7, 3, [["r", 2, None]])
+        self.assertEqual(seen, [["request", "send"]])
+        request, send, complete = campaign.events
+        self.assertEqual((request["id"], request["client"], request["value"]), (7, 3, [["r", 2, None]]))
+        self.assertEqual((send["id"], send["generation"], send["port"], send["code"], send["phase"]),
+                         (7, 1, 9000, jc.txn_code([["r", 2, None]]),
+                          {"fault_seq": 3, "fault": None, "paused": False}))
+        self.assertEqual((complete["id"], complete["type"], complete["value"], complete["raw"]),
+                         (7, "ok", [["r", 2, [5]]], "[[5]]"))
+        self.assertEqual(campaign.touched, {1: {2}})
 
     def test_ok_carries_generation_and_raw_and_reconnects_on_new_generation(self):
         session, campaign, made = self.session((1, 9000), {"execute": lambda port, code: ok([[5]])})
-        reply = session.txn([["r", 1, None]])
+        reply = session.txn(1, 0, [["r", 1, None]])
         self.assertEqual(reply, {"type": "ok", "value": [["r", 1, [5]]], "generation": 1, "raw": "[[5]]"})
-        session.txn([["r", 1, None]])
+        session.txn(2, 0, [["r", 1, None]])
         self.assertEqual(len(made), 1)
         campaign.live = (2, 9001)
-        session.txn([["r", 1, None]])
+        session.txn(3, 0, [["r", 1, None]])
         self.assertEqual([t.port for t in made], [9000, 9001])
         self.assertTrue(made[0].closed)
 
 
-def op(process, kind, value, generation=None, error=None):
+def op(process, kind, value, generation=None, error=None, op_id=None):
     row = {"process": process, "type": kind, "f": "txn", "value": value}
     if kind != "invoke":
         row["generation"] = generation
+        if op_id is not None:
+            row["op-id"] = op_id
     if error:
         row["error"] = {"kind": error}
     return row
@@ -254,63 +301,434 @@ class DurabilityTests(unittest.TestCase):
                          ["key 1: recovered token 7 was never attempted after the checkpoint"])
 
 
+class Run:
+    """A synthetic campaign directory: Jepsen history, adapter journal, lifecycle, logs, provenance."""
+
+    def __init__(self):
+        self.history, self.journal, self.lifecycle = [], [], []
+        self.logs, self.server_logs = {}, {}
+        self.next_id = 0
+        self.provenance = {"fixture": "synthetic"}
+
+    def client(self, process, generation, txn, completed=None, kind="ok", error=None):
+        """One client operation, journaled the way ClientSession journals it."""
+        self.next_id += 1
+        op_id = self.next_id
+        value = completed if kind == "ok" else txn
+        self.history.append(op(process, "invoke", txn))
+        self.history.append(op(process, kind, value, generation, error, op_id))
+        self.journal.append({"event": "request", "id": op_id, "client": process, "value": txn})
+        if generation is not None:
+            self.journal.append({"event": "send", "id": op_id, "generation": generation, "port": 9000,
+                                 "code": jc.txn_code(txn), "phase": {"fault_seq": 0, "fault": None,
+                                                                     "paused": False}})
+        done = {"event": "complete", "id": op_id, "type": kind, "generation": generation}
+        if kind == "ok":
+            done["value"] = value
+        if error:
+            done["error"] = {"kind": error}
+        self.journal.append(done)
+        return op_id
+
+    def event(self, **row):
+        self.lifecycle.append(row)
+        return row
+
+    def admit(self, generation, kind, baseline_generation, baseline, recovered, probe=True):
+        self.event(event="admit", generation=generation, kind=kind, baseline_generation=baseline_generation,
+                   baseline=baseline, recovered=recovered)
+        self.logs[generation] = [{"level": "INFO", "msg": "database loaded"},
+                                 {"level": "WARN", "msg": "repaired object reference", "src": "startup_repair"}]
+        self.server_logs[generation] = 'time=now level=INFO msg="database loaded"\n'
+        if probe:
+            self.probe(generation, "launch")
+
+    def probe(self, generation, reason, ok=True):
+        return self.event(event="probe", generation=generation, reason=reason, ok=ok,
+                          failed_attempts=[] if ok else ["ConnectionRefusedError: refused"],
+                          deadline_seconds=30.0)
+
+    def observe(self, generation, reason, keys, value, ok=True):
+        return self.event(event="observation", generation=generation, reason=reason, keys=keys,
+                          value=value if ok else None, ok=ok, deadline_seconds=30.0,
+                          failed_attempts=[] if ok else ["TimeoutError: timed out"])
+
+    def crash(self, generation, exit_code=-9):
+        return self.event(event="crash", generation=generation, result={"exit_code": exit_code, "forced": True})
+
+    def checkpoint(self, generation, baseline, verified=True):
+        return self.event(event="checkpoint", generation=generation, baseline=baseline,
+                          result={"exit_code": 0, "final_checkpoint": {"verified": verified}})
+
+    def write(self, root):
+        root.mkdir(parents=True, exist_ok=True)
+        for name, rows in (("history.jsonl", self.history), ("journal.jsonl", self.journal),
+                           ("lifecycle.jsonl", self.lifecycle)):
+            if rows is not None:
+                (root / name).write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        if self.provenance is not None:
+            (root / "provenance.json").write_text(json.dumps(self.provenance), encoding="utf-8")
+        for generation, records in self.logs.items():
+            directory = root / f"gen-{generation:03d}"
+            (directory / "logs").mkdir(parents=True, exist_ok=True)
+            if records is not None:
+                (directory / "logs" / "latest.jsonl").write_text(
+                    "".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
+            if self.server_logs.get(generation) is not None:
+                (directory / "server.log").write_text(self.server_logs[generation], encoding="utf-8")
+        return root
+
+
+def healthy_run():
+    """The fixed scenario: pause/resume, checkpoint, crash, final checkpoint, each with its evidence."""
+    run = Run()
+    run.admit(0, "initial", None, None, {})
+    run.client(0, 0, [["append", 1, 1], ["r", 1, None]], [["append", 1, 1], ["r", 1, [1]]])
+    run.event(event="pause", generation=0, observed_state="T")
+    run.event(event="resume", generation=0)
+    run.probe(0, "resume")
+    run.client(1, 0, [["append", 1, 2]], kind="info", error="transport")  # Barn never replied
+    run.observe(0, "checkpoint", [1], [[1, 2]])
+    run.checkpoint(0, {"1": [1, 2]})
+    run.admit(1, "checkpoint", 0, {"1": [1, 2]}, {"1": [1, 2]})
+    run.client(9, 1, [["append", 1, 3], ["r", 1, None]], [["append", 1, 3], ["r", 1, [3]]])
+    run.observe(1, "crash", [1], [[3]])
+    run.crash(1)
+    run.admit(2, "crash", 0, {"1": [1, 2]}, {"1": [1, 2]})
+    run.client(9, 2, [["append", 1, 4], ["r", 1, None]], [["append", 1, 4], ["r", 1, [4]]])
+    run.event(event="resume", generation=2)
+    run.probe(2, "resume")
+    run.observe(2, "checkpoint", [1], [[4]])
+    run.checkpoint(2, {"1": [1, 2, 4]})
+    run.admit(3, "checkpoint", 2, {"1": [1, 2, 4]}, {"1": [1, 2, 4]})
+    return run
+
+
 class AnalyzeTests(unittest.TestCase):
-    def directory(self, history, lifecycle):
+    def directory(self, run):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name)
-        for name, rows in (("history.jsonl", history), ("lifecycle.jsonl", lifecycle)):
-            if rows is not None:
-                (root / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
-        return root
+        return run.write(Path(temporary.name))
 
     def elle(self, verdict="true", code=0):
         def run(command, log):
             return code, f"{command[-1]} {verdict}\n"
         return patch.object(jc.check_elle, "run", side_effect=run)
 
-    def test_zero_checkpoint_comparisons_is_incomplete(self):
-        root = self.directory([op(0, "invoke", [["append", 1, 1]]), op(0, "ok", [["append", 1, 1]], 0)],
-                              [{"event": "admit", "generation": 0, "kind": "initial", "baseline": None,
-                                "recovered": {}}])
-        with self.elle():
-            results, errors = jc.analyze(root, root, Path("elle.jar"), "java")
-        self.assertIn("incomplete campaign: zero completed checkpoint comparisons", errors)
+    def analyze(self, run, **elle):
+        root = self.directory(run)
+        with self.elle(**elle):
+            results, findings = jc.analyze(root, root, Path("elle.jar"), "java")
+        return results, findings, root
+
+    def classes(self, findings):
+        return {(finding["class"], finding["message"]) for finding in findings}
+
+    def assertFinding(self, findings, kind, fragment):
+        matches = [f for f in findings if f["class"] == kind and fragment in f["message"]]
+        self.assertTrue(matches, f"no {kind} finding containing {fragment!r} in {findings}")
+
+    def test_complete_healthy_run_has_no_findings_and_keeps_unknowns(self):
+        results, findings, root = self.analyze(healthy_run())
+        self.assertEqual(findings, [])
+        self.assertEqual(jc.verdict_of(findings), "healthy")
+        self.assertEqual(results["outcomes"], {"ok": 3, "info:transport": 1})
+        self.assertEqual(results["missing_obligations"], [])
+        self.assertEqual([(row["generation"], row["verdict"]) for row in results["elle"]],
+                         [(0, "true"), (1, "true"), (2, "true")])
+        self.assertEqual([len(row["violations"]) for row in results["checkpoints"]], [0, 0, 0])
+        edn = (root / "gen-000.edn").read_text()
+        self.assertIn(":process 1 :type :info :f :txn :value [[:append 1 2]]", edn)
+        # The final observation is a read-only transaction of the same generation.
+        self.assertIn(f":process {jc.OBSERVER_PROCESS} :type :ok :f :txn :value [[:r 1 [1 2]]]", edn)
+
+    def test_post_crash_generation_without_success_no_longer_passes(self):
+        # Generation 0 alone had a successful transaction. The aggregate
+        # minimum (one comparison, one Elle-checked generation) was met.
+        run = Run()
+        run.admit(0, "initial", None, None, {})
+        run.client(0, 0, [["append", 1, 1], ["r", 1, None]], [["append", 1, 1], ["r", 1, [1]]])
+        run.event(event="pause", generation=0, observed_state="T")
+        run.event(event="resume", generation=0)
+        run.probe(0, "resume")
+        run.observe(0, "checkpoint", [1], [[1]])
+        run.checkpoint(0, {"1": [1]})
+        run.admit(1, "checkpoint", 0, {"1": [1]}, {"1": [1]})
+        run.client(2, 1, [["append", 1, 2]], kind="info", error="transport")
+        run.observe(1, "crash", [1], [[]])
+        run.crash(1)
+        run.admit(2, "crash", 0, {"1": [1]}, {"1": [1]})
+        run.client(3, 2, [["append", 1, 3]], kind="info", error="transport")
+        run.observe(2, "checkpoint", [1], [[]])
+        run.checkpoint(2, {"1": [1]})
+        run.admit(3, "checkpoint", 2, {"1": [1]}, {"1": [1]})
+        results, findings, _ = self.analyze(run)
+        self.assertTrue(results["checkpoints"])
         self.assertEqual(results["elle"][0]["verdict"], "true")
-        self.assertTrue((root / "gen-000.edn").is_file())
+        self.assertEqual(jc.verdict_of(findings), jc.INCOMPLETE)
+        self.assertFinding(findings, jc.INCOMPLETE,
+                           "after crash of generation 1: generation 2 has no successful client transaction with a read")
+        self.assertFinding(findings, jc.INCOMPLETE, "before crash of generation 1: generation 1 has no successful")
+        self.assertFinding(findings, jc.INCOMPLETE, "generation 2: 1 client completions and no successful transaction")
+        # Only the campaign's own observation makes generation 2 checkable.
+        self.assertEqual(results["generations"][2], {"completions": 1, "ok": 0, "ok_reads": 0, "ok_writes": 0})
 
-    def complete_run(self):
-        history = [op(0, "invoke", [["append", 1, 1]]), op(0, "ok", [["append", 1, 1]], 0),
-                   op(1, "invoke", [["append", 1, 2]]), op(1, "info", [["append", 1, 2]], 1, "transport")]
-        lifecycle = [{"event": "admit", "generation": 0, "kind": "initial", "baseline": None, "recovered": {}},
-                     {"event": "admit", "generation": 1, "kind": "checkpoint", "baseline_generation": 0,
-                      "baseline": {"1": [1]}, "recovered": {"1": [1]}}]
-        return history, lifecycle
+    def test_barn_missing_reply_stays_unknown_in_its_generation(self):
+        run = healthy_run()
+        run.client(4, 1, [["append", 2, 9]], kind="info", error="transport")
+        results, findings, root = self.analyze(run)
+        self.assertEqual(findings, [])
+        self.assertIn(":type :info :f :txn :value [[:append 2 9]]", (root / "gen-001.edn").read_text())
 
-    def test_complete_healthy_run_has_no_errors_and_counts_unknowns(self):
-        root = self.directory(*self.complete_run())
+    def test_adapter_reply_missing_stays_pending_in_the_send_generation(self):
+        run = healthy_run()
+        op_id = run.client(4, 1, [["append", 2, 9]], kind="info", error="transport")
+        run.history[-1] = op(4, "info", [["append", 2, 9]], None, "adapter-timeout", op_id)
+        run.journal = [row for row in run.journal if not (row["id"] == op_id and row["event"] == "complete")]
+        results, findings, root = self.analyze(run)
+        self.assertEqual(results["reconciliation"]["pending"], 1)
+        self.assertIn(":process 4 :type :info :f :txn :value [[:append 2 9]]", (root / "gen-001.edn").read_text())
+        # The adapter hung past Jepsen's timeout: harness evidence, not a Barn failure.
+        self.assertEqual(self.classes(findings), {(jc.INVALID, "1 client completions were info:adapter-timeout")})
+
+    def test_late_reply_after_jepsen_gave_up_stays_unknown(self):
+        run = healthy_run()
+        op_id = run.client(4, 1, [["append", 2, 9], ["r", 2, None]], [["append", 2, 9], ["r", 2, [9]]])
+        run.history[-1] = op(4, "info", [["append", 2, 9], ["r", 2, None]], None, "adapter-timeout", op_id)
+        results, findings, root = self.analyze(run)
+        self.assertEqual(results["reconciliation"]["late"], 1)
+        self.assertIn(":process 4 :type :info :f :txn :value [[:append 2 9] [:r 2 nil]]",
+                      (root / "gen-001.edn").read_text())
+        self.assertFalse([f for f in findings if "contradicts" in f["message"]])
+
+    def test_unsent_operation_is_excluded_and_a_sent_failure_is_a_contradiction(self):
+        run = healthy_run()
+        run.client(5, None, [["append", 3, 1]], kind="fail", error="no-live-generation")
+        run.client(6, 1, [["append", 3, 2]], kind="info", error="adapter-io")
+        run.history[-1]["generation"] = None
+        run.journal = [row for row in run.journal if not (row["id"] == run.next_id and row["event"] != "request")]
+        results, findings, _ = self.analyze(run)
+        self.assertEqual((results["reconciliation"]["unsent"], results["split"]["unsent"]), (2, 2))
+        self.assertEqual(self.classes(findings), {(jc.INVALID, "1 client completions were info:adapter-io")})
+        run = healthy_run()
+        op_id = run.client(5, None, [["append", 3, 1]], kind="fail", error="connect")
+        run.journal.insert(-1, {"event": "send", "id": op_id, "generation": 1, "port": 9000, "code": "", "phase": {}})
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INVALID, "Jepsen recorded fail for an operation sent in generation 1")
+
+    def test_mixed_generation_is_invalid_harness_evidence(self):
+        run = healthy_run()
+        op_id = run.client(4, 1, [["r", 1, None]], [["r", 1, [3]]])
+        run.history[-1]["generation"] = 2
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(jc.verdict_of(findings), jc.INVALID)
+        self.assertFinding(findings, jc.INVALID,
+                           f"operation {op_id}): Jepsen generation 2, adapter sent it in generation 1")
+
+    def test_journal_disagreeing_with_an_ok_value_or_missing_is_invalid(self):
+        run = healthy_run()
+        run.journal[2]["value"] = [["append", 1, 1], ["r", 1, [99]]]
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INVALID, "journal recorded ok")
+        run = healthy_run()
+        run.journal = None
+        root = self.directory(run)
         with self.elle():
-            results, errors = jc.analyze(root, root, Path("elle.jar"), "java")
-        self.assertEqual(errors, [])
-        self.assertEqual(results["outcomes"], {"ok": 1, "info:transport": 1})
-        self.assertEqual(results["elle"][1], {"generation": 1, "skipped": "no :ok transactions"})
+            _, findings = jc.analyze(root, root, Path("elle.jar"), "java")
+        self.assertFinding(findings, jc.INVALID, "no adapter journal.jsonl")
 
-    def test_elle_rejection_native_errors_and_lifecycle_failures_fail(self):
-        history, lifecycle = self.complete_run()
-        root = self.directory(history, lifecycle)
-        with self.elle("false", 1):
-            _, errors = jc.analyze(root, root, Path("elle.jar"), "java")
-        self.assertIn("generation 0: Elle exit=1, verdict=false", errors)
-        history[-1] = op(1, "info", [["append", 1, 2]], 1, "native-error")
-        root = self.directory(history, lifecycle + [{"event": "failure", "error": "crash: boom"}])
-        with self.elle():
-            _, errors = jc.analyze(root, root, Path("elle.jar"), "java")
-        self.assertEqual(errors, ["crash: boom", "1 client completions were info:native-error"])
+    def test_no_post_heal_progress_is_a_recovery_failure(self):
+        run = healthy_run()
+        next(row for row in run.lifecycle if row.get("reason") == "resume").update(
+            ok=False, failed_attempts=["TimeoutError: timed out"])
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(jc.verdict_of(findings), jc.RECOVERY)
+        self.assertFinding(findings, jc.RECOVERY, "progress probe after resume of generation 0 did not succeed")
+        run = healthy_run()
+        run.lifecycle = [row for row in run.lifecycle if not (row.get("event") == "probe" and row["generation"] == 2
+                                                              and row["reason"] == "launch")]
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE, "missing progress probe after launch of generation 2")
 
-    def test_missing_history_is_incomplete(self):
-        root = self.directory(None, [{"event": "failure", "error": "jepsen: exited 1"}])
-        self.assertEqual(jc.analyze(root, root, Path("elle.jar"), "java"),
-                         ({}, ["jepsen: exited 1", "incomplete campaign: Jepsen wrote no history.jsonl"]))
+    def test_zero_actual_fault_is_incomplete(self):
+        run = healthy_run()
+        next(row for row in run.lifecycle if row.get("event") == "crash")["result"]["exit_code"] = 0
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE, "crash of generation 1: SIGKILL was not observed")
+        run = healthy_run()
+        next(row for row in run.lifecycle if row.get("event") == "pause")["observed_state"] = "S"
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE, "pause of generation 0: owned PID was not observed stopped")
+        run = healthy_run()
+        run.lifecycle = [row for row in run.lifecycle if row.get("event") != "pause"]
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE, "scenario: zero pause faults were applied")
+
+    def test_missing_final_observation_is_incomplete(self):
+        run = healthy_run()
+        run.lifecycle = [row for row in run.lifecycle if not (row.get("event") == "observation"
+                                                              and row["reason"] == "crash")]
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(jc.verdict_of(findings), jc.INCOMPLETE)
+        self.assertFinding(findings, jc.INCOMPLETE, "missing final observation before crash of generation 1")
+        run = healthy_run()
+        next(row for row in run.lifecycle if row.get("event") == "observation").update(
+            ok=False, failed_attempts=["TimeoutError: timed out"])
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.RECOVERY, "final observation before checkpoint of generation 0")
+
+    def test_scenario_must_reach_its_final_checkpoint_from_the_expected_pair(self):
+        run = healthy_run()
+        run.lifecycle = run.lifecycle[:run.lifecycle.index(next(r for r in run.lifecycle
+                                                                if r.get("event") == "resume"
+                                                                and r["generation"] == 2))]
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE, "scenario: ended after crash of generation 1")
+        run = healthy_run()
+        next(r for r in run.lifecycle if r.get("event") == "admit" and r["generation"] == 2)["baseline_generation"] = 1
+        _, findings, _ = self.analyze(run)
+        self.assertFinding(findings, jc.INCOMPLETE,
+                           "crash of generation 1: generation 2 was not admitted from checkpointed generation 0")
+
+    def test_runtime_log_records_are_classified_with_their_raw_record(self):
+        cases = [({"level": "ERROR", "msg": "panic in task", "go_stack": "x"}, jc.CORRECTNESS, "panic"),
+                 ({"level": "ERROR", "msg": "PANIC: out of memory"}, jc.CORRECTNESS, "panic"),
+                 ({"level": "ERROR", "msg": "checkpoint failed", "err": "disk"}, jc.RECOVERY, "checkpoint failure"),
+                 ({"level": "WARN", "msg": "failed to restore queued task", "task_id": 3}, jc.RECOVERY,
+                  "task restore failure"),
+                 ({"level": "ERROR", "msg": "uncaught exception", "handled": False}, jc.INCOMPLETE,
+                  "unexamined ERROR record")]
+        for record, kind, label in cases:
+            with self.subTest(record=record):
+                run = healthy_run()
+                run.logs[1].append(record)
+                _, findings, _ = self.analyze(run)
+                self.assertEqual([(f["class"], f["message"]) for f in findings],
+                                 [(kind, f"generation 1 logs/latest.jsonl:3: {label}: {json.dumps(record)}")])
+        run = healthy_run()
+        run.server_logs[2] += "panic: runtime error: index out of range\n\ngoroutine 1 [running]:\n"
+        run.logs[3] = None
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(self.classes(findings), {
+            (jc.CORRECTNESS, "generation 2 server.log:2: Go runtime crash: panic: runtime error: index out of range"),
+            (jc.INCOMPLETE, "generation 3: runtime log logs/latest.jsonl is missing")})
+
+    def test_elle_rejection_is_a_violation_and_undecided_is_incomplete(self):
+        _, findings, _ = self.analyze(healthy_run(), verdict="false", code=1)
+        self.assertEqual(jc.verdict_of(findings), jc.CORRECTNESS)
+        self.assertFinding(findings, jc.CORRECTNESS, "generation 0: Elle rejected the history (exit 1)")
+        _, findings, _ = self.analyze(healthy_run(), verdict="unknown", code=0)
+        self.assertFinding(findings, jc.INCOMPLETE, "generation 0: Elle could not decide")
+
+    def test_durability_violation_native_errors_and_lifecycle_failures_are_classified(self):
+        run = healthy_run()
+        run.lifecycle[-2]["recovered"] = {"1": [1, 2]}  # acknowledged token 4 lost at the checkpoint
+        run.client(4, 2, [["append", 2, 9]], kind="info", error="native-error")
+        run.event(event="failure", operation="crash", error="crash: RuntimeError: boom")
+        run.event(event="failure", operation="jepsen", error="jepsen: RuntimeError: exited 1")
+        _, findings, _ = self.analyze(run)
+        self.assertTrue({(jc.CORRECTNESS, "generation 3 (checkpoint): key 1: checkpointed prefix [1, 2, 4] not "
+                                          "preserved; recovered [1, 2]"),
+                         (jc.INCOMPLETE, "1 client completions were info:native-error"),
+                         (jc.RECOVERY, "crash: RuntimeError: boom"),
+                         (jc.INVALID, "jepsen: RuntimeError: exited 1")} <= self.classes(findings))
+        self.assertEqual(jc.verdict_of(findings), jc.CORRECTNESS)
+
+    def test_missing_history_or_provenance(self):
+        run = healthy_run()
+        run.history, run.provenance = None, None
+        _, findings, _ = self.analyze(run)
+        self.assertEqual(self.classes(findings), {
+            (jc.INVALID, "no provenance.json: the campaign's inputs are not recorded"),
+            (jc.INCOMPLETE, "Jepsen wrote no history.jsonl")})
+
+
+class ProvenanceTests(unittest.TestCase):
+    def test_records_every_input_hash_and_all_parameters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("barn", "elle.jar", "jepsen.jar", "Test.db"):
+                (root / name).write_bytes(name.encode())
+            args = SimpleNamespace(db=root / "Test.db", barn=root / "barn", elle_jar=root / "elle.jar",
+                                   jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
+                                   rate=3, concurrency=4, seed=5, jepsen_timeout=6)
+            row = jc.provenance(args, root)
+        sha = jc.barn_process.bench.sha256_file
+        self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "rate": 3, "concurrency": 4, "seed": 5,
+                                             "jepsen_timeout": 6})
+        self.assertEqual((row["barn"]["size_bytes"], row["checker_jar"]["size_bytes"],
+                          row["jepsen"]["jar"]["size_bytes"], row["fixture"]["database"]["size_bytes"]),
+                         (4, 8, 10, 7))
+        self.assertEqual(row["fixture"]["waif_identities"]["sha256"], None)
+        self.assertEqual(row["config"]["sha256"], sha(jc.CONFIG))
+        self.assertTrue(row["java"].startswith("unavailable:"))
+        self.assertTrue(row["fixture"]["conformance_revision"].startswith("unavailable:"))
+        self.assertEqual(len(row["source_tree"]["tree"]), 40)
+        for key in ("uname", "filesystem", "cpu_count", "cpu_affinity", "environment", "os_release"):
+            self.assertIn(key, row["runner"])
+
+
+class MainTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.jar = self.root / "elle.jar"
+        self.jar.write_bytes(b"jar")
+
+    def main(self, archive, name):
+        def run(command, log):
+            Path(command[-1]).exists() or self.fail("Elle input was not written")
+            return 0, f"{command[-1]} true\n"
+        with patch.object(jc.check_elle, "run", side_effect=run), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = jc.main(["--analyze", str(archive), "--output", str(self.root / name),
+                            "--elle-jar", str(self.jar)])
+        return code, self.root / name
+
+    def test_analyze_replay_of_an_archived_result_is_exact(self):
+        archive = healthy_run().write(self.root / "archive")
+        replays = [self.main(archive, name) for name in ("first", "second")]
+        self.assertEqual([code for code, _ in replays], [0, 0])
+        texts = []
+        for _, directory in replays:
+            results = json.loads((directory / "results.json").read_text())
+            self.assertEqual((results["verdict"], results["classes"], results["findings"]), ("healthy", [], []))
+            for key in ("argv", "analyze_command"):
+                results.pop(key)
+            texts.append(json.dumps(results, sort_keys=True).replace(json.dumps(str(directory))[1:-1], "<OUT>"))
+        self.assertEqual(texts[0], texts[1])
+        for name in ("gen-000.edn", "gen-001.edn", "gen-002.edn"):
+            self.assertEqual((replays[0][1] / name).read_bytes(), (replays[1][1] / name).read_bytes())
+        self.assertEqual(json.loads((replays[0][1] / "results.json").read_text())["provenance"],
+                         {"fixture": "synthetic"})
+
+    def test_exit_status_names_the_most_severe_class(self):
+        cases = {"healthy": (healthy_run(), 0)}
+        run = healthy_run()
+        next(row for row in run.lifecycle if row.get("reason") == "resume")["ok"] = False
+        cases["recovery"] = (run, 3)
+        run = healthy_run()
+        run.lifecycle = [row for row in run.lifecycle if row.get("event") != "pause"]
+        cases["incomplete"] = (run, 4)
+        run = healthy_run()
+        run.history[1]["generation"] = 1
+        cases["invalid"] = (run, 5)
+        run = copy.deepcopy(cases["recovery"][0])
+        run.lifecycle[-2]["recovered"] = {"1": []}
+        cases["correctness"] = (run, 1)
+        for name, (run, expected) in cases.items():
+            with self.subTest(name=name):
+                code, directory = self.main(run.write(self.root / f"archive-{name}"), name)
+                self.assertEqual(code, expected)
+                results = json.loads((directory / "results.json").read_text())
+                self.assertEqual(jc.EXIT_CODES[results["verdict"]], expected)
+
+    def test_missing_lifecycle_is_invalid_harness_evidence(self):
+        (self.root / "empty").mkdir()
+        code, directory = self.main(self.root / "empty", "out")
+        self.assertEqual(code, 5)
+        self.assertIn("lifecycle.jsonl", json.loads((directory / "results.json").read_text())["findings"][0]["message"])
 
 
 class FakeServer:
@@ -324,6 +742,7 @@ class FakeServer:
 
     def pause(self):
         self.paused = True
+        return "T"
 
     def resume(self):
         self.log.append(("resume", self.port))
@@ -348,7 +767,7 @@ class FakeServer:
 
 
 class CampaignTests(unittest.TestCase):
-    def campaign(self):
+    def campaign(self, probe_fails=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -358,6 +777,12 @@ class CampaignTests(unittest.TestCase):
         def evaluate(port, code):
             if code == jc.ADMIT_CODE:
                 return ok(ledger.get(port, {1: [1]}))
+            if code.startswith("#0.jepsen_probe = "):
+                return ConnectionRefusedError("refused") if probe_fails else ok(int(code.split()[2][:-1]))
+            if code == jc.PROBE_READ_CODE:
+                return ok(1)
+            if code.startswith("rows = #0.jepsen_rows; return {"):
+                return ok([[7]] * code.count("maphaskey"))
             return ok({1: [1]})
         script = {"execute": evaluate}
         def server_class(*args):
@@ -367,7 +792,7 @@ class CampaignTests(unittest.TestCase):
         output.mkdir()
         campaign = jc.Campaign(root / "barn", root / "Test.db", output,
                                lambda port: FakeTransport(port, script), server_class=server_class,
-                               port_source=lambda: next(ports))
+                               port_source=lambda: next(ports), probe_deadline=0)
         return campaign, log, servers, output
 
     def test_generations_launch_from_the_fixture_then_the_latest_verified_pair(self):
@@ -387,6 +812,35 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual([(row["kind"], row["baseline_generation"], row["baseline"]) for row in admits],
                          [("initial", None, None), ("checkpoint", 0, {"1": [1]}), ("crash", 0, {"1": [1]})])
         self.assertEqual(admits[1]["recovered"], {"1": [1]})
+
+    def test_every_launch_and_resume_is_probed_and_every_end_is_observed(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        campaign.touch(0, [4, 2])
+        campaign.fault("pause")
+        campaign.fault("resume")
+        campaign.fault("crash")
+        rows = jc.load_jsonl(output / "lifecycle.jsonl")
+        self.assertEqual([(row["event"], row.get("reason")) for row in rows],
+                         [("admit", None), ("probe", "launch"), ("pause", None), ("resume", None),
+                          ("probe", "resume"), ("observation", "crash"), ("crash", None), ("admit", None),
+                          ("probe", "launch")])
+        self.assertEqual(rows[2]["observed_state"], "T")
+        self.assertTrue(all(row["ok"] for row in rows if row["event"] == "probe"))
+        self.assertEqual((rows[1]["value"], rows[4]["value"]), ({"written": 1, "read": 1}, {"written": 2, "read": 1}))
+        self.assertEqual((rows[5]["keys"], rows[5]["ok"], rows[5]["value"]), ([2, 4], True, [[7], [7]]))
+        journal = jc.load_jsonl(output / "journal.jsonl")
+        self.assertEqual([(row["event"], row["f"], row["fault_seq"]) for row in journal],
+                         [("fault-begin", "pause", 1), ("fault-end", "pause", 1), ("fault-begin", "resume", 2),
+                          ("fault-end", "resume", 2), ("fault-begin", "crash", 3), ("fault-end", "crash", 3)])
+
+    def test_failed_probe_is_recorded_without_stopping_the_campaign(self):
+        campaign, _, _, output = self.campaign(probe_fails=True)
+        campaign.launch("initial")
+        probe = jc.load_jsonl(output / "lifecycle.jsonl")[1]
+        self.assertEqual((probe["event"], probe["ok"], probe["failed_attempts"]),
+                         ("probe", False, ["ConnectionRefusedError: refused"]))
+        self.assertEqual(campaign.live, (0, 9000))
 
     def test_unverified_checkpoint_fails_the_campaign_without_relaunch(self):
         campaign, log, servers, _ = self.campaign()
