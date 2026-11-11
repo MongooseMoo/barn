@@ -32,6 +32,14 @@ capture:1, serialize:1, staged:2, journal-published:1, journal-published:2, data
 - Cause: `stopSelf` (`internal/isolationprobe/stop_unix.go`) uses `kill(getpid(), SIGSTOP)`, a process-directed signal the kernel may deliver to another thread (signal(7); POSIX kill only guarantees delivery to the sender when no other thread has it unblocked), so the checkpoint goroutine's thread keeps running until the group stop reaches it.
 - Fix: on Linux, `tgkill(getpid(), gettid(), SIGSTOP)` with the OS thread locked (`internal/isolationprobe/stop_linux.go`), so the calling thread itself dequeues SIGSTOP on its return from the syscall. Other platforms now refuse the stop at startup (`stop_other.go`, `elle && !linux`) instead of giving an inexact one. Test `TestCheckpointStopNoCodeRunsAfterStop` (25 helper launches; the helper pins its main goroutine to the thread group leader, as in Barn the checkpoint runs off the leader, and writes a marker right after Pause returns): failed on attempt 0 in WSL Linux with the old `kill`, passes `-count=3` with `tgkill`.
 
+## Follow-up PR (branch jepsen/stage-stop-fix, 2026-11-11)
+#748 merged at 05:36 UTC with its stages job red: the Jepsen jobs were not required checks, and the merge queue had already locked the branch before the stop fix could be pushed (dequeue was refused by the agent-guards hook). Q has since made both Jepsen jobs required on master. This branch carries the tgkill stop fix from fresh origin/master.
+Why the one fix covers all three red items, step by step from the code (`db/format/checkpoint_publication.go` recoverCheckpointPair, `scripts/mongoose_barn_process.py` checkpoint_artifacts/expected_recovery):
+- Rename-stage overshoot: the stopping thread now stops on its own tgkill, before the next rename.
+- Double crash TimeoutError: the first crash then freezes at database-renamed:2 (output = next database + previous sidecar), so the restarted Barn's recovery must restore the previous pair and reaches `checkpoint/recovery-database-restored`; in run 42964137644 it froze at both-renamed, where recovery keeps the next pair and never restores.
+- Mixed-pair control: at database-renamed:1 the output is the next database with no sidecar, the case the `checkpoint-mixed-pair` fault keeps; at both-renamed the pair was already complete, so the fault had nothing to keep.
+Unverified until the PR's stages job runs: the real-binary coverage table and the mixed-pair witness.
+
 ## Surprises
 - The recovery-time stop fires during LoadDatabase, before the listener, so that launch waits for the stop record instead of readiness.
 - PR C's `_recovered_pair` raises on a missing sidecar, so a mixed (database without sidecar) pair failed the launch instead of reaching the oracle.
