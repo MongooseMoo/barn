@@ -353,8 +353,19 @@ func (t *State) PersistenceSnapshotLocked() Snapshot {
 				variableNames = append(variableNames, name)
 			}
 		}
+		variables := cloneValueMap(t.ForkInfo.Variables)
+		if name := t.ForkInfo.VarName; name != "" {
+			// The child's `fork name` variable holds its own task id
+			// (vm.NewForkVM), not the parent's value captured at the
+			// fork, as in the environment Toast's enqueue_forked_task2
+			// saves for the queued child.
+			if variables == nil {
+				variables = make(map[string]types.Value, 1)
+			}
+			variables[name] = types.NewInt(t.ID)
+		}
 		snapshot.Fork = &ForkSnapshot{
-			Variables:     cloneValueMap(t.ForkInfo.Variables),
+			Variables:     variables,
 			VariableNames: variableNames,
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
