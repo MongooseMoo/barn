@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barn fuzz machine, live</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #5a5a5a; --bg: #ffffff; --bad: #a40000; --good: #1d6b2a; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #ececec; --muted: #b0b0b0; --bg: #161616; --bad: #ff8080; --good: #7fd88f; } }
+  body { font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0 auto; max-width: 52rem; padding: 1rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  h2 { font-size: 1.15rem; margin: 1.5rem 0 .25rem; }
+  p, li { margin: .25rem 0; }
+  .muted { color: var(--muted); }
+  .bad { color: var(--bad); font-weight: 600; }
+  .good { color: var(--good); font-weight: 600; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+<h1>Barn fuzz machine, live</h1>
+<p id="summary" role="status" aria-live="polite">Loading from GitHub…</p>
+<p class="muted" id="updated"></p>
+
+<h2 id="current-heading">Current cycle</h2>
+<div id="current"></div>
+
+<h2 id="previous-heading">Previous cycle</h2>
+<div id="previous"></div>
+
+<h2>Recent cycles</h2>
+<ul id="cycles"></ul>
+
+<h2>Controller runs (backup replenish and watchdog)</h2>
+<ul id="controller"></ul>
+
+<h2>Fuzz issues, newest first</h2>
+<ul id="issues"></ul>
+
+<h2>Automatic repair PRs, newest first</h2>
+<ul id="repairs"></ul>
+
+<p class="muted">Reads GitHub's public API from this browser, with no sign-in, every 2 minutes.
+GitHub allows 60 unauthenticated requests an hour per address; each refresh makes about 6.</p>
+</main>
+<script>
+"use strict";
+const API = "https://api.github.com/repos/MongooseMoo/barn";
+const REFRESH_MS = 2 * 60 * 1000;
+// Jobs that are not fuzz lanes (fuzz_compute.cjs NOT_LANES).
+const NOT_LANES = new Set(["Validate compute routing", "ToastDifferential",
+  "Accept discovery cycle", "Submit continuous successor"]);
+const ACTIVE = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
+let rateNote = "";
+
+async function get(path) {
+  const response = await fetch(API + path, {headers: {Accept: "application/vnd.github+json"}});
+  const remaining = response.headers.get("X-RateLimit-Remaining");
+  const reset = response.headers.get("X-RateLimit-Reset");
+  if (remaining !== null) {
+    rateNote = `GitHub requests left this hour: ${remaining}` +
+      (reset ? `, resets at ${clock(new Date(reset * 1000))}` : "") + ".";
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(`${response.status} ${body.message || response.statusText} (${path})`);
+  }
+  return response.json();
+}
+
+function clock(date) { return date.toISOString().slice(11, 16) + " UTC"; }
+function minutesSince(iso) { return Math.round((Date.now() - Date.parse(iso)) / 60000); }
+function span(minutes) { return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`; }
+
+function el(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
+}
+function link(text, href) { const a = el("a", text); a.href = href; return a; }
+function item(parts) {
+  const li = el("li");
+  for (const part of parts) li.append(typeof part === "string" ? document.createTextNode(part) : part);
+  return li;
+}
+function fill(id, nodes, empty) {
+  const box = document.getElementById(id);
+  box.replaceChildren(...(nodes.length ? nodes : [el(box.tagName === "UL" ? "li" : "p", empty, "muted")]));
+}
+function campaign(run) { return run.display_title.replace("Nightly fuzz / ", ""); }
+// GitHub can report a whole run as queued while its lanes run, so jobs decide.
+function state(run, jobs) {
+  if (!ACTIVE.has(run.status)) return run.conclusion;
+  return jobs && jobs.some(j => j.status === "in_progress") ? "running" : run.status.replace("_", " ");
+}
+
+function describeCycle(run, jobs) {
+  const out = [];
+  const lanes = jobs.filter(j => !NOT_LANES.has(j.name));
+  const done = lanes.filter(j => j.status === "completed");
+  const red = lanes.filter(j => j.conclusion === "failure");
+  const running = lanes.filter(j => j.status === "in_progress");
+  const accept = jobs.find(j => j.name === "Accept discovery cycle");
+  const successor = jobs.find(j => j.name === "Submit continuous successor");
+  const head = el("p");
+  head.append(link(`Run ${run.id}`, run.html_url),
+    `, ${campaign(run)}, started ${span(minutesSince(run.created_at))} ago by ${run.triggering_actor.login}, ` +
+    (ACTIVE.has(run.status) ? state(run, jobs) : `ended ${span(minutesSince(run.updated_at))} ago, ${run.conclusion}`) + ".");
+  out.push(head);
+  out.push(el("p", `Lanes done ${done.length} of ${lanes.length}; ${red.length} found a bug` +
+    (red.length ? `: ${red.map(j => j.name).join(", ")}.` : ".")));
+  if (running.length) {
+    out.push(el("p", "Running: " + running.map(j => `${j.name} for ${span(minutesSince(j.started_at))}`).join("; ") + "."));
+  }
+  const waiting = lanes.filter(j => j.status === "queued" || j.status === "waiting").length;
+  if (waiting) out.push(el("p", `Waiting for a runner: ${waiting} lanes.`));
+  out.push(el("p", `Acceptance: ${accept ? (accept.conclusion || accept.status) : "not run"}.`,
+    accept && accept.conclusion === "failure" ? "bad" : ""));
+  out.push(el("p", `Successor submission: ${successor ? (successor.conclusion || successor.status)
+    : ACTIVE.has(run.status) ? "not started yet" : "no such job in this run"}.`,
+    successor && successor.conclusion === "failure" ? "bad" : ""));
+  return out;
+}
+
+async function refresh() {
+  try {
+    const runs = (await get("/actions/workflows/fuzz.yml/runs?per_page=6")).workflow_runs
+      .filter(r => r.display_title.startsWith("Nightly fuzz / dedicated-"));
+    const active = runs.filter(r => ACTIVE.has(r.status));
+    const current = active.find(r => r.status !== "queued" && r.status !== "pending") || active[active.length - 1];
+    const previous = runs.find(r => r.status === "completed");
+    const [currentJobs, previousJobs, controller, issues, pulls] = await Promise.all([
+      current ? get(`/actions/runs/${current.id}/jobs?per_page=100&filter=latest`) : null,
+      previous ? get(`/actions/runs/${previous.id}/jobs?per_page=100&filter=latest`) : null,
+      get("/actions/workflows/fuzz-controller.yml/runs?per_page=4"),
+      get("/issues?state=all&sort=created&direction=desc&per_page=40"),
+      get("/pulls?state=all&sort=created&direction=desc&per_page=40"),
+    ]);
+
+    const summary = document.getElementById("summary");
+    const queuedNext = active.filter(r => r !== current);
+    if (current) {
+      summary.className = "good";
+      summary.textContent = `Running: cycle ${current.id} is ${state(current, currentJobs.jobs)}` +
+        (queuedNext.length ? `; next cycle ${queuedNext[0].id} is queued.` : "; no next cycle queued yet.");
+    } else {
+      summary.className = "bad";
+      summary.textContent = previous
+        ? `Stopped: nothing queued or running ${span(minutesSince(previous.updated_at))} after cycle ${previous.id}.`
+        : "Stopped: no dedicated fuzz cycle found.";
+    }
+
+    fill("current", current ? describeCycle(current, currentJobs.jobs) : [], "No cycle running.");
+    fill("previous", previous ? describeCycle(previous, previousJobs.jobs) : [], "None.");
+    fill("cycles", runs.map(r => item([link(`Run ${r.id}`, r.html_url),
+      `, ${campaign(r)}, started ${clock(new Date(r.created_at))} by ${r.triggering_actor.login}, ` +
+      (ACTIVE.has(r.status) ? r.status.replace("_", " ") : r.conclusion) + "."])), "None.");
+    fill("controller", controller.workflow_runs.map(r => item([link(`Run ${r.id}`, r.html_url),
+      `, ${r.event === "workflow_run" ? "replenish" : r.event === "schedule" ? "watchdog" : r.event}, ` +
+      `${clock(new Date(r.created_at))}, ${r.conclusion || r.status}.`])), "None.");
+    fill("issues", issues.filter(i => !i.pull_request && i.title.startsWith("Nightly fuzz")).slice(0, 15)
+      .map(i => item([link(`#${i.number}`, i.html_url), ` ${i.state}, opened ${clock(new Date(i.created_at))} ` +
+        `${new Date(i.created_at).toISOString().slice(0, 10)}: ${i.title.replace("Nightly fuzz ", "")}`])), "None in the newest 40 issues.");
+    fill("repairs", pulls.filter(p => p.head.ref.startsWith("claude/issue-")).slice(0, 15)
+      .map(p => item([link(`#${p.number}`, p.html_url), ` ${p.merged_at ? "merged" : p.state}, ` +
+        `opened ${new Date(p.created_at).toISOString().slice(0, 10)}: ${p.title}`])), "None in the newest 40 PRs.");
+    document.getElementById("updated").textContent = `Updated ${clock(new Date())}. ${rateNote}`;
+  } catch (error) {
+    const summary = document.getElementById("summary");
+    summary.className = "bad";
+    summary.textContent = `Could not read GitHub: ${error.message}. Retrying in 2 minutes.`;
+    document.getElementById("updated").textContent = rateNote;
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>
