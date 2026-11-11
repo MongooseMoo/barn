@@ -126,18 +126,26 @@
 
 (defn generator
   "Phase 1: clients with pause/resume. Phase 2: an explicit checkpoint. Phase
-  3: clients with pause/resume and crash/restart. Phase 4: a final checkpoint.
-  gen/phases waits for every outstanding operation before the next phase."
-  [{:keys [phase1 phase3 rate families]}]
+  3: clients with pause/resume and crash/restart. Live phase (unless
+  phase-live is 0): clients continue through SIGALRM live checkpoints and
+  checkpoint-crashes, which stop and kill Barn at a random moment of a
+  checkpoint and recover from its actual artifacts. Phase 4: a final
+  checkpoint. gen/phases waits for every outstanding operation before the
+  next phase."
+  [{:keys [phase1 phase3 phase-live rate families]}]
   (let [pausing  [(gen/sleep 5) (nemesis-op :pause) (gen/sleep 4) (nemesis-op :resume)]
-        crashing (into pausing [(gen/sleep 5) (nemesis-op :crash)])]
-    (gen/phases
-      (gen/time-limit phase1 (gen/clients (txns rate families 0) (gen/cycle pausing)))
-      (gen/nemesis (nemesis-op :resume))
-      (gen/nemesis (nemesis-op :checkpoint))
-      (gen/time-limit phase3 (gen/clients (txns rate families 1000000) (gen/cycle crashing)))
-      (gen/nemesis (nemesis-op :resume))
-      (gen/nemesis (nemesis-op :checkpoint)))))
+        crashing (into pausing [(gen/sleep 5) (nemesis-op :crash)])
+        live     [(gen/sleep 3) (nemesis-op :live-checkpoint) (gen/sleep 3) (nemesis-op :checkpoint-crash)]]
+    (apply gen/phases
+           (concat
+             [(gen/time-limit phase1 (gen/clients (txns rate families 0) (gen/cycle pausing)))
+              (gen/nemesis (nemesis-op :resume))
+              (gen/nemesis (nemesis-op :checkpoint))
+              (gen/time-limit phase3 (gen/clients (txns rate families 1000000) (gen/cycle crashing)))
+              (gen/nemesis (nemesis-op :resume))]
+             (when (pos? phase-live)
+               [(gen/time-limit phase-live (gen/clients (txns rate families 2000000) (gen/cycle live)))])
+             [(gen/nemesis (nemesis-op :checkpoint))]))))
 
 (defn barn-test [{:keys [adapter-port concurrency client-timeout-ms] :as options}]
   (assoc tests/noop-test
@@ -151,7 +159,8 @@
                         [(map->AdapterNemesis {:port adapter-port :timeout-ms 600000
                                                :fs #{:pause :resume}})
                          (map->AdapterNemesis {:port adapter-port :timeout-ms 600000
-                                               :fs #{:crash :checkpoint}})])
+                                               :fs #{:crash :checkpoint :live-checkpoint
+                                                     :checkpoint-crash}})])
          :generator   (generator options)
          ; Verdicts come from the pinned Elle CLI and the checkpoint baselines.
          :checker     (checker/unbridled-optimism)))
@@ -176,6 +185,7 @@
    [nil "--history PATH"]
    [nil "--phase1 SECONDS" :default 60 :parse-fn parse-long]
    [nil "--phase3 SECONDS" :default 90 :parse-fn parse-long]
+   [nil "--phase-live SECONDS" :default 60 :parse-fn parse-long]
    [nil "--rate OPS" :default 20 :parse-fn parse-long]
    [nil "--concurrency N" :default 8 :parse-fn parse-long]
    [nil "--client-timeout-ms MS" :default 60000 :parse-fn parse-long]

@@ -28,6 +28,17 @@ generation, and after each resume and launch it requires a bounded
 fresh-connection write and read. Analysis checks each scenario obligation and
 each generation's runtime log, and reports one of four non-healthy result
 classes (see EXIT_CODES) with every finding.
+
+The live lane (plan section 2) checkpoints while clients continue: SIGALRM
+requests one checkpoint at a time and its completion is acknowledged only by
+Barn's `checkpoint complete` record plus the stable digest of the published
+pair. A checkpoint-crash requests another checkpoint, waits a seeded random
+delay, stops the owned process, classifies the frozen publication files,
+kills it, copies the artifacts for forensics and restarts from the
+interrupted checkpoint's actual output path, whose journal Barn's loader
+recovers. Before admitting that generation, one task reads the recovered
+rows; the snapshot oracle (snapshot_checks) checks them against the
+generation's history and its completed (A) and pending (F) checkpoints.
 """
 from __future__ import annotations
 
@@ -35,6 +46,7 @@ import argparse
 import json
 import os
 import platform
+import random
 import shutil
 import socket
 import socketserver
@@ -56,7 +68,16 @@ PROBE_DEADLINE = 30.0
 # Elle process for the campaign's own final observations; Jepsen client
 # processes stay far below it.
 OBSERVER_PROCESS = 10 ** 9
-FAULTS = ("pause", "resume", "crash", "checkpoint")
+FAULTS = ("pause", "resume", "crash", "checkpoint", "live-checkpoint", "checkpoint-crash")
+# Ceiling for one live checkpoint to log completion or failure. Not measured.
+CHECKPOINT_DEADLINE = 60.0
+# checkpoint-crash waits uniform(0, DELAY_SPAN x the last completed live
+# checkpoint's duration) after SIGALRM before stopping the server, so the
+# stop lands before, during or after publication; the frozen files say which.
+DELAY_SPAN = 1.5
+FIRST_DELAY_SECONDS = 0.05  # before any live checkpoint has completed
+# Elle process for the recovered snapshot of a generation (plan section 2 rule 5).
+RECOVERY_PROCESS = OBSERVER_PROCESS + 1
 
 CORRECTNESS = "correctness-violation"
 RECOVERY = "recovery-failure"
@@ -73,6 +94,12 @@ ADMIT_CODE = (
     '#0.jepsen_rows = []; return #0.jepsen_ledger;')
 LEDGER_CODE = "return #0.jepsen_ledger;"
 PROBE_READ_CODE = "return #0.jepsen_probe;"
+
+
+def epoch_code(generation):
+    """Mark the database as admitted for generation, after its rows exist."""
+    return ('if (!("jepsen_epoch" in properties(#0))) add_property(#0, "jepsen_epoch", -1, {#0, "r"}); endif '
+            f'#0.jepsen_epoch = {generation}; return #0.jepsen_epoch;')
 
 # Row families, selected per campaign. A key's family is key // FAMILY_SPAN;
 # the Jepsen workload draws each family's transactions from its own Elle
@@ -195,6 +222,36 @@ def txn_code(txn, layout=None, op_id=0):
 def observation_code(keys, layout):
     """Read every listed row in one task."""
     return txn_code([["r", key, None] for key in keys], layout)
+
+
+def recovery_observation_code(generation, keys, layout):
+    """One task, run before admission: {epoch marker, queued task count, rows}.
+
+    The rows of generation (its keys through its layout) are read only when the
+    marker says the recovered database includes that generation's admission;
+    otherwise its row objects need not exist and the rows reply is {}.
+    """
+    reads = observation_code(keys, layout) if keys else "out = {}; return out;"
+    if not reads.endswith("return out;"):
+        raise ValueError("observation code does not end by returning its reads")
+    return ('e = ("jepsen_epoch" in properties(#0)) ? #0.jepsen_epoch | -1; t = length(queued_tasks()); '
+            f'if (e != {-2 if generation is None else generation}) return {{e, t, {{}}}}; endif '
+            + reads[:-len("return out;")] + "return {e, t, out};")
+
+
+def parse_recovery_observation(value, keys, generation):
+    """{epoch, tasks, rows}; rows maps each key to its list when the marker names generation."""
+    if not (isinstance(value, list) and len(value) == 3 and type(value[0]) is int and type(value[1]) is int
+            and isinstance(value[2], list)):
+        raise ValueError(f"malformed recovery observation {value!r}")
+    epoch, tasks, rows = value
+    if epoch == generation and keys:
+        if not (len(rows) == len(keys) and all(_int_list(row) for row in rows)):
+            raise ValueError(f"malformed recovered rows {rows!r}")
+        return {"epoch": epoch, "tasks": tasks, "rows": [list(row) for row in rows]}
+    if rows:
+        raise ValueError(f"recovered rows {rows!r} returned for epoch {epoch}, generation {generation}")
+    return {"epoch": epoch, "tasks": tasks, "rows": None if epoch != generation else []}
 
 
 def probe_write_code(token):
@@ -343,7 +400,10 @@ def provenance(args, output):
     affinity = getattr(os, "sched_getaffinity", None)
     return {
         "parameters": {name: getattr(args, name) for name in
-                       ("phase1", "phase3", "rate", "concurrency", "seed", "jepsen_timeout", "workloads")},
+                       ("phase1", "phase3", "phase_live", "rate", "concurrency", "seed", "jepsen_timeout",
+                        "workloads")},
+        "live_checkpoints": {"deadline_seconds": CHECKPOINT_DEADLINE, "delay_span": DELAY_SPAN,
+                             "first_delay_seconds": FIRST_DELAY_SECONDS},
         "families": {name: FAMILIES[name] for name in args.workloads},
         "jvm_heap": JVM_HEAP, "probe_deadline_seconds": PROBE_DEADLINE,
         "barn": _file_row(args.barn), "config": _file_row(CONFIG), "profile_id": PROFILE_ID,
@@ -377,8 +437,11 @@ def free_port():
 
 class Campaign:
     def __init__(self, executable, source_db, output, transport_factory, *, server_class=None, port_source=free_port,
-                 probe_deadline=PROBE_DEADLINE):
+                 probe_deadline=PROBE_DEADLINE, seed=1):
         self.executable, self.output = executable, output
+        self.random = random.Random(seed)   # checkpoint-crash delays only
+        self.checkpoint_seq = 0
+        self.last_checkpoint_seconds = None
         self.transport_factory = transport_factory
         self.server_class = server_class or (lambda *args, **kwargs: barn_process.OwnedBarnServer(
             *args, config=CONFIG, profile_id=PROFILE_ID, **kwargs))
@@ -493,37 +556,84 @@ class Campaign:
                        deadline_seconds=self.probe_deadline)
         self.record(row)
 
-    def launch(self, kind):
-        """Start the next generation from an exact copy of the launch source."""
+    @staticmethod
+    def _copy_pair(database, sidecar, sha256, sidecar_sha256, target):
+        shutil.copyfile(database, target)
+        if barn_process.bench.sha256_file(target) != sha256:
+            raise RuntimeError("generation database copy does not match its verified source")
+        if sidecar is not None:
+            copied = Path(str(target) + ".waifids")
+            shutil.copyfile(sidecar, copied)
+            if barn_process.bench.sha256_file(copied) != sidecar_sha256:
+                raise RuntimeError("generation WAIF identity copy does not match its verified source")
+
+    def launch(self, kind, restart=None):
+        """Start the next generation.
+
+        Without restart, from an exact copy of the launch source. With a
+        checkpoint-crash restart, from the interrupted checkpoint's actual
+        output path in place (Barn's loader recovers its journal), or from a
+        copy of the unchanged input when no checkpoint output existed.
+        """
         self.generation += 1
         generation, source = self.generation, self.source
         run_dir = self.output / f"gen-{generation:03d}"
         run_dir.mkdir()
         database = run_dir / "input.db"
-        shutil.copyfile(source["database"], database)
-        if barn_process.bench.sha256_file(database) != source["database_sha256"]:
-            raise RuntimeError("generation database copy does not match its verified source")
-        if source["waif_identities"] is not None:
-            sidecar = Path(str(database) + ".waifids")
-            shutil.copyfile(source["waif_identities"], sidecar)
-            if barn_process.bench.sha256_file(sidecar) != source["waif_identities_sha256"]:
-                raise RuntimeError("generation WAIF identity copy does not match its verified source")
+        extra = {}
+        if restart is None:
+            self._copy_pair(source["database"], source["waif_identities"], source["database_sha256"],
+                            source["waif_identities_sha256"], database)
+        else:
+            extra["recovered_input"] = restart
+            if restart["kind"] == "interrupted-checkpoint-output":
+                database = Path(restart["database"])
+            else:
+                pair = restart["input_pair"]
+                sidecar = Path(restart["database"] + ".waifids") if pair["waif_identities"] else None
+                self._copy_pair(restart["database"], sidecar, pair["database"], pair["waif_identities"], database)
         port = self.port_source()
-        server = self.server_class(Path(self.executable), database, run_dir, port)
+        server = self.server_class(Path(self.executable), database, run_dir, port, **extra)
         self.server = server
         server.start()
+        self.observe_recovery(generation, port, restart)
         recovered = parse_ledger(self.evaluate(port, ADMIT_CODE))
         layout = parse_layout(self.evaluate(port, ROWS_CODE))
+        if self.evaluate(port, epoch_code(generation)) != generation:
+            raise RuntimeError(f"epoch marker of generation {generation} was not written")
         self.record({"event": "admit", "generation": generation, "kind": kind, "port": port,
                      "source": {key: value for key, value in source.items() if key != "baseline"},
                      "baseline_generation": source["baseline_generation"],
                      "baseline": None if source["baseline"] is None else ledger_json(source["baseline"]),
-                     "recovered": ledger_json(recovered), "rows": layout, "server": server.identity})
+                     "recovered": ledger_json(recovered), "rows": layout, "restart": restart,
+                     "server": server.identity})
         with self.lock:
             self.layouts[generation] = layout
             self.live = (generation, port)
         self.probe("launch")
         return generation
+
+    def observe_recovery(self, generation, port, restart):
+        """Before admission and before any client can send: the epoch marker, the
+        queued task count and, after a checkpoint-crash, every row the crashed
+        generation touched (plan section 2: R before admission resets rows)."""
+        crashed = None if restart is None else restart["generation"]
+        with self.lock:
+            keys = sorted(self.touched.get(crashed, ())) if crashed is not None else []
+            layout = self.layouts.get(crashed)
+        row = {"event": "recovery-observation", "generation": generation, "observed_generation": crashed,
+               "keys": keys}
+
+        def attempt():
+            return parse_recovery_observation(
+                self.evaluate(port, recovery_observation_code(crashed, keys, layout)), keys, crashed)
+
+        ok, value, errors, seconds = self.bounded(attempt)
+        row.update(ok=ok, failed_attempts=errors, seconds=seconds, deadline_seconds=self.probe_deadline,
+                   **(value or {}))
+        self.record(row)
+        if not ok:
+            raise RuntimeError(f"recovery observation of generation {generation} failed: {errors[-1:]}")
 
     def _quiesce(self):
         with self.lock:
@@ -572,6 +682,61 @@ class Campaign:
                        "baseline": baseline, "baseline_generation": generation}
         return {"checkpointed": generation, "generation": self.launch("checkpoint")}
 
+    def _request_checkpoint(self, purpose, **extra):
+        """SIGALRM one checkpoint; the previous one was acknowledged or its process is gone."""
+        if self.server.paused:
+            self.server.resume()
+        self.checkpoint_seq += 1
+        boundary = self.server.request_checkpoint()
+        self.record(dict({"event": "checkpoint-request", "generation": self.generation, "seq": self.checkpoint_seq,
+                          "purpose": purpose, "boundary": boundary}, **extra))
+        return self.checkpoint_seq, boundary
+
+    def live_checkpoint(self):
+        """Checkpoint while clients continue; acknowledged by `checkpoint complete` and the published pair."""
+        generation = self.generation
+        seq, boundary = self._request_checkpoint("live")
+        result = self.server.wait_checkpoint(boundary, CHECKPOINT_DEADLINE)
+        self.record(dict(result, event="checkpoint-" + result["status"], generation=generation, seq=seq))
+        if result["status"] != "complete":
+            raise RuntimeError(f"live checkpoint {seq} of generation {generation} failed: {result['failed']}")
+        self.last_checkpoint_seconds = (result["duration_ms"] or 0) / 1000
+        return {"checkpoint": seq, "generation": generation}
+
+    def checkpoint_crash(self):
+        """Request a checkpoint, stop and kill the owned process at a seeded random
+        moment, classify the frozen files, and restart from the actual artifacts."""
+        generation = self.generation
+        if self.server.paused:
+            self.server.resume()
+        self.observe("checkpoint-crash")
+        span = DELAY_SPAN * (self.last_checkpoint_seconds if self.last_checkpoint_seconds else FIRST_DELAY_SECONDS)
+        delay = self.random.uniform(0, span)
+        seq, boundary = self._request_checkpoint("crash", delay_seconds=delay, delay_span_seconds=span)
+        time.sleep(delay)
+        self._quiesce()
+        state = self.server.pause()
+        stopped_ns = time.monotonic_ns()
+        database = self.server.db
+        artifacts = barn_process.checkpoint_artifacts(database)
+        try:
+            log = self.server.checkpoint_log(boundary)
+        except Exception as error:
+            log = {"unavailable": f"{type(error).__name__}: {error}"}
+        self.record({"event": "checkpoint-stop", "generation": generation, "seq": seq, "observed_state": state,
+                     "stopped_ns": stopped_ns, "artifacts": artifacts, "log": log})
+        result = self.server.crash()
+        forensic = barn_process.preserve_artifacts(database, self.output / f"gen-{generation:03d}-forensic")
+        if artifacts["output"] is not None or artifacts["journal"] is not None:
+            restart = {"kind": "interrupted-checkpoint-output", "database": str(Path(str(database) + ".new"))}
+        else:
+            restart = {"kind": "no-checkpoint-output", "database": str(database),
+                       "input_pair": barn_process.pair_digest(database)}
+        restart.update(generation=generation, seq=seq, stage=artifacts["stage"])
+        self.record({"event": "checkpoint-crash", "generation": generation, "seq": seq, "result": result,
+                     "forensic": forensic, "restart": restart})
+        return {"crashed": generation, "generation": self.launch("checkpoint-crash", restart)}
+
     def fault(self, name):
         with self.lifecycle:
             if self.server is None or self.failures:
@@ -581,7 +746,8 @@ class Campaign:
                 seq, self.active_fault = self.fault_seq, name
             self.journal({"event": "fault-begin", "fault_seq": seq, "f": name, "generation": self.generation})
             try:
-                reply = {"type": "ok", "value": getattr(self, name)(), "generation": self.generation}
+                reply = {"type": "ok", "value": getattr(self, name.replace("-", "_"))(),
+                         "generation": self.generation}
             except Exception as error:
                 self._quiesce()
                 reply = {"type": "info", "error": {"kind": "lifecycle", "message": self.fail(name, error)},
@@ -830,6 +996,17 @@ def observation_ops(lifecycle, generation):
                         "value": [["r", key, None] for key in row["keys"]]})
             ops.append({"process": OBSERVER_PROCESS, "type": "ok", "f": "txn",
                         "value": [["r", key, value] for key, value in zip(row["keys"], row["value"])]})
+    # The snapshot recovered after this generation's checkpoint-crash is a read
+    # of a historical cut of its rows, appended last; the serializable check
+    # imposes no real-time order on it (plan section 2 rule 5). Its rows started
+    # empty at admission, so no S0 prefix needs stripping.
+    for row in lifecycle:
+        if row.get("event") == "recovery-observation" and row.get("observed_generation") == generation \
+                and row.get("ok") and row.get("epoch") == generation and row.get("keys"):
+            ops.append({"process": RECOVERY_PROCESS, "type": "invoke", "f": "txn",
+                        "value": [["r", key, None] for key in row["keys"]]})
+            ops.append({"process": RECOVERY_PROCESS, "type": "ok", "f": "txn",
+                        "value": [["r", key, value] for key, value in zip(row["keys"], row["rows"])]})
     return ops
 
 
@@ -901,6 +1078,226 @@ def checkpoint_comparisons(buckets, lifecycle):
     return comparisons
 
 
+# ---------------------------------------------------------------------------
+# Snapshot oracle for checkpoint-crash recovery (plan section 2 rules 1-6)
+
+def _pair(outputs):
+    """{database, waif_identities} sha256 from published-pair evidence (stable_file_digest rows)."""
+    if not outputs or "database" not in outputs:
+        return None
+    sidecar = outputs.get("waif_identities")
+    return {"database": outputs["database"]["sha256"], "waif_identities": sidecar["sha256"] if sidecar else None}
+
+
+def launch_pair(admit):
+    """The pair a generation actually ran from: what recovery selected, else its input."""
+    identity = admit.get("server") or {}
+    return _pair(identity.get("recovered_pair")) or identity.get("input_pair")
+
+
+def pending_pairs(artifacts, completed):
+    """Every pair the frozen files identify as the pending checkpoint F: the
+    journal's next pair, a staged temp pair with its sidecar, a recovery
+    directory's next pair, or a published output that is not A."""
+    pairs = []
+    journal = artifacts.get("journal") or {}
+    if journal.get("next"):
+        pairs.append(journal["next"])
+    if artifacts.get("temp") and artifacts["temp"].get("waif_identities"):
+        pairs.append(artifacts["temp"])
+    for members in (artifacts.get("recovery_directories") or {}).values():
+        if members.get("next"):
+            pairs.append(members["next"])
+    if artifacts.get("output") and artifacts["output"] != completed:
+        pairs.append(artifacts["output"])
+    unique = []
+    for pair in pairs:
+        if pair not in unique:
+            unique.append(pair)
+    return unique
+
+
+def epoch_transactions(journal, generation):
+    """Every operation the adapter sent in generation, with journal times.
+
+    The send record is written before sending and the completion after the
+    reply, so send_ns is no later than the real send and complete_ns no
+    earlier than the real completion. An operation never sent is absent, so
+    its tokens count as never attempted.
+    """
+    requests, sends, completes = {}, {}, {}
+    for row in journal:
+        table = {"request": requests, "send": sends, "complete": completes}.get(row.get("event"))
+        if table is not None:
+            table[row.get("id")] = row
+    txns = []
+    for op_id, send in sends.items():
+        if send.get("generation") != generation:
+            continue
+        value = (requests.get(op_id) or {}).get("value") or []
+        done = completes.get(op_id) or {}
+        txns.append({"id": op_id, "value": value, "send_ns": send["monotonic_ns"],
+                     "type": done.get("type"), "complete_ns": done.get("monotonic_ns"),
+                     "error": done.get("error") or {}, "result": done.get("value") if done.get("type") == "ok" else None,
+                     "writes": [(key, item) for f, key, item in value if f == "append"]})
+    return txns
+
+
+def _prefix_comparable(left, right):
+    shorter = min(len(left), len(right))
+    return left[:shorter] == right[:shorter]
+
+
+def snapshot_common_violations(rows, txns, observations):
+    """Checks independent of the selected cut, over the recovered rows R (D = R: rows start empty).
+
+    Rule 4: an atomic transaction's writes are all present or all absent
+    (native-error replies are excluded: an unseen exception is not a rollback).
+    Rule 5: an included successful transaction's reads are included; every
+    successful read and final observation is prefix-comparable with R; R holds
+    no repeated or never-sent token.
+    """
+    problems = []
+    present = {(key, item) for key, items in rows.items() for item in items}
+    attempted = {write for txn in txns for write in txn["writes"]}
+    for key, items in sorted(rows.items()):
+        if len(set(items)) != len(items):
+            problems.append(f"key {key}: recovered row {items} repeats a token")
+        for item in items:
+            if (key, item) not in attempted:
+                problems.append(f"key {key}: recovered token {item} was never sent in this generation")
+    for txn in txns:
+        if not txn["writes"]:
+            continue
+        included = [write for write in txn["writes"] if write in present]
+        if included and len(included) != len(txn["writes"]) and txn["error"].get("kind") != "native-error":
+            problems.append(f"operation {txn['id']} ({txn['type']}): recovered {included} of its writes "
+                            f"{txn['writes']}, not all or none")
+        if txn["type"] == "ok" and len(included) == len(txn["writes"]):
+            for f, key, items in txn["result"] or []:
+                missing = [item for item in items if (key, item)
+                           not in present] if f == "r" else []
+                if missing:
+                    problems.append(f"operation {txn['id']}: its writes were recovered but tokens {missing} it "
+                                    f"read on key {key} were not")
+    reads = [(f"operation {txn['id']}", key, items) for txn in txns if txn["type"] == "ok"
+             for f, key, items in txn["result"] or [] if f == "r"]
+    reads += [(f"final observation {index}", key, items) for index, row in enumerate(observations)
+              for key, items in zip(row["keys"], row["value"])]
+    for who, key, items in reads:
+        if key in rows and not _prefix_comparable(items, rows[key]):
+            problems.append(f"{who}: read {items} on key {key} is not prefix-comparable with recovered {rows[key]}")
+    return problems
+
+
+def snapshot_cut_violations(cut, generation, epoch, start_epoch, rows, txns):
+    """Rule 3 for one candidate cut {name, request_ns, ack_ns}."""
+    present = {(key, item) for key, items in (rows or {}).items() for item in items}
+    if cut["name"] == "unchanged input":
+        problems = []
+        if epoch != start_epoch:
+            problems.append(f"the input generation {generation} started from had epoch marker {start_epoch}, "
+                            f"recovered marker is {epoch}")
+        if present:
+            problems.append(f"no checkpoint was recovered, yet rows hold {sorted(present)}")
+        return problems
+    if epoch != generation:
+        return [f"{cut['name']} was captured after generation {generation} was admitted, "
+                f"but the recovered epoch marker is {epoch}"]
+    problems = []
+    for txn in txns:
+        if txn["type"] == "ok" and txn["writes"] and txn["complete_ns"] is not None \
+                and txn["complete_ns"] < cut["request_ns"]:
+            missing = [write for write in txn["writes"] if write not in present]
+            if missing:
+                problems.append(f"operation {txn['id']} completed before the checkpoint request; "
+                                f"its writes {missing} are missing")
+        if cut.get("ack_ns") is not None and txn["send_ns"] > cut["ack_ns"]:
+            extra = [write for write in txn["writes"] if write in present]
+            if extra:
+                problems.append(f"operation {txn['id']} was first sent after the checkpoint completed; "
+                                f"its writes {extra} are present")
+    return problems
+
+
+def snapshot_checks(lifecycle, journal):
+    """Check each checkpoint-crash recovery. Returns (rows, [(class, message)])."""
+    findings, results = [], []
+    by_event = {}
+    for row in lifecycle:
+        by_event.setdefault(row.get("event"), []).append(row)
+    admits = {row["generation"]: row for row in by_event.get("admit", [])}
+    observed = {row["generation"]: row for row in by_event.get("recovery-observation", [])}
+    requests = {row["seq"]: row for row in by_event.get("checkpoint-request", [])}
+    stops = {row["seq"]: row for row in by_event.get("checkpoint-stop", [])}
+    for crash in by_event.get("checkpoint-crash", []):
+        generation, seq = crash["generation"], crash["seq"]
+        where = f"checkpoint-crash of generation {generation}"
+        admit, observation = admits.get(generation + 1), observed.get(generation + 1)
+        stop, request, start = stops.get(seq), requests.get(seq), observed.get(generation)
+        row = {"generation": generation, "seq": seq, "stage": (stop or {}).get("artifacts", {}).get("stage")}
+        results.append(row)
+        if None in (admit, observation, stop, request, start, admits.get(generation)) or not observation.get("ok"):
+            row["skipped"] = "recovery evidence incomplete (see obligations)"
+            continue
+        recovered = launch_pair(admit) if (admit.get("server") or {}).get("recovered_pair") else None
+        if recovered is None:
+            findings.append((INCOMPLETE, f"{where}: the recovered generation recorded no recovered pair"))
+            row["skipped"] = "no recovered pair"
+            continue
+        start_pair = launch_pair(admits[generation])
+        completed = [item for item in by_event.get("checkpoint-complete", [])
+                     if item["generation"] == generation and item["seq"] < seq]
+        latest = completed[-1] if completed else None
+        latest_pair = _pair(latest.get("outputs")) if latest else None
+        if latest is not None and latest_pair is None:
+            findings.append((INCOMPLETE, f"{where}: completed checkpoint {latest['seq']} has no captured pair digest"))
+        try:
+            expected = barn_process.expected_recovery(stop["artifacts"]) or start_pair
+        except ValueError as error:
+            findings.append((RECOVERY, f"{where}: {error}"))
+            expected = None
+        row.update(recovered=recovered, expected=expected)
+        if expected is not None and expected != recovered:
+            findings.append((RECOVERY, f"{where}: recovery selected {recovered}; frozen stage "
+                                       f"{row['stage']} requires {expected}"))
+        cuts = [{"name": "unchanged input", "pair": start_pair}]
+        if latest_pair is not None:
+            cuts.append({"name": f"completed checkpoint {latest['seq']}", "pair": latest_pair,
+                         "request_ns": requests[latest["seq"]]["boundary"]["signal_ns"],
+                         "ack_ns": latest["observed_ns"]})
+        for pair in pending_pairs(stop["artifacts"], latest_pair):
+            cuts.append({"name": f"pending checkpoint {seq}", "pair": pair,
+                         "request_ns": request["boundary"]["signal_ns"], "ack_ns": None})
+        matching = [cut for cut in cuts if cut["pair"] == recovered]
+        row["candidate_cuts"] = [cut["name"] for cut in matching]
+        if not matching:
+            findings.append((RECOVERY, f"{where}: recovered pair {recovered} matches no permitted cut "
+                                       f"({[cut['name'] for cut in cuts]})"))
+            continue
+        if observation["tasks"] != start["tasks"]:
+            findings.append((INCOMPLETE, f"{where}: {observation['tasks']} queued tasks recovered, "
+                                         f"{start['tasks']} at the generation's own launch; a restored task "
+                                         f"could have changed the observed rows"))
+        txns = epoch_transactions(journal, generation)
+        rows = None if observation.get("rows") is None else dict(zip(observation["keys"], observation["rows"]))
+        if rows is not None:
+            finals = [item for item in by_event.get("observation", [])
+                      if item.get("generation") == generation and item.get("ok") and item.get("keys")]
+            for problem in snapshot_common_violations(rows, txns, finals):
+                findings.append((CORRECTNESS, f"{where}: {problem}"))
+        per_cut = {cut["name"]: snapshot_cut_violations(cut, generation, observation["epoch"], start["epoch"],
+                                                        rows, txns) for cut in matching}
+        row["cut_violations"] = per_cut
+        if all(per_cut.values()):
+            for name, problems in per_cut.items():
+                for problem in problems:
+                    findings.append((CORRECTNESS, f"{where}: no permitted cut fits; as {name}: {problem}"))
+        else:
+            row["selected_cut"] = next(name for name, problems in per_cut.items() if not problems)
+    return results, findings
+
+
 def outcome_counts(history):
     counts = {}
     for op in history:
@@ -948,12 +1345,14 @@ def family_totals(stats):
 FAULT_EVENTS = ("admit", "pause", "resume", "crash", "checkpoint")
 
 
-def obligations(buckets, lifecycle, families=("smoke",)):
+def obligations(buckets, lifecycle, families=("smoke",), live=False):
     """Every obligation of the fixed pause/checkpoint/crash scenario that the evidence does not meet.
 
     Returns (stats, [(class, message)]). A probe or observation that ran and
     failed is a recovery/progress failure; anything absent is incomplete.
-    Each selected row family needs its own successful reads and writes.
+    Each selected row family needs its own successful reads and writes. With
+    the live lane, at least one live checkpoint must complete and at least one
+    checkpoint-crash must stop, kill and recover its generation.
     """
     stats = generation_stats(buckets)
     missing = []
@@ -1026,6 +1425,47 @@ def obligations(buckets, lifecycle, families=("smoke",)):
                                             f" was not admitted from checkpointed generation {checkpointed}"))
             if row is not final_checkpoint:
                 useful(generation + 1 if type(generation) is int else None, f"after {what}")
+        elif event == "checkpoint-crash":
+            what = f"checkpoint-crash of generation {generation}"
+            checked(nearby(index, -1, "observation", event, generation), "final observation before", what)
+            useful(generation, f"before {what}")
+            useful(generation + 1, f"after {what}")
+            seq = row.get("seq")
+            stop = next((item for item in lifecycle if item.get("event") == "checkpoint-stop"
+                         and item.get("seq") == seq), None)
+            if not any(item.get("event") == "checkpoint-request" and item.get("seq") == seq for item in lifecycle):
+                missing.append((INCOMPLETE, f"{what}: no checkpoint request was recorded"))
+            if stop is None or stop.get("observed_state") != "T":
+                missing.append((INCOMPLETE, f"{what}: owned PID was not observed stopped before the kill"))
+            elif (stop.get("artifacts") or {}).get("stage") not in barn_process.CHECKPOINT_STAGES:
+                missing.append((INCOMPLETE, f"{what}: frozen checkpoint stage was not classified "
+                                            f"({(stop.get('artifacts') or {}).get('stage')!r})"))
+            if (row.get("result") or {}).get("exit_code") != -9:
+                missing.append((INCOMPLETE, f"{what}: SIGKILL was not observed on the owned PID "
+                                            f"(exit code {(row.get('result') or {}).get('exit_code')})"))
+            if not row.get("forensic"):
+                missing.append((INCOMPLETE, f"{what}: no forensic copy of the artifacts was preserved"))
+            admitted = admits.get(generation + 1)
+            restart = (admitted or {}).get("restart") or {}
+            if admitted is None or admitted.get("kind") != event or restart.get("seq") != seq:
+                missing.append((INCOMPLETE, f"{what}: generation {generation + 1} was not admitted from its "
+                                            f"interrupted checkpoint"))
+            else:
+                if not (admitted.get("server") or {}).get("recovered_pair"):
+                    missing.append((INCOMPLETE, f"{what}: generation {generation + 1} recorded no recovered pair"))
+                observation = next((item for item in lifecycle if item.get("event") == "recovery-observation"
+                                    and item.get("generation") == generation + 1), None)
+                checked(observation, "recovery observation of", what)
+        elif event == "checkpoint-request" and row.get("purpose") == "live":
+            if not any(item.get("event") == "checkpoint-complete" and item.get("seq") == row.get("seq")
+                       and item.get("outputs") for item in lifecycle):
+                missing.append((INCOMPLETE, f"live checkpoint {row.get('seq')} of generation {generation}: no "
+                                            f"completion with a published pair digest"))
+    if live:
+        for event, what in (("checkpoint-complete", "completed live checkpoints"),
+                            ("checkpoint-crash", "checkpoint-crash faults")):
+            if not any(row.get("event") == event for row in lifecycle):
+                missing.append((INCOMPLETE, f"scenario: zero {what}"))
     for generation, row in sorted(stats.items()):
         if row["completions"] and not row["ok"]:
             missing.append((INCOMPLETE, f"generation {generation}: {row['completions']} client completions and no "
@@ -1139,13 +1579,26 @@ def analyze(inputs, output, jar, java):
     if unknown:
         find(INVALID, f"provenance names unknown row families {unknown}")
     families = [name for name in families if name in FAMILIES]
-    results["generations"], missing = obligations(buckets, lifecycle, families)
+    # Campaigns recorded before the live lane existed have no phase_live.
+    live = bool((results.get("provenance") or {}).get("parameters", {}).get("phase_live"))
+    results["generations"], missing = obligations(buckets, lifecycle, families, live)
     results["families"] = {"selected": families, "totals": family_totals(results["generations"])}
     results["missing_obligations"] = [message for _, message in missing]
     for kind, message in missing:
         find(kind, message)
+    results["recoveries"], snapshot_problems = snapshot_checks(lifecycle, journal)
+    for kind, message in snapshot_problems:
+        find(kind, message)
+    stages = {}
+    for row in lifecycle:
+        if row.get("event") == "checkpoint-stop":
+            stage = (row.get("artifacts") or {}).get("stage")
+            stages[stage] = stages.get(stage, 0) + 1
+    results["checkpoint_stages"] = stages
     results["elle"] = []
     observed = {row["generation"] for row in lifecycle if row.get("event") == "observation"}
+    observed |= {row["observed_generation"] for row in lifecycle
+                 if row.get("event") == "recovery-observation" and row.get("observed_generation") is not None}
     for generation in sorted(set(buckets) | observed):
         ops = buckets.get(generation, []) + observation_ops(lifecycle, generation)
         if not any(op["type"] == "ok" for op in ops):
@@ -1181,7 +1634,7 @@ def verdict_of(findings):
 # ---------------------------------------------------------------------------
 
 def run_campaign(args, output):
-    campaign = Campaign(args.barn.resolve(strict=True), args.db, output, socket_transport_factory())
+    campaign = Campaign(args.barn.resolve(strict=True), args.db, output, socket_transport_factory(), seed=args.seed)
     adapter = None
     try:
         (output / "provenance.json").write_text(json.dumps(provenance(args, output), indent=2, default=str) + "\n",
@@ -1191,7 +1644,8 @@ def run_campaign(args, output):
         threading.Thread(target=adapter.serve_forever, daemon=True).start()
         command = [args.java, JVM_HEAP, "-Djava.awt.headless=true", "-jar", str(args.jepsen_jar.resolve(strict=True)),
                    "--adapter-port", str(adapter.server_address[1]), "--history", str(output / "history.jsonl"),
-                   "--phase1", str(args.phase1), "--phase3", str(args.phase3), "--rate", str(args.rate),
+                   "--phase1", str(args.phase1), "--phase3", str(args.phase3),
+                   "--phase-live", str(args.phase_live), "--rate", str(args.rate),
                    "--concurrency", str(args.concurrency), "--seed", str(args.seed),
                    "--families", json.dumps([dict(FAMILIES[name], name=name) for name in args.workloads])]
         campaign.record({"event": "jepsen", "command": command})
@@ -1221,6 +1675,8 @@ def main(argv=None):
     parser.add_argument("--jepsen-jar", type=Path, help="tests/jepsen-checkpoint uberjar")
     parser.add_argument("--phase1", type=int, default=60)
     parser.add_argument("--phase3", type=int, default=90)
+    parser.add_argument("--phase-live", type=int, default=60,
+                        help="seconds of live checkpoints and checkpoint-crash recoveries; 0 disables the lane")
     parser.add_argument("--rate", type=int, default=20, help="total transactions per second")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1)
@@ -1265,6 +1721,10 @@ def main(argv=None):
     for family, counts in (results.get("families") or {}).get("totals", {}).items():
         print(f"family {family}: {counts['ok_reads']} successful transactions with a read, "
               f"{counts['ok_writes']} with a write", flush=True)
+    print(f"checkpoint-crash stages: {results.get('checkpoint_stages')}", flush=True)
+    for row in results.get("recoveries", []):
+        print(f"recovery after generation {row['generation']} (stage {row.get('stage')}): "
+              f"{row.get('selected_cut', row.get('skipped', 'no permitted cut'))}", flush=True)
     for finding in findings:
         print(f"{finding['class']}: {finding['message']}", file=sys.stderr)
     print(f"verdict: {verdict}", flush=True)
