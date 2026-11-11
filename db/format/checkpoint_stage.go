@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/isolationprobe"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -72,6 +73,7 @@ func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTas
 	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
 	writer.SetActiveConnections(activeConnections)
 	c.writer = writer
+	isolationprobe.Pause(isolationprobe.CheckpointCapture, c.outPath, c.tempPath)
 	return nil
 }
 
@@ -112,6 +114,7 @@ func (c *Checkpoint) Serialize() error {
 	if err := writer.WriteDatabase(); err != nil {
 		return fmt.Errorf("write database: %w", err)
 	}
+	isolationprobe.Pause(isolationprobe.CheckpointSerialize, c.outPath, c.tempPath)
 	c.identities = writer.waifIdentities
 	c.serialized = true
 	return nil
@@ -141,6 +144,7 @@ func (c *Checkpoint) Publish() error {
 	if err != nil {
 		return err
 	}
+	isolationprobe.Pause(isolationprobe.CheckpointStaged, c.outPath, c.tempPath)
 	// A failed publication may already have changed filesystem names. Keep its
 	// staging and journal/recovery artifacts for the existing recovery path.
 	c.publicationAttempted = true

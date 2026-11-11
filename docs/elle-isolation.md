@@ -234,6 +234,16 @@ wide. Normal server builds compile away the hooks, the pause points and the
 faults, and cannot disable validation through this environment variable. Never
 ship a server built with this checker tag.
 
+The checkpoint path has its own pause points, listed with the call each one
+follows in `internal/isolationprobe/checkpoint.go` (`checkpoint/capture` through
+`checkpoint/recovery-database-restored`). A `barn` command built with this tag
+and started with `BARN_ELLE_CHECKPOINT_STOP=<point>:<occurrence>` (occurrence
+from 1, counted per point) writes one JSON line to stderr on reaching that
+occurrence (`msg` `checkpoint stop`, `point`, `occurrence`, `pid`, `artifacts`)
+and then sends `SIGSTOP` to itself. The process that owns it resumes it with
+`SIGCONT` or kills it. An unknown point or a non-Unix platform is a startup
+error.
+
 ## Task lifecycle ordering
 
 The same CI driver runs `TestUncaughtHandlerBeforeYieldedParent` with healthy

@@ -538,7 +538,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				// Under the commit-exclusion fault both validate and both publish.
 				var skewMu sync.Mutex
 				validated, both := 0, make(chan struct{})
-				isolationprobe.SetPause(func(point string) {
+				isolationprobe.SetPause(func(point string, _ []string) {
 					if point != "commit/validated" {
 						return
 					}
@@ -573,7 +573,7 @@ func TestElleIsolationHistories(t *testing.T) {
 				// the commit publish, and then reads the second row. It must see
 				// both appends or neither.
 				var stampedOnce sync.Once
-				isolationprobe.SetPause(func(point string) {
+				isolationprobe.SetPause(func(point string, _ []string) {
 					if point != "commit/timestamped" {
 						return
 					}
