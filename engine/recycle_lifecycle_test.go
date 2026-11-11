@@ -57,6 +57,32 @@ func TestNumberedRecycleStaysTransactional(t *testing.T) {
 	}
 }
 
+func TestNumberedRecycleSelfRecursionReturnsInvarg(t *testing.T) {
+	store := protectedRedirectStore(t)
+	code := `o = create(#-1); add_verb(o, {player, "rxd", "recycle"}, {"this", "none", "this"}); ` +
+		`set_verb_code(o, "recycle", {"recycle(this);"}); return recycle(o);`
+	if _, ec := store.AddVerb(0, dbstore.NewVerb([]string{"self_recycle"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{code})); ec != types.E_NONE {
+		t.Fatal(ec)
+	}
+	rt := NewRuntime(store)
+	defer rt.Stop()
+	result, err := rt.RunServerVerbTask(0, "self_recycle", nil, 2)
+	if err != nil || result.Flow != types.FlowException || result.Error != types.E_INVARG {
+		t.Fatalf("self recycle result=%+v error=%v, want native E_INVARG", result, err)
+	}
+}
+
+func TestRecycleThenQueryAndRecreateStagedObject(t *testing.T) {
+	rt := NewRuntime(protectedRedirectStore(t))
+	defer rt.Stop()
+	got := rt.EvalCommandOutput(2, "o = create(#-1); recycle(o); next_recycled_object(o); n = recreate(o, #-1); return {n == o, valid(n)};")
+	if got != "{1, {1, 1}}" {
+		t.Fatalf("recycle/query/recreate = %s, want {1, {1, 1}}", got)
+	}
+}
+
 func TestSequentialRecycleAfterCoarseMovesCompletes(t *testing.T) {
 	store, _ := buildConcurrencyStore(t, 0, 0)
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)

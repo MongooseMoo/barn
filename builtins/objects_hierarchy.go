@@ -620,14 +620,16 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		if start == types.ObjNothing {
 			return types.Err(types.E_INVARG)
 		}
-		if start > store.DirectTxn().MaxObject() {
-			return types.Err(types.E_INVARG)
-		}
 	}
 
 	// Scans committed live state; flush any staged decentralized recycle first. Rare.
 	if res, ok := beforeCoarse(ctx, "next_recycled_object"); !ok {
 		return res
+	}
+	// The bound is live too: an earlier create/recycle in this transaction may
+	// have allocated the requested slot without publishing it yet.
+	if len(args) == 1 && start > store.DirectTxn().MaxObject() {
+		return types.Err(types.E_INVARG)
 	}
 	upper := store.NextID()
 	scanStart := start + 1

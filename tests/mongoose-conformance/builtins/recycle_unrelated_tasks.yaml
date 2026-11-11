@@ -1,8 +1,23 @@
 name: recycle_unrelated_tasks
 description: Recycle leaves unrelated tasks queued and reserves only anonymous objects across suspended hooks.
 requires:
-  builtins: [create, recycle, valid, queued_tasks, kill_task, add_property, add_verb, set_verb_code, delete_verb, suspend]
+  builtins: [create, recycle, valid, queued_tasks, kill_task, add_property, add_verb, set_verb_code, delete_verb, suspend, next_recycled_object, recreate]
 tests:
+  - name: recycle_query_recreate_created_object
+    permission: wizard
+    statement: |
+      o = create($nothing);
+      try
+        recycle(o);
+        next_recycled_object(o);
+        n = recreate(o, $nothing);
+        return {n == o, valid(n)};
+      finally
+        if (valid(o)) recycle(o); endif
+      endtry
+    expect:
+      value: [1, 1]
+
   - name: recycle_with_twelve_future_tasks
     steps:
       - run: |

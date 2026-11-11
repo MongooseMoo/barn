@@ -19,7 +19,10 @@ func (vm *VM) startRecycleLifecycle(request builtins.RecycleLifecycleRequest) ty
 		return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 	}
 	if err := vm.startVerbCall(request.Object, "recycle", nil); err != nil {
-		if errorCode(err) == types.E_VERBNF {
+		// Toast continues cleanup when call_verb refuses the hook at the frame
+		// limit, just as when no hook exists. An error raised inside a running
+		// hook still follows the ordinary continuation error path.
+		if ec := errorCode(err); ec == types.E_VERBNF || ec == types.E_MAXREC {
 			return vm.resumeRecycleLifecycle(state, types.Err(types.E_VERBNF))
 		}
 		return moveLifecycleErrorResult(err)

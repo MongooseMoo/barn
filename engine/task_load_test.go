@@ -2,11 +2,28 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 )
+
+func TestLoadQueuedTaskWithEmptyBody(t *testing.T) {
+	rt := NewRuntime(protectedRedirectStore(t))
+	defer rt.Stop()
+	rt.LoadQueuedTasks([]*dbformat.QueuedTask{{
+		ID: 9001, StartTime: time.Now().Add(time.Hour).Unix(),
+		Player: 2, Programmer: 2, This: 0, VerbLoc: 0, Verb: "empty-fork",
+	}})
+	queued := rt.GetTask(9001)
+	if queued == nil || queued.GetState() != task.TaskQueued {
+		t.Fatal("valid queued fork with an empty body was dropped")
+	}
+	if queued.Program == nil || queued.VM() == nil || queued.VM().CurrentFrame() == nil {
+		t.Fatal("restored empty fork has no executable VM frame")
+	}
+}
 
 // A suspended task that cannot be restored is dropped, so its warning must name
 // the verb it was running; the task id alone is gone with the task.

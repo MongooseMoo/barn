@@ -24,8 +24,9 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
   managed-regression command. No runner or workflow scheduling policy was changed.
 - PR: https://github.com/MongooseMoo/barn/pull/738 (draft during verification).
 - Initial production-tree CI build/unit, pinned Elle and checkpoint checks passed.
-  MOO conformance is still running. Final evidence/metadata publication will need
-  the required checks on that head as well.
+  Full conformance found three failures on both published heads. Their fixes are
+  in this worktree with focused regressions; required CI must check the repaired
+  source before ready/merge.
 
 ## Decisions and why
 
@@ -135,6 +136,38 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
   `/tmp/barn-recycle-738-evidence` inside WSL Debian. Preserve these outside the
   task worktree before cleanup.
 
+## Repairs from full conformance
+
+- Preserved the initial failed run's XML, admission record and structured logs
+  under `.tmp/conformance-failed-738`. It found self-recursive recycle reporting
+  a non-MOO runtime error, staged recycle/query/recreate returning E_INVARG, and
+  an empty queued fork being lost at restart. No assertions were relaxed.
+- Local conformance was behind CI. Fetched the exact CI-selected dependency into
+  detached `.tmp/conformance-ci`, preserving the companion checkout's dirty work.
+  Use `/root/.cache/barn-recycle-ci-conformance-linux` for this distinct project.
+  Remove the detached dependency worktree before removing this Barn worktree.
+- Managed Toast confirmed the self-recursion and empty-fork expectations. Its
+  next-recycled-object result at the highest slot differs from the pre-existing
+  suite assertion: actual `[1,0,1,0]`, expected `[1,1,1,0]`. That lookup convention
+  was not changed. A reduced scenario ignores the lookup value and asserts only
+  recreate identity/validity; it passed on Toast and reproduced Barn's E_INVARG.
+- `vm/recycle_lifecycle.go` now continues cleanup when dispatch refuses a hook
+  with E_MAXREC, matching Toast's missing-hook/frame-limit handling. Errors raised
+  inside an already running hook still use the normal error path.
+- `builtinNextRecycledObject` already flushes staged topology for its live scan;
+  its live bound check now follows that flush as well. It no longer rejects an
+  own newly allocated slot merely because it has not been published yet.
+- `LoadQueuedTasks` no longer discards a valid ID solely for an empty source
+  slice. The existing compiler/VM installation builds an executable empty fork.
+- Authored Go regressions first failed on the query bound and empty fork, then
+  passed with the three repairs. The self-recursion regression checks the native
+  uncaught E_INVARG rather than only catching it in MOO. The authored managed
+  scenarios passed on the repaired Barn and Toast with admission included.
+- Evidence: `.tmp/recycle-oracle/results-ci-pinned-toast.xml`,
+  `results-query-recreate-toast.xml`, and `results-repaired-candidate.xml`, with
+  corresponding admission records. The final performance candidate will be
+  remeasured after these repairs; prior measurements remain retained history.
+
 ## Literature
 
 Used the research-papers plugin's paper-reader existing-complete path for the
@@ -152,6 +185,8 @@ owner; it does not establish MOO lifecycle semantics or a speedup.
 
 ## Next step
 
-Publish the retained measurements and metadata completion. Finish required CI
-on that head, preserve archives outside the worktree, make the PR ready, and
-normal-merge when checks are clear. Then clean up this task's worktree and branch.
+Measure the repaired source using a temporary benchmark ref, then publish the
+source repairs and complete raw evidence together to the existing PR branch.
+Finish required CI on that head, preserve archives outside the worktree, make
+the PR ready, and normal-merge when checks are clear. Clean up task worktrees and
+branches, including the temporary benchmark ref.
