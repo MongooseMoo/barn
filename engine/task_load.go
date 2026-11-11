@@ -110,6 +110,13 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	} else {
 		t.SetState(task.TaskSuspended)
 		t.WakeTime = saved.StartTime
+		if saved.StartTime.Unix() < 0 {
+			// Older 64-bit Toast servers wrote an indefinite suspension's
+			// INTNUM_MAX start time through "%d" as -1; Toast's reader treats a
+			// negative start time as indefinite (tasks.cc read_task_queue).
+			t.WakeTime = time.Time{}
+			t.StartTime = task.IndefiniteSuspendStartTime
+		}
 		s.taskManager.RegisterTask(t)
 	}
 	for {

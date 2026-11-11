@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func listenSignals() (<-chan os.Signal, func()) {
@@ -39,6 +40,15 @@ func (s *Server) handleOSSignal(sig os.Signal) error {
 	case syscall.SIGUSR2:
 		return s.handleUserSignal("SIGUSR2")
 	case syscall.SIGALRM:
+		// Toast runs the earliest real-time timer: a pending outbound connect's
+		// timeout when it is due before the checkpoint timer.
+		var checkpointDue time.Time
+		if due := s.nextCheckpointNano.Load(); due != 0 {
+			checkpointDue = time.Unix(0, due)
+		}
+		if s.connManager != nil && s.connManager.ExpireEarliestOutboundConnect(checkpointDue) {
+			return nil
+		}
 		return s.requestCheckpoint()
 	case syscall.SIGHUP, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGSEGV, syscall.SIGBUS:
 		s.connManager.CloseListeners()

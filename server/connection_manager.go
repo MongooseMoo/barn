@@ -61,6 +61,7 @@ type ConnectionManager struct {
 	listeners              map[listenerKey]*listenerRecord
 	setupConns             map[net.Conn]struct{}
 	outboundClients        map[int64]net.Conn
+	pendingDials           map[*pendingDial]struct{}
 	closing                bool
 	listenPort             int
 	connectTimeout         time.Duration
@@ -75,6 +76,7 @@ func NewConnectionManager(port int) *ConnectionManager {
 		listeners:         make(map[listenerKey]*listenerRecord),
 		setupConns:        make(map[net.Conn]struct{}),
 		outboundClients:   make(map[int64]net.Conn),
+		pendingDials:      make(map[*pendingDial]struct{}),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		listenPort:        port,
 		connectTimeout:    5 * time.Minute,
@@ -770,7 +772,35 @@ func (cm *ConnectionManager) RemoveListener(desc listener.Descriptor) error {
 	return err
 }
 
-func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+// pendingDial is an outbound connect in progress: Toast's connect timer.
+type pendingDial struct {
+	deadline time.Time
+	cancel   context.CancelFunc
+}
+
+// ExpireEarliestOutboundConnect fails the pending outbound connect with the
+// earliest deadline when that deadline is before checkpointDue (zero: no
+// checkpoint timer). Toast's SIGALRM handler runs the head of its sorted
+// real-time timer list (timers.cc wakeup_call); a connect timer due before the
+// checkpoint timer is that head, so the connect fails and no checkpoint runs.
+func (cm *ConnectionManager) ExpireEarliestOutboundConnect(checkpointDue time.Time) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	var earliest *pendingDial
+	for dial := range cm.pendingDials {
+		if earliest == nil || dial.deadline.Before(earliest.deadline) {
+			earliest = dial
+		}
+	}
+	if earliest == nil || (!checkpointDue.IsZero() && !earliest.deadline.Before(checkpointDue)) {
+		return false
+	}
+	delete(cm.pendingDials, earliest)
+	earliest.cancel()
+	return true
+}
+
+func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
 	existing := make(map[int64]struct{})
 	cm.mu.Lock()
 	for id := range cm.connections {
@@ -779,7 +809,17 @@ func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (typ
 	cm.mu.Unlock()
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	client, err := net.DialTimeout("tcp", addr, time.Second)
+	dialCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	dial := &pendingDial{deadline: time.Now().Add(timeout), cancel: cancel}
+	cm.mu.Lock()
+	cm.pendingDials[dial] = struct{}{}
+	cm.mu.Unlock()
+	var dialer net.Dialer
+	client, err := dialer.DialContext(dialCtx, "tcp", addr)
+	cm.mu.Lock()
+	delete(cm.pendingDials, dial)
+	cm.mu.Unlock()
+	cancel()
 	if err != nil {
 		return types.ObjNothing, err
 	}

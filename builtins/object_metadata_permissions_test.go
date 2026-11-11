@@ -210,6 +210,20 @@ func TestDeleteVerbChecksPermissionBeforeLookupForUnauthorizedProgrammer(t *test
 	}
 }
 
+// Toast bf_delete_prop (src/property.cc:246-251) checks object write
+// permission before the lookup; bf_clear_prop (src/property.cc:276-279) reports
+// a missing property before any permission check.
+func TestPropertyRemovalErrorPrecedenceForMissingProperty(t *testing.T) {
+	f := newMetadataPermissionFixture(t, 0)
+	missing := []types.Value{types.NewObj(f.target), types.NewStr("missing")}
+	if result := admitTestBuiltin("delete_property", f.ctx, missing); !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("delete_property missing = %+v, want E_PERM", result)
+	}
+	if result := admitTestBuiltin("clear_property", f.ctx, missing); !result.IsError() || result.Error != types.E_PROPNF {
+		t.Fatalf("clear_property missing = %+v, want E_PROPNF", result)
+	}
+}
+
 func TestDeleteVerbWithoutTransactionUsesAtomicLiveFallback(t *testing.T) {
 	tests := []struct {
 		name       string

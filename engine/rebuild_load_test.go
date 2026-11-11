@@ -92,6 +92,31 @@ func TestToastForkVectorTaskSurvivesBarnCheckpoint(t *testing.T) {
 	}
 }
 
+// Older 64-bit Toast servers wrote an indefinite suspension's start time as -1;
+// Toast's reader loads a negative start time as indefinite (INTNUM_MAX), so the
+// task stays suspended instead of resuming at once.
+func TestLoadSuspendedTaskWithNegativeStartTimeStaysIndefinite(t *testing.T) {
+	reloaded := barnCheckpointOfToastImport(t)
+	store, err := reloaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := newTestRuntimeWithBuiltins(t, store)
+	defer rt.Stop()
+	saved := reloaded.SuspendedTasks[0]
+	saved.Snapshot.StartTime = time.Unix(-1, 0)
+	if err := rt.LoadSuspendedTasks(reloaded.SuspendedTasks); err != nil {
+		t.Fatal(err)
+	}
+	restored := rt.GetTask(saved.Snapshot.ID)
+	if restored == nil {
+		t.Fatal("task was not restored")
+	}
+	if !restored.WakeTime.IsZero() || !restored.StartTime.Equal(task.IndefiniteSuspendStartTime) {
+		t.Fatalf("wake/start = %v/%v, want zero wake and the indefinite start sentinel", restored.WakeTime, restored.StartTime)
+	}
+}
+
 // Q, 2026-11-10 ("Drop task, keep booting"): a saved task whose program is
 // not what its source compiles to is dropped with an ERROR record and the
 // load goes on; any other restore failure still fails the load.

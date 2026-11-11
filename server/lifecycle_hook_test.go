@@ -142,6 +142,64 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	}
 }
 
+// Toast runs queued tasks only from its main loop, after #0:server_started has
+// returned (server.cc main_loop), even when server_started does work first.
+func TestStartRunsQueuedTasksAfterServerStartedReturns(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DirectTxn().DefineProperty(system, "order", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define order: %v", errCode)
+	}
+	addTestVerb(store, system, "queue_fork", "fork (0)", `#0.order = {@#0.order, "task"};`, "endfork")
+	addTestVerb(store, system, "server_started", "for i in [1..2000]", "endfor", `#0.order = {@#0.order, "started"};`)
+
+	rt := engine.NewRuntime(store)
+	if _, err := rt.RunServerVerbTask(0, "queue_fork", nil, types.ObjNothing); err != nil {
+		t.Fatalf("queue fork: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		runtime:        rt,
+		input:          NewInputProcessor(store, rt),
+		connManager:    NewConnectionManager(0),
+		listenerSpecs:  []listenercfg.Spec{{Protocol: listenercfg.ProtocolTCP, Port: 0, Interface: "127.0.0.1"}},
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start() }()
+
+	deadline := time.After(30 * time.Second)
+	var got types.Value
+	for {
+		var errCode types.ErrorCode
+		got, errCode = store.DirectTxn().PropertyValue(system, "order")
+		if errCode != types.E_NONE {
+			t.Fatalf("read order: %v", errCode)
+		}
+		if got.Len() == 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("order = %s after 30s, want two entries", got.String())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	want := types.NewList([]types.Value{types.NewStr("started"), types.NewStr("task")})
+	if !got.Equal(want) {
+		t.Fatalf("order = %s, want %s", got.String(), want.String())
+	}
+}
+
 func TestStartRollsBackBindFailure(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
