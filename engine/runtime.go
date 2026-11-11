@@ -666,10 +666,10 @@ func (s *Runtime) settleTaskResult(t *Task, err error) {
 	// runTask returns nil for both suspend/yield and terminal completion.
 	// Only signal Done when the task has actually terminated (Completed or
 	// Killed); a merely suspended task is still alive and will be closed
-	// later when it truly finishes. CloseDone guards against double-close.
-	if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
-		t.CloseDone()
-	}
+	// later when it truly finishes. A suspended slice settles after releasing
+	// its execution lease, so another worker may be finishing the task here;
+	// Done then waits until that worker has delivered the result.
+	t.CloseDoneIfSettled()
 }
 
 // collectAllGCRefs snapshots the anonymous-object and waif references held by every

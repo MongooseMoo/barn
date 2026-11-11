@@ -116,6 +116,13 @@ func (s *Runtime) runTaskAdmitted(t *Task, scope *admission.Scope, ownsScope boo
 			completion.roots.release()
 		}
 	}()
+	// The callback below has run or been dropped; the caller's settle may now
+	// acknowledge Done (task.State.CloseDoneIfSettled).
+	defer func() {
+		if completion.callback != nil {
+			t.ResultDelivered()
+		}
+	}()
 	// Completion may synchronously start the login's next task. Its predecessor
 	// must have relinquished both admission and physical ownership first.
 	defer func() {
@@ -671,6 +678,15 @@ retryAttempt:
 		metrics.TerminalException(id, result.Error, result.Reason, t.IntrinsicEval, committed)
 	}
 
+	// Completion runs after releasing this VM and may itself wait for admission.
+	// Its result remains a root throughout that gap and the callback invocation.
+	// It is taken before the terminal state is published, so a settle racing
+	// this execution sees the result pending and leaves Done open.
+	if cb := t.TakeOnCompleteForDelivery(); cb != nil {
+		completion.callback = cb
+		completion.roots = s.pinAdmissionRoots(types.ObjNothing, []types.Value{result.Val})
+	}
+
 	// Intrinsic eval reports exceptions in its result record, without invoking
 	// the database's uncaught-task handler or emitting a second traceback.
 	if result.Flow == types.FlowException && t.IntrinsicEval {
@@ -680,13 +696,6 @@ retryAttempt:
 		s.reportUncaughtException(t, scope, result)
 	} else {
 		t.SetState(task.TaskCompleted)
-	}
-
-	// Completion runs after releasing this VM and may itself wait for admission.
-	// Its result remains a root throughout that gap and the callback invocation.
-	if cb := t.TakeOnComplete(); cb != nil {
-		completion.callback = cb
-		completion.roots = s.pinAdmissionRoots(types.ObjNothing, []types.Value{result.Val})
 	}
 
 	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
