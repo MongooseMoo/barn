@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 import mongoose_barn_process as barn
 
 
-class BarnProcessTests(unittest.TestCase):
+class OwnerFixture:
     def owner(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -115,6 +115,8 @@ class BarnProcessTests(unittest.TestCase):
             if owner.log_file:
                 owner.log_file.close()
 
+
+class BarnProcessTests(OwnerFixture, unittest.TestCase):
     def test_startup_log_enodata_recovers_with_bounded_manifest_metadata(self):
         owner, _ = self.owner()
         manifest = {"server": owner.identity}
@@ -531,6 +533,206 @@ class BarnProcessTests(unittest.TestCase):
         self.assertEqual(owner.identity["last_readiness"]["status"], 503)
         with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal"), patch.object(barn.os, "close"):
             owner.stop()
+
+
+def digest_json(hex_digest):
+    """A Go [32]byte as encoding/json writes it: a list of numbers."""
+    return list(bytes.fromhex(hex_digest))
+
+
+class CheckpointArtifactTests(unittest.TestCase):
+    """Frozen publication files laid out as db/format/checkpoint_publication.go leaves them."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.db = self.root / "input.db"
+        self.db.write_bytes(b"input")
+        self.out = Path(str(self.db) + ".new")
+        self.tmp = Path(str(self.db) + ".tmp")
+
+    def pair(self, path, body):
+        path.write_bytes(body)
+        Path(str(path) + ".waifids").write_bytes(b"sidecar of " + body)
+        return {"database": barn.bench.sha256_file(path),
+                "waif_identities": barn.bench.sha256_file(Path(str(path) + ".waifids"))}
+
+    def journal(self, recovery, next_pair, previous_pair):
+        row = {"Version": 1, "Generation": recovery.name,
+               "Next": {"Database": digest_json(next_pair["database"]),
+                        "Sidecar": digest_json(next_pair["waif_identities"]), "HasSidecar": True}}
+        if previous_pair:
+            row["Previous"] = {"Database": digest_json(previous_pair["database"]),
+                               "Sidecar": digest_json(previous_pair["waif_identities"]), "HasSidecar": True}
+        Path(str(self.out) + ".publication").write_text(json.dumps(row))
+
+    def stage(self, name, previous=True):
+        """Build the files of one stage; returns (previous pair A, staged pair F)."""
+        a = self.pair(self.out, b"checkpoint A") if previous else None
+        f = self.pair(self.tmp, b"checkpoint F")
+        recovery = self.root / (self.out.name + ".recovery-x1")
+        if name == "staging":
+            Path(str(self.tmp) + ".waifids").unlink()
+            return a, None
+        if name == "sidecar-prepared":
+            return a, f
+        recovery.mkdir()
+        self.pair(recovery / "next", b"checkpoint F")
+        if previous:
+            self.pair(recovery / "previous", b"checkpoint A")
+        if name == "cleanup":
+            self.tmp.rename(self.out)
+            Path(str(self.tmp) + ".waifids").rename(Path(str(self.out) + ".waifids"))
+            return a, f
+        self.journal(recovery, f, a)
+        if name in ("database-renamed", "both-renamed"):
+            self.tmp.rename(self.out)
+        if name == "both-renamed":
+            Path(str(self.tmp) + ".waifids").rename(Path(str(self.out) + ".waifids"))
+        return a, f
+
+    def test_each_stage_is_classified_from_the_files_with_its_required_recovery(self):
+        expected = {"staging": "A", "sidecar-prepared": "A", "journal-published": "A",
+                    "database-renamed": "A", "both-renamed": "F", "cleanup": "output"}
+        for name, wanted in expected.items():
+            with self.subTest(stage=name):
+                self.setUp()
+                a, f = self.stage(name)
+                artifacts = barn.checkpoint_artifacts(self.db)
+                self.assertEqual(artifacts["stage"], name)
+                recovery = barn.expected_recovery(artifacts)
+                self.assertEqual(recovery, {"A": a, "F": f, "output": f}[wanted])
+        self.setUp()
+        artifacts = barn.checkpoint_artifacts(self.db)
+        self.assertEqual((artifacts["stage"], barn.expected_recovery(artifacts)), ("not-staged", None))
+
+    def test_first_publication_recovers_its_saved_next_pair_and_journal_digests_are_hex(self):
+        for name in ("journal-published", "database-renamed"):
+            with self.subTest(stage=name):
+                self.setUp()
+                _, f = self.stage(name, previous=False)
+                artifacts = barn.checkpoint_artifacts(self.db)
+                self.assertEqual(artifacts["stage"], name)
+                self.assertIsNone(artifacts["journal"]["previous"])
+                self.assertEqual(artifacts["journal"]["next"], f)
+                self.assertEqual(barn.expected_recovery(artifacts), f)
+                self.assertEqual(artifacts["recovery_directories"][self.out.name + ".recovery-x1"]["next"], f)
+        self.setUp()
+        self.stage("staging", previous=False)
+        self.assertIsNone(barn.expected_recovery(barn.checkpoint_artifacts(self.db)))  # unchanged input
+
+    def test_unreadable_journal_is_reported_not_guessed(self):
+        self.stage("journal-published")
+        Path(str(self.out) + ".publication").write_text("{not json")
+        artifacts = barn.checkpoint_artifacts(self.db)
+        self.assertIn("error", artifacts["journal"])
+        with self.assertRaisesRegex(ValueError, "unreadable publication journal"):
+            barn.expected_recovery(artifacts)
+
+    def test_forensic_copy_keeps_every_artifact_and_never_moves_one(self):
+        self.stage("journal-published")
+        before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+        copied = barn.preserve_artifacts(self.db, self.root / "forensic")
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+        names = {Path(row["copy"]).relative_to(self.root / "forensic").as_posix() for row in copied}
+        self.assertEqual(names, {"input.db", "input.db.new", "input.db.new.waifids", "input.db.tmp",
+                                 "input.db.tmp.waifids", "input.db.new.publication",
+                                 "input.db.new.recovery-x1/next", "input.db.new.recovery-x1/next.waifids",
+                                 "input.db.new.recovery-x1/previous", "input.db.new.recovery-x1/previous.waifids"})
+        for row in copied:
+            self.assertEqual(row["sha256"], barn.bench.sha256_file(Path(row["source"])))
+
+
+class LiveCheckpointOwnerTests(OwnerFixture, unittest.TestCase):
+    def test_ordinary_launch_refuses_an_input_with_a_pending_journal_but_a_declared_recovery_proceeds(self):
+        owner, root = self.owner()
+        owner.input_journal_path.write_text("{}")
+        with patch.object(barn.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(RuntimeError, "pending checkpoint publication journal"):
+                owner.start()
+        spawn.assert_not_called()
+        owner.recovered_input = {"kind": "interrupted-checkpoint-output"}
+        owner.proc = owner.pidfd = owner.start_ticks = None
+        with patch.object(barn.socket, "socket"), \
+             patch.object(barn.subprocess, "Popen", side_effect=RuntimeError("spawned")):
+            with self.assertRaisesRegex(RuntimeError, "spawned"):
+                owner.start()
+        self.assertEqual(owner.identity["input_journal_sha256"], barn.bench.sha256_file(owner.input_journal_path))
+        self.assertEqual(owner.identity["input_pair"], {"database": barn.bench.sha256_file(owner.db),
+                                                        "waif_identities": None})
+
+    def test_absent_input_is_refused_before_launch(self):
+        owner, _ = self.owner()
+        owner.db.unlink()
+        with patch.object(barn.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(RuntimeError, "input database is absent"):
+                owner.start()
+        spawn.assert_not_called()
+
+    def test_recovered_pair_is_the_intact_pair_left_after_recovery(self):
+        owner, _ = self.owner()
+        owner.db.write_bytes(b"recovered")
+        sidecar = Path(str(owner.db) + ".waifids")
+        sidecar.write_bytes(("barn-waif-identities-v1 " + barn.bench.sha256_file(owner.db) + "\n").encode())
+        pair = owner._recovered_pair()
+        self.assertEqual((pair["database"]["sha256"], pair["waif_identities"]["sha256"]),
+                         (barn.bench.sha256_file(owner.db), barn.bench.sha256_file(sidecar)))
+        owner.input_journal_path.write_text("{}")
+        with self.assertRaisesRegex(RuntimeError, "still has its publication journal"):
+            owner._recovered_pair()
+        owner.input_journal_path.unlink()
+        sidecar.write_bytes(b"barn-waif-identities-v1 " + b"0" * 64 + b"\n")
+        with self.assertRaisesRegex(RuntimeError, "not intact"):
+            owner._recovered_pair()
+
+    def test_checkpoint_markers_read_text_and_json_records(self):
+        data = (b'time=now level=INFO msg="checkpoint started"\n'
+                b'time=now level=INFO msg="checkpoint complete" duration_ms=17\n'
+                b'{"level":"INFO","msg":"checkpoint started"}\n'
+                b'{"level":"ERROR","msg":"checkpoint failed","err":"disk"}\n'
+                b'{"level":"INFO","msg":"checkpoint complete","duration_ms":4}\n')
+        markers = barn.checkpoint_markers(data)
+        self.assertEqual((markers["started"], markers["complete"]), (2, [17, 4]))
+        self.assertEqual(markers["failed"], ['{"level":"ERROR","msg":"checkpoint failed","err":"disk"}'])
+
+    def test_request_signals_sigalrm_and_completion_needs_the_log_record_and_a_fresh_pair(self):
+        owner, _ = self.owner()
+        self.owned_log(owner)
+        with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal") as send:
+            boundary = owner.request_checkpoint()
+        self.assertEqual([call.args for call in send.call_args_list], [(77, signal.SIGALRM)])
+        self.assertLessEqual(boundary["signal_ns"], boundary["signalled_ns"])
+        with owner.log_path.open("ab") as stream:
+            stream.write(b'time=now level=INFO msg="checkpoint started"\n')
+        with patch.object(barn.time, "monotonic", side_effect=[0, 1, 2]), patch.object(barn.time, "sleep"):
+            with self.assertRaisesRegex(TimeoutError, "no checkpoint completion"):
+                owner.wait_checkpoint(boundary, 1)
+        self.publish_pair(owner)
+        with owner.log_path.open("ab") as stream:
+            stream.write(b'time=now level=INFO msg="checkpoint complete" duration_ms=9\n')
+        result = owner.wait_checkpoint(boundary, 1)
+        self.assertEqual((result["status"], result["duration_ms"], result["started"]), ("complete", 9, 1))
+        self.assertEqual(result["outputs"]["database"]["sha256"], barn.bench.sha256_file(owner.checkpoint_path))
+        owner.journal_path.write_text("{}")
+        with self.assertRaisesRegex(RuntimeError, "journal remains"):
+            owner.wait_checkpoint(boundary, 1)
+        owner.log_file.close()
+
+    def test_failed_checkpoint_and_exit_are_reported_not_acknowledged(self):
+        owner, _ = self.owner()
+        self.owned_log(owner)
+        with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal"):
+            boundary = owner.request_checkpoint()
+        owner.proc.poll.return_value = 1
+        with self.assertRaisesRegex(RuntimeError, "exited"):
+            owner.wait_checkpoint(boundary, 5)
+        with owner.log_path.open("ab") as stream:
+            stream.write(b'{"level":"ERROR","msg":"checkpoint failed","err":"disk full"}\n')
+        result = owner.wait_checkpoint(boundary, 5)
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("outputs", result)
+        owner.log_file.close()
 
 
 if __name__ == "__main__":

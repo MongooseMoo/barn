@@ -11,6 +11,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import socket
 import stat
@@ -57,8 +58,9 @@ def stable_file_digest(path):
     return dict(before, path=str(path), sha256=digest.hexdigest()), header
 
 
-def log_messages(data):
-    messages = []
+def log_records(data):
+    """(message, line) for every text or JSON log line carrying a message."""
+    records = []
     for line in data.decode("utf-8", errors="strict").splitlines():
         try:
             row = json.loads(line)
@@ -68,8 +70,147 @@ def log_messages(data):
         else:
             message = row.get("msg") if isinstance(row, dict) else None
         if isinstance(message, str):
-            messages.append(message)
-    return messages
+            records.append((message, line))
+    return records
+
+
+def log_messages(data):
+    return [message for message, _ in log_records(data)]
+
+
+def checkpoint_markers(data):
+    """Checkpoint records Barn logged in data: `checkpoint started` (server/server.go:470),
+    `checkpoint complete` with duration_ms (:493) and `checkpoint failed` (:396)."""
+    markers = {"started": 0, "complete": [], "failed": []}
+    for message, line in log_records(data):
+        if message == "checkpoint started":
+            markers["started"] += 1
+        elif message == "checkpoint complete":
+            match = re.search(r'"?duration_ms"?[=:]\s*(\d+)', line)
+            markers["complete"].append(int(match.group(1)) if match else None)
+        elif message == "checkpoint failed":
+            markers["failed"].append(line)
+    return markers
+
+
+def _artifact_digest(path):
+    """sha256 of a regular checkpoint artifact; None when it is absent."""
+    row = file_identity(path)
+    if row is None:
+        return None
+    if not stat.S_ISREG(row["mode"]):
+        raise RuntimeError(f"checkpoint artifact is not a regular file: {path}")
+    return bench.sha256_file(path)
+
+
+def pair_digest(path):
+    """{database, waif_identities} sha256 of a database and its sidecar; None without the database."""
+    database = _artifact_digest(path)
+    if database is None:
+        return None
+    return {"database": database, "waif_identities": _artifact_digest(Path(str(path) + ".waifids"))}
+
+
+def journal_digest(row):
+    """A publication journal digest as hex: Go encodes [32]byte as a JSON number list
+    (checkpointDigest, db/format/checkpoint_publication.go:25-29)."""
+    return {"database": bytes(row["Database"]).hex(),
+            "waif_identities": bytes(row["Sidecar"]).hex() if row["HasSidecar"] else None}
+
+
+# Frozen publication stages observable from files on the ordinary binary, in
+# publication order (db/format/checkpoint_stage.go:53,135;
+# checkpoint_publication.go:198,237,370-372,285-296). Capture, Serialize and the
+# temp-file sync are indistinguishable from files and share "staging".
+CHECKPOINT_STAGES = ("not-staged", "staging", "sidecar-prepared", "journal-published",
+                     "database-renamed", "both-renamed", "cleanup")
+
+
+def checkpoint_artifacts(db):
+    """Classify the checkpoint files of a Barn launched with --db db.
+
+    Call only while that process is stopped or dead, so the files are frozen.
+    """
+    db = Path(db)
+    output, temp = Path(str(db) + ".new"), Path(str(db) + ".tmp")
+    journal_path = Path(str(output) + ".publication")
+    result = {"database": str(db), "output": pair_digest(output), "temp": pair_digest(temp),
+              "journal": None, "recovery_directories": {}}
+    if file_identity(journal_path) is not None:
+        try:
+            row = json.loads(journal_path.read_bytes())
+            result["journal"] = {"generation": row["Generation"], "next": journal_digest(row["Next"]),
+                                 "previous": None if row.get("Previous") is None else journal_digest(row["Previous"]),
+                                 "sha256": bench.sha256_file(journal_path)}
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            result["journal"] = {"error": f"{type(error).__name__}: {error}"}
+    for directory in sorted(db.parent.glob(output.name + ".recovery-*")):
+        result["recovery_directories"][directory.name] = {
+            member: pair_digest(directory / member) for member in ("next", "previous")} | {
+            "journal": _artifact_digest(directory / "journal")}
+    temp_database = result["temp"] is not None
+    temp_sidecar = file_identity(Path(str(temp) + ".waifids")) is not None
+    if result["journal"] is not None:
+        stage = "journal-published" if temp_database else "database-renamed" if temp_sidecar else "both-renamed"
+    elif temp_database:
+        stage = "sidecar-prepared" if temp_sidecar else "staging"
+    elif temp_sidecar:
+        stage = "unclassified"
+    elif result["recovery_directories"]:
+        stage = "cleanup"
+    else:
+        stage = "not-staged"
+    result["stage"] = stage
+    return result
+
+
+def expected_recovery(artifacts):
+    """The pair recovery must select from frozen artifacts (plan section 2 table;
+    recoverCheckpointPair, db/format/checkpoint_publication.go:299-353).
+
+    None means no checkpoint output exists, so the unchanged input is the restart pair.
+    """
+    journal = artifacts["journal"]
+    if journal is not None:
+        if "error" in journal:
+            raise ValueError(f"unreadable publication journal: {journal['error']}")
+        if artifacts["stage"] == "both-renamed":
+            return journal["next"]
+        return journal["previous"] or journal["next"]
+    return artifacts["output"]
+
+
+def preserve_artifacts(db, destination):
+    """Copy (never move) the input pair and every checkpoint artifact of --db db into destination."""
+    db = Path(db)
+    destination.mkdir()
+    sources = [db, Path(str(db) + ".waifids")]
+    for stem in (Path(str(db) + ".new"), Path(str(db) + ".tmp")):
+        sources += [stem, Path(str(stem) + ".waifids")]
+    sources.append(Path(str(db) + ".new.publication"))
+    sources += sorted(db.parent.glob(Path(str(db) + ".new").name + ".recovery-*"))
+    copied = []
+    for source in sources:
+        row = file_identity(source)
+        if row is None:
+            continue
+        target = destination / source.name
+        if stat.S_ISDIR(row["mode"]):
+            shutil.copytree(source, target, symlinks=True)
+            members = sorted(path for path in target.rglob("*") if path.is_file())
+        else:
+            shutil.copyfile(source, target, follow_symlinks=False)
+            members = [target]
+        for member in members:
+            original = source / member.relative_to(target) if member != target else source
+            copied.append({"source": str(original), "copy": str(member), "sha256": bench.sha256_file(member)})
+    return copied
+
+
+class PairRejected(Exception):
+    def __init__(self, status, reason):
+        super().__init__(reason)
+        self.status = status
 
 
 def process_state(pid, *, proc_root=Path("/proc"), clock_ticks=None):
@@ -129,7 +270,12 @@ class OwnedBarnServer:
     engine = "barn"
     host = "127.0.0.1"
 
-    def __init__(self, executable, db, run_dir, port, *, config=CONFIG, registry=REGISTRY, profile_id=PROFILE_ID):
+    def __init__(self, executable, db, run_dir, port, *, config=CONFIG, registry=REGISTRY, profile_id=PROFILE_ID,
+                 recovered_input=None):
+        """recovered_input declares that db is an interrupted checkpoint's output whose
+        publication journal Barn's loader will recover (a dict naming its provenance).
+        Without it, a pending journal on db refuses the launch."""
+        self.recovered_input = recovered_input
         self.executable = executable.resolve(strict=True)
         self.db, self.run_dir, self.port = db.resolve(), run_dir.resolve(), port
         self.config, self.registry = config.resolve(strict=True), registry.resolve(strict=True)
@@ -150,6 +296,7 @@ class OwnedBarnServer:
         self.checkpoint_path = Path(str(self.db) + ".new")
         self.sidecar_path = Path(str(self.checkpoint_path) + ".waifids")
         self.journal_path = Path(str(self.checkpoint_path) + ".publication")
+        self.input_journal_path = Path(str(self.db) + ".publication")
         self.profile_path = self.run_dir / "barn-profile.json"
         self.log_path = self.run_dir / "server.log"
         log_level = "debug" if os.environ.get("BARN_RUNTIME_DIAGNOSTICS") == "1" else "info"
@@ -166,7 +313,7 @@ class OwnedBarnServer:
                          "profile_id": profile_id, "command": self.command,
                          "profile_manifest": str(self.profile_path), "server_log": str(self.log_path),
                          "runtime_logs": str(self.run_dir / "logs"),
-                         "runtime_log_level": log_level,
+                         "runtime_log_level": log_level, "recovered_input": recovered_input,
                          "cpu_scope": CPU_SCOPE, "collectors": "off",
                          "runtime_environment": {key: os.environ.get(key) for key in
                              ("GOGC", "GOMEMLIMIT", "GOMAXPROCS", "BARN_RUNTIME_DIAGNOSTICS")}}
@@ -205,12 +352,25 @@ class OwnedBarnServer:
         if any(file_identity(path) is not None for path in
                (self.checkpoint_path, self.sidecar_path, self.journal_path)):
             raise RuntimeError("checkpoint output pair/journal must be absent before launch")
+        if file_identity(self.db) is None:
+            # Barn hashes --db for the manifest (internal/app/app.go:352) before
+            # recovery could restore a first publication's database (app.go:388).
+            raise RuntimeError("input database is absent; Barn cannot build its profile manifest before "
+                               "recovery would create it")
+        if self.recovered_input is None and file_identity(self.input_journal_path) is not None:
+            raise RuntimeError("input database has a pending checkpoint publication journal; "
+                               "only a declared recovered-input launch may recover it")
         self._checkpoint_launch_verified = True
         if bench.sha256_file(self.executable) != self.identity["executable_sha256"]:
             raise RuntimeError("Barn executable changed before launch")
         if bench.sha256_file(self.config) != self.identity["config_sha256"]:
             raise RuntimeError("Barn configuration changed before launch")
+        # Barn hashes --db for its manifest (internal/app/app.go:352) before
+        # LoadDatabase recovers a pending journal (app.go:388, reader.go:163),
+        # so the manifest names this pre-launch file in both modes.
         self.identity["prepared_database_sha256"] = bench.sha256_file(self.db)
+        self.identity["input_pair"] = pair_digest(self.db)
+        self.identity["input_journal_sha256"] = _artifact_digest(self.input_journal_path)
         with socket.socket() as reservation:
             reservation.bind((self.host, self.port))
         self.log_file = self.log_path.open("xb")
@@ -264,6 +424,8 @@ class OwnedBarnServer:
                         if response.status == 200 and body.strip() == "ready":
                             self.verify_owned()
                             self._validate_profile()
+                            if self.recovered_input is not None:
+                                self.identity["recovered_pair"] = self._recovered_pair()
                             self.identity.update(endpoints=addresses, readiness=last_readiness,
                                                  startup_seconds=time.monotonic() - started)
                             return self.identity["startup_seconds"]
@@ -313,6 +475,50 @@ class OwnedBarnServer:
             boundary["failure"] = str(error)
         return boundary
 
+    def _log_since(self, offset):
+        """The owned server.log bytes after offset, refusing replacement or unbounded growth."""
+        log_row = file_identity(self.log_path)
+        if (log_row is None or not stat.S_ISREG(log_row["mode"]) or
+                (log_row["device"], log_row["inode"]) != self._log_identity or
+                not 0 <= log_row["size_bytes"] - offset <= 8 * 1024 * 1024):
+            raise PairRejected("unknown", "owned shutdown log changed or exceeds bounded collection")
+        with os.fdopen(os.open(self.log_path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (opened.st_dev, opened.st_ino) != self._log_identity:
+                raise PairRejected("unknown", "owned shutdown log replaced before reading")
+            stream.seek(offset)
+            data = stream.read(8 * 1024 * 1024 + 1)
+        if file_identity(self.log_path) != log_row or len(data) != log_row["size_bytes"] - offset:
+            raise PairRejected("unknown", "owned shutdown log changed while reading")
+        return data
+
+    def _published_pair(self, path, sidecar, outputs_before):
+        """Digests of a freshly published database/sidecar pair whose header binds the database."""
+        evidence = {}
+        for name, member in (("database", path), ("waif_identities", sidecar)):
+            row, header = stable_file_digest(member)
+            old = outputs_before.get(str(member)) if outputs_before is not None else None
+            if old is not None and (row["device"], row["inode"]) == (old["device"], old["inode"]):
+                raise PairRejected("unknown", "output pair was not freshly atomically published after shutdown signal")
+            if row["size_bytes"] == 0:
+                raise PairRejected("failed", "empty checkpoint output")
+            evidence[name] = row
+            if name == "waif_identities":
+                expected = ("barn-waif-identities-v1 " + evidence["database"]["sha256"] + "\n").encode("ascii")
+                if header != expected:
+                    raise PairRejected("failed", "waif identity header does not match published database SHA256")
+        return evidence
+
+    def _recovered_pair(self):
+        """The pair Barn's loader selected for a recovered input. Barn never writes
+        its --db path after loading, so this is stable once the server is ready."""
+        if file_identity(self.input_journal_path) is not None:
+            raise RuntimeError("recovered input still has its publication journal after startup")
+        try:
+            return self._published_pair(self.db, Path(str(self.db) + ".waifids"), None)
+        except PairRejected as error:
+            raise RuntimeError(f"recovered input pair is not intact: {error}") from error
+
     def _final_checkpoint(self, boundary):
         verdict = {"status": "unknown", "verified": False,
                    "scope": "published database/waif identity pair integrity, not semantic round-trip validation",
@@ -325,20 +531,7 @@ class OwnedBarnServer:
         try:
             if boundary.get("failure") or boundary.get("log_offset_bytes") is None:
                 return reject("unknown", "owned shutdown boundary unavailable")
-            log_row = file_identity(self.log_path)
-            offset = boundary["log_offset_bytes"]
-            if (log_row is None or not stat.S_ISREG(log_row["mode"]) or
-                    (log_row["device"], log_row["inode"]) != self._log_identity or
-                    not 0 <= log_row["size_bytes"] - offset <= 8 * 1024 * 1024):
-                return reject("unknown", "owned shutdown log changed or exceeds bounded collection")
-            with os.fdopen(os.open(self.log_path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-                opened = os.fstat(stream.fileno())
-                if (opened.st_dev, opened.st_ino) != self._log_identity:
-                    return reject("unknown", "owned shutdown log replaced before reading")
-                stream.seek(offset)
-                data = stream.read(8 * 1024 * 1024 + 1)
-            if file_identity(self.log_path) != log_row or len(data) != log_row["size_bytes"] - offset:
-                return reject("unknown", "owned shutdown log changed while reading")
+            data = self._log_since(boundary["log_offset_bytes"])
             messages = log_messages(data)
             verdict["shutdown_log_sha256"] = hashlib.sha256(data).hexdigest()
             for failure in ("final checkpoint failed", "final checkpoint skipped (checkpointing disabled)"):
@@ -349,23 +542,57 @@ class OwnedBarnServer:
                 return reject("unknown", "owned signal shutdown completion markers missing or out of order")
             if file_identity(self.journal_path) is not None:
                 return reject("failed", "checkpoint publication recovery journal remains")
-            evidence = {}
-            for name, path in (("database", self.checkpoint_path), ("waif_identities", self.sidecar_path)):
-                row, header = stable_file_digest(path)
-                old = boundary["outputs_before_signal"][str(path)]
-                if old is not None and (row["device"], row["inode"]) == (old["device"], old["inode"]):
-                    return reject("unknown", "output pair was not freshly atomically published after shutdown signal")
-                if row["size_bytes"] == 0:
-                    return reject("failed", "empty checkpoint output")
-                evidence[name] = row
-                if name == "waif_identities":
-                    expected = ("barn-waif-identities-v1 " + evidence["database"]["sha256"] + "\n").encode("ascii")
-                    if header != expected:
-                        return reject("failed", "waif identity header does not match published database SHA256")
-            verdict["outputs"] = evidence
+            verdict["outputs"] = self._published_pair(self.checkpoint_path, self.sidecar_path,
+                                                      boundary["outputs_before_signal"])
             return reject("verified", "fresh owned signal shutdown published an intact database/identity pair")
+        except PairRejected as error:
+            return reject(error.status, str(error))
         except Exception as error:
             return reject("unknown", "checkpoint verification unavailable: " + str(error))
+
+    def request_checkpoint(self):
+        """Ask the running owned Barn for one checkpoint with SIGALRM, which calls
+        requestCheckpoint directly (server/signals_unix.go:41-42).
+
+        The request channel holds one queued request (server/server.go:112) and
+        drops a further one (:433-436), so callers wait for the previous
+        request's completion or failure before asking again.
+        """
+        boundary = self._checkpoint_boundary()
+        if boundary.get("failure"):
+            raise RuntimeError(f"checkpoint request boundary unavailable: {boundary['failure']}")
+        boundary["signal_ns"] = time.monotonic_ns()
+        self._signal_running(signal.SIGALRM)
+        boundary["signalled_ns"] = time.monotonic_ns()
+        return boundary
+
+    def checkpoint_log(self, boundary):
+        """Checkpoint markers logged since a request boundary."""
+        return checkpoint_markers(self._log_since(boundary["log_offset_bytes"]))
+
+    def wait_checkpoint(self, boundary, timeout):
+        """Wait for the requested checkpoint to complete or fail; on completion
+        return the published pair's stable digests (no later request exists to change it)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            markers = self.checkpoint_log(boundary)
+            if markers["complete"] or markers["failed"]:
+                break
+            if self.proc.poll() is not None:
+                raise RuntimeError(f"owned Barn exited (code {self.proc.returncode}) while a checkpoint was pending")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"no checkpoint completion or failure logged within {timeout}s: {markers}")
+            time.sleep(0.01)
+        result = dict(markers, observed_ns=time.monotonic_ns())
+        if markers["failed"]:
+            return dict(result, status="failed")
+        if file_identity(self.journal_path) is not None:
+            raise RuntimeError("checkpoint publication journal remains after checkpoint complete")
+        try:
+            outputs = self._published_pair(self.checkpoint_path, self.sidecar_path, boundary["outputs_before_signal"])
+        except PairRejected as error:
+            raise RuntimeError(f"completed checkpoint pair is not intact: {error}") from error
+        return dict(result, status="complete", duration_ms=markers["complete"][0], outputs=outputs)
 
     def stop(self):
         final_checkpoint = {"status": "unknown", "verified": False, "reason": "owned signal shutdown not observed"}

@@ -39,6 +39,31 @@ verified; the baseline is the ledger read just before it. Every later
 generation starts from a copy of the latest verified pair. Disconnects and
 timeouts are `:info` unknowns.
 
+The live phase (`--phase-live`, default 60 s; 0 disables it) checkpoints
+while clients continue. A `live-checkpoint` sends SIGALRM, which calls Barn's
+`requestCheckpoint` directly, and is acknowledged only by the `checkpoint
+complete` log record plus the stable digest of the published
+`.new`/`.new.waifids` pair; the next request waits for that (Barn queues one
+request and drops further ones). A `checkpoint-crash` reads the generation's
+rows, sends SIGALRM, waits a seeded random delay (up to 1.5x the last
+checkpoint's duration), stops the owned process (state T), records the frozen
+publication stage from the files (`not-staged`, `staging`,
+`sidecar-prepared`, `journal-published`, `database-renamed`, `both-renamed`,
+`cleanup`), kills it, copies every artifact to `gen-NNN-forensic/`, and
+restarts from the interrupted checkpoint's actual output path in place, with
+its journal, saved generations and sidecar together (or from a copy of the
+unchanged input when no output or journal exists). Before admission, one task
+reads the epoch marker, the queued task count and every recovered row. The
+snapshot oracle then requires: the recovered pair is the one the frozen stage
+permits and equals the unchanged input, the completed checkpoint A or the
+pending checkpoint F; for that cut, every write acknowledged before its
+request is present and nothing first sent after A's acknowledgment is; each
+transaction's writes are recovered all or none; an included transaction's
+reads are included; every read is prefix-comparable with the recovered rows;
+no repeated or never-sent token. The recovered rows are also appended to the
+crashed generation's Elle history as a read-only observation. SIGKILL is
+process-crash evidence, not power-loss evidence.
+
 Each client request carries a run-unique operation id. The adapter journals
 the request, the send (generation, MOO, fault phase) before it reaches Barn,
 and the completion before it replies; analysis reconciles that journal with

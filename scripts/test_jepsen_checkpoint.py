@@ -8,6 +8,7 @@ import re
 import socket
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -795,6 +796,268 @@ class AnalyzeTests(unittest.TestCase):
             (jc.INCOMPLETE, "Jepsen wrote no history.jsonl")})
 
 
+def pair(name, sidecar=None):
+    """A synthetic database/sidecar digest pair."""
+    return {"database": name.ljust(64, "d"), "waif_identities": (sidecar or name).ljust(64, "w")}
+
+
+def evidence(digests):
+    """Published-pair evidence rows (stable_file_digest shape) for a digest pair."""
+    return {"database": {"sha256": digests["database"]},
+            "waif_identities": {"sha256": digests["waif_identities"]}}
+
+
+S0, A, F = pair("s0"), pair("a"), pair("f")
+
+
+class Recovery:
+    """Lifecycle and journal of one generation 0 that completes live checkpoint A
+    (request at t=100, acknowledged at t=200), then is stopped during checkpoint F
+    (request at t=300) and recovered as generation 1."""
+
+    def __init__(self, stage="journal-published", journal=(F, A), output=A, temp=None):
+        self.journal, self.lifecycle, self.next_id = [], [], 0
+        self.artifacts = {"stage": stage, "output": output, "temp": temp, "recovery_directories": {},
+                          "journal": None if journal is None else {"next": journal[0], "previous": journal[1]}}
+        self.completed = A
+        self.start_epoch, self.start_tasks = -1, 0
+
+    def txn(self, value, send, complete=None, kind="ok", result=None, error=None):
+        self.next_id += 1
+        op_id = self.next_id
+        self.journal.append({"event": "request", "id": op_id, "value": value})
+        self.journal.append({"event": "send", "id": op_id, "generation": 0, "monotonic_ns": send})
+        if kind is not None:
+            done = {"event": "complete", "id": op_id, "type": kind, "monotonic_ns": complete,
+                    "value": result if result is not None else value}
+            if error:
+                done["error"] = {"kind": error}
+            self.journal.append(done)
+        return op_id
+
+    def build(self, recovered, epoch=0, tasks=0, rows=None, keys=(1,)):
+        keys = list(keys)
+        life = [{"event": "recovery-observation", "generation": 0, "observed_generation": None, "keys": [],
+                 "ok": True, "epoch": self.start_epoch, "tasks": self.start_tasks, "rows": None},
+                {"event": "admit", "generation": 0, "kind": "initial", "server": {"input_pair": S0}}]
+        if self.completed is not None:
+            life += [{"event": "checkpoint-request", "generation": 0, "seq": 1, "purpose": "live",
+                      "boundary": {"signal_ns": 100}},
+                     {"event": "checkpoint-complete", "generation": 0, "seq": 1, "observed_ns": 200,
+                      "status": "complete", "outputs": evidence(self.completed)}]
+        life += [{"event": "checkpoint-request", "generation": 0, "seq": 2, "purpose": "crash",
+                  "boundary": {"signal_ns": 300}},
+                 {"event": "checkpoint-stop", "generation": 0, "seq": 2, "observed_state": "T",
+                  "artifacts": self.artifacts},
+                 {"event": "checkpoint-crash", "generation": 0, "seq": 2, "result": {"exit_code": -9},
+                  "forensic": [{"copy": "x"}], "restart": {"seq": 2}},
+                 {"event": "recovery-observation", "generation": 1, "observed_generation": 0, "keys": keys,
+                  "ok": True, "epoch": epoch, "tasks": tasks,
+                  "rows": None if rows is None else [rows.get(key, []) for key in keys]},
+                 {"event": "admit", "generation": 1, "kind": "checkpoint-crash", "restart": {"seq": 2},
+                  "server": {"recovered_pair": evidence(recovered)}}]
+        self.lifecycle = life
+        return jc.snapshot_checks(life, self.journal)
+
+
+class SnapshotOracleTests(unittest.TestCase):
+    """Plan section 2 analyzer fixtures; each names the rule it exercises."""
+
+    def lawful(self):
+        case = Recovery()
+        case.txn([["append", 1, 1]], send=10, complete=50)    # before A's request: in A and F
+        case.txn([["append", 1, 2]], send=250, complete=260)  # after A's acknowledgment: never in A
+        return case
+
+    def assertClean(self, result):
+        rows, findings = result
+        self.assertEqual(findings, [])
+        return rows[0]
+
+    def messages(self, result, kind):
+        return [message for found, message in result[1] if found == kind]
+
+    def test_lawful_rollback_to_the_completed_checkpoint_loses_a_later_acknowledged_write(self):
+        row = self.assertClean(self.lawful().build(A, rows={1: [1]}))
+        self.assertEqual((row["selected_cut"], row["expected"], row["candidate_cuts"]),
+                         ("completed checkpoint 1", A, ["completed checkpoint 1"]))
+
+    def test_lost_checkpointed_update_is_rejected(self):
+        found = self.messages(self.lawful().build(A, rows={1: []}), jc.CORRECTNESS)
+        self.assertEqual(found, ["checkpoint-crash of generation 0: no permitted cut fits; as completed checkpoint 1: "
+                                 "operation 1 completed before the checkpoint request; its writes [(1, 1)] are missing"])
+
+    def test_post_capture_mutation_is_rejected_from_A_and_allowed_in_F(self):
+        found = self.messages(self.lawful().build(A, rows={1: [1, 2]}), jc.CORRECTNESS)
+        self.assertEqual(found, ["checkpoint-crash of generation 0: no permitted cut fits; as completed checkpoint 1: "
+                                 "operation 2 was first sent after the checkpoint completed; its writes [(1, 2)] "
+                                 "are present"])
+        case = self.lawful()
+        case.artifacts["stage"] = "both-renamed"
+        case.artifacts["output"] = F
+        row = self.assertClean(case.build(F, rows={1: [1, 2]}))
+        self.assertEqual(row["selected_cut"], "pending checkpoint 2")
+
+    def test_unacknowledged_valid_next_checkpoint_is_accepted(self):
+        case = self.lawful()
+        case.txn([["append", 1, 3]], send=350, complete=None, kind=None)  # in flight at the stop
+        case.artifacts.update(stage="both-renamed", output=F)
+        row = self.assertClean(case.build(F, rows={1: [1, 2, 3]}))
+        self.assertEqual((row["stage"], row["selected_cut"]), ("both-renamed", "pending checkpoint 2"))
+        row = self.assertClean(case.build(F, rows={1: [1, 2]}))  # the in-flight write may be absent too
+        self.assertEqual(row["selected_cut"], "pending checkpoint 2")
+
+    def test_partial_unknown_transaction_is_rejected_but_a_native_error_may_be_partial(self):
+        case = self.lawful()
+        case.txn([["append", 1, 3], ["append", 2, 9]], send=280, complete=290, kind="info", error="transport")
+        case.artifacts.update(stage="both-renamed", output=F)
+        found = self.messages(case.build(F, rows={1: [1, 2, 3], 2: []}, keys=(1, 2)), jc.CORRECTNESS)
+        self.assertEqual(found, ["checkpoint-crash of generation 0: operation 3 (info): recovered [(1, 3)] of its "
+                                 "writes [(1, 3), (2, 9)], not all or none"])
+        self.assertClean(case.build(F, rows={1: [1, 2, 3], 2: [9]}, keys=(1, 2)))
+        self.assertClean(case.build(F, rows={1: [1, 2], 2: []}, keys=(1, 2)))
+        case.journal[-1]["error"] = {"kind": "native-error"}
+        self.assertClean(case.build(F, rows={1: [1, 2, 3], 2: []}, keys=(1, 2)))
+
+    def test_mixed_snapshot_cut_fits_neither_checkpoint(self):
+        case = self.lawful()
+        case.txn([["append", 2, 5]], send=210, complete=220)  # between A's acknowledgment and F's request
+        case.artifacts.update(stage="both-renamed", output=F)
+        result = case.build(F, rows={1: [1, 2], 2: []}, keys=(1, 2))
+        self.assertEqual(self.messages(result, jc.CORRECTNESS),
+                         ["checkpoint-crash of generation 0: no permitted cut fits; as pending checkpoint 2: "
+                          "operation 3 completed before the checkpoint request; its writes [(2, 5)] are missing"])
+
+    def test_indistinguishable_pairs_accept_whichever_cut_the_rows_satisfy(self):
+        for rows, selected in (({1: [1]}, "completed checkpoint 1"), ({1: [1, 2]}, "pending checkpoint 2")):
+            with self.subTest(rows=rows):
+                case = self.lawful()
+                case.artifacts.update(stage="both-renamed", output=A, journal={"next": A, "previous": A})
+                row = self.assertClean(case.build(A, rows=rows))
+                self.assertEqual((row["candidate_cuts"], row["selected_cut"]),
+                                 (["completed checkpoint 1", "pending checkpoint 2"], selected))
+
+    def test_equal_portable_dump_with_different_waif_identity_is_not_the_other_cut(self):
+        f_same_dump = pair("a", sidecar="other identities")
+        case = self.lawful()
+        case.artifacts.update(stage="journal-published", journal={"next": f_same_dump, "previous": A})
+        row = self.assertClean(case.build(A, rows={1: [1]}))
+        self.assertEqual(row["candidate_cuts"], ["completed checkpoint 1"])
+        found = self.messages(case.build(A, rows={1: [1, 2]}), jc.CORRECTNESS)
+        self.assertTrue(found and "as completed checkpoint 1" in found[0])  # F's rows on A's identities
+
+    def test_duplicate_recovered_token_is_rejected(self):
+        found = self.messages(self.lawful().build(A, rows={1: [1, 1]}), jc.CORRECTNESS)
+        self.assertIn("checkpoint-crash of generation 0: key 1: recovered row [1, 1] repeats a token", found)
+
+    def test_never_sent_token_is_rejected(self):
+        found = self.messages(self.lawful().build(A, rows={1: [1, 77]}), jc.CORRECTNESS)
+        self.assertIn("checkpoint-crash of generation 0: key 1: recovered token 77 was never sent in this generation",
+                      found)
+
+    def test_mixed_pair_is_recognised_as_no_permitted_cut_and_breaks_the_publication_contract(self):
+        mixed = {"database": F["database"], "waif_identities": A["waif_identities"]}
+        result = self.lawful().build(mixed, rows={1: [1]})
+        self.assertEqual(sorted(self.messages(result, jc.RECOVERY)), sorted([
+            f"checkpoint-crash of generation 0: recovery selected {mixed}; frozen stage journal-published "
+            f"requires {A}",
+            f"checkpoint-crash of generation 0: recovered pair {mixed} matches no permitted cut "
+            f"(['unchanged input', 'completed checkpoint 1', 'pending checkpoint 2'])"]))
+
+    def test_recovery_must_follow_the_frozen_stage(self):
+        case = self.lawful()  # journal published, previous A present: recovery must restore A
+        result = case.build(F, rows={1: [1, 2]})
+        self.assertEqual(self.messages(result, jc.RECOVERY),
+                         [f"checkpoint-crash of generation 0: recovery selected {F}; frozen stage "
+                          f"journal-published requires {A}"])
+
+    def test_no_output_recovers_the_unchanged_input_with_empty_rows(self):
+        case = Recovery(stage="staging", journal=None, output=None)
+        case.completed = None
+        case.txn([["append", 1, 1]], send=310, complete=320)
+        row = self.assertClean(case.build(S0, epoch=-1, rows=None))
+        self.assertEqual(row["selected_cut"], "unchanged input")
+        found = self.messages(case.build(S0, epoch=0, rows={1: [1]}), jc.CORRECTNESS)
+        self.assertIn("checkpoint-crash of generation 0: no permitted cut fits; as unchanged input: the input "
+                      "generation 0 started from had epoch marker -1, recovered marker is 0", found)
+
+    def test_a_checkpoint_cut_needs_the_crashed_generation_admitted(self):
+        found = self.messages(self.lawful().build(A, epoch=-1, rows=None), jc.CORRECTNESS)
+        self.assertEqual(found, ["checkpoint-crash of generation 0: no permitted cut fits; as completed checkpoint "
+                                 "1: completed checkpoint 1 was captured after generation 0 was admitted, but the "
+                                 "recovered epoch marker is -1"])
+
+    def test_included_transaction_needs_what_it_read(self):
+        case = self.lawful()
+        case.txn([["append", 2, 7], ["r", 1, None]], send=60, complete=70,
+                 result=[["append", 2, 7], ["r", 1, [1, 2]]])  # read token 2 before A's request
+        found = self.messages(case.build(A, rows={1: [1], 2: [7]}, keys=(1, 2)), jc.CORRECTNESS)
+        self.assertIn("checkpoint-crash of generation 0: operation 3: its writes were recovered but tokens [2] it "
+                      "read on key 1 were not", found)
+
+    def test_reads_must_be_prefix_comparable_with_the_recovered_rows(self):
+        case = self.lawful()
+        case.txn([["r", 1, None]], send=60, complete=70, result=[["r", 1, [2]]])
+        found = self.messages(case.build(A, rows={1: [1]}), jc.CORRECTNESS)
+        self.assertIn("checkpoint-crash of generation 0: operation 3: read [2] on key 1 is not prefix-comparable "
+                      "with recovered [1]", found)
+
+    def test_a_restored_task_makes_the_observation_untrustworthy(self):
+        result = self.lawful().build(A, tasks=1, rows={1: [1]})
+        self.assertEqual(self.messages(result, jc.INCOMPLETE),
+                         ["checkpoint-crash of generation 0: 1 queued tasks recovered, 0 at the generation's own "
+                          "launch; a restored task could have changed the observed rows"])
+
+    def test_recovered_rows_join_the_crashed_generation_elle_history(self):
+        case = self.lawful()
+        case.build(A, rows={1: [1]})
+        ops = jc.observation_ops(case.lifecycle, 0)
+        self.assertEqual(ops, [{"process": jc.RECOVERY_PROCESS, "type": "invoke", "f": "txn",
+                                "value": [["r", 1, None]]},
+                               {"process": jc.RECOVERY_PROCESS, "type": "ok", "f": "txn",
+                                "value": [["r", 1, [1]]]}])
+        case.build(S0, epoch=-1, rows=None)
+        self.assertEqual(jc.observation_ops(case.lifecycle, 0), [])
+
+    def test_checkpoint_crash_obligations(self):
+        case = self.lawful()
+        case.build(A, rows={1: [1]})
+        lifecycle = case.lifecycle
+
+        def live_only(missing):
+            # This fixture has no pause/crash/graceful checkpoint or probes; keep the live-lane findings.
+            return [(kind, m) for kind, m in missing
+                    if ("checkpoint-crash" in m or "live checkpoint" in m) and not m.startswith("scenario:")]
+
+        _, missing = jc.obligations({}, lifecycle, families=(), live=True)
+        missing = live_only(missing)
+        self.assertEqual([m for _, m in missing], ["missing final observation before checkpoint-crash of generation 0"])
+        broken = copy.deepcopy(lifecycle)
+        for row in broken:
+            if row["event"] == "checkpoint-stop":
+                row["observed_state"] = "S"
+            if row["event"] == "checkpoint-crash":
+                row.update(forensic=[], result={"exit_code": 0})
+            if row["event"] == "recovery-observation" and row["generation"] == 1:
+                row.update(ok=False, failed_attempts=["TimeoutError"], deadline_seconds=30.0)
+        broken = [row for row in broken if row["event"] != "checkpoint-complete"]
+        _, missing = jc.obligations({}, broken, families=(), live=True)
+        missing = live_only(missing)
+        self.assertEqual({m for _, m in missing}, {
+            "missing final observation before checkpoint-crash of generation 0",
+            "checkpoint-crash of generation 0: owned PID was not observed stopped before the kill",
+            "checkpoint-crash of generation 0: SIGKILL was not observed on the owned PID (exit code 0)",
+            "checkpoint-crash of generation 0: no forensic copy of the artifacts was preserved",
+            "recovery observation of checkpoint-crash of generation 0 did not succeed within 30.0s: ['TimeoutError']",
+            "live checkpoint 1 of generation 0: no completion with a published pair digest"})
+        self.assertIn((jc.INCOMPLETE, "scenario: zero completed live checkpoints"),
+                      jc.obligations({}, broken, families=(), live=True)[1])
+        self.assertNotIn((jc.INCOMPLETE, "scenario: zero completed live checkpoints"),
+                         jc.obligations({}, broken, families=(), live=False)[1])
+        self.assertIn((jc.RECOVERY, "recovery observation of checkpoint-crash of generation 0 did not succeed "
+                                    "within 30.0s: ['TimeoutError']"), missing)
+
+
 class ProvenanceTests(unittest.TestCase):
     def test_records_every_input_hash_and_all_parameters(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -803,11 +1066,15 @@ class ProvenanceTests(unittest.TestCase):
                 (root / name).write_bytes(name.encode())
             args = SimpleNamespace(db=root / "Test.db", barn=root / "barn", elle_jar=root / "elle.jar",
                                    jepsen_jar=root / "jepsen.jar", java=str(root / "no-java"), phase1=1, phase3=2,
-                                   rate=3, concurrency=4, seed=5, jepsen_timeout=6, workloads=["smoke", "keyed"])
+                                   phase_live=7, rate=3, concurrency=4, seed=5, jepsen_timeout=6,
+                                   workloads=["smoke", "keyed"])
             row = jc.provenance(args, root)
         sha = jc.barn_process.bench.sha256_file
-        self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "rate": 3, "concurrency": 4, "seed": 5,
-                                             "jepsen_timeout": 6, "workloads": ["smoke", "keyed"]})
+        self.assertEqual(row["parameters"], {"phase1": 1, "phase3": 2, "phase_live": 7, "rate": 3, "concurrency": 4,
+                                             "seed": 5, "jepsen_timeout": 6, "workloads": ["smoke", "keyed"]})
+        self.assertEqual(row["live_checkpoints"], {"deadline_seconds": jc.CHECKPOINT_DEADLINE,
+                                                   "delay_span": jc.DELAY_SPAN,
+                                                   "first_delay_seconds": jc.FIRST_DELAY_SECONDS})
         self.assertEqual(row["families"], {"smoke": jc.FAMILIES["smoke"], "keyed": jc.FAMILIES["keyed"]})
         self.assertEqual((row["barn"]["size_bytes"], row["checker_jar"]["size_bytes"],
                           row["jepsen"]["jar"]["size_bytes"], row["fixture"]["database"]["size_bytes"]),
@@ -898,10 +1165,11 @@ class MainTests(unittest.TestCase):
 
 
 class FakeServer:
-    def __init__(self, executable, db, run_dir, port, log):
+    def __init__(self, executable, db, run_dir, port, log, recovered_input=None):
         self.db, self.run_dir, self.port, self.log = db, run_dir, port, log
         self.paused, self.identity, self.proc = False, {"db": str(db)}, SimpleNamespace(poll=lambda: None)
         self.verified = True
+        self.recovered_input = recovered_input
 
     def start(self):
         self.log.append(("start", self.db.name, self.db.read_bytes(), self.port))
@@ -933,6 +1201,8 @@ class FakeServer:
 
 
 class CampaignTests(unittest.TestCase):
+    server_type = FakeServer
+
     def campaign(self, probe_fails=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -951,10 +1221,20 @@ class CampaignTests(unittest.TestCase):
                 return ok(1)
             if code.startswith("rows = #0.jepsen_rows; led = #0.jepsen_ledger; out = {}; out = "):
                 return ok([[7]] * code.count("maphaskey"))
+            if code.startswith('e = ("jepsen_epoch"'):
+                return ok(recovery(port, code))
+            if "#0.jepsen_epoch = " in code:
+                return ok(int(code.split("#0.jepsen_epoch = ")[1].split(";")[0]))
             return ok({1: [1]})
+        def recovery(port, code):
+            """The pre-admission read: by default no marker, no tasks, no rows."""
+            return recoveries.get(port, [-1, 0, []])
+        recoveries = {}
+        self.recoveries = recoveries
         script = {"execute": evaluate}
-        def server_class(*args):
-            servers.append(FakeServer(*args, log))
+        self.script_codes = lambda: script.get("codes", [])
+        def server_class(*args, **kwargs):
+            servers.append(self.server_type(*args, log, **kwargs))
             return servers[-1]
         output = root / "run"
         output.mkdir()
@@ -990,9 +1270,10 @@ class CampaignTests(unittest.TestCase):
         campaign.fault("crash")
         rows = jc.load_jsonl(output / "lifecycle.jsonl")
         self.assertEqual([(row["event"], row.get("reason")) for row in rows],
-                         [("admit", None), ("probe", "launch"), ("pause", None), ("resume", None),
-                          ("probe", "resume"), ("observation", "crash"), ("crash", None), ("admit", None),
-                          ("probe", "launch")])
+                         [("recovery-observation", None), ("admit", None), ("probe", "launch"), ("pause", None),
+                          ("resume", None), ("probe", "resume"), ("observation", "crash"), ("crash", None),
+                          ("recovery-observation", None), ("admit", None), ("probe", "launch")])
+        rows = rows[1:8] + rows[9:]
         self.assertEqual(rows[2]["observed_state"], "T")
         self.assertTrue(all(row["ok"] for row in rows if row["event"] == "probe"))
         self.assertEqual((rows[1]["value"], rows[4]["value"]), ({"written": 1, "read": 1}, {"written": 2, "read": 1}))
@@ -1005,7 +1286,7 @@ class CampaignTests(unittest.TestCase):
     def test_failed_probe_is_recorded_without_stopping_the_campaign(self):
         campaign, _, _, output = self.campaign(probe_fails=True)
         campaign.launch("initial")
-        probe = jc.load_jsonl(output / "lifecycle.jsonl")[1]
+        probe = jc.load_jsonl(output / "lifecycle.jsonl")[2]
         self.assertEqual((probe["event"], probe["ok"], probe["failed_attempts"]),
                          ("probe", False, ["ConnectionRefusedError: refused"]))
         self.assertEqual(campaign.live, (0, 9000))
@@ -1039,6 +1320,115 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(log[-2:], [("resume", 9000), ("stop", 9000)])
         campaign.finish()  # already exited: nothing is signalled
         self.assertEqual(log[-1], ("stop", 9000))
+
+
+class FakeLiveServer(FakeServer):
+    """FakeServer with SIGALRM checkpoints that write real publication files."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_next = False
+
+    def request_checkpoint(self):
+        self.log.append(("sigalrm", self.port))
+        Path(str(self.db) + ".tmp").write_bytes(b"staging")  # BeginCheckpoint's temp file
+        return {"signal_ns": time.monotonic_ns(), "log_offset_bytes": 0, "outputs_before_signal": {}}
+
+    def wait_checkpoint(self, boundary, timeout):
+        self.log.append(("wait", self.port))
+        if self.fail_next:
+            return {"status": "failed", "started": 1, "complete": [], "failed": ["disk full"]}
+        Path(str(self.db) + ".tmp").unlink()
+        database, sidecar = Path(str(self.db) + ".new"), Path(str(self.db) + ".new.waifids")
+        database.write_bytes(b"live checkpoint of " + self.db.read_bytes())
+        sidecar.write_bytes(b"live sidecar")
+        return {"status": "complete", "started": 1, "complete": [10], "failed": [], "duration_ms": 10,
+                "observed_ns": time.monotonic_ns(), "outputs": {
+                    "database": {"path": str(database), "sha256": jc.barn_process.bench.sha256_file(database)},
+                    "waif_identities": {"path": str(sidecar), "sha256": jc.barn_process.bench.sha256_file(sidecar)}}}
+
+    def checkpoint_log(self, boundary):
+        return {"started": 1, "complete": [], "failed": []}
+
+
+class LiveCampaignTests(CampaignTests):
+    server_type = FakeLiveServer
+
+    def test_checkpoint_crash_restarts_in_place_from_the_interrupted_output(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        self.assertEqual(campaign.fault("live-checkpoint")["value"], {"checkpoint": 1, "generation": 0})
+        self.assertEqual(campaign.fault("checkpoint-crash")["value"], {"crashed": 0, "generation": 1})
+        first, second = servers
+        self.assertEqual(second.db, Path(str(first.db) + ".new"))  # the actual output path, not a copy
+        self.assertEqual(second.recovered_input["kind"], "interrupted-checkpoint-output")
+        self.assertEqual(second.recovered_input["stage"], "staging")
+        self.assertEqual([entry[0] for entry in log if entry[0] in ("sigalrm", "wait", "crash")],
+                         ["sigalrm", "wait", "sigalrm", "crash"])  # one request at a time
+        rows = jc.load_jsonl(output / "lifecycle.jsonl")
+        self.assertEqual([row["event"] for row in rows][3:], [
+            "checkpoint-request", "checkpoint-complete", "observation", "checkpoint-request", "checkpoint-stop",
+            "checkpoint-crash", "recovery-observation", "admit", "probe"])
+        stop = next(row for row in rows if row["event"] == "checkpoint-stop")
+        self.assertEqual((stop["observed_state"], stop["artifacts"]["stage"]), ("T", "staging"))
+        crash = next(row for row in rows if row["event"] == "checkpoint-crash")
+        self.assertEqual({Path(item["copy"]).name for item in crash["forensic"]},
+                         {"input.db", "input.db.new", "input.db.new.waifids", "input.db.tmp"})
+        request = next(row for row in rows if row["event"] == "checkpoint-request" and row["purpose"] == "crash")
+        self.assertLessEqual(request["delay_seconds"], request["delay_span_seconds"])
+        self.assertEqual(request["delay_span_seconds"], jc.DELAY_SPAN * 0.01)
+        recovery = next(row for row in rows if row["event"] == "recovery-observation" and row["generation"] == 1)
+        self.assertEqual((recovery["observed_generation"], recovery["ok"]), (0, True))
+        self.assertEqual(rows[-2]["restart"], second.recovered_input)
+
+    def test_without_a_checkpoint_output_the_unchanged_input_is_copied(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        campaign.fault("checkpoint-crash")
+        first, second = servers
+        self.assertEqual(second.recovered_input["kind"], "no-checkpoint-output")
+        self.assertEqual(second.db, output / "gen-001" / "input.db")
+        self.assertEqual(second.db.read_bytes(), first.db.read_bytes())
+        request = next(row for row in jc.load_jsonl(output / "lifecycle.jsonl")
+                       if row["event"] == "checkpoint-request")
+        self.assertEqual(request["delay_span_seconds"], jc.DELAY_SPAN * jc.FIRST_DELAY_SECONDS)
+
+    def test_failed_live_checkpoint_fails_the_campaign(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        servers[0].fail_next = True
+        reply = campaign.fault("live-checkpoint")
+        self.assertEqual((reply["type"], reply["error"]["kind"]), ("info", "lifecycle"))
+        self.assertIn("live checkpoint 1 of generation 0 failed", campaign.failures[0])
+        self.assertEqual(jc.load_jsonl(output / "lifecycle.jsonl")[-2]["event"], "checkpoint-failed")
+
+    def test_recovered_rows_are_read_before_admission_through_the_crashed_layout(self):
+        campaign, log, servers, output = self.campaign()
+        campaign.launch("initial")
+        campaign.touch(0, [1, jc.FAMILIES["props"]["base"] + 2])
+        self.recoveries[9001] = [0, 0, [[1], [5]]]
+        campaign.fault("checkpoint-crash")
+        codes = [code for port, code in self.script_codes() if port == 9001]
+        self.assertTrue(codes[0].startswith('e = ("jepsen_epoch" in properties(#0)) ? #0.jepsen_epoch | -1; '
+                                            't = length(queued_tasks()); if (e != 0) return {e, t, {}}; endif '))
+        self.assertTrue(codes[0].endswith("return {e, t, out};"))
+        # Generation 0's layout is objects 0..6; property key K lives on object K mod 4.
+        self.assertIn(f"#2.jp{jc.FAMILIES['props']['base'] + 2}", codes[0])
+        self.assertEqual(codes[1], jc.ADMIT_CODE)  # admission only after the observation
+        recovery = next(row for row in jc.load_jsonl(output / "lifecycle.jsonl")
+                        if row["event"] == "recovery-observation" and row["generation"] == 1)
+        self.assertEqual((recovery["epoch"], recovery["rows"]), (0, [[1], [5]]))
+
+
+class RecoveryObservationCodeTests(unittest.TestCase):
+    def test_reply_shapes(self):
+        self.assertEqual(jc.parse_recovery_observation([3, 0, [[1, 2]]], [7], 3),
+                         {"epoch": 3, "tasks": 0, "rows": [[1, 2]]})
+        self.assertEqual(jc.parse_recovery_observation([2, 1, []], [7], 3), {"epoch": 2, "tasks": 1, "rows": None})
+        for value in ([3, 0, []], [3, 0, [[1], [2]]], [2, 0, [[1]]], [3, "0", [[1]]], {3: 0}):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    jc.parse_recovery_observation(value, [7], 3)
 
 
 if __name__ == "__main__":
