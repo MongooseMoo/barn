@@ -205,6 +205,7 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anony
 	}
 	tx.createdObjects[newID] = cloneObjectForReadTxn(obj)
 	tx.objects[newID] = obj
+	tx.beforeFirstOwn()
 	lazySet(&tx.owned, newID, facetsAll)
 
 	// Add the new object to each parent's children (commutative setadd — two creates

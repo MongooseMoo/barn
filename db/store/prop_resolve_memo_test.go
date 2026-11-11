@@ -313,6 +313,67 @@ func TestPropResolveMemoShapeChangesInvalidate(t *testing.T) {
 	}
 }
 
+// A transaction that resolved through the memo while it was only reading and
+// then writes is validated on the walk's own marks, not the clock: its first
+// write re-walks the hits into exact marks. An unrelated clear flip elsewhere
+// then leaves its commit alone, and an override on the walked path still fails
+// it.
+func TestPropResolveMemoFirstWriteMaterializesMarks(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		change   func(t *testing.T, s *Store)
+		conflict bool
+	}{
+		{name: "unrelated clear flip", change: func(t *testing.T, s *Store) {
+			if ec := s.DirectTxn().SetPropertyValue(2, "x", types.NewInt(9)); ec != types.E_NONE {
+				t.Fatalf("SetPropertyValue #2.x: %v", ec)
+			}
+		}},
+		{name: "override on the walked path", change: func(t *testing.T, s *Store) {
+			if ec := s.DirectTxn().SetPropertyValue(1, "p", types.NewStr("mid")); ec != types.E_NONE {
+				t.Fatalf("SetPropertyValue #1.p: %v", ec)
+			}
+		}, conflict: true},
+	} {
+		for _, first := range []string{"property write", "create"} {
+			t.Run(tc.name+"/"+first, func(t *testing.T) {
+				s := propMemoStore(t)
+				_, _, _, want := walkReference(t, s, 2, "p", nil)
+				warmPropMemo(t, s, 2, "p")
+
+				user := s.BeginSnapshot(0)
+				defer user.Release()
+				user.findProperty(2, "p")
+				if !user.usedPropMemo {
+					t.Fatal("expected a clock-validated memo hit")
+				}
+				switch first {
+				case "property write":
+					writeW(t, user, 1)
+				case "create":
+					if _, ec := user.CreateObject(nil, 0); ec != types.E_NONE {
+						t.Fatalf("CreateObject: %v", ec)
+					}
+				}
+				if user.usedPropMemo || len(user.propMemoHits) != 0 || user.propMemoDisabled {
+					t.Fatalf("after the first write: used=%v hits=%v disabled=%v, want the dependency gone and the memo still on", user.usedPropMemo, user.propMemoHits, user.propMemoDisabled)
+				}
+				got := snapshotReadSet(user)
+				for key, version := range want.propertyReads {
+					if got.propertyReads[key] != version {
+						t.Fatalf("first write did not materialize %v@%d: %v", key, version, got.propertyReads)
+					}
+				}
+
+				tc.change(t, s)
+				if ec := user.Commit(); (ec != types.E_NONE) != tc.conflict {
+					t.Fatalf("writer commit after %s = %v, want conflict=%v", tc.name, ec, tc.conflict)
+				}
+			})
+		}
+	}
+}
+
 // A clear flip anywhere moves the property-shape clock; a value write to an
 // existing non-clear slot does not.
 func TestPropResolveMemoClockMovesOnClearFlipOnly(t *testing.T) {

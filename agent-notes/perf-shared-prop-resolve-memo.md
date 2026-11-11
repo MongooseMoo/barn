@@ -63,6 +63,20 @@ A/B goodput comparison not done here (the requester does it).
   lost validations (499 sole): reading-phase memo users later condemned by an
   unrelated clear flip anywhere in the store (about 2 per second).
 
+## Follow-up: writers validated on marks only
+The first build's 565 `property-memo-shape` losses were transactions that took
+memo hits while reading and wrote later. Now, as a transaction privatizes or
+creates its first object (`beforeFirstOwn`, called from mutableFacets and
+CreateObject), its hits are re-walked into the walk's own marks and the clock
+dependency is dropped; the memo stays on and later hits replay exact marks.
+The hook is in mutableFacets rather than privatizeCached because
+privatizeCached is also called under store.mu (AdoptLiveRelationships,
+ReseedInheritedProperties), live-mutation paths that are materialized
+already. Measured at 64 players: `property-memo-shape` lost=97 (4.1% of
+lost validations), shared-memo hit rate 98.3%, 63,694 re-walks at first own
+in the window. The 97 left are commits that validate without ever
+privatizing (WAIF-only or task-row-only writes, external reads, overlapsHold).
+
 ## Surprises
 - The existing verb memo has the window above: a snapshot that begins between
   a verb-shape commit's clock CAS and its noteVerbShapeChanged sees the new

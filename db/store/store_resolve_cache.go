@@ -820,12 +820,32 @@ func (tx *StoreTxn) notePropMemoHit(key propResolveKey) {
 }
 
 // materializePropMemoMarks is materializeVerbMemoMarks for the property memo:
-// each resolution taken from it is walked again on the snapshot into the walk's
-// own marks, and the memo is off for the rest of the transaction. The
-// per-transaction records of those hits carry only some of a walk's marks, so
-// they are dropped too.
+// the clock-validated resolutions are walked into the walk's own marks
+// (rewalkPropMemoHits), and the memo is off for the rest of the transaction.
 func (tx *StoreTxn) materializePropMemoMarks() {
 	tx.propMemoDisabled = true
+	tx.rewalkPropMemoHits()
+}
+
+// beforeFirstOwn runs as a transaction is about to privatize or create its
+// first object: from here on it stages writes and is validated at commit, so
+// the clock-validated resolutions it took while reading become the walk's own
+// marks. A writer is then validated on per-object marks only, and an
+// unrelated property-shape change anywhere in the store no longer fails it.
+// Its later memo hits replay exact marks (replayPropMemo).
+func (tx *StoreTxn) beforeFirstOwn() {
+	if len(tx.owned) == 0 {
+		tx.rewalkPropMemoHits()
+	}
+}
+
+// rewalkPropMemoHits walks each resolution this transaction took from the
+// property memo again, on its snapshot, into the walk's own marks, and drops
+// the clock dependency they stood for. The walk sees what the hit saw: the
+// entry was usable, so no property shape changed between the snapshot and the
+// entry's. The per-transaction records of those hits carry only some of a
+// walk's marks, so they are dropped too.
+func (tx *StoreTxn) rewalkPropMemoHits() {
 	if !tx.usedPropMemo {
 		return
 	}
