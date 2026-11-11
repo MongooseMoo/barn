@@ -1,15 +1,52 @@
 """Fixtures for the Jepsen task lane and effects lane (plan section 4): never
 launch Barn, Jepsen or Elle. Each defect fixture must give its own witness."""
 import copy
+import json
+from pathlib import Path
 import unittest
 
 import jepsen_checkpoint as jc
-from test_jepsen_checkpoint import LAYOUT, CampaignTests, ok
+from test_jepsen_checkpoint import LAYOUT, CampaignTests, FakeServer, ok
 
 EFFECTS = jc.FAMILIES["effects"]["base"]
 PROGRAMMER, OBJECT = 40, 41
 SETUP = {"programmer": PROGRAMMER, "object": OBJECT, "anon_parent": 42, "waif_class": 43}
 TASKS = [{"kind": kind, "token": 1000100 + index, "tid": 500 + index} for index, kind in enumerate(jc.TASK_KINDS)]
+
+
+# Excerpt of a Barn-written checkpoint (CI run 42974481407, gen-001/input.db,
+# suspended task 943's header and its first frame's program identity),
+# repeated for task 507 with a second frame's builtin-layout hex after it.
+FINGERPRINT = "a6ced4e1ca08e5597e8b1636ff5c9f66e1e7197f527934675ec200c28e7bef5a"
+LAYOUT_HEX = "7610940166d76da17496cc16cb010e1627fcb29d285175ecefdf9a65ff14a0d9"
+
+
+def task_section(tid):
+    return "\n".join([f"1794383217 {tid} 0", "0", "10", "0", "2 -1 0 50", "language version 17", "fork tid (0)",
+                      "this:(args[1])(@listdelete(args, 1));", "endfork", "suspend(0);", "return tid;", ".",
+                      "3 variables", "tid", "0", str(tid), "spawn", "4", "20", "2", "__barn_vm_frame_v2", "4", "3",
+                      "0", "1", "4", "0", "2", FINGERPRINT, "4", "2", "values_body", "2", LAYOUT_HEX])
+
+
+FIXTURE_TASKS = "\n".join(["0 queued tasks", "2 suspended tasks", task_section(943), task_section(507),
+                           "0 interrupted tasks", ""])
+
+
+class InvalidateTests(unittest.TestCase):
+    def test_flips_only_the_named_tasks_first_fingerprint(self):
+        text, line = jc.invalidate_task_fingerprint(FIXTURE_TASKS, 507)
+        before, after = FIXTURE_TASKS.split("\n"), text.split("\n")
+        changed = [index for index, (old, new) in enumerate(zip(before, after)) if old != new]
+        self.assertEqual(changed, [line - 1])
+        self.assertEqual(before[line - 1], FINGERPRINT)
+        self.assertEqual(after[line - 1], "0" + FINGERPRINT[1:])
+        self.assertGreater(line - 1, before.index("1794383217 507 0"))
+
+    def test_refuses_a_missing_task_or_section(self):
+        with self.assertRaises(ValueError):
+            jc.invalidate_task_fingerprint(FIXTURE_TASKS, 999)
+        with self.assertRaises(ValueError):
+            jc.invalidate_task_fingerprint("0 queued tasks\n", 507)
 
 
 def layout_with_effects():
@@ -41,6 +78,20 @@ class EffectsCodeTests(unittest.TestCase):
             jc.effects_code([["append", EFFECTS, 1], ["r", 0, None]], layout_with_effects(), 3)
         with self.assertRaises(ValueError):
             jc.txn_code([["append", EFFECTS, 1]], jc.parse_layout(LAYOUT), 3)
+
+    def test_an_observation_across_families_reads_effects_rows_without_effects(self):
+        # CI run 42974481407: the pre-admission recovery observation of every
+        # touched key was refused as a mixed effects transaction.
+        keys = [EFFECTS + 1, 0, EFFECTS + 2]
+        code = jc.observation_code(keys, layout_with_effects())
+        self.assertIn(f"`#30.je{EFFECTS + 1} ! E_PROPNF => {{}}'", code)
+        self.assertIn(f"`#30.je{EFFECTS + 2} ! E_PROPNF => {{}}'", code)
+        self.assertNotIn("notify(", code)
+        self.assertNotIn(".hot", code)
+        self.assertTrue(jc.recovery_observation_code(1, keys, layout_with_effects()).endswith("return {e, t, out};"))
+        only = jc.observation_code([EFFECTS + 1], layout_with_effects())
+        self.assertNotIn("notify(", only)
+        self.assertNotIn(".hot", only)
 
     def test_drain_code(self):
         self.assertEqual(jc.drain_code({"receiver": 31, "option": 32}, "2 5"),
@@ -101,7 +152,8 @@ class TaskLane:
         self.held_ids = [task["tid"] for task in TASKS]
         self.records = healthy_records()
         self.after_ids = []
-        self.receipts = [{"generation": 1, "line": f"jepsen-task {TASKS[-1]['token']}"}]
+        effect = next(task for task in TASKS if task["kind"] == "effect")
+        self.receipts = [{"generation": 1, "line": f"jepsen-task {effect['token']}"}]
         self.complete = True
 
     def lifecycle(self):
@@ -232,6 +284,42 @@ class TaskCheckTests(unittest.TestCase):
         lane, lifecycle, recoveries = self.live_lane(["unchanged input"])
         self.assertEqual(witnesses(lane.check(recoveries, lifecycle=lifecycle)[1]), ["unexpected-task"])
 
+    def invalidated(self, restored=False, ran=False):
+        lane = TaskLane()
+        invalid = next(task for task in TASKS if task["kind"] == "invalid")
+        lifecycle = lane.lifecycle()
+        lifecycle.insert(1, {"event": "task-invalidate", "generation": 0, "plant": 1, "tid": invalid["tid"],
+                             "token": invalid["token"]})
+        if not restored:
+            lifecycle[3]["state"]["ids"] = [tid for tid in lifecycle[3]["state"]["ids"] if tid != invalid["tid"]]
+        if not ran:
+            del lane.records[str(invalid["token"])]
+        return lane, lifecycle
+
+    def test_invalid_task_policy(self):
+        lane, lifecycle = self.invalidated()
+        self.assertEqual(lane.check(lifecycle=lifecycle)[1], [])
+        lane, lifecycle = self.invalidated(restored=True)
+        self.assertEqual(witnesses(lane.check(lifecycle=lifecycle)[1]), ["invalid-task-policy"])
+        lane, lifecycle = self.invalidated(ran=True)
+        self.assertEqual(witnesses(lane.check(lifecycle=lifecycle)[1]), ["invalid-task-policy"])
+
+    def test_the_declared_drop_record_is_expected_and_required(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "gen-001" / "logs").mkdir(parents=True)
+            (root / "gen-001" / "server.log").write_text("")
+            lifecycle = [{"event": "admit", "generation": 1},
+                         {"event": "task-invalidate", "generation": 0, "tid": 507}]
+            record = {"level": "ERROR", "msg": jc.DROPPED_TASK_MESSAGE, "task_id": 507}
+            (root / "gen-001" / "logs" / "latest.jsonl").write_text(json.dumps(record) + "\n")
+            self.assertEqual(jc.log_findings(root, lifecycle)[1], [])
+            other = dict(record, task_id=508)
+            (root / "gen-001" / "logs" / "latest.jsonl").write_text(json.dumps(other) + "\n")
+            classes = [kind for kind, _ in jc.log_findings(root, lifecycle)[1]]
+            self.assertEqual(classes, [jc.RECOVERY, jc.INCOMPLETE])
+
     def test_coverage(self):
         lane = TaskLane()
         lane.complete = False
@@ -327,13 +415,34 @@ class FakeReceiver:
         self.closed = True
 
 
-class TaskCampaignTests(CampaignTests):
+class SidecarServer(FakeServer):
+    """FakeServer whose checkpoint sidecar carries Barn's digest header."""
+
+    def stop(self):
+        result = super().stop()
+        outputs = result["final_checkpoint"].get("outputs")
+        if outputs:
+            sidecar = Path(outputs["waif_identities"]["path"])
+            sidecar.write_bytes(f"barn-waif-identities-v1 {outputs['database']['sha256']}\n".encode())
+            outputs["waif_identities"]["sha256"] = jc.barn_process.bench.sha256_file(sidecar)
+        return result
+
+
+class TaskCampaignTests(unittest.TestCase):
     """The task lane's order: plant before the graceful checkpoint's stop; at the
     next launch read every plant's held state after the recovery observation
     and before any release; release, wait, then admit."""
 
+    server_type = SidecarServer
+    base_campaign = CampaignTests.campaign  # its fake servers, ports and evaluate
+
     def lane_campaign(self):
         campaign, log, servers, output = self.campaign(tasks=True, receiver_class=FakeReceiver, release_deadline=0)
+        # FakeServer's checkpoint is "checkpoint of " + its input: give the
+        # fixture the invalid task's section (tid 507) with a fingerprint line.
+        fixture = Path(campaign.source["database"])
+        fixture.write_bytes(FIXTURE_TASKS.encode())
+        campaign.source["database_sha256"] = jc.barn_process.bench.sha256_file(fixture)
         state = {"released": False, "spawned": []}
         evaluate = self.script_evaluate
 
@@ -347,8 +456,10 @@ class TaskCampaignTests(CampaignTests):
                 return ok(500 + len(state["spawned"]) - 1)
             if code.startswith("ids = {}; for t in (queued_tasks())"):
                 if state["released"]:
-                    return ok([[], healthy_records()])
-                return ok([[500 + n for n in range(len(jc.TASK_KINDS))], {}])
+                    return ok([[], healthy_records([task for task in TASKS if task["kind"] != "invalid"])])
+                # Barn drops the invalidated task (507) at load.
+                count = len(jc.TASK_KINDS) - (1 if campaign.invalidated else 0)
+                return ok([[500 + n for n in range(count)], {}])
             if code.startswith(f"#{OBJECT}.receiver = "):
                 state["released"] = True
                 return ok(1)
@@ -358,7 +469,7 @@ class TaskCampaignTests(CampaignTests):
         return campaign, output, state
 
     def campaign(self, probe_fails=False, **options):
-        result = super().campaign(probe_fails, **options)
+        result = self.base_campaign(probe_fails, **options)
         # CampaignTests keeps its evaluate in a closure; reach it through the script.
         campaign = result[0]
         self.script = campaign.transport_factory(0).script
@@ -380,7 +491,14 @@ class TaskCampaignTests(CampaignTests):
         self.assertEqual(order[:4], ["recovery-observation", "task-recovery", "effect-connections", "task-release"])
         self.assertLess(order.index("task-release"), order.index("admit"))
         recovery = lifecycle[second[1]]
-        self.assertEqual((recovery["status"], len(recovery["present"])), ("held", len(jc.TASK_KINDS)))
+        invalidated = lifecycle[events.index("task-invalidate")]
+        self.assertEqual((invalidated["tid"], invalidated["generation"]), (507, 0))
+        self.assertEqual(Path(invalidated["to"]["waif_identities"]).read_text().split("\n")[0],
+                         f"barn-waif-identities-v1 {invalidated['to']['database_sha256']}")
+        # The invalidated task is not expected back; the rest are held.
+        self.assertEqual((recovery["status"], len(recovery["present"])), ("held", len(jc.TASK_KINDS) - 1))
+        self.assertNotIn("resume(507,", codes[next(i for i, code in enumerate(codes)
+                                                   if code.startswith(f"#{OBJECT}.receiver = "))])
         release_at = next(i for i, code in enumerate(codes) if code.startswith(f"#{OBJECT}.receiver = "))
         admit_at = max(i for i, code in enumerate(codes) if code == jc.ADMIT_CODE)
         self.assertLess(release_at, admit_at)

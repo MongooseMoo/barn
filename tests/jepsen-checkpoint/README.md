@@ -132,7 +132,12 @@ reads every plant's held state before admission, then the driver releases it
 `wrong-wake-value`, `duplicated-continuation`, `wrong-alias`,
 `killed-task-ran`, `wrong-task-perms`, `wrong-program-after-edit`,
 `recycled-reference-valid`, `ran-before-release`, `unexpected-task`,
-`effect-before-release`. Expectations are pinned on the managed Toast oracle by
+`effect-before-release`. Once per campaign the harness flips the saved
+program fingerprint of one planted task in the first graceful checkpoint
+(rewriting the sidecar's digest header) and launches from that pair: Barn must
+drop exactly that task with its declared ERROR record and restore the rest
+(`invalid-task-policy`); a deliberately invalid task is not a lost valid task.
+Expectations are pinned on the managed Toast oracle by
 moo-conformance-tests `server/restart_held_task_semantics.yaml`.
 
 The `effects` family adds a receiver and an option connection per generation.

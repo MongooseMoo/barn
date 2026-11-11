@@ -247,11 +247,13 @@ def keyed_code(f, key, value, layout, mode):
     return f"{obj}.jm[{key}] = {{@{entry}, {value}}};"
 
 
-def txn_code(txn, layout=None, op_id=0):
+def txn_code(txn, layout=None, op_id=0, observation=False):
     """One MOO task running txn's micro-operations in order and returning its reads.
 
     Smoke rows append to the per-boot row map and the durable ledger. Property
     and keyed rows need the generation's layout; op_id picks the keyed mode.
+    A client transaction of effects rows is effects_code; a campaign
+    observation reads effects rows only, with no notification or hot write.
     """
     statements, smoke, appends = ["out = {};"], False, False
     for mop in txn:
@@ -266,8 +268,11 @@ def txn_code(txn, layout=None, op_id=0):
         if family != "smoke" and layout is None:
             raise ValueError(f"{family} micro-operation {mop!r} needs the generation's row layout")
         if family == "effects":
-            return effects_code(txn, layout, op_id)
-        if family == "props":
+            if not observation:
+                # A client transaction (one family per transaction, core.clj txns).
+                return effects_code(txn, layout, op_id)
+            statements.append(effects_row_code(f, key, value, layout))
+        elif family == "props":
             statements.append(props_code(f, key, value, layout))
         elif family == "keyed":
             statements.append(keyed_code(f, key, value, layout, op_id % 4))
@@ -288,7 +293,7 @@ def txn_code(txn, layout=None, op_id=0):
 
 def observation_code(keys, layout):
     """Read every listed row in one task."""
-    return txn_code([["r", key, None] for key in keys], layout)
+    return txn_code([["r", key, None] for key in keys], layout, observation=True)
 
 
 def recovery_observation_code(generation, keys, layout):
@@ -346,6 +351,18 @@ def boundary_op(op_id):
     return op_id % 2 == 1
 
 
+def effects_row_code(f, key, value, layout):
+    """A direct read or append of effects row key (property jeK of the effects object)."""
+    effects = layout.get("effects") if layout else None
+    if not effects:
+        raise ValueError("effects micro-operations need the generation's effects objects")
+    obj, prop = f"#{effects['object']}", f"je{key}"
+    if f == "r":
+        return f"out = {{@out, `{obj}.{prop} ! E_PROPNF => {{}}'}};"
+    return (f"try {obj}.{prop} = {{@{obj}.{prop}, {value}}}; "
+            f"except (E_PROPNF) add_property({obj}, \"{prop}\", {{{value}}}, {{#0, \"r\"}}); endtry")
+
+
 def effects_code(txn, layout, op_id):
     """An effects transaction.
 
@@ -373,13 +390,8 @@ def effects_code(txn, layout, op_id):
         f, key, value = mop
         if not ((f == "append" and type(value) is int) or (f == "r" and value is None)):
             raise ValueError(f"malformed micro-operation {mop!r}")
-        prop = f"je{key}"
-        if f == "r":
-            statements.append(f"out = {{@out, `{obj}.{prop} ! E_PROPNF => {{}}'}};")
-        else:
-            statements.append(f"try {obj}.{prop} = {{@{obj}.{prop}, {value}}}; "
-                              f"except (E_PROPNF) add_property({obj}, \"{prop}\", {{{value}}}, {{#0, \"r\"}}); endtry")
-    statements += [f"{obj}.hot = h + 1;", f'notify({receiver}, "{EFFECT_PREFIX} {op_id} post");', "return out;"]
+        statements.append(effects_row_code(f, key, value, layout))
+    statements +=[f"{obj}.hot = h + 1;", f'notify({receiver}, "{EFFECT_PREFIX} {op_id} post");', "return out;"]
     return " ".join(statements)
 
 
@@ -406,10 +418,10 @@ FORK_DELAY = 10
 # Ceiling for every released continuation to record its result. Not measured;
 # it covers FORK_DELAY.
 RELEASE_DEADLINE = 45.0
-TASK_KINDS = ("fork", "suspend", "values", "edit", "cancel", "recycle", "effect")
+TASK_KINDS = ("fork", "suspend", "values", "edit", "cancel", "recycle", "effect", "invalid")
 # Released with resume(tid, {token, "wake"}); cancel is killed instead and
 # fork passes its gate.
-RESUMED_KINDS = ("suspend", "values", "edit", "recycle", "effect")
+RESUMED_KINDS = ("suspend", "values", "edit", "recycle", "effect", "invalid")
 
 
 def _moo_lines(lines):
@@ -441,6 +453,8 @@ TASK_VERBS = {
                           "a == held[2], a.tok, typeof(w), w == w2, w == held[3], w.tok, toint(task_perms())});"]),
     "edit_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"edit\", \"old\", v});"]),
     "cancel_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"cancel\", \"ran\", v});"]),
+    # The task whose saved program the harness invalidates once (invalidate_task_fingerprint).
+    "invalid_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"invalid\", v});"]),
     "recycle_body": ("p", ["h = args[2];", f"v = suspend({HOLD_SECONDS});",
                            "this:record(args[1], {\"recycle\", valid(h), typeof(h), h == args[2], v});"]),
     "effect_body": ("wizard", [f"v = suspend({HOLD_SECONDS});",
@@ -471,7 +485,7 @@ def task_spawn_code(setup, kind, token, extra=None):
     o = f"#{setup['object']}"
     if kind == "fork":
         return f"return {o}:fork_hold({token});"
-    args = {"suspend": "", "edit": "", "cancel": "", "effect": "",
+    args = {"suspend": "", "edit": "", "cancel": "", "effect": "", "invalid": "",
             "values": f", #{setup['anon_parent']}, #{setup['waif_class']}",
             "recycle": f", #{extra}"}[kind]
     return f'return {o}:spawn("{kind}_body", {token}{args});'
@@ -490,6 +504,8 @@ def task_release_code(plant, receiver):
     o = f"#{plant['setup']['object']}"
     statements = [f"{o}.receiver = #{receiver};" if receiver is not None else "", f"{o}.gate = 1;"]
     for task in plant["tasks"]:
+        if task.get("invalidated"):
+            continue  # dropped at load; resume() would raise E_INVARG
         if task["kind"] == "cancel":
             statements.append(f"kill_task({task['tid']});")
         elif task["kind"] in RESUMED_KINDS:
@@ -541,6 +557,39 @@ class Receiver:
         self.transport.disconnect()
         if self.thread is not None:
             self.thread.join(5)
+
+
+DROPPED_TASK_MESSAGE = "dropped suspended task: saved program does not match its source"
+
+
+def invalidate_task_fingerprint(text, tid):
+    """Flip one hex digit of suspended task tid's first saved program fingerprint.
+
+    In a Barn-written checkpoint the task section starts with the line
+    "<start> <tid> <wake value...>" after "N suspended tasks", and each saved
+    frame's program identity list ends with its 64-hex-digit fingerprint,
+    which precedes that frame's builtin-layout hex (db/format/writer_vm.go
+    programIdentityValue). The first 64-hex line after the header is
+    therefore the first frame's fingerprint. Barn's loader recompiles the
+    frame's source, finds the fingerprint different and drops only that task
+    (engine/task_load.go LoadSuspendedTasks). Returns (new text, line number).
+    """
+    lines = text.split("\n")
+    start = next((index for index, line in enumerate(lines) if line.endswith(" suspended tasks")), None)
+    if start is None:
+        raise ValueError("checkpoint has no suspended tasks section")
+    header = next((index for index in range(start + 1, len(lines))
+                   if len(lines[index].split()) >= 2 and lines[index].split()[1] == str(tid)
+                   and lines[index].split()[0].lstrip("-").isdigit()), None)
+    if header is None:
+        raise ValueError(f"suspended task {tid} is not in the checkpoint")
+    target = next((index for index in range(header + 1, len(lines))
+                   if len(lines[index]) == 64 and all(c in "0123456789abcdef" for c in lines[index])), None)
+    if target is None:
+        raise ValueError(f"suspended task {tid} has no saved program fingerprint")
+    line = lines[target]
+    lines[target] = ("1" if line[0] == "0" else "0") + line[1:]
+    return "\n".join(lines), target + 1
 
 
 def parse_task_state(value):
@@ -743,6 +792,7 @@ class Campaign:
         self.release_deadline = release_deadline
         self.plants = []                    # every task-plant record (task lane)
         self.live_planted = set()           # generations whose live lane planted a set
+        self.invalidated = False            # the invalid-task policy check ran (invalidate)
         self.connections = []               # this generation's receiver and option connections
         self.drains = 0
         self.receipts_lock = threading.Lock()
@@ -969,7 +1019,7 @@ class Campaign:
             def attempt(plant=plant):
                 return parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
             ok, state, errors, seconds = self.bounded(attempt)
-            tids = [task["tid"] for task in plant["tasks"]]
+            tids = [task["tid"] for task in plant["tasks"] if not task.get("invalidated")]
             present = [tid for tid in tids if ok and tid in state["ids"]]
             if not ok or state["results"] is None:
                 status = "absent" if ok else "unreadable"
@@ -1013,8 +1063,9 @@ class Campaign:
         for plant in plants:
             self.evaluate(port, task_release_code(plant, receiver))
             released_ns = time.monotonic_ns()
-            expected = {task["token"] for task in plant["tasks"] if task["kind"] != "cancel"}
-            tids = {task["tid"] for task in plant["tasks"]}
+            expected = {task["token"] for task in plant["tasks"]
+                        if task["kind"] != "cancel" and not task.get("invalidated")}
+            tids = {task["tid"] for task in plant["tasks"] if not task.get("invalidated")}
             deadline, state = time.monotonic() + self.release_deadline, None
             while True:
                 state = parse_task_state(self.evaluate(port, task_state_code(plant["setup"])))
@@ -1173,7 +1224,41 @@ class Campaign:
                        "waif_identities": outputs["waif_identities"]["path"],
                        "waif_identities_sha256": outputs["waif_identities"]["sha256"],
                        "baseline": baseline, "baseline_generation": generation}
+        if self.tasks and not self.invalidated:
+            self.invalidate(generation)
         return {"checkpointed": generation, "generation": self.launch("checkpoint")}
+
+    def invalidate(self, generation):
+        """Once per campaign: copy the verified pair, flip the saved program
+        fingerprint of the latest plant's "invalid" task, rewrite the sidecar's
+        database digest header to match, and make that pair the launch source.
+        Barn must drop exactly that task and restore the rest (plan section 4:
+        a deliberately invalid task is not a lost valid task)."""
+        plant = self.plants[-1]
+        task = next(item for item in plant["tasks"] if item["kind"] == "invalid")
+        directory = self.output / f"gen-{generation:03d}-invalidated"
+        directory.mkdir()
+        database, sidecar = directory / "input.db", directory / "input.db.waifids"
+        # Bytes throughout: no newline translation inside saved strings.
+        original = Path(self.source["database"]).read_bytes().decode("utf-8", "surrogateescape")
+        text, line = invalidate_task_fingerprint(original, task["tid"])
+        database.write_bytes(text.encode("utf-8", "surrogateescape"))
+        digest = barn_process.bench.sha256_file(database)
+        header, _, rest = Path(self.source["waif_identities"]).read_bytes().partition(b"\n")
+        if not header.startswith(b"barn-waif-identities-v1 "):
+            raise RuntimeError(f"unexpected WAIF identity sidecar header {header!r}")
+        sidecar.write_bytes(f"barn-waif-identities-v1 {digest}\n".encode() + rest)
+        before = dict(self.source)
+        self.source.update(database=str(database), database_sha256=digest, waif_identities=str(sidecar),
+                           waif_identities_sha256=barn_process.bench.sha256_file(sidecar))
+        task["invalidated"] = True
+        self.invalidated = True
+        self.record({"event": "task-invalidate", "generation": generation, "plant": plant["seq"], "tid": task["tid"],
+                     "token": task["token"], "line": line,
+                     "from": {key: before[key] for key in ("database", "database_sha256", "waif_identities",
+                                                           "waif_identities_sha256")},
+                     "to": {key: self.source[key] for key in ("database", "database_sha256", "waif_identities",
+                                                              "waif_identities_sha256")}})
 
     def _request_checkpoint(self, purpose, **extra):
         """SIGALRM one checkpoint; the previous one was acknowledged or its process is gone."""
@@ -2017,6 +2102,7 @@ def expected_task_record(task, programmer):
             "suspend": ["suspend", [token, "outer"], task["tid"], [wake, [token, "inner"], programmer]],
             "values": ["values", wake, 1, 12, 1, 1, 1, token + 1, 13, 1, 1, token + 2, programmer],
             "edit": ["edit", "old", wake],
+            "invalid": ["invalid", wake],
             "recycle": ["recycle", 0, 1, 1, wake],
             "effect": ["effect", wake]}.get(kind)
 
@@ -2031,7 +2117,7 @@ def record_witness(kind, record, expected):
         return "wrong-program-after-edit"
     if kind == "recycle" and record[1] != 0:
         return "recycled-reference-valid"
-    wake_at = {"suspend": None, "values": 1, "edit": 2, "recycle": 4, "effect": 1}.get(kind)
+    wake_at = {"suspend": None, "values": 1, "edit": 2, "recycle": 4, "effect": 1, "invalid": 1}.get(kind)
     if kind == "suspend":
         inner = record[3] if isinstance(record[3], list) and len(record[3]) == 3 else [None, None, None]
         if inner[0] != expected[3][0]:
@@ -2090,9 +2176,11 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
         summary = {"plant": seq, "point": plant["point"], "generation": plant["generation"], "launches": [],
                    "releases": [], "witnesses": []}
         rows.append(summary)
-        tids = [task["tid"] for task in plant["tasks"]]
-        if len(set(tids)) != len(tids):
-            find(INVALID, "task-plant", f"plant {seq}: task ids {tids} repeat", summary)
+        invalid = {row["tid"] for row in lifecycle if row.get("event") == "task-invalidate" and row["plant"] == seq}
+        all_tids = [task["tid"] for task in plant["tasks"]]
+        if len(set(all_tids)) != len(all_tids):
+            find(INVALID, "task-plant", f"plant {seq}: task ids {all_tids} repeat", summary)
+        tids = [tid for tid in all_tids if tid not in invalid]
         for recovery in (row for row in lifecycle if row.get("event") == "task-recovery" and row["plant"] == seq):
             generation, state = recovery["generation"], recovery.get("state") or {}
             where = f"plant {seq} at the launch of generation {generation}"
@@ -2103,6 +2191,9 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
                                                     f"{recovery.get('failed_attempts')}", summary)
                 continue
             ids = state.get("ids") or []
+            if invalid & set(ids):
+                find(CORRECTNESS, "invalid-task-policy", f"{where}: the deliberately invalidated task(s) "
+                                                         f"{sorted(invalid & set(ids))} were restored", summary)
             if len(set(ids)) != len(ids):
                 find(CORRECTNESS, "duplicated-continuation", f"{where}: queued_tasks repeats a task id: {ids}",
                      summary)
@@ -2155,6 +2246,11 @@ def task_checks(lifecycle, receipts, recoveries, live=False):
             for task in plant["tasks"]:
                 token, kind = task["token"], task["kind"]
                 records = results.get(token) or results.get(str(token)) or []
+                if task["tid"] in invalid:
+                    if records:
+                        find(CORRECTNESS, "invalid-task-policy", f"{where}: the invalidated task {task['tid']} "
+                                                                 f"ran and recorded {records}", summary)
+                    continue
                 if kind == "cancel":
                     if records:
                         find(CORRECTNESS, "killed-task-ran", f"{where}: killed task {task['tid']} recorded "
@@ -2458,17 +2554,22 @@ def obligations(buckets, lifecycle, families=("smoke",), live=False, staged=Fals
 PANIC_MESSAGES = ("panic in verb call", "panic in eval", "panic in task")
 CHECKPOINT_FAILURES = ("checkpoint failed", "final checkpoint failed", "emergency dump failed")
 RESTORE_FAILURES = ("failed to restore queued task", "failed to restore suspended task",
-                    "dropped suspended task: saved program does not match its source")
+                    DROPPED_TASK_MESSAGE)
 
 
 def log_findings(inputs, lifecycle):
     """Scan each launched generation's runtime logs. Returns ({generation: records}, [(class, message)]).
 
-    This scenario declares no expected diagnostic: a panic is a correctness
-    violation, a checkpoint or task-restore failure a recovery failure, and
-    any other ERROR record is unexamined evidence.
+    One diagnostic is declared: the task lane's deliberately invalidated task
+    (task-invalidate rows) is dropped at load with DROPPED_TASK_MESSAGE naming
+    its task_id; those records are expected, and each invalidated task needs
+    at least one. Otherwise a panic is a correctness violation, a checkpoint or
+    task-restore failure a recovery failure, and any other ERROR record is
+    unexamined evidence.
     """
     counts, findings = {}, []
+    invalid = {row["tid"]: row for row in lifecycle if row.get("event") == "task-invalidate"}
+    dropped = set()
     for generation in sorted(row["generation"] for row in lifecycle if row.get("event") == "admit"):
         directory = inputs / f"gen-{generation:03d}"
         try:
@@ -2493,6 +2594,9 @@ def log_findings(inputs, lifecycle):
                 findings.append((CORRECTNESS, f"{where}: panic: {line}"))
             elif message in CHECKPOINT_FAILURES:
                 findings.append((RECOVERY, f"{where}: checkpoint failure: {line}"))
+            elif message == DROPPED_TASK_MESSAGE and record.get("task_id") in invalid \
+                    and generation > invalid[record["task_id"]]["generation"]:
+                dropped.add(record["task_id"])
             elif message in RESTORE_FAILURES:
                 findings.append((RECOVERY, f"{where}: task restore failure: {line}"))
             elif isinstance(record, dict) and record.get("level") == "ERROR":
@@ -2505,6 +2609,10 @@ def log_findings(inputs, lifecycle):
         for number, line in enumerate(text.splitlines(), 1):
             if line.startswith(("panic: ", "fatal error: ")):
                 findings.append((CORRECTNESS, f"generation {generation} server.log:{number}: Go runtime crash: {line}"))
+    for tid, row in sorted(invalid.items()):
+        if tid not in dropped:
+            findings.append((INCOMPLETE, f"invalid-task policy: no generation after {row['generation']} logged "
+                                         f"{DROPPED_TASK_MESSAGE!r} for the invalidated task {tid}"))
     return counts, findings
 
 
