@@ -136,14 +136,15 @@ type verbWalkStep struct {
 // propWalkStep is the property-walk counterpart. `valid` mirrors
 // validLiveObject(obj) (an invalid object is skipped, marking nothing);
 // `found` distinguishes the markPropertyRead case from the markPropertyScan
-// case, and carries the exact arguments the walk passed.
+// case. A found step keeps only the version the walk read: the name it read
+// is the walk's key, and the memo stores millions of steps, so a whole
+// Property per step was most of the bytes the memo allocated.
 type propWalkStep struct {
-	id         types.ObjID
-	obj        *Object
-	valid      bool
-	found      bool
-	actualName string
-	prop       Property
+	id      types.ObjID
+	obj     *Object
+	version uint64
+	valid   bool
+	found   bool
 }
 
 // verbScratch is the reusable state of one verb-ancestry walk.
@@ -216,6 +217,7 @@ type propResolveKey struct {
 
 type propResolveEntry struct {
 	steps []propWalkStep
+	key   string // the canonical name every found step read
 	prop  Property
 	name  string
 	ec    types.ErrorCode // E_PROPNF records a negative resolution
@@ -293,14 +295,23 @@ func (tx *StoreTxn) propStepsCurrent(steps []propWalkStep, root *Object) bool {
 	return true
 }
 
-func (tx *StoreTxn) replayPropSteps(steps []propWalkStep) {
+func (tx *StoreTxn) replayPropSteps(key string, steps []propWalkStep) {
 	for i := range steps {
 		st := &steps[i]
 		if !st.valid {
 			continue
 		}
 		if st.found {
-			tx.markPropertyReadKey(st.id, st.actualName, st.prop)
+			// The read set needs only the version. Conflict diagnostics also
+			// record the value read, from the step's object: propStepsCurrent
+			// proved it is the immutable image the walk read.
+			prop := Property{version: st.version}
+			if tx.diag != nil {
+				if full, ok := st.obj.properties.lookup(key); ok {
+					prop = full
+				}
+			}
+			tx.markPropertyReadKey(st.id, key, prop)
 		} else {
 			tx.markPropertyShapeScan(st.id, st.obj)
 		}
@@ -580,7 +591,7 @@ func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, v
 	}
 }
 
-func (tx *StoreTxn) storePropResolve(key propResolveKey, steps []propWalkStep, prop Property, name string, ec types.ErrorCode) {
+func (tx *StoreTxn) storePropResolve(key propResolveKey, nameKey string, steps []propWalkStep, prop Property, name string, ec types.ErrorCode) {
 	if tx.propResolve == nil {
 		tx.propResolve = make(map[propResolveKey]propResolveEntry)
 	} else if len(tx.propResolve) >= resolveCacheCap {
@@ -588,6 +599,7 @@ func (tx *StoreTxn) storePropResolve(key propResolveKey, steps []propWalkStep, p
 	}
 	tx.propResolve[key] = propResolveEntry{
 		steps: append([]propWalkStep(nil), steps...),
+		key:   nameKey,
 		prop:  prop,
 		name:  name,
 		ec:    ec,

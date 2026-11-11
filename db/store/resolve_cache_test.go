@@ -293,6 +293,35 @@ func TestPropertyResolveReadsOwnStagedWrite(t *testing.T) {
 	}
 }
 
+// A memo step keeps only the version it read; with conflict diagnostics on,
+// a hit must still record the value read, as the walk does.
+func TestPropertyResolveCacheHitRecordsReadValueForDiagnostics(t *testing.T) {
+	s := testChainStore(t)
+	s.SetConflictCensusTracking(true)
+	if ec := s.DirectTxn().DefineProperty(0, "desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	if tx.diag == nil {
+		t.Fatal("census tracking did not give the snapshot diagnostics")
+	}
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("walk: %v", ec)
+	}
+	walked := maps.Clone(tx.diag.readValues)
+	// Forget what the walk recorded, keeping the memo, so the hit records it.
+	tx.propertyReads, tx.readClocks, tx.diag.readValues = nil, nil, nil
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("hit: %v", ec)
+	}
+	if len(walked) == 0 || !maps.EqualFunc(walked, tx.diag.readValues, func(a, b conflictReadValue) bool {
+		return a.clear == b.clear && a.value.Equal(b.value)
+	}) {
+		t.Fatalf("hit recorded read values %v, want the walk's %v", tx.diag.readValues, walked)
+	}
+}
+
 func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) {
 	s := testChainStore(t)
 	// Defined on #0, so #1 and #2 hold inherited CLEAR slots: the walk must pass

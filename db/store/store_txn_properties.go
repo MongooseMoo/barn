@@ -163,14 +163,18 @@ func (tx *StoreTxn) findPropertyFrom(objID types.ObjID, root *Object, name strin
 	key := propResolveKey{objID: objID, name: name}
 	if cacheable {
 		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps, root) {
-			tx.replayPropSteps(entry.steps)
+			tx.replayPropSteps(entry.key, entry.steps)
 			return entry.prop, entry.name, entry.ec
 		}
 	}
 
-	prop, actualName, ec, steps := tx.walkProperty(objID, root, name)
+	// Object.properties is keyed by the canonical lowercase name, so lower the
+	// lookup once here rather than once per ancestor (an E_PROPNF walk on a
+	// deep chain otherwise re-lowers the same name at every level).
+	nameKey := propertyNameKey(name)
+	prop, actualName, ec, steps := tx.walkProperty(objID, root, nameKey)
 	if cacheable {
-		tx.storePropResolve(key, steps, prop, actualName, ec)
+		tx.storePropResolve(key, nameKey, steps, prop, actualName, ec)
 	}
 	return prop, actualName, ec
 }
@@ -182,8 +186,8 @@ func (tx *StoreTxn) findPropertyFrom(objID types.ObjID, root *Object, name strin
 // falls back to a private scratch rather than corrupting the outer walk. The
 // direct transaction, which goroutines share, walks on a pooled scratch. root,
 // when not nil, is the transaction's view of objID, used instead of fetching
-// it again.
-func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, name string) (Property, string, types.ErrorCode, []propWalkStep) {
+// it again. key is the canonical (propertyNameKey) name.
+func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, key string) (Property, string, types.ErrorCode, []propWalkStep) {
 	sc := &tx.propWalk
 	switch {
 	case tx.direct:
@@ -204,10 +208,6 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, name string) (
 	resultProp := Property{}
 	resultName := ""
 	resultErr := types.E_PROPNF
-	// Object.properties is keyed by the canonical lowercase name, so lower the
-	// lookup once here rather than once per ancestor (an E_PROPNF walk on a
-	// deep chain otherwise re-lowers the same name at every level).
-	key := propertyNameKey(name)
 
 	for head := 0; head < len(queue); head++ {
 		currentID := queue[head]
@@ -229,7 +229,7 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, root *Object, name string) (
 			actualName := key
 			sc.steps = append(sc.steps, propWalkStep{
 				id: currentID, obj: current, valid: true,
-				found: true, actualName: actualName, prop: prop,
+				found: true, version: prop.version,
 			})
 			tx.markPropertyReadKey(currentID, actualName, prop)
 			firstFound := !haveTarget
