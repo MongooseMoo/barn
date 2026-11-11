@@ -250,6 +250,7 @@ func (tx *StoreTxn) invalidateResolveCaches() {
 	tx.verbResolveGen++
 	tx.verbResolve = nil
 	tx.propResolve = nil
+	tx.propSteps = tx.propSteps[:0]
 }
 
 // verbStepsCurrent reports whether the txn's view of every object the recorded
@@ -585,9 +586,12 @@ func (tx *StoreTxn) storePropResolve(key propResolveKey, steps []propWalkStep, p
 		tx.propResolve = make(map[propResolveKey]propResolveEntry)
 	} else if len(tx.propResolve) >= resolveCacheCap {
 		tx.propResolve = make(map[propResolveKey]propResolveEntry, resolveCacheCap)
+		tx.propSteps = tx.propSteps[:0]
 	}
+	start := len(tx.propSteps)
+	tx.propSteps = append(tx.propSteps, steps...)
 	tx.propResolve[key] = propResolveEntry{
-		steps: append([]propWalkStep(nil), steps...),
+		steps: tx.propSteps[start:len(tx.propSteps):len(tx.propSteps)],
 		prop:  prop,
 		name:  name,
 		ec:    ec,

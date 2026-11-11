@@ -323,6 +323,33 @@ func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) 
 	requireSameReadSet(t, "property cache hit", want, snapshotReadSet(tx))
 }
 
+// Filing a walk in the memo appends to the transaction's step buffer; once the
+// buffer and the map have grown, overwriting an entry allocates nothing, and
+// each entry keeps its own steps.
+func TestPropertyResolveFilingDoesNotAllocatePerWalk(t *testing.T) {
+	s := testChainStore(t)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	steps := []propWalkStep{{id: 2, valid: true}, {id: 1, valid: true}, {id: 0, valid: true, found: true, actualName: "desc"}}
+	first := propResolveKey{objID: 2, name: "desc"}
+	second := propResolveKey{objID: 1, name: "desc"}
+	tx.storePropResolve(first, steps, Property{}, "desc", types.E_NONE)
+	tx.storePropResolve(second, steps[1:], Property{}, "desc", types.E_NONE)
+	if got := tx.propResolve[first].steps; len(got) != 3 || cap(got) != 3 || got[0].id != 2 {
+		t.Fatalf("first entry steps = %+v (cap %d), want its own three steps", got, cap(got))
+	}
+	if got := tx.propResolve[second].steps; len(got) != 2 || got[0].id != 1 {
+		t.Fatalf("second entry steps = %+v, want its own two steps", got)
+	}
+	tx.propSteps = make([]propWalkStep, 0, 4096)
+	allocs := testing.AllocsPerRun(100, func() {
+		tx.storePropResolve(first, steps, Property{}, "desc", types.E_NONE)
+	})
+	if allocs != 0 {
+		t.Fatalf("filing a walk allocated %.1f times, want 0", allocs)
+	}
+}
+
 func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 	s := testChainStore(t)
 
