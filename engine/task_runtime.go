@@ -376,10 +376,13 @@ retryAttempt:
 	// Once the renew succeeds no ordinary commit can interleave until this
 	// attempt's own commit, so it cannot lose. Coarse builtins that mutate the
 	// live store directly cross the same boundary first (beforeCoarse), so a
-	// live-mutated attempt cannot lose either. Publishing at the boundary
-	// exposes the slice's first half to
-	// concurrent readers before its second half exists; none of them can commit
-	// on that view until this attempt has.
+	// live-mutated attempt cannot lose either. Publishing at the boundary, and
+	// each live mutation after it, exposes the slice's first half to snapshots
+	// taken before its second half exists. The gate does not stop those
+	// snapshots, so the store marks them (dbstore.StoreTxn.overlapsHold): each
+	// one commits like a writer even if it staged nothing, waiting on the shared
+	// gate for this attempt's commit and then losing validation if it read
+	// anything this attempt wrote, so none of them commits on that view.
 	ctx.BeforeIrreversibleEffect = func(builtin string) bool {
 		if gate.held() {
 			return false
@@ -398,9 +401,8 @@ retryAttempt:
 		// boundary's validation, and the boundary is where it validates next.
 		ctx.StoreTxn.NoteCommitGateWait(gateWait)
 		ctx.StoreTxn.NoteBoundary(builtin)
-		gate.bind(ctx.StoreTxn)
 		canRerun := retryState.canRetry && !ctx.LiveStoreMutated && attempt < maxConflictRetryAttempts
-		next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
+		publishedWrites, errCode := s.renewUnderGate(ctx, &t.State, &gate)
 		slog.Debug("irreversible-effect boundary",
 			slog.Int64("task_id", t.ID), slog.String("verb", t.VerbName),
 			slog.Duration("gate_wait", gateWait),
@@ -416,13 +418,6 @@ retryAttempt:
 				return true
 			}
 			return false
-		}
-		ctx.StoreTxn = next
-		if publishedWrites {
-			// Mirrors the suspend-time commit: the forks and effects recorded so far
-			// are now durable, so a later discard must not touch them.
-			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
 		}
 		return false
 	}
@@ -1389,6 +1384,26 @@ func (g *sliceGate) acquire(ctx context.Context, store *dbstore.Store, cause, bu
 		}
 	}
 	return wait, nil
+}
+
+// renewUnderGate is the irreversible-effect boundary once gate is held: it
+// binds ctx's transaction to the hold, validates every read so far, publishes
+// the writes so far and moves ctx onto a fresh transaction under the hold
+// (StoreTxn.CommitAndRenewCarryingReads). On failure ctx keeps its
+// transaction. The forks and effects a publication made durable are flushed,
+// as at a suspend-time commit, so a later discard cannot touch them.
+func (s *Runtime) renewUnderGate(ctx *task.Context, st *task.State, gate *sliceGate) (publishedWrites bool, errCode types.ErrorCode) {
+	gate.bind(ctx.StoreTxn)
+	next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenewCarryingReads()
+	if errCode != types.E_NONE {
+		return false, errCode
+	}
+	ctx.StoreTxn = next
+	if publishedWrites {
+		st.CreatedForks = nil
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, st))
+	}
+	return publishedWrites, types.E_NONE
 }
 
 // bind lets txn commit under this slice's own exclusive hold, where taking

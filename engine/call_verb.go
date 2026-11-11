@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -340,6 +341,30 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 	ctx.StoreTxn.SetConflictLabel(objID, verbName)
 	ctx.Admission = scope
 	ctx.RuntimeOptions = s.options
+	// A standalone hook (do_login_command and the like) crosses the same
+	// irreversible-effect boundary as a task attempt: a coarse builtin's live
+	// mutation is published at once while the hook's other writes wait for its
+	// commit, so the hook holds the commit gate exclusively from there to its
+	// commit, which is what marks the snapshots that see its first half
+	// (runTask's BeforeIrreversibleEffect). A hook is not re-run, so a failed
+	// renewal is left for its final commit to report. Hooks nested in another
+	// execution or a sweep keep the owner's arrangement.
+	gate := sliceGate{holds: &s.gateHolds, key: gateHolderKey{This: objID, Verb: verbName}}
+	defer gate.drop()
+	if ownership == vmOwnershipNone {
+		ctx.BeforeIrreversibleEffect = func(builtin string) bool {
+			if gate.held() {
+				return false
+			}
+			// With a background context the wait cannot fail.
+			gateWait, _ := gate.acquire(context.Background(), s.store, fmt.Sprintf("#%d:%s", ctx.ThisObj, ctx.Verb), builtin, gateTicksFromVM)
+			scope.Waited(gateWait)
+			ctx.StoreTxn.NoteCommitGateWait(gateWait)
+			ctx.StoreTxn.NoteBoundary(builtin)
+			_, _ = s.renewUnderGate(ctx, &t.State, &gate)
+			return false
+		}
+	}
 	if ownership == vmOwnershipSweep {
 		ctx.TaskID = t.ID
 		ctx.DeferredGC = true
@@ -426,6 +451,7 @@ func (s *Runtime) callVerbWithArgstr(receiver types.Value, verbName string, args
 			committed = false
 		}
 	}
+	gate.release(ctx.StoreTxn)
 	if committed {
 		t.CreatedForks = nil
 		builtins.FlushPendingEffects(s.session.NewExecution(ctx, &t.State))
