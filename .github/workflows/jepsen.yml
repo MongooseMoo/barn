@@ -103,7 +103,7 @@ jobs:
             --db moo-conformance-tests/src/moo_conformance/_db/Test.db \
             --jepsen-jar tests/jepsen-checkpoint/target/barn-checkpoint-0.1.0-standalone.jar \
             --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" \
-            --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1000 \
+            --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1 \
             --output jepsen-evidence --jepsen-timeout 600
       - name: Archive raw evidence
         if: always()
@@ -195,12 +195,14 @@ jobs:
           # Store validation controls (no stage step): each fault turns the
           # shaped families' write-skew shapes into an Elle G2-item. The real
           # binary has no barrier, so overlap comes from rate, concurrency and
-          # the --dwell loop between each verb's reads and writes.
+          # the --dwell wait (string_hash calls, about 1.7 ms each) between each
+          # verb's reads and writes: a memo fault needs a shape change to commit
+          # inside a memo-hitting observer's window.
           for control in relationship-reads verb-memo hot-memo-guard; do
             family=authority
             if [ "$control" = relationship-reads ]; then family=topology; fi
             run --control "$control" --workloads "$family" --phase1 45 --phase3 0 --phase-live 0 \
-              --rate 100 --concurrency 32 --dwell 10000 \
+              --rate 100 --concurrency 32 --dwell 10 \
               --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 240 || status=1
           done
           exit "$status"

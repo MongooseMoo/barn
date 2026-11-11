@@ -446,9 +446,15 @@ def _caught(expr, ok='"ok"'):
 
 
 def _dwell(dwell):
-    """A tick loop between a transaction's reads and writes (--dwell), so
-    concurrent transactions overlap on the real binary."""
-    return [f"for dwell_i in [1..{dwell}]", "endfor"] if dwell > 0 else []
+    """Wall time between a transaction's reads and writes (--dwell), so
+    concurrent transactions overlap on the real binary: dwell string_hash
+    calls over a 1 MiB string. A tick loop cannot do it: 10000 iterations
+    cost 10005 ticks but 0.34 ms in Barn, and fg_ticks is 60000; 20 of these
+    hashes cost 68 ticks and 33 ms (bin/moo, measured)."""
+    if dwell <= 0:
+        return []
+    return ['dwell_s = "xxxxxxxxxxxxxxxx";', "for dwell_i in [1..16]", "  dwell_s = dwell_s + dwell_s;", "endfor",
+            f"for dwell_i in [1..{dwell}]", "  string_hash(dwell_s);", "endfor"]
 
 
 P_FLAGS = ("", "r", "w", "rw")   # p-mutate kinds 0-3; kind 4 is the chown control
@@ -3555,8 +3561,8 @@ def main(argv=None):
                         help="task lane: plant held test tasks before every graceful checkpoint and before each "
                              "generation's first live checkpoint, release them after the restart's recovery read")
     parser.add_argument("--dwell", type=int, default=0,
-                        help="iterations of a tick loop between each authority/topology verb's reads and writes, "
-                             "so concurrent transactions overlap")
+                        help="string_hash calls over a 1 MiB string (about 1.7 ms each) between each "
+                             "authority/topology verb's reads and writes, so concurrent transactions overlap")
     parser.add_argument("--control", choices=sorted(CONTROLS),
                         help="elle build only: run the negative control's fault and stage step; exit 0 only if "
                              "its designated witness is reported")

@@ -42,5 +42,13 @@ Per generation, the existing ok-read/ok-write obligation per selected family (ef
 - Test.db's login verb creates a fresh player per connection, so identities must be objects the wizard creates.
 - Barn's contents/children edits are commutative deltas with no read on the room (`db/store/store_txn_relationships.go:9-30,121`), so relationship write skew needs an explicit contents read, which the cross shapes do.
 
+## CI round 1 (PR 760, run 43002993288)
+- Campaign healthy; relationship-reads control passed (elle G2-item, G-single-item, G-nonadjacent-item plus invalid-reference); checkpoint and effects controls passed.
+- verb-memo and hot-memo-guard controls missed: Elle valid on both generations, no witness. Journal analysis (control-verb-memo/journal.jsonl): 470 ok v-observe, 313 ok v-mutate; 46 observers overlapped a mutator commit (observer sent before it, completed after it), and all 46 read that mutator's DSP append. Overlapping observers took 10-45 ms against a 2.9 ms median, so they re-ran after the mutator committed: some protection other than the faulted memo check aborted them, or they never used the memo.
+- Source facts so far: a memo hit records a read mark on the resolved verb (`store_resolve_cache.go:404-419`), so kind 0 (code replace on the definer) is caught by verb-read validation whatever the fault. Coarse builtins (add_verb, delete_verb, chparent) take the exclusive commit gate at the irreversible boundary and commit-and-renew (`engine/task_runtime.go:370-420`, `builtins/store_reads.go:56-100`), and a live mutation bumps `shapeChangeTS` at once (`store_verbs.go:214`).
+
+- Cause: the `--dwell` tick loop gave no real overlap. In bin/moo, 10000 iterations cost 10005 ticks but only 0.34 ms, and fg_ticks is 60000 (`builtins/limits.go:23`). Both memo faults need a v-mutate shape change to commit inside a memo-hitting observer's window. relationship-reads needs none of that, because every overlapping pair of cross transactions conflicts.
+- Fix: `--dwell N` now means N `string_hash` calls over a 1 MiB string (20 calls: 68 ticks, 33 ms; one v_observe with dwell 5: 5.6 ms). Campaign `--dwell 1`, controls `--dwell 10`. Controls and witnesses unchanged.
+
 ## Next step
-Implement the Python families, analysis, Clojure generator, tests and workflow; push; watch CI.
+PR https://github.com/MongooseMoo/barn/pull/760 open with auto-merge (merge queue). Watch both Jepsen jobs: per-family coverage in the campaign, and each of the three controls reporting `elle:G2-item`.
