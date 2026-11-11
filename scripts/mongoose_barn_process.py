@@ -475,8 +475,14 @@ class OwnedBarnServer:
             boundary["failure"] = str(error)
         return boundary
 
-    def _log_since(self, offset):
-        """The owned server.log bytes after offset, refusing replacement or unbounded growth."""
+    def _log_since(self, offset, *, live=False):
+        """The owned server.log bytes after offset, refusing replacement or unbounded growth.
+
+        Without live, the process has exited and the log must not change while
+        it is read. With live, Barn may still be appending: the log must stay
+        the same file and never shrink, the read stops at the size seen before
+        it, and only complete lines are returned.
+        """
         log_row = file_identity(self.log_path)
         if (log_row is None or not stat.S_ISREG(log_row["mode"]) or
                 (log_row["device"], log_row["inode"]) != self._log_identity or
@@ -487,8 +493,14 @@ class OwnedBarnServer:
             if (opened.st_dev, opened.st_ino) != self._log_identity:
                 raise PairRejected("unknown", "owned shutdown log replaced before reading")
             stream.seek(offset)
-            data = stream.read(8 * 1024 * 1024 + 1)
-        if file_identity(self.log_path) != log_row or len(data) != log_row["size_bytes"] - offset:
+            data = stream.read(log_row["size_bytes"] - offset if live else 8 * 1024 * 1024 + 1)
+        after = file_identity(self.log_path)
+        if live:
+            if (after is None or (after["device"], after["inode"]) != self._log_identity or
+                    after["size_bytes"] < log_row["size_bytes"] or len(data) != log_row["size_bytes"] - offset):
+                raise PairRejected("unknown", "owned live log was replaced or truncated while reading")
+            return data[:data.rfind(b"\n") + 1]
+        if after != log_row or len(data) != log_row["size_bytes"] - offset:
             raise PairRejected("unknown", "owned shutdown log changed while reading")
         return data
 
@@ -567,8 +579,8 @@ class OwnedBarnServer:
         return boundary
 
     def checkpoint_log(self, boundary):
-        """Checkpoint markers logged since a request boundary."""
-        return checkpoint_markers(self._log_since(boundary["log_offset_bytes"]))
+        """Checkpoint markers logged since a request boundary, while Barn may still be writing."""
+        return checkpoint_markers(self._log_since(boundary["log_offset_bytes"], live=True))
 
     def wait_checkpoint(self, boundary, timeout):
         """Wait for the requested checkpoint to complete or fail; on completion

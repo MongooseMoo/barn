@@ -719,6 +719,43 @@ class LiveCheckpointOwnerTests(OwnerFixture, unittest.TestCase):
             owner.wait_checkpoint(boundary, 1)
         owner.log_file.close()
 
+    def test_live_log_read_tolerates_appends_but_not_truncation_or_replacement(self):
+        # CI run 42956762397: Barn appended "checkpoint complete" while the
+        # harness read the log 0.2 ms after SIGALRM; the exited-process rule
+        # (no change during the read) rejected a live, growing log.
+        owner, _ = self.owner()
+        self.owned_log(owner)
+        with patch.object(owner, "verify_owned"), patch.object(barn.signal, "pidfd_send_signal"):
+            boundary = owner.request_checkpoint()
+        with owner.log_path.open("ab") as stream:
+            stream.write(b'time=now level=INFO msg="checkpoint started"\ntime=now level=INFO msg="checkpoint comp')
+        actual = barn.file_identity
+        calls = []
+
+        def growing(path):
+            row = actual(path)
+            if path == owner.log_path:
+                calls.append(1)
+                if len(calls) == 1:  # Barn writes between the size check and the read
+                    with owner.log_path.open("ab") as stream:
+                        stream.write(b'lete" duration_ms=8\n')
+            return row
+
+        with patch.object(barn, "file_identity", side_effect=growing):
+            markers = owner.checkpoint_log(boundary)
+        self.assertEqual(markers, {"started": 1, "complete": [], "failed": []})  # the partial line waits
+        self.assertEqual(owner.checkpoint_log(boundary)["complete"], [8])
+        with self.assertRaisesRegex(barn.PairRejected, "changed while reading"):
+            with patch.object(barn, "file_identity", side_effect=growing):
+                calls.clear()
+                owner._log_since(boundary["log_offset_bytes"])  # an exited process's log may not grow
+        owner.log_file.close()
+        replaced = owner.log_path.with_name("replacement.log")
+        replaced.write_bytes(owner.log_path.read_bytes())
+        replaced.replace(owner.log_path)
+        with self.assertRaisesRegex(barn.PairRejected, "changed or exceeds"):
+            owner.checkpoint_log(boundary)
+
     def test_failed_checkpoint_and_exit_are_reported_not_acknowledged(self):
         owner, _ = self.owner()
         self.owned_log(owner)
