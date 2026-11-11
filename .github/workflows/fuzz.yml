@@ -154,7 +154,7 @@ jobs:
               go version
               # Keep the original failing seed so quarantine can remove its
               # exact bytes from the disposable cache before retrying.
-              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=2 -timeout="$((remaining + 600))s"
+              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=6 -timeout="$((remaining + 600))s"
             } 2>&1 | tee "$log"; then
               mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
