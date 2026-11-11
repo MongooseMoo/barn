@@ -918,6 +918,16 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	// Capture framing now: connection options may change before the task's
 	// deferred output is published.
 	note := taskpkg.PendingNotification{Player: player, Message: message, NoFlush: noFlush, NoNewline: noNewline, CommandDiagnostic: ctx.CommandDiagnostic}
+	// Toast enqueue_output (network.cc): with output already queued, a line
+	// that would take the queue past max_queued_output first pushes what the
+	// peer accepts; if the line still does not fit and no_flush forbids
+	// discarding older output, the line is dropped and notify returns 0.
+	// Barn writes accepted output synchronously, so nothing remains after the
+	// push and the line fits only when it is within max_queued_output.
+	if noFlush && queuedOutputLength(ctx, conn, player) != 0 &&
+		int64(note.ByteLength()) > ctx.Session.maxQueuedOutputFor(ctx.Context) {
+		return types.Ok(types.NewInt(0))
+	}
 	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, taskpkg.PendingEffect{
 			Kind:         taskpkg.PendingEffectNotification,

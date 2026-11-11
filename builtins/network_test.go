@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -299,6 +300,64 @@ func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
 				t.Fatalf("output before transaction flush: sent=%q buffered=%q", conn.sent, conn.buffered)
 			}
 		})
+	}
+}
+
+func TestNoFlushNotifyDropsLineThatOverflowsQueuedOutput(t *testing.T) {
+	conn := &stubConn{id: 7}
+	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+	ctx.Player = 7
+	ctx.Programmer = 7
+	ctx.StoreTxn = ctx.Store.BeginSnapshot(0)
+	// 65536 bytes plus CRLF exceed the default max_queued_output of 65536.
+	big := types.NewStr(strings.Repeat("x", 65536))
+	notify := func(message types.Value, noFlush int64) int64 {
+		t.Helper()
+		res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), message, types.NewInt(noFlush)})
+		if res.IsError() {
+			t.Fatalf("notify failed: %v", res.Error)
+		}
+		return res.Val.Int()
+	}
+
+	if got := notify(big, 1); got != 1 {
+		t.Fatalf("oversized no_flush notify on empty queue = %d, want 1", got)
+	}
+	if got := notify(big, 1); got != 0 {
+		t.Fatalf("oversized no_flush notify on non-empty queue = %d, want 0", got)
+	}
+	if got := notify(types.NewStr("small"), 1); got != 1 {
+		t.Fatalf("small no_flush notify on non-empty queue = %d, want 1", got)
+	}
+	if got := notify(big, 0); got != 1 {
+		t.Fatalf("oversized flushing notify on non-empty queue = %d, want 1", got)
+	}
+	if len(ctx.PendingEffects) != 3 {
+		t.Fatalf("pending effects = %d, want 3 (the dropped line is not queued)", len(ctx.PendingEffects))
+	}
+
+	FlushPendingEffects(ctx)
+	if len(conn.buffered) != 2 || conn.buffered[1] != "small" {
+		t.Fatalf("buffered after flush = %d lines, want the first oversized line and small", len(conn.buffered))
+	}
+	if len(conn.sent) != 1 {
+		t.Fatalf("sent after flush = %d lines, want the flushing line", len(conn.sent))
+	}
+}
+
+func TestNoFlushNotifyCountsConnectionBufferAsQueuedOutput(t *testing.T) {
+	conn := &stubConn{id: 7, buffered: []string{"waiting"}}
+	ctx := ctxWithConnManager(&stubConnManager{conn: conn})
+	ctx.Player = 7
+	ctx.Programmer = 7
+	big := types.NewStr(strings.Repeat("x", 65536))
+
+	res := admitTestBuiltin("notify", ctx, []types.Value{types.NewObj(7), big, types.NewInt(1)})
+	if res.IsError() || res.Val.Int() != 0 {
+		t.Fatalf("oversized no_flush notify behind buffered output = %v, error %v, want 0", res.Val, res.Error)
+	}
+	if len(conn.buffered) != 1 {
+		t.Fatalf("buffered = %d lines, want only the earlier line", len(conn.buffered))
 	}
 }
 
