@@ -64,6 +64,30 @@ no repeated or never-sent token. The recovered rows are also appended to the
 crashed generation's Elle history as a read-only observation. SIGKILL is
 process-crash evidence, not power-loss evidence.
 
+The stage schedule (`--stages all` or a list of `STAGE_SCHEDULE` steps; needs
+Barn built with `-tags elle`) replaces the fixed and live phases with one
+client phase per step (`--stage-seconds`, default 10). Each generation is
+launched with `BARN_ELLE_CHECKPOINT_STOP` set to its step's point and
+occurrence (occurrence 2 means after one completed live checkpoint, so a
+previous pair exists). Its `stage-crash` requests the checkpoint, waits for
+the process's own `checkpoint stop` record and /proc state T, records the
+reached point from that record, then classifies, kills and restarts exactly as
+a `checkpoint-crash`, so the snapshot oracle applies unchanged. The
+`double-crash` step also starts the restarted Barn with a stop between its
+recovery's restore renames, kills it there, keeps that second artifact set in
+`gen-NNN-recovery-forensic/`, and recovers the same files again. `results.json`
+`coverage` has one row per step: requested and reached point, stopped state,
+frozen stage, kill exit, recovered cut and verdict; a selected step that was
+not reached, stopped, killed and recovered is incomplete, a record from another
+point or process is invalid, recovery to a cut other than the plan table's or
+a double crash that does not converge is a recovery failure, and unselected
+steps are listed as `not-selected`.
+
+`--control NAME` runs a negative control: its elle fault
+(`BARN_ELLE_FAULT`, every process) and its one stage step. It exits 0 only
+when that run's recovery reports the designated witness (`mixed-pair`,
+`lost-checkpointed-update`, `duplicate-token`), and 6 otherwise.
+
 Each client request carries a run-unique operation id. The adapter journals
 the request, the send (generation, MOO, fault phase) before it reaches Barn,
 and the completion before it replies; analysis reconciles that journal with

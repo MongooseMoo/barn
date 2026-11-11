@@ -3,8 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -74,6 +76,64 @@ func TestRunPublishesManifestBeforeGameSocket(t *testing.T) {
 	}
 	if !handler.seen || !handler.valid {
 		t.Fatalf("game socket exposed before complete manifest: listening=%v manifest_valid=%v", handler.seen, handler.valid)
+	}
+}
+
+// A first checkpoint publication interrupted after its journal was published
+// leaves no database at the output path, only the journal and the saved next
+// pair. The manifest must name the database recovery restores.
+func TestRunManifestNamesRecoveredFirstPublication(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.DatabasePath = filepath.Join(dir, "input.db.new")
+	generation := filepath.Join(dir, "input.db.new.recovery-1")
+	next := filepath.Join(generation, "next")
+	if err := os.MkdirAll(generation, 0700); err != nil {
+		t.Fatal(err)
+	}
+	database := []byte("invalid database\n")
+	databaseDigest := sha256.Sum256(database)
+	sidecar := []byte(fmt.Sprintf("barn-waif-identities-v1 %x\n", databaseDigest))
+	if err := os.WriteFile(next, database, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(next+".waifids", sidecar, 0600); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := json.Marshal(map[string]any{
+		"Version": 1, "Generation": filepath.Base(generation),
+		"Next": map[string]any{"Database": databaseDigest, "Sidecar": sha256.Sum256(sidecar), "HasSidecar": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.DatabasePath+".publication", journal, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConfigPath = filepath.Join("..", "..", "profiles", "barn", "outbound-on.conf")
+	cfg.ProfileID = "barn-linux-testdb-outbound-on"
+	cfg.ProfileManifest = filepath.Join(dir, "profile.json")
+	cfg.Listen = []string{"tcp://127.0.0.1:0"}
+	cfg.DebugAddr, cfg.OperatorAddr = "off", "off"
+	err = Run(context.Background(), cfg, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "load database") {
+		t.Fatalf("Run = %v, want the restored invalid database to fail loading", err)
+	}
+	content, err := os.ReadFile(cfg.ProfileManifest)
+	if err != nil {
+		t.Fatalf("no manifest for a recovered first publication: %v", err)
+	}
+	var manifest struct {
+		DatabaseChecksum string `json:"database_checksum"`
+	}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("%x", databaseDigest); manifest.DatabaseChecksum != want {
+		t.Fatalf("manifest database_checksum = %q, want the restored next database %q", manifest.DatabaseChecksum, want)
+	}
+	if _, err := os.Lstat(cfg.DatabasePath + ".publication"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("publication journal remains after recovery: %v", err)
 	}
 }
 

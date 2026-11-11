@@ -318,6 +318,16 @@ func recoverCheckpointPair(outPath string, fs checkpointIO) (resultErr error) {
 	if err := checkCheckpointGeneration(outPath, journal.Next); err == nil {
 		return finishCheckpointPublication(outPath, generation, fs)
 	}
+	if isolationprobe.Fault("checkpoint-mixed-pair") {
+		// Deliberate defect for the Jepsen negative control: keep the next
+		// database without its WAIF identities instead of restoring a pair.
+		if database, err := hashCheckpointFile(outPath); err == nil && database.digest == journal.Next.Database {
+			if err := os.Remove(outPath + waifIdentitySidecarSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return finishCheckpointPublication(outPath, generation, fs)
+		}
+	}
 	member := "next"
 	digest := journal.Next
 	if journal.Previous != nil {
