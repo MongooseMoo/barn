@@ -58,19 +58,35 @@ func TestNumberedRecycleStaysTransactional(t *testing.T) {
 }
 
 func TestNumberedRecycleSelfRecursionReturnsInvarg(t *testing.T) {
-	store := protectedRedirectStore(t)
-	code := `o = create(#-1); add_verb(o, {player, "rxd", "recycle"}, {"this", "none", "this"}); ` +
-		`set_verb_code(o, "recycle", {"recycle(this);"}); return recycle(o);`
-	if _, ec := store.AddVerb(0, dbstore.NewVerb([]string{"self_recycle"}, 2,
-		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
-		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{code})); ec != types.E_NONE {
-		t.Fatal(ec)
-	}
-	rt := NewRuntime(store)
-	defer rt.Stop()
-	result, err := rt.RunServerVerbTask(0, "self_recycle", nil, 2)
-	if err != nil || result.Flow != types.FlowException || result.Error != types.E_INVARG {
-		t.Fatalf("self recycle result=%+v error=%v, want native E_INVARG", result, err)
+	for name, caught := range map[string]bool{"uncaught": false, "caught tuple": true} {
+		t.Run(name, func(t *testing.T) {
+			store := protectedRedirectStore(t)
+			code := `o = create(#-1); add_verb(o, {player, "rxd", "recycle"}, {"this", "none", "this"}); ` +
+				`set_verb_code(o, "recycle", {"recycle(this);"}); `
+			if caught {
+				code += "try recycle(o); except e (ANY) return e[1]; endtry"
+			} else {
+				code += "return recycle(o);"
+			}
+			if _, ec := store.AddVerb(0, dbstore.NewVerb([]string{"self_recycle"}, 2,
+				dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+				dbstore.VerbArgs{This: "this", Prep: "none", That: "none"}, []string{code})); ec != types.E_NONE {
+				t.Fatal(ec)
+			}
+			rt := NewRuntime(store)
+			defer rt.Stop()
+			result, err := rt.RunServerVerbTask(0, "self_recycle", nil, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if caught {
+				if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewErr(types.E_INVARG)) {
+					t.Fatalf("caught tuple: flow=%v code=%s value type=%v", result.Flow, result.Error, result.Val.Type())
+				}
+			} else if result.Flow != types.FlowException || result.Error != types.E_INVARG {
+				t.Fatalf("uncaught: flow=%v code=%s, want native E_INVARG", result.Flow, result.Error)
+			}
+		})
 	}
 }
 

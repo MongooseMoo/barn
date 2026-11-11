@@ -1521,6 +1521,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 
 // The reason travels with this particular error, never with reusable VM state.
 func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.ExceptionReason) {
+restartUnwind:
 	errCode := errorCode(err)
 	reason := exceptionReason(err)
 	exceptionValue := types.None
@@ -1682,9 +1683,11 @@ func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.Excepti
 			})
 			switch result.Flow {
 			case types.FlowException:
-				errCode = result.Error
-				exceptionValue = result.Val
-				reason = result.Reason
+				// Cleanup can replace the error with a bare builtin error. Run
+				// that throw through the same tuple construction before a named
+				// handler sees it; assigning Val directly can hand it None.
+				err = VMException{Code: result.Error, Value: result.Val, Reason: result.Reason}
+				goto restartUnwind
 			case types.FlowAbortAttempt:
 				// Stop unwinding: no handler may run on an abandoned attempt.
 				// Callers see the yield and return FlowAbortAttempt.

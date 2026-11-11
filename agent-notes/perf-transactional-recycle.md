@@ -154,6 +154,12 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
 - `vm/recycle_lifecycle.go` now continues cleanup when dispatch refuses a hook
   with E_MAXREC, matching Toast's missing-hook/frame-limit handling. Errors raised
   inside an already running hook still use the normal error path.
+- A stronger named-handler regression then exposed a second part of that
+  failure: cleanup replaced the error code but assigned its bare None value
+  directly to the unwinding exception. A named handler indexing its error tuple
+  raised E_TYPE. `handleErrorWithReason` now sends replacement cleanup errors
+  through its existing canonical tuple construction before resuming the unwind.
+  Both caught-tuple and native uncaught recursion regressions pass.
 - `builtinNextRecycledObject` already flushes staged topology for its live scan;
   its live bound check now follows that flush as well. It no longer rejects an
   own newly allocated slot merely because it has not been published yet.
@@ -166,7 +172,8 @@ checks. Q authorized the corrected design with "superb, make it so! worktree!".
 - Evidence: `.tmp/recycle-oracle/results-ci-pinned-toast.xml`,
   `results-query-recreate-toast.xml`, and `results-repaired-candidate.xml`, with
   corresponding admission records. The final performance candidate will be
-  remeasured after these repairs; prior measurements remain retained history.
+  remeasured after the complete repairs, including tuple normalization; prior
+  measurements remain retained history.
 
 ## Literature
 
