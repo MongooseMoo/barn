@@ -293,6 +293,35 @@ func TestPropertyResolveReadsOwnStagedWrite(t *testing.T) {
 	}
 }
 
+// A memo step keeps only the version it read; with conflict diagnostics on,
+// a hit must still record the value read, as the walk does.
+func TestPropertyResolveCacheHitRecordsReadValueForDiagnostics(t *testing.T) {
+	s := testChainStore(t)
+	s.SetConflictCensusTracking(true)
+	if ec := s.DirectTxn().DefineProperty(0, "desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty: %v", ec)
+	}
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	if tx.diag == nil {
+		t.Fatal("census tracking did not give the snapshot diagnostics")
+	}
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("walk: %v", ec)
+	}
+	walked := maps.Clone(tx.diag.readValues)
+	// Forget what the walk recorded, keeping the memo, so the hit records it.
+	tx.propertyReads, tx.readClocks, tx.diag.readValues = nil, nil, nil
+	if _, _, ec := tx.findProperty(2, "desc"); ec != types.E_NONE {
+		t.Fatalf("hit: %v", ec)
+	}
+	if len(walked) == 0 || !maps.EqualFunc(walked, tx.diag.readValues, func(a, b conflictReadValue) bool {
+		return a.clear == b.clear && a.value.Equal(b.value)
+	}) {
+		t.Fatalf("hit recorded read values %v, want the walk's %v", tx.diag.readValues, walked)
+	}
+}
+
 func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) {
 	s := testChainStore(t)
 	// Defined on #0, so #1 and #2 hold inherited CLEAR slots: the walk must pass
@@ -321,6 +350,33 @@ func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) 
 		t.Fatalf("cached property value = %q, want root", p2.value.Str())
 	}
 	requireSameReadSet(t, "property cache hit", want, snapshotReadSet(tx))
+}
+
+// Filing a walk in the memo appends to the transaction's step buffer; once the
+// buffer and the map have grown, overwriting an entry allocates nothing, and
+// each entry keeps its own steps.
+func TestPropertyResolveFilingDoesNotAllocatePerWalk(t *testing.T) {
+	s := testChainStore(t)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+	steps := []propWalkStep{{id: 2, valid: true}, {id: 1, valid: true}, {id: 0, valid: true, found: true, version: 1}}
+	first := propResolveKey{objID: 2, name: "desc"}
+	second := propResolveKey{objID: 1, name: "desc"}
+	tx.storePropResolve(first, "desc", steps, Property{}, "desc", types.E_NONE)
+	tx.storePropResolve(second, "desc", steps[1:], Property{}, "desc", types.E_NONE)
+	if got := tx.propResolve[first].steps; len(got) != 3 || cap(got) != 3 || got[0].id != 2 {
+		t.Fatalf("first entry steps = %+v (cap %d), want its own three steps", got, cap(got))
+	}
+	if got := tx.propResolve[second].steps; len(got) != 2 || got[0].id != 1 {
+		t.Fatalf("second entry steps = %+v, want its own two steps", got)
+	}
+	tx.propSteps = make([]propWalkStep, 0, 4096)
+	allocs := testing.AllocsPerRun(100, func() {
+		tx.storePropResolve(first, "desc", steps, Property{}, "desc", types.E_NONE)
+	})
+	if allocs != 0 {
+		t.Fatalf("filing a walk allocated %.1f times, want 0", allocs)
+	}
 }
 
 func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {

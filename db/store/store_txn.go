@@ -125,6 +125,10 @@ type StoreTxn struct {
 	parentWalk  plainScratch
 	verbResolve map[verbResolveKey]verbResolveEntry
 	propResolve map[propResolveKey]propResolveEntry
+	// propSteps holds the walk records of every propResolve entry, each entry
+	// a capped slice of it, so filing a walk appends instead of allocating. It
+	// is emptied whenever propResolve is dropped.
+	propSteps []propWalkStep
 	// verbResolveGen moves on every write that can change a record verbResolve
 	// already holds: overwriting a key, dropping the map or replacing it. A
 	// record filed under a new key leaves it unchanged.
