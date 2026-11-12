@@ -12,7 +12,9 @@ name: Claude fix
 # moo-conformance-tests, whose CI runs it on Toast. A repair then enters the
 # merge queue with no person reading it when both of these hold:
 #   - scripts/automatic_fix_scope.py, taken from master, finds it in scope;
-#   - Toast did not disagree with the fixed behaviour.
+#   - Toast did not disagree with the fixed behaviour;
+#   - none of its checks failed. The repairing run waits for the checks and
+#     fixes what its change broke before it ends.
 # Otherwise it stays open with the `needs-decision` label and the reasons.
 # When the repair merges, the conformance job merges its conformance pull
 # request; when it closes unmerged, the conformance pull request is closed.
@@ -113,7 +115,14 @@ jobs:
                ends) and copy the named input. Then reproduce with
                `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
                The artifact can hold inputs for other failures found the same night; use only this issue's input.
-               This checkout is current master. If the recorded input passes here (already fixed on master, or a
+               This checkout is current master. If the recorded input passes here, replay it at the commit the
+               issue names before concluding anything (`git worktree add --detach <dir> <commit>`, then the same
+               command there): a merge after that commit can change what the same bytes mean (a changed
+               generator or harness), so a pass on master alone does not show the bug is gone. If it fails at
+               the issue's commit and no merged change fixed the cause, the bug is still on master: print the
+               program or operations the input produced at that commit, reproduce those on this checkout, and
+               continue with step 2, pinning the bug in step 3 with a test written from that program instead
+               of the input. Only if the bug itself is gone (already fixed on master, or a
                duplicate of an issue that a merged fix closed), open no PR: use your one allowed issue comment
                (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) for the evidence (the input's sha256, the
                reproduction command and its passing output, and the fixing PR or commit if you can name it), then
@@ -130,7 +139,9 @@ jobs:
                (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) to link that issue or PR with the
                evidence (the shared file:line, and the reproduction output of this issue's input), and stop.
             3. Find the cause in the code and make the smallest production fix. Commit the failing input under
-               testdata/fuzz with the fix so ordinary CI replays it. Never weaken, skip or delete a test or check.
+               testdata/fuzz with the fix so ordinary CI replays it, but only an input that fails on this
+               checkout without your fix: CI (scripts/fuzz_red_green.py) refuses an added input that passes
+               before the change. Never weaken, skip or delete a test or check.
             4. Run the affected package's tests.
             5. Create branch claude/issue-${{ env.ISSUE }}, commit, push, and open the PR against master with
                `gh pr create --label automatic-fix`. The body says what failed, the cause with file:line, the fix, and "Fixes #${{ env.ISSUE }}".
@@ -139,7 +150,14 @@ jobs:
                defect just because it is outside this issue's scope.
                Do not add attribution trailers to commits or attribution footers to the PR body.
                Stage named paths only, never `git add -A`.
-            6. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
+            6. Stay with the pull request until its checks have finished. Poll `gh pr checks <number>` about
+               once a minute (keep each waiting command under nine minutes) until none is pending. If one
+               failed, read its log (`gh run view <run-id> --log-failed`), fix what your change got wrong on
+               the same branch, push, and wait again; at most three such rounds. Never make a check pass by
+               weakening it. If a check still fails, or fails for a reason your change did not cause, leave
+               the pull request open and add a "Failing checks" section to its body (`gh pr edit <number>
+               --body-file <file>`) with the check, the log lines and what you tried.
+            7. If you cannot find or fix the cause, open no PR. Instead post one comment on the issue with
                `gh issue comment ${{ env.ISSUE }} --body-file <file>` so the next attempt can build on it:
                whether and how you reproduced the failure, each hypothesis you tested and the evidence that
                ruled it in or out (file:line, command, output), what is established, what is still unknown, and
@@ -254,6 +272,18 @@ jobs:
             echo "Toast disagrees with the fixed behaviour; the comment above has the Toast and Barn output." >> "$reasons"
           fi
           [ "$head_now" = "$HEAD_SHA" ] || echo "The pull request's head changed from $HEAD_SHA to $head_now after it was checked." >> "$reasons"
+
+          # An armed pull request with a failed check never merges and tells
+          # nobody (#802 sat that way). Checks still running get half an hour.
+          runs="repos/$GH_REPO/commits/$head_now/check-runs?per_page=100"
+          for _ in $(seq 60); do
+            pending=$(gh api "$runs" --jq '[.check_runs[] | select(.status != "completed")] | length')
+            [ "$pending" -eq 0 ] && break
+            sleep 30
+          done
+          failed=$(gh api "$runs" --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | .name] | unique | join(", ")')
+          [ -z "$failed" ] || echo "These checks failed on $head_now: $failed." >> "$reasons"
+          [ "$pending" -eq 0 ] || echo "$pending checks were still running on $head_now after 30 minutes." >> "$reasons"
 
           disarm() {
             gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE"
