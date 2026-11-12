@@ -58,13 +58,13 @@ FG_SECONDS = 2
 # Each engine process runs the preamble and at most CHUNK probes, and is
 # killed once no result record has arrived for PROBE_SECONDS (STARTUP_SECONDS
 # before the first), and in any case after STARTUP_SECONDS plus PROBE_SECONDS
-# per input. The engines'
-# own limits do not bound every probe: on the pinned Toast an empty named
-# while loop (`n = 1; while o (n) endwhile`) never reaches a tick or
-# seconds check (issue #668). Every probe that ends ends within FG_SECONDS,
-# so a killed process was stuck on the probe after its last record. That
-# probe is recorded as TIMED_OUT and the chunk restarts without
-# it, replaying the probes before it so the rest see the same database state.
+# per input. The engines' own limits do not bound every probe: on the pinned
+# Toast an empty named while loop (`n = 1; while o (n) endwhile`) never
+# reaches a tick or seconds check (issue #668). Every probe that ends ends
+# within FG_SECONDS, so a killed process was stuck on the probe after its
+# last record. That probe is recorded as TIMED_OUT and the chunk restarts
+# without it, replaying the probes before it so the rest see the same
+# database state.
 CHUNK = 20
 PROBE_SECONDS = 10
 STARTUP_SECONDS = 30
