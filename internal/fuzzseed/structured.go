@@ -1,9 +1,12 @@
 package fuzzseed
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/config"
 	"github.com/MongooseMoo/barn/ir"
 	"github.com/MongooseMoo/barn/parser"
 )
@@ -29,17 +32,7 @@ var (
 	assignableNames = []string{"n", "f", "s", "l", "m", "o", "x", "y", "z", "acc"}
 	propertyNames   = []string{"name", "owner", "p", "location", "contents"}
 	verbNames       = []string{"v", "look", "foo", "initialize"}
-	// Each name must stay registered in config.Core with the VM descriptors;
-	// structured_test.go checks that.
-	builtinNames = []string{
-		"length", "tostr", "toint", "tofloat", "typeof", "toliteral",
-		"listappend", "listinsert", "listdelete", "listset", "setadd",
-		"setremove", "is_member", "mapkeys", "mapvalues", "mapdelete",
-		"maphaskey", "abs", "min", "max", "strsub", "index", "rindex",
-		"strcmp", "equal", "reverse", "explode", "raise", "suspend", "valid",
-		"parent", "children",
-	}
-	errorNames = []string{
+	errorNames      = []string{
 		"E_NONE", "E_TYPE", "E_DIV", "E_PERM", "E_PROPNF", "E_VERBNF",
 		"E_VARNF", "E_INVIND", "E_RECMOVE", "E_MAXREC", "E_RANGE", "E_ARGS",
 		"E_NACC", "E_INVARG", "E_QUOTA", "E_FLOAT", "E_FILE", "E_EXEC",
@@ -52,6 +45,73 @@ var (
 	floatLiterals = []float64{0, 0.5, 1, 1.5, 2.25, 1e10, 1e-7, 3.0e300}
 	objLiterals   = []int64{0, 1, 2, 3, -1, -2, 9223372036854775807}
 )
+
+// excludedBuiltins are never called. A fuzz process must not touch files,
+// the network or the host process, change process-wide state, write the
+// process log, wait for input or stop the server; and it must not turn a
+// string into a call, which would reach these by name. Every file_* builtin
+// is excluded too. eval and pass are VM descriptors, outside
+// builtins.Descriptors().
+var excludedBuiltins = map[string]bool{
+	"db_disk_size":    true, // measures the database file
+	"memory_usage":    true, // reads /proc/self/statm
+	"getenv":          true, // reads the host environment
+	"exec":            true, // starts a process
+	"read_http":       true, // reads a network connection
+	"read":            true, // waits for connection input
+	"shutdown":        true,
+	"dump_database":   true, // writes a checkpoint
+	"reseed_random":   true, // reseeds the process-wide generator
+	"run_gc":          true, // runs the Go collector for the whole process
+	"server_log":      true, // writes the process log
+	"log_cache_stats": true,
+	"argon2":          true, // memory and time cost come from the arguments
+	"argon2_verify":   true,
+	"call_function":   true, // calls any builtin by name
+}
+
+type builtinShape struct {
+	name      string
+	signature *builtins.Signature
+}
+
+// builtinShapes holds every public core builtin not excluded above, sorted by
+// name, with the registry's argument signature. stapleShapes, the value and
+// suspend builtins the generator called before it drew from the registry,
+// keep their own expression choice: FuzzCheckpointResumeEquivalence needs
+// programs that suspend, and drawing suspend from the whole registry made
+// them seven times rarer (51 instead of 351 of 15000 choice lists).
+// Each stays registered in config.Core with the VM descriptors;
+// structured_test.go checks that.
+var builtinShapes, stapleShapes = coreBuiltinShapes(
+	"length", "tostr", "toint", "tofloat", "typeof", "toliteral",
+	"listappend", "listinsert", "listdelete", "listset", "setadd",
+	"setremove", "is_member", "mapkeys", "mapvalues", "mapdelete",
+	"maphaskey", "abs", "min", "max", "strsub", "index", "rindex",
+	"strcmp", "equal", "reverse", "explode", "raise", "suspend", "valid",
+	"parent", "children",
+)
+
+func coreBuiltinShapes(staples ...string) (all, staple []builtinShape) {
+	for _, d := range builtins.Descriptors() {
+		if d.Capability != config.Core || d.Visibility != builtins.Public ||
+			excludedBuiltins[d.Name] || strings.HasPrefix(d.Name, "file_") {
+			continue
+		}
+		shape := builtinShape{name: d.Name, signature: d.Signature}
+		all = append(all, shape)
+		if slices.Contains(staples, d.Name) {
+			staple = append(staple, shape)
+		}
+	}
+	byName := func(a, b builtinShape) int { return strings.Compare(a.name, b.name) }
+	slices.SortFunc(all, byName)
+	slices.SortFunc(staple, byName)
+	if len(staple) != len(staples) {
+		panic("fuzzseed: a staple builtin is not an offered core builtin")
+	}
+	return all, staple
+}
 
 // Program builds one bounded MOO program from fuzz bytes. Each byte is one
 // construction choice, so a mutation changes one decision and minimization
@@ -310,7 +370,7 @@ func (g *generator) expr(depth int) ir.Expr {
 	if depth >= maxExprDepth || !g.spend() {
 		return g.terminal()
 	}
-	choice := g.choose(17)
+	choice := g.choose(18)
 	if choice == 16 && g.indexArgs == 0 {
 		choice = 0
 	}
@@ -354,7 +414,9 @@ func (g *generator) expr(depth int) ir.Expr {
 		call.Args = g.arguments(depth + 1)
 		return call
 	case 10:
-		return &ir.BuiltinCallExpr{Name: g.pick(builtinNames), Args: g.arguments(depth + 1)}
+		return g.builtinCall(stapleShapes, depth+1)
+	case 17:
+		return g.builtinCall(builtinShapes, depth+1)
 	case 11:
 		catch := &ir.CatchExpr{Expr: g.expr(depth + 1)}
 		catch.IsAny, catch.Codes = g.codes()
@@ -365,25 +427,100 @@ func (g *generator) expr(depth int) ir.Expr {
 	case 12:
 		return g.assignment(depth + 1)
 	case 13:
-		// The parser leaves an empty list's elements nil, and an empty call
-		// argument list non-nil (parser.go:190, :373, :492).
-		elements := g.arguments(depth + 1)
-		if len(elements) == 0 {
-			elements = nil
-		}
-		return &ir.ListExpr{Elements: elements}
+		return g.list(depth + 1)
 	case 14:
-		// No ir.ListRangeExpr: the parser rejects {a..b} list literals.
-		var pairs []ir.MapPair
-		for i, count := 0, g.choose(maxListLen+1); i < count; i++ {
-			pairs = append(pairs, ir.MapPair{Key: g.expr(depth + 1), Value: g.expr(depth + 1)})
-		}
-		return &ir.MapExpr{Pairs: pairs}
+		return g.mapLiteral(depth + 1)
 	case 15:
 		return g.variable()
 	default:
 		return &ir.IndexBoundaryExpr{Boundary: ir.IndexBoundary(g.choose(2))}
 	}
+}
+
+// list builds a list expression. The parser leaves an empty list's elements
+// nil, and an empty call argument list non-nil (parser.go:190, :373, :492).
+func (g *generator) list(depth int) ir.Expr {
+	elements := g.arguments(depth)
+	if len(elements) == 0 {
+		elements = nil
+	}
+	return &ir.ListExpr{Elements: elements}
+}
+
+// mapLiteral builds a map expression. There is no ir.ListRangeExpr: the
+// parser rejects {a..b} list literals.
+func (g *generator) mapLiteral(depth int) ir.Expr {
+	var pairs []ir.MapPair
+	for i, count := 0, g.choose(maxListLen+1); i < count; i++ {
+		pairs = append(pairs, ir.MapPair{Key: g.expr(depth), Value: g.expr(depth)})
+	}
+	return &ir.MapExpr{Pairs: pairs}
+}
+
+// builtinCall calls one of shapes. Usually the arguments follow the
+// registry's signature, so the call passes argument admission and runs the
+// builtin's body; otherwise they are arbitrary, to reach E_ARGS and E_TYPE.
+func (g *generator) builtinCall(shapes []builtinShape, depth int) *ir.BuiltinCallExpr {
+	shape := shapes[g.choose(len(shapes))]
+	if g.choose(4) == 0 {
+		return &ir.BuiltinCallExpr{Name: shape.name, Args: g.arguments(depth)}
+	}
+	sig := shape.signature
+	optional := maxListLen // a variadic tail
+	if sig.MaxArgs >= 0 {
+		optional = int(sig.MaxArgs - sig.MinArgs)
+	}
+	args := make([]ir.Expr, int(sig.MinArgs)+g.choose(optional+1))
+	for i := range args {
+		args[i] = g.typedArgument(g.argumentType(sig, i), depth)
+	}
+	return &ir.BuiltinCallExpr{Name: shape.name, Args: args}
+}
+
+// argumentType is the type the signature admits at position i: -1 for any
+// value and -2 for a number, as in builtins.Signature.
+func (g *generator) argumentType(sig *builtins.Signature, i int) int64 {
+	if i >= len(sig.ArgTypes) {
+		if sig.VariadicType != nil {
+			return *sig.VariadicType
+		}
+		return -1
+	}
+	if alternatives := sig.Alternatives[i]; len(alternatives) != 0 {
+		if choice := g.choose(len(alternatives) + 1); choice > 0 {
+			return alternatives[choice-1]
+		}
+	}
+	return sig.ArgTypes[i]
+}
+
+// typedArgument is mostly a value of type typ, sometimes any expression.
+func (g *generator) typedArgument(typ int64, depth int) ir.Expr {
+	if g.choose(4) == 0 {
+		return g.expr(depth)
+	}
+	switch typ {
+	case 0:
+		return g.intLiteral()
+	case 1:
+		return g.objLiteral()
+	case 2:
+		return g.stringLiteral()
+	case 3:
+		return g.errLiteral()
+	case 4:
+		return g.list(depth)
+	case 9:
+		return g.floatLiteral()
+	case 10:
+		return g.mapLiteral(depth)
+	case -2:
+		if g.choose(2) == 0 {
+			return g.intLiteral()
+		}
+		return g.floatLiteral()
+	}
+	return g.expr(depth)
 }
 
 // arguments builds a list or call argument list; only here, and in code

@@ -31,14 +31,15 @@ func FuzzCheckpointResumeEquivalence(f *testing.F) {
 }
 
 // checkpointResumeSeeds are generator choice lists whose programs suspend,
-// so the property checks them; none of fuzzseed.AddChoices's do. They were
-// found by scanning 15000 pseudo-random 96-byte lists, of which 20 suspended
-// without reaching the seconds budget. The last also forks.
+// so the property checks them; none of fuzzseed.AddChoices's do. They are
+// the first lists, among pseudo-random 96-byte lists (PCG seeded 7, 11), that
+// suspended without reaching the seconds budget. The last also forks. A
+// change to the generator changes their programs, so it needs a new scan.
 var checkpointResumeSeeds = []string{
-	"cf00e4c164ec077ab0b80a1ae32fa802eab18dcaae6a2b45778eac021d29c5eb4818cebc9ea37c003c8be4b3baf93b42addc27655e55a452aa829e7b3daa5e0cea5715999831aedc1d86b2bf498ebb2e3c463c539b4957927961487b7d0321ff",
-	"6d98bd942c237811e22db443a3745d73b3eda5329f9448f4b0cbf055356bcef40f819ed257a6d9522f0a5c74a34210a45c00b95bf76067581a12f002187750859eab50d01725556bbb783b8c3f47611fc6398c0445f8c24c384521e2dfd00eb4",
-	"428c1505217a9a7229c102db1a816de30f7fd378947fdc9647e2ac9cabfa51cc3d74dea6527c381d34c433d725a2c83a0a7c0f123300b2d3117e1375575107066221f3d2014c73d48ec8ecaf26b290dcf4d7b728e143ff22bfcba404567b2cd6",
-	"2a546bea36e620f26135bd1b46877714cd5e94c201ad250ed54551d3d5a3a7d6bc5090827d1411ad02c540c33787c03be7f4ee2c7b387d0b6c7193608f742c8283f07935b2685db518f91809d4f53b98a95eafdd313b7212eeecf72cb7e99f4f",
+	"d7391a52ba95d2be5572c3cb8d7033221298695e3c25a7cc4d78ee798c2ed0f9835c0df753b95ffdecd5b48f89c530ecf06fdd8dc0caf87e8721478eaad9346b7adfda25412c96a5694b025f445df03c54702e2724854aae9e290de1e60e980f",
+	"026d28044c6507c82c29d0684f74bfed43b3eea7a452b89b549910d50f9de47f9372706f2331a81a8306d039c6f09d23865930148159cafe8fd8a80c8161c4c6d72964e491149e651b9bbb7a46bd50c9477df964af74a06883de6f2e38a8859e",
+	"925aa10c35fe86f1fbd8efbe03866507ac67f82bddf9edbfd09f0c43d099feeb875de0018e3ade09a6998b892f8e0e27433f88ba08aedad8d9db3272bea3436ce2afa21c7edcb426a9d25ca0e13d6442dc696ce349faa02cab5734b93e54c4d3",
+	"5abae9ced6e6563e898f1979e23a4b00021e0f6a8b77e5ba7679be4869d74495137a022b5817d4b97db62dfdd2a25746e67cf348cb266307c613a5091083e64f8db6e09cf6c16398ef265048e1cad2814be781dd815b3584b31e6f903ba3ab0a",
 }
 
 func decodeChoices(t testing.TB, seed string) []byte {
