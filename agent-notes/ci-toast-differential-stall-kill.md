@@ -47,9 +47,23 @@ PROBE_SECONDS, not the whole chunk bound (STARTUP_SECONDS + PROBE_SECONDS * (1 +
   bound plus kill), the 113 normal processes took 17 s in all (about 0.15 s each).
   The lane reached input 2300 of 5550 (`toast_in.txt` has 5551 lines with the
   preamble); the Barn lane never started.
-- Toast flushes each record into the pipe: the killed process for inputs 21..40
-  still shows the preamble and seven records before the hung probe. So a record
-  arriving on stdout is a usable progress signal.
+- Records reach the pipe as each probe finishes, on both engines, with no
+  `stdbuf` or pty needed:
+  - Toast (`/root/src/toaststunt` at aecc51e): stdout is block-buffered on a pipe,
+    but `read_stdin_line` calls `fflush(stdout)` (server.cc:1001) before every
+    input read, and the emergency loop reads each input through it
+    (server.cc:1070). So the `printf("=> %s\n", ...)` of a probe's result is
+    flushed when Toast goes to read the next input, which happens right after the probe.
+  - Barn: `cmd/barn/main.go:107` passes `os.Stdout` (an unbuffered `*os.File`)
+    to `app.Run`, and `dbtool.EvalFile` (internal/dbtool/dbtool.go:392) writes
+    each record to it; there is no `bufio` in `internal/dbtool`.
+  - `bench_differ.lane_scripts` puts nothing between the engine and the pipe
+    (no `tee`/`stdbuf`; `timeout` does not touch stdout).
+  - Observed: the SIGKILLed Toast process for inputs 21..40 in the artifact still
+    shows the preamble and seven records. Buffered stdio data would be lost on
+    SIGKILL, so those records were already in the pipe.
+  - The new test passes through WSL on Windows too, so wsl.exe relays lines as
+    they come.
 - The kill: `timeout` (without `--foreground`) calls `setpgid(0, 0)`, so it and the
   engine form their own process group under the lane's bash. Killing bash's group
   or bash alone misses them (the job log's orphaned timeout/moo at cleanup).
