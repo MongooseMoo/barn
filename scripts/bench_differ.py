@@ -128,6 +128,43 @@ def run_wsl(script: str, timeout: int) -> subprocess.CompletedProcess:
                           errors="replace", timeout=timeout)
 
 
+def write_inputs(path: Path, lines: list[str], lane: str) -> None:
+    """One input per line; Toast's emergency mode also gets "quit"."""
+    path.write_text("".join(line + "\n" for line in lines) + ("quit\n" if lane == "toast" else ""),
+                    encoding="utf-8", newline="\n")
+
+
+# Seconds coreutils timeout waits after SIGTERM before SIGKILL. Toast does not
+# exit on SIGTERM while a task runs, so a stuck probe needs the SIGKILL.
+KILL_GRACE = 5
+
+
+def lane_scripts(db: Path, barn_bin: Path, toast: str, barn_in: Path, toast_in: Path,
+                 bound: int | None = None) -> dict[str, str]:
+    """The shell script that runs each engine over its input file on a private
+    copy of db. With bound, coreutils timeout kills the engine after that many
+    seconds; the script then exits 124 (or 137 after SIGKILL) with whatever
+    the engine printed. The bound lives in the script because the engine is a
+    grandchild of the Python process: killing bash would leave it holding the
+    output pipe."""
+    limit = f"timeout -k {KILL_GRACE} {bound} " if bound else ""
+    # A private directory per lane lets concurrent runs share a machine. Toast
+    # creates its listener before emergency mode (server.cc main), so -p 0
+    # binds an ephemeral port instead of the default one.
+    private = 'set -euo pipefail; d=$(mktemp -d); trap \'rm -rf "$d"\' EXIT; '
+    return {
+        "toast": (
+            f'{private}cp {to_wsl(db)} "$d/in.db" && '
+            f'{limit}{toast} -e -p 0 "$d/in.db" "$d/out.db" < {to_wsl(toast_in)}'
+        ),
+        "barn": (
+            f'{private}cp {to_wsl(db)} "$d/in.db" && cp {to_wsl(barn_bin)} "$d/barn" && '
+            f'chmod +x "$d/barn" && cd "$d" && {limit}./barn -db in.db -log-dir= '
+            f"-debug-addr off -eval-file {to_wsl(barn_in)}"
+        ),
+    }
+
+
 def run_lanes(db: Path, barn_bin: Path, toast: str, inputs: list[tuple[str, str]], out: Path,
               timeout: int) -> dict[str, tuple[str, float]]:
     """Run each (barn input, toast input) line pair through both engines, one
@@ -136,25 +173,10 @@ def run_lanes(db: Path, barn_bin: Path, toast: str, inputs: list[tuple[str, str]
     writes the inputs and raw transcripts under out. Toast inputs carry their
     emergency-mode prefix (";" expression, ";;" statements)."""
     barn_in = out / "barn_in.txt"
-    barn_in.write_text("".join(b + "\n" for b, _ in inputs), encoding="utf-8", newline="\n")
+    write_inputs(barn_in, [b for b, _ in inputs], "barn")
     toast_in = out / "toast_in.txt"
-    toast_in.write_text("".join(t + "\n" for _, t in inputs) + "quit\n", encoding="utf-8", newline="\n")
-
-    # A private directory per lane lets concurrent runs share a machine. Toast
-    # creates its listener before emergency mode (server.cc main), so -p 0
-    # binds an ephemeral port instead of the default one.
-    private = 'set -euo pipefail; d=$(mktemp -d); trap \'rm -rf "$d"\' EXIT; '
-    lanes = {
-        "toast": (
-            f'{private}cp {to_wsl(db)} "$d/in.db" && '
-            f'{toast} -e -p 0 "$d/in.db" "$d/out.db" < {to_wsl(toast_in)}'
-        ),
-        "barn": (
-            f'{private}cp {to_wsl(db)} "$d/in.db" && cp {to_wsl(barn_bin)} "$d/barn" && '
-            f'chmod +x "$d/barn" && cd "$d" && ./barn -db in.db -log-dir= '
-            f"-debug-addr off -eval-file {to_wsl(barn_in)}"
-        ),
-    }
+    write_inputs(toast_in, [t for _, t in inputs], "toast")
+    lanes = lane_scripts(db, barn_bin, toast, barn_in, toast_in)
     stdout = {}
     for lane, script in lanes.items():
         print(f"==> running {lane} lane ({len(inputs)} inputs)", file=sys.stderr)

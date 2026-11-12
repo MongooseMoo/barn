@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,9 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import bench_differ
 from bench_differ import REPO
-from fuzz_differential import (decode_corpus_file, exclusion, load_programs, main, outcome, probe,
-                               render_choices, results)
+from fuzz_differential import (TIMED_OUT, decode_corpus_file, engine_runner, exclusion, load_programs, main,
+                               outcome, probe, render_choices, results, run_bounded)
 
 # Real records copied byte for byte from Go's fuzz cache of the structured
 # targets, as Go's internal/fuzz marshalCorpusFile wrote them.
@@ -51,6 +53,129 @@ b"}}
 Error: internal error: boom
 -- skipped
 """
+
+
+HANG = object()
+
+
+class FakeEngine:
+    """Stands in for engine_runner's run(lane, lines, bound). outputs[lane][n]
+    is the record the engine prints for input n (0 is the preamble, n is
+    probe Fnnnnn). On HANG it stops printing and returns as coreutils
+    timeout does after killing the engine (exit 124); the records printed
+    before that are kept, as both engines flush them."""
+
+    def __init__(self, outputs):
+        self.outputs = outputs
+        self.calls = []
+
+    def __call__(self, lane, lines, bound):
+        self.calls.append((lane, list(lines), bound))
+        printed = []
+        for line in lines:
+            m = re.search(r'"F(\d{5})"', line)
+            record = self.outputs[lane][int(m.group(1)) if m else 0]
+            if record is HANG:
+                return SimpleNamespace(returncode=124, stdout="\n".join(printed) + "\n", stderr="")
+            printed.append(record)
+        return SimpleNamespace(returncode=0, stdout="\n".join(printed) + "\n", stderr="")
+
+
+class RawEngine(FakeEngine):
+    """Prints a lane's whole transcript verbatim, whatever its record count,
+    unless it holds a HANG."""
+
+    def __call__(self, lane, lines, bound):
+        if HANG in self.outputs[lane]:
+            return super().__call__(lane, lines, bound)
+        self.calls.append((lane, list(lines), bound))
+        return SimpleNamespace(returncode=0, stdout="\n".join(self.outputs[lane]) + "\n", stderr="")
+
+
+def value(key, v=1):
+    return f'=> {{"{key}", "value", {{1, {v}}}}}'
+
+
+class BoundedRunTests(unittest.TestCase):
+    def lines(self, n):
+        return [";;preamble"] + [";;" + probe("F%05d" % i, f"return {i};") for i in range(1, n + 1)]
+
+    def test_hanging_probe_times_out_and_later_probes_still_run(self):
+        outputs = {"toast": ["=> 0", value("F00001"), HANG, value("F00003"), value("F00004")]}
+        engine = FakeEngine(outputs)
+        with tempfile.TemporaryDirectory() as directory:
+            records, errors, timed_out = run_bounded("toast", engine, self.lines(4), Path(directory),
+                                                     probe_timeout=10, startup=30, chunk=20)
+            transcript = Path(directory, "toast_raw.txt").read_text(encoding="utf-8")
+        self.assertEqual(records, ["=> 0", value("F00001"), TIMED_OUT, value("F00003"), value("F00004")])
+        self.assertEqual((errors, timed_out), ([], [2]))
+        # The partial transcript of the killed process is kept as evidence.
+        self.assertIn(value("F00001"), transcript)
+        self.assertIn("exit 124", transcript)
+        first, second = engine.calls
+        # Each process is bounded by its own inputs, not by Toast's limits.
+        self.assertEqual(first[2], 30 + 10 * 5)
+        # The restart replays the probes before the stuck one, so later
+        # probes see the same database state as in one process, and skips it.
+        self.assertEqual(second[1], [self.lines(4)[i] for i in (0, 1, 3, 4)])
+        self.assertEqual(second[2], 30 + 10 * 4)
+
+    def test_chunks_bound_processes_and_each_starts_with_the_preamble(self):
+        outputs = {"barn": ["=> 0"] + [value("F%05d" % i) for i in range(1, 6)]}
+        engine = FakeEngine(outputs)
+        with tempfile.TemporaryDirectory() as directory:
+            records, errors, timed_out = run_bounded("barn", engine, self.lines(5), Path(directory),
+                                                     probe_timeout=10, startup=30, chunk=2)
+        self.assertEqual(records, outputs["barn"])
+        self.assertEqual((errors, timed_out), ([], []))
+        self.assertEqual([len(lines) for _, lines, _ in engine.calls], [3, 3, 2])
+        self.assertTrue(all(lines[0] == ";;preamble" for _, lines, _ in engine.calls))
+
+    def test_two_hanging_probes_in_one_chunk(self):
+        outputs = {"toast": ["=> 0", HANG, value("F00002"), HANG]}
+        with tempfile.TemporaryDirectory() as directory:
+            records, errors, timed_out = run_bounded("toast", FakeEngine(outputs), self.lines(3), Path(directory),
+                                                     probe_timeout=1, startup=1, chunk=20)
+        self.assertEqual(records, ["=> 0", TIMED_OUT, value("F00002"), TIMED_OUT])
+        self.assertEqual((errors, timed_out), ([], [1, 3]))
+
+    def test_record_count_mismatch_is_an_error(self):
+        engine = lambda lane, lines, bound: SimpleNamespace(returncode=0, stdout="=> 0\n", stderr="")  # noqa: E731
+        with tempfile.TemporaryDirectory() as directory:
+            _, errors, _ = run_bounded("barn", engine, self.lines(1), Path(directory),
+                                       probe_timeout=1, startup=1, chunk=20)
+        self.assertEqual(len(errors), 1)
+
+    def test_other_engine_failure_still_raises_with_raw_output_kept(self):
+        engine = lambda lane, lines, bound: SimpleNamespace(returncode=7, stdout="raw", stderr="err")  # noqa: E731
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "toast.*7"):
+                run_bounded("toast", engine, self.lines(1), Path(directory), probe_timeout=1, startup=1, chunk=20)
+            self.assertIn("raw", Path(directory, "toast_raw.txt").read_text(encoding="utf-8"))
+
+    def test_real_shell_kills_an_engine_that_ignores_sigterm(self):
+        # A stand-in Toast that, like the pinned Toast in an empty named
+        # while loop, never returns and ignores SIGTERM: the lane's coreutils
+        # timeout must kill it and keep what it printed before.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            fake = out / "fake_toast.sh"
+            fake.write_text("trap '' TERM\n"
+                            "while IFS= read -r line; do\n"
+                            "  case \"$line\" in\n"
+                            "    quit) echo 'Bye.'; exit 0 ;;\n"
+                            "    *HANG*) while :; do sleep 1; done ;;\n"
+                            "    *) echo \"=> $line\" ;;\n"
+                            "  esac\n"
+                            "done\n", encoding="utf-8", newline="\n")
+            db = out / "in.db"
+            db.write_text("db", encoding="utf-8")
+            lines = [";;preamble", ";;one", ";;HANG", ";;three"]
+            run = engine_runner(db, out / "barn", "bash " + bench_differ.to_wsl(fake), out)
+            records, errors, timed_out = run_bounded("toast", run, lines, out, probe_timeout=1, startup=1,
+                                                     chunk=20)
+        self.assertEqual(records, ["=> ;;preamble", "=> ;;one", TIMED_OUT, "=> ;;three"])
+        self.assertEqual((errors, timed_out), ([], [2]))
 
 
 class CorpusFileTests(unittest.TestCase):
@@ -111,17 +236,17 @@ class StructuredCorpusTests(unittest.TestCase):
             shutil.copy(COMPILER_RECORD, lane)
             Path(lane, "bad-escape").write_bytes(b'go test fuzz v1\n[]byte("\\q")\n')
             completed = '=> {"F00001", "value", {1, 0}}'
-            lanes = {engine: ("\n".join(["=> 0", completed]), "") for engine in ("toast", "barn")}
+            engine = FakeEngine({lane: ["=> 0", completed] for lane in ("toast", "barn")})
             with (patch("sys.argv", ["fuzz_differential.py", str(lane), "--barn-linux", "barn", "--out", str(out)]),
                   patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
                       stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
-                  patch("fuzz_differential.run_lanes", return_value=lanes) as run_lanes,
+                  patch("fuzz_differential.engine_runner", return_value=engine),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO())):
                 code = main()
             data = json.loads((out / "results.json").read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
         # The preamble and the one decodable program; nothing for the bad record.
-        self.assertEqual(len(run_lanes.call_args.args[3]), 2)
+        self.assertEqual([len(lines) for _, lines, _ in engine.calls], [2, 2])
         summary = data["summary"]
         self.assertEqual((summary["loaded"], summary["eligible"], summary["completed_pairs"]), (2, 1, 1))
         self.assertEqual(data["excluded"], {"undecodable corpus record": 1})
@@ -189,8 +314,7 @@ class CampaignTests(unittest.TestCase):
         programs = {f"return {i};": {"origin": f"corpus/{i}", "lane": "corpus"} for i in range(len(toast))}
         lanes_counts = {"corpus": {"records": len(toast), "duplicates": 0, "excluded": 0,
                                    "eligible": len(toast), "completed": 0, "undecodable": []}}
-        lanes = {"toast": ("\n".join(["=> 0"] + toast), ""),
-                 "barn": ("\n".join(["=> 0"] + barn), "")}
+        engine = RawEngine({"toast": ["=> 0"] + toast, "barn": ["=> 0"] + barn})
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             with (patch("sys.argv", ["fuzz_differential.py", "corpus", "--barn-linux", "barn",
@@ -198,7 +322,7 @@ class CampaignTests(unittest.TestCase):
                   patch("fuzz_differential.load_programs", return_value=(programs, excluded or {}, lanes_counts)),
                   patch("fuzz_differential.run_wsl", return_value=SimpleNamespace(
                       stdout="fixture-checksum\nToastStunt version fixture\n", stderr="", returncode=0)),
-                  patch("fuzz_differential.run_lanes", return_value=lanes),
+                  patch("fuzz_differential.engine_runner", return_value=engine),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO())):
                 code = main()
             return code, json.loads((output / "results.json").read_text()), (output / "report.md").read_text()
@@ -265,6 +389,36 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(data["summary"]["completed_pairs"], 0)
         self.assertEqual(data["rows"][0]["barn_raw"], "Error: internal error: boom")
+
+    def test_toast_timeout_with_barn_abort_is_recorded_and_others_compared(self):
+        # Issue #668: `n = 1; while o (n) endwhile` never returns on the
+        # pinned Toast and Barn aborts it on ticks.
+        completed = value("F00001")
+        code, data, report = self.run_campaign([completed, HANG, value("F00003")],
+                                               [completed, "=> *Aborted*", value("F00003")])
+        self.assertEqual(code, 0)
+        summary = data["summary"]
+        self.assertEqual(summary["outcome"], "success")
+        self.assertEqual(summary["completed_pairs"], 2)
+        self.assertEqual(summary["timeouts"], {"toast": ["F00002"], "barn": []})
+        self.assertTrue(summary["partial"])
+        row = data["rows"][1]
+        self.assertEqual(row["kind"], "aborted on both")
+        self.assertEqual((row["toast_timed_out"], row["barn_timed_out"]), (True, False))
+        self.assertEqual(row["toast_raw"], TIMED_OUT)
+        self.assertIn("## timed out on toast (1)", report)
+
+    def test_toast_timeout_with_barn_value_is_inconclusive(self):
+        code, data, _ = self.run_campaign([HANG], [value("F00001")])
+        self.assertEqual(code, 2)
+        self.assertEqual(data["rows"][0]["kind"], "aborted on toast")
+        self.assertEqual(data["summary"]["timeouts"], {"toast": ["F00001"], "barn": []})
+
+    def test_timeout_on_both_engines(self):
+        code, data, _ = self.run_campaign([value("F00001"), HANG], [value("F00001"), HANG])
+        self.assertEqual(code, 0)
+        self.assertEqual(data["rows"][1]["kind"], "aborted on both")
+        self.assertEqual(data["summary"]["timeouts"], {"toast": ["F00002"], "barn": ["F00002"]})
 
     def test_record_count_error_cannot_hide_recovered_panic(self):
         panic = results(BARN_STDOUT)[3]
