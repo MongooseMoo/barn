@@ -46,10 +46,25 @@ agent-notes/automatic-machine.md in the main checkout.
   measurement runs once before it merges; such a point is named apart and is
   not in the series.
 
+## Surprises
+
+- First Linux run (this pull request's own, master before #783, load 9-13
+  while the pull request's CI ran): about 105 s per run; 1 player 19-22/s,
+  p50 38-43 ms; 16 players 157-225/s. barn-d6 then measured Windows on the
+  same dump and settings: 1 player 21/s, p50 36.8 ms. So the low 1-player
+  figure belongs to this dump (barn-d6 sees about 260k allocations per
+  command at 1 player against 43-45k at 16, and suspects the world's own
+  restored tasks; not diagnosed), not to Linux.
+- Four of five 16-player runs logged `uncaught=1`. barn-d6 finds the same
+  single error in every 16-player run on this dump on Windows: E_MAXREC in a
+  forked weather task restored from the checkpoint, not a measured command.
+  The first version of the script refused a point for any uncaught error and
+  so refused every point; it now records the count and refuses only failed
+  commands. Whether Toast raises that E_MAXREC is unchecked.
+
 ## Unverified
 
-- The harness had never run on Linux before this pull request's own run.
-- Its memory use and run time on the runners.
+- Memory use of the harness on the runners.
 - The change limits (10%, 1 in 100, 3 points): chosen before any real series
   existed. Revisit once about 30 points exist.
 - Hourly points during busy hours: the idle limit may skip most of them.

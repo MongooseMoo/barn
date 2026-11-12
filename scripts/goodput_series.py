@@ -68,18 +68,19 @@ def run_results(output):
 
 
 def point(outputs, levels):
-    """Median of each number over the runs; raises when a run lacks a level or lost commands."""
+    """Median of each number over the runs; raises when a run lacks a level or a command failed."""
     runs = [run_results(output) for output in outputs]
     medians = {}
     for level in levels:
         for number, results in enumerate(runs, 1):
             if level not in results:
                 raise ValueError(f"run {number} has no result for {level} players")
-            if results[level]["failed"] or results[level]["uncaught"]:
-                raise ValueError(f"run {number} at {level} players: {results[level]['failed']} failed, "
-                                 f"{results[level]['uncaught']} uncaught")
+            if results[level]["failed"]:
+                raise ValueError(f"run {number} at {level} players: {results[level]['failed']} commands failed")
+        # Uncaught errors are recorded, not refused: tasks restored from the dump raise
+        # their own (one E_MAXREC in a weather task per 16-player run on the 2026-11-12 dump).
         medians[level] = {field: statistics.median(results[level][field] for results in runs)
-                          for field in ("goodput", "p50_ms", "p99_ms")}
+                          for field in ("goodput", "p50_ms", "p99_ms", "uncaught")}
         medians[level]["goodput_runs"] = [results[level]["goodput"] for results in runs]
     return medians
 

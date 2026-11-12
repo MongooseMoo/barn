@@ -8,7 +8,7 @@ from goodput_series import change, findings, issue, milliseconds, point, run_res
 # The line engine/mongoose_real_bench_test.go logs per player level, inside go test -v output.
 OUTPUT = """=== RUN   TestMongooseRealWorkload
     mongoose_real_bench_test.go:965: players=1 goodput=209/s failed=0 uncaught=0 abort=0.00% elided=3 p50=4.12ms p99=31.50ms p999=40.01ms max=44.90ms allocs/op=43000 bytes/op=5500000 GCs=4
-    mongoose_real_bench_test.go:965: players=16 goodput={goodput}/s failed={failed} uncaught=0 abort=21.50% elided=9 p50=950.5us p99=412.00ms p999=600.10ms max=801.00ms allocs/op=45000 bytes/op=6000000 GCs=31
+    mongoose_real_bench_test.go:965: players=16 goodput={goodput}/s failed={failed} uncaught=1 abort=21.50% elided=9 p50=950.5us p99=412.00ms p999=600.10ms max=801.00ms allocs/op=45000 bytes/op=6000000 GCs=31
 --- PASS: TestMongooseRealWorkload (71.20s)
 """
 
@@ -45,8 +45,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(made["16"]["goodput_runs"], [707.0, 892.0, 800.0])
         self.assertEqual(made["1"]["p50_ms"], 4.12)
 
-    def test_point_refuses_a_run_that_lost_commands(self):
-        with self.assertRaisesRegex(ValueError, "run 2 at 16 players: 3 failed"):
+    def test_point_records_uncaught_errors_without_refusing(self):
+        self.assertEqual(point([output()], ["16"])["16"]["uncaught"], 1)
+
+    def test_point_refuses_a_run_with_failed_commands(self):
+        with self.assertRaisesRegex(ValueError, "run 2 at 16 players: 3 commands failed"):
             point([output(), output(failed=3)], ["1", "16"])
 
     def test_point_refuses_a_run_without_a_level(self):
