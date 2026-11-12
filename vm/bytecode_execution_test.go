@@ -409,6 +409,9 @@ func TestRangeAssignmentAcceptsStartBelowOne(t *testing.T) {
 		{"string start zero end past length", `s = "ab"; s[0..5] = "z"; return s;`, `"z"`},
 		{"string start length plus one", `s = "ab"; s[3..2] = "z"; return s;`, `"abz"`},
 		{"string multibyte start negative", `s = "éb"; s[-1..1] = "z"; return s;`, `"zb"`},
+		{"string start min int", `s = "abcdef"; s[-9223372036854775807 - 1..2] = "X"; return s;`, `"Xcdef"`},
+		{"string multibyte start min int", `s = "éb"; s[-9223372036854775807 - 1..1] = "z"; return s;`, `"zb"`},
+		{"list start min int", `l = {1, 2, 3}; l[-9223372036854775807 - 1..1] = {9}; return l;`, `{9, 2, 3}`},
 		{"string nested start zero", `l = {{1, 2}, "ab"}; l[2][0..1] = "z"; return l;`, `{{1, 2}, "zb"}`},
 	}
 	for _, test := range tests {
