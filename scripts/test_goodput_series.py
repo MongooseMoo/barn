@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from goodput_series import change, findings, issue, milliseconds, point, run_results  # noqa: E402
+from goodput_series import LOAD_AFTER, change, findings, issue, milliseconds, point, run_results  # noqa: E402
 
 # The line engine/mongoose_real_bench_test.go logs per player level, inside go test -v output.
 OUTPUT = """=== RUN   TestMongooseRealWorkload
@@ -44,6 +44,10 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(made["16"]["goodput"], 800.0)
         self.assertEqual(made["16"]["goodput_runs"], [707.0, 892.0, 800.0])
         self.assertEqual(made["1"]["p50_ms"], 4.12)
+
+    def test_load_after_a_run_is_read_from_the_line_the_workflow_appends(self):
+        self.assertEqual(LOAD_AFTER.findall(output() + "load_after=13.72\n"), ["13.72"])
+        self.assertEqual(LOAD_AFTER.findall(output()), [])
 
     def test_point_records_uncaught_errors_without_refusing(self):
         self.assertEqual(point([output()], ["16"])["16"]["uncaught"], 1)

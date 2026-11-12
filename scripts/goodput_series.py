@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from conformance_suite_alarm import api  # noqa: E402
 
 RESULT = re.compile(r"players=(\d+) goodput=(\d+)/s failed=(\d+) uncaught=(\d+) .*? p50=(\S+) p99=(\S+) ")
+LOAD_AFTER = re.compile(r"^load_after=([0-9.]+)$", re.MULTILINE)  # appended by the workflow
 WORKFLOW = "goodput-series.yml"
 ARTIFACT = "goodput-point"
 LABEL = "goodput-alarm"
@@ -176,10 +177,13 @@ def main():
     args = parser.parse_args()
 
     if args.command == "point":
-        levels = point([path.read_text(encoding="utf-8", errors="replace") for path in args.outputs],
-                       args.levels.split(","))
+        outputs = [path.read_text(encoding="utf-8", errors="replace") for path in args.outputs]
+        levels = point(outputs, args.levels.split(","))
+        # Other jobs share the CPUs; the load after each run is kept to judge the spread later.
+        loads = [float(load) for output in outputs for load in LOAD_AFTER.findall(output)]
         print(json.dumps({"commit": args.commit, "measured_at": args.measured_at, "fixture": args.fixture,
-                          "load": float(args.load), "runs": len(args.outputs), "levels": levels}, indent=1))
+                          "load": float(args.load), "load_after_runs": loads, "runs": len(outputs),
+                          "levels": levels}, indent=1))
         return 0
 
     points = past_points(args.repo)

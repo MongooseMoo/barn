@@ -108,7 +108,9 @@ jobs:
             status=$?
             # Numbers and the test's verdict only; the rest can name players.
             grep -oE 'players=[0-9]+ goodput=.*$|^(--- (PASS|FAIL): [A-Za-z]+|PASS$|FAIL$|panic:)' "$out" | sed "s/^/run $run: /"
-            echo "run $run: exit $status after $(( $(date +%s) - started )) s, load $(cut -d' ' -f1 /proc/loadavg)"
+            load_after=$(cut -d' ' -f1 /proc/loadavg)
+            echo "load_after=$load_after" >> "$out"
+            echo "run $run: exit $status after $(( $(date +%s) - started )) s, load $load_after"
             if [ "$status" -ne 0 ]; then
               echo "::error::Harness run $run failed; its output is not shown because it can name players. Reproduce on the workstation."
               exit 1
