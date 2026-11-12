@@ -7,6 +7,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
@@ -18,10 +19,18 @@ import (
 // resumes and its forked children share.
 const sourceFuzzTicks = 100
 
+// sourceFuzzWorldTicks is the budget of the source-execution lanes, which run
+// in the populated world, where a verb call chain spends ticks in each verb.
+const sourceFuzzWorldTicks = 100
+
 func FuzzSourceExecution(f *testing.F) {
 	fuzzseed.Add(f)
+	for _, seed := range sourceFuzzWorldSeeds() {
+		f.Add(seed)
+	}
+	world := newSourceFuzzWorld(f)
 	f.Fuzz(func(t *testing.T, source string) {
-		executeFuzzSource(t, source, false)
+		executeFuzzSource(t, world, source, false)
 	})
 }
 
@@ -29,36 +38,57 @@ func FuzzSourceExecution(f *testing.F) {
 // so every case reaches execution; a compile diagnostic fails the case.
 func FuzzStructuredSourceExecution(f *testing.F) {
 	fuzzseed.AddChoices(f)
+	world := newSourceFuzzWorld(f)
 	f.Fuzz(func(t *testing.T, choices []byte) {
-		executeFuzzSource(t, fuzzseed.StructuredSource(t, choices), true)
+		executeFuzzSource(t, world, fuzzseed.StructuredSource(t, choices), true)
 	})
 }
 
-func executeFuzzSource(t *testing.T, source string, mustCompile bool) {
-	// Core capabilities exclude optional network, SQLite and process input.
-	// State and compiler caches are private to this input, with no server.
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
-	if err != nil {
-		t.Fatal(err)
-	}
-	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
+// executeFuzzSource runs source once as each principal, each time in a fresh
+// copy of world.
+func executeFuzzSource(t *testing.T, world sourceFuzzWorld, source string, mustCompile bool) {
+	registry, program, diagnostics := compileFuzzSource(t, source)
 	if len(diagnostics) != 0 {
 		if mustCompile {
 			t.Fatalf("generated program does not compile: %v\nsource:\n%s", diagnostics, source)
 		}
 		return
 	}
+	for _, principal := range sourceFuzzPrincipals {
+		runSourceFuzzProgram(t, world, registry, program, principal)
+	}
+}
+
+// compileFuzzSource compiles source with a new registry of the core
+// capabilities, which exclude optional network, SQLite and process input.
+// State and compiler caches are private to this input, with no server.
+func compileFuzzSource(t *testing.T, source string) (*builtins.Registry, *bytecode.Program, []compiler.Diagnostic) {
+	t.Helper()
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
+	return registry, program, diagnostics
+}
+
+// runSourceFuzzProgram runs program and its forked children as principal in
+// a fresh copy of world, checks a returned value's literal round trip, and
+// returns every task's result.
+func runSourceFuzzProgram(t *testing.T, world sourceFuzzWorld, registry *builtins.Registry, program *bytecode.Program, principal sourceFuzzPrincipal) []types.Result {
+	t.Helper()
 	session := newTestSessionWithTaskManager(registry)
 	defer func() {
 		if err := session.Close(); err != nil {
 			t.Error(err)
 		}
 	}()
-	tasks := &sourceFuzzTasks{nextID: 2, store: dbstore.NewStore(), session: session}
+	tasks := &sourceFuzzTasks{nextID: 2, store: world.fresh(t), session: session, ticks: sourceFuzzWorldTicks, wizard: principal.wizard, player: principal.player}
 	results := tasks.runAll(t, program)
 	if results[0].Flow == types.FlowReturn {
 		checkLiteralRoundTrip(t, tasks.store, session, results[0].Val)
 	}
+	return results
 }
 
 // sourceFuzzTasks numbers forked children and queues them to run.
@@ -69,6 +99,9 @@ type sourceFuzzTasks struct {
 	session *builtins.Session
 	ticks   int64 // zero selects the raw-source budget
 	wizard  bool  // the world-history fixture executes as its wizard #0
+	// player is the object the root task runs as when wizard is set or
+	// player is not #0. Left #0 with wizard unset, the task runs as #-1.
+	player types.ObjID
 	// checkpoint, when set, replaces each task suspended by suspend() with
 	// one restored from a checkpoint, and returns the store the remaining
 	// execution uses. suspends counts the replacements.
@@ -87,12 +120,8 @@ func (tasks *sourceFuzzTasks) runAll(t *testing.T, program *bytecode.Program) []
 	}
 	machine := newSourceFuzzVM(tasks.store, tasks.session, 1, budget)
 	machine.Context.IsWizard = tasks.wizard
-	if tasks.wizard {
-		machine.Context.Programmer = 0
-		machine.Context.Player = 0
-		machine.Context.ThisObj = 0
-		machine.Task.Owner = 0
-		machine.Task.Programmer = 0
+	if tasks.wizard || tasks.player != 0 {
+		runAs(machine, tasks.player, tasks.wizard)
 	}
 	result, machine := tasks.run(t, machine, machine.Run(program))
 	results := []types.Result{result}
@@ -133,6 +162,16 @@ func newSourceFuzzVM(store *dbstore.Store, session *builtins.Session, id, ticks 
 	machine.TickLimit = ticks
 	attachSourceFuzzTask(machine, id)
 	return machine
+}
+
+// runAs makes player the player, programmer and this of machine's task.
+func runAs(machine *VM, player types.ObjID, wizard bool) {
+	machine.Context.IsWizard = wizard
+	machine.Context.Programmer = player
+	machine.Context.Player = player
+	machine.Context.ThisObj = player
+	machine.Task.Owner = player
+	machine.Task.Programmer = player
 }
 
 func attachSourceFuzzTask(machine *VM, id int64) {

@@ -9,9 +9,15 @@ Barn uses Go's coverage-guided fuzzer for source invariants and runtime inputs:
 | `vm/FuzzSourceExecution` | Accepted compilation executes, resumes suspend/fork yields and runs queued children under one shared tick budget; representable return values survive a literal round trip. Go panics and failed assertions fail the input. |
 | `command/FuzzCommandLine` | Any input line passes word splitting (the pre-login path), command parsing with object matching, and verb lookup as Test.db player `#3` in `#2` without a Go panic. |
 
-Parsing/compilation errors are normal results. Execution uses a fresh empty
-store, task, core builtin registry, and session with a 100-tick budget. MOO
-errors and exhaustion are normal results. Suspend/fork yields are driven to a
+Parsing/compilation errors are normal results. Execution uses a fresh task,
+core builtin registry, and session with a 100-tick budget, in a small populated
+world (`vm/fuzz_world_test.go`): a parent chain of objects with inherited,
+overridden and unreadable properties, verbs that call each other, pass(),
+raise, catch and recurse, a wizard player `#0` and a programmer player `#6`.
+Each process builds the world once and saves it as a database; every execution
+loads its own copy, so no input sees another's changes. Each input runs twice,
+as the wizard and as the programmer. MOO errors and exhaustion are normal
+results. Suspend/fork yields are driven to a
 terminal return or exception; children run in creation order on the remaining
 budget. This does not run a real scheduler or optional I/O capabilities.
 It does not assert MOO behavioral conformance; use the managed Toast oracle for

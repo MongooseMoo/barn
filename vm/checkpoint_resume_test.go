@@ -155,7 +155,7 @@ func runCheckpointResumeCase(t *testing.T, registry *builtins.Registry, program 
 // newCheckpointResumeStore returns #0 and #2, owned by the wizard #2, with a
 // readable and writable property p on each, so the generated programs'
 // unprivileged property writes have persistent effects.
-func newCheckpointResumeStore(t *testing.T) *dbstore.Store {
+func newCheckpointResumeStore(t testing.TB) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
 	for _, id := range []types.ObjID{0, 2} {
