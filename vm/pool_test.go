@@ -42,6 +42,7 @@ func dirtyVM(machine *VM) {
 	machine.resumeError = types.E_INTRPT
 	machine.retryCheckpoint = &RetryCheckpoint{}
 	machine.prof = profileState{parent: NewVM(nil, nil), ticks: 7, entry: "#1:x"}
+	machine.handlerTick = ticksExhausted
 }
 
 func TestDirtyVMTouchesEveryField(t *testing.T) {
@@ -115,6 +116,9 @@ func TestResetClearsUnexportedFields(t *testing.T) {
 	}
 	if machine.retryCheckpoint != nil {
 		t.Error("retryCheckpoint not cleared")
+	}
+	if machine.handlerTick != ticksOK {
+		t.Errorf("handlerTick not cleared: %v", machine.handlerTick)
 	}
 	if len(machine.localStack) != 0 {
 		t.Errorf("localStack not released: len %d", len(machine.localStack))

@@ -103,6 +103,17 @@ func TestTickExhaustionStopsBeforeTheChargingOpcode(t *testing.T) {
 	}
 }
 
+// A named except variable is stored by Toast's OP_PUT, which tests the
+// budget. In this loop that store is the only tested tick (the named while,
+// try and for-list ticks are extended opcodes), so the loop must still end
+// on ticks; Toast aborts it at once. Found by FuzzStructuredSourceExecution
+// (issue #800), where it never ended.
+func TestNamedExceptStoreTestsTickBudget(t *testing.T) {
+	machine, prog := newTickTestVM(t, "while o (1) try try for n in (2) endfor except f (ANY) endtry finally endtry endwhile")
+	machine.TickLimit = 100
+	requireExceptionReason(t, machine.Run(prog), types.ExceptionReasonTickBudget)
+}
+
 func newTickTestVM(t *testing.T, code string) (*VM, *bytecode.Program) {
 	t.Helper()
 	registry := BuildVMRegistry()
