@@ -31,6 +31,14 @@ agent-notes/automatic-machine.md in the main checkout.
 
 ## Decisions and why
 
+- A point is taken on each push to master, not only hourly (added
+  2026-11-12 on branch ci/goodput-on-merge). The hourly schedule started no
+  run in its first two slots (05:17 and 06:17 UTC), and GitHub's
+  documentation for the schedule event says runs "can be delayed during
+  periods of high loads" and "some queued jobs may be dropped"; the fuzz
+  controller's `7,37 * * * *` schedule started six runs in 32 hours here.
+  A point per merge also names the commit a change arrived with.
+
 - No verdict before a merge. Two 16-player runs of one commit gave 892 and
   707 commands/s on this dump (barn-d6, 2026-11-12), and Daly et al. 2020
   found per-run thresholds useless at MongoDB (papers/Daly_2020_...). The
