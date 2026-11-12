@@ -16,6 +16,8 @@ name: Claude fix
 # Otherwise it stays open with the `needs-decision` label and the reasons.
 # When the repair merges, the conformance job merges its conformance pull
 # request; when it closes unmerged, the conformance pull request is closed.
+# Any other merged pull request carrying `automatic-fix` (one a person or
+# another agent labelled) gets its conformance test written after the merge.
 #
 # The merge is armed by Claude's own token, inside the second run: a queue
 # entry made with GITHUB_TOKEN starts no merge_group workflows and stalls.
@@ -212,84 +214,17 @@ jobs:
 
       - name: Write the conformance test and check the repair against Toast
         if: steps.pr.outputs.number
-        uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+        id: toast
+        uses: ./.github/actions/conformance-test
         with:
+          pr: ${{ steps.pr.outputs.number }}
+          merged: 'false'
+          may_queue: ${{ steps.scope.outputs.in_scope == 'true' }}
+          node: ${{ steps.pr.outputs.node }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          path_to_claude_code_executable: *claude-bin
-          allowed_bots: github-actions
-          settings: .github/claude-fix-settings.json
-          prompt: |
-            Pull request #${{ steps.pr.outputs.number }} in ${{ github.repository }} fixes a Barn bug. It is open and not
-            merged; this checkout is its head commit. Before it may merge, check the fixed behaviour against
-            Toast by writing a MOO conformance test for it, in the conformance suite checked out at
-            ./moo-conformance-tests.
-
-            Read CLAUDE.md and AGENTS.md here, and moo-conformance-tests/AGENTS.md and CLAUDE.md, first and
-            follow them. The conformance suite owns behavioural truth: Toast is the reference. The CI workflow
-            .github/workflows/ci.yml shows the managed conformance command, and the WSL Toast oracle on this
-            runner is the behavioural reference.
-
-            All runners share a Unix user. Never kill processes by name or pattern: that kills other
-            jobs' tests too. Start potentially hanging commands with timeout, and clean up only
-            PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
-
-            1. Read the PR and the issue it fixes: `gh pr view ${{ steps.pr.outputs.number }} --comments`, `gh pr diff ${{ steps.pr.outputs.number }}`.
-            2. Decide whether a MOO program can observe the fixed behaviour (a result, an error, output, a
-               listing, a stored value). Some fixes cannot be observed from MOO, for example a panic in a Go-only
-               path such as snapshot restore. Check whether the suite already covers it.
-            3. If it is observable and not already covered, add the test following the suite's existing layout
-               and conventions. Run it with the managed harness on the WSL Toast oracle and on this checkout's
-               Barn (`go build -o bin/ ./cmd/barn`), keeping the capability_admission test in the selection.
-               It must pass on Toast. Never weaken, skip or rewrite an existing test.
-            4. Record the result in ./conformance-pr/outcome.txt as exactly one word, and nothing else:
-               - `test`: the new test passes on Toast and on this checkout's Barn. In ./moo-conformance-tests
-                 create branch barn-fix/pr-${{ steps.pr.outputs.number }} from main and commit only new test files (stage named paths,
-                 never `git add -A`; no attribution trailers). Do not push; a later step pushes it and opens
-                 the pull request. Write the PR title to ./conformance-pr/title.txt and its body to
-                 ./conformance-pr/body.md: what behaviour the test pins, that it comes from
-                 MongooseMoo/barn#${{ steps.pr.outputs.number }}, and the Toast and Barn results with the exact commands
-                 you ran. No attribution footer.
-               - `not-observable`: no MOO program can observe the fixed behaviour. Commit nothing and say why
-                 in ./conformance-pr/reason.md.
-               - `already-covered`: the suite already covers it. Commit nothing and name the test in
-                 ./conformance-pr/reason.md.
-               - `toast-disagrees`: Toast behaves differently from this checkout's Barn on the fixed
-                 behaviour. Commit nothing and put the Toast and Barn output, with the exact commands, in
-                 ./conformance-pr/reason.md. Do not change the repair.
-            5. Queueing. MAY_QUEUE is `${{ steps.scope.outputs.in_scope == 'true' }}`. Only if MAY_QUEUE is `true` and the outcome is
-               `test`, `not-observable` or `already-covered`, let the pull request merge once its checks pass:
-               `gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}'`
-               In every other case do not run it. A later step checks this and undoes it when it was not allowed.
-
-            Post nothing: no comments and no reviews.
+          claude_bin: *claude-bin
           claude_args: *claude-args
-
-      - name: Open conformance pull request
-        id: conformance_pr
-        if: steps.pr.outputs.number
-        env:
-          GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
-          BRANCH: barn-fix/pr-${{ steps.pr.outputs.number }}
-        run: |
-          set -euo pipefail
-          outcome=""
-          [ -f conformance-pr/outcome.txt ] && outcome=$(tr -d '[:space:]' < conformance-pr/outcome.txt)
-          if [ "$outcome" != test ]; then
-            echo "Outcome '$outcome': no conformance pull request."
-            exit 0
-          fi
-          cd moo-conformance-tests
-          git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null \
-            || { echo "::error::Outcome is test but branch $BRANCH does not exist"; exit 1; }
-          ahead=$(git rev-list --count "origin/main..refs/heads/$BRANCH")
-          [ "$ahead" -gt 0 ] || { echo "::error::Branch $BRANCH has no commits beyond main"; exit 1; }
-          for f in title.txt body.md; do
-            [ -s "../conformance-pr/$f" ] || { echo "::error::conformance-pr/$f is missing or empty"; exit 1; }
-          done
-          git push "https://x-access-token:${GH_TOKEN}@github.com/MongooseMoo/moo-conformance-tests.git" \
-            "refs/heads/$BRANCH:refs/heads/$BRANCH"
-          gh pr create --repo MongooseMoo/moo-conformance-tests --base main --head "$BRANCH" \
-            --title "$(cat ../conformance-pr/title.txt)" --body-file ../conformance-pr/body.md
+          conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
 
       # Claude armed the merge with its own token if it judged that allowed.
       # This step decides again from the recorded facts and makes the pull
@@ -303,23 +238,21 @@ jobs:
           NODE: ${{ steps.pr.outputs.node }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
           IN_SCOPE: ${{ steps.scope.outputs.in_scope }}
-          CONFORMANCE_PR: ${{ steps.conformance_pr.outcome }}
+          TOAST_STEP: ${{ steps.toast.outcome }}
+          OUTCOME: ${{ steps.toast.outputs.outcome }}
         run: |
           set -euo pipefail
-          outcome=missing
-          [ -f conformance-pr/outcome.txt ] && outcome=$(tr -d '[:space:]' < conformance-pr/outcome.txt)
           head_now=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
           armed=$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.auto_merge != null')
 
           reasons="$RUNNER_TEMP/not-queued.md"
           : > "$reasons"
           [ "$IN_SCOPE" = true ] || { echo "Out of scope for an unread merge:"; sed 's/^/- /' "$RUNNER_TEMP/scope.txt"; } >> "$reasons"
-          case "$outcome" in
-            test|not-observable|already-covered) ;;
-            toast-disagrees) { echo "Toast disagrees with the fixed behaviour:"; echo; cat conformance-pr/reason.md; } >> "$reasons" ;;
-            *) echo "The Toast check left no valid outcome (got '$outcome')." >> "$reasons" ;;
-          esac
-          [ "$CONFORMANCE_PR" = success ] || echo "Opening the conformance pull request did not succeed ($CONFORMANCE_PR)." >> "$reasons"
+          if [ "$TOAST_STEP" != success ]; then
+            echo "The Toast check did not finish ($TOAST_STEP); see this run's log." >> "$reasons"
+          elif [ "$OUTCOME" = toast-disagrees ]; then
+            echo "Toast disagrees with the fixed behaviour; the comment above has the Toast and Barn output." >> "$reasons"
+          fi
           [ "$head_now" = "$HEAD_SHA" ] || echo "The pull request's head changed from $HEAD_SHA to $head_now after it was checked." >> "$reasons"
 
           disarm() {
@@ -345,16 +278,62 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 10
+    timeout-minutes: 240
     permissions:
       contents: read
+      pull-requests: write
+      id-token: write
     env:
       FIXED_PR: ${{ github.event.pull_request.number }}
       MERGED: ${{ github.event.pull_request.merged }}
       SUITE: MongooseMoo/moo-conformance-tests
+      # A repair from the fix job had its test written before it merged. Any
+      # other merged pull request carrying the label gets its test written now.
+      WRITE_TEST: ${{ github.event.pull_request.merged == true && !startsWith(github.event.pull_request.head.ref, 'claude/issue-') }}
     steps:
-      # The conformance pull request was opened before the repair merged. Barn's
-      # CI runs the suite's tip, so the test may land only after the repair has.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.WRITE_TEST == 'true'
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.WRITE_TEST == 'true'
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          path: moo-conformance-tests
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: env.WRITE_TEST == 'true'
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        if: env.WRITE_TEST == 'true'
+
+      # Installed into this run's own temporary home, as in the fix job.
+      - name: Install Claude Code for this run
+        if: env.WRITE_TEST == 'true'
+        run: |
+          set -o pipefail
+          curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
+
+      - name: Write the conformance test for the merged change
+        if: env.WRITE_TEST == 'true'
+        uses: ./.github/actions/conformance-test
+        with:
+          pr: ${{ github.event.pull_request.number }}
+          merged: 'true'
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_bin: *claude-bin
+          claude_args: *claude-args
+          conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
+
+      # Barn's CI runs the suite's tip, so a test for a repair may land only
+      # after the repair has.
       - name: Merge or close the conformance pull request
         env:
           GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}

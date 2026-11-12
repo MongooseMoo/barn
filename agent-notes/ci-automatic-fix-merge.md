@@ -27,9 +27,20 @@ then rebase this branch on master and push.
   open the conformance PR; a final step that recomputes the decision and
   disarms the merge unless every condition holds, labelling the PR
   `needs-decision` with the reasons otherwise.
-- `conformance` job: no longer runs Claude. When the repair merges it merges
-  the already-open conformance PR (only if that PR adds test files and nothing
-  else); when the repair closes unmerged it closes the conformance PR.
+- .github/actions/conformance-test: one composite action holding the Claude
+  run that writes the conformance test, the step that opens the conformance
+  PR, and a step that posts the reason on the repair when there is no test.
+  Used before the merge by the `fix` job and after the merge by the
+  `conformance` job, so the prompt exists once.
+- `conformance` job: when a repair from the fix job merges it merges the
+  already-open conformance PR (only if that PR adds test files and nothing
+  else); when the repair closes unmerged it closes the conformance PR. For a
+  merged PR carrying `automatic-fix` whose head is not claude/issue-* it
+  writes the test after the merge as before, then merges that PR the same
+  way. Kept because Q ordered hand-labelling for conformance tests on
+  2026-11-11 (relayed by barn-41, who labelled #777 on it: "add the auto fix
+  whatever label thing thing so we can have the conformance tests be written
+  automatically where appropriate?"); my first version removed that path.
 - No on/off switch and nothing that turns the machine off. Q 2026-11-11: "I do
   not want the machine to shuit itself down!" An earlier local commit had a
   repository variable AUTOMATIC_MERGE_ENABLED that left queueing off until
