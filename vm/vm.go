@@ -65,6 +65,11 @@ type VM struct {
 	resumeError     types.ErrorCode
 	retryCheckpoint *RetryCheckpoint // frozen roots retained until the slice settles
 	prof            profileState     // MOO profile sampling baseline (profile.go)
+
+	// handlerTick is the outcome of the checked tick the last caught error's
+	// named except variable charged (Toast's OP_PUT); the caller of
+	// handleErrorWithReason aborts the task when it is not ticksOK.
+	handlerTick tickOutcome
 }
 
 // pushFrame appends a call frame and updates the cached current-frame pointer.
@@ -698,6 +703,12 @@ func (vm *VM) resume() types.Result {
 				Val:    exceptionValue,
 			}
 		}
+		switch vm.handlerTick {
+		case ticksExhausted:
+			return vm.tickLimitResult()
+		case secondsExhausted:
+			return vm.secondsLimitResult()
+		}
 		if vm.yielded {
 			return vm.yieldResult
 		}
@@ -1034,6 +1045,12 @@ func (vm *VM) executeLoop() types.Result {
 					CallStack: stackSnapshot,
 				}
 			}
+			switch vm.handlerTick {
+			case ticksExhausted:
+				goto tickLimit
+			case secondsExhausted:
+				goto secondsLimit
+			}
 		}
 
 		// Check if VM yielded (suspend/fork)
@@ -1056,16 +1073,7 @@ func (vm *VM) executeLoop() types.Result {
 		continue
 
 	tickLimit:
-		{
-			line := vm.CurrentLine()
-			_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), line)
-			return types.Result{
-				Flow:   types.FlowException,
-				Error:  types.E_MAXREC,
-				Reason: types.ExceptionReasonTickBudget,
-				Val:    types.NewStr("E_MAXREC: tick limit exceeded"),
-			}
-		}
+		return vm.tickLimitResult()
 	}
 
 	// Return result
@@ -1076,6 +1084,22 @@ func (vm *VM) executeLoop() types.Result {
 	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
 
 secondsLimit:
+	return vm.secondsLimitResult()
+}
+
+// tickLimitResult aborts the task for an exhausted tick budget.
+func (vm *VM) tickLimitResult() types.Result {
+	_ = vm.annotateError(newMooError(types.E_MAXREC, "tick limit exceeded"), vm.CurrentLine())
+	return types.Result{
+		Flow:   types.FlowException,
+		Error:  types.E_MAXREC,
+		Reason: types.ExceptionReasonTickBudget,
+		Val:    types.NewStr("E_MAXREC: tick limit exceeded"),
+	}
+}
+
+// secondsLimitResult aborts the task for an exhausted seconds budget.
+func (vm *VM) secondsLimitResult() types.Result {
 	_ = vm.annotateError(newMooError(types.E_MAXREC, "seconds limit exceeded"), vm.CurrentLine())
 	return types.Result{Flow: types.FlowException, Error: types.E_MAXREC, Reason: types.ExceptionReasonSecondsBudget, Val: types.NewStr("E_MAXREC: seconds limit exceeded")}
 }
@@ -1521,6 +1545,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 
 // The reason travels with this particular error, never with reusable VM state.
 func (vm *VM) handleErrorWithReason(err error) (bool, types.Value, types.ExceptionReason) {
+	vm.handlerTick = ticksOK
 restartUnwind:
 	errCode := errorCode(err)
 	reason := exceptionReason(err)
@@ -1612,10 +1637,14 @@ restartUnwind:
 				// variable this is the handler's OP_PUT in Toast, one tick; a
 				// catch expression's compiler temporary (a slot past the named
 				// locals) stands for Toast's free exception-tuple push.
+				// That OP_PUT tests the budget like any ticking opcode, and
+				// does not store when it aborts the task.
 				if handler.VarIndex >= 0 {
-					frame.Locals[handler.VarIndex] = exceptionValue
 					if handler.VarIndex < len(frame.Program.VarNames) {
-						vm.Ticks++
+						vm.handlerTick = vm.chargeTicks(1, 0)
+					}
+					if vm.handlerTick == ticksOK {
+						frame.Locals[handler.VarIndex] = exceptionValue
 					}
 				}
 
