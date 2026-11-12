@@ -67,6 +67,9 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 		for _, ref := range holder.refs {
 			types.CollectAnonymousRefs(ref, seeds, retained)
 		}
+		for _, ref := range holder.lastMoveRefs {
+			types.CollectAnonymousRefs(ref, seeds, retained)
+		}
 	}
 	queue := make([]types.ObjID, 0, len(seeds))
 	for id := range seeds {
@@ -78,7 +81,7 @@ func (s *Store) persistentAnonymousReachability(retained bool) map[types.ObjID]s
 }
 
 // directRefIndex holds, for each live directory object whose property values
-// reference an anonymous object or a WAIF, those references
+// or last_move reference an anonymous object or a WAIF, those references
 // (VisitDirectFinalizationRefs, deduplicated), so the persistent reachability
 // walks seed from the holders instead of scanning every property of every
 // object. mu is its own: a shared-lock commit refreshes entries under
@@ -92,6 +95,47 @@ type directRefHolder struct {
 	id        types.ObjID
 	anonymous bool // seeds the WAIF top, never anonymous reachability
 	refs      []types.Value
+	// lastMoveRefs are last_move's direct references. A checkpoint writes
+	// last_move with the object, so they seed anonymous reachability; they are
+	// not part of the WAIF top.
+	lastMoveRefs []types.Value
+}
+
+// holdsLastMoveRefs reports whether id's entry records last_move references,
+// which a commit replacing that last_move must refresh.
+func (x *directRefIndex) holdsLastMoveRefs(id types.ObjID) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return len(x.entries[id].lastMoveRefs) > 0
+}
+
+// appendDirectRefs appends value's direct anonymous and WAIF references to refs,
+// skipping any already in anons or waifs.
+func appendDirectRefs(refs []types.Value, value types.Value, anons map[types.ObjID]struct{}, waifs *types.WaifSet) []types.Value {
+	if !value.MayHoldFinalizable() {
+		return refs
+	}
+	value.VisitDirectFinalizationRefs(func(ref types.Value) {
+		if ref.IsAnonymous() {
+			if _, seen := anons[ref.ID()]; seen {
+				return
+			}
+			anons[ref.ID()] = struct{}{}
+		} else if !waifs.Add(ref) {
+			return
+		}
+		refs = append(refs, ref)
+	})
+	return refs
+}
+
+// collectObjectAnonymousRefs adds the anonymous ids obj's checkpointed values
+// (its last_move and its property values) reference to out.
+func collectObjectAnonymousRefs(obj *Object, out map[types.ObjID]struct{}, retained bool) {
+	types.CollectAnonymousRefs(obj.lastMove, out, retained)
+	for _, prop := range obj.properties.all() {
+		types.CollectAnonymousRefs(prop.value, out, retained)
+	}
 }
 
 // snapshot returns every holder in id order, the order the directory walks.
@@ -105,40 +149,29 @@ func (x *directRefIndex) snapshot() []directRefHolder {
 
 // refreshDirectRefs recomputes id's entry from its published directory image.
 // Every noteWaifRootsChanged site calls it, after the change and before the
-// epoch moves, for each object whose property values or existence it changed.
+// epoch moves, for each object whose property values, last_move or existence
+// it changed.
 func (s *Store) refreshDirectRefs(id types.ObjID) {
 	obj := s.load(id)
-	var refs []types.Value
+	var refs, lastMoveRefs []types.Value
 	if validLiveObject(obj) {
 		waifs := types.NewWaifSet(nil)
 		anons := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties.all() {
-			if !prop.value.MayHoldFinalizable() {
-				continue
-			}
-			prop.value.VisitDirectFinalizationRefs(func(ref types.Value) {
-				if ref.IsAnonymous() {
-					if _, seen := anons[ref.ID()]; seen {
-						return
-					}
-					anons[ref.ID()] = struct{}{}
-				} else if !waifs.Add(ref) {
-					return
-				}
-				refs = append(refs, ref)
-			})
+			refs = appendDirectRefs(refs, prop.value, anons, waifs)
 		}
+		lastMoveRefs = appendDirectRefs(nil, obj.lastMove, make(map[types.ObjID]struct{}), types.NewWaifSet(nil))
 	}
 	s.directRefs.mu.Lock()
 	defer s.directRefs.mu.Unlock()
-	if len(refs) == 0 {
+	if len(refs) == 0 && len(lastMoveRefs) == 0 {
 		delete(s.directRefs.entries, id)
 		return
 	}
 	if s.directRefs.entries == nil {
 		s.directRefs.entries = make(map[types.ObjID]directRefHolder)
 	}
-	s.directRefs.entries[id] = directRefHolder{id: id, anonymous: obj.anonymous, refs: refs}
+	s.directRefs.entries[id] = directRefHolder{id: id, anonymous: obj.anonymous, refs: refs, lastMoveRefs: lastMoveRefs}
 }
 
 // indexedWaifTop returns the WAIFs live directory objects hold directly, in
@@ -209,9 +242,7 @@ func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct
 		}
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.properties.all() {
-			types.CollectAnonymousRefs(prop.value, nested, true)
-		}
+		collectObjectAnonymousRefs(obj, nested, true)
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
 		}
@@ -234,9 +265,7 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.properties.all() {
-			types.CollectAnonymousRefs(prop.value, nested, retained)
-		}
+		collectObjectAnonymousRefs(obj, nested, retained)
 		for nestedID := range nested {
 			queue = append(queue, nestedID)
 		}
