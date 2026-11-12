@@ -258,6 +258,12 @@ func describeTaskResult(result types.Result) string {
 	return fmt.Sprintf("exception %s reason %v value %s", types.NewErr(result.Error).String(), result.Reason, result.Val.String())
 }
 
+// checkpointValueBudget bounds the bytes of task values one checkpoint of
+// the property may write: types.ValueBytes summed over every value the
+// suspended task and the queued forks persist. A larger checkpoint is
+// skipped before it is written.
+const checkpointValueBudget = 64 << 20
+
 // checkpointSuspendedVM writes the suspended machine and store to a
 // checkpoint, loads it, and restores the task on the loaded store the way
 // engine.Runtime.loadSuspendedTask does. The restored VM keeps the task's
@@ -287,6 +293,9 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 		ReadingPlayer: types.ObjNothing,
 		VM:            machine.PersistenceVMSnapshot(),
 	}}
+	if size := persistedValueBytes(queued, suspended); size > checkpointValueBudget {
+		t.Skipf("the checkpoint would write %d bytes of task values, over the %d-byte budget", size, checkpointValueBudget)
+	}
 	path := filepath.Join(t.TempDir(), "checkpoint.db")
 	if err := dbformat.WriteCheckpoint(path, store, queued, suspended, nil); err != nil {
 		t.Fatalf("WriteCheckpoint failed: %v", err)
@@ -341,6 +350,55 @@ func checkpointSuspendedVM(t *testing.T, machine *VM, store *dbstore.Store, fork
 		t.Fatal("restored suspended VM has no active frame")
 	}
 	return restored, reloadedStore, restoredForks
+}
+
+// A checkpoint writes every variable of the suspended task and of each queued
+// fork in full, as Toast's write_forked_task and write_activ do (tasks.cc:1911,
+// execute.cc:3979), while in memory they share one value. This program holds
+// one 6 MB string in four variables and forks ten times in 87 ticks; its
+// checkpoint is 276,827,071 bytes. Thirty forks of a 12 MB string in eight
+// variables wrote 9.4 GB, and a fuzz worker that reloaded such checkpoints
+// was killed by the OOM killer at 25 GB. The property skips the case instead.
+func TestCheckpointResumeSkipsOversizedCheckpoint(t *testing.T) {
+	source := strings.Join([]string{
+		`s = "aaaaaa";`,
+		"for x in [1..20]",
+		"  s = s + s;",
+		"endfor",
+		"y = s;",
+		"z = s;",
+		"acc = s;",
+		"for n in [1..10]",
+		"  fork (0)",
+		"  endfork",
+		"endfor",
+		"suspend();",
+		"return length(s);",
+	}, "\n")
+	var run *testing.T
+	t.Run("case", func(t *testing.T) {
+		run = t
+		checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+	})
+	if !run.Skipped() {
+		t.Fatalf("a checkpoint over the %d-byte budget was written and reloaded, not skipped", checkpointValueBudget)
+	}
+}
+
+// persistedValueBytes sums types.ValueBytes over every value the snapshots
+// persist, each occurrence counted in full as the checkpoint writes it.
+func persistedValueBytes(snapshotLists ...[]task.Snapshot) int {
+	total := 0
+	count := func(value types.Value) types.Value {
+		total += types.ValueBytes(value)
+		return value
+	}
+	for _, snapshots := range snapshotLists {
+		for i := range snapshots {
+			snapshots[i].TransformPersistenceValues(count)
+		}
+	}
+	return total
 }
 
 // The property fails, naming the task and the state, when a checkpoint
