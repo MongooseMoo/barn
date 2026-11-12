@@ -59,6 +59,7 @@ import (
 	"runtime/debug"
 	rtmetrics "runtime/metrics"
 	"runtime/pprof"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -751,6 +752,93 @@ func TestMongooseRealWorkload(t *testing.T) {
 		}
 		t.Logf("MOO patch (as #2) result: %s", out)
 	}
+	// Give each measured player an empty room of its own, as location and home.
+	// The dump keeps 65 players in #15 and gives 188 the same home, so with every
+	// player in a few rooms each say and look scaled with the crowd (say fans a
+	// sound out to every listener) and `home` kept refilling one room.
+	// The candidate rooms (childless descendants of $room holding no player) are listed
+	// here from the store; the MOO side only moves, so move() decides who is
+	// accepted, and most rooms refuse.
+	// One string constant per list: a program holds at most 255 constants.
+	objRefs := func(ids []types.ObjID) string {
+		refs := make([]string, len(ids))
+		for i, id := range ids {
+			refs[i] = strconv.FormatInt(int64(id), 10)
+		}
+		return "{}; for n in (explode(\"" + strings.Join(refs, " ") + "\")) ids = {@ids, toobj(n)}; endfor"
+	}
+	isPlayer := make(map[types.ObjID]bool)
+	for _, pid := range store.Players() {
+		isPlayer[pid] = true
+	}
+	dt := store.DirectTxn()
+	roomVal, ec := dt.PropertyValue(0, "room")
+	if ec != types.E_NONE || roomVal.Type() != types.TYPE_OBJ {
+		t.Fatalf("separate rooms: #0.room = %v, %v", roomVal, ec)
+	}
+	var rooms []types.ObjID
+	queue := []types.ObjID{roomVal.Obj()}
+	seen := map[types.ObjID]bool{roomVal.Obj(): true}
+	for i := 0; i < len(queue); i++ {
+		children, _ := dt.Children(queue[i])
+		for _, c := range children {
+			if !seen[c] {
+				seen[c] = true
+				queue = append(queue, c)
+			}
+		}
+		// Only leaves: a room with children is a generic class, and writes to it
+		// by the movement verbs conflict with every reader of its descendants.
+		if i == 0 || isPlayer[queue[i]] || len(children) > 0 {
+			continue
+		}
+		contents, _ := dt.Contents(queue[i])
+		if !slices.ContainsFunc(contents, func(id types.ObjID) bool { return isPlayer[id] }) {
+			rooms = append(rooms, queue[i])
+		}
+	}
+	// One eval per player tries the next window of rooms and returns the index
+	// in the window of the room that took the player, or 0. Some players are
+	// refused everywhere (each refusal costs ~200 ms of accept filters), so a
+	// player a whole window refuses is skipped and the next candidate is
+	// measured in its place.
+	placeStart := time.Now()
+	next := 0
+	var placed, skipped []types.ObjID
+	for _, pid := range candidates {
+		if len(placed) == maxLevel || next >= len(rooms) {
+			break
+		}
+		window := rooms[next:min(next+50, len(rooms))]
+		out := s.EvalCommandOutput(2, strings.Join([]string{
+			"ids = " + objRefs(window) + ";",
+			"p = #" + strconv.FormatInt(int64(pid), 10) + ";",
+			"for i in [1..length(ids)]",
+			"  `move(p, ids[i]) ! ANY';",
+			"  if (p.location == ids[i])",
+			"    p.home = ids[i];",
+			"    return i;",
+			"  endif",
+			"endfor",
+			"return 0;",
+		}, "\n"))
+		var got int
+		if _, err := fmt.Sscanf(out, "{1, %d}", &got); err != nil {
+			t.Fatalf("separate rooms: placing #%d: %s", pid, out)
+		}
+		if got == 0 {
+			skipped = append(skipped, pid)
+			continue
+		}
+		next += got
+		placed = append(placed, pid)
+	}
+	if len(placed) < maxLevel {
+		t.Fatalf("separate rooms: placed %d players, need %d (skipped %v, %d candidate rooms)", len(placed), maxLevel, skipped, len(rooms))
+	}
+	candidates = placed
+	t.Logf("separate rooms: %d players placed in their own rooms (%d of %d candidate rooms tried) in %s; skipped, refused by a whole window: %v",
+		len(placed), next, len(rooms), time.Since(placeStart).Round(time.Millisecond), skipped)
 	totalWeight := 0
 	for _, sh := range realShapes {
 		totalWeight += sh.weight
