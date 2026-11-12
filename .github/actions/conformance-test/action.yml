@@ -75,7 +75,8 @@ runs:
              It must pass on Toast. Never weaken, skip or rewrite an existing test.
           4. Record the result in ./conformance-pr/outcome.txt as exactly one word, and nothing else:
              - `test`: the new test passes on Toast and on this checkout's Barn. In ./moo-conformance-tests
-               create branch barn-fix/pr-${{ inputs.pr }} from main and commit only new test files (stage
+               create branch barn-fix/pr-${{ inputs.pr }} from main and commit only new test files, plus the
+               line a new startup database needs in _db/startup/startup-fixtures.sha256 (stage
                named paths, never `git add -A`; no attribution trailers). Do not push; a later step pushes it
                and opens the pull request. Write the PR title to ./conformance-pr/title.txt and its body to
                ./conformance-pr/body.md: what behaviour the test pins, that it comes from

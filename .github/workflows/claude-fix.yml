@@ -350,8 +350,11 @@ jobs:
             exit 0
           fi
           # Only a pull request that adds test files and changes nothing else merges unread.
+          # A new startup database also needs its line in the checksum list, the one
+          # existing file such a pull request may change (#188 and #194 both did).
           other=$(gh api --paginate "repos/$SUITE/pulls/$number/files" \
-            --jq '.[] | select(.status != "added" or (.filename | test("^src/moo_conformance/(_tests|_db)/") | not)) | .filename')
+            --jq '.[] | select(.filename != "src/moo_conformance/_db/startup/startup-fixtures.sha256")
+              | select(.status != "added" or (.filename | test("^src/moo_conformance/(_tests|_db)/") | not)) | .filename')
           if [ -n "$other" ]; then
             echo "::notice::Conformance pull request #$number does more than add test files; it is left open:"
             echo "$other"

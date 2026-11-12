@@ -10,10 +10,9 @@ agent-notes/automatic-machine.md in the main checkout.
 
 ## State
 
-Local commits only; nothing pushed. Waiting for session barn-41's branch
-ci/fuzz-report-dedupe to merge first (it edits the repair prompt text and
-repairs the "Make the pull request close its issue" step in claude-fix.yml);
-then rebase this branch on master and push.
+Rebased on master after barn-41's ci/fuzz-report-dedupe merged (it edits the
+repair prompt text and repairs the "Make the pull request close its issue"
+step in claude-fix.yml); pushed as a pull request set to merge when green.
 
 - scripts/automatic_fix_scope.py + test: a repair is in scope when it adds a
   fuzz input and removes no line from an existing Go test and touches no
@@ -34,7 +33,10 @@ then rebase this branch on master and push.
   `conformance` job, so the prompt exists once.
 - `conformance` job: when a repair from the fix job merges it merges the
   already-open conformance PR (only if that PR adds test files and nothing
-  else); when the repair closes unmerged it closes the conformance PR. For a
+  else, apart from the startup checksum list
+  src/moo_conformance/_db/startup/startup-fixtures.sha256, which a new
+  startup database must change: conformance PRs #188 and #194 both did, and
+  the first version of the rule would have left them open); when the repair closes unmerged it closes the conformance PR. For a
   merged PR carrying `automatic-fix` whose head is not claude/issue-* it
   writes the test after the merge as before, then merges that PR the same
   way. Kept because Q ordered hand-labelling for conformance tests on
@@ -87,6 +89,7 @@ then rebase this branch on master and push.
 
 ## Next step
 
-When barn-41 reports its merge: rebase, re-run actionlint and the script
-test, push, open the PR, queue it, watch checks. Then watch the first real
-repair end to end.
+Watch this pull request's checks to the merge. Then watch the first real
+repair end to end and settle each item under "Unverified". Conformance PRs
+#188 and #194 were opened before this change and are still open; nothing in
+this change goes back for them.
