@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,8 +15,13 @@ from fuzz_retention import quarantine, transfer
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / "scripts/fixtures/fuzz"
 TARGET = "FuzzSourceExecution"
 RECORD = b'go test fuzz v1\nstring("return 1;\\n")\n'
+# Records retained by run 43127769101's FuzzRestoreVMSnapshotDoesNotPanic lane.
+RESTORE_TARGET = "FuzzRestoreVMSnapshotDoesNotPanic"
+STALE_RECORD = "01277128c63d7db7567f5052f4f9f9a92e7151a46ba741e8251924657a0f3f35"
+CURRENT_RECORD = "000433a45bc8b2db4bc3236bc6ae65f3e3424cbb3d9b5f91d099bc90ebe87a53"
 
 
 class RetentionTests(unittest.TestCase):
@@ -32,13 +38,74 @@ class RetentionTests(unittest.TestCase):
         self.native.mkdir(parents=True)
         self.lane = self.retained / "vm" / TARGET
         self.digest = hashlib.sha256(RECORD).hexdigest()
+        # Retention reads each target's argument count from its real f.Fuzz call.
+        Path("vm").mkdir()
+        for name in ("fuzz_test.go", "persistence_verify_test.go"):
+            shutil.copyfile(ROOT / "vm" / name, Path("vm") / name)
 
-    def run_transfer(self, mode="capture", cache=None, logs=None, head="source-one", campaign=None):
+    def run_transfer(self, mode="capture", cache=None, logs=None, head="source-one", campaign=None,
+                     target=TARGET, package="./vm"):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            transfer(mode, self.retained, cache or self.cache, "./vm", TARGET,
+            transfer(mode, self.retained, cache or self.cache, package, target,
                      head, "go version test", "profile-digest", logs, campaign)
         return json.loads(output.getvalue())
+
+    def test_a_callback_built_by_a_call_takes_its_value_count_from_the_seed(self):
+        # f.Fuzz(rapid.MakeFuzz(...)) has no literal parameter list; Go checks
+        # its f.Add seed against the same callback.
+        target = "FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder"
+        Path("types").mkdir()
+        shutil.copyfile(ROOT / "types/map_persistent_test.go", "types/map_persistent_test.go")
+        native = self.cache / "fuzz/github.com/MongooseMoo/barn/types" / target
+        native.mkdir(parents=True)
+        (native / "input").write_bytes(b'go test fuzz v1\n[]byte("\\x00")\n')
+        summary = self.run_transfer(target=target, package="./types")
+        self.assertEqual((summary["target_values"], summary["retained_records"]), (1, 1))
+
+    def retain_restore_lane_from_run_43127769101(self):
+        """Lay out FuzzRestoreVMSnapshotDoesNotPanic's lane as that run retained it:
+        a 4-value record from before a3c95e5f and a 5-value one Go accepts."""
+        lane = self.retained / "vm" / RESTORE_TARGET
+        (lane / "inputs").mkdir(parents=True)
+        manifest = {"version": 1, "package": "./vm", "target": RESTORE_TARGET, "records": {}}
+        for digest in (STALE_RECORD, CURRENT_RECORD):
+            shutil.copyfile(FIXTURES / RESTORE_TARGET / digest, lane / "inputs" / digest)
+            manifest["records"][digest] = [{"head": "old", "go": "go", "profile_sha256": "p",
+                                            "source": "interesting", "name": digest[:16]}]
+        (lane / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        return lane
+
+    def test_restore_replays_only_records_with_the_targets_value_count(self):
+        # Go's coordinator skips cache entries failing CheckCorpus ("wrong number
+        # of values in corpus entry: 4, want 5"), so they would never be fuzzed.
+        self.retain_restore_lane_from_run_43127769101()
+        summary = self.run_transfer("restore", target=RESTORE_TARGET)
+        native = self.cache / "fuzz/github.com/MongooseMoo/barn/vm" / RESTORE_TARGET
+        self.assertEqual([path.name for path in native.iterdir()], [CURRENT_RECORD])
+        self.assertEqual(summary["target_values"], 5)
+        self.assertEqual(summary["dropped_wrong_value_count"], 1)
+
+    def test_capture_prunes_retained_records_the_target_no_longer_accepts(self):
+        lane = self.retain_restore_lane_from_run_43127769101()
+        native = self.cache / "fuzz/github.com/MongooseMoo/barn/vm" / RESTORE_TARGET
+        native.mkdir(parents=True)
+        for digest in (STALE_RECORD, CURRENT_RECORD):
+            shutil.copyfile(FIXTURES / RESTORE_TARGET / digest, native / digest)
+        logs = self.root / "logs"
+        logs.mkdir()
+        (logs / "run-001.log").write_text("fuzz: elapsed: 3s, execs: 3 (1/sec), new interesting: 0 (total: 1)\n")
+        summary = self.run_transfer(logs=logs, campaign="clean", target=RESTORE_TARGET)
+        self.assertEqual([path.name for path in (lane / "inputs").iterdir()], [CURRENT_RECORD])
+        self.assertEqual(list(json.loads((lane / "manifest.json").read_text())["records"]), [CURRENT_RECORD])
+        self.assertEqual(summary["retained_records"], 1)
+        self.assertEqual(summary["dropped_wrong_value_count"], 1)
+        self.assertEqual(json.loads((lane / "census.json").read_text()), summary)
+
+    def test_a_target_without_a_readable_fuzz_signature_fails(self):
+        (self.native / "input").write_bytes(RECORD)
+        with self.assertRaisesRegex(ValueError, "FuzzMissing"):
+            self.run_transfer(target="FuzzMissing")
 
     def test_successful_interesting_and_failing_inputs_restore_on_another_host(self):
         (self.native / "native-name").write_bytes(RECORD)
