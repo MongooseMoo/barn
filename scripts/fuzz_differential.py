@@ -40,26 +40,31 @@ import argparse
 import ast
 import hashlib
 import json
+import queue
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_differ import (KILL_GRACE, REPO, TOAST, build_barn_linux, lane_scripts, moo_str,  # noqa: E402
-                          run_wsl, write_inputs)
+from bench_differ import (KILL_GRACE, REPO, TOAST, WSL, build_barn_linux, lane_scripts, moo_str,  # noqa: E402
+                          run_wsl, to_wsl, write_inputs)
 
 FG_TICKS = 30000
 FG_SECONDS = 2
 
 # Each engine process runs the preamble and at most CHUNK probes, and is
-# killed after STARTUP_SECONDS plus PROBE_SECONDS per input. The engines'
-# own limits do not bound every probe: on the pinned Toast an empty named
-# while loop (`n = 1; while o (n) endwhile`) never reaches a tick or
-# seconds check (issue #668). Every probe that ends ends within FG_SECONDS,
-# so a process that outruns its bound was stuck on the probe after its last
-# record. That probe is recorded as TIMED_OUT and the chunk restarts without
-# it, replaying the probes before it so the rest see the same database state.
+# killed once no result record has arrived for PROBE_SECONDS (STARTUP_SECONDS
+# before the first), and in any case after STARTUP_SECONDS plus PROBE_SECONDS
+# per input. The engines' own limits do not bound every probe: on the pinned
+# Toast an empty named while loop (`n = 1; while o (n) endwhile`) never
+# reaches a tick or seconds check (issue #668). Every probe that ends ends
+# within FG_SECONDS, so a killed process was stuck on the probe after its
+# last record. That probe is recorded as TIMED_OUT and the chunk restarts
+# without it, replaying the probes before it so the rest see the same
+# database state.
 CHUNK = 20
 PROBE_SECONDS = 10
 STARTUP_SECONDS = 30
@@ -203,14 +208,65 @@ def outcome(key: str, record: str | None) -> str | None:
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
 
 
-def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path):
+def run_streaming(script: str, timeout: int, kill: str, startup: int,
+                  probe_timeout: int) -> subprocess.CompletedProcess:
+    """run_wsl(script, timeout), except that once no result record has
+    arrived for probe_timeout seconds (startup before the first record) it
+    runs the shell command kill and collects what the script printed."""
+    lines: queue.Queue = queue.Queue()
+    stderr: list[str] = []
+    stdout: list[str] = []
+    with subprocess.Popen(WSL + [script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          encoding="utf-8", errors="replace") as proc:
+        def read_stdout():
+            for line in proc.stdout:
+                lines.put(line)
+            lines.put(None)
+
+        threading.Thread(target=read_stdout, daemon=True).start()
+        err_reader = threading.Thread(target=lambda: stderr.append(proc.stderr.read()), daemon=True)
+        err_reader.start()
+        deadline = time.monotonic() + timeout
+        stall_at = time.monotonic() + startup
+        stalled = False
+        while True:
+            try:
+                line = lines.get(timeout=max(0, min(deadline, stall_at) - time.monotonic()))
+            except queue.Empty:
+                run_wsl(kill, 60)
+                if time.monotonic() >= deadline:
+                    proc.kill()
+                    raise subprocess.TimeoutExpired(proc.args, timeout, "".join(stdout))
+                stalled, stall_at = True, deadline
+                continue
+            if line is None:
+                break
+            stdout.append(line)
+            if not stalled and RECORD_START.match(line) and not NOT_A_RESULT.match(line):
+                stall_at = time.monotonic() + probe_timeout
+        proc.wait()
+        err_reader.join()
+    return subprocess.CompletedProcess(proc.args, proc.returncode, "".join(stdout), "".join(stderr))
+
+
+def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path, probe_timeout: int = PROBE_SECONDS,
+                  startup: int = STARTUP_SECONDS):
     """run(lane, lines, bound): one engine process over lines on a private
-    copy of db, killed after bound seconds."""
+    copy of db, killed after bound seconds, or sooner once no result record
+    has arrived for probe_timeout seconds (startup before the first)."""
     def run(lane: str, lines: list[str], bound: int):
         path = out / f"{lane}_process_in.txt"
         write_inputs(path, lines, lane)
-        # The script's own timeout fires first; this only guards the harness.
-        return run_wsl(lane_scripts(db, barn_bin, toast, path, path, bound)[lane], bound + KILL_GRACE + 60)
+        pid = to_wsl(out / f"{lane}_process.pid")
+        # The lane script records its shell's pid. Its child is coreutils
+        # timeout, which puts itself and the engine in a process group of its
+        # own; killing that group ends both, and the shell then exits 137
+        # and removes its private directory.
+        kill = f'for c in $(pgrep -P "$(cat {pid})"); do kill -KILL -- "-$c"; done'
+        # The script's own timeout is the whole-process bound; the last
+        # argument only guards the harness.
+        script = f"echo $$ > {pid}; " + lane_scripts(db, barn_bin, toast, path, path, bound)[lane]
+        return run_streaming(script, bound + KILL_GRACE + 60, kill, startup, probe_timeout)
     return run
 
 
@@ -361,7 +417,7 @@ def main() -> int:
     lane_inputs = {"barn": [b for b, _ in inputs], "toast": [t for _, t in inputs]}
     for lane, lines in lane_inputs.items():
         write_inputs(args.out / f"{lane}_in.txt", lines, lane)
-    run = engine_runner(args.db, barn_bin, args.toast, args.out)
+    run = engine_runner(args.db, barn_bin, args.toast, args.out, args.probe_timeout)
     records, record_errors, timeouts = {}, [], {}
     for lane in ("toast", "barn"):
         records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout)

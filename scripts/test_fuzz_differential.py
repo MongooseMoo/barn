@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -153,29 +154,55 @@ class BoundedRunTests(unittest.TestCase):
                 run_bounded("toast", engine, self.lines(1), Path(directory), probe_timeout=1, startup=1, chunk=20)
             self.assertIn("raw", Path(directory, "toast_raw.txt").read_text(encoding="utf-8"))
 
+    def fake_toast(self, out):
+        """A stand-in Toast that, like the pinned Toast in an empty named
+        while loop, never returns from a HANG input and ignores SIGTERM."""
+        fake = out / "fake_toast.sh"
+        fake.write_text("trap '' TERM\n"
+                        "while IFS= read -r line; do\n"
+                        "  case \"$line\" in\n"
+                        "    quit) echo 'Bye.'; exit 0 ;;\n"
+                        "    *HANG*) while :; do sleep 1; done ;;\n"
+                        "    *) echo \"=> $line\" ;;\n"
+                        "  esac\n"
+                        "done\n", encoding="utf-8", newline="\n")
+        db = out / "in.db"
+        db.write_text("db", encoding="utf-8")
+        return db, "bash " + bench_differ.to_wsl(fake)
+
     def test_real_shell_kills_an_engine_that_ignores_sigterm(self):
-        # A stand-in Toast that, like the pinned Toast in an empty named
-        # while loop, never returns and ignores SIGTERM: the lane's coreutils
-        # timeout must kill it and keep what it printed before.
+        # The lane's coreutils timeout must kill it and keep what it printed before.
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
-            fake = out / "fake_toast.sh"
-            fake.write_text("trap '' TERM\n"
-                            "while IFS= read -r line; do\n"
-                            "  case \"$line\" in\n"
-                            "    quit) echo 'Bye.'; exit 0 ;;\n"
-                            "    *HANG*) while :; do sleep 1; done ;;\n"
-                            "    *) echo \"=> $line\" ;;\n"
-                            "  esac\n"
-                            "done\n", encoding="utf-8", newline="\n")
-            db = out / "in.db"
-            db.write_text("db", encoding="utf-8")
+            db, toast = self.fake_toast(out)
             lines = [";;preamble", ";;one", ";;HANG", ";;three"]
-            run = engine_runner(db, out / "barn", "bash " + bench_differ.to_wsl(fake), out)
+            run = engine_runner(db, out / "barn", toast, out, probe_timeout=60, startup=60)
             records, errors, timed_out = run_bounded("toast", run, lines, out, probe_timeout=1, startup=1,
                                                      chunk=20)
         self.assertEqual(records, ["=> ;;preamble", "=> ;;one", TIMED_OUT, "=> ;;three"])
         self.assertEqual((errors, timed_out), ([], [2]))
+
+    def test_real_shell_kills_a_stalled_engine_after_probe_timeout(self):
+        # The whole-process bound is 30 + 1 * 4 seconds; the hung probe must
+        # end about probe_timeout after the record before it, with the engine
+        # (the fake's bash, in timeout's process group) killed, not orphaned.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            db, toast = self.fake_toast(out)
+            lines = [";;preamble", ";;one", ";;HANG", ";;three"]
+            run = engine_runner(db, out / "barn", toast, out, probe_timeout=1, startup=30)
+            started = time.monotonic()
+            records, errors, timed_out = run_bounded("toast", run, lines, out, probe_timeout=1, startup=30,
+                                                     chunk=20)
+            elapsed = time.monotonic() - started
+            transcript = Path(directory, "toast_raw.txt").read_text(encoding="utf-8")
+            # "[f]ake" keeps the pattern from matching the probe's own command line.
+            left = bench_differ.run_wsl(f"pgrep -f '{bench_differ.to_wsl(out)}/[f]ake_toast.sh'", 60)
+        self.assertEqual(records, ["=> ;;preamble", "=> ;;one", TIMED_OUT, "=> ;;three"])
+        self.assertEqual((errors, timed_out), ([], [2]))
+        self.assertIn("bound 34s, exit 137", transcript)
+        self.assertLess(elapsed, 15)
+        self.assertEqual((left.returncode, left.stdout), (1, ""))
 
 
 class CorpusFileTests(unittest.TestCase):
