@@ -20,6 +20,63 @@ def native_corpus(cache, package, target):
     return cache / "fuzz/github.com/MongooseMoo/barn" / package.removeprefix("./") / target
 
 
+def go_list_items(source, start):
+    """Count the comma-separated items of the Go list opening just before start."""
+    depth, items, quote, index = 0, 1, None, start
+    while True:
+        char = source[index]
+        if quote:
+            if char == "\\" and quote != "`":
+                index += 1
+            elif char == quote:
+                quote = None
+        elif char in "\"'`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                return items
+            depth -= 1
+        elif char == "," and depth == 0:
+            items += 1
+        index += 1
+
+
+def target_values(package, target):
+    """Count the values one corpus record of target must hold.
+
+    Go reads a corpus record only when its value count matches the f.Fuzz
+    callback (internal/fuzz CheckCorpus); others are skipped and never fuzzed.
+    A literal callback's parameters after *testing.T are counted directly. A
+    callback built by a call (rapid.MakeFuzz) is counted from the target's first
+    f.Add seed, which Go checks against the callback the same way.
+    """
+    declaration = re.compile(r"^func " + target + r"\((\w+) \*testing\.F\) \{$", re.MULTILINE)
+    for path in sorted(Path(package).glob("*_test.go")):
+        source = path.read_text()
+        match = declaration.search(source)
+        if match is None:
+            continue
+        fuzz = source.find(match[1] + ".Fuzz(", match.end())
+        if fuzz < 0:
+            break
+        callback = fuzz + len(match[1] + ".Fuzz(")
+        if source.startswith("func(", callback):
+            # A grouped "a, b int" still separates every parameter with a comma.
+            return go_list_items(source, callback + len("func(")) - 1
+        seed = source.find(match[1] + ".Add(", match.end(), fuzz)
+        if seed < 0:
+            break
+        return go_list_items(source, seed + len(match[1] + ".Add("))
+    raise ValueError(f"no f.Fuzz callback or f.Add seed found for {target} in {package}")
+
+
+def record_values(data):
+    """Count a record's values as Go's unmarshalCorpusFile does: non-blank lines after the header."""
+    return sum(1 for line in data.split(b"\n")[1:] if line.strip())
+
+
 def quarantine(cache, package, target, source, found):
     """Keep an unminimized finding, removing its exact disposable replay copies."""
     native = native_corpus(cache, package, target)
@@ -51,6 +108,7 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
     if mode not in ("capture", "restore"):
         raise ValueError("unknown corpus transfer mode")
     native = native_corpus(cache, package, target)
+    values = target_values(package, target)
     lane = root / package.removeprefix("./") / target
     manifest_path = lane / "manifest.json"
     if manifest_path.exists() and manifest_path.stat().st_size > MAX_BYTES:
@@ -61,6 +119,8 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
         raise ValueError("retained corpus identity mismatch")
     records = lane / "inputs"
     retained_size = manifest_path.stat().st_size if manifest_path.exists() else 0
+    # Records the current target rejects for their value count; Go never fuzzes them.
+    dropped = set()
     for digest in manifest["records"]:
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise ValueError("retained corpus has an invalid record identity")
@@ -68,9 +128,15 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
         retained_size += path.stat().st_size
         if retained_size > MAX_BYTES:
             raise ValueError("retained corpus and provenance exceed 256 MiB")
-        if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        data = None if path.is_symlink() else path.read_bytes()
+        if data is None or hashlib.sha256(data).hexdigest() != digest:
             raise ValueError(f"retained corpus digest mismatch: {digest}")
+        if record_values(data) != values:
+            dropped.add(digest)
     if mode == "capture":
+        for digest in dropped:
+            del manifest["records"][digest]
+            (records / digest).unlink()
         records.mkdir(parents=True, exist_ok=True)
         sources = [(native, "interesting"),
                    (Path(package) / "testdata/fuzz" / target, "testdata")]
@@ -85,6 +151,9 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
                 if not data.startswith(b"go test fuzz v1\n"):
                     raise ValueError(f"not a Go fuzz record: {path}")
                 digest = hashlib.sha256(data).hexdigest()
+                if record_values(data) != values:
+                    dropped.add(digest)
+                    continue
                 destination = records / digest
                 if not destination.exists():
                     if total + len(data) > MAX_BYTES:
@@ -103,8 +172,8 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
     else:
         native.mkdir(parents=True, exist_ok=True)
         for digest in manifest["records"]:
-            path = records / digest
-            shutil.copyfile(path, native / digest)
+            if digest not in dropped:
+                shutil.copyfile(records / digest, native / digest)
     counts = {}
     for origins in manifest["records"].values():
         for kind in {origin["source"] for origin in origins}:
@@ -112,6 +181,7 @@ def transfer(mode, root, cache, package, target, head, go_version, profile, logs
     summary = {"mode": mode, "package": package, "target": target,
                "head": head, "go": go_version, "profile_sha256": profile,
                "retained_records": len(manifest["records"]), "per_source": counts,
+               "target_values": values, "dropped_wrong_value_count": len(dropped),
                "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest()
                if manifest_path.exists() else None}
     if mode == "capture" and logs is not None:
