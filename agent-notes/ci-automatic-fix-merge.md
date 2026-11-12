@@ -30,8 +30,10 @@ then rebase this branch on master and push.
 - `conformance` job: no longer runs Claude. When the repair merges it merges
   the already-open conformance PR (only if that PR adds test files and nothing
   else); when the repair closes unmerged it closes the conformance PR.
-- Switch: repository variable AUTOMATIC_MERGE_ENABLED. Not 'true' (or unset)
-  means nothing is queued and conformance PRs stay open.
+- No on/off switch and nothing that turns the machine off. Q 2026-11-11: "I do
+  not want the machine to shuit itself down!" An earlier local commit had a
+  repository variable AUTOMATIC_MERGE_ENABLED that left queueing off until
+  set; Q never asked for it and it is removed.
 - actionlint 1.7.12 passes on claude-fix.yml. zizmor was not run: the local
   uv configuration excludes zizmor 1.32.0 by date.
 
@@ -44,8 +46,8 @@ then rebase this branch on master and push.
   reports describe exactly this stall (not official documentation). The
   action revokes its app token when it ends (action.yml "Revoke app token"),
   so a later step cannot use it. The last step is the mechanical check: it
-  disarms with GITHUB_TOKEN unless scope, Toast outcome, conformance PR,
-  unchanged head and the switch all allow the merge.
+  disarms with GITHUB_TOKEN unless scope, Toast outcome, conformance PR and
+  unchanged head all allow the merge.
 - The scope script is read from master (`git archive FETCH_HEAD`), so a
   repair cannot change the rule that judges it.
 - Steps call the REST and GraphQL APIs through `gh api`. The runner's gh is
@@ -75,5 +77,5 @@ then rebase this branch on master and push.
 ## Next step
 
 When barn-41 reports its merge: rebase, re-run actionlint and the script
-test, push, open the PR, queue it, watch checks. Then set
-AUTOMATIC_MERGE_ENABLED and watch the first real repair end to end.
+test, push, open the PR, queue it, watch checks. Then watch the first real
+repair end to end.

@@ -10,8 +10,7 @@ name: Claude fix
 # a second Claude run writes a MOO conformance test for the fixed behaviour and
 # runs it on Toast and on the repair's Barn; the test goes to a pull request in
 # moo-conformance-tests, whose CI runs it on Toast. A repair then enters the
-# merge queue with no person reading it only when all of these hold:
-#   - the repository variable AUTOMATIC_MERGE_ENABLED is 'true';
+# merge queue with no person reading it when both of these hold:
 #   - scripts/automatic_fix_scope.py, taken from master, finds it in scope;
 #   - Toast did not disagree with the fixed behaviour.
 # Otherwise it stays open with the `needs-decision` label and the reasons.
@@ -20,7 +19,7 @@ name: Claude fix
 #
 # The merge is armed by Claude's own token, inside the second run: a queue
 # entry made with GITHUB_TOKEN starts no merge_group workflows and stalls.
-# The step after it disarms the merge unless every condition above holds.
+# The step after it disarms the merge unless both conditions above hold.
 on:
   workflow_dispatch:
     inputs:
@@ -257,7 +256,7 @@ jobs:
                - `toast-disagrees`: Toast behaves differently from this checkout's Barn on the fixed
                  behaviour. Commit nothing and put the Toast and Barn output, with the exact commands, in
                  ./conformance-pr/reason.md. Do not change the repair.
-            5. Queueing. MAY_QUEUE is `${{ steps.scope.outputs.in_scope == 'true' && vars.AUTOMATIC_MERGE_ENABLED == 'true' }}`. Only if MAY_QUEUE is `true` and the outcome is
+            5. Queueing. MAY_QUEUE is `${{ steps.scope.outputs.in_scope == 'true' }}`. Only if MAY_QUEUE is `true` and the outcome is
                `test`, `not-observable` or `already-covered`, let the pull request merge once its checks pass:
                `gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id='${{ steps.pr.outputs.node }}'`
                In every other case do not run it. A later step checks this and undoes it when it was not allowed.
@@ -304,7 +303,6 @@ jobs:
           NODE: ${{ steps.pr.outputs.node }}
           HEAD_SHA: ${{ steps.pr.outputs.head }}
           IN_SCOPE: ${{ steps.scope.outputs.in_scope }}
-          ENABLED: ${{ vars.AUTOMATIC_MERGE_ENABLED }}
           CONFORMANCE_PR: ${{ steps.conformance_pr.outcome }}
         run: |
           set -euo pipefail
@@ -334,9 +332,6 @@ jobs:
             printf '{"labels":["needs-decision"]}' | gh api -X POST "repos/$GH_REPO/issues/$PR/labels" --input - --silent
             gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F "body=@$reasons" --silent
             echo "::notice::Pull request #$PR is not queued; it has the needs-decision label and the reasons."
-          elif [ "$ENABLED" != true ]; then
-            if [ "$armed" = true ]; then disarm; fi
-            echo "::notice::Pull request #$PR passed every check; AUTOMATIC_MERGE_ENABLED is not 'true', so it is not queued."
           elif [ "$armed" != true ]; then
             echo "::error::Pull request #$PR passed every check but its merge was not armed."
             exit 1
@@ -356,7 +351,6 @@ jobs:
     env:
       FIXED_PR: ${{ github.event.pull_request.number }}
       MERGED: ${{ github.event.pull_request.merged }}
-      ENABLED: ${{ vars.AUTOMATIC_MERGE_ENABLED }}
       SUITE: MongooseMoo/moo-conformance-tests
     steps:
       # The conformance pull request was opened before the repair merged. Barn's
@@ -374,10 +368,6 @@ jobs:
           if [ "$MERGED" != true ]; then
             gh api -X PATCH "repos/$SUITE/pulls/$number" -f state=closed --silent
             echo "Repair #$FIXED_PR closed unmerged; closed conformance pull request #$number."
-            exit 0
-          fi
-          if [ "$ENABLED" != true ]; then
-            echo "::notice::AUTOMATIC_MERGE_ENABLED is not 'true'; conformance pull request #$number is left open."
             exit 0
           fi
           # Only a pull request that adds test files and changes nothing else merges unread.
