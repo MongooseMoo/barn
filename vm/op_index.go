@@ -189,8 +189,12 @@ func (vm *VM) executeRangeSet() error {
 		}
 
 		// Clamp both cuts into the string: a start below 1 keeps no prefix
-		// and an end past the length keeps no suffix.
-		prefixEnd := int(max(startIdx-1, 0))
+		// and an end past the length keeps no suffix. Compare before
+		// subtracting so a start of math.MinInt64 cannot wrap to MaxInt64.
+		prefixEnd := 0
+		if startIdx > 1 {
+			prefixEnd = int(startIdx - 1)
+		}
 		suffixStart := int(min(endIdx, strLen))
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
