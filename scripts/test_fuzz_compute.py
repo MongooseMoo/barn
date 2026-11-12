@@ -25,6 +25,14 @@ LEGACY_CYCLE = {"id": 12, "display_title": "Nightly fuzz / legacy"}
 COMPARE = "Compare retained public source on Barn and Toast"
 
 
+def node_binary():
+    """Node on PATH, or the runner's bundled Node on a self-hosted runner."""
+    node = shutil.which("node")
+    if node is None:
+        node = str(Path(os.environ["RUNNER_TEMP"]).parents[1] / "externals/node24/bin/node")
+    return node
+
+
 def job(name, conclusion="success", failed=None):
     steps = [{"name": "Upload retained corpus and native evidence", "conclusion": "success"}]
     if failed:
@@ -55,10 +63,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
  .then(() => console.log(JSON.stringify({calls,output,info})))
  .catch(error => console.log(JSON.stringify({calls,output,info,error:error.message})));
 """
-        node = shutil.which("node")
-        if node is None:
-            node = str(Path(os.environ["RUNNER_TEMP"]).parents[1] / "externals/node24/bin/node")
-        result = subprocess.run([node, "-e", harness], input=json.dumps({
+        result = subprocess.run([node_binary(), "-e", harness], input=json.dumps({
             "method": method, "env": CONFIG if env is None else env,
             "source": SOURCE if source is None else source, "active": list(active),
             "latest": latest, "ref": ref, "jobs": jobs, "event": event,
