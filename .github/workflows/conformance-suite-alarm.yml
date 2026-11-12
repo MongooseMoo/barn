@@ -1,0 +1,36 @@
+name: Conformance suite alarm
+
+# Opens an issue when the conformance suite loses tests or its average run
+# time moves 10% in a week (scripts/conformance_suite_alarm.py). It only
+# reports: it stops nothing and switches nothing off.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-suite-alarm
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Compare this week's conformance runs with last week's
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check test count and run time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/conformance_suite_alarm.py --repo "$GITHUB_REPOSITORY"
+          --open-issue "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
