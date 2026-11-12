@@ -11,9 +11,11 @@ policy enforcement remains unverified. QEMU and cloud-image-utils installation
 completed. The first apt invocation waited for confirmation; its exact PID was
 verified and terminated, then the corrected noninteractive invocation completed.
 No production service restart was requested. The guest has booted and cloud-init
-completed. Runtime evidence shows 8 CPUs, about 16 GiB RAM, no guest swap,
-120 GiB virtual guest disk and a 260 GiB host backing filesystem. Host limits
-read back as CPU quota 8 seconds/second, MemoryMax 20 GiB, MemorySwapMax zero.
+completed. The guest runs `-smp 24` (24 vCPUs), no guest swap, a 120 GiB
+virtual guest disk and a 260 GiB host backing filesystem. RAM is 32 GiB
+(`-m 32768`) with host limits CPUQuota 2400%, MemoryMax 36 GiB, MemorySwapMax
+zero, as in `.github/runner/barn-compute.service`; it was 16 GiB / 20 GiB until
+the 2026-11-11 OOM kills in `barn-fuzz.slice` (agent-notes/ci-fuzz-capacity.md).
 Guest TCP probes reached api.github.com:443 but timed out for the host SSH alias,
 production Barn address, Docker private address, and metadata address. The runner
 user has no sudo. File review found no blocking configuration defect. Two listener
@@ -23,9 +25,9 @@ policy acceptance remains unverified; no dedicated fuzz cycle has run yet.
 Differential PR 654 and persistence PR 655 are published with required CI running.
 
 ## Decisions and why
-Use one KVM guest with 8 vCPUs, 16 GiB RAM, a 120 GiB disk, and a dedicated
-unprivileged host account. Bound host memory to 20 GiB without swap and CPU to
-eight cores. No production mounts, host Docker socket, or broad credentials.
+Use one KVM guest with 24 vCPUs, 32 GiB RAM, a 120 GiB disk, and a dedicated
+unprivileged host account. Bound host memory to 36 GiB without swap and CPU to
+24 cores. No production mounts, host Docker socket, or broad credentials.
 Allow public package and GitHub egress while rejecting host/private destinations.
 Keep continuous discovery disabled until isolation and retained-corpus acceptance.
 

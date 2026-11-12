@@ -378,6 +378,7 @@ class CampaignStepTests(unittest.TestCase):
 if [ "$1" = version ]; then echo "go version go1.27.1 linux/amd64"; exit 0; fi
 n=$(( $(cat "$WORK/attempts" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$WORK/attempts"
 echo "attempt $n" >> "$WORK/sequence"
+echo "$*" >> "$WORK/arguments"
 [ -n "${GITHUB_TOKEN:-}" ] && echo "token reached go test" >> "$WORK/sequence"
 if [ "$n" = 1 ]; then
   mkdir -p vm/testdata/fuzz/FuzzT
@@ -453,7 +454,8 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
                     "GITHUB_SHA": "commit", "GITHUB_TOKEN": "token", "GITHUB_REPOSITORY": "test/barn",
                     "GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_port}",
                     "GITHUB_SERVER_URL": "https://github.com", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
-                    "FUZZ_PACKAGE": "./vm", "FUZZ_TARGET": "FuzzT", "CAMPAIGN_OUTCOME": "failure",
+                    "FUZZ_PACKAGE": "./vm", "FUZZ_TARGET": "FuzzT", "FUZZ_MINUTES": "30",
+                    "CAMPAIGN_OUTCOME": "failure",
                     "ARTIFACT_URL": "https://artifact"}
         workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
         self.campaign = step_script(workflow, "Fuzz ${{ matrix.target }}")
@@ -493,6 +495,20 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
         result = self.run_step(self.reporter)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(self.api_calls), 3)
+
+    def test_each_attempt_fuzzes_for_the_time_left_in_the_lane_minutes(self):
+        (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
+        self.failing = {("POST", "/issues")}
+        self.env["FUZZ_MINUTES"] = "5"
+        result = self.run_step(self.campaign)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        attempts = [line for line in (self.work / "arguments").read_text().splitlines() if line != "version"]
+        self.assertEqual(len(attempts), 2)
+        for line in attempts:
+            fuzztime = int(re.search(r"-fuzztime=(\d+)s", line)[1])
+            self.assertTrue(240 < fuzztime <= 300, line)
+            self.assertIn(f"-timeout={fuzztime + 600}s", line)
+            self.assertIn(" -parallel=4 ", line)
 
     def test_failed_report_is_visible_and_retried_when_the_job_ends(self):
         (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')

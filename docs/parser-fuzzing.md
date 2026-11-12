@@ -121,7 +121,8 @@ verb bodies accidentally when retaining local-corpus failures.
 
 These targets implement [Barn #414](https://github.com/MongooseMoo/barn/issues/414).
 PR CI runs no timed fuzzing. `.github/workflows/fuzz.yml` gives each native
-target thirty minutes, with two Go fuzz workers per target. The default
+target the `minutes` of its matrix entry (thirty, or five for lanes whose
+coverage has stopped growing), with four Go fuzz workers per target. The default
 `dedicated-once` mode and `dedicated-continuous` mode run exclusively on the
 server's `barn-bug-discovery` runner group. This includes routing, acceptance
 and controller jobs. Legacy workstation routing and its nightly-task installer

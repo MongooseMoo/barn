@@ -7,10 +7,10 @@ world. Its organization runner group is `barn-bug-discovery`, selected only for
 Routing, workers, acceptance and replenishment all use this group. Do not add its
 listeners to the ordinary `barn` runner pool or the privileged repair workflow.
 
-The guest has 24 virtual CPUs, 16 GiB RAM and a 120 GiB virtual disk. Its host
-service caps memory at 20 GiB without swap and CPU time at 24 logical CPUs
+The guest has 24 virtual CPUs, 32 GiB RAM and a 120 GiB virtual disk. Its host
+service caps memory at 36 GiB without swap and CPU time at 24 logical CPUs
 (`CPUQuota=2400%`), half of the host's 48 logical CPUs, with low CPU and IO
-weight. Four concurrent fuzz jobs use six workers each. A separate 260 GiB
+weight. Four concurrent fuzz jobs use four workers each. A separate 260 GiB
 loop filesystem bounds guest/base/rollback
 images together. The console journal has its own namespace capped at 256 MiB.
 The host firewall table selects only the `barncompute` account. Public DNS and
@@ -81,7 +81,7 @@ organization registration token on stdin, with `listener.conf` and
 the slice and the drop-in (`Slice=barn-fuzz.slice`, `Restart=always`,
 `OOMPolicy=continue`), so a listener whose lane is OOM-killed, or which exits
 for any reason, comes back on its own. All listeners share one memory bound,
-`MemoryMax=14G` on the slice: a per-listener 3500M bound killed
+`MemoryMax=30G` on the slice: a per-listener 3500M bound killed
 FuzzReadDatabase, whose processes normally use about 3.4 GB. To apply both
 to listeners installed before them, copy the two files to the guest as root
 and run:
