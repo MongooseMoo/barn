@@ -86,6 +86,10 @@ const (
 	// ConflictExternal is state outside the store, such as an SQLite database,
 	// written since the transaction read it (store_external_reads.go).
 	ConflictExternal
+	// ConflictPropertyMemoShape is a memoized property resolution, stale
+	// because some property slot's presence or clear flag, or some ancestry,
+	// changed anywhere in the store.
+	ConflictPropertyMemoShape
 )
 
 var conflictKindNames = [...]string{
@@ -102,6 +106,8 @@ var conflictKindNames = [...]string{
 	ConflictMapKey:        "map-key",
 	ConflictTask:          "task",
 	ConflictExternal:      "external",
+
+	ConflictPropertyMemoShape: "property-memo-shape",
 }
 
 func (k ConflictKind) String() string {

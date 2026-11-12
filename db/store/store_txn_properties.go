@@ -172,9 +172,29 @@ func (tx *StoreTxn) findPropertyFrom(objID types.ObjID, root *Object, name strin
 	// lookup once here rather than once per ancestor (an E_PROPNF walk on a
 	// deep chain otherwise re-lowers the same name at every level).
 	nameKey := propertyNameKey(name)
+	memoActive := tx.propMemoActive()
+	memoKey := propResolveKey{objID: objID, name: nameKey}
+	if memoActive {
+		var record [3]propWalkStep
+		if prop, ec, steps, hit := tx.lookupPropMemo(memoKey, root, &record); hit {
+			// A walk names a found property by its canonical key, and a
+			// missing one by "".
+			actualName := ""
+			if ec == types.E_NONE {
+				actualName = nameKey
+			}
+			if cacheable {
+				tx.storePropResolve(key, nameKey, steps, prop, actualName, ec)
+			}
+			return prop, actualName, ec
+		}
+	}
 	prop, actualName, ec, steps := tx.walkProperty(objID, root, nameKey)
 	if cacheable {
 		tx.storePropResolve(key, nameKey, steps, prop, actualName, ec)
+	}
+	if memoActive {
+		tx.storePropMemo(memoKey, steps, ec)
 	}
 	return prop, actualName, ec
 }

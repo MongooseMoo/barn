@@ -53,6 +53,10 @@ type objectWrites struct {
 	verbCode        []verbCodeWrite
 	verbDeletes     []int // verb-list indexes, in staged order
 	recycle         bool
+	// propShape is set by applyTailWrites when a value write changes where a
+	// property walk stops on this object: it adds a slot or flips one's clear
+	// flag, which moves the property memo's shape clock (publishStagedLocked).
+	propShape bool
 
 	// img is the image the commit builds and publishes; old is the published
 	// image it replaces (nil for a created or anonymous object).
@@ -290,6 +294,11 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 			waifRootsDirty = true
 		}
 		if key, prop, ok := img.properties.find(write.name); ok {
+			if prop.clear != write.prop.clear {
+				// An override onto a clear inherited slot, or clear_property: a
+				// walk through this object now stops elsewhere.
+				w.propShape = true
+			}
 			prop.value = write.prop.value
 			prop.owner = write.prop.owner
 			prop.perms = write.prop.perms
@@ -307,6 +316,7 @@ func (tx *StoreTxn) applyTailWrites(img *Object, w *objectWrites, ts uint64, wai
 			img.properties.put(propertyNameKey(write.name), prop)
 			// A new slot changes which ancestry walks fall through this object.
 			img.propertyShapeVersion = ts
+			w.propShape = true
 		}
 		img.propertyVersion = ts
 	}
@@ -402,6 +412,9 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 	s := tx.store
 	waifRootsDirty := false
 	verbShapeDirty := len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0
+	// A definition change, or a slot deleted, moves where some property walk
+	// stops; so do the per-object events found below.
+	propShapeDirty := len(tx.propertyDefines)+len(tx.propertyDefinitionDeletes)+len(tx.propertyRenames)+len(tx.propertyDeletes) > 0
 	for i := range writes.entries {
 		w := &writes.entries[i]
 		renames := tx.renamesOf(w.id)
@@ -450,6 +463,12 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 			waifRootsDirty = true
 		}
 		waifRootsDirty = tx.applyTailWrites(w.img, w, ts, waifRootsDirty)
+		// A slot added or its clear flag flipped, a numbered object recycled
+		// (walks through it now skip it) or created (a walk may name it as a
+		// parent it skipped while the id held nothing).
+		if w.propShape || (w.recycle && w.old != nil) || (w.created != nil && !w.created.anonymous) {
+			propShapeDirty = true
+		}
 		if w.recycle {
 			// Only a numbered object that existed before can be in a memoized
 			// dispatch result.
@@ -484,6 +503,15 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		if image.staged != nil {
 			s.publishWaifLocked(image, ts)
 		}
+	}
+	// The property-shape stamp is this commit's own timestamp, stored before the
+	// clock reaches it: a snapshot that can see these images is then never
+	// handed a memo entry made on an earlier one. (A stamp stored after the clock
+	// moved would leave a window where a new snapshot sees the new images but the
+	// old stamp.) A snapshot just below ts that already took an entry answered
+	// correctly for itself, and fails validation if it commits.
+	if propShapeDirty {
+		s.props.shapeChangeTS.Store(ts)
 	}
 	// Every image of this commit is published: let snapshots reach it. The swap
 	// fails only if something moved the clock during the publication, which would

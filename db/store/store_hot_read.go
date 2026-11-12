@@ -295,10 +295,12 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	}
 	s := tx.store
 	next := s.BeginSnapshot(0)
-	// A memoized verb resolution holds while no verb shape has changed since the
-	// snapshot it was made on; next's own commit covers changes after its own.
+	// A memoized verb or property resolution holds while no verb or property
+	// shape has changed since the snapshot it was made on; next's own commit
+	// covers changes after its own.
 	// max_object() and the like answer from the watermarks without a read mark.
 	if (tx.usedVerbMemo && s.dispatch.shapeChangeTS.Load() > tx.readTS && !isolationprobe.Fault("hot-memo-guard")) ||
+		(tx.usedPropMemo && s.props.shapeChangeTS.Load() > tx.readTS) ||
 		next.maxObjID != tx.maxObjID || next.highWaterID != tx.highWaterID {
 		next.Release()
 		return nil
@@ -325,6 +327,9 @@ func (tx *StoreTxn) renewAtCurrentClock(drop []propertyReadKey) *StoreTxn {
 	next.usedVerbMemo = tx.usedVerbMemo
 	next.verbMemoDisabled = tx.verbMemoDisabled
 	next.verbMemoHits = slices.Clone(tx.verbMemoHits)
+	next.usedPropMemo = tx.usedPropMemo
+	next.propMemoDisabled = tx.propMemoDisabled
+	next.propMemoHits = slices.Clone(tx.propMemoHits)
 	if tx.diag != nil && next.diag != nil {
 		// The slots in drop are read again at the new clock.
 		tx.diag.carryOrigin(next.diag)

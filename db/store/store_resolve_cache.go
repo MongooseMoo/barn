@@ -7,8 +7,9 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// store_resolve_cache.go — allocation-free ancestry walks (Part A) and a
-// per-transaction memo of verb/property resolution (Part B).
+// store_resolve_cache.go — allocation-free ancestry walks (Part A), a
+// per-transaction memo of verb/property resolution (Part B), and store-level
+// memos of both (Part C).
 //
 // PART A — reusable walk scratch.
 //
@@ -49,13 +50,13 @@ import (
 // up identical to an uncached run and committed-write conflict detection is
 // unaffected.
 //
-// CORRECTNESS: staged writes bypass the property and store-global verb memos.
+// CORRECTNESS: staged writes bypass the per-transaction property memo.
 // The transaction-local verb memo additionally accepts walks whose entire path
 // remains unowned: unrelated writes cannot mutate these immutable images. Paths
 // through any owned object are never cached, even after their first mutation.
-// The property and store-global memos are live only while
+// The per-transaction property memo is live only while
 // len(tx.owned) == 0 — i.e. while the transaction has not privatized a single
-// object. Every staging path (SetPropertyValue, DefineProperty, SetVerbCode,
+// object. (The store-level memos, PART C below, gate themselves.) Every staging path (SetPropertyValue, DefineProperty, SetVerbCode,
 // CreateObject, MoveObject, RecycleObject, ...) goes through
 // mutableObject/privatizeCached first, which marks the object owned, and
 // `owned` only ever grows within a transaction. So the first staged write
@@ -75,6 +76,18 @@ import (
 // tx.objects[id] still holds the very same *Object pointer for every step of
 // the recorded walk, which catches the paths that REPLACE a txn cache entry
 // without owning it (AdoptLiveObject, ForgetObject).
+//
+// PART C — store-level resolution memos (sharedResolveMemo).
+//
+// Most per-transaction misses are a transaction's first lookup of a key, so
+// verb dispatch and property resolution are also memoized across transactions,
+// each memo guarded by its own shape clock: an entry made on a snapshot at or
+// after the clock answers any snapshot at or after it, since nothing that
+// could change a walk's path or stopping point has happened in between. A
+// reading transaction that uses an entry depends on the clock instead of on
+// marks along the path, and fails validation if the clock moves past its
+// snapshot; a writing transaction gets the walk's exact marks. See
+// lookupVerbDispatchMemo and lookupPropMemo.
 
 // resolveCacheCap bounds each memo. MOO code can synthesize unlimited distinct
 // verb and property names, so the map is dropped wholesale once it exceeds the
@@ -138,7 +151,9 @@ type verbWalkStep struct {
 // `found` distinguishes the markPropertyRead case from the markPropertyScan
 // case. A found step keeps only the version the walk read: the name it read
 // is the walk's key, and the memo stores millions of steps, so a whole
-// Property per step was most of the bytes the memo allocated.
+// Property per step was most of the bytes the memo allocated. A record of a
+// store-level memo hit (lookupPropMemo) also uses an invalid-flagged step, for
+// its start object, which it checks but does not mark.
 type propWalkStep struct {
 	id      types.ObjID
 	obj     *Object
@@ -509,7 +524,14 @@ func (tx *StoreTxn) PrepareLiveMutation() {
 	if tx == nil || tx.direct {
 		return
 	}
+	tx.materializeMemoMarks()
+}
+
+// materializeMemoMarks turns every resolution taken from a store-level memo
+// into the walk's own marks and turns both memos off (PrepareLiveMutation).
+func (tx *StoreTxn) materializeMemoMarks() {
 	tx.materializeVerbMemoMarks()
+	tx.materializePropMemoMarks()
 }
 
 func (tx *StoreTxn) materializeVerbMemoMarks() {
@@ -556,15 +578,7 @@ func (tx *StoreTxn) storeVerbDispatchMemo(key verbResolveKey, verb *Verb, define
 			return
 		}
 	}
-	memo := s.verbMemo()
-	if _, loaded := memo.LoadOrStore(key, entry); !loaded {
-		if s.dispatch.size.Add(1) > verbDispatchMemoCap {
-			s.dispatch.memo.Store(&sync.Map{})
-			s.dispatch.size.Store(0)
-		}
-	} else {
-		memo.Store(key, entry)
-	}
+	s.dispatch.put(key, entry)
 }
 
 func (tx *StoreTxn) storeVerbResolve(key verbResolveKey, steps []verbWalkStep, verb *Verb, definer types.ObjID, err error) {
@@ -608,6 +622,272 @@ func (tx *StoreTxn) storePropResolve(key propResolveKey, nameKey string, steps [
 		name:  name,
 		ec:    ec,
 	}
+}
+
+// propMemoStep is one object a memoized property walk visited: whether it was
+// a valid object, and whether it had a slot for the name.
+type propMemoStep struct {
+	id    types.ObjID
+	valid bool
+	found bool
+}
+
+// propMemoEntry is one store-level memoized property resolution, the property
+// twin of verbDispatchMemoEntry, keyed by (start object, canonical name).
+// readTS is the snapshot of the txn whose walk produced it, and path that walk
+// in order. target is the index in path of the first slot found, whose owner,
+// perms and version the result carries (walkProperty), and holder the index of
+// the slot that supplied the value; holder < 0 records E_PROPNF.
+//
+// While props.shapeChangeTS holds, a walk on any later snapshot visits the
+// same objects, finds slots on the same ones, and stops at the same holder:
+// every event that could change one of those moves the clock (property
+// define/delete/rename, a slot added or its clear flag flipped, parents,
+// create, recycle, renumber). Only the two slots' contents can differ between
+// snapshots, and a hit reads those from its own snapshot.
+type propMemoEntry struct {
+	readTS uint64
+	path   []propMemoStep
+	target int
+	holder int
+}
+
+// propMemoActive gates the store-level property memo. A live transaction reads
+// the store as it is now, and a live-mutated one commits through the coarse
+// path, which validates marks, not the clock; neither may hold a mark-less
+// resolution. propMemoDisabled is set before a task's first live mutation
+// (materializePropMemoMarks).
+func (tx *StoreTxn) propMemoActive() bool {
+	return tx.store != nil && !tx.live() && !tx.liveMutated && !tx.propMemoDisabled
+}
+
+// lookupPropMemo consults the store-level property memo for key, whose name is
+// canonical. root is tx's view of key.objID, or nil.
+//
+// A transaction with no staged writes gets read marks on the slot that
+// supplied the metadata and the slot that supplied the value, fetched from its
+// own view, and in place of marks on the rest of the walk path a txn-level
+// dependency on props.shapeChangeTS, validated at commit. steps is then what
+// the per-transaction memo files for the hit, built in record: the start
+// object (unmarked, so propStepsCurrent can check it against root) unless it
+// supplied the metadata, then each of those two slots once.
+//
+// A transaction with staged writes gets exactly the marks the walk would have
+// made instead, since it is validated at commit and every coarse commit moves
+// the clock; a path through an object it has privatized is not replayed.
+func (tx *StoreTxn) lookupPropMemo(key propResolveKey, root *Object, record *[3]propWalkStep) (prop Property, ec types.ErrorCode, steps []propWalkStep, hit bool) {
+	s := tx.store
+	last := s.props.shapeChangeTS.Load()
+	if tx.readTS < last {
+		return Property{}, types.E_NONE, nil, false
+	}
+	raw, ok := s.props.entries().Load(key)
+	if !ok {
+		return Property{}, types.E_NONE, nil, false
+	}
+	entry := raw.(*propMemoEntry)
+	if entry.readTS < last {
+		return Property{}, types.E_NONE, nil, false
+	}
+	if len(tx.owned) > 0 {
+		prop, ec, hit = tx.replayPropMemo(key.name, entry)
+		return prop, ec, nil, hit
+	}
+
+	return tx.readPropMemo(key, root, entry, record)
+}
+
+// propMemoSlot returns obj's slot for name, if obj is valid and has one.
+func propMemoSlot(obj *Object, name string) (Property, bool) {
+	if !validLiveObject(obj) {
+		return Property{}, false
+	}
+	return obj.properties.lookup(name)
+}
+
+// readPropMemo answers a memo hit for a transaction with no staged writes
+// (lookupPropMemo). It reports false, having marked nothing, if this txn's
+// view does not hold the slots the entry names as the walk found them, which
+// the clock rules out.
+func (tx *StoreTxn) readPropMemo(key propResolveKey, root *Object, entry *propMemoEntry, record *[3]propWalkStep) (Property, types.ErrorCode, []propWalkStep, bool) {
+	if root == nil {
+		root = tx.object(key.objID)
+	}
+	start := propWalkStep{id: key.objID, obj: root} // checked, never marked
+	if entry.holder < 0 {
+		record[0] = start
+		tx.notePropMemoHit(key)
+		return Property{}, types.E_PROPNF, record[:1], true
+	}
+	targetID, holderID := entry.path[entry.target].id, entry.path[entry.holder].id
+	targetObj := root
+	if entry.target != 0 {
+		targetObj = tx.object(targetID)
+	}
+	holderObj := targetObj
+	if entry.holder != entry.target {
+		holderObj = tx.object(holderID)
+	}
+	target, ok := propMemoSlot(targetObj, key.name)
+	if !ok {
+		return Property{}, types.E_NONE, nil, false
+	}
+	holder, ok := propMemoSlot(holderObj, key.name)
+	if !ok || holder.clear {
+		return Property{}, types.E_NONE, nil, false
+	}
+	n := 0
+	if entry.target != 0 {
+		record[n] = start
+		n++
+	}
+	record[n] = propWalkStep{id: targetID, obj: targetObj, valid: true, found: true, version: target.version}
+	n++
+	tx.markPropertyReadKey(targetID, key.name, target)
+	prop := target
+	if entry.holder != entry.target {
+		record[n] = propWalkStep{id: holderID, obj: holderObj, valid: true, found: true, version: holder.version}
+		n++
+		tx.markPropertyReadKey(holderID, key.name, holder)
+		prop.value = holder.value
+		prop.clear = false
+	}
+	tx.notePropMemoHit(key)
+	return prop, types.E_NONE, record[:n], true
+}
+
+// replayPropMemo answers a memo hit for a transaction with staged writes: it
+// records the marks the producing walk made, on this txn's view of each object,
+// and builds the result from the slots that view holds. An object the txn has
+// not privatized is its snapshot's image, which the clock vouches for. A
+// private copy can differ from it by the txn's own writes, but never in its
+// parents (topology changes are live mutations, which turn the memo off), so
+// the walk would visit it in the same place and act on it the same way exactly
+// when it is valid alike, has a slot for the name alike, and that slot is
+// clear except at the holder. It reports false, having marked nothing, when
+// that does not hold.
+func (tx *StoreTxn) replayPropMemo(name string, entry *propMemoEntry) (Property, types.ErrorCode, bool) {
+	for i, st := range entry.path {
+		obj := tx.object(st.id)
+		if validLiveObject(obj) != st.valid {
+			return Property{}, types.E_NONE, false
+		}
+		if !st.valid || tx.owned[st.id] == 0 {
+			continue
+		}
+		slot, found := obj.properties.lookup(name)
+		if found != st.found || (found && slot.clear != (i != entry.holder)) {
+			return Property{}, types.E_NONE, false
+		}
+	}
+	var prop Property
+	for i, st := range entry.path {
+		if !st.valid {
+			continue
+		}
+		obj := tx.object(st.id)
+		if !st.found {
+			tx.markPropertyShapeScan(st.id, obj)
+			continue
+		}
+		slot, ok := obj.properties.lookup(name)
+		if !ok {
+			// Unreachable while the clock holds; the walk that follows marks
+			// the same path again.
+			return Property{}, types.E_NONE, false
+		}
+		tx.markPropertyReadKey(st.id, name, slot)
+		if i == entry.target {
+			prop = slot
+		}
+		if i == entry.holder {
+			if slot.clear {
+				return Property{}, types.E_NONE, false
+			}
+			prop.value = slot.value
+			prop.clear = false
+		}
+	}
+	if entry.holder < 0 {
+		return Property{}, types.E_PROPNF, true
+	}
+	return prop, types.E_NONE, true
+}
+
+func (tx *StoreTxn) notePropMemoHit(key propResolveKey) {
+	tx.usedPropMemo = true
+	tx.propMemoHits = append(tx.propMemoHits, key)
+}
+
+// materializePropMemoMarks is materializeVerbMemoMarks for the property memo:
+// the clock-validated resolutions are walked into the walk's own marks
+// (rewalkPropMemoHits), and the memo is off for the rest of the transaction.
+func (tx *StoreTxn) materializePropMemoMarks() {
+	tx.propMemoDisabled = true
+	tx.rewalkPropMemoHits()
+}
+
+// beforeFirstOwn runs as a transaction is about to privatize or create its
+// first object: from here on it stages writes and is validated at commit, so
+// the clock-validated resolutions it took while reading become the walk's own
+// marks. A writer is then validated on per-object marks only, and an
+// unrelated property-shape change anywhere in the store no longer fails it.
+// Its later memo hits replay exact marks (replayPropMemo).
+func (tx *StoreTxn) beforeFirstOwn() {
+	if len(tx.owned) == 0 {
+		tx.rewalkPropMemoHits()
+	}
+}
+
+// rewalkPropMemoHits walks each resolution this transaction took from the
+// property memo again, on its snapshot, into the walk's own marks, and drops
+// the clock dependency they stood for. The walk sees what the hit saw: the
+// entry was usable, so no property shape changed between the snapshot and the
+// entry's. The per-transaction records of those hits carry only some of a
+// walk's marks, so they are dropped too.
+func (tx *StoreTxn) rewalkPropMemoHits() {
+	if !tx.usedPropMemo {
+		return
+	}
+	hits := tx.propMemoHits
+	tx.propMemoHits = nil
+	tx.usedPropMemo = false
+	tx.propResolve = nil
+	tx.propSteps = tx.propSteps[:0]
+	for _, key := range hits {
+		tx.walkProperty(key.objID, nil, key.name)
+	}
+}
+
+// storePropMemo publishes a walk's result for other transactions. Anonymous
+// objects are never memoized, nor a walk from an invalid object or through an
+// object this txn has privatized, nor one made on a snapshot the clock has
+// already passed (no lookup could use it).
+func (tx *StoreTxn) storePropMemo(key propResolveKey, steps []propWalkStep, ec types.ErrorCode) {
+	s := tx.store
+	if len(steps) == 0 || !steps[0].valid || steps[0].obj.anonymous || tx.readTS < s.props.shapeChangeTS.Load() {
+		return
+	}
+	if len(tx.owned) > 0 {
+		for i := range steps {
+			if tx.owned[steps[i].id] != 0 {
+				return
+			}
+		}
+	}
+	entry := &propMemoEntry{readTS: tx.readTS, path: make([]propMemoStep, len(steps)), target: -1, holder: -1}
+	for i := range steps {
+		st := &steps[i]
+		entry.path[i] = propMemoStep{id: st.id, valid: st.valid, found: st.found}
+		if st.found && entry.target < 0 {
+			entry.target = i
+		}
+	}
+	if ec == types.E_NONE {
+		// The walk stops at the slot that supplied the value.
+		entry.holder = len(steps) - 1
+	}
+	s.props.put(key, entry)
 }
 
 // resolveCacheLenForTest exposes the memo sizes to in-package tests. Verbs

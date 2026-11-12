@@ -10,10 +10,10 @@ import (
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil && !tx.direct {
-		// The live op has already moved dispatch.shapeChangeTS, so the memo's clock
-		// check can no longer tell this txn's own change from a concurrent one.
+		// The live op has already moved the memos' shape clocks, so their clock
+		// checks can no longer tell this txn's own change from a concurrent one.
 		// Callers reach PrepareLiveMutation first; this is the safety net.
-		tx.materializeVerbMemoMarks()
+		tx.materializeMemoMarks()
 		// The coarse path's live-mutation bookkeeping adopts, renumbers and
 		// forgets whole slots; keyed dependencies become whole reads first.
 		tx.degradeMapKeysVia(DegradeLiveMutation)

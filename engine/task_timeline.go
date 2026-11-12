@@ -426,6 +426,8 @@ func conflictKeyName(kind dbstore.ConflictKind, obj types.ObjID, name string) st
 		return fmt.Sprintf("#%d:%s", obj, name)
 	case dbstore.ConflictVerbShape:
 		return "(any verb or ancestry)"
+	case dbstore.ConflictPropertyMemoShape:
+		return "(any property slot or ancestry)"
 	case dbstore.ConflictWaif:
 		return "waif " + name
 	case dbstore.ConflictTask:

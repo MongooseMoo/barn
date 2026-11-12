@@ -73,6 +73,7 @@ func (tx *StoreTxn) mutableFacets(objID types.ObjID, facets objectFacets) *Objec
 		return nil
 	}
 	if tx.owned[objID] == 0 {
+		tx.beforeFirstOwn()
 		obj = tx.privatizeCached(objID, obj)
 	}
 	tx.ownFacets(objID, obj, facets)
@@ -88,8 +89,9 @@ func (tx *StoreTxn) mutableFacets(objID types.ObjID, facets objectFacets) *Objec
 func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
 	// The txn's binding for objID changes and becomes in-place mutable; every
 	// memoized resolution that walked it is now unsafe to replay. (This also
-	// disables property and store-global memos, since `owned` never shrinks.
-	// Transaction-local verb entries may still describe entirely unowned paths.)
+	// disables the per-transaction property memo, since `owned` never shrinks.
+	// Transaction-local verb entries may still describe entirely unowned paths,
+	// and the store-level memos replay exact marks for a writer.)
 	tx.invalidateResolveCaches()
 	clone := new(Object)
 	*clone = *base

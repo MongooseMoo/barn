@@ -86,11 +86,16 @@ func referenceVerbReadSet(t *testing.T, s *Store, objID types.ObjID, name string
 	return snapshotReadSet(tx)
 }
 
+// referencePropertyReadSet is the read set an uncached resolution produces. It
+// leaves the store-level memo empty, so the caller's next transaction walks and
+// exercises the per-transaction memo, not the store-level one.
 func referencePropertyReadSet(t *testing.T, s *Store, objID types.ObjID, name string) readSetSnapshot {
 	t.Helper()
+	s.resetPropResolveMemoForTest()
 	tx := s.BeginSnapshot(0)
 	defer tx.Release()
 	tx.findProperty(objID, name)
+	s.resetPropResolveMemoForTest()
 	return snapshotReadSet(tx)
 }
 

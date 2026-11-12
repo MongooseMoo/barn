@@ -71,9 +71,18 @@ func requireSameScalarReads(t *testing.T, what string, want, got *StoreTxn) {
 	}
 }
 
+// warmFindLive resolves objID.name once, so the store-level property memo
+// answers both sides of a comparison alike.
+func warmFindLive(s *Store, objID types.ObjID, name string) {
+	warm := s.BeginSnapshot(0)
+	existsThenFind(warm, objID, name)
+	warm.Release()
+}
+
 func TestFindLivePropertyMatchesObjectExistsThenFindProperty(t *testing.T) {
 	s := findLiveFixture(t)
 	for _, tc := range findLiveCases {
+		warmFindLive(s, tc.obj, tc.name)
 		ref := s.BeginSnapshot(0)
 		got := s.BeginSnapshot(0)
 		// The second round hits the transaction's resolution memo.
@@ -106,6 +115,7 @@ func TestFindLivePropertyOnTheDirectTransaction(t *testing.T) {
 func TestFindLivePropertyRenewingMatchesObjectExistsThenRenewing(t *testing.T) {
 	for _, tc := range findLiveCases {
 		s := findLiveFixture(t)
+		warmFindLive(s, tc.obj, tc.name)
 		ref := s.BeginSnapshot(0)
 		got := s.BeginSnapshot(0)
 		var want liveLookup

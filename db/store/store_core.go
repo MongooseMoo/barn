@@ -111,16 +111,50 @@ type waifRootsMemo struct {
 	cache atomic.Pointer[persistentWaifRootsEntry]
 }
 
-// verbDispatch is the store-level verb dispatch memo. memo caches verb
-// resolution (object, name, execute-required) -> (definer, map key) across
-// transactions, and size counts its entries so it can be swapped whole when
-// full. shapeChangeTS is the clock value taken after the most recent change
-// that can alter any resolution (verb add/delete/rename/code image, parents,
-// recycle, renumber). See StoreTxn.lookupVerbDispatchMemo.
-type verbDispatch struct {
+// sharedResolveMemo is a store-level memo of ancestry resolutions, shared by
+// every transaction. memo maps a resolution key to its entry, and size counts
+// the entries so the map can be swapped whole when full. shapeChangeTS is the
+// timestamp of the most recent change that can alter any memoized resolution:
+// an entry answers a snapshot only while both the snapshot and the snapshot
+// that produced the entry are at or after it.
+//
+// The store keeps two: dispatch, for verb resolution (the clock moves on verb
+// add/delete/rename/code image, parents, recycle, renumber; see
+// StoreTxn.lookupVerbDispatchMemo), and props, for property resolution (the
+// clock moves on property define/delete/rename, a slot added or its clear flag
+// flipped, parents, create, recycle, renumber; see StoreTxn.lookupPropMemo).
+type sharedResolveMemo struct {
 	memo          atomic.Pointer[sync.Map]
 	size          atomic.Int64
 	shapeChangeTS atomic.Uint64
+}
+
+// sharedResolveMemoCap bounds each shared memo; when exceeded the whole map is
+// swapped for a fresh one rather than evicting entry by entry.
+const sharedResolveMemoCap = 1 << 17
+
+func (m *sharedResolveMemo) entries() *sync.Map {
+	if cur := m.memo.Load(); cur != nil {
+		return cur
+	}
+	fresh := &sync.Map{}
+	if m.memo.CompareAndSwap(nil, fresh) {
+		return fresh
+	}
+	return m.memo.Load()
+}
+
+// put files entry under key, replacing any entry already there.
+func (m *sharedResolveMemo) put(key, entry any) {
+	entries := m.entries()
+	if _, loaded := entries.LoadOrStore(key, entry); loaded {
+		entries.Store(key, entry)
+		return
+	}
+	if m.size.Add(1) > sharedResolveMemoCap {
+		m.memo.Store(&sync.Map{})
+		m.size.Store(0)
+	}
 }
 
 // lockedPropPool interns the shared property bases of every object, loaded or
@@ -207,9 +241,10 @@ type Store struct {
 	// directRefs indexes the anonymous and WAIF references each object's
 	// property values hold directly (directRefIndex).
 	directRefs directRefIndex
-	// dispatch is the verb dispatch memo and its invalidation stamp
-	// (verbDispatch).
-	dispatch verbDispatch
+	// dispatch is the verb dispatch memo and props the property resolution
+	// memo, each with its invalidation stamp (sharedResolveMemo).
+	dispatch sharedResolveMemo
+	props    sharedResolveMemo
 	// hotProps tracks the properties whose reads keep losing validation, and
 	// counts what renewing a transaction at such a read did. See
 	// store_hot_read.go.
@@ -466,20 +501,17 @@ func (s *Store) noteWaifRootsChanged() { s.waifRoots.epoch.Add(1) }
 // through it fails validation and retries.
 func (s *Store) noteVerbShapeChanged() { s.dispatch.shapeChangeTS.Store(s.bumpClock()) }
 
-// verbDispatchMemoCap bounds the memo; when exceeded the whole map is swapped
-// for a fresh one rather than evicting entry by entry.
-const verbDispatchMemoCap = 1 << 17
-
-func (s *Store) verbMemo() *sync.Map {
-	if m := s.dispatch.memo.Load(); m != nil {
-		return m
-	}
-	fresh := &sync.Map{}
-	if s.dispatch.memo.CompareAndSwap(nil, fresh) {
-		return fresh
-	}
-	return s.dispatch.memo.Load()
+// noteResolutionShapeChanged is noteVerbShapeChanged for a change that can also
+// alter property resolution (parents, recycle, renumber, an object added). One
+// clock value stamps both memos. The caller holds store.mu.Lock, so no snapshot
+// can begin between the change and the stamp.
+func (s *Store) noteResolutionShapeChanged() {
+	ts := s.bumpClock()
+	s.dispatch.shapeChangeTS.Store(ts)
+	s.props.shapeChangeTS.Store(ts)
 }
+
+func (s *Store) verbMemo() *sync.Map { return s.dispatch.entries() }
 
 type objectHistory struct {
 	ts  uint64
@@ -694,7 +726,7 @@ func (s *Store) Add(obj *Object) error {
 	obj = cloneObjectNonVerbState(obj)
 	ts := s.bumpClockLocked()
 	s.noteWaifRootsChanged()
-	s.noteVerbShapeChanged()
+	s.noteResolutionShapeChanged()
 	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 	s.refreshDirectRefs(obj.id)
