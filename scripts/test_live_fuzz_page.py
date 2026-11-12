@@ -175,6 +175,15 @@ class CycleTests(unittest.TestCase):
                          [(765, None), (761, None), (757, 758), (742, 743)])
         self.assertEqual([p["number"] for p in day["fixes"]], [758, 743])
 
+    def test_last_day_counts_fuzz_finding_prs_as_bug_and_fix(self):
+        finding = {**pull(787, "fix/store-renumber-owner-versions", "2026-11-12T05:00:00Z",
+                          created="2026-11-12T04:30:00Z"), "labels": [{"name": "fuzz-finding"}]}
+        unlabelled = pull(790, "fix/range-assign-start-bounds", "2026-11-12T05:10:00Z", created="2026-11-12T04:40:00Z")
+        day = call("lastDay", ISSUES, PULLS + [finding, unlabelled], NOW)
+        self.assertEqual([b["number"] for b in day["bugs"]][:1], [787])
+        self.assertTrue(day["bugs"][0]["direct"])
+        self.assertEqual([p["number"] for p in day["fixes"]], [787, 758, 743])
+
     def test_summary_leads_with_state_progress_and_the_last_day(self):
         text = call("summary", {"current": {"id": 1}, "currentJobs": self.JOBS, "previous": None,
                                 "issues": ISSUES, "pulls": PULLS, "now": NOW, "locale": "en-US"})
