@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
+	"weak"
 )
 
 // createAnonymous creates an anonymous object as a child of parents, owned by owner.
@@ -531,7 +532,15 @@ func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	s.waifRegistry[classID][identity] = waif.WeakWaif()
 	s.mu.Unlock()
 
-	waif.AddWaifCleanup(func() { s.unregisterWaif(classID, identity) })
+	// The cleanup must not reach the waif (AddWaifCleanup's contract), and the
+	// store reaches every waif it holds, so the cleanup refers to the store
+	// weakly. A strong reference pinned the store and the waif forever.
+	registry := weak.Make(s)
+	waif.AddWaifCleanup(func() {
+		if s := registry.Value(); s != nil {
+			s.unregisterWaif(classID, identity)
+		}
+	})
 }
 
 func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity) {
