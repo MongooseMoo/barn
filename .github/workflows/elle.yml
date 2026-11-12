@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       extended:
-        description: Extended mode (50 seeds of 1000 rounds unless seeds/rounds are given)
+        description: Extended mode (50 seeds of 400 rounds unless seeds/rounds are given)
         type: boolean
         default: false
       seeds:
@@ -95,14 +95,15 @@ jobs:
         uses: ./.github/actions/elle-cli
       # Extended mode: 50 healthy seeds taken from the run number, so each night
       # differs (the step log prints them; a dispatch with that seed list
-      # replays them), at 1000 rounds each. A dispatched run on 2026-11-07
-      # took about 25 s per seed at 200 rounds and 10 s at 40, so about 100 s
-      # per seed at 1000 (under check_elle.py's 5-minute go test timeout) and
-      # about 90 minutes for the step. The fault cases run unchanged (rounds 0).
+      # replays them), at 400 rounds each. Cost grows faster than rounds
+      # (#0:read_row walks the whole row): run 43134804468 took 30-45 s per
+      # seed at about 250 rounds, one seed at 500 took 99 s locally, and one
+      # at 1000 passed check_elle.py's 5-minute go test timeout near round 860.
+      # The fault cases run unchanged (rounds 0).
       - name: Check histories
         env:
           ELLE_SEEDS: ${{ inputs.seeds }}
-          ELLE_ROUNDS: ${{ inputs.rounds || ((github.event_name == 'schedule' || inputs.extended) && '1000' || '40') }}
+          ELLE_ROUNDS: ${{ inputs.rounds || ((github.event_name == 'schedule' || inputs.extended) && '400' || '40') }}
           ELLE_EXTENDED: ${{ github.event_name == 'schedule' || inputs.extended }}
         run: |
           set -euo pipefail
