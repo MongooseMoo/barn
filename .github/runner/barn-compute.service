@@ -9,7 +9,7 @@ User=barncompute
 Group=barncompute
 SupplementaryGroups=kvm
 WorkingDirectory=/var/lib/barncompute
-ExecStart=/usr/bin/qemu-system-x86_64 -name barn-compute -machine q35,accel=kvm -cpu host -smp 24 -m 32768-nodefaults -no-user-config -display none -monitor none -serial stdio -device virtio-rng-pci -drive file=/var/lib/barncompute/guest.qcow2,format=qcow2,if=virtio -drive file=/var/lib/barncompute/seed.iso,format=raw,if=virtio,readonly=on -netdev user,id=net0,ipv6=off,hostfwd=tcp:127.0.0.1:22822-:22 -device virtio-net-pci,netdev=net0,mac=52:54:00:ba:00:01
+ExecStart=/usr/bin/qemu-system-x86_64 -name barn-compute -machine q35,accel=kvm -cpu host -smp 24 -m 32768 -nodefaults -no-user-config -display none -monitor none -serial stdio -device virtio-rng-pci -drive file=/var/lib/barncompute/guest.qcow2,format=qcow2,if=virtio -drive file=/var/lib/barncompute/seed.iso,format=raw,if=virtio,readonly=on -netdev user,id=net0,ipv6=off,hostfwd=tcp:127.0.0.1:22822-:22 -device virtio-net-pci,netdev=net0,mac=52:54:00:ba:00:01
 Restart=on-failure
 RestartSec=15
 TimeoutStopSec=90
