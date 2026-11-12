@@ -151,18 +151,8 @@ func (vm *VM) executeRangeSet() error {
 
 		length := coll.Len()
 
-		// Bounds check
-		if (startIdx < 1 && (startIdx != 0 || endIdx != 0)) || startIdx > int64(length)+1 {
-			return newMooError(types.E_RANGE, "list range start out of bounds")
-		}
-		if endIdx < 0 {
-			return newMooError(types.E_RANGE, "list range end out of bounds")
-		}
-		if startIdx == 0 && endIdx == 0 {
-			result := append([]types.Value(nil), newVals.Elements()...)
-			result = append(result, coll.Elements()...)
-			newColl = types.NewList(result)
-			break
+		if err := checkRangeSetBounds(startIdx, endIdx, int64(length), "list"); err != nil {
+			return err
 		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
@@ -194,26 +184,16 @@ func (vm *VM) executeRangeSet() error {
 		s := coll.Str()
 		strLen := int64(coll.StrCharLen())
 
-		// Bounds check
-		if (startIdx < 1 && (startIdx != 0 || endIdx != 0)) || startIdx > strLen+1 {
-			return newMooError(types.E_RANGE, "string range start out of bounds")
-		}
-		if endIdx < 0 {
-			return newMooError(types.E_RANGE, "string range end out of bounds")
-		}
-		if startIdx == 0 && endIdx == 0 {
-			newColl = types.NewStr(newStr.Str() + s)
-			break
+		if err := checkRangeSetBounds(startIdx, endIdx, strLen, "string"); err != nil {
+			return err
 		}
 
-		// Clamp endIdx to actual string length for slicing
-		effectiveEnd := endIdx
-		if effectiveEnd > strLen {
-			effectiveEnd = strLen
-		}
+		// Clamp both cuts into the string: a start below 1 keeps no prefix
+		// and an end past the length keeps no suffix.
+		prefixEnd := int(max(startIdx-1, 0))
+		suffixStart := int(min(endIdx, strLen))
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
-		prefixEnd, suffixStart := int(startIdx-1), int(effectiveEnd)
 		if !coll.StrIsSingleByte() {
 			prefixEnd = types.CharByteOffset(s, prefixEnd)
 			suffixStart = types.CharByteOffset(s, suffixStart)
@@ -295,6 +275,19 @@ func (vm *VM) executeRangeSet() error {
 	// Write modified collection back to variable slot
 	vm.CurrentFrame().Locals[varIdx] = newColl
 
+	return nil
+}
+
+// checkRangeSetBounds applies Toast's list and string range-assignment
+// bounds (execute.cc EOP_RANGESET): E_RANGE only when start > length + 1 or
+// end < 0. A start below 1 and an end past the length are both accepted.
+func checkRangeSetBounds(startIdx, endIdx, length int64, kind string) error {
+	if startIdx > length+1 {
+		return newMooError(types.E_RANGE, kind+" range start out of bounds")
+	}
+	if endIdx < 0 {
+		return newMooError(types.E_RANGE, kind+" range end out of bounds")
+	}
 	return nil
 }
 
