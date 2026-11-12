@@ -462,6 +462,12 @@ func (tx *StoreTxn) publishStagedLocked(writes *writeSet, ts uint64, walkLive bo
 		if w.recycle || len(w.defines)+len(w.defDeletes)+len(w.propDeletes) > 0 {
 			waifRootsDirty = true
 		}
+		// A replaced last_move that holds, or held, an anonymous or WAIF
+		// reference changes the holder's index entry.
+		if !waifRootsDirty && w.hasRelationship && w.relationship.lastMoveSet &&
+			(w.relationship.lastMove.MayHoldFinalizable() || s.directRefs.holdsLastMoveRefs(id)) {
+			waifRootsDirty = true
+		}
 		waifRootsDirty = tx.applyTailWrites(w.img, w, ts, waifRootsDirty)
 		// A slot added or its clear flag flipped, a numbered object recycled
 		// (walks through it now skip it) or created (a walk may name it as a
