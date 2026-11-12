@@ -1,6 +1,6 @@
 name: Goodput series
 
-# Measures player goodput and latency on master every hour with the
+# Measures player goodput and latency on master after each merge with the
 # real-workload harness (TestMongooseRealWorkload at 1 and 16 players), keeps
 # each point as an artifact, and opens an issue when the newest points are
 # lastingly worse than the ones before them (scripts/goodput_series.py). It
@@ -10,7 +10,16 @@ name: Goodput series
 # this repository's logs are public. The harness's output therefore stays in
 # the runner's temporary directory; the log and the artifact carry numbers
 # only.
+#
+# The push to master is what produces the points. GitHub delays and drops
+# scheduled runs under load: the first two hourly slots after this workflow
+# merged started nothing, and the fuzz controller's half-hourly schedule
+# started six runs in 32 hours. The schedule stays for days without a merge.
+# While a run is measuring, GitHub keeps only the newest waiting run of the
+# concurrency group, so a burst of merges yields one point, not one each.
 on:
+  push:
+    branches: [master]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
