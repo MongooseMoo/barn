@@ -386,6 +386,62 @@ func TestRangeAssignmentAllowsEndPastCollectionLength(t *testing.T) {
 	}
 }
 
+// Toast raises E_RANGE for a list or string range assignment only when
+// from > length + 1 or to < 0 (execute.cc EOP_RANGESET); a start below 1
+// keeps no prefix (list.cc listrangeset, strrangeset).
+func TestRangeAssignmentAcceptsStartBelowOne(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{"list start zero", `l = {1, 2}; l[0..1] = {9}; return l;`, `{9, 2}`},
+		{"list start negative", `l = {1, 2}; l[-1..1] = {9}; return l;`, `{9, 2}`},
+		{"list start zero end zero", `l = {1, 2}; l[0..0] = {9}; return l;`, `{9, 1, 2}`},
+		{"list start negative end zero", `l = {1, 2}; l[-1..0] = {9}; return l;`, `{9, 1, 2}`},
+		{"list start zero end past length", `l = {1, 2}; l[0..5] = {9}; return l;`, `{9}`},
+		{"list start length plus one", `l = {1, 2}; l[3..2] = {9}; return l;`, `{1, 2, 9}`},
+		{"list nested start zero", `l = {{1, 2}, "ab"}; l[1][0..1] = {9}; return l;`, `{{9, 2}, "ab"}`},
+		{"string start zero", `s = "ab"; s[0..1] = "z"; return s;`, `"zb"`},
+		{"string start negative", `s = "ab"; s[-1..1] = "z"; return s;`, `"zb"`},
+		{"string start zero end zero", `s = "ab"; s[0..0] = "z"; return s;`, `"zab"`},
+		{"string start negative end zero", `s = "ab"; s[-1..0] = "z"; return s;`, `"zab"`},
+		{"string start zero end past length", `s = "ab"; s[0..5] = "z"; return s;`, `"z"`},
+		{"string start length plus one", `s = "ab"; s[3..2] = "z"; return s;`, `"abz"`},
+		{"string multibyte start negative", `s = "éb"; s[-1..1] = "z"; return s;`, `"zb"`},
+		{"string nested start zero", `l = {{1, 2}, "ab"}; l[2][0..1] = "z"; return l;`, `{{1, 2}, "zb"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("range assignment result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
+			}
+		})
+	}
+}
+
+func TestRangeAssignmentRejectsNegativeEndOrStartPastAppendPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"list start negative end negative", `l = {1, 2}; l[-1..-1] = {9};`},
+		{"list end negative", `l = {1, 2}; l[1..-1] = {9};`},
+		{"list start length plus two", `l = {1, 2}; l[4..3] = {9};`},
+		{"list nested end negative", `l = {{1, 2}, "ab"}; l[1][-1..-1] = {9};`},
+		{"string start negative end negative", `s = "ab"; s[-1..-1] = "z";`},
+		{"string end negative", `s = "ab"; s[1..-1] = "z";`},
+		{"string start length plus two", `s = "ab"; s[4..3] = "z";`},
+		{"string nested end negative", `l = {{1, 2}, "ab"}; l[2][-1..-1] = "z";`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, test.code, nil, nil), types.E_RANGE)
+		})
+	}
+}
+
 func TestRangeAssignmentRejectsStartPastCollectionAppendPosition(t *testing.T) {
 	tests := []struct {
 		name string
