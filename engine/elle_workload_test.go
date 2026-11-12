@@ -22,6 +22,14 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+// elleTicks and elleSeconds bound every slice of an Elle task: the first
+// through NewTaskFull, resumed and forked slices through #0's bg_ticks and
+// bg_seconds.
+const (
+	elleTicks   = 10000000
+	elleSeconds = 30
+)
+
 var elleRows = []string{"property", "contents", "children", "property-definitions", "verb-definitions", "verb-code", "name", "inherited-property", "waif", "map-a", "map-b"}
 
 func elleObject(kind int) int {
@@ -58,6 +66,12 @@ func elleWorld(t *testing.T) *dbstore.Store {
 			b.SetProperty("elle_waif", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 			entries := types.NewMap([][2]types.Value{{types.NewStr("a"), types.NewList(nil)}, {types.NewStr("b"), types.NewList(nil)}})
 			b.SetProperty("elle_map", dbstore.NewProperty(entries, 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			// #0 is $server_options. A slice resumed after suspend(0) runs under
+			// bg_ticks/bg_seconds, so give it the first slice's budget; the
+			// default 30000 ticks is exceeded once rows grow past ~250 rounds.
+			b.SetProperty("server_options", dbstore.NewProperty(types.NewObj(0), 0, dbstore.PropRead, false, true))
+			b.SetProperty("bg_ticks", dbstore.NewProperty(types.NewInt(elleTicks), 0, dbstore.PropRead, false, true))
+			b.SetProperty("bg_seconds", dbstore.NewProperty(types.NewInt(elleSeconds), 0, dbstore.PropRead, false, true))
 		}
 		if id == 30 {
 			b.SetProperty("data", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
@@ -168,7 +182,7 @@ func elleAddVerb(t *testing.T, store *dbstore.Store, id types.ObjID, name string
 
 func elleTask(t *testing.T, rt *Runtime, id int64, code string) *Task {
 	t.Helper()
-	tk := NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), 10000000, 30)
+	tk := NewTaskFull(id, 0, compileTestProgram(t, rt.registry, code), elleTicks, elleSeconds)
 	rt.populateContextDependencies(tk.Context)
 	tk.Context.IsWizard = true
 	tk.IntrinsicEval = true
@@ -466,6 +480,12 @@ func TestElleIsolationHistories(t *testing.T) {
 			testBuiltinSlot("elle_hot_wait", 0, 0, nil, &hotWait),
 			testBuiltinSlot("elle_hot_release", 0, 0, nil, &hotRelease),
 			testBuiltinSlot("elle_invariant_mark", 1, 1, []int64{int64(types.TYPE_LIST)}, &invariantMark))
+		// Mirror server boot: the session loads the options its tasks run under.
+		rt.Session().LoadServerOptionsFromStore(store)
+		if ticks, seconds := backgroundTaskLimits(rt.Session()); ticks != elleTicks || seconds != elleSeconds {
+			rt.Stop()
+			t.Fatalf("background limits %d ticks, %v s; want %d, %d", ticks, seconds, elleTicks, elleSeconds)
+		}
 		func() {
 			defer rt.Stop()
 			var mapPermissionKeys []string

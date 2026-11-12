@@ -5,14 +5,26 @@ on:
     branches: [master]
   pull_request:
   merge_group:
+  # Extended mode: the nightly run, or a dispatch with extended set. The jobs
+  # and required check names are the same; only the run parameters grow (see
+  # each run step). Scheduled at 04:37 UTC, after elle.yml's 01:17 UTC
+  # extended run has finished (its job timeout is 180 minutes).
+  schedule:
+    - cron: '37 4 * * *'
   workflow_dispatch:
+    inputs:
+      extended:
+        description: Extended mode (three seeds, five times the phases, twice the rate)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: jepsen-${{ github.ref }}
+  # An extended run on master must not cancel, or be cancelled by, a push run.
+  group: jepsen-${{ github.ref }}${{ (github.event_name == 'schedule' || inputs.extended) && '-extended' || '' }}
   cancel-in-progress: true
 
 env:
@@ -20,10 +32,12 @@ env:
   # from this fixed moo-conformance-tests commit. Moving it is a deliberate
   # change to this file; the pass record names it too.
   CONFORMANCE_REF: cacd8bccda337d26043721ac3905dda8c145758d
+  EXTENDED: ${{ github.event_name == 'schedule' || inputs.extended }}
 
 jobs:
   # Skip when a run of this repository already passed on this exact tree
-  # (see .github/actions/tested-tree). A manual dispatch always runs.
+  # (see .github/actions/tested-tree). A manual dispatch and the nightly
+  # extended run always run.
   tested:
     name: Check for an earlier pass
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
@@ -34,7 +48,7 @@ jobs:
         with:
           persist-credentials: false
       - id: tree
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
         uses: ./.github/actions/tested-tree
         with:
           mode: check
@@ -44,6 +58,9 @@ jobs:
   record:
     name: Record pass
     needs: [campaign, stages]
+    # The pass record stands for the PR configuration; an extended run uses
+    # other seeds and parameters and must not populate it.
+    if: github.event_name != 'schedule' && !inputs.extended
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -60,7 +77,7 @@ jobs:
     needs: tested
     if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 20 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -97,6 +114,12 @@ jobs:
       # failure, 4 incomplete experiment, 5 invalid harness evidence. The
       # transport-stall control exits 0 only when its designated witness is
       # reported (6 otherwise). Both run so one failure keeps the other's evidence.
+      # Extended mode runs the same campaign once per seed, seeds taken from
+      # the run number so each night differs (each seed's results.json keeps
+      # its argv): five times the PR phases
+      # (1350 s of clients) at twice the rate, with more clients and a longer
+      # dwell, all seven transport kinds (the default). About 30 minutes per
+      # seed; the PR campaign takes 6 minutes for 270 s of phases.
       - name: Run campaign
         run: |
           set -uo pipefail
@@ -108,8 +131,18 @@ jobs:
               --elle-jar "$ELLE_JAR" --java "$JAVA_HOME/bin/java" "$@"
           }
           status=0
-          run --workloads smoke,props,keyed,effects,authority,topology --tasks --rate 30 --dwell 1 \
-            --phase-transport 60 --output jepsen-evidence --jepsen-timeout 600 || status=1
+          lane=(--workloads smoke,props,keyed,effects,authority,topology --tasks)
+          if [ "$EXTENDED" = true ]; then
+            first=$((GITHUB_RUN_NUMBER * 10))
+            for seed in $(seq "$first" $((first + 2))); do
+              run "${lane[@]}" --seed "$seed" --rate 60 --concurrency 16 --dwell 4 \
+                --phase1 300 --phase3 450 --phase-live 300 --phase-transport 300 \
+                --output "jepsen-evidence/seed-$seed" --jepsen-timeout 3600 || status=1
+            done
+          else
+            run "${lane[@]}" --rate 30 --dwell 1 \
+              --phase-transport 60 --output jepsen-evidence --jepsen-timeout 600 || status=1
+          fi
           # Transport lane control (ordinary binary, no stage step): the pause
           # kind never sends SIGCONT, so the bounded recovery check must report
           # stalled-recovery from lifecycle and journal rows.
@@ -142,7 +175,7 @@ jobs:
     needs: tested
     if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 20 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -186,6 +219,11 @@ jobs:
       # Stage schedule exit status as for the campaign; each control exits 0
       # only when its designated witness is reported (6 otherwise). Every run
       # executes so one failure keeps the others' evidence.
+      # Extended mode runs the stage schedule once per seed (seeds from the run
+      # number) with all six row families, six times the client seconds around
+      # each step, and the campaign's extended rate, clients and dwell; about
+      # 15 minutes per seed (the PR schedule takes 2.3 minutes). The controls
+      # run unchanged in both modes.
       - name: Run stage schedule and controls
         run: |
           set -uo pipefail
@@ -198,7 +236,16 @@ jobs:
               --workloads smoke,props,keyed "$@"
           }
           status=0
-          run --stages all --output jepsen-stage-evidence/schedule --jepsen-timeout 420 || status=1
+          if [ "$EXTENDED" = true ]; then
+            first=$((GITHUB_RUN_NUMBER * 10))
+            for seed in $(seq "$first" $((first + 4))); do
+              run --stages all --workloads smoke,props,keyed,effects,authority,topology --seed "$seed" \
+                --stage-seconds 60 --rate 60 --concurrency 16 --dwell 4 \
+                --output "jepsen-stage-evidence/schedule-seed-$seed" --jepsen-timeout 2400 || status=1
+            done
+          else
+            run --stages all --output jepsen-stage-evidence/schedule --jepsen-timeout 420 || status=1
+          fi
           for control in checkpoint-mixed-pair checkpoint-drop-append checkpoint-duplicate-append; do
             run --control "$control" --output "jepsen-stage-evidence/control-$control" --jepsen-timeout 180 || status=1
           done
