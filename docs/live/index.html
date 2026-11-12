@@ -9,8 +9,10 @@
   @media (prefers-color-scheme: dark) { :root { --fg: #ececec; --muted: #b0b0b0; --bg: #161616; --bad: #ff8080; --good: #7fd88f; } }
   body { font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0 auto; max-width: 52rem; padding: 1rem; }
   h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
-  h2 { font-size: 1.15rem; margin: 1.5rem 0 .25rem; }
+  h2 { font-size: 1.2rem; margin: 1.5rem 0 .25rem; }
+  h3 { font-size: 1rem; margin: .75rem 0 .1rem; }
   p, li { margin: .25rem 0; }
+  #summary { font-size: 1.1rem; }
   .muted { color: var(--muted); }
   .bad { color: var(--bad); font-weight: 600; }
   .good { color: var(--good); font-weight: 600; }
@@ -20,41 +22,52 @@
 <body>
 <main>
 <h1>Barn fuzz machine, live</h1>
-<p id="summary" role="status" aria-live="polite">Loading from GitHub…</p>
+<p id="summary" role="status">Loading from GitHub…</p>
 <p class="muted" id="updated"></p>
 
-<h2 id="current-heading">Current cycle</h2>
+<h2>Current cycle</h2>
 <div id="current"></div>
 
-<h2 id="previous-heading">Previous cycle</h2>
+<h2>Previous cycle</h2>
 <div id="previous"></div>
 
-<h2>Recent cycles</h2>
-<ul id="cycles"></ul>
+<h2>Bugs found in the last 24 hours</h2>
+<div id="bugs"></div>
 
-<h2>Controller runs (backup replenish and watchdog)</h2>
-<ul id="controller"></ul>
+<h2>Fixes merged in the last 24 hours</h2>
+<div id="fixes"></div>
 
-<h2>Fuzz issues, newest first</h2>
-<ul id="issues"></ul>
+<h2>Earlier cycles</h2>
+<div id="cycles"></div>
 
-<h2>Automatic repair PRs, newest first</h2>
-<ul id="repairs"></ul>
+<h2>Backup controller</h2>
+<div id="controller"></div>
 
-<p class="muted">Reads GitHub's public API from this browser, with no sign-in, every 6 minutes.
-GitHub allows 60 unauthenticated requests an hour per address; each refresh makes at most 6,
-so 10 refreshes an hour fit.</p>
+<h2>What the words mean</h2>
+<ul>
+  <li>Bug found: a lane saved an input that makes Barn fail, and opened a new issue for it. This is the machine working.
+    Each new issue starts an automatic repair run, which leaves a PR for review.</li>
+  <li>Repeat: a lane hit a bug that already has an issue (still open, or fixed after the commit this cycle tested).
+    It is added to that issue, not counted as new.</li>
+  <li>Machine problem: the machine itself failed, not Barn: a run killed without a saved input (for example out of memory),
+    a setup or upload step failing, a lost runner, a cancelled or timed-out job.</li>
+  <li>No report found: a lane went red but no issue was opened or added to while it ran, as far as this page can see.
+    Open the job to find out why.</li>
+  <li>Healthy cycle: every lane ran its full time and kept its evidence, whatever it found. The
+    "Accept discovery cycle" job decides this.</li>
+</ul>
+<p class="muted">This page reads GitHub's public API from your browser, with no sign-in, every 6 minutes.
+GitHub allows 60 unauthenticated requests an hour per address; each refresh makes at most 6.
+Times are in your time zone.</p>
 </main>
+<script src="fuzz_live.js"></script>
 <script>
 "use strict";
+const L = globalThis.FuzzLive;
 const API = "https://api.github.com/repos/MongooseMoo/barn";
 // At most 6 requests per refresh; 60 unauthenticated requests an hour allow one every 6 minutes.
 const REFRESH_MINUTES = 6;
-const REFRESH_MS = REFRESH_MINUTES * 60 * 1000;
-// Jobs that are not fuzz lanes (fuzz_compute.cjs NOT_LANES).
-const NOT_LANES = new Set(["Validate compute routing", "ToastDifferential",
-  "Accept discovery cycle", "Submit continuous successor"]);
-const ACTIVE = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
+const DAY_MS = 24 * 60 * 60 * 1000;
 let rateNote = "";
 
 async function get(path) {
@@ -63,7 +76,7 @@ async function get(path) {
   const reset = response.headers.get("X-RateLimit-Reset");
   if (remaining !== null) {
     rateNote = `GitHub requests left this hour: ${remaining}` +
-      (reset ? `, resets at ${clock(new Date(reset * 1000))}` : "") + ".";
+      (reset ? `, more from ${L.local(new Date(reset * 1000).toISOString(), new Date().toISOString())}` : "") + ".";
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -72,10 +85,6 @@ async function get(path) {
   return response.json();
 }
 
-function clock(date) { return date.toISOString().slice(11, 16) + " UTC"; }
-function minutesSince(iso) { return Math.round((Date.now() - Date.parse(iso)) / 60000); }
-function span(minutes) { return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`; }
-
 function el(tag, text, cls) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -83,103 +92,142 @@ function el(tag, text, cls) {
   return node;
 }
 function link(text, href) { const a = el("a", text); a.href = href; return a; }
-function item(parts) {
-  const li = el("li");
-  for (const part of parts) li.append(typeof part === "string" ? document.createTextNode(part) : part);
-  return li;
+function line(tag, parts, cls) {
+  const node = el(tag, undefined, cls);
+  for (const part of parts) node.append(typeof part === "string" ? document.createTextNode(part) : part);
+  return node;
 }
-function fill(id, nodes, empty) {
+function list(items) { const ul = el("ul"); ul.append(...items); return ul; }
+// Replace a section only when its text changed, so a screen reader's place
+// in an unchanged section is kept.
+function fill(id, nodes) {
   const box = document.getElementById(id);
-  box.replaceChildren(...(nodes.length ? nodes : [el(box.tagName === "UL" ? "li" : "p", empty, "muted")]));
+  const fresh = el("div");
+  fresh.append(...nodes);
+  if (fresh.innerHTML !== box.innerHTML) box.replaceChildren(...fresh.childNodes);
 }
-function campaign(run) { return run.display_title.replace("Nightly fuzz / ", ""); }
-// GitHub can report a whole run as queued while its lanes run, so jobs decide.
-function state(run, jobs) {
-  if (!ACTIVE.has(run.status)) return run.conclusion;
-  return jobs && jobs.some(j => j.status === "in_progress") ? "running" : run.status.replace("_", " ");
+function announce(text, cls) {
+  const summary = document.getElementById("summary");
+  if (summary.textContent !== text) summary.textContent = text;
+  summary.className = cls;
+}
+const issueLink = issue => link(`#${issue.number}`, issue.html_url);
+function repairText(issue, pulls) {
+  const pr = L.repairFor(issue.number, pulls);
+  if (!pr) return [", no repair PR yet"];
+  return [", repair PR ", link(`#${pr.number}`, pr.html_url), pr.merged_at ? " merged" : pr.state === "open" ? " open" : " closed without merging"];
 }
 
-function describeCycle(run, jobs) {
+function describeCycle(run, jobs, issues, pulls, now, active) {
   const out = [];
-  const lanes = jobs.filter(j => !NOT_LANES.has(j.name));
-  const done = lanes.filter(j => j.status === "completed");
-  const red = lanes.filter(j => j.conclusion === "failure");
-  const running = lanes.filter(j => j.status === "in_progress");
-  const accept = jobs.find(j => j.name === "Accept discovery cycle");
-  const successor = jobs.find(j => j.name === "Submit continuous successor");
-  const head = el("p");
-  head.append(link(`Run ${run.id}`, run.html_url),
-    `, ${campaign(run)}, started ${span(minutesSince(run.created_at))} ago by ${run.triggering_actor.login}, ` +
-    (ACTIVE.has(run.status) ? state(run, jobs) : `ended ${span(minutesSince(run.updated_at))} ago, ${run.conclusion}`) + ".");
-  out.push(head);
-  out.push(el("p", `Lanes done ${done.length} of ${lanes.length}; ${red.length} found a bug` +
-    (red.length ? `: ${red.map(j => j.name).join(", ")}.` : ".")));
-  if (running.length) {
-    out.push(el("p", "Running: " + running.map(j => `${j.name} for ${span(minutesSince(j.started_at))}`).join("; ") + "."));
+  out.push(line("p", [`Started ${L.when(run.created_at, now)}` +
+    (active ? "" : `, ended ${L.when(run.updated_at, now)}, took ${L.took(run)}`) + ". ",
+    link(`Open run ${run.id}`, run.html_url), "."]));
+  const accept = jobs.find(j => j.name === L.ACCEPT);
+  const verdict = L.health(jobs);
+  if (verdict === "healthy") out.push(el("p", "Healthy: every lane ran its full time and kept its evidence.", "good"));
+  else if (verdict === "not healthy") {
+    out.push(line("p", ["Not healthy: the ", link("evidence check", accept.html_url),
+      " failed. Its reason is in that job's log."], "bad"));
+  } else if (verdict === "not checked") out.push(el("p", "Not checked: the evidence check did not run.", "bad"));
+  else if (!active) out.push(el("p", "The evidence check did not finish."));
+  const p = L.progress(jobs);
+  if (active) {
+    out.push(el("p", p.total ? `Progress: ${L.progressText(p)}.` : "Progress: starting; lanes are not created yet."));
   }
-  const waiting = lanes.filter(j => j.status === "queued" || j.status === "waiting").length;
-  if (waiting) out.push(el("p", `Waiting for a runner: ${waiting} lanes.`));
-  out.push(el("p", `Acceptance: ${accept ? (accept.conclusion || accept.status) : "not run"}.`,
-    accept && accept.conclusion === "failure" ? "bad" : ""));
-  out.push(el("p", `Successor submission: ${successor ? (successor.conclusion || successor.status)
-    : ACTIVE.has(run.status) ? "not started yet" : "no such job in this run"}.`,
-    successor && successor.conclusion === "failure" ? "bad" : ""));
+
+  const groups = {bug: [], repeat: [], machine: [], unmatched: [], running: []};
+  let clean = 0;
+  const differential = jobs.find(j => j.name === L.DIFFERENTIAL);
+  for (const job of jobs.filter(j => j.name !== L.ACCEPT)) {
+    for (const o of L.classifyJob(job, run.id, issues, now)) {
+      if (o.kind === "clean" && L.lanes([job]).length) clean++;
+      if (!groups[o.kind]) continue;
+      const parts = [`${job.name}: `];
+      if (o.kind === "bug") parts.push("new bug ", issueLink(o.issue), ` (${o.issue.state})`, ...repairText(o.issue, pulls));
+      else if (o.kind === "repeat") {
+        parts.push("repeat of ", issueLink(o.issue), o.issue.state === "open" ? ", still open"
+          : ", fixed after the commit this cycle tested");
+      } else if (o.kind === "machine") {
+        parts.push(...(o.issue ? [o.why, " ", issueLink(o.issue)] : [`machine problem, ${o.why}; `, link("open the job", job.html_url)]));
+      } else if (o.kind === "unmatched") parts.push("red, no report found; ", link("open the job", job.html_url));
+      else parts.push(`running for ${L.duration(Date.parse(now) - Date.parse(job.started_at))}`);
+      groups[o.kind].push(line("li", parts));
+    }
+  }
+  const titles = [["bug", "Bugs found"], ["repeat", "Repeats"], ["machine", "Machine problems"],
+    ["unmatched", "Red with no report found"], ["running", "Lanes running"]];
+  for (const [kind, title] of titles) {
+    if (groups[kind].length) out.push(el("h3", `${title}: ${groups[kind].length}`), list(groups[kind]));
+  }
+  if (!groups.bug.length && !groups.repeat.length && !groups.machine.length && !groups.unmatched.length) {
+    out.push(el("p", active ? "Nothing found so far." : "Nothing found."));
+  }
+  out.push(el("p", `Clean lanes: ${clean} of ${p.total}.` +
+    (differential && differential.conclusion === "skipped" ? " Toast comparison: not run in this campaign." : "")));
   return out;
 }
 
 async function refresh() {
   try {
+    const now = new Date().toISOString();
     const runs = (await get("/actions/workflows/fuzz.yml/runs?per_page=6")).workflow_runs
       .filter(r => r.display_title.startsWith("Nightly fuzz / dedicated-"));
-    const active = runs.filter(r => ACTIVE.has(r.status));
-    const current = active.find(r => r.status !== "queued" && r.status !== "pending") || active[active.length - 1];
+    const active = runs.filter(r => L.WAITING.has(r.status) || r.status === "in_progress");
+    const current = active[active.length - 1];
     const previous = runs.find(r => r.status === "completed");
-    const [currentJobs, previousJobs, controller, issues, pulls] = await Promise.all([
-      current ? get(`/actions/runs/${current.id}/jobs?per_page=100&filter=latest`) : null,
-      previous ? get(`/actions/runs/${previous.id}/jobs?per_page=100&filter=latest`) : null,
-      get("/actions/workflows/fuzz-controller.yml/runs?per_page=4"),
-      get("/issues?state=all&sort=created&direction=desc&per_page=40"),
-      get("/pulls?state=all&sort=created&direction=desc&per_page=40"),
+    // Issues updated since the previous cycle began or 24 hours ago, whichever is earlier.
+    const since = new Date(Math.min(Date.now() - DAY_MS, previous ? Date.parse(previous.created_at) : Date.now())).toISOString();
+    const [currentJobs, previousJobs, controller, allIssues, pulls] = await Promise.all([
+      current ? get(`/actions/runs/${current.id}/jobs?per_page=100&filter=latest`).then(r => r.jobs) : [],
+      previous ? get(`/actions/runs/${previous.id}/jobs?per_page=100&filter=latest`).then(r => r.jobs) : [],
+      get("/actions/workflows/fuzz-controller.yml/runs?per_page=1"),
+      get(`/issues?state=all&sort=updated&direction=desc&per_page=100&since=${since}`),
+      get("/pulls?state=all&sort=updated&direction=desc&per_page=100"),
     ]);
+    const issues = allIssues.filter(i => !i.pull_request);
 
-    const summary = document.getElementById("summary");
-    const queuedNext = active.filter(r => r !== current);
-    if (current) {
-      summary.className = "good";
-      summary.textContent = `Running: cycle ${current.id} is ${state(current, currentJobs.jobs)}` +
-        (queuedNext.length ? `; next cycle ${queuedNext[0].id} is queued.` : "; no next cycle queued yet.");
-    } else {
-      summary.className = "bad";
-      summary.textContent = previous
-        ? `Stopped: nothing queued or running ${span(minutesSince(previous.updated_at))} after cycle ${previous.id}.`
-        : "Stopped: no dedicated fuzz cycle found.";
-    }
+    const text = L.summary({current, currentJobs, previous, issues, pulls, now});
+    announce(text, text.startsWith("Running now") ? "good" : text.startsWith("Stopped") ? "bad" : "");
 
-    fill("current", current ? describeCycle(current, currentJobs.jobs) : [], "No cycle running.");
-    fill("previous", previous ? describeCycle(previous, previousJobs.jobs) : [], "None.");
-    fill("cycles", runs.map(r => item([link(`Run ${r.id}`, r.html_url),
-      `, ${campaign(r)}, started ${clock(new Date(r.created_at))} by ${r.triggering_actor.login}, ` +
-      (ACTIVE.has(r.status) ? r.status.replace("_", " ") : r.conclusion) + "."])), "None.");
-    fill("controller", controller.workflow_runs.map(r => item([link(`Run ${r.id}`, r.html_url),
-      `, ${r.event === "workflow_run" ? "replenish" : r.event === "schedule" ? "watchdog" : r.event}, ` +
-      `${clock(new Date(r.created_at))}, ${r.conclusion || r.status}.`])), "None.");
-    fill("issues", issues.filter(i => !i.pull_request && i.title.startsWith("Nightly fuzz")).slice(0, 15)
-      .map(i => item([link(`#${i.number}`, i.html_url), ` ${i.state}, opened ${clock(new Date(i.created_at))} ` +
-        `${new Date(i.created_at).toISOString().slice(0, 10)}: ${i.title.replace("Nightly fuzz ", "")}`])), "None in the newest 40 issues.");
-    fill("repairs", pulls.filter(p => p.head.ref.startsWith("claude/issue-")).slice(0, 15)
-      .map(p => item([link(`#${p.number}`, p.html_url), ` ${p.merged_at ? "merged" : p.state}, ` +
-        `opened ${new Date(p.created_at).toISOString().slice(0, 10)}: ${p.title}`])), "None in the newest 40 PRs.");
-    document.getElementById("updated").textContent = `Updated ${clock(new Date())}. ${rateNote}`;
+    const next = active.filter(r => r !== current);
+    fill("current", current ? [...describeCycle(current, currentJobs, issues, pulls, now, true),
+      ...(next.length ? [el("p", "The next cycle is already queued.")] : [])] : [el("p", "No cycle is running.")]);
+    fill("previous", previous ? describeCycle(previous, previousJobs, issues, pulls, now, false) : [el("p", "None.")]);
+
+    const day = L.lastDay(issues, pulls, now);
+    fill("bugs", day.bugs.length ? [list(day.bugs.map(i => line("li", [issueLink(i),
+      ` ${i.title.replace(/^Nightly fuzz failure: /, "")}, opened ${L.when(i.created_at, now)}, ${i.state}`,
+      ...repairText(i, pulls)])))] : [el("p", "None.")]);
+    fill("fixes", day.fixes.length ? [list(day.fixes.map(pr => line("li", [link(`#${pr.number}`, pr.html_url),
+      ` ${pr.title}, merged ${L.when(pr.merged_at, now)}`])))] : [el("p", "None.")]);
+
+    const earlier = runs.filter(r => r !== current && r !== previous && !active.includes(r));
+    fill("cycles", earlier.length ? [list(earlier.map(r => line("li", [link(`Run ${r.id}`, r.html_url),
+      `: started ${L.when(r.created_at, now)}, took ${L.took(r)}` +
+      (r.conclusion === "cancelled" ? ", cancelled" : "") + "."]))),
+      el("p", "Lane results are read only for the current and previous cycles; open a run for the rest.", "muted")]
+      : [el("p", "None.")]);
+
+    const c = controller.workflow_runs[0];
+    fill("controller", [c ? line("p", ["Last run: ",
+      c.event === "workflow_run" ? "replenish" : c.event === "schedule" ? "watchdog" : c.event,
+      `, ${L.when(c.created_at, now)}, ${c.conclusion || c.status.replace("_", " ")}. `, link("Open it", c.html_url), "."])
+      : el("p", "No runs.")]);
+
+    // A full page can miss activity only when its oldest entry is newer than the window start.
+    const short = page => page.length === 100 && Date.parse(page[page.length - 1].updated_at) > Date.parse(since);
+    const capped = [short(allIssues) ? "issues" : "", short(pulls) ? "pull requests" : ""].filter(Boolean);
+    document.getElementById("updated").textContent = `Updated ${L.local(now, now)}. ${rateNote}` +
+      (capped.length ? ` Only the 100 most recently updated ${capped.join(" and ")} were read; some activity may be missing.` : "");
   } catch (error) {
-    const summary = document.getElementById("summary");
-    summary.className = "bad";
-    summary.textContent = `Could not read GitHub: ${error.message}. Retrying in ${REFRESH_MINUTES} minutes.`;
+    announce(`Could not read GitHub: ${error.message}. Trying again in ${REFRESH_MINUTES} minutes.`, "bad");
     document.getElementById("updated").textContent = rateNote;
   }
 }
 
 refresh();
-setInterval(refresh, REFRESH_MS);
+setInterval(refresh, REFRESH_MINUTES * 60 * 1000);
 </script>
 </body>
 </html>

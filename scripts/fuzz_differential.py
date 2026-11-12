@@ -11,7 +11,9 @@ program with internal/fuzzseed, and each row keeps the choice bytes (hex) with
 the rendered source. Each directory is one lane with its own counts; a record
 neither form decodes is excluded as undecodable. It runs every program through both
 engines with bench_differ's lanes (Barn ``-eval-file``, Toast emergency mode),
-one process per engine.  Each program becomes one input line::
+one process per CHUNK programs per engine, each on a fresh copy of the
+database and killed by the harness when it outruns its bound (see
+run_bounded).  Each program becomes one input line::
 
     try r = eval("line 1", "line 2"); return {"F00001", r[1] ? "value" | "compile", r[1] ? r[2] | 0};
     except e (ANY) return {"F00001", "raised", e[1]}; endtry
@@ -21,8 +23,10 @@ the error code it raises.  Compile error text is not compared (only that
 compilation failed).  A preamble bounds every input to FG_TICKS ticks and
 FG_SECONDS seconds on both engines.  An input that one engine aborts (ticks,
 seconds) has no probe result there; those are listed but not compared,
-because tick accounting is not claimed to be Toast-exact.  A recovered Barn
-panic is always a divergence.
+because tick accounting is not claimed to be Toast-exact.  An input the
+harness killed (TIMED_OUT) counts as aborted on that engine and is also
+listed under ``timeouts`` per engine.  A recovered Barn panic is always a
+divergence.
 
 Exit status: 0 positive completed coverage with no divergence or unknown outcome,
 1 divergences (listed in ``<out>/report.md``), 2 inconclusive (zero completed
@@ -42,10 +46,28 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from bench_differ import REPO, TOAST, build_barn_linux, moo_str, run_lanes, run_wsl  # noqa: E402
+from bench_differ import (KILL_GRACE, REPO, TOAST, build_barn_linux, lane_scripts, moo_str,  # noqa: E402
+                          run_wsl, write_inputs)
 
 FG_TICKS = 30000
 FG_SECONDS = 2
+
+# Each engine process runs the preamble and at most CHUNK probes, and is
+# killed after STARTUP_SECONDS plus PROBE_SECONDS per input. The engines'
+# own limits do not bound every probe: on the pinned Toast an empty named
+# while loop (`n = 1; while o (n) endwhile`) never reaches a tick or
+# seconds check (issue #668). Every probe that ends ends within FG_SECONDS,
+# so a process that outruns its bound was stuck on the probe after its last
+# record. That probe is recorded as TIMED_OUT and the chunk restarts without
+# it, replaying the probes before it so the rest see the same database state.
+CHUNK = 20
+PROBE_SECONDS = 10
+STARTUP_SECONDS = 30
+# coreutils timeout's exit status after it killed the engine.
+TIMEOUT_EXITS = (124, 137)
+# Not a line either engine prints, nor one RECORD_START begins.
+TIMED_OUT = "** timed out: the harness killed the engine **"
+ABORTED = ("=> *Aborted*", TIMED_OUT)
 
 DEFERRED_COMPARISONS = {
     "b594964e16a6b933676a449a39e87c920aa0d86ae1682bca0100ea546b9e0fbd",
@@ -181,6 +203,72 @@ def outcome(key: str, record: str | None) -> str | None:
     return f"{m.group(2)} {m.group(3)}" if m and m.group(1) == key else None
 
 
+def engine_runner(db: Path, barn_bin: Path, toast: str, out: Path):
+    """run(lane, lines, bound): one engine process over lines on a private
+    copy of db, killed after bound seconds."""
+    def run(lane: str, lines: list[str], bound: int):
+        path = out / f"{lane}_process_in.txt"
+        write_inputs(path, lines, lane)
+        # The script's own timeout fires first; this only guards the harness.
+        return run_wsl(lane_scripts(db, barn_bin, toast, path, path, bound)[lane], bound + KILL_GRACE + 60)
+    return run
+
+
+def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int = PROBE_SECONDS,
+                startup: int = STARTUP_SECONDS, chunk: int = CHUNK) -> tuple[list, list[str], list[int]]:
+    """Run lines (the preamble, then one probe per line) through one engine in
+    bounded processes. Returns its record per line (TIMED_OUT for a probe the
+    harness killed), record errors, and the indexes of the timed-out lines.
+    Every process's transcript is appended to <lane>_raw.txt."""
+    records: list = [None] * len(lines)
+    errors: list[str] = []
+    timed_out: list[int] = []
+    transcript = out / f"{lane}_raw.txt"
+    transcript.write_text("", encoding="utf-8")
+    for start in range(1, len(lines), chunk):
+        ids = range(start, min(start + chunk, len(lines)))
+        stuck: set[int] = set()
+        while True:
+            run_ids = [i for i in ids if i not in stuck]
+            if all(records[i] is not None for i in run_ids):
+                break
+            bound = startup + probe_timeout * (1 + len(run_ids))
+            print(f"==> {lane}: inputs {run_ids[0]}..{run_ids[-1]} bound {bound}s", file=sys.stderr)
+            proc = run(lane, [lines[0]] + [lines[i] for i in run_ids], bound)
+            span = f"inputs {run_ids[0]}..{run_ids[-1]}"
+            with transcript.open("a", encoding="utf-8") as f:
+                f.write(f"--- process: {span} without {sorted(stuck)}, bound {bound}s, exit {proc.returncode} ---\n"
+                        f"{proc.stdout}\n--- STDERR ---\n{proc.stderr}\n")
+            killed = proc.returncode in TIMEOUT_EXITS
+            if proc.returncode != 0 and not killed:
+                raise RuntimeError(f"{lane} exited {proc.returncode}; see {transcript}")
+            got = results(proc.stdout)
+            if not got:
+                raise RuntimeError(f"{lane} printed no preamble result (exit {proc.returncode}); see {transcript}")
+            if records[0] is None:
+                records[0] = got[0]
+            for i, record in zip(run_ids, got[1:]):
+                if records[i] is None:
+                    records[i] = record
+            done = len(got) - 1
+            if killed and done >= len(run_ids):
+                errors.append(f"{lane}: killed after every result of {span}; see {transcript}")
+                break
+            if not killed:
+                if done != len(run_ids):
+                    errors.append(f"{lane}: {done} result records for {len(run_ids)} {span}; see {transcript}")
+                break
+            # Killed: the probe after the last record never finished.
+            hung = run_ids[done]
+            stuck.add(hung)
+            if records[hung] is None:
+                records[hung] = TIMED_OUT
+                timed_out.append(hung)
+            else:
+                errors.append(f"{lane}: input {hung} completed once but timed out on replay; see {transcript}")
+    return records, errors, timed_out
+
+
 def load_programs(dirs: list[Path]) -> tuple[dict[str, dict[str, str]], dict[str, int], dict[str, dict]]:
     """Unique compared sources -> their first corpus record (origin path,
     lane, and the choice bytes of a structured record), exclusion counts,
@@ -247,7 +335,8 @@ def main() -> int:
     ap.add_argument("--toast", default=TOAST, help="Toast binary (path inside WSL on Windows)")
     ap.add_argument("--barn-linux", type=Path, help="prebuilt linux barn (default: cross-compile now)")
     ap.add_argument("--out", type=Path, default=REPO / ".tmp" / "fuzz_differential")
-    ap.add_argument("--timeout", type=int, default=900, help="seconds per engine lane")
+    ap.add_argument("--probe-timeout", type=int, default=PROBE_SECONDS,
+                    help="harness seconds per input; an engine process gets STARTUP_SECONDS plus this per input")
     args = ap.parse_args()
 
     programs, excluded, corpus_lanes = load_programs(args.corpus)
@@ -269,15 +358,18 @@ def main() -> int:
     if ident.returncode != 0 or not toast_version.startswith("ToastStunt version "):
         print(f"cannot identify toast binary: {ident.stdout.strip()} {ident.stderr.strip()}", file=sys.stderr)
         return 2
-    lanes = run_lanes(args.db, barn_bin, args.toast, inputs, args.out, args.timeout)
-    records = {lane: results(stdout) for lane, (stdout, _) in lanes.items()}
-    record_errors = []
-    for lane, got in records.items():
-        if len(got) != len(inputs):
-            # Without one record per input the positions mean nothing.
-            message = f"{lane}: {len(got)} result records for {len(inputs)} inputs; see {lane}_raw.txt"
+    lane_inputs = {"barn": [b for b, _ in inputs], "toast": [t for _, t in inputs]}
+    for lane, lines in lane_inputs.items():
+        write_inputs(args.out / f"{lane}_in.txt", lines, lane)
+    run = engine_runner(args.db, barn_bin, args.toast, args.out)
+    records, record_errors, timeouts = {}, [], {}
+    for lane in ("toast", "barn"):
+        records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout)
+        # Without one record per input the positions mean nothing.
+        for message in errors:
             print(message, file=sys.stderr)
-            record_errors.append(message)
+        record_errors += errors
+        timeouts[lane] = [keyed[i - 1][0] for i in timed_out]
 
     rows = []
     completed = 0
@@ -290,9 +382,9 @@ def main() -> int:
         if b_raw.startswith("Error: internal error"):
             # A recovered Go panic is a Barn defect whatever Toast does.
             kind = "divergence"
-        elif t_raw == "=> *Aborted*" and b_raw == "=> *Aborted*":
+        elif t_raw in ABORTED and b_raw in ABORTED:
             kind = "aborted on both"
-        elif (t_raw == "=> *Aborted*" and b is not None) or (b_raw == "=> *Aborted*" and t is not None):
+        elif (t_raw in ABORTED and b is not None) or (b_raw in ABORTED and t is not None):
             kind = "aborted on " + ("toast" if t is None else "barn")
         elif t is None or b is None:
             kind = "unknown"
@@ -300,7 +392,8 @@ def main() -> int:
             kind = "match" if t == b else "divergence"
         rows.append({"key": key, "kind": kind, **record, "source": source,
                      "toast": t or t_raw, "barn": b or b_raw,
-                     "toast_raw": t_raw, "barn_raw": b_raw})
+                     "toast_raw": t_raw, "barn_raw": b_raw,
+                     "toast_timed_out": t_raw == TIMED_OUT, "barn_timed_out": b_raw == TIMED_OUT})
 
     counts: dict[str, int] = {}
     for row in rows:
@@ -308,7 +401,7 @@ def main() -> int:
     # Record-count errors prevent attribution to a source, but cannot erase
     # an explicit recovered Go panic in the preserved Barn transcript.
     recovered_panics = [record for record in records["barn"]
-                        if record.startswith("Error: internal error")]
+                        if record and record.startswith("Error: internal error")]
     inconclusive = bool(record_errors or not completed or counts.get("unknown")
                         or counts.get("aborted on toast") or counts.get("aborted on barn"))
     status = 1 if counts.get("divergence") or recovered_panics else 2 if inconclusive else 0
@@ -322,7 +415,7 @@ def main() -> int:
         "unknown_pairs": counts.get("unknown", 0),
         "partial": completed != len(programs),
         "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
-        "lanes": corpus_lanes,
+        "timeouts": timeouts, "lanes": corpus_lanes,
     }
     report = [
         "# Barn vs Toast fuzz differential", "",
@@ -331,8 +424,10 @@ def main() -> int:
         f"- results: {json.dumps(counts, sort_keys=True)}",
         f"- record errors: {json.dumps(record_errors)}",
         f"- recovered Barn panics: {json.dumps(recovered_panics)}",
+        f"- timed out (harness killed the engine): {json.dumps(timeouts)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
-        f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; db `{args.db}`",
+        f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; harness {args.probe_timeout}s per input, "
+        f"{CHUNK} inputs per process; db `{args.db}`",
         f"- toast binary: `{args.toast}` sha256 `{toast_sha}` version `{toast_version}`", "",
         "## lanes", "",
     ]
@@ -340,6 +435,11 @@ def main() -> int:
         shown = {name: value for name, value in lane_counts.items() if name != "undecodable"}
         report.append(f"- `{lane}`: {json.dumps(shown)}; undecodable: {len(lane_counts['undecodable'])}")
     report.append("")
+    for lane, keys in timeouts.items():
+        if keys:
+            report += [f"## timed out on {lane} ({len(keys)})", "",
+                       f"No result within the harness bound; partial transcript in `{lane}_raw.txt`.", "",
+                       *(f"- {key}" for key in keys), ""]
     for kind in ("divergence", "aborted on barn", "aborted on toast", "aborted on both", "unknown"):
         listed = [r for r in rows if r["kind"] == kind]
         if listed:

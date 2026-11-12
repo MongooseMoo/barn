@@ -9,8 +9,9 @@ import (
 )
 
 // fullScanAnonymousReachability is the walk persistentAnonymousReachability made
-// before the direct-reference index: it seeds from every property of every live
-// non-anonymous directory object. It is the oracle the index-seeded walk must equal.
+// before the direct-reference index: it seeds from every property value and the
+// last_move of every live non-anonymous directory object (a checkpoint writes
+// both). It is the oracle the index-seeded walk must equal.
 func fullScanAnonymousReachability(s *Store, retained bool) map[types.ObjID]struct{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -20,6 +21,11 @@ func fullScanAnonymousReachability(s *Store, retained bool) map[types.ObjID]stru
 		obj := slot.ptr.Load()
 		if !validLiveObject(obj) || obj.anonymous {
 			return true
+		}
+		lastMoveRefs := make(map[types.ObjID]struct{})
+		types.CollectAnonymousRefs(obj.lastMove, lastMoveRefs, retained)
+		for id := range lastMoveRefs {
+			queue = append(queue, id)
 		}
 		for _, prop := range obj.properties.all() {
 			refs := make(map[types.ObjID]struct{})
@@ -195,5 +201,63 @@ func TestDirectRefIndexMatchesFullScan(t *testing.T) {
 
 	if !cov.anons || !cov.waifs {
 		t.Fatalf("vacuous drive: anonymous refs seen %v, WAIF refs seen %v", cov.anons, cov.waifs)
+	}
+}
+
+func lastMoveFrom(source types.Value) types.Value {
+	return types.NewMap([][2]types.Value{
+		{types.NewStr("source"), source},
+		{types.NewStr("time"), types.NewInt(0)},
+	})
+}
+
+func requireAnonymousReachable(t *testing.T, s *Store, step string, id types.ObjID, want bool) {
+	t.Helper()
+	reachable := s.PersistentAnonymousReachability()
+	if _, got := reachable[id]; got != want {
+		t.Fatalf("%s: anonymous #%d persistently reachable = %v, want %v", step, id, got, want)
+	}
+	collectible := slices.Contains(s.AnonymousRecycleCandidates(reachable, 0), id)
+	if collectible == want {
+		t.Fatalf("%s: anonymous #%d recycle candidate = %v, want %v", step, id, collectible, !want)
+	}
+}
+
+// A database can load an anonymous reference in a numbered object's last_move,
+// and a checkpoint writes last_move like a property value, so the anonymous
+// object it names (and what that object's own last_move names) is persistently
+// reachable. A later move replaces last_move with a numbered source, and the
+// anonymous object becomes collectible.
+func TestLastMoveAnonymousRefsArePersistentRoots(t *testing.T) {
+	s, ids := immutFixture(t, 1)
+	room := ids[0]
+	var cov indexCoverage
+
+	loadAnonymous := func(lastMove types.Value) types.ObjID {
+		t.Helper()
+		builder := NewObjectBuilder(s.NextID())
+		builder.SetAnonymous(true)
+		builder.SetLastMove(lastMove)
+		s.AddAnonymous(builder.Build())
+		return builder.ID()
+	}
+	inner := loadAnonymous(types.NewEmptyMap())
+	outer := loadAnonymous(lastMoveFrom(types.NewAnon(inner)))
+
+	holder := NewObjectBuilder(s.NextID())
+	holder.SetLocation(types.ObjNothing)
+	holder.SetLastMove(lastMoveFrom(types.NewAnon(outer)))
+	requireNoError(t, "load holder", s.Add(holder.Build()))
+	cov.require(t, s, "load")
+	requireAnonymousReachable(t, s, "load", outer, true)
+	requireAnonymousReachable(t, s, "load", inner, true)
+
+	requireNone(t, "move holder", commitMove(t, s, holder.ID(), room, 0))
+	cov.require(t, s, "move replaces last_move")
+	requireAnonymousReachable(t, s, "move", outer, false)
+	requireAnonymousReachable(t, s, "move", inner, false)
+
+	if !cov.anons {
+		t.Fatalf("vacuous drive: no anonymous reference was ever reachable")
 	}
 }

@@ -1,0 +1,6 @@
+go test fuzz v1
+string("w;ilee---ilee--p (1G breendwoop; ak lhile r loon 3h")
+int(51)
+byte('&')
+int(42)
+byte('a')

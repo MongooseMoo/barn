@@ -6,9 +6,22 @@ name: Claude fix
 # carry in the issue): issues it
 # opens with GITHUB_TOKEN start no `issues` workflows, but workflow_dispatch is
 # exempt. A maintainer can also start it by adding the `claude-fix` label.
-# Its pull requests carry the `automatic-fix` label. When one merges, the
-# conformance job writes a MOO conformance test for the fixed behaviour and
-# opens a pull request in moo-conformance-tests, whose CI runs it on Toast.
+# Its pull requests carry the `automatic-fix` label. Before a repair can merge,
+# a second Claude run writes a MOO conformance test for the fixed behaviour and
+# runs it on Toast and on the repair's Barn; the test goes to a pull request in
+# moo-conformance-tests, whose CI runs it on Toast. A repair then enters the
+# merge queue with no person reading it when both of these hold:
+#   - scripts/automatic_fix_scope.py, taken from master, finds it in scope;
+#   - Toast did not disagree with the fixed behaviour.
+# Otherwise it stays open with the `needs-decision` label and the reasons.
+# When the repair merges, the conformance job merges its conformance pull
+# request; when it closes unmerged, the conformance pull request is closed.
+# Any other merged pull request carrying `automatic-fix` (one a person or
+# another agent labelled) gets its conformance test written after the merge.
+#
+# The merge is armed by Claude's own token, inside the second run: a queue
+# entry made with GITHUB_TOKEN starts no merge_group workflows and stalls.
+# The step after it disarms the merge unless both conditions above hold.
 on:
   workflow_dispatch:
     inputs:
@@ -32,7 +45,8 @@ jobs:
   fix:
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'claude-fix'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 240
+    # Two Claude runs: the repair, then its Toast check.
+    timeout-minutes: 420
     permissions:
       contents: write
       pull-requests: write
@@ -50,28 +64,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - &conformance-checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: MongooseMoo/moo-conformance-tests
           path: moo-conformance-tests
           persist-credentials: false
 
-      - &setup-go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
-      - &setup-uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       # Claude's installer writes under $HOME, which the runners on one host
       # share: a run installing while another ran the downloaded installer
       # binary failed with "Text file busy". Each run installs into its own
       # temporary home, and the action uses that binary instead of installing.
-      - &install-claude
-        name: Install Claude Code for this run
+      - name: Install Claude Code for this run
         run: |
           set -o pipefail
           curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
@@ -103,6 +113,14 @@ jobs:
                ends) and copy the named input. Then reproduce with
                `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
                The artifact can hold inputs for other failures found the same night; use only this issue's input.
+               This checkout is current master. If the recorded input passes here (already fixed on master, or a
+               duplicate of an issue that a merged fix closed), open no PR: use your one allowed issue comment
+               (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) for the evidence (the input's sha256, the
+               reproduction command and its passing output, and the fixing PR or commit if you can name it), then
+               close the issue with `gh issue close ${{ env.ISSUE }} --reason completed`, and stop. If your
+               evidence shows the failure is not a Barn defect (for example a stall or fault of the runner host,
+               with the input passing under the bounded reproduction), post that evidence the same way, close the
+               issue with `gh issue close ${{ env.ISSUE }} --reason "not planned"`, and stop.
             2. Before fixing, check for the same bug already filed or being fixed. One bug can appear under two
                fuzz signatures (for example two hangs, or a different top frame). List open issues with
                `gh issue list --state open --search '"Nightly fuzz failure" in:title'` and open PRs from
@@ -128,29 +146,135 @@ jobs:
                the next step you would take. Before that comment, read the issue's earlier comments and do not
                repeat work they already record.
 
-            Post nothing else: no other comments and no reviews.
+            Post nothing else: no other comments and no reviews. Close the issue only as step 1 says.
           claude_args: &claude-args |
             --model claude-opus-5-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
       # GitHub closes the issue on merge only when the PR body, not its title,
       # says "Fixes #N"; #696 named #692 only in its title, so #692 stayed open.
+      # The body is read because the runner's gh has no closingIssuesReferences
+      # field: for #723 it printed "Unknown JSON field" inside the for loop's
+      # $(...), the step passed, and #722 stayed open. The query is assigned
+      # first so that a failed query fails the step.
       - name: Make the pull request close its issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          for n in $(gh pr list --head "claude/issue-$ISSUE" --state open --json number,closingIssuesReferences \
-              --jq ".[] | select([.closingIssuesReferences[].number] | index($ISSUE) | not) | .number"); do
+          prs=$(gh pr list --head "claude/issue-$ISSUE" --state open --json number,body --jq '.[] | select(.body |
+            test("(?i)(^|[^a-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?):? #" + env.ISSUE + "([^0-9]|$)") | not) | .number')
+          for n in $prs; do
             gh pr view "$n" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
             printf '\nFixes #%s\n' "$ISSUE" >> "$RUNNER_TEMP/pr-body.md"
             gh pr edit "$n" --body-file "$RUNNER_TEMP/pr-body.md"
           done
 
+      # The runner's gh is 2.23, so these steps call the REST and GraphQL APIs
+      # rather than newer gh subcommands and JSON fields.
+      - name: Find the repair pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -rf conformance-pr
+          found="repos/$GH_REPO/pulls?state=open&head=$GITHUB_REPOSITORY_OWNER:claude/issue-$ISSUE"
+          number=$(gh api "$found" --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            echo "No open pull request from claude/issue-$ISSUE; nothing to queue."
+            exit 0
+          fi
+          head=$(gh api "repos/$GH_REPO/pulls/$number" --jq .head.sha)
+          node=$(gh api "repos/$GH_REPO/pulls/$number" --jq .node_id)
+          # Claude committed the repair in this checkout before pushing it.
+          git checkout --detach "$head"
+          {
+            echo "number=$number"
+            echo "head=$head"
+            echo "node=$node"
+          } >> "$GITHUB_OUTPUT"
+
+      # The rule comes from master, not from the repair, so a repair cannot
+      # change the rule that judges it.
+      - name: Check the repair's scope
+        id: scope
+        if: steps.pr.outputs.number
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin master
+          base=$(git merge-base FETCH_HEAD HEAD)
+          mkdir -p "$RUNNER_TEMP/trusted"
+          git archive FETCH_HEAD scripts/automatic_fix_scope.py scripts/fuzz_red_green.py | tar -x -C "$RUNNER_TEMP/trusted"
+          in_scope=true
+          python3 "$RUNNER_TEMP/trusted/scripts/automatic_fix_scope.py" --base "$base" > "$RUNNER_TEMP/scope.txt" || in_scope=false
+          cat "$RUNNER_TEMP/scope.txt"
+          echo "in_scope=$in_scope" >> "$GITHUB_OUTPUT"
+
+      - name: Write the conformance test and check the repair against Toast
+        if: steps.pr.outputs.number
+        id: toast
+        uses: ./.github/actions/conformance-test
+        with:
+          pr: ${{ steps.pr.outputs.number }}
+          merged: 'false'
+          may_queue: ${{ steps.scope.outputs.in_scope == 'true' }}
+          node: ${{ steps.pr.outputs.node }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_bin: *claude-bin
+          claude_args: *claude-args
+          conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
+
+      # Claude armed the merge with its own token if it judged that allowed.
+      # This step decides again from the recorded facts and makes the pull
+      # request's state match: armed only when every condition holds.
+      - name: Queue the repair only when every check allows it
+        if: always() && steps.pr.outputs.number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          NODE: ${{ steps.pr.outputs.node }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+          IN_SCOPE: ${{ steps.scope.outputs.in_scope }}
+          TOAST_STEP: ${{ steps.toast.outcome }}
+          OUTCOME: ${{ steps.toast.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          head_now=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
+          armed=$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.auto_merge != null')
+
+          reasons="$RUNNER_TEMP/not-queued.md"
+          : > "$reasons"
+          [ "$IN_SCOPE" = true ] || { echo "Out of scope for an unread merge:"; sed 's/^/- /' "$RUNNER_TEMP/scope.txt"; } >> "$reasons"
+          if [ "$TOAST_STEP" != success ]; then
+            echo "The Toast check did not finish ($TOAST_STEP); see this run's log." >> "$reasons"
+          elif [ "$OUTCOME" = toast-disagrees ]; then
+            echo "Toast disagrees with the fixed behaviour; the comment above has the Toast and Barn output." >> "$reasons"
+          fi
+          [ "$head_now" = "$HEAD_SHA" ] || echo "The pull request's head changed from $HEAD_SHA to $head_now after it was checked." >> "$reasons"
+
+          disarm() {
+            gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE"
+          }
+
+          if [ -s "$reasons" ]; then
+            cat "$reasons"
+            if [ "$armed" = true ]; then disarm; fi
+            printf '{"labels":["needs-decision"]}' | gh api -X POST "repos/$GH_REPO/issues/$PR/labels" --input - --silent
+            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F "body=@$reasons" --silent
+            echo "::notice::Pull request #$PR is not queued; it has the needs-decision label and the reasons."
+          elif [ "$armed" != true ]; then
+            echo "::error::Pull request #$PR passed every check but its merge was not armed."
+            exit 1
+          else
+            echo "Pull request #$PR will merge when its required checks pass."
+          fi
+
   conformance:
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'automatic-fix') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
@@ -161,84 +285,87 @@ jobs:
       id-token: write
     env:
       FIXED_PR: ${{ github.event.pull_request.number }}
-      BRANCH: barn-fix/pr-${{ github.event.pull_request.number }}
+      MERGED: ${{ github.event.pull_request.merged }}
+      SUITE: MongooseMoo/moo-conformance-tests
+      # A repair from the fix job had its test written before it merged. Any
+      # other merged pull request carrying the label gets its test written now.
+      WRITE_TEST: ${{ github.event.pull_request.merged == true && !startsWith(github.event.pull_request.head.ref, 'claude/issue-') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.WRITE_TEST == 'true'
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - *conformance-checkout
-      - *setup-go
-      - *setup-uv
-      - *install-claude
-
-      - uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: env.WRITE_TEST == 'true'
         with:
+          repository: MongooseMoo/moo-conformance-tests
+          path: moo-conformance-tests
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: env.WRITE_TEST == 'true'
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        if: env.WRITE_TEST == 'true'
+
+      # Installed into this run's own temporary home, as in the fix job.
+      - name: Install Claude Code for this run
+        if: env.WRITE_TEST == 'true'
+        run: |
+          set -o pipefail
+          curl -fsSL https://claude.ai/install.sh | HOME="$RUNNER_TEMP/claude-home" bash
+
+      - name: Write the conformance test for the merged change
+        if: env.WRITE_TEST == 'true'
+        uses: ./.github/actions/conformance-test
+        with:
+          pr: ${{ github.event.pull_request.number }}
+          merged: 'true'
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          path_to_claude_code_executable: *claude-bin
-          # A merge-queue merge can be attributed to the queue's bot.
-          allowed_bots: github-merge-queue
-          settings: .github/claude-fix-settings.json
-          prompt: |
-            Pull request #${{ env.FIXED_PR }} in ${{ github.repository }} fixed a Barn bug and has merged; this
-            checkout is its merge commit. Write a MOO conformance test that covers the fixed behaviour, in the
-            conformance suite checked out at ./moo-conformance-tests.
-
-            Read CLAUDE.md and AGENTS.md here, and moo-conformance-tests/AGENTS.md and CLAUDE.md, first and
-            follow them. The conformance suite owns behavioural truth: Toast is the reference. The CI workflow
-            .github/workflows/ci.yml shows the managed conformance command, and the WSL Toast oracle on this
-            runner is the behavioural reference.
-
-            All runners share a Unix user. Never kill processes by name or pattern: that kills other
-            jobs' tests too. Start potentially hanging commands with timeout, and clean up only
-            PIDs you started. The Bash hook blocks process-name kills; do not bypass it.
-
-            1. Read the PR and the issue it fixes: `gh pr view ${{ env.FIXED_PR }} --comments`, `gh pr diff ${{ env.FIXED_PR }}`.
-            2. Decide whether a MOO program can observe the fixed behaviour (a result, an error, output, a
-               listing, a stored value). Some fixes cannot be observed from MOO, for example a panic in a Go-only
-               path such as snapshot restore. Check whether the suite already covers it.
-            3. If it is observable and not already covered, add the test following the suite's existing layout
-               and conventions. Run it with the managed harness on the WSL Toast oracle and on this checkout's
-               Barn (`go build -o bin/ ./cmd/barn`), keeping the capability_admission test in the selection.
-               It must pass on Toast. Never weaken, skip or rewrite an existing test.
-            4. If it passes on Toast: in ./moo-conformance-tests create branch ${{ env.BRANCH }} from main and
-               commit only the test files (stage named paths, never `git add -A`; no attribution trailers).
-               Do not push; a later step pushes it and opens the pull request. Write the PR title to
-               ./conformance-pr/title.txt and its body to ./conformance-pr/body.md: what behaviour the test
-               pins, that it comes from MongooseMoo/barn#${{ env.FIXED_PR }}, and the Toast and Barn results
-               with the exact commands you ran. No attribution footer.
-            5. Otherwise commit nothing and write ./conformance-pr/no-test.md saying why: not observable from
-               MOO, already covered (name the test), or Toast disagrees with the merged fix (show the Toast and
-               Barn output). Then post it once with `gh pr comment ${{ env.FIXED_PR }} --body-file conformance-pr/no-test.md`.
-
-            Post nothing else: no other comments and no reviews.
+          claude_bin: *claude-bin
           claude_args: *claude-args
+          conformance_pr_token: ${{ secrets.CONFORMANCE_PR_TOKEN }}
 
-      - name: Open conformance pull request
+      # Barn's CI runs the suite's tip, so a test for a repair may land only
+      # after the repair has.
+      - name: Merge or close the conformance pull request
         env:
           GH_TOKEN: ${{ secrets.CONFORMANCE_PR_TOKEN }}
         run: |
           set -euo pipefail
-          cd moo-conformance-tests
-          if ! git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
-            if [ -f ../conformance-pr/no-test.md ]; then
-              echo "No conformance test for #$FIXED_PR:"
-              cat ../conformance-pr/no-test.md
-              exit 0
-            fi
-            echo "::error::Claude left neither branch $BRANCH nor conformance-pr/no-test.md"
-            exit 1
+          number=$(gh api "repos/$SUITE/pulls?state=open&head=MongooseMoo:barn-fix/pr-$FIXED_PR" --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            echo "No open conformance pull request for #$FIXED_PR."
+            exit 0
           fi
-          if [ -z "$(git rev-list "origin/main..refs/heads/$BRANCH")" ]; then
-            echo "::error::Branch $BRANCH has no commits beyond main"
-            exit 1
+          if [ "$MERGED" != true ]; then
+            gh api -X PATCH "repos/$SUITE/pulls/$number" -f state=closed --silent
+            echo "Repair #$FIXED_PR closed unmerged; closed conformance pull request #$number."
+            exit 0
           fi
-          for f in title.txt body.md; do
-            [ -s "../conformance-pr/$f" ] || { echo "::error::conformance-pr/$f is missing or empty"; exit 1; }
-          done
-          git push "https://x-access-token:${GH_TOKEN}@github.com/MongooseMoo/moo-conformance-tests.git" \
-            "refs/heads/$BRANCH:refs/heads/$BRANCH"
-          gh pr create --repo MongooseMoo/moo-conformance-tests --base main --head "$BRANCH" \
-            --title "$(cat ../conformance-pr/title.txt)" --body-file ../conformance-pr/body.md
+          # Only a pull request that adds test files and changes nothing else merges unread.
+          # A new startup database also needs its line in the checksum list, the one
+          # existing file such a pull request may change (#188 and #194 both did).
+          other=$(gh api --paginate "repos/$SUITE/pulls/$number/files" \
+            --jq '.[] | select(.filename != "src/moo_conformance/_db/startup/startup-fixtures.sha256")
+              | select(.status != "added" or (.filename | test("^src/moo_conformance/(_tests|_db)/") | not)) | .filename')
+          if [ -n "$other" ]; then
+            echo "::notice::Conformance pull request #$number does more than add test files; it is left open:"
+            echo "$other"
+            exit 0
+          fi
+          if gh api -X PUT "repos/$SUITE/pulls/$number/merge" -f merge_method=merge --silent; then
+            echo "Merged conformance pull request #$number."
+            exit 0
+          fi
+          # Not mergeable yet: bring it up to date and let it merge when its checks pass.
+          gh api -X PUT "repos/$SUITE/pulls/$number/update-branch" --silent || echo "Branch was already up to date."
+          node=$(gh api "repos/$SUITE/pulls/$number" --jq .node_id)
+          gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id="$node"
+          echo "Conformance pull request #$number will merge when its required checks pass."

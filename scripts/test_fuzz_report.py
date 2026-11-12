@@ -105,14 +105,15 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
-    def test_failed_check_signature_is_its_location(self):
+    def test_failed_check_signature_is_its_location_and_message(self):
         # Real native tee log of a FuzzReadDatabase failed check (no stack).
         log = (FIXTURES / "native" / "42692025227-baseline.log").read_text()
         result = report(log, "./db/format", "FuzzReadDatabase", "commit")
         self.assertEqual(result["kind"], "failed check")
         self.assertEqual(result["barn_frames"], [])
         self.assertEqual(result["signature"], hashlib.sha256(
-            b"FuzzReadDatabase|failed check|reader_fuzz_test.go:82").hexdigest())
+            b"FuzzReadDatabase|failed check|reader_fuzz_test.go:82: round-trip verification failed: "
+            b"suspended task N frame N locals differs").hexdigest())
         # Another check line in the same target is another finding.
         other = report(log.replace("reader_fuzz_test.go:82:", "reader_fuzz_test.go:97:"),
                        "./db/format", "FuzzReadDatabase", "commit")
@@ -122,6 +123,26 @@ class FuzzReportTests(unittest.TestCase):
                                   "suspended task 3 frame 7 locals differs"),
                       "./db/format", "FuzzReadDatabase", "commit")
         self.assertEqual(result["signature"], same["signature"])
+
+    def test_real_failed_checks_split_by_message_and_join_repeats(self):
+        # Every failed-check report on issues #681, #693, #707, #721 and #722
+        # (2026-11-11). One check line carried several bugs: #722 took 11
+        # "property definitions/order differs" reports as comments and #707
+        # a WriteCheckpoint failure, so none of them started a repair.
+        records = json.loads((FIXTURES / "failed-check-reports-2026-11-11.json").read_text(encoding="utf-8"))
+        findings = ["locals differs", "last_move differs", "property definitions/order differs",
+                    "uninterrupted return", "write queued task", "too many local variables"]
+        signatures = {}
+        for record in records:
+            finding = next(f for f in findings if f in record["first_error"])
+            log = f"--- FAIL: {record['target']}\n    {record['first_error']}\n"
+            result = report(log, "./pkg", record["target"], "commit")
+            self.assertEqual((result["kind"], result["first_error"]), ("failed check", record["first_error"]))
+            signatures.setdefault(finding, set()).add(result["signature"])
+        self.assertEqual(sorted(signatures), sorted(findings))
+        for finding, found in signatures.items():
+            self.assertEqual(len(found), 1, finding)
+        self.assertEqual(len(set().union(*signatures.values())), len(findings))
 
     def test_real_toast_differential_divergence(self):
         # Real output of scripts/fuzz_differential.py over the runner's fuzz
@@ -378,6 +399,7 @@ class CampaignStepTests(unittest.TestCase):
 if [ "$1" = version ]; then echo "go version go1.27.1 linux/amd64"; exit 0; fi
 n=$(( $(cat "$WORK/attempts" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$WORK/attempts"
 echo "attempt $n" >> "$WORK/sequence"
+echo "$*" >> "$WORK/arguments"
 [ -n "${GITHUB_TOKEN:-}" ] && echo "token reached go test" >> "$WORK/sequence"
 if [ "$n" = 1 ]; then
   mkdir -p vm/testdata/fuzz/FuzzT
@@ -453,7 +475,8 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
                     "GITHUB_SHA": "commit", "GITHUB_TOKEN": "token", "GITHUB_REPOSITORY": "test/barn",
                     "GITHUB_API_URL": f"http://127.0.0.1:{self.server.server_port}",
                     "GITHUB_SERVER_URL": "https://github.com", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1",
-                    "FUZZ_PACKAGE": "./vm", "FUZZ_TARGET": "FuzzT", "CAMPAIGN_OUTCOME": "failure",
+                    "FUZZ_PACKAGE": "./vm", "FUZZ_TARGET": "FuzzT", "FUZZ_MINUTES": "30",
+                    "CAMPAIGN_OUTCOME": "failure",
                     "ARTIFACT_URL": "https://artifact"}
         workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
         self.campaign = step_script(workflow, "Fuzz ${{ matrix.target }}")
@@ -493,6 +516,20 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
         result = self.run_step(self.reporter)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(self.api_calls), 3)
+
+    def test_each_attempt_fuzzes_for_the_time_left_in_the_lane_minutes(self):
+        (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
+        self.failing = {("POST", "/issues")}
+        self.env["FUZZ_MINUTES"] = "5"
+        result = self.run_step(self.campaign)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        attempts = [line for line in (self.work / "arguments").read_text().splitlines() if line != "version"]
+        self.assertEqual(len(attempts), 2)
+        for line in attempts:
+            fuzztime = int(re.search(r"-fuzztime=(\d+)s", line)[1])
+            self.assertTrue(240 < fuzztime <= 300, line)
+            self.assertIn(f"-timeout={fuzztime + 600}s", line)
+            self.assertIn(" -parallel=4 ", line)
 
     def test_failed_report_is_visible_and_retried_when_the_job_ends(self):
         (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
