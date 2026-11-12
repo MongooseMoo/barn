@@ -148,7 +148,7 @@ func builtinMapmerge(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check size limit
-	if err := ctx.Session.CheckMapLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckMapLimitForTask(ctx.Context, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
