@@ -452,13 +452,16 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		if ownerTouched {
 			other = s.republishForMutation(other)
 			other.owner = rewriteOwner(other.owner)
+			// A rewritten verb or slot gets a new version, as a committed write
+			// of it does, so a transaction that read the old owner fails
+			// validation instead of committing over the rewrite.
 			for _, v := range other.verbList {
-				v.owner = rewriteOwner(v.owner)
+				if owner := rewriteOwner(v.owner); owner != v.owner {
+					v.owner = owner
+					stampVerb(v, ts)
+				}
 			}
-			for name, p := range other.properties.all() {
-				p.owner = rewriteOwner(p.owner)
-				other.properties.put(name, p)
-			}
+			rewritePropertyOwners(other, rewriteOwner, ts)
 			stampObjectAll(other, ts)
 		}
 		return true
@@ -471,45 +474,71 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	// db_renumber_object for the same reason (db_objects.cc:686-705); anonymous
 	// objects carry no verbdefs, so only object/propval owners are rewritten for
 	// ownership, alongside the structural parent/child/location/contents refs.
+	//
+	// An anonymous object is changed in place, as a commit writing it is
+	// (ownImage), and each rewrite moves the versions an ordinary committed
+	// write of that field moves, so a transaction that read the old value fails
+	// validation.
 	for _, anon := range s.anonObjects {
 		if anon == nil {
 			continue
 		}
-		for i, pid := range anon.parents {
-			if pid == oldID {
-				anon.parents[i] = newID
-			}
-		}
-		for i, cid := range anon.children {
-			if cid == oldID {
-				anon.children[i] = newID
-			}
-		}
-		for i, cid := range anon.anonymousChildren {
-			if cid == oldID {
-				anon.anonymousChildren[i] = newID
-			}
-		}
+		relationship := replaceObjID(anon.parents, oldID, newID)
+		relationship = replaceObjID(anon.children, oldID, newID) || relationship
+		relationship = replaceObjID(anon.anonymousChildren, oldID, newID) || relationship
 		if anon.chparentChildren != nil && anon.chparentChildren[oldID] {
 			delete(anon.chparentChildren, oldID)
 			anon.chparentChildren[newID] = true
+			relationship = true
 		}
 		if anon.location == oldID {
 			anon.location = newID
+			relationship = true
 		}
-		for i, cid := range anon.contents {
-			if cid == oldID {
-				anon.contents[i] = newID
-			}
+		relationship = replaceObjID(anon.contents, oldID, newID) || relationship
+		if relationship {
+			stampObjectRelationship(anon, ts)
 		}
-		anon.owner = rewriteOwner(anon.owner)
-		for name, p := range anon.properties.all() {
-			p.owner = rewriteOwner(p.owner)
-			anon.properties.put(name, p)
+		if owner := rewriteOwner(anon.owner); owner != anon.owner {
+			anon.owner = owner
+			stampObjectScalar(anon, ts)
+		}
+		if rewritePropertyOwners(anon, rewriteOwner, ts) {
+			anon.propertyVersion = ts
 		}
 	}
 
 	return nil
+}
+
+// replaceObjID replaces every oldID in ids with newID in place and reports
+// whether it replaced any.
+func replaceObjID(ids []types.ObjID, oldID, newID types.ObjID) bool {
+	replaced := false
+	for i, id := range ids {
+		if id == oldID {
+			ids[i] = newID
+			replaced = true
+		}
+	}
+	return replaced
+}
+
+// rewritePropertyOwners rewrites the owner of each of obj's slots through
+// rewrite and reports whether any changed. A changed slot gets version ts, as a
+// committed write of the slot does (applyTailWrites), so a transaction that
+// read the slot fails validation; the caller stamps the object's versions.
+func rewritePropertyOwners(obj *Object, rewrite func(types.ObjID) types.ObjID, ts uint64) bool {
+	changed := false
+	for name, p := range obj.properties.all() {
+		if owner := rewrite(p.owner); owner != p.owner {
+			p.owner = owner
+			p.version = ts
+			obj.properties.put(name, p)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // RegisterWaif registers a waif with its class object, and unregisters it when
