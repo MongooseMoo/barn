@@ -166,22 +166,21 @@ func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 
 	value := args[1]
 
-	// Find first occurrence
+	// Remove the first occurrence; an absent value leaves the list unchanged.
+	result := list
 	for i := 1; i <= list.Len(); i++ {
 		if list.Get(i).Equal(value) {
-			result := list.DeleteAt(i)
-
-			// Check size limit
-			if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
-				return types.Err(err)
-			}
-
-			return types.Ok(result)
+			result = list.DeleteAt(i)
+			break
 		}
 	}
 
-	// Not found, return unchanged
-	return types.Ok(list)
+	// Toast list.cc bf_setremove checks the returned list whether or not the
+	// value was found.
+	if err := ctx.Session.CheckListLimitForTask(ctx.Context, result); err != types.E_NONE {
+		return types.Err(err)
+	}
+	return types.Ok(result)
 }
 
 // builtinIsMember tests if value is in list

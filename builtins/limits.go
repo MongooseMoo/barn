@@ -423,17 +423,6 @@ func (r *Session) GetMaxMapValueBytes() int {
 	return state.maxMapValueBytes
 }
 
-// CheckListLimit checks if a list exceeds the max_list_value_bytes limit.
-// Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-// The limit is exclusive - a list with exactly limit bytes is not allowed.
-func (r *Session) CheckListLimit(list types.Value) types.ErrorCode {
-	limit := r.GetMaxListValueBytes()
-	if limit > 0 && ValueBytes(list) >= limit {
-		return types.E_QUOTA
-	}
-	return types.E_NONE
-}
-
 // ListValueLimitForTask is the max_list_value_bytes limit CheckListLimitForTask
 // applies to ctx's task: a value of that many bytes or more is E_QUOTA. Zero or
 // less means no limit.
@@ -444,19 +433,11 @@ func (r *Session) ListValueLimitForTask(ctx *task.Context) int {
 	return r.GetMaxListValueBytes()
 }
 
+// CheckListLimitForTask returns E_QUOTA when list reaches the task's
+// max_list_value_bytes limit; the limit is exclusive.
 func (r *Session) CheckListLimitForTask(ctx *task.Context, list types.Value) types.ErrorCode {
 	limit := r.ListValueLimitForTask(ctx)
 	if limit > 0 && ValueBytes(list) >= limit {
-		return types.E_QUOTA
-	}
-	return types.E_NONE
-}
-
-// CheckMapLimit checks if a map exceeds the max_map_value_bytes limit.
-// Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func (r *Session) CheckMapLimit(m types.Value) types.ErrorCode {
-	limit := r.GetMaxMapValueBytes()
-	if limit > 0 && ValueBytes(m) > limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE
