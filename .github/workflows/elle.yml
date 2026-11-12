@@ -5,29 +5,39 @@ on:
     branches: [master]
   pull_request:
   merge_group:
+  # Extended mode: the nightly run, or a dispatch with extended set. Same job
+  # and check name; more seeds and rounds (see Check histories). Scheduled at
+  # 01:17 UTC so it ends before jepsen.yml's 04:37 UTC extended run.
+  schedule:
+    - cron: '17 1 * * *'
   workflow_dispatch:
     inputs:
+      extended:
+        description: Extended mode (50 seeds of 1000 rounds unless seeds/rounds are given)
+        type: boolean
+        default: false
       seeds:
-        description: Space-separated integer seeds
+        description: Space-separated integer seeds (blank for the mode's default)
         type: string
-        default: '412 395 396'
+        default: ''
       rounds:
-        description: Random rounds per healthy seed (8-10000)
+        description: Random rounds per healthy seed (8-10000; blank for the mode's default)
         type: string
-        default: '40'
+        default: ''
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: elle-${{ github.ref }}
+  # An extended run on master must not cancel, or be cancelled by, a push run.
+  group: elle-${{ github.ref }}${{ (github.event_name == 'schedule' || inputs.extended) && '-extended' || '' }}
   cancel-in-progress: true
 
 jobs:
   # Skip the required job when a run of this repository already passed on
   # this exact tree (see .github/actions/tested-tree). A manual dispatch
-  # always runs.
+  # and the nightly extended run always run.
   tested:
     name: Check for an earlier pass
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
@@ -38,7 +48,7 @@ jobs:
         with:
           persist-credentials: false
       - id: tree
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
         uses: ./.github/actions/tested-tree
         with:
           mode: check
@@ -47,9 +57,10 @@ jobs:
   record:
     name: Record pass
     needs: isolation
-    # Manual campaigns may select less work than the required PR configuration.
-    # They must not populate its tested-tree pass record.
-    if: github.event_name != 'workflow_dispatch'
+    # Manual campaigns may select less work than the required PR configuration,
+    # and extended runs use other seeds. They must not populate its tested-tree
+    # pass record.
+    if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -65,7 +76,7 @@ jobs:
     needs: tested
     if: needs.tested.outputs.hit != 'true'
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
-    timeout-minutes: 25
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.extended) && 180 || 25 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -82,12 +93,27 @@ jobs:
           java-version: '21'
       - name: Build pinned checker
         uses: ./.github/actions/elle-cli
+      # Extended mode: 50 healthy seeds taken from the run number, so each night
+      # differs (the step log prints them; a dispatch with that seed list
+      # replays them), at 1000 rounds each. A dispatched run on 2026-11-07
+      # took about 25 s per seed at 200 rounds and 10 s at 40, so about 100 s
+      # per seed at 1000 (under check_elle.py's 5-minute go test timeout) and
+      # about 90 minutes for the step. The fault cases run unchanged (rounds 0).
       - name: Check histories
         env:
-          ELLE_SEEDS: ${{ inputs.seeds || '412 395 396' }}
-          ELLE_ROUNDS: ${{ inputs.rounds || '40' }}
+          ELLE_SEEDS: ${{ inputs.seeds }}
+          ELLE_ROUNDS: ${{ inputs.rounds || ((github.event_name == 'schedule' || inputs.extended) && '1000' || '40') }}
+          ELLE_EXTENDED: ${{ github.event_name == 'schedule' || inputs.extended }}
         run: |
           set -euo pipefail
+          if [ -z "$ELLE_SEEDS" ]; then
+            ELLE_SEEDS='412 395 396'
+            if [ "$ELLE_EXTENDED" = true ]; then
+              first=$((GITHUB_RUN_NUMBER * 100))
+              ELLE_SEEDS=$(seq -s ' ' "$first" $((first + 49)))
+            fi
+          fi
+          echo "seeds: $ELLE_SEEDS; rounds: $ELLE_ROUNDS"
           python3 -m unittest discover -s scripts -p 'test_check_elle.py' -v
           go test -tags elle ./engine -run '^TestElleRecorder' -count=1
           read -r -a seeds <<< "$ELLE_SEEDS"
