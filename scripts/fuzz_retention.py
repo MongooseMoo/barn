@@ -32,7 +32,7 @@ def quarantine(cache, package, target, source, found):
     destination = found / source.name
     if destination.exists():
         # A static f.Add seed cannot be removed from a disposable cache. Keep
-        # the original evidence and stop instead of repeating it for 30 minutes.
+        # the original evidence and stop instead of repeating it for the lane's minutes.
         raise ValueError("finding repeated after quarantine; no new campaign work")
     shutil.copyfile(source, destination)
     removed = 0

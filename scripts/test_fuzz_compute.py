@@ -396,6 +396,27 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                     " ${{ fromJSON(needs.route.outputs.runner) }}"))
         self.assertFalse((ROOT / "scripts/install-nightly-fuzz-task.ps1").exists())
 
+    def test_lane_minutes_and_workers_fit_the_fuzz_guest(self):
+        # Four lanes at -parallel=6 kept the 24-vCPU guest at load 40, and six
+        # lanes added at most 6 new inputs per 30 minutes and never found a bug.
+        text = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        lanes = dict(re.findall(r"^          - \{ package: \S+, target: (\w+), minutes: (\d+) \}$", text, re.M))
+        saturated = {"FuzzTCPReadInput", "FuzzSuspensionCompletionHistory",
+                     "FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder", "FuzzStructuredParseFormatRoundTrip",
+                     "FuzzVerifyProgram", "FuzzParseHTTPChunkedBody"}
+        self.assertEqual(len(lanes), text.count("          - { package: "))
+        self.assertEqual(len(lanes), 17)
+        for target, minutes in lanes.items():
+            self.assertEqual(int(minutes), 5 if target in saturated else 30, target)
+        # CampaignStepTests runs the step itself for the deadline and -parallel.
+        self.assertIn("FUZZ_MINUTES: ${{ matrix.minutes }}", text)
+        self.assertNotIn("1800", text)
+        # The last attempt may run its remaining time plus the 600 s go test
+        # grace; the job limit must still cover setup and evidence upload.
+        fuzz = text.split("\n  fuzz:\n")[1].split("\n  differential:\n")[0]
+        limit = int(re.search(r"^    timeout-minutes: (\d+)$", fuzz, re.M)[1])
+        self.assertGreaterEqual(limit, max(map(int, lanes.values())) + 10 + 5)
+
     def test_campaign_keeps_the_original_seed_for_quarantine(self):
         text = (ROOT / ".github/workflows/fuzz.yml").read_text()
         self.assertIn("-fuzzminimizetime=0", text)

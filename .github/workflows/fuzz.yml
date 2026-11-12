@@ -73,28 +73,31 @@ jobs:
       BARN_FUZZ_CORPUS: ''
       FUZZ_TARGET: ${{ matrix.target }}
       FUZZ_PACKAGE: ${{ matrix.package }}
+      FUZZ_MINUTES: ${{ matrix.minutes }}
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(needs.route.outputs.parallel) }}
+      # minutes is each lane's campaign time. Lanes that add a handful of new
+      # inputs per 30 minutes and have never found a bug get 5.
       matrix:
         include:
-          - { package: ./parser, target: FuzzParseFormatRoundTrip }
-          - { package: ./parser, target: FuzzStructuredParseFormatRoundTrip }
-          - { package: ./compiler, target: FuzzCompileVerifiable }
-          - { package: ./compiler, target: FuzzStructuredCompileVerifiable }
-          - { package: ./vm, target: FuzzSourceExecution }
-          - { package: ./vm, target: FuzzStructuredSourceExecution }
-          - { package: ./vm, target: FuzzRestoreVMSnapshotDoesNotPanic }
-          - { package: ./bytecode, target: FuzzVerifyProgram }
-          - { package: ./db/format, target: FuzzReadDatabase }
-          - { package: ./command, target: FuzzCommandLine }
-          - { package: ./builtins, target: FuzzParseHTTPChunkedBody }
-          - { package: ./server, target: FuzzTCPReadInput }
-          - { package: ./builtins, target: FuzzStringBuiltins }
-          - { package: ./vm, target: FuzzCheckpointResumeEquivalence }
-          - { package: ./vm, target: FuzzWorldCheckpointEffects }
-          - { package: ./task, target: FuzzSuspensionCompletionHistory }
-          - { package: ./types, target: FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder }
+          - { package: ./parser, target: FuzzParseFormatRoundTrip, minutes: 30 }
+          - { package: ./parser, target: FuzzStructuredParseFormatRoundTrip, minutes: 5 }
+          - { package: ./compiler, target: FuzzCompileVerifiable, minutes: 30 }
+          - { package: ./compiler, target: FuzzStructuredCompileVerifiable, minutes: 30 }
+          - { package: ./vm, target: FuzzSourceExecution, minutes: 30 }
+          - { package: ./vm, target: FuzzStructuredSourceExecution, minutes: 30 }
+          - { package: ./vm, target: FuzzRestoreVMSnapshotDoesNotPanic, minutes: 30 }
+          - { package: ./bytecode, target: FuzzVerifyProgram, minutes: 5 }
+          - { package: ./db/format, target: FuzzReadDatabase, minutes: 30 }
+          - { package: ./command, target: FuzzCommandLine, minutes: 30 }
+          - { package: ./builtins, target: FuzzParseHTTPChunkedBody, minutes: 5 }
+          - { package: ./server, target: FuzzTCPReadInput, minutes: 5 }
+          - { package: ./builtins, target: FuzzStringBuiltins, minutes: 30 }
+          - { package: ./vm, target: FuzzCheckpointResumeEquivalence, minutes: 30 }
+          - { package: ./vm, target: FuzzWorldCheckpointEffects, minutes: 30 }
+          - { package: ./task, target: FuzzSuspensionCompletionHistory, minutes: 5 }
+          - { package: ./types, target: FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder, minutes: 5 }
     steps:
       - name: Check /dev/null is a device
         run: |
@@ -130,7 +133,7 @@ jobs:
       - name: Fuzz ${{ matrix.target }}
         id: campaign
         # Go stops a campaign at its first failing input, so start the target
-        # again with the time left until the 30 minutes are used. Each finding
+        # again with the time left until the lane's minutes are used. Each finding
         # is reported, and its repair dispatched, before the next attempt.
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -144,7 +147,7 @@ jobs:
           # campaign at once, so saved inputs wait aside until the step ends.
           # Go names inputs by content hash: equal names hold equal bytes.
           trap 'find "$found" -type f -exec mv -t "$inputs" {} +' EXIT
-          deadline=$((SECONDS + 1800)) run=0 status=0
+          deadline=$((SECONDS + FUZZ_MINUTES * 60)) run=0 status=0
           # The cycle acceptance job reads `cycle`: a saved finding is a
           # completed campaign; a failure without a saved input is not.
           while remaining=$((deadline - SECONDS)); [ "$remaining" -ge 60 ]; do
@@ -154,7 +157,7 @@ jobs:
               go version
               # Keep the original failing seed so quarantine can remove its
               # exact bytes from the disposable cache before retrying.
-              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=6 -timeout="$((remaining + 600))s"
+              env -u GITHUB_TOKEN go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime="${remaining}s" -fuzzminimizetime=0 -parallel=4 -timeout="$((remaining + 600))s"
             } 2>&1 | tee "$log"; then
               mv "$log" "$logs/success-$(printf %03d "$run").log"
               break
