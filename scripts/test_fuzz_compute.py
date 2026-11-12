@@ -405,7 +405,7 @@ Promise.resolve().then(() => require(input.module)[input.method]({github,context
                      "FuzzMapUpdatesPreserveSnapshotsAndInsertionOrder", "FuzzStructuredParseFormatRoundTrip",
                      "FuzzVerifyProgram", "FuzzParseHTTPChunkedBody"}
         self.assertEqual(len(lanes), text.count("          - { package: "))
-        self.assertEqual(len(lanes), 17)
+        self.assertEqual(len(lanes), 18)
         for target, minutes in lanes.items():
             self.assertEqual(int(minutes), 5 if target in saturated else 30, target)
         # CampaignStepTests runs the step itself for the deadline and -parallel.
