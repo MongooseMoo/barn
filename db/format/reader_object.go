@@ -248,12 +248,10 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool, sl
 	}
 	propDefs := make([]string, 0, min(propDefCount, maxTrustedCount))
 	for i := 0; i < propDefCount; i++ {
-		name, err := r.ReadString('\n')
+		name, err := readPropDefName(r)
 		if err != nil {
 			return nil, err
 		}
-		name = strings.TrimSuffix(name, "\n")
-		name = strings.TrimSuffix(name, "\r") // Handle Windows line endings
 		propDefs = append(propDefs, name)
 	}
 

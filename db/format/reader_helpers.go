@@ -90,6 +90,18 @@ func readLine(r *bufio.Reader) (string, error) {
 	return strings.TrimRight(line, "\n\r"), nil
 }
 
+// readPropDefName reads one property definition name. Like Toast's
+// dbio_read_string (db_io.cc), it removes only the terminating newline and
+// keeps every other byte, including a trailing carriage return, so the
+// writer's name-plus-newline line reads back as the same name.
+func readPropDefName(r *bufio.Reader) (string, error) {
+	name, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(name, "\n"), nil
+}
+
 func argSpecFromCode(spec int) string {
 	switch spec {
 	case 0:
