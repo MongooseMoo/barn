@@ -1,0 +1,149 @@
+name: Goodput series
+
+# Measures player goodput and latency on master every hour with the
+# real-workload harness (TestMongooseRealWorkload at 1 and 16 players), keeps
+# each point as an artifact, and opens an issue when the newest points are
+# lastingly worse than the ones before them (scripts/goodput_series.py). It
+# only reports: it stops nothing and switches nothing off.
+#
+# The database is a dump of the live world and holds real players' data, and
+# this repository's logs are public. The harness's output therefore stays in
+# the runner's temporary directory; the log and the artifact carry numbers
+# only.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/goodput-series.yml
+      - scripts/goodput_series.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goodput-series
+  cancel-in-progress: false
+
+env:
+  # On the workstation that hosts the runners; a runner without them fails.
+  FIXTURE: /mnt/c/Users/Q/projects/mongoose/db/mongoose.db.new.2026-11-12T0055
+  FIXTURE_SHA256: 626bd284a498ce862b97eaad73edabdc8c057e2ac68b698aacee386f938f25e7
+  SOUND_DB: /mnt/c/Users/Q/projects/mongoose/db/sound.sqlite.2026-11-09T2239
+  SOUND_DB_SHA256: 0fcdc8d7f909d3e57a801ec1089b69c86fb390b4dc1d85331e25e68e00639318
+  RUNS: 5
+  LEVELS: 1,16
+  # Other jobs share these CPUs. A point is taken only when the 1-minute load
+  # average is below this; otherwise the run records nothing.
+  IDLE_LOAD: 8
+  IDLE_WAIT_MINUTES: 30
+
+jobs:
+  measure:
+    name: Measure goodput and latency at 1 and 16 players
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - name: Copy the database and check it is the pinned one
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/goodput"
+          cp "$FIXTURE" "$RUNNER_TEMP/goodput/mongoose.db"
+          cp "$SOUND_DB" "$RUNNER_TEMP/goodput/sound.sqlite"
+          echo "$FIXTURE_SHA256  $RUNNER_TEMP/goodput/mongoose.db" | sha256sum --check --quiet
+          echo "$SOUND_DB_SHA256  $RUNNER_TEMP/goodput/sound.sqlite" | sha256sum --check --quiet
+
+      - name: Build the harness
+        run: go test -c -o "$RUNNER_TEMP/goodput/engine.test" ./engine
+
+      - name: Wait for the machine to be idle
+        id: idle
+        run: |
+          set -euo pipefail
+          for _ in $(seq $((IDLE_WAIT_MINUTES * 2))); do
+            load=$(cut -d' ' -f1 /proc/loadavg)
+            if awk -v load="$load" -v limit="$IDLE_LOAD" 'BEGIN { exit !(load < limit) }'; then
+              echo "load=$load" >> "$GITHUB_OUTPUT"
+              echo "1-minute load average $load; measuring."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::notice::Load average stayed at or above $IDLE_LOAD for $IDLE_WAIT_MINUTES minutes (now $load); no point taken."
+
+      # The harness runs from the checkout's engine directory and copies the
+      # sound catalog into the checkout's files/ directory.
+      - name: Run the harness
+        if: steps.idle.outputs.load
+        working-directory: engine
+        env:
+          BARN_MONGOOSE_BENCH: '1'
+          BARN_MONGOOSE_PLAYERS: ${{ env.LEVELS }}
+          BARN_MONGOOSE_WARMUP: 5s
+          BARN_MONGOOSE_MEASURE: 30s
+          BARN_MONGOOSE_GOGC: '400'
+        run: |
+          set -uo pipefail
+          export BARN_MONGOOSE_DB="$RUNNER_TEMP/goodput/mongoose.db"
+          export BARN_MONGOOSE_SOUND_DB="$RUNNER_TEMP/goodput/sound.sqlite"
+          for run in $(seq "$RUNS"); do
+            out="$RUNNER_TEMP/goodput/run-$run.txt"
+            started=$(date +%s)
+            "$RUNNER_TEMP/goodput/engine.test" -test.run '^TestMongooseRealWorkload$' -test.v -test.timeout 20m > "$out" 2>&1
+            status=$?
+            # Numbers and the test's verdict only; the rest can name players.
+            grep -oE 'players=[0-9]+ goodput=.*$|^(--- (PASS|FAIL): [A-Za-z]+|PASS$|FAIL$|panic:)' "$out" | sed "s/^/run $run: /"
+            echo "run $run: exit $status after $(( $(date +%s) - started )) s, load $(cut -d' ' -f1 /proc/loadavg)"
+            if [ "$status" -ne 0 ]; then
+              echo "::error::Harness run $run failed; its output is not shown because it can name players. Reproduce on the workstation."
+              exit 1
+            fi
+          done
+
+      - name: Make the point
+        if: steps.idle.outputs.load
+        run: |
+          set -euo pipefail
+          python3 scripts/goodput_series.py point --commit "$(git rev-parse HEAD)" \
+            --measured-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --fixture "$FIXTURE_SHA256" \
+            --load "${{ steps.idle.outputs.load }}" --levels "$LEVELS" \
+            "$RUNNER_TEMP"/goodput/run-*.txt > "$RUNNER_TEMP/goodput/point.json"
+          cat "$RUNNER_TEMP/goodput/point.json"
+
+      - name: Remove the database copy and the harness output
+        if: always()
+        run: find "$RUNNER_TEMP/goodput" -mindepth 1 ! -name point.json -delete
+
+      # A pull request's point is not part of the series: its artifact is
+      # named apart, and the comparison reads runs on master only.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.idle.outputs.load
+        with:
+          name: ${{ github.event_name == 'pull_request' && 'goodput-point-pull-request' || 'goodput-point' }}
+          path: ${{ runner.temp }}/goodput/point.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Compare the newest points with the ones before them
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/goodput_series.py check --repo "$GITHUB_REPOSITORY"
+          --newest "$RUNNER_TEMP/goodput/point.json"
+          --open-issue "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
