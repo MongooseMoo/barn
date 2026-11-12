@@ -1,0 +1,5 @@
+go test fuzz v1
+[]byte("\xdc\x00\xdc\x00\xdc\x00\xdc\x00\xbb")
+int(0)
+uint16(413)
+byte('E')
