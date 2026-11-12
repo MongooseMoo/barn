@@ -113,6 +113,7 @@ function announce(text, cls) {
 }
 const issueLink = issue => link(`#${issue.number}`, issue.html_url);
 function repairText(issue, pulls) {
+  if (issue.direct) return [", found by fuzzing and fixed in this PR,", issue.merged_at ? " merged" : issue.state === "open" ? " open" : " closed without merging"];
   const pr = L.repairFor(issue.number, pulls);
   if (!pr) return [", no repair PR yet"];
   return [", repair PR ", link(`#${pr.number}`, pr.html_url), pr.merged_at ? " merged" : pr.state === "open" ? " open" : " closed without merging"];

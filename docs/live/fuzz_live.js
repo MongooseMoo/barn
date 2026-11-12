@@ -96,13 +96,21 @@
     return pulls.find(p => p.head && p.head.ref === `claude/issue-${number}`) || null;
   }
 
+  // A bug that fuzzing found outside a nightly report (a new lane, a coverage
+  // pass) is fixed by a PR labelled fuzz-finding, with no issue: that PR is
+  // both the bug and its fix.
+  const FINDING_LABEL = "fuzz-finding";
+  const isFinding = p => (p.labels || []).some(l => l.name === FINDING_LABEL);
+  const isRepair = p => Boolean(p.head && p.head.ref.startsWith("claude/issue-")) || isFinding(p);
+
   function lastDay(issues, pulls, now) {
     const since = ms(now) - DAY_MS;
-    const bugs = issues.filter(i => { const r = report(i); return r && !r.machine && ms(i.created_at) >= since; })
-      .sort((a, b) => ms(b.created_at) - ms(a.created_at))
+    const reported = issues.filter(i => { const r = report(i); return r && !r.machine && ms(i.created_at) >= since; })
       .map(i => ({...i, pr: repairFor(i.number, pulls)}));
-    const fixes = pulls.filter(p => p.head && p.head.ref.startsWith("claude/issue-") && p.merged_at &&
-      ms(p.merged_at) >= since).sort((a, b) => ms(b.merged_at) - ms(a.merged_at));
+    const direct = pulls.filter(p => isFinding(p) && ms(p.created_at) >= since).map(p => ({...p, pr: p, direct: true}));
+    const bugs = [...reported, ...direct].sort((a, b) => ms(b.created_at) - ms(a.created_at));
+    const fixes = pulls.filter(p => isRepair(p) && p.merged_at && ms(p.merged_at) >= since)
+      .sort((a, b) => ms(b.merged_at) - ms(a.merged_at));
     return {bugs, fixes};
   }
 
