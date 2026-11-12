@@ -59,6 +59,16 @@ case-changing string overwrites, nested list/map values and retained snapshots.
 It checks insertion order, lookup, old versions and cached value sizes throughout
 the history. Its Go choice records remain Rapid inputs, not rendered MOO source.
 
+`db/store/FuzzStoreCommitsMatchSerialReplay` decodes Rapid choices into up to
+three interleaved snapshot transactions (create, set, define, clear and delete
+properties, staged recycle, verb delete and code edits, reads, commit, abort,
+`CommitAndRenewCarryingReads`) and coarse live operations between them (add and
+delete verb, chparent, recycle, renumber). Every successful commit is replayed,
+in commit order, on a second store built the same way. The committed states must
+match; a commit that validated its reads must give every operation the result it
+gives at the commit point; a transaction with nothing staged must keep reading
+its snapshot; reads carried across a boundary must still hold at the final commit.
+
 ## Import a larger local corpus
 
 Use the existing `lambdamoo-db-py` reader to extract verbs from additional
