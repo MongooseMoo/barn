@@ -78,10 +78,13 @@ the trusted management path and keep a separate known-hosts file.
 Inside the guest, root runs `bash install-listener.sh SLOT` with a short-lived
 organization registration token on stdin, with `listener.conf` and
 `barn-fuzz.slice` in the same directory as the script. The script installs
-the slice and the drop-in (`Slice=barn-fuzz.slice`, `Restart=always`,
-`OOMPolicy=continue`), so a listener whose lane is OOM-killed, or which exits
-for any reason, comes back on its own. All listeners share one memory bound,
-`MemoryMax=30G` on the slice: a per-listener 3500M bound killed
+the slice and the drop-in (`Slice=barn-fuzz.slice`, `MemoryMax=12G`,
+`Restart=always`, `OOMPolicy=continue`), so a listener whose lane is
+OOM-killed, or which exits for any reason, comes back on its own. All
+listeners share `MemoryMax=30G` on the slice, and each also has its own 12G
+bound, so one lane's runaway worker is killed in its own cgroup instead of
+stalling every lane (2026-11-12: a 25 GB worker made four lanes report hangs
+in the same second). A per-listener 3500M bound was too low: it killed
 FuzzReadDatabase, whose processes normally use about 3.4 GB. To apply both
 to listeners installed before them, copy the two files to the guest as root
 and run:

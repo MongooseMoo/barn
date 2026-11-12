@@ -1,8 +1,9 @@
 # One memory bound shared by every fuzz runner listener (listener.conf sets
 # Slice=barn-fuzz.slice). On 2026-11-10 a 3500M bound per listener killed
 # FuzzReadDatabase, whose coordinator and two workers normally use ~3.4 GB,
-# so a lane may use what the other lanes leave free. 30G of the 32 GiB guest
-# leaves its own services about 2 GiB; a runaway lane is killed in the slice.
+# so a lane may use what the other lanes leave free, up to listener.conf's
+# 12G per listener. 30G of the 32 GiB guest leaves its own services about
+# 2 GiB.
 [Unit]
 Description=Barn fuzz runner listeners
 
