@@ -105,14 +105,15 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(result["commit"], "commit")
         self.assertEqual(result["go_version"], "go version go1.27.1 linux/amd64")
 
-    def test_failed_check_signature_is_its_location(self):
+    def test_failed_check_signature_is_its_location_and_message(self):
         # Real native tee log of a FuzzReadDatabase failed check (no stack).
         log = (FIXTURES / "native" / "42692025227-baseline.log").read_text()
         result = report(log, "./db/format", "FuzzReadDatabase", "commit")
         self.assertEqual(result["kind"], "failed check")
         self.assertEqual(result["barn_frames"], [])
         self.assertEqual(result["signature"], hashlib.sha256(
-            b"FuzzReadDatabase|failed check|reader_fuzz_test.go:82").hexdigest())
+            b"FuzzReadDatabase|failed check|reader_fuzz_test.go:82: round-trip verification failed: "
+            b"suspended task N frame N locals differs").hexdigest())
         # Another check line in the same target is another finding.
         other = report(log.replace("reader_fuzz_test.go:82:", "reader_fuzz_test.go:97:"),
                        "./db/format", "FuzzReadDatabase", "commit")
@@ -122,6 +123,26 @@ class FuzzReportTests(unittest.TestCase):
                                   "suspended task 3 frame 7 locals differs"),
                       "./db/format", "FuzzReadDatabase", "commit")
         self.assertEqual(result["signature"], same["signature"])
+
+    def test_real_failed_checks_split_by_message_and_join_repeats(self):
+        # Every failed-check report on issues #681, #693, #707, #721 and #722
+        # (2026-11-11). One check line carried several bugs: #722 took 11
+        # "property definitions/order differs" reports as comments and #707
+        # a WriteCheckpoint failure, so none of them started a repair.
+        records = json.loads((FIXTURES / "failed-check-reports-2026-11-11.json").read_text(encoding="utf-8"))
+        findings = ["locals differs", "last_move differs", "property definitions/order differs",
+                    "uninterrupted return", "write queued task", "too many local variables"]
+        signatures = {}
+        for record in records:
+            finding = next(f for f in findings if f in record["first_error"])
+            log = f"--- FAIL: {record['target']}\n    {record['first_error']}\n"
+            result = report(log, "./pkg", record["target"], "commit")
+            self.assertEqual((result["kind"], result["first_error"]), ("failed check", record["first_error"]))
+            signatures.setdefault(finding, set()).add(result["signature"])
+        self.assertEqual(sorted(signatures), sorted(findings))
+        for finding, found in signatures.items():
+            self.assertEqual(len(found), 1, finding)
+        self.assertEqual(len(set().union(*signatures.values())), len(findings))
 
     def test_real_toast_differential_divergence(self):
         # Real output of scripts/fuzz_differential.py over the runner's fuzz

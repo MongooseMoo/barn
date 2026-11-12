@@ -103,6 +103,14 @@ jobs:
                ends) and copy the named input. Then reproduce with
                `timeout --kill-after=5s 60s go test <package> -run '<Target>/<input-file>'`.
                The artifact can hold inputs for other failures found the same night; use only this issue's input.
+               This checkout is current master. If the recorded input passes here (already fixed on master, or a
+               duplicate of an issue that a merged fix closed), open no PR: use your one allowed issue comment
+               (`gh issue comment ${{ env.ISSUE }} --body-file <file>`) for the evidence (the input's sha256, the
+               reproduction command and its passing output, and the fixing PR or commit if you can name it), then
+               close the issue with `gh issue close ${{ env.ISSUE }} --reason completed`, and stop. If your
+               evidence shows the failure is not a Barn defect (for example a stall or fault of the runner host,
+               with the input passing under the bounded reproduction), post that evidence the same way, close the
+               issue with `gh issue close ${{ env.ISSUE }} --reason "not planned"`, and stop.
             2. Before fixing, check for the same bug already filed or being fixed. One bug can appear under two
                fuzz signatures (for example two hangs, or a different top frame). List open issues with
                `gh issue list --state open --search '"Nightly fuzz failure" in:title'` and open PRs from
@@ -128,20 +136,25 @@ jobs:
                the next step you would take. Before that comment, read the issue's earlier comments and do not
                repeat work they already record.
 
-            Post nothing else: no other comments and no reviews.
+            Post nothing else: no other comments and no reviews. Close the issue only as step 1 says.
           claude_args: &claude-args |
             --model claude-opus-5-5
             --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
 
       # GitHub closes the issue on merge only when the PR body, not its title,
       # says "Fixes #N"; #696 named #692 only in its title, so #692 stayed open.
+      # The body is read because the runner's gh has no closingIssuesReferences
+      # field: for #723 it printed "Unknown JSON field" inside the for loop's
+      # $(...), the step passed, and #722 stayed open. The query is assigned
+      # first so that a failed query fails the step.
       - name: Make the pull request close its issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          for n in $(gh pr list --head "claude/issue-$ISSUE" --state open --json number,closingIssuesReferences \
-              --jq ".[] | select([.closingIssuesReferences[].number] | index($ISSUE) | not) | .number"); do
+          prs=$(gh pr list --head "claude/issue-$ISSUE" --state open --json number,body --jq '.[] | select(.body |
+            test("(?i)(^|[^a-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?):? #" + env.ISSUE + "([^0-9]|$)") | not) | .number')
+          for n in $prs; do
             gh pr view "$n" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
             printf '\nFixes #%s\n' "$ISSUE" >> "$RUNNER_TEMP/pr-body.md"
             gh pr edit "$n" --body-file "$RUNNER_TEMP/pr-body.md"

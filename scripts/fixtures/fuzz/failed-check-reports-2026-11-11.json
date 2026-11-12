@@ -1,0 +1,158 @@
+[
+ {
+  "issue": 681,
+  "post": "body",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: suspended task 0 frame 0 locals differs"
+ },
+ {
+  "issue": 681,
+  "post": "comment 6759520190",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: suspended task 6 frame 0 locals differs"
+ },
+ {
+  "issue": 681,
+  "post": "comment 6761339269",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 last_move differs"
+ },
+ {
+  "issue": 681,
+  "post": "comment 6764411614",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 last_move differs"
+ },
+ {
+  "issue": 693,
+  "post": "body",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 693,
+  "post": "comment 6760906628",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 693,
+  "post": "comment 6764383342",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 707,
+  "post": "body",
+  "target": "FuzzCheckpointResumeEquivalence",
+  "first_error": "checkpoint_resume_test.go:29: checkpointed execution differs: task 1: uninterrupted return [-1 -> \"1bb\", \"é\\\\%\\\\b\\\"\" -> 3], checkpointed return [-1 -> \"1bb\", \"é\\\\%\\\\b\\\"\" -> 3]"
+ },
+ {
+  "issue": 707,
+  "post": "comment 6765194632",
+  "target": "FuzzCheckpointResumeEquivalence",
+  "first_error": "checkpoint_resume_test.go:29: WriteCheckpoint failed: write database: write queued tasks: write queued task 2: task has no fork program first line"
+ },
+ {
+  "issue": 721,
+  "post": "body",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 721,
+  "post": "comment 6769650556",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 721,
+  "post": "comment 6772887479",
+  "target": "FuzzStructuredSourceExecution",
+  "first_error": "fuzz_test.go:47: generated program does not compile: [Line 1:  too many local variables (max 256 including compiler temporaries)]"
+ },
+ {
+  "issue": 722,
+  "post": "body",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 last_move differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6769677721",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 last_move differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6772917776",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 last_move differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6776633085",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6780026965",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6785113717",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6787432851",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6789913708",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6793241693",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6796390505",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6799961363",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6803243642",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6806660097",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ },
+ {
+  "issue": 722,
+  "post": "comment 6809498034",
+  "target": "FuzzReadDatabase",
+  "first_error": "reader_fuzz_test.go:82: round-trip verification failed: object #0 property definitions/order differs"
+ }
+]

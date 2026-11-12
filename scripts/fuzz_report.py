@@ -25,6 +25,13 @@ DEFERRED = 3
 MODULE = "github.com/MongooseMoo/barn/"
 
 
+def check_message(line):
+    """A failed check's file:line and message, without the input values it embeds."""
+    file_line, message = line.split(": ", 1)
+    message = re.sub(r'"(?:[^"\\]|\\.)*"', "S", message)
+    return f"{file_line}: {re.sub(r'[0-9]+', 'N', message)}"
+
+
 def report(log, package, target, commit, campaign_outcome="failure"):
     # gh --log-failed fixtures contain multiple jobs; a live tee log has no prefix.
     lines = []
@@ -109,9 +116,9 @@ def report(log, package, target, commit, campaign_outcome="failure"):
         # Deduplicate by observed native error, without assigning a source/frame.
         top = recovered_panics[0]
     elif kind == "failed check" and check and not frames:
-        # A failed check prints no stack, so its file:line tells checks in one
-        # target apart. The message is left out: it often embeds input values.
-        top = check[1]
+        # A failed check prints no stack, so its file:line and message tell
+        # findings in one target apart: one check line can report many bugs.
+        top = check_message(check[0].strip())
     signature = hashlib.sha256(f"{target}|{kind}|{top}".encode()).hexdigest()
     if saved:
         relative = Path(saved[1])
