@@ -11,7 +11,7 @@ stays loadable by ToastStunt. Nothing else.
 `Runtime.newTaskID` (`engine/runtime.go`) wraps its counter to 1 after
 `math.MaxInt32` and skips ids the task catalog still holds. Test:
 `engine/task_id_ceiling_test.go` (fails on the old allocator with ids
-2147483648 and 2147483649; passes now). Not pushed; no PR.
+2147483648 and 2147483649; passes now). Pull request open.
 
 ## Decisions and why
 
@@ -34,4 +34,4 @@ stays loadable by ToastStunt. Nothing else.
 
 ## Next step
 
-CI on a PR (only Q may approve the push and PR).
+CI on the pull request.
