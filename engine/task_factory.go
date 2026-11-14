@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -455,12 +458,20 @@ func (s *Runtime) GetTask(taskID int64) *Task {
 	return s.taskManager.GetTask(taskID)
 }
 
-// TaskSnapshots returns immutable task snapshots for checkpoint serialization.
+// TaskSnapshots returns immutable task snapshots for checkpoint serialization,
+// in the order the scheduler runs them: ready time, then enqueue order, then
+// task id. The catalog is a map, so without this every checkpoint would write
+// its tasks, and the WAIF numbers that follow them, in a different order. The
+// file order is also the run order of tasks due in the same second after a
+// load, in Toast (enqueue_waiting) and here (Enqueue's sequence).
 func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, t := range s.taskManager.Snapshot() {
+	tasks := s.taskManager.Snapshot()
+	slices.SortFunc(tasks, func(a, b *Task) int { return cmp.Compare(a.ID, b.ID) })
+	sort.Stable(taskQueue(tasks))
+	for _, t := range tasks {
 		snapshot := t.PersistenceSnapshot()
 		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
 			continue
