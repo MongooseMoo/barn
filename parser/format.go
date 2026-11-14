@@ -54,7 +54,26 @@ type FormattingError struct {
 func (e *FormattingError) Error() string { return e.Cause.Error() }
 func (e *FormattingError) Unwrap() error { return e.Cause }
 
-type mooFormatter struct{ err error }
+// FormatOptions are the arguments of Toast's unparser (verb_code's
+// fully-paren and indent arguments).
+type FormatOptions struct {
+	FullyParenthesized bool
+	// Unindented leaves out the two spaces per nesting level.
+	Unindented bool
+}
+
+// FormatMOOWith formats a program with the given verb_code() arguments.
+func FormatMOOWith(program *ir.Program, options FormatOptions) ([]string, error) {
+	if err := ir.Validate(program); err != nil {
+		return nil, err
+	}
+	return formatLines(program, &mooFormatter{options: options})
+}
+
+type mooFormatter struct {
+	err     error
+	options FormatOptions
+}
 
 func (f *mooFormatter) fail(pos ir.Position, cause error) string {
 	if f.err == nil {
@@ -64,14 +83,15 @@ func (f *mooFormatter) fail(pos ir.Position, cause error) string {
 }
 
 func formatMOOChecked(program *ir.Program, fullyParenthesized bool) ([]string, error) {
-	if err := ir.Validate(program); err != nil {
-		return nil, err
-	}
+	return FormatMOOWith(program, FormatOptions{FullyParenthesized: fullyParenthesized})
+}
+
+func formatLines(program *ir.Program, f *mooFormatter) ([]string, error) {
 	if len(program.Statements) == 0 {
 		return []string{}, nil
 	}
 
-	f := &mooFormatter{}
+	fullyParenthesized := f.options.FullyParenthesized
 	var lines []string
 	for _, stmt := range program.Statements {
 		line := f.stmt(stmt, 0, fullyParenthesized)
@@ -89,6 +109,9 @@ func formatMOOChecked(program *ir.Program, fullyParenthesized bool) ([]string, e
 // stmt converts a statement to source code
 func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) string {
 	indentStr := strings.Repeat("  ", indent)
+	if f.options.Unindented {
+		indentStr = ""
+	}
 
 	switch s := stmt.(type) {
 	case *ir.EmptyStmt:

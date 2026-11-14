@@ -249,11 +249,10 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
 	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
-		if len(args) >= 3 && args[2].Truthy() {
-			sourceLines = parser.FormatMOOFullyParenthesized(program)
-		} else {
-			sourceLines = parser.FormatMOO(program)
-		}
+		sourceLines, _ = parser.FormatMOOWith(program, parser.FormatOptions{
+			FullyParenthesized: len(args) >= 3 && args[2].Truthy(),
+			Unindented:         len(args) >= 4 && !args[3].Truthy(),
+		})
 	}
 
 	// Convert source lines to list
