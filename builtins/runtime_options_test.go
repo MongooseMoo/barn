@@ -129,8 +129,8 @@ func TestOpenNetworkConnectionUsesServerTimeoutAndRaisesConnectionFailure(t *tes
 	}
 
 	result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(1)})
-	if cm.dialTimeout != 30*time.Second {
-		t.Fatalf("dial timeout = %v, want 30s", cm.dialTimeout)
+	if cm.dialed.Timeout != 30*time.Second {
+		t.Fatalf("dial timeout = %v, want 30s", cm.dialed.Timeout)
 	}
 	want := types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("Connection failure"), types.NewStr(syscall.ECONNREFUSED.Error())})
 	if result.Flow != types.FlowException || result.Error != types.E_INVARG || !result.Val.Equal(want) {

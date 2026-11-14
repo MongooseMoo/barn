@@ -4,7 +4,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -57,8 +56,6 @@ type stubConn struct {
 	sent            []string
 	buffered        []string
 	outbound        bool
-	source          string
-	destination     string
 	lastInputTaskID int64
 }
 
@@ -95,12 +92,6 @@ func (c *stubConn) ListenerPort() (int64, bool) {
 }
 func (c *stubConn) LastInputTaskID() int64 { return c.lastInputTaskID }
 func (c *stubConn) IsOutbound() bool       { return c.outbound }
-func (c *stubConn) OutboundSourceAddr() string {
-	return c.source
-}
-func (c *stubConn) OutboundDestinationAddr() string {
-	return c.destination
-}
 
 type stubConnManager struct {
 	conn        Connection
@@ -112,7 +103,7 @@ type stubConnManager struct {
 	switches    []stubSwitch
 	switchedOld types.ObjID
 	switchedNew types.ObjID
-	dialTimeout time.Duration
+	dialed      OutboundConnection
 	dialErr     error
 }
 
@@ -161,8 +152,8 @@ func (m *stubConnManager) RemoveListener(desc listener.Descriptor) error {
 	m.removed = desc
 	return nil
 }
-func (m *stubConnManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
-	m.dialTimeout = timeout
+func (m *stubConnManager) OpenNetworkConnection(request OutboundConnection) (types.ObjID, error) {
+	m.dialed = request
 	if m.dialErr != nil {
 		return types.ObjNothing, m.dialErr
 	}
@@ -856,13 +847,13 @@ func TestUnlistenSecondArgumentSelectsIPv6Descriptor(t *testing.T) {
 	}
 }
 
+// Toast gives an outbound handle the remote end as its destination and no
+// source: "" and port 0 (network.cc network_open_connection, new_nhandle).
 func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
 	ctx := ctxWithConnManager(&stubConnManager{
 		conn: &stubConn{id: 7,
-			remote:      "127.0.0.1:60000",
-			outbound:    true,
-			source:      "127.0.0.1:60000",
-			destination: "127.0.0.1:8888",
+			remote:   "127.0.0.1:8888",
+			outbound: true,
 		},
 		listen: 7777,
 	})
@@ -875,7 +866,8 @@ func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
 	outbound, _ := info.MapGet(types.NewStr("outbound"))
 	destinationPort, _ := info.MapGet(types.NewStr("destination_port"))
 	sourcePort, _ := info.MapGet(types.NewStr("source_port"))
-	if outbound.Int() != 1 || destinationPort.Int() != 8888 || sourcePort.Int() != 60000 {
+	sourceIP, _ := info.MapGet(types.NewStr("source_ip"))
+	if outbound.Int() != 1 || destinationPort.Int() != 8888 || sourcePort.Int() != 0 || sourceIP.Str() != "" {
 		t.Fatalf("unexpected outbound info: %s", info.String())
 	}
 }

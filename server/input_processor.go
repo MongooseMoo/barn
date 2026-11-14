@@ -131,8 +131,9 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 	}
 
 	// Send the initial welcome banner by enqueuing an empty string to the runtime.
-	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0).
-	{
+	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0),
+	// which an outbound connection without a listener object does not get.
+	if !conn.noInitialInput {
 		done := make(chan struct{})
 		p.EnqueueInput(command.InputEvent{
 			ConnID: conn.ID,
@@ -152,7 +153,8 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		}
 
 		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
-			if conn.IsLoggedIn() {
+			// Toast times out only inbound connections that have not logged in.
+			if conn.IsLoggedIn() || conn.IsOutbound() {
 				readDeadline = time.Time{}
 				_ = deadlineTransport.SetReadDeadline(time.Time{})
 			} else {
@@ -583,7 +585,6 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	conn.SetLoginTaskID(0)
 	p.runtime.CancelLoginTasksFor(types.ObjID(-conn.ID))
 
-	cm.detachOutboundClient(conn.ID)
 	// A superseded connection can close after a replacement has already assumed
 	// the same player. Held input belongs to that active player connection, so the
 	// stale physical close must not discard its queued commands or HTTP waiter.
