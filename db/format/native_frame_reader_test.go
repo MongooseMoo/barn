@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,8 +38,7 @@ func TestNativeProducerRetainsContinuationMetadata(t *testing.T) {
 	}
 }
 
-func TestNativeFramePreservesStackMarkerTypesAndBuiltinState(t *testing.T) {
-	const activation = `language version 17
+const nativeBuiltinActivation = `language version 17
 suspend(0);
 .
 0 variables
@@ -69,7 +69,9 @@ call_function
 bf_call_function data: fname = move
 retained native move state
 `
-	frame, _, err := (&Database{Version: 17}).readVMFrame(bufio.NewReader(strings.NewReader(activation)))
+
+func TestNativeFramePreservesStackMarkerTypesAndBuiltinState(t *testing.T) {
+	frame, _, err := (&Database{Version: 17}).readVMFrame(bufio.NewReader(strings.NewReader(nativeBuiltinActivation)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,5 +84,30 @@ retained native move state
 	builtin := frame.Native.Builtin
 	if builtin == nil || builtin.Name != "call_function" || builtin.Inner == nil || builtin.Inner.Name != "move" || builtin.Inner.State != "retained native move state" {
 		t.Fatalf("native builtin continuation=%+v", builtin)
+	}
+}
+
+// A native frame suspended inside a builtin writes back its builtin PC, name
+// and state as Toast's write_activ does, so it reads back unchanged.
+func TestNativeFrameWritesBuiltinContinuation(t *testing.T) {
+	database := &Database{Version: 17}
+	frame, activation, err := database.readVMFrame(bufio.NewReader(strings.NewReader(nativeBuiltinActivation)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	w := &Writer{w: bufio.NewWriter(&out)}
+	if err := w.writeVMFrame(frame, activation); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	reread, _, err := database.readVMFrame(bufio.NewReader(bytes.NewReader(out.Bytes())))
+	if err != nil {
+		t.Fatalf("reread %q: %v", out.String(), err)
+	}
+	if reread.BuiltinPC != frame.BuiltinPC || !reflect.DeepEqual(reread.Native, frame.Native) {
+		t.Fatalf("reread builtin PC/native=%d/%+v, want %d/%+v", reread.BuiltinPC, reread.Native, frame.BuiltinPC, frame.Native)
 	}
 }
