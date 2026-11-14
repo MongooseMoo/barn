@@ -40,11 +40,21 @@ compare with the original and to try loading into Toast.
 
 ## Surprises
 
-- None in the code. Tasks the server would drop at boot (fork source that no
-  longer compiles; suspended program not matching its source) are dropped here
-  too, with the same log records; the printed read/wrote counts show it.
+- Tasks the server would drop at boot (fork source that no longer compiles;
+  suspended program not matching its source) are dropped here too, with the
+  same log records; the printed read/wrote counts show it.
+- On a large real database (93 queued, 12 suspended/interrupted tasks) a second
+  pass over the first pass's output is not byte-identical. The task sections
+  hold the same lines in a different order; WAIF definition numbers
+  (`writer.go` `writeWaif`, write order) then shift in the object section.
+  Order comes from `TaskManager.Snapshot` ranging over a Go map, used by
+  `Runtime.TaskSnapshots`; every checkpoint, live ones too, orders tasks
+  randomly. Not fixed here (outside this change). The synthetic test has one
+  task of each kind and cannot see it.
+- Interrupted tasks come back as ready suspended tasks (reader resumes them
+  with E_INTRPT), so they are written in the suspended section.
 
 ## Next step
 
-Run on a real database copy, compare pass one with pass two, then try the
-output in Toast.
+Make checkpoint task order deterministic (sort snapshots by task ID) as its own
+change, then rerun the two-pass comparison; then try the output in Toast.
