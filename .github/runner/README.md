@@ -65,8 +65,13 @@ qemu-img create -f qcow2 -F qcow2 -b /var/lib/barncompute/base.qcow2 /var/lib/ba
 cloud-localds --network-config=/etc/barn-compute/network-config /var/lib/barncompute/seed.iso /etc/barn-compute/user-data /etc/barn-compute/meta-data
 chown barncompute:barncompute /var/lib/barncompute/guest.qcow2 /var/lib/barncompute/seed.iso
 systemctl enable --now barn-compute-network.service
-systemctl start barn-compute.service
+systemctl enable --now barn-compute.service
 ```
+
+`enable` is what starts the guest again after the host reboots. The guest ran
+unenabled until 2026-11-12, when a host reboot at 22:34 UTC left it stopped and
+all four listeners offline for 30 hours. `systemctl is-enabled
+barn-compute.service` must print `enabled`.
 
 Wait for `cloud-init status` to report `done` inside the guest. Connect through
 the operator's SSH agent/key on their own computer, using host SSH as a jump;
