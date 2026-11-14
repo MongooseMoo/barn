@@ -1,0 +1,58 @@
+name: validate_ast
+description: >
+  Mongoose ToastStunt fork builtin validate_ast(ast): 1 if unparse_ast() would
+  accept the tree, otherwise 0. It never raises for a malformed tree.
+requires:
+  features: [ast]
+tests:
+  - name: accepts_what_parse_ast_returns
+    permission: programmer
+    steps:
+      - run: |
+          code = {"if (a)", "x = 1;", "elseif (b)", "for v, k in ([\"a\" -> 1])", "break;", "endfor", "else", "while w (x < 3)", "continue w;", "endwhile", "endif", "fork t (0)", "endfork", "try", "{a, ?b = 2, @c} = args;", "except e (E_PERM, @codes)", "return e;", "endtry", "try", "x = `y ! ANY';", "finally", "l[2..$] = {};", "endtry", "return a ? -b | c:d(@e);"};
+          return {validate_ast({}), validate_ast(parse_ast(code))};
+        expect:
+          value: [1, 1]
+
+  - name: rejects_malformed_trees_without_raising
+    permission: programmer
+    steps:
+      - run: 'return {validate_ast(1), validate_ast("x"), validate_ast(["type" -> "return"]), validate_ast({1}), validate_ast({[]}), validate_ast({["type" -> "bogus"]}), validate_ast({["type" -> "if", "arms" -> {}]})};'
+        expect:
+          value: [0, 0, 0, 0, 0, 0, 0]
+
+  - name: accepts_a_hand_built_tree_with_omitted_and_extra_fields
+    permission: programmer
+    steps:
+      - run: 'return validate_ast({["type" -> "return", "note" -> 7, "value" -> ["type" -> "literal", "value" -> 1, "line" -> 3]], ["type" -> "while", "condition" -> ["type" -> "literal", "value" -> 1], "body" -> {["type" -> "break"]}]});'
+        expect:
+          value: 1
+
+  - name: nesting_limit
+    permission: programmer
+    steps:
+      - run: |
+          r = {};
+          for n in ({998, 999})
+            e = ["type" -> "literal", "value" -> 1];
+            for i in [1..n]
+              e = ["type" -> "unary", "op" -> "!", "expr" -> e];
+            endfor
+            r = {@r, validate_ast({["type" -> "expr", "expr" -> e]})};
+          endfor
+          return r;
+        expect:
+          value: [1, 0]
+
+  - name: wrong_argument_count_is_args_error
+    permission: programmer
+    steps:
+      - run: 'return toliteral({`call_function("validate_ast") ! ANY'', `call_function("validate_ast", {}, {}) ! ANY''});'
+        expect:
+          value: '{E_ARGS, E_ARGS}'
+
+  - name: function_info
+    permission: programmer
+    code: 'toliteral(function_info("validate_ast"))'
+    expect:
+      value: '{"validate_ast", 1, 1, {-1}}'

@@ -117,6 +117,14 @@ func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	if manifest.Features["runtime.arch_bits"] == nil {
 		t.Fatalf("missing runtime.arch_bits feature")
 	}
+	if manifest.Features["feature.ast"] != true {
+		t.Fatalf("feature.ast = %#v, want true with the AST builtins installed", manifest.Features["feature.ast"])
+	}
+	for _, name := range []string{"bracketed_first_index_before_property", "unfolded_double_negation", "no_waif_colon_property"} {
+		if manifest.Features["feature."+name] != true {
+			t.Fatalf("feature.%s = %#v, want true", name, manifest.Features["feature."+name])
+		}
+	}
 }
 
 func TestBuildManifestIncludesEnabledPromotion(t *testing.T) {

@@ -209,22 +209,21 @@ func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
 	}))
 }
 
-// builtinVerbCode: verb_code(object, name-or-index [, fully_paren [, indent]]) → LIST
-// Returns verb source code as list of lines.
-// name-or-index can be a string (verb name) or integer (1-based verb index).
-func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
-	objVal := args[0]
+// readableDescribedVerb is the argument and permission check shared by
+// verb_code() and verb_ast(): E_TYPE unless an object, then the descriptor and
+// object checks, then E_VERBNF, then E_PERM unless the caller may read it.
+func readableDescribedVerb(ctx *Execution, objVal, desc types.Value) (dbstore.VerbView, types.ErrorCode) {
 	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
+		return dbstore.VerbView{}, types.E_TYPE
 	}
 
 	objID := objVal.ID()
-	if errCode := verbDescriptorAndObjectError(ctx, objID, args[1]); errCode != types.E_NONE {
-		return types.Err(errCode)
+	if errCode := verbDescriptorAndObjectError(ctx, objID, desc); errCode != types.E_NONE {
+		return dbstore.VerbView{}, errCode
 	}
-	verb, errCode := findDescribedVerbForRead(ctx, objID, args[1])
+	verb, errCode := findDescribedVerbForRead(ctx, objID, desc)
 	if errCode != types.E_NONE {
-		return types.Err(errCode)
+		return dbstore.VerbView{}, errCode
 	}
 
 	// Check read permission: wizards and the verb's owner can always read its
@@ -232,18 +231,30 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// db_verb_allows (db_verbs.cc:880): (flags & VF_READ) || progr == owner ||
 	// is_wizard(progr); denial returns E_PERM (verbs.cc:493-494).
 	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
-		return types.Err(types.E_PERM)
+		return dbstore.VerbView{}, types.E_PERM
+	}
+	return verb, types.E_NONE
+}
+
+// builtinVerbCode: verb_code(object, name-or-index [, fully_paren [, indent]]) → LIST
+// Returns verb source code as list of lines.
+// name-or-index can be a string (verb name) or integer (1-based verb index).
+func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
+	verb, errCode := readableDescribedVerb(ctx, args[0], args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Toast reconstructs canonical source from the parsed verb program. Preserve
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
-	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
-		if len(args) >= 3 && args[2].Truthy() {
-			sourceLines = parser.FormatMOOFullyParenthesized(program)
-		} else {
-			sourceLines = parser.FormatMOO(program)
-		}
+	source := strings.Join(sourceLines, "\n")
+	if program, err := parser.NewParser(source).ParseProgram(); err == nil {
+		sourceLines, _ = parser.FormatMOOWith(program, parser.FormatOptions{
+			FullyParenthesized: len(args) >= 3 && args[2].Truthy(),
+			Unindented:         len(args) >= 4 && !args[3].Truthy(),
+			ElseIfArms:         parser.ElseIfArms(source, program),
+		})
 	}
 
 	// Convert source lines to list
@@ -620,8 +631,9 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	storedLines := lines
-	if program, err := parser.NewParser(strings.Join(compileLines, "\n")).ParseProgram(); err == nil {
-		storedLines = parser.FormatMOO(program)
+	compileSource := strings.Join(compileLines, "\n")
+	if program, err := parser.NewParser(compileSource).ParseProgram(); err == nil {
+		storedLines, _ = parser.FormatMOOWith(program, parser.FormatOptions{ElseIfArms: parser.ElseIfArms(compileSource, program)})
 		for index := range storedLines {
 			storedLines[index] = strings.TrimLeft(storedLines[index], " \t")
 		}
