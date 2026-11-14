@@ -1,0 +1,83 @@
+name: validate_string_lines
+description: >
+  Mongoose ToastStunt fork builtin validate_string_lines(LIST): 1 when every row
+  is a string without LF or CR; otherwise the first offending row decides,
+  E_TYPE for a non-string and E_INVARG for a line break.
+requires:
+  builtins: [validate_string_lines]
+tests:
+  - name: empty_list_is_valid
+    permission: programmer
+    code: 'validate_string_lines({})'
+    expect:
+      value: 1
+
+  - name: empty_string_row_is_valid
+    permission: programmer
+    code: 'validate_string_lines({""})'
+    expect:
+      value: 1
+
+  - name: plain_rows_are_valid_and_unchanged
+    permission: programmer
+    steps:
+      - run: |
+          rows = {"", "Ab", "one two", "back\\slash"};
+          old = rows;
+          return {validate_string_lines(rows), rows == old};
+        expect:
+          value: [1, 1]
+
+  - name: string_argument_is_type_error
+    permission: programmer
+    code: 'validate_string_lines("line")'
+    expect:
+      error: E_TYPE
+
+  - name: wrong_argument_count_is_args_error
+    permission: programmer
+    code: 'call_function("validate_string_lines")'
+    expect:
+      error: E_ARGS
+
+  - name: list_row_is_type_error
+    permission: programmer
+    code: 'validate_string_lines({{}, "line"})'
+    expect:
+      error: E_TYPE
+
+  - name: line_feed_row_is_invarg
+    permission: wizard
+    code: 'validate_string_lines({"valid", "x" + chr(10) + "y"})'
+    expect:
+      error: E_INVARG
+
+  - name: carriage_return_row_is_invarg
+    permission: wizard
+    code: 'validate_string_lines({chr(13)})'
+    expect:
+      error: E_INVARG
+
+  - name: line_break_before_non_string_is_invarg
+    permission: wizard
+    code: 'validate_string_lines({"valid", chr(10), 17})'
+    expect:
+      error: E_INVARG
+
+  - name: non_string_before_line_break_is_type_error
+    permission: wizard
+    code: 'validate_string_lines({"valid", 17, chr(13)})'
+    expect:
+      error: E_TYPE
+
+  - name: large_list_is_valid
+    permission: wizard
+    steps:
+      - run: |
+          rows = {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
+          for i in [1..12]
+            rows = {@rows, @rows};
+          endfor
+          return {validate_string_lines(rows), length(rows)};
+        expect:
+          value: [1, 4096]

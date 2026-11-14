@@ -607,3 +607,20 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 	}
 	return result
 }
+
+// WaifCountByOwner returns how many registered waifs that are still reachable
+// have the given owner.
+func (s *Store) WaifCountByOwner(owner types.ObjID) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, waifs := range s.waifRegistry {
+		for _, weak := range waifs {
+			if waif, alive := weak.Value(); alive && waif.Owner() == owner {
+				count++
+			}
+		}
+	}
+	return count
+}

@@ -59,6 +59,17 @@ and adding `--target-profile-manifest="$repo/profiles/toast/stock-wsl-testdb.jso
 Give the oracle its own evidence and XML output names. The Mongoose-specific
 Toast executable used for private live-world benchmarks is not this oracle.
 
+For a candidate test of behaviour that exists only in the Mongoose ToastStunt
+fork, use the fork build at the commit the live game runs,
+`/root/src/toaststunt-mongoose-0ff6fd7/build-release/moo` (built with
+`cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DUSE_JEMALLOC=OFF`
+from an unmodified tree, so `PROMOTE_NUMBERS` is on). Use
+`--server-command='/root/src/toaststunt-mongoose-0ff6fd7/build-release/moo {db} {db}.new {port}'`
+and pass `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` as both
+`--oracle-profile-manifest` and `--target-profile-manifest`; the stock Test.db
+manifest declares `PROMOTE_NUMBERS` false and the profile gate refuses to pair
+them.
+
 For admission-capacity comparisons, copy `profiles/barn/outbound-on.conf` to a
 disposable file and append `ADMISSION_LIMIT = 1` or `ADMISSION_LIMIT = 16`. Point
 the server command's `--config` at that file. Retain the other configuration,

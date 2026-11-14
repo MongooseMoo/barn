@@ -226,11 +226,12 @@ func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	t := ctx.Task
 	if t == nil {
 		// No task context (shouldn't happen in normal execution) — fall back to synchronous
-		return execCommand(resolvedPath, cmdArgs, input, environment)
+		return execCommandWithContext(context.Background(), resolvedPath, cmdArgs, input, environment)
 	}
 
-	// Create a cancellable context for the subprocess
-	execCtx, execCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Like Toast, exec has no time limit: the task waits until the child
+	// exits, or until kill_task cancels this context.
+	execCtx, execCancel := context.WithCancel(context.Background())
 
 	// Mark task as exec-suspended and store cancel func
 	t.IsExecSuspended = true
@@ -380,16 +381,8 @@ func validateAndResolvePath(program string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-// execCommand runs a command synchronously and returns {exit_code, stdout, stderr}.
-// Used as fallback when no task context is available.
-func execCommand(program string, args []string, input string, environment []string) types.Result {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return execCommandWithContext(ctx, program, args, input, environment)
-}
-
 // execCommandWithContext runs a command with the given context and returns {exit_code, stdout, stderr}.
-// The context controls cancellation (for kill_task) and timeout.
+// The context controls cancellation (for kill_task).
 func execCommandWithContext(ctx context.Context, program string, args []string, input string, environment []string) types.Result {
 	var cmdProgram string
 	var cmdArgs []string
@@ -426,9 +419,6 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() == context.DeadlineExceeded {
-			// Timeout - return E_EXEC
-			return types.Err(types.E_EXEC)
 		} else if ctx.Err() == context.Canceled {
 			// Cancelled (kill_task) - return E_INVARG
 			return types.Err(types.E_INVARG)

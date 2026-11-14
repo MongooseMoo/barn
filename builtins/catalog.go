@@ -265,6 +265,8 @@ var builtinLayout = []string{
 	"string_width",
 	"graphemes",
 	"tz_offset",
+	"validate_string_lines",
+	"waif_owner_count",
 	"parse_ast",
 	"verb_ast",
 	"validate_ast",

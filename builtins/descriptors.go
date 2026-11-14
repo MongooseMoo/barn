@@ -35,6 +35,10 @@ type Signature struct {
 	Alternatives     map[int][]int64
 	VariadicType     *int64
 	PlainArityError  bool
+	// PromotedFloat: under PROMOTE_NUMBERS each FLOAT position admits INT and
+	// function_info reports it numeric, as the Mongoose fork registers these
+	// math builtins TYPE_NUMERIC (numbers.cc register_numbers).
+	PromotedFloat bool
 }
 
 // Descriptor is the complete construction input for one builtin. Construction
@@ -68,6 +72,12 @@ func (d Descriptor) withLineSync() Descriptor { d.LineSync = true; return d }
 func (d Descriptor) plainArityError() Descriptor {
 	sig := cloneSignature(d.Signature)
 	sig.PlainArityError = true
+	d.Signature = &sig
+	return d
+}
+func (d Descriptor) promotedFloat() Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.PromotedFloat = true
 	d.Signature = &sig
 	return d
 }
