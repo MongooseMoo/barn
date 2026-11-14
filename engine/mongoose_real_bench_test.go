@@ -170,7 +170,7 @@ func (m *benchConnManager) AddListener(spec listener.Spec) (listener.Descriptor,
 	return listener.Descriptor{Port: spec.Port}, nil
 }
 func (m *benchConnManager) RemoveListener(listener.Descriptor) error { return nil }
-func (m *benchConnManager) OpenNetworkConnection(string, int64, time.Duration) (types.ObjID, error) {
+func (m *benchConnManager) OpenNetworkConnection(string, int64, time.Duration, bool) (types.ObjID, error) {
 	return types.ObjNothing, fmt.Errorf("bench: no outbound")
 }
 func (m *benchConnManager) ConnectionNameLookup(types.ObjID, bool) (string, error) {

@@ -113,6 +113,7 @@ type stubConnManager struct {
 	switchedOld types.ObjID
 	switchedNew types.ObjID
 	dialTimeout time.Duration
+	dialIPv6    bool
 	dialErr     error
 }
 
@@ -161,8 +162,9 @@ func (m *stubConnManager) RemoveListener(desc listener.Descriptor) error {
 	m.removed = desc
 	return nil
 }
-func (m *stubConnManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
+func (m *stubConnManager) OpenNetworkConnection(host string, port int64, timeout time.Duration, ipv6 bool) (types.ObjID, error) {
 	m.dialTimeout = timeout
+	m.dialIPv6 = ipv6
 	if m.dialErr != nil {
 		return types.ObjNothing, m.dialErr
 	}

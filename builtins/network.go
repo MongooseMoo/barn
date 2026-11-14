@@ -28,9 +28,22 @@ type ConnectionManager interface {
 	ListenerInfos() []listener.Info
 	AddListener(spec listener.Spec) (listener.Descriptor, error)
 	RemoveListener(desc listener.Descriptor) error
-	OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error)
+	// OpenNetworkConnection returns a *HostLookupError when host has no
+	// address in the requested family.
+	OpenNetworkConnection(host string, port int64, timeout time.Duration, ipv6 bool) (types.ObjID, error)
 	ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error)
 }
+
+// HostLookupError is an outbound host that did not resolve in the requested
+// address family; open_network_connection raises it as Toast's
+// (E_INVARG, "getaddrinfo error", Detail).
+type HostLookupError struct {
+	Detail string
+	Err    error
+}
+
+func (e *HostLookupError) Error() string { return e.Err.Error() }
+func (e *HostLookupError) Unwrap() error { return e.Err }
 
 // Connection interface to avoid import cycle.
 type Connection interface {

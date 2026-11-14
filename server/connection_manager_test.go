@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
+	"github.com/MongooseMoo/barn/builtins"
 	listenercfg "github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 	"net"
@@ -848,6 +849,26 @@ func TestExpireEarliestOutboundConnectFiresOnlyTimerBeforeCheckpoint(t *testing.
 	}
 }
 
+// Toast network.cc open_connection resolves the host with AF_INET, or AF_INET6
+// with the ipv6 option, and fails in getaddrinfo when the host has no address
+// in that family.
+func TestOpenNetworkConnectionResolvesOneAddressFamily(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	for _, tc := range []struct {
+		host string
+		ipv6 bool
+	}{
+		{"::1", false},
+		{"127.0.0.1", true},
+	} {
+		_, err := cm.OpenNetworkConnection(tc.host, 1, time.Second, tc.ipv6)
+		var lookupErr *builtins.HostLookupError
+		if !errors.As(err, &lookupErr) {
+			t.Errorf("OpenNetworkConnection(%q, ipv6=%v) error = %v, want a lookup error", tc.host, tc.ipv6, err)
+		}
+	}
+}
+
 func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -869,7 +890,7 @@ func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
 	}()
 
 	addr := listener.Addr().(*net.TCPAddr)
-	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port), 5*time.Second)
+	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port), 5*time.Second, false)
 	if err != nil {
 		t.Fatalf("OpenNetworkConnection: %v", err)
 	}

@@ -714,11 +714,24 @@ func (cm *ConnectionManager) addListener(spec listener.Spec, primary bool) (list
 		return cm.listenAndRegister(spec, primary, nil)
 	}
 	if spec.Protocol == listener.ProtocolTLS {
-		cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
-		if err != nil {
-			return listener.Descriptor{}, err
+		// Startup listeners still refuse a key pair that does not load. The
+		// files are read again at each handshake, as Toast reads them at each
+		// accept (network.cc network_accept_connection): a runtime listen()
+		// succeeds before they exist, a handshake fails while they are
+		// unreadable, and a replaced certificate is served to new connections.
+		if primary {
+			if _, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath); err != nil {
+				return listener.Descriptor{}, err
+			}
 		}
-		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+		certificatePath, keyPath := spec.TLSCertificatePath, spec.TLSKeyPath
+		tlsConfig := &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(certificatePath, keyPath)
+			if err != nil {
+				return nil, err
+			}
+			return &cert, nil
+		}}
 		return cm.listenAndRegister(spec, primary, tlsConfig)
 	}
 
@@ -800,7 +813,11 @@ func (cm *ConnectionManager) ExpireEarliestOutboundConnect(checkpointDue time.Ti
 	return true
 }
 
-func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
+// OpenNetworkConnection resolves host in one address family, IPv4 or with
+// ipv6 IPv6 (Toast network.cc open_connection: getaddrinfo with AF_INET or
+// AF_INET6), and connects to the first address. A host with no address in
+// that family fails with *builtins.HostLookupError.
+func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, timeout time.Duration, ipv6 bool) (types.ObjID, error) {
 	existing := make(map[int64]struct{})
 	cm.mu.Lock()
 	for id := range cm.connections {
@@ -808,14 +825,31 @@ func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, time
 	}
 	cm.mu.Unlock()
 
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	family, network := "ip4", "tcp4"
+	if ipv6 {
+		family, network = "ip6", "tcp6"
+	}
 	dialCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	dial := &pendingDial{deadline: time.Now().Add(timeout), cancel: cancel}
 	cm.mu.Lock()
 	cm.pendingDials[dial] = struct{}{}
 	cm.mu.Unlock()
-	var dialer net.Dialer
-	client, err := dialer.DialContext(dialCtx, "tcp", addr)
+	var client net.Conn
+	addresses, err := net.DefaultResolver.LookupIP(dialCtx, family, host)
+	if err != nil {
+		detail := err.Error()
+		var dnsErr *net.DNSError
+		var addrErr *net.AddrError
+		if errors.As(err, &dnsErr) {
+			detail = dnsErr.Err
+		} else if errors.As(err, &addrErr) {
+			detail = addrErr.Err
+		}
+		err = &builtins.HostLookupError{Detail: detail, Err: err}
+	} else {
+		var dialer net.Dialer
+		client, err = dialer.DialContext(dialCtx, network, net.JoinHostPort(addresses[0].String(), fmt.Sprintf("%d", port)))
+	}
 	cm.mu.Lock()
 	delete(cm.pendingDials, dial)
 	cm.mu.Unlock()

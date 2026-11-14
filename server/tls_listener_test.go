@@ -138,6 +138,67 @@ func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
 	}
 }
 
+// Toast (network.cc network_accept_connection) loads a TLS listener's
+// certificate and key files when each connection is accepted: listen()
+// succeeds before the files exist, a connection is dropped while they are
+// missing, and a replaced file is served to the next connection.
+func TestRuntimeTLSListenerReadsKeyPairAtEachHandshake(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "server.crt")
+	keyPath := filepath.Join(dir, "server.key")
+	cm := NewConnectionManager(0)
+	t.Cleanup(cm.CloseListeners)
+
+	desc, err := cm.AddListener(listenercfg.Spec{
+		Protocol:           listenercfg.ProtocolTLS,
+		Port:               0,
+		Interface:          "127.0.0.1",
+		TLSCertificatePath: certPath,
+		TLSKeyPath:         keyPath,
+	})
+	if err != nil {
+		t.Fatalf("AddListener with key pair not yet on disk: %v", err)
+	}
+	addr := runtimeListenerBoundAddress(t, cm, desc)
+
+	dial := func() (*tls.Conn, error) {
+		dialer := &net.Dialer{Timeout: 2 * time.Second}
+		return tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{InsecureSkipVerify: true})
+	}
+	if conn, err := dial(); err == nil {
+		_ = conn.Close()
+		t.Fatal("handshake succeeded with no key pair on disk")
+	}
+
+	install := func() testCertificate {
+		cert := selfSignedCertificate(t)
+		if err := os.WriteFile(certPath, cert.CertificatePEM, 0o600); err != nil {
+			t.Fatalf("write cert: %v", err)
+		}
+		if err := os.WriteFile(keyPath, cert.PrivateKeyPEM, 0o600); err != nil {
+			t.Fatalf("write key: %v", err)
+		}
+		return cert
+	}
+	served := func() []byte {
+		conn, err := dial()
+		if err != nil {
+			t.Fatalf("tls dial: %v", err)
+		}
+		defer conn.Close()
+		return conn.ConnectionState().PeerCertificates[0].Raw
+	}
+
+	first := install()
+	if got := served(); string(got) != string(first.Certificate.Certificate[0]) {
+		t.Fatal("first connection was not served the installed certificate")
+	}
+	second := install()
+	if got := served(); string(got) != string(second.Certificate.Certificate[0]) {
+		t.Fatal("connection after replacing the files was not served the new certificate")
+	}
+}
+
 func TestTLSLineTransportReadsAfterHandshake(t *testing.T) {
 	cert := selfSignedCertificate(t)
 	serverConn, clientConn := net.Pipe()
