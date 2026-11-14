@@ -37,6 +37,10 @@ Without the option, behaviour stays as it is. Nothing else.
   numeric when `RuntimeOptions.PromoteNumbers` is on; the implementations read
   arguments through `numberFloat`. Promote lane: test 6 passed, 2 skipped
   (was 4 failed); strict lane unchanged at 3 passed, 5 skipped.
+- CI's first run failed `TestNativeCatalogPreservesHistoricalContract`: the
+  test hashes every `Signature` field, and `PromotedFloat` is new. The pinned
+  hash and its comment are updated after merging master; `go test ./builtins`
+  passes.
 
 ## Decisions and why
 

@@ -18,7 +18,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// move the shared file cursor, just like file_readline and file_seek.
 	// exec became ImplementationOwned: it crosses the boundary itself, after its
 	// argument, permission and path checks and just before starting the process.
-	const expected = "afb7076529a2aa4d0ae0021d9ff4c061c6bab47adf7bf2e6bf74cdba8a84da0d"
+	// Signature gained PromotedFloat, set on the 22 float math builtins whose
+	// FLOAT positions admit INT under PROMOTE_NUMBERS.
+	const expected = "2beceba5ecca9d4eed7b733bf8f85d665b22da0b312bc5e639a86a2916f97e0e"
 	type contract struct {
 		Name       string
 		Signature  *Signature
