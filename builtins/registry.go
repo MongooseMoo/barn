@@ -147,7 +147,7 @@ func (r *Registry) install(d Descriptor) {
 	sig := cloneSignature(d.Signature)
 	entry.sig = sig
 	stored := func(ctx *Execution, args []types.Value) types.Result {
-		if err := validateFunctionArgs(sig, args); err != types.E_NONE {
+		if err := validateFunctionArgs(sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
 			return functionArgError(sig, args, err)
 		}
 		return invoke(ctx, args)
@@ -239,7 +239,7 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 			return redirect
 		}
 	}
-	if err := validateFunctionArgs(e.sig, args); err != types.E_NONE {
+	if err := validateFunctionArgs(e.sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
 		return functionArgError(e.sig, args, err)
 	}
 	return e.fn(ctx, args)
