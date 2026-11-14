@@ -11,7 +11,9 @@ to act on.
 
 ## State
 
-Done and committed locally (not pushed):
+Done; pull request open. Merged with origin/master on 2026-11-14 and
+retested (Go tests, both conformance files on Toast 0ff6fd7 and Barn, the
+existing self-connection conformance cases on Barn):
 - Tests `tests/mongoose-conformance/builtins/network_connection_options.yaml`
   and `open_network_connection_outbound.yaml`, loopback only, both passing on
   the fork Toast 0ff6fd7 before any Barn change, failing on Barn before, passing
@@ -59,5 +61,5 @@ Done and committed locally (not pushed):
 
 ## Next step
 
-None in this assignment. Report:
-`C:\Users\Q\projects\mongoose\reports\barn-switch-work-09-barn-network-options-2026-11-13.md`.
+Pull request open for branch `network-connection-options`; watch its CI and
+fix anything red on the branch.
