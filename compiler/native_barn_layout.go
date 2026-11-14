@@ -68,6 +68,25 @@ func newBarnImportLayout() *barnImportLayout {
 	}
 }
 
+// markListPrefix names the operand on top of the stack as list's prefix after
+// its first element.
+func (s *barnImportLayout) markListPrefix(c *lowerer, list *ir.ListExpr) {
+	s.flush(c)
+	if len(s.stack) != 0 {
+		s.stack[len(s.stack)-1] = barnImportValue{origin: NativeValueOrigin{Kind: NativeListPrefix, Node: list, Aux: 1}}
+	}
+}
+
+// leadingSplice reports whether node is a list whose first element is @expr.
+func leadingSplice(node ir.Node) bool {
+	list, ok := node.(*ir.ListExpr)
+	if !ok || len(list.Elements) == 0 {
+		return false
+	}
+	_, splice := list.Elements[0].(*ir.SpliceExpr)
+	return splice
+}
+
 // importSlotGap is how far the slot numbers the import layout records for
 // compiler temporaries sit above the compacted slots of the compiled program.
 func (c *lowerer) importSlotGap(compiled *bytecode.Program) int {
@@ -174,8 +193,16 @@ func (s *barnImportLayout) flush(c *lowerer) {
 		value = consumed[0]
 	case op == bytecode.OP_MAKE_LIST:
 		value.origin = NativeValueOrigin{Kind: NativeListPrefix, Node: node, Aux: int(operands[0])}
+	case op == bytecode.OP_SPLICE && leadingSplice(node):
+		// A list built from a leading @expr starts from that list, as
+		// Toast's first argument prefix does.
+		value.origin = NativeValueOrigin{Kind: NativeListPrefix, Node: node, Aux: 1}
 	case op == bytecode.OP_LIST_APPEND || op == bytecode.OP_LIST_EXTEND:
-		value.origin = NativeValueOrigin{Kind: NativeListPrefix, Node: node, Aux: consumed[0].origin.Aux + 1}
+		prefix := node
+		if consumed[0].origin.Kind == NativeListPrefix {
+			prefix = consumed[0].origin.Node
+		}
+		value.origin = NativeValueOrigin{Kind: NativeListPrefix, Node: prefix, Aux: consumed[0].origin.Aux + 1}
 	case op == bytecode.OP_MAKE_MAP:
 		value.origin = NativeValueOrigin{Kind: NativeMapPrefix, Node: node}
 	case op == bytecode.OP_INDEX_SET:

@@ -92,8 +92,6 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	}
 	for _, control := range site.Controls {
 		switch control.Kind {
-		case NativeCollectionLoop, NativeRangeLoop:
-			return frame, 0, fmt.Errorf("for-loop state is not exported")
 		case NativeFinallyHandler:
 			return frame, 0, fmt.Errorf("pending finally reason has no Toast form")
 		}
@@ -108,10 +106,10 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	if held < 0 || outer+held != len(barn.Stack)-1 {
 		return frame, 0, fmt.Errorf("operand stack of %d does not match its call site", len(frame.Stack))
 	}
-	values := make(map[NativeValueOrigin]types.Value)
+	values := make(nativeHeld)
 	record := func(value barnImportValue, actual types.Value) {
-		if !value.isLiteral && value.projection == importIdentity {
-			values[value.origin] = actual
+		if !value.isLiteral {
+			values[nativeHeldKey{value.origin, value.projection}] = actual
 		}
 	}
 	for index := range held {
@@ -179,20 +177,32 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	return exported, site.Vector, nil
 }
 
+// nativeHeldKey names a value Barn holds: the Toast origin it was computed
+// from and the import's projection of it (identity, or a loop column/cursor).
+type nativeHeldKey struct {
+	origin     NativeValueOrigin
+	projection uint8
+}
+
+type nativeHeld map[nativeHeldKey]types.Value
+
 // nativeOperand finds the value Toast holds for wanted among the values Barn
 // holds, or computes a compile-time one.
-func nativeOperand(wanted NativeValueOrigin, values map[NativeValueOrigin]types.Value) (types.Value, error) {
-	if value, ok := values[wanted]; ok {
+func nativeOperand(wanted NativeValueOrigin, values nativeHeld) (types.Value, error) {
+	if value, ok := values[nativeHeldKey{wanted, importIdentity}]; ok {
 		return value, nil
 	}
 	switch wanted.Kind {
+	case NativeLoopContainer, NativeLoopCursor:
+		return nativeLoopOperand(wanted, values)
 	case NativeExpression:
 		if literal, ok := wanted.Node.(*ir.LiteralExpr); ok {
 			return valueFromLiteral(literal)
 		}
 		// Barn may already have appended an argument Toast still holds alone.
-		for origin, value := range values {
-			if origin.Kind != NativeListPrefix || value.Type() != types.TYPE_LIST {
+		for key, value := range values {
+			origin := key.origin
+			if key.projection != importIdentity || origin.Kind != NativeListPrefix || value.Type() != types.TYPE_LIST {
 				continue
 			}
 			for index, element := range nativePrefixExpressions(origin) {
@@ -230,6 +240,48 @@ func nativeOperand(wanted NativeValueOrigin, values map[NativeValueOrigin]types.
 		return nativeExceptionCodes(wanted)
 	}
 	return types.None, fmt.Errorf("no held value for native operand kind %d from %T", wanted.Kind, wanted.Node)
+}
+
+// nativeLoopOperand rebuilds what Toast holds for a collection loop from the
+// columns and cursor Barn holds, inverting ConvertNativeFrame's projections:
+// the container, and the 1-based next index, or for a map the next key
+// (CLEAR after its last element). Barn's cursor names the current element,
+// 1-based. A map comes back from its key and value columns. A list's value
+// column is the list itself. A string's column is its characters and keeps no
+// mark that it was a string, so its container is written as the list of those
+// characters: Toast then binds the same elements Barn would have.
+func nativeLoopOperand(wanted NativeValueOrigin, values nativeHeld) (types.Value, error) {
+	container := NativeValueOrigin{Kind: NativeLoopContainer, Node: wanted.Node}
+	column, heldValues := values[nativeHeldKey{container, importValues}]
+	keys, heldKeys := values[nativeHeldKey{container, importKeys}]
+	if !heldValues || !heldKeys || column.Type() != types.TYPE_LIST {
+		return types.None, fmt.Errorf("loop iteration columns are not held")
+	}
+	isMap := keys.Type() == types.TYPE_LIST
+	if isMap && keys.Len() != column.Len() {
+		return types.None, fmt.Errorf("loop key and value columns differ in length")
+	}
+	if wanted.Kind == NativeLoopContainer {
+		if !isMap {
+			return column, nil
+		}
+		pairs := make([][2]types.Value, column.Len())
+		for index := range pairs {
+			pairs[index] = [2]types.Value{keys.Get(index + 1), column.Get(index + 1)}
+		}
+		return types.NewMap(pairs), nil
+	}
+	cursor, held := values[nativeHeldKey{NativeValueOrigin{Kind: NativeLoopCursor, Node: wanted.Node}, importCursor}]
+	if !held || cursor.Type() != types.TYPE_INT || cursor.Int() < 1 || cursor.Int() > int64(column.Len()) {
+		return types.None, fmt.Errorf("loop cursor is not held or out of range")
+	}
+	if !isMap {
+		return types.NewInt(cursor.Int() + 1), nil
+	}
+	if cursor.Int() == int64(column.Len()) {
+		return types.None, nil
+	}
+	return keys.Get(int(cursor.Int()) + 1), nil
 }
 
 // nativePrefixExpressions lists the expressions a list prefix origin builds.

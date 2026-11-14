@@ -509,6 +509,10 @@ func (c *lowerer) compileExprStmt(n *ir.ExprStmt) error {
 						if len(list.Elements) == 1 {
 							c.emit(bytecode.OP_SPLICE)
 						}
+						if c.importLayout != nil {
+							// v's value is the list Toast holds after splicing @v.
+							c.importLayout.markListPrefix(c, list)
+						}
 						for i, elem := range list.Elements[1:] {
 							if splice, ok := elem.(*ir.SpliceExpr); ok {
 								if err := c.compileNode(splice.Expr); err != nil {
