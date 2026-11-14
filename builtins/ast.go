@@ -32,8 +32,8 @@ func astNode(nodeType string, fields ...[2]types.Value) types.Value {
 
 // astWriter turns a parsed program into its tree.
 type astWriter struct {
-	source   string            // the joined source the program was parsed from
-	spelling map[string]string // upper-case variable name -> the program's spelling
+	elseIfArms map[*ir.IfStmt]bool // IfStmts written as `elseif' arms
+	spelling   map[string]string   // upper-case variable name -> the program's spelling
 }
 
 // programAST is the fork's tree for source: what its decompiler gives for the
@@ -44,7 +44,7 @@ func programAST(source string, program *ir.Program) (types.Value, error) {
 	if err != nil {
 		return types.Value{}, err
 	}
-	w := &astWriter{source: source, spelling: make(map[string]string, len(names))}
+	w := &astWriter{elseIfArms: parser.ElseIfArms(source, program), spelling: make(map[string]string, len(names))}
 	for _, name := range names {
 		upper := strings.ToUpper(name)
 		if _, ok := w.spelling[upper]; !ok {
@@ -74,13 +74,6 @@ func (w *astWriter) block(stmts []ir.Stmt) (types.Value, error) {
 		nodes = append(nodes, node)
 	}
 	return types.NewList(nodes), nil
-}
-
-// isElseIfArm reports whether an IfStmt the parser lowered into an Else was
-// written as an `elseif' arm rather than as a nested `if'.
-func (w *astWriter) isElseIfArm(s *ir.IfStmt) bool {
-	at := s.Pos.Offset
-	return at >= 0 && at+6 <= len(w.source) && strings.EqualFold(w.source[at:at+6], "elseif")
 }
 
 func (w *astWriter) stmt(stmt ir.Stmt) (types.Value, error) {
@@ -116,7 +109,7 @@ func (w *astWriter) stmt(stmt ir.Stmt) (types.Value, error) {
 			}
 			arms = append(arms, types.NewMap([][2]types.Value{astField("condition", condition), astField("body", body)}))
 			if len(current.Else) == 1 {
-				if next, ok := current.Else[0].(*ir.IfStmt); ok && w.isElseIfArm(next) {
+				if next, ok := current.Else[0].(*ir.IfStmt); ok && w.elseIfArms[next] {
 					current = next
 					continue
 				}
