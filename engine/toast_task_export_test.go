@@ -15,7 +15,7 @@ import (
 // toastExportShape is a task Barn starts itself, paused in one of the frame
 // shapes the real Mongoose checkpoint holds: a builtin or verb call inside
 // while loops, try/except and try/finally bodies, catch expressions, and
-// fork bodies.
+// fork bodies; and inside list, map, range and string for loops.
 type toastExportShape struct {
 	name    string
 	verbs   map[string]string
@@ -64,6 +64,55 @@ var toastExportShapes = []toastExportShape{
 		},
 		program: "fork (0)\n#0:inner();\nendfork",
 		want:    "{\"served\"}",
+	},
+	{
+		name: "verb call inside a list loop",
+		verbs: map[string]string{
+			"pause": "if (#0.n == 0)\n#0.n = 1;\nsuspend(100);\nendif\nreturn 1;",
+		},
+		program: "for x in ({10, 20})\n#0.log = {@#0.log, x + #0:pause()};\nendfor",
+		want:    "{11, 21}",
+	},
+	{
+		name: "verb call inside a self-appending list",
+		verbs: map[string]string{
+			"pause": "suspend(100);\nreturn 1;",
+		},
+		program: "r = {5};\nr = {@r, #0:pause(), 7};\n#0.log = r;",
+		want:    "{5, 1, 7}",
+	},
+	{
+		name:    "builtin at the last element of a list loop",
+		program: "for x in ({1, 2})\nif (x == 2)\nsuspend(100);\nendif\n#0.log = {@#0.log, x};\nendfor",
+		want:    "{1, 2}",
+	},
+	{
+		name:    "builtin inside a map loop binding keys",
+		program: "for v, k in ([\"a\" -> 1, \"b\" -> 2, \"c\" -> 3])\nif (k == \"a\")\nsuspend(100);\nendif\n#0.log = {@#0.log, {k, v}};\nendfor",
+		want:    "{{\"a\", 1}, {\"b\", 2}, {\"c\", 3}}",
+	},
+	{
+		name:    "builtin at the last element of a map loop",
+		program: "for v in ([\"a\" -> 1, \"b\" -> 2])\nif (v == 2)\nsuspend(100);\nendif\n#0.log = {@#0.log, v};\nendfor",
+		want:    "{1, 2}",
+	},
+	{
+		name:    "builtin inside a range loop",
+		program: "for i in [1..3]\nif (i == 2)\nsuspend(100);\nendif\n#0.log = {@#0.log, i};\nendfor",
+		want:    "{1, 2, 3}",
+	},
+	{
+		name:    "builtin inside a string loop",
+		program: "for c in (\"ab\")\nif (c == \"a\")\nsuspend(100);\nendif\n#0.log = {@#0.log, c};\nendfor",
+		want:    "{\"a\", \"b\"}",
+	},
+	{
+		name: "verb call in a list loop inside a map loop in a fork body",
+		verbs: map[string]string{
+			"pause": "if (#0.n == 0)\n#0.n = 1;\nsuspend(100);\nendif\nreturn 0;",
+		},
+		program: "fork (0)\nfor v, k in ([\"p\" -> {1, 2}])\nfor x in (v)\n#0:pause();\n#0.log = {@#0.log, {k, x}};\nendfor\nendfor\nendfork",
+		want:    "{{\"p\", 1}, {\"p\", 2}}",
 	},
 	{
 		name:    "fork body inside a collection loop",
@@ -230,24 +279,130 @@ func TestBarnSuspendedTaskShapesCheckpointAsToastFrames(t *testing.T) {
 	}
 }
 
-// A task paused inside a for loop keeps loop state Toast holds differently
-// (the container and a cursor); the checkpoint leaves it out rather than
-// write a frame Toast would misread.
-func TestTaskInRefusedShapeIsLeftOutOfCheckpoint(t *testing.T) {
+const (
+	toastFormProgram = "#0.log = {@#0.log, \"toast\"};\nsuspend(100);\n#0.log = {@#0.log, \"toast resumed\"};"
+	// Paused inside a finally clause: Toast holds the pending reason there,
+	// which Barn does not write in Toast's form.
+	barnFormProgram = "try\n#0.other = {@#0.other, \"body\"};\nfinally\nsuspend(100);\n#0.other = {@#0.other, \"finally resumed\"};\nendtry"
+)
+
+// pauseMixedTasks starts one task in a shape Toast can hold and one it
+// cannot, lets both suspend, and returns the checkpoint's snapshots.
+func pauseMixedTasks(t *testing.T, rt *Runtime) []task.Snapshot {
+	t.Helper()
+	ticks, seconds := backgroundTaskLimits(rt.session)
+	for id, program := range map[int64]string{7201: toastFormProgram, 7202: barnFormProgram} {
+		started := NewTaskFull(id, 2, compileTestProgram(t, rt.registry, program), ticks, seconds)
+		rt.populateContextDependencies(started.Context)
+		started.IsForked = true
+		started.ForkCreator = rt
+		rt.QueueTask(started)
+	}
+	for range 4 {
+		rt.ProcessReadyTasks()
+	}
+	_, suspended := rt.TaskSnapshots()
+	if len(suspended) != 2 {
+		t.Fatalf("checkpoint holds %d tasks, want both", len(suspended))
+	}
+	for _, snapshot := range suspended {
+		native := snapshot.VM.Frames[0].Native != nil
+		if native != (snapshot.ID == 7201) {
+			t.Fatalf("task %d written in Toast's form = %v", snapshot.ID, native)
+		}
+	}
+	return suspended
+}
+
+// A live checkpoint never leaves a task out: one Toast cannot hold is kept
+// whole in Barn's frame form beside the Toast-form ones, and Barn reloads and
+// finishes all of them.
+func TestCheckpointKeepsBarnFormTaskBesideToastFormTasks(t *testing.T) {
 	store := newToastExportStore(t, nil)
+	if code := store.DirectTxn().DefineProperty(0, "other", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); code != types.E_NONE {
+		t.Fatalf("define #0.other: %s", code)
+	}
+	rt := newTestRuntimeWithBuiltins(t, store)
+	suspended := pauseMixedTasks(t, rt)
+	rt.Stop()
+	path := filepath.Join(t.TempDir(), "barn.db")
+	if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := dbformat.LoadDatabase(path + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.SuspendedTasks) != 2 {
+		t.Fatalf("reloaded %d tasks, want 2", len(reloaded.SuspendedTasks))
+	}
+	resumedStore, err := reloaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := newTestRuntimeWithBuiltins(t, resumedStore)
+	defer resumed.Stop()
+	for _, saved := range reloaded.SuspendedTasks {
+		native := saved.Snapshot.VM.Frames[0].Native != nil
+		if native != (saved.Snapshot.ID == 7201) {
+			t.Fatalf("reloaded task %d read as Toast's form = %v", saved.Snapshot.ID, native)
+		}
+		saved.Snapshot.StartTime = time.Now().Add(-time.Second)
+	}
+	if err := resumed.LoadSuspendedTasks(reloaded.SuspendedTasks); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{7201, 7202} {
+		restored := resumed.GetTask(id)
+		if restored == nil {
+			t.Fatalf("task %d was not restored", id)
+		}
+		driveNativeImportedContinuation(t, resumed, restored)
+	}
+	for property, want := range map[string]string{"log": "{\"toast\", \"toast resumed\"}", "other": "{\"body\", \"finally resumed\"}"} {
+		if got, code := resumedStore.DirectTxn().PropertyValue(0, property); code != types.E_NONE || got.String() != want {
+			t.Fatalf("#0.%s = %s (%s), want %s", property, got, code, want)
+		}
+	}
+}
+
+// The option for a file to hand back to Toast leaves Barn-form tasks out and
+// names each one; without it (the live checkpoint) every task is kept.
+func TestToastLoadableCheckpointOmitsBarnFormTasks(t *testing.T) {
+	store := newToastExportStore(t, nil)
+	if code := store.DirectTxn().DefineProperty(0, "other", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); code != types.E_NONE {
+		t.Fatalf("define #0.other: %s", code)
+	}
 	rt := newTestRuntimeWithBuiltins(t, store)
 	defer rt.Stop()
-	ticks, seconds := backgroundTaskLimits(rt.session)
-	started := NewTaskFull(7200, 2, compileTestProgram(t, rt.registry, "for x in ({1, 2})\nsuspend(100);\nendfor"), ticks, seconds)
-	rt.populateContextDependencies(started.Context)
-	started.IsForked = true
-	started.ForkCreator = rt
-	rt.QueueTask(started)
-	rt.ProcessReadyTasks()
-	if state := started.GetState(); state != task.TaskSuspended {
-		t.Fatalf("task state = %v, want suspended", state)
+	suspended := pauseMixedTasks(t, rt)
+	path := filepath.Join(t.TempDir(), "toast.db")
+	checkpoint, err := dbformat.BeginCheckpoint(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, suspended := rt.TaskSnapshots(); len(suspended) != 0 {
-		t.Fatalf("checkpoint kept %d tasks, want the for-loop task left out", len(suspended))
+	checkpoint.OmitBarnFrameTasks()
+	if err := checkpoint.Capture(store, nil, suspended, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkpoint.Serialize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkpoint.Publish(); err != nil {
+		t.Fatal(err)
+	}
+	omitted := checkpoint.Omitted()
+	if err := checkpoint.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(omitted) != 1 || omitted[0] != 7202 {
+		t.Fatalf("omitted = %v, want [7202]", omitted)
+	}
+	reloaded, err := dbformat.LoadDatabase(path + ".new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.SuspendedTasks) != 1 || reloaded.SuspendedTasks[0].Snapshot.ID != 7201 || reloaded.SuspendedTasks[0].Snapshot.VM.Frames[0].Native == nil {
+		t.Fatalf("Toast-loadable checkpoint holds %d tasks, want only the Toast-form task 7201", len(reloaded.SuspendedTasks))
 	}
 }
