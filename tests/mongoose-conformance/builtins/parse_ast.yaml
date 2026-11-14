@@ -5,7 +5,7 @@ description: >
   toliteral(), so node keys, their order and value types are all pinned.
   Expected values were taken from the fork built at 0ff6fd7.
 requires:
-  builtins: [parse_ast]
+  features: [ast]
 tests:
   - name: empty_program_is_empty_list
     permission: programmer

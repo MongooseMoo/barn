@@ -4,7 +4,7 @@ description: >
   tree of a verb, the same tree parse_ast() gives for the verb's code, with the
   argument checks and errors of verb_code().
 requires:
-  builtins: [verb_ast]
+  features: [ast]
 tests:
   - name: tree_of_a_verb
     permission: programmer

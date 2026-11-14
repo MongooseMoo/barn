@@ -4,7 +4,7 @@ description: >
   the code for a syntax tree, laid out the way verb_code() lays out code, and the
   E_INVARG message that says where a malformed tree is wrong.
 requires:
-  builtins: [unparse_ast, parse_ast]
+  features: [ast]
 tests:
   - name: code_round_trips_in_verb_code_layout
     permission: programmer

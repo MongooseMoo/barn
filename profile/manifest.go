@@ -79,6 +79,9 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 		features[name] = value
 	}
 	features["runtime.arch_bits"] = strconv.IntSize
+	// feature.ast: the Mongoose fork's syntax-tree builtins; conformance tests
+	// that need them declare `requires: features: [ast]`.
+	features["feature.ast"] = astBuiltinsPresent(input.Registry)
 	features["platform.path_separator"] = string(os.PathSeparator)
 	features["platform.backslash_is_path_separator"] = os.PathSeparator == '\\'
 
@@ -97,6 +100,16 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 		Features:          features,
 		SupportStatus:     "supported",
 	}, nil
+}
+
+// astBuiltinsPresent reports whether all four syntax-tree builtins are installed.
+func astBuiltinsPresent(registry *builtins.Registry) bool {
+	for _, name := range []string{"parse_ast", "verb_ast", "validate_ast", "unparse_ast"} {
+		if !registry.Has(name) {
+			return false
+		}
+	}
+	return true
 }
 
 func WriteManifest(path string, manifest Manifest) error {

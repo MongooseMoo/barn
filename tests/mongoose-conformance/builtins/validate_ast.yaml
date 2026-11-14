@@ -3,7 +3,7 @@ description: >
   Mongoose ToastStunt fork builtin validate_ast(ast): 1 if unparse_ast() would
   accept the tree, otherwise 0. It never raises for a malformed tree.
 requires:
-  builtins: [validate_ast]
+  features: [ast]
 tests:
   - name: accepts_what_parse_ast_returns
     permission: programmer

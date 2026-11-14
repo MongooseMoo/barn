@@ -117,6 +117,9 @@ func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	if manifest.Features["runtime.arch_bits"] == nil {
 		t.Fatalf("missing runtime.arch_bits feature")
 	}
+	if manifest.Features["feature.ast"] != true {
+		t.Fatalf("feature.ast = %#v, want true with the AST builtins installed", manifest.Features["feature.ast"])
+	}
 }
 
 func TestBuildManifestIncludesEnabledPromotion(t *testing.T) {
