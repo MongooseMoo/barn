@@ -20,7 +20,7 @@ on it as their Toast-first proof.
 - Results on that Toast through the managed candidate lane: valid_incarnation
   5/5, validate_string_lines 11/11, waif_owner_count 8/8, float math 5 passed
   and 2 skipped by their own `skip_if: option.PROMOTE_NUMBERS`.
-- Local commits only; not pushed.
+- Pull request open.
 
 ## Decisions and why
 
