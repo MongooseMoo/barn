@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/internal/floattext"
 	"github.com/MongooseMoo/barn/ir"
 )
 
@@ -503,11 +504,7 @@ func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
 			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))
 		}
-		formatted := strconv.FormatFloat(v.FloatValue, 'f', -1, 64)
-		if !strings.ContainsAny(formatted, ".eE") {
-			formatted += ".0"
-		}
-		return formatted
+		return floattext.Format(v.FloatValue)
 	case ir.LiteralString:
 		if strings.IndexByte(v.StringValue, 0) >= 0 {
 			return f.fail(v.Pos, ErrNULInSource)
