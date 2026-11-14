@@ -1,0 +1,195 @@
+name: open_network_connection_outbound
+description: >
+  open_network_connection() to a listener the server opened itself on loopback:
+  the dialled end and the accepted end are two connections, lines travel both
+  ways, and the listener option names the object that handles the dialled end.
+requires:
+  builtins: [listen, unlisten, open_network_connection, notify, read, boot_player, connected_players, connection_info, create, recycle, add_property, add_verb, set_verb_code]
+
+tests:
+  - name: dialled_and_accepted_ends_are_separate_and_exchange_lines
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          l = create($nothing);
+          add_property(l, "got", {}, {player, "rw"});
+          add_property(l, "reply", 0, {player, "rw"});
+          add_verb(l, {player, "xd", "do_login_command"}, {"this", "none", "this"});
+          set_verb_code(l, "do_login_command", {"this.got = {@this.got, {player, argstr}};", "return 0;"});
+          return l;
+        capture: l
+      - run: |
+          listen({l}, {port}, ["print-messages" -> 0]);
+          return open_network_connection("127.0.0.1", {port});
+        capture: conn
+        expect:
+          type: obj
+      - run: |
+          if (length({l}.got) < 1)
+            return 0;
+          endif
+          accepted = {l}.got[1][1];
+          return {length({l}.got), {l}.got[1][2], accepted != {conn}, connection_info({conn})["outbound"], connection_info(accepted)["outbound"], ({conn} in connected_players(1)) > 0, (accepted in connected_players(1)) > 0};
+        expect:
+          value: [1, "", 1, 1, 0, 1, 1]
+        poll_ms: 5000
+      - run: |
+          notify({conn}, "ping from dialled end");
+          return 1;
+        expect:
+          value: 1
+      - run: |
+          return {length({l}.got), {l}.got[$][1] == {l}.got[1][1], {l}.got[$][2]};
+        expect:
+          value: [2, 1, "ping from dialled end"]
+        poll_ms: 5000
+      - run: |
+          fork (0)
+            {l}.reply = read({conn});
+          endfork
+          return 1;
+        expect:
+          value: 1
+      - wait: 200
+      - run: |
+          notify({l}.got[1][1], "pong from accepted end");
+          return 1;
+        expect:
+          value: 1
+      - run: |
+          return {l}.reply;
+        expect:
+          value: "pong from accepted end"
+        poll_ms: 5000
+    cleanup:
+      - run: |
+          try
+            for who in ({l}.got)
+              boot_player(who[1]);
+            endfor
+          except (ANY)
+          endtry
+          try
+            boot_player({conn});
+          except (ANY)
+          endtry
+          try
+            unlisten({port});
+          except (ANY)
+          endtry
+          try
+            recycle({l});
+          except (ANY)
+          endtry
+          return 1;
+        as: wizard
+
+  - name: dialled_end_reports_outbound_connection_info
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          listen(#0, {port}, ["print-messages" -> 0]);
+          conn = open_network_connection("127.0.0.1", {port});
+          info = connection_info(conn);
+          boot_player(conn);
+          return {info["source_address"], info["source_ip"], info["source_port"], info["destination_ip"], info["destination_port"] == {port}, info["protocol"], info["outbound"]};
+        expect:
+          value: ["", "", 0, "127.0.0.1", 1, "IPv4", 1]
+    cleanup:
+      - run: |
+          try
+            unlisten({port});
+          except (ANY)
+          endtry
+          return 1;
+        as: wizard
+
+  - name: listener_option_object_handles_the_dialled_end
+    description: >
+      With the listener option, the dialled end gets one empty login line at
+      once, and lines from the remote end go to that object's do_login_command.
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          objs = {};
+          for i in [1..2]
+            o = create($nothing);
+            add_property(o, "got", {}, {player, "rw"});
+            add_verb(o, {player, "xd", "do_login_command"}, {"this", "none", "this"});
+            set_verb_code(o, "do_login_command", {"this.got = {@this.got, {player, argstr}};", "return 0;"});
+            objs = {@objs, o};
+          endfor
+          return objs;
+        capture: objs
+      - run: |
+          listen({objs}[1], {port}, ["print-messages" -> 0]);
+          return open_network_connection("127.0.0.1", {port}, ["Listener" -> {objs}[2]]);
+        capture: conn
+        expect:
+          type: obj
+      - run: |
+          m = {objs}[2];
+          return {length({objs}[1].got), length(m.got) && m.got[1][1] == {conn}, length(m.got) && m.got[1][2]};
+        expect:
+          value: [1, 1, ""]
+        poll_ms: 5000
+      - run: |
+          notify({objs}[1].got[1][1], "pong to listener object");
+          return 1;
+        expect:
+          value: 1
+      - run: |
+          m = {objs}[2];
+          return {length(m.got), m.got[$][1] == {conn}, m.got[$][2]};
+        expect:
+          value: [2, 1, "pong to listener object"]
+        poll_ms: 5000
+    cleanup:
+      - run: |
+          try
+            for who in ({objs}[1].got)
+              boot_player(who[1]);
+            endfor
+          except (ANY)
+          endtry
+          try
+            boot_player({conn});
+          except (ANY)
+          endtry
+          try
+            unlisten({port});
+          except (ANY)
+          endtry
+          for o in ({objs})
+            try
+              recycle(o);
+            except (ANY)
+            endtry
+          endfor
+          return 1;
+        as: wizard
+
+  - name: listener_option_must_be_an_object
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: port
+      - run: |
+          try
+            open_network_connection("127.0.0.1", {port}, ["listener" -> "not an object"]);
+            return "connected";
+          except e (ANY)
+            return {toliteral(e[1]), e[2], e[3]};
+          endtry
+        expect:
+          value: ["E_TYPE", "listener should be an object", "not an object"]
