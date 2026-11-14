@@ -81,6 +81,12 @@ func TestCommittedMongooseProfilesEnablePromotion(t *testing.T) {
 			if entry.ExpectedFeatures[config.FeaturePromoteNumbers] != true {
 				t.Fatalf("expected promotion feature = %#v", entry.ExpectedFeatures[config.FeaturePromoteNumbers])
 			}
+			if !options.ValidIncarnation {
+				t.Fatal("ValidIncarnation = false, want true")
+			}
+			if entry.ExpectedFeatures[config.FeatureValidIncarnation] != true {
+				t.Fatalf("expected valid incarnation feature = %#v", entry.ExpectedFeatures[config.FeatureValidIncarnation])
+			}
 
 			manifest, err := BuildManifest(BuildInput{
 				Registry:          vm.BuildVMRegistry(),

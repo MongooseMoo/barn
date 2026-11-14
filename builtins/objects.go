@@ -637,7 +637,7 @@ func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.Err
 	return readTxn(ctx).AdoptLiveRelationships(object, oldLocation)
 }
 
-// builtinValid implements valid(object)
+// builtinValid implements valid(object [, expected incarnation])
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
@@ -659,8 +659,30 @@ func builtinValid(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	isValid := validForRead(ctx, objID)
-	if isValid {
+	if !validForRead(ctx, objID) {
+		return types.Ok(types.NewInt(0))
+	}
+	if len(args) == 1 {
+		return types.Ok(types.NewInt(1))
+	}
+
+	// Only under VALID_INCARNATION does admission let a second argument
+	// through (Signature.IncarnationArgs). Mongoose fork bf_valid (objects.cc):
+	// valid(object, expected) also requires the object's incarnation_id
+	// property, read with the ordinary read permission, to be a nonempty
+	// string equal to expected. A missing property does not match; an
+	// unreadable one raises E_PERM.
+	prop, errCode := readTxn(ctx).FindProperty(objID, "incarnation_id")
+	if errCode == types.E_PROPNF {
+		return types.Ok(types.NewInt(0))
+	}
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !ctx.IsWizard && ctx.Programmer != prop.Owner && !prop.Perms.Has(dbstore.PropRead) {
+		return types.Err(types.E_PERM)
+	}
+	if prop.Value.Type() == types.TYPE_STR && prop.Value.Str() != "" && prop.Value.Str() == args[1].Str() {
 		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
@@ -679,7 +701,9 @@ func objectsDescriptors() []Descriptor {
 	return []Descriptor{
 		function("create", builtinCreate, 1, 4, -1, -1, -1, -1),
 		function("recycle", builtinRecycle, 1, 1, -1),
-		function("valid", builtinValid, 1, 1, -1),
+		// Stock Toast registers valid(ANY); the Mongoose fork registers
+		// valid(ANY [, STR]) (objects.cc register_function("valid", 1, 2, ...)).
+		function("valid", builtinValid, 1, 1, -1).incarnationArgs(int64(types.TYPE_STR)),
 		function("max_object", builtinMaxObject, 0, 0),
 	}
 }

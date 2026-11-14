@@ -10,10 +10,10 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func functionInfoEntry(name string, sig Signature, promote bool) types.Value {
+func functionInfoEntry(name string, sig Signature) types.Value {
 	argTypes := make([]types.Value, 0, len(sig.ArgTypes))
 	for _, t := range sig.ArgTypes {
-		argTypes = append(argTypes, types.NewInt(sig.argType(t, promote)))
+		argTypes = append(argTypes, types.NewInt(t))
 	}
 	return types.NewList([]types.Value{
 		types.NewStr(name),
@@ -44,16 +44,7 @@ func valueMatchesFunctionArgType(v types.Value, expected int64) bool {
 	}
 }
 
-// argType is the type a registered position admits: a PromotedFloat FLOAT
-// position is numeric (-2) while PROMOTE_NUMBERS is on.
-func (s Signature) argType(t int64, promote bool) int64 {
-	if promote && s.PromotedFloat && t == int64(types.TYPE_FLOAT) {
-		return -2
-	}
-	return t
-}
-
-func validateFunctionArgs(sig Signature, args []types.Value, promote bool) types.ErrorCode {
+func validateFunctionArgs(sig Signature, args []types.Value) types.ErrorCode {
 	if int64(len(args)) < sig.MinArgs {
 		return types.E_ARGS
 	}
@@ -74,7 +65,7 @@ func validateFunctionArgs(sig Signature, args []types.Value, promote bool) types
 		if matchedAlternative {
 			continue
 		}
-		if !valueMatchesFunctionArgType(args[i], sig.argType(expected, promote)) {
+		if !valueMatchesFunctionArgType(args[i], expected) {
 			return types.E_TYPE
 		}
 	}
@@ -125,7 +116,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 		sort.Strings(names)
 		entries := make([]types.Value, 0, len(names))
 		for _, name := range names {
-			entries = append(entries, functionInfoEntry(name, r.entries[r.nameToID[name]].sig, ctx.RuntimeOptions.PromoteNumbers))
+			entries = append(entries, functionInfoEntry(name, *r.entries[r.nameToID[name]].signature(ctx)))
 		}
 		return types.Ok(types.NewList(entries))
 	}
@@ -138,7 +129,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 	if !found || r.entries[id].visibility == Hidden {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(functionInfoEntry(name, r.entries[id].sig, ctx.RuntimeOptions.PromoteNumbers))
+	return types.Ok(functionInfoEntry(name, *r.entries[id].signature(ctx)))
 }
 
 // debugCallFunction gates temporary call_function failure logging (shares the
