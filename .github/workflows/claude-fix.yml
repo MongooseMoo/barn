@@ -71,6 +71,7 @@ jobs:
           repository: MongooseMoo/moo-conformance-tests
           path: moo-conformance-tests
           persist-credentials: false
+          submodules: true
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -334,6 +335,7 @@ jobs:
           repository: MongooseMoo/moo-conformance-tests
           path: moo-conformance-tests
           persist-credentials: false
+          submodules: true
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         if: env.WRITE_TEST == 'true'

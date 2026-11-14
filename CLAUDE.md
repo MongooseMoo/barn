@@ -148,6 +148,10 @@ Linux checkout (`/home/ds32/mongoose/`), the sibling repos are
 `../moo-conformance-tests` and `../toaststunt` (built binary at
 `../toaststunt/build/moo`), and there is no WSL layer.
 
+The suite's ToastCore startup database (`_db/startup/toastcore/toastcore.db`)
+is a git submodule: run `git submodule update --init` in every
+moo-conformance-tests checkout, or managed runs fail when a suite starts it.
+
 `AGENTS.md` holds binding operational rules (conformance discipline, the
 capability-admission requirement, and the rule against unapproved manual Barn or
 Toast launches, plus shell and `rg` pitfalls). Read it before conformance
