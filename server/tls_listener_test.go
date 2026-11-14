@@ -333,19 +333,31 @@ type testCertificate struct {
 
 func selfSignedCertificate(t *testing.T) testCertificate {
 	t.Helper()
+	return certificateFor(t, []string{"localhost"}, []net.IP{net.ParseIP("127.0.0.1")})
+}
+
+// certificateForNames is a self-signed certificate valid only for the given
+// DNS names (no IP address).
+func certificateForNames(t *testing.T, names ...string) testCertificate {
+	t.Helper()
+	return certificateFor(t, names, nil)
+}
+
+func certificateFor(t *testing.T, names []string, ips []net.IP) testCertificate {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate private key: %v", err)
 	}
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "localhost"},
+		Subject:      pkix.Name{CommonName: names[0]},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{"localhost"},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     names,
+		IPAddresses:  ips,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {

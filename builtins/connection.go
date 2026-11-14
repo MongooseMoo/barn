@@ -374,6 +374,38 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if port <= 0 || port > 65535 {
 		return types.Err(types.E_INVARG)
 	}
+	request := OutboundConnection{Host: args[0].Str(), Port: port}
+	// Toast (server.cc bf_open_network_connection) reads the option keys
+	// without regard to case, before it checks that outbound connections are
+	// enabled. "tls_verify" is read there but never used, so it is not read
+	// here.
+	if len(args) == 3 {
+		var listenerValue types.Value
+		for _, pair := range args[2].Pairs() {
+			if pair[0].Type() != types.TYPE_STR {
+				continue
+			}
+			switch strings.ToLower(pair[0].Str()) {
+			case "tls":
+				request.TLS = pair[1].Truthy()
+			case "ipv6":
+				request.IPv6 = pair[1].Truthy()
+			case "listener":
+				listenerValue = pair[1]
+				request.HasListener = true
+			}
+		}
+		if request.HasListener {
+			if listenerValue.Type() != types.TYPE_OBJ {
+				return types.Result{
+					Flow:  types.FlowException,
+					Error: types.E_TYPE,
+					Val:   types.NewList([]types.Value{types.NewErr(types.E_TYPE), types.NewStr("listener should be an object"), listenerValue}),
+				}
+			}
+			request.Listener = listenerValue.Obj()
+		}
+	}
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
@@ -381,17 +413,18 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	// Toast (server.cc bf_open_network_connection) reads the "ipv6" key without
-	// regard to case.
-	ipv6 := false
-	if len(args) == 3 {
-		for _, pair := range args[2].Pairs() {
-			if pair[0].Type() == types.TYPE_STR && strings.EqualFold(pair[0].Str(), "ipv6") {
-				ipv6 = pair[1].Truthy()
-			}
+	request.Timeout = outboundConnectTimeout(ctx)
+	conn, err := cm.OpenNetworkConnection(request)
+	var handshakeErr *TLSHandshakeError
+	if errors.As(err, &handshakeErr) {
+		// network.cc open_connection: make_raise_pack(E_INVARG,
+		// "TLS connection failed", tls_error_msg).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("TLS connection failed"), types.NewStr(handshakeErr.Detail)}),
 		}
 	}
-	conn, err := cm.OpenNetworkConnection(args[0].Str(), port, outboundConnectTimeout(ctx), ipv6)
 	var lookupErr *HostLookupError
 	if errors.As(err, &lookupErr) {
 		// network.cc open_connection: make_raise_pack(E_INVARG,

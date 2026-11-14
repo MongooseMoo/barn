@@ -28,10 +28,26 @@ type ConnectionManager interface {
 	ListenerInfos() []listener.Info
 	AddListener(spec listener.Spec) (listener.Descriptor, error)
 	RemoveListener(desc listener.Descriptor) error
-	// OpenNetworkConnection returns a *HostLookupError when host has no
-	// address in the requested family.
-	OpenNetworkConnection(host string, port int64, timeout time.Duration, ipv6 bool) (types.ObjID, error)
+	// OpenNetworkConnection opens an outbound connection and returns its
+	// connection object. It returns a *HostLookupError when the host has no
+	// address in the requested family and a *TLSHandshakeError when TLS was
+	// requested and the handshake failed.
+	OpenNetworkConnection(request OutboundConnection) (types.ObjID, error)
 	ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error)
+}
+
+// OutboundConnection is an open_network_connection() request (Toast
+// server.cc bf_open_network_connection).
+type OutboundConnection struct {
+	Host    string
+	Port    int64
+	Timeout time.Duration
+	IPv6    bool
+	TLS     bool
+	// HasListener is the "listener" option: Listener handles the connection
+	// instead of #0, and it gets an initial empty login line.
+	HasListener bool
+	Listener    types.ObjID
 }
 
 // HostLookupError is an outbound host that did not resolve in the requested
@@ -44,6 +60,16 @@ type HostLookupError struct {
 
 func (e *HostLookupError) Error() string { return e.Err.Error() }
 func (e *HostLookupError) Unwrap() error { return e.Err }
+
+// TLSHandshakeError is a failed outbound TLS handshake; open_network_connection
+// raises it as Toast's (E_INVARG, "TLS connection failed", Detail).
+type TLSHandshakeError struct {
+	Detail string
+	Err    error
+}
+
+func (e *TLSHandshakeError) Error() string { return e.Err.Error() }
+func (e *TLSHandshakeError) Unwrap() error { return e.Err }
 
 // Connection interface to avoid import cycle.
 type Connection interface {
@@ -65,8 +91,6 @@ type Connection interface {
 
 type outboundConnectionInfo interface {
 	IsOutbound() bool
-	OutboundSourceAddr() string
-	OutboundDestinationAddr() string
 }
 
 type inputWakeConnection interface {
@@ -1256,16 +1280,10 @@ func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	outbound := false
-	remoteAddr := conn.RemoteAddr()
-	sourceAddr := ""
-	if info, ok := conn.(outboundConnectionInfo); ok && info.IsOutbound() {
-		outbound = true
-		sourceAddr = info.OutboundSourceAddr()
-		remoteAddr = info.OutboundDestinationAddr()
-	}
+	info, ok := conn.(outboundConnectionInfo)
+	outbound := ok && info.IsOutbound()
 
-	host, portText := parseRemoteAddress(remoteAddr)
+	host, portText := parseRemoteAddress(conn.RemoteAddr())
 	destPort := int64(0)
 	_, _ = fmt.Sscanf(portText, "%d", &destPort)
 	sourcePort, listenerPortSet := conn.ListenerPort()
@@ -1273,9 +1291,11 @@ func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
 	if !listenerPortSet {
 		sourcePort = int64(cm.GetListenPort())
 	}
-	if sourceAddr != "" {
-		sourceHost, portText = parseRemoteAddress(sourceAddr)
-		_, _ = fmt.Sscanf(portText, "%d", &sourcePort)
+	if outbound {
+		// Toast network_open_connection gives an outbound handle no listen
+		// address: source fields are "" and port 0 (network.cc
+		// network_open_connection, new_nhandle).
+		sourceHost, sourcePort = "", 0
 	}
 
 	protocol := "IPv4"

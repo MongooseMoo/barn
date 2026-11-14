@@ -88,7 +88,7 @@ func (m *evalCommandStubConnManager) AddListener(spec listener.Spec) (listener.D
 func (m *evalCommandStubConnManager) RemoveListener(desc listener.Descriptor) error {
 	return nil
 }
-func (m *evalCommandStubConnManager) OpenNetworkConnection(host string, port int64, timeout time.Duration, ipv6 bool) (types.ObjID, error) {
+func (m *evalCommandStubConnManager) OpenNetworkConnection(builtins.OutboundConnection) (types.ObjID, error) {
 	return types.ObjNothing, nil
 }
 func (m *evalCommandStubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {

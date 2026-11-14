@@ -89,14 +89,51 @@ func TestOpenNetworkConnectionPassesIPv6Option(t *testing.T) {
 	if result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("::1"), types.NewInt(7000), optionMap(types.NewStr("IPv6"), types.NewInt(1))}); !result.IsNormal() {
 		t.Fatalf("open_network_connection raised %s", result.Error)
 	}
-	if !cm.dialIPv6 {
+	if !cm.dialed.IPv6 {
 		t.Fatal("ipv6 option was not passed to the connection manager")
 	}
 	if result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(7000)}); !result.IsNormal() {
 		t.Fatalf("open_network_connection raised %s", result.Error)
 	}
-	if cm.dialIPv6 {
-		t.Fatal("ipv6 requested without the option")
+	if cm.dialed.IPv6 || cm.dialed.TLS || cm.dialed.HasListener {
+		t.Fatalf("options requested without the options map: %+v", cm.dialed)
+	}
+}
+
+// Toast reads "tls" and "listener" without regard to case; a listener that is
+// not an object raises (E_TYPE, "listener should be an object", value) before
+// any connection is attempted, even when outbound connections are disabled.
+func TestOpenNetworkConnectionPassesTLSAndListenerOptions(t *testing.T) {
+	cm := &stubConnManager{}
+	ctx := wizardNetworkCtx(cm)
+	result := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("example.org"), types.NewInt(443),
+		optionMap(types.NewStr("TLS"), types.NewInt(1), types.NewStr("Listener"), types.NewObj(42), types.NewStr("tls_verify"), types.NewInt(1))})
+	if !result.IsNormal() {
+		t.Fatalf("open_network_connection raised %s", result.Error)
+	}
+	if !cm.dialed.TLS || !cm.dialed.HasListener || cm.dialed.Listener != 42 {
+		t.Fatalf("request = %+v, want TLS with listener #42", cm.dialed)
+	}
+
+	cm = &stubConnManager{}
+	ctx = wizardNetworkCtx(cm)
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: false}
+	result = builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(1), optionMap(types.NewStr("listener"), types.NewStr("x"))})
+	want := types.NewList([]types.Value{types.NewErr(types.E_TYPE), types.NewStr("listener should be an object"), types.NewStr("x")})
+	if result.Flow != types.FlowException || result.Error != types.E_TYPE || !result.Val.Equal(want) {
+		t.Fatalf("result = %+v, want raise %s", result, want.String())
+	}
+	if cm.dialed.Host != "" {
+		t.Fatal("connection attempted with a non-object listener")
+	}
+}
+
+func TestOpenNetworkConnectionTLSFailureRaisesTLSConnectionFailed(t *testing.T) {
+	cm := &stubConnManager{dialErr: &TLSHandshakeError{Detail: "x509: certificate signed by unknown authority", Err: net.ErrClosed}}
+	result := builtinOpenNetworkConnection(wizardNetworkCtx(cm), []types.Value{types.NewStr("127.0.0.1"), types.NewInt(7000), optionMap(types.NewStr("tls"), types.NewInt(1))})
+	want := types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("TLS connection failed"), types.NewStr("x509: certificate signed by unknown authority")})
+	if result.Flow != types.FlowException || result.Error != types.E_INVARG || !result.Val.Equal(want) {
+		t.Fatalf("result = %+v, want raise %s", result, want.String())
 	}
 }
 
