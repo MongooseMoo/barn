@@ -187,6 +187,7 @@ type Config struct {
 	StartLine, StartScript                                                     *string
 	StartScriptFirst                                                           bool
 	DumpPath                                                                   string
+	OfflineCheckpoint, OmitSuspended                                           bool
 	MemoryReport                                                               bool
 	MemoryProfile                                                              string
 	CheckpointInterval                                                         int
@@ -246,6 +247,12 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	}
 	if cfg.DumpPath != "" {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
+	}
+	if cfg.OmitSuspended && !cfg.OfflineCheckpoint {
+		return errors.New("--omit-suspended requires --offline-checkpoint")
+	}
+	if cfg.OfflineCheckpoint {
+		return dbtool.WriteOfflineCheckpoint(out, cfg.DatabasePath, options, cfg.OmitSuspended)
 	}
 	if cfg.MemoryProfile != "" && !cfg.MemoryReport {
 		return errors.New("--memory-profile requires --memory-report")
