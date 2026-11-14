@@ -1,0 +1,77 @@
+name: verb_ast
+description: >
+  Mongoose ToastStunt fork builtin verb_ast(OBJ object, verb-desc): the syntax
+  tree of a verb, the same tree parse_ast() gives for the verb's code, with the
+  argument checks and errors of verb_code().
+requires:
+  builtins: [verb_ast]
+tests:
+  - name: tree_of_a_verb
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "test"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "test", {"if (a)", "  x = `y[1] ! E_RANGE => 0';", "elseif (b)", "  return {1, @c};", "endif", "fork t (0)", "  $foo:bar(x);", "endfork"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_ast({obj}, "test"));'
+        expect:
+          value: '{["arms" -> {["body" -> {["expr" -> ["target" -> ["name" -> "x", "type" -> "variable"], "type" -> "assign", "value" -> ["codes" -> {["type" -> "literal", "value" -> E_RANGE]}, "default" -> ["type" -> "literal", "value" -> 0], "expr" -> ["base" -> ["name" -> "y", "type" -> "variable"], "index" -> ["type" -> "literal", "value" -> 1], "type" -> "index"], "type" -> "catch"]], "type" -> "expr"]}, "condition" -> ["name" -> "a", "type" -> "variable"]], ["body" -> {["type" -> "return", "value" -> ["items" -> {["type" -> "literal", "value" -> 1], ["expr" -> ["name" -> "c", "type" -> "variable"], "type" -> "splice"]}, "type" -> "list"]]}, "condition" -> ["name" -> "b", "type" -> "variable"]]}, "type" -> "if"], ["body" -> {["expr" -> ["args" -> {["name" -> "x", "type" -> "variable"]}, "object" -> ["object" -> ["type" -> "literal", "value" -> #0], "property" -> ["type" -> "literal", "value" -> "foo"], "type" -> "prop"], "type" -> "verb_call", "verb" -> ["type" -> "literal", "value" -> "bar"]], "type" -> "expr"]}, "delay" -> ["type" -> "literal", "value" -> 0], "type" -> "fork", "var" -> "t"]}'
+      - run: 'return equal(verb_ast({obj}, "test"), parse_ast(verb_code({obj}, "test")));'
+        expect:
+          value: 1
+      - run: 'return equal(verb_ast({obj}, 1), verb_ast({obj}, "test"));'
+        expect:
+          value: 1
+    cleanup:
+      - run: recycle({obj})
+
+  - name: verb_without_code_is_empty_list
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: 'add_verb({obj}, {player, "rxd", "readable"}, {"this", "none", "this"});'
+      - run: 'toliteral(verb_ast({obj}, "readable"))'
+        expect:
+          value: '{}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: argument_errors
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: 'add_verb({obj}, {player, "xd", "test"}, {"this", "none", "this"});'
+      - run: 'return toliteral({`verb_ast(1, "test") ! ANY'', `verb_ast({obj}, {}) ! ANY'', `verb_ast(#-1, "test") ! ANY'', `verb_ast({obj}, "missing") ! ANY'', `verb_ast({obj}, 5) ! ANY'', `call_function("verb_ast", {obj}) ! ANY'', `call_function("verb_ast", {obj}, "test", 1) ! ANY''});'
+        expect:
+          value: '{E_TYPE, E_TYPE, E_INVARG, E_VERBNF, E_VERBNF, E_ARGS, E_ARGS}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: unreadable_verb_is_perm
+    permission: programmer
+    steps:
+      - run: 'obj = create($nothing); add_verb(obj, {player, "xd", "hidden"}, {"this", "none", "this"}); set_verb_code(obj, "hidden", {"return 1;"}); return obj;'
+        capture: obj
+        as: wizard
+      - run: 'verb_ast({obj}, "hidden")'
+        as: programmer
+        expect:
+          error: E_PERM
+      - run: 'toliteral(verb_ast({obj}, "hidden"))'
+        as: wizard
+        expect:
+          value: '{["type" -> "return", "value" -> ["type" -> "literal", "value" -> 1]]}'
+    cleanup:
+      - run: recycle({obj})
+        as: wizard
+
+  - name: function_info
+    permission: programmer
+    code: 'toliteral(function_info("verb_ast"))'
+    expect:
+      value: '{"verb_ast", 2, 2, {-1, -1}}'
