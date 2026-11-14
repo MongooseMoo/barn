@@ -1498,6 +1498,7 @@ func builtinUnparseAST(ctx *Execution, args []types.Value) types.Result {
 		FullyParenthesized: len(args) >= 2 && args[1].Truthy(),
 		Unindented:         len(args) >= 3 && !args[2].Truthy(),
 		ElseIfArms:         b.elseIfArms,
+		ToastFloats:        true,
 	})
 	if err != nil {
 		return astRaise(err.Error(), types.NewInt(0))
