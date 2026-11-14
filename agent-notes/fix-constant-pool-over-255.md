@@ -55,13 +55,14 @@ commits: nothing is pushed and no PR exists.
 - `BenchmarkVM/list_iter_1M` in `vm/perf_bench_test.go` fails with
   `compile failed: [Line 1:  syntax error]` on the unchanged base too.
 
-## Not yet diagnosed
-- The same run's other job, "Checkpoint stage schedule and negative controls"
-  (131888678611), also exited 1 after 64 minutes. Its log tail shows only
-  control lines; which verdict failed the step is unread.
-- The campaign log also has `correctness-violation: generation 0: Elle
-  rejected the history with G2-item` at line 996 next to the constants
-  failure; whether that belongs to an expected negative control is unread.
+## The same run's other failures
+- Job "Checkpoint stage schedule and negative controls" (131888678611) ran
+  five seeds: two failed on this constants error, one was healthy, and two
+  failed because Elle rejected an ordinary history with G2-item. That is a
+  separate fault with its own branch and note
+  (`agent-notes/fix-verb-walk-misses-chparent.md`).
+- Unverified: that the campaign and the schedule pass once both fixes are on
+  master. The next scheduled extended run is the check.
 
 ## Decisions and why
 - Toast first: the conformance test passed on the managed WSL Toast oracle and
@@ -95,7 +96,8 @@ commits: nothing is pushed and no PR exists.
   fix).
 
 ## Next step
-Push both branches and open the two PRs. How Barn's CI selects its
-conformance suite revision was not read, so whether the conformance PR has to
-merge first is unknown. Then read the two undiagnosed items above from run
-43426360560's logs.
+Barn's CI runs the conformance suite at the head of its `main`
+(`.github/workflows/ci.yml`, the `git ls-remote ... refs/heads/main` step), so
+the Barn fix merges first and the conformance PR only after it; the other
+order turns every Barn PR red. Then read the next scheduled extended "Jepsen
+checkpoint" run.
