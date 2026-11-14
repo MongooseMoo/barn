@@ -98,6 +98,38 @@ func TestCompareRoundTripStoresWriterReader(t *testing.T) {
 	}
 }
 
+// Keys of a type without a total order reverse on every dump, as in Toast
+// (conformance server/map_dump_persistence). The comparator expects exactly that
+// order: the reload passes, and the unreversed original order does not.
+func TestCompareRoundTripStoresBoolKeyedMapReversal(t *testing.T) {
+	original := store.NewStore()
+	root := store.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetLocation(types.ObjNothing)
+	root.SetPropOrder([]string{"m"})
+	root.SetPropDefsCount(1)
+	m := types.NewEmptyMap().MapSet(types.NewBool(false), types.NewStr("false")).MapSet(types.NewBool(true), types.NewStr("true"))
+	root.SetProperty("m", store.NewProperty(m, 0, 1, false, true))
+	if err := original.Add(root.Build()); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := dumpAndReload(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := original.Snapshot().Objects[0].Properties["m"].Value
+	after := reloaded.Snapshot().Objects[0].Properties["m"].Value
+	if before.Pairs()[0][0].Bool() == after.Pairs()[0][0].Bool() {
+		t.Fatalf("dump did not reverse bool keys: %v -> %v", before, after)
+	}
+	if err := CompareRoundTripStores(original, reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := CompareRoundTripStores(original, original); err == nil {
+		t.Fatal("unreversed bool-keyed map accepted as a reload")
+	}
+}
+
 func TestCompareRoundTripStoresInvalidWaifClass(t *testing.T) {
 	s := store.NewStore()
 	class := store.NewObjectBuilder(0)
