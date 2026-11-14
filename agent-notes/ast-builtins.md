@@ -26,8 +26,13 @@ Toast too. Reference: fork `src/ast_map.cc`, `src/unparse.cc`, `src/verbs.cc`,
 - Left on purpose (evidence in the work-10 report): `(^)` before a dot (Toast's
   own `l[^.x]` does not recompile), unsigned wrapped int literals, `- -5` not
   folded (fuzz round-trip keeps the IR). `x.:name`: no parser change
-  (team-lead: no live verb uses it).
-- Branch merged with origin/master 8d195f07.
+  (team-lead's decision). Their test cases carry a declared `skip:` naming
+  the difference.
+- The AST tests declare `requires: features: [ast]`; the fork Toast manifest
+  and Barn's mongoose profiles carry `feature.ast: true`, and Barn's manifest
+  computes it from the registry (`profile/manifest.go`), as `runtime.arch_bits`
+  is computed for the 64-bit feature.
+- Branch merged with origin/master; a pull request against master is open.
 
 ## Decisions and why
 
@@ -51,5 +56,4 @@ Toast too. Reference: fork `src/ast_map.cc`, `src/unparse.cc`, `src/verbs.cc`,
 
 ## Next step
 
-Final managed runs on both Toasts and Barn after the merge; mark the cases
-that cover deliberately kept Barn behaviour; report to team-lead.
+Watch the pull request's CI and fix anything red on this branch.
