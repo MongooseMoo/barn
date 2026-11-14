@@ -160,7 +160,8 @@ func (c *Compiler) compileUncached(sourceLines []string) (*bytecode.Program, []D
 // parse, returns nil lines and the caller keeps the original.
 func (c *Compiler) LowerUnknownBuiltinCalls(sourceLines []string) ([]string, []Diagnostic) {
 	var warnings []Diagnostic
-	program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseStoredProgram(func(name string, pos ir.Position) bool {
+	source := strings.Join(sourceLines, "\n")
+	program, err := parser.NewParser(source).ParseStoredProgram(func(name string, pos ir.Position) bool {
 		if _, ok := c.builtinIDs[canonicalIdentifier(name)]; ok {
 			return false
 		}
@@ -170,7 +171,10 @@ func (c *Compiler) LowerUnknownBuiltinCalls(sourceLines []string) ([]string, []D
 	if err != nil || len(warnings) == 0 {
 		return nil, nil
 	}
-	lowered, err := parser.FormatMOOFullyParenthesizedChecked(program)
+	lowered, err := parser.FormatMOOWith(program, parser.FormatOptions{
+		FullyParenthesized: true,
+		ElseIfArms:         parser.ElseIfArms(source, program),
+	})
 	if err != nil {
 		return nil, nil
 	}

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	"github.com/MongooseMoo/barn/internal/floattext"
 )
 
 // Value is a value-typed tagged union representing every MOO value.
@@ -197,22 +199,7 @@ func (v Value) String() string {
 // formatFloat renders a float in MOO/ToastStunt style: 15 significant digits
 // (printf "%.15g"), with a trailing .0 for integral values and special spellings
 // for NaN/Inf.
-func formatFloat(f float64) string {
-	if math.IsNaN(f) {
-		return "NaN"
-	}
-	if math.IsInf(f, 1) {
-		return "Inf"
-	}
-	if math.IsInf(f, -1) {
-		return "-Inf"
-	}
-	s := strconv.FormatFloat(f, 'g', 15, 64)
-	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
-		s += ".0"
-	}
-	return s
-}
+func formatFloat(f float64) string { return floattext.Format(f) }
 
 // ---- equality ----------------------------------------------------------
 

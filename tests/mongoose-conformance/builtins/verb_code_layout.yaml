@@ -1,0 +1,261 @@
+name: verb_code_layout
+description: >
+  verb_code() text for constructs where a server's own formatter can differ from
+  ToastStunt's unparser: the indent argument, fully-parenthesised assignments,
+  conditional consequents, catch and splice operands, verb calls and assignments
+  on #0, integer and map operands, float spelling, negated numbers, and an else
+  holding a nested if. Expected values were taken from ToastStunt.
+tests:
+  - name: indent_argument
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"if (a)", "while (b)", "x = 1;", "endwhile", "endif"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 0, 0), verb_code({obj}, "t", 1, 0), verb_code({obj}, "t", 0, 1)});'
+        expect:
+          value: '{{"if (a)", "  while (b)", "    x = 1;", "  endwhile", "endif"}, {"if (a)", "while (b)", "x = 1;", "endwhile", "endif"}, {"if (a)", "while (b)", "x = 1;", "endwhile", "endif"}, {"if (a)", "  while (b)", "    x = 1;", "  endwhile", "endif"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: fully_parenthesised_assigned_value
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"x = 1 + 2 * 3;", "y = -x;", "z = a = b + 1;", "return x + 1;"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"x = 1 + 2 * 3;", "y = -x;", "z = a = b + 1;", "return x + 1;"}, {"x = 1 + (2 * 3);", "y = -x;", "z = a = b + 1;", "return x + 1;"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: conditional_consequent_assignment
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"x = a ? y = 1 | c;", "x = a ? (b ? c | d) | e;"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"x = a ? y = 1 | c;", "x = a ? b ? c | d | e;"}, {"x = a ? y = 1 | c;", "x = a ? b ? c | d | e;"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: catch_and_splice_operands
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"x = `y = 1 ! ANY => z = 2';", "l = {@(a = b), @(c ? d | e)};"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"x = `y = 1 ! ANY => z = 2'';", "l = {@a = b, @c ? d | e};"}, {"x = `y = 1 ! ANY => z = 2'';", "l = {@a = b, @c ? d | e};"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: verb_call_on_system_object
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"$go(1);", "#0:go();", "$o:go();", "#0:(\"if\")();"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"$go(1);", "$go();", "$o:go();", "#0:(\"if\")();"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: assignment_to_system_property
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"$p = 1;", "#0.q = 2;", "$r.s = 3;"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"$p = 1;", "$q = 2;", "$r.s = 3;"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: integer_operand_of_postfix
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"z = (5).x;", "w = (5):v();", "u = (5)[1];", "v = (5)[1..2];"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"z = 5 .x;", "w = 5:v();", "u = 5[1];", "v = 5[1..2];"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: map_operand
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"m = [\"a\" -> 1][\"a\"];", "n = [1 -> 2] == y;", "o = {[]};", "p = [];"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"m = ([\"a\" -> 1])[\"a\"];", "n = ([1 -> 2]) == y;", "o = {[]};", "p = [];"}, {"m = ([\"a\" -> 1])[\"a\"];", "n = ([1 -> 2]) == y;", "o = {[]};", "p = [];"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: float_spelling
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"f = {1e20, 1.0e-10, 123456789012345678.0, 0.1, 1e300, 100000.0, 1.5, 2.0};"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"f = {1e+20, 1e-10, 1.23456789012346e+17, 0.1, 1e+300, 100000.0, 1.5, 2.0};"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: negated_number_literals
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"p = 1 + -5;", "q = -(5.5);", "r = -x;", "s = 2 ^ -1;"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"p = 1 + -5;", "q = -5.5;", "r = -x;", "s = 2 ^ -1;"}, {"p = 1 + -5;", "q = -5.5;", "r = -x;", "s = 2 ^ -1;"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: double_negated_number_literal
+    # Barn prints `--5' (known difference): its formatter keeps the program it
+    # parsed, so formatted text reparses to the same IR (docs/parser-fuzzing.md).
+    skip_if: "feature.unfolded_double_negation"
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"n = - -5;"});
+        expect:
+          value: []
+      - run: 'return toliteral({verb_code({obj}, "t"), verb_code({obj}, "t", 1)});'
+        expect:
+          value: '{{"n = 5;"}, {"n = 5;"}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: else_holding_a_nested_if
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"if (a)", "x = 1;", "else", "if (b)", "x = 2;", "endif", "endif", "if (c)", "elseif (d)", "else", "if (e)", "endif", "x = 3;", "endif"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"if (a)", "  x = 1;", "else", "  if (b)", "    x = 2;", "  endif", "endif", "if (c)", "elseif (d)", "else", "  if (e)", "  endif", "  x = 3;", "endif"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: first_index_before_property
+    # Toast's text `l[^.x]' is a syntax error on Toast and on Barn (see
+    # old_barn_spellings_compile), so Barn keeps `l[(^).x]' (known difference).
+    skip_if: "feature.bracketed_first_index_before_property"
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          return set_verb_code({obj}, "t", {"s = l[(^).x];"});
+        expect:
+          value: []
+      - run: 'return toliteral(verb_code({obj}, "t"));'
+        expect:
+          value: '{"s = l[^.x];"}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: old_barn_spellings_compile
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          r = {};
+          for line in ({"#0:go(1);", "x = a ? (y = 1) | c;", "x = `(y = 1) ! ANY => z = 2';", "l = {@(a = b), @c ? d | e};", "z = (5).x;", "w = (5):v();", "m = [\"a\" -> 1][\"a\"];", "f = {100000000000000000000.0, 0.0000000001, 123456789012345680.0};", "p = (1 + (-5));", "#0.p = 1;", "x = (1 + (2 * 3));", "s = l[^.x];", "z = 5 .x;", "f = {1e+20, 1e-10, 1.23456789012346e+17};"})
+            e = set_verb_code({obj}, "t", {line});
+            r = {@r, {line, e, e ? {} | verb_code({obj}, "t")}};
+          endfor
+          return toliteral(r);
+        expect:
+          value: '{{"#0:go(1);", {}, {"$go(1);"}}, {"x = a ? (y = 1) | c;", {}, {"x = a ? y = 1 | c;"}}, {"x = `(y = 1) ! ANY => z = 2'';", {}, {"x = `y = 1 ! ANY => z = 2'';"}}, {"l = {@(a = b), @c ? d | e};", {}, {"l = {@a = b, @c ? d | e};"}}, {"z = (5).x;", {}, {"z = 5 .x;"}}, {"w = (5):v();", {}, {"w = 5:v();"}}, {"m = [\"a\" -> 1][\"a\"];", {}, {"m = ([\"a\" -> 1])[\"a\"];"}}, {"f = {100000000000000000000.0, 0.0000000001, 123456789012345680.0};", {}, {"f = {1e+20, 1e-10, 1.23456789012346e+17};"}}, {"p = (1 + (-5));", {}, {"p = 1 + -5;"}}, {"#0.p = 1;", {}, {"$p = 1;"}}, {"x = (1 + (2 * 3));", {}, {"x = 1 + 2 * 3;"}}, {"s = l[^.x];", {"Line 1:  syntax error"}, {}}, {"z = 5 .x;", {}, {"z = 5 .x;"}}, {"f = {1e+20, 1e-10, 1.23456789012346e+17};", {}, {"f = {1e+20, 1e-10, 1.23456789012346e+17};"}}}'
+    cleanup:
+      - run: recycle({obj})
+
+  - name: old_barn_spellings_left_on_purpose
+    # The old Barn forms compile on Toast and Toast reprints them; Barn still
+    # prints these the old way (see double_negated_number_literal and
+    # first_index_before_property).
+    skip_if: "feature.unfolded_double_negation or feature.bracketed_first_index_before_property"
+    permission: programmer
+    steps:
+      - run: create($nothing)
+        capture: obj
+      - run: |
+          add_verb({obj}, {player, "xd", "t"}, {"this", "none", "this"});
+          r = {};
+          for line in ({"n = --5;", "n = (-(-5));", "s = l[(^).x];"})
+            e = set_verb_code({obj}, "t", {line});
+            r = {@r, {line, e, e ? {} | verb_code({obj}, "t")}};
+          endfor
+          return toliteral(r);
+        expect:
+          value: '{{"n = --5;", {}, {"n = 5;"}}, {"n = (-(-5));", {}, {"n = 5;"}}, {"s = l[(^).x];", {}, {"s = l[^.x];"}}}'
+    cleanup:
+      - run: recycle({obj})

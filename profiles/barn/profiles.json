@@ -9,6 +9,9 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
@@ -23,6 +26,9 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
@@ -37,8 +43,12 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
@@ -53,8 +63,12 @@
       "support_status": "supported",
       "unsupported_reason": "",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
@@ -69,6 +83,9 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
@@ -83,6 +100,9 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
@@ -97,8 +117,12 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
@@ -113,8 +137,12 @@
       "support_status": "diagnostic",
       "unsupported_reason": "Windows profile is diagnostic until paired with a matching Windows Toast oracle.",
       "expected_features": {
+        "feature.bracketed_first_index_before_property": true,
+        "feature.unfolded_double_negation": true,
+        "feature.no_waif_colon_property": true,
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
+        "feature.ast": true,
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },

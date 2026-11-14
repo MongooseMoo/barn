@@ -267,6 +267,10 @@ var builtinLayout = []string{
 	"tz_offset",
 	"validate_string_lines",
 	"waif_owner_count",
+	"parse_ast",
+	"verb_ast",
+	"validate_ast",
+	"unparse_ast",
 }
 
 // Descriptors assembles the native catalog with owner-supplied functions such
@@ -304,6 +308,7 @@ func Descriptors(additional ...Descriptor) []Descriptor {
 		gcDescriptors(),
 		unicodeDescriptors(),
 		tzOffsetDescriptors(),
+		astDescriptors(),
 	}
 	byName := make(map[string]Descriptor)
 	add := func(d Descriptor) {

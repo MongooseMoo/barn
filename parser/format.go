@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/internal/floattext"
 	"github.com/MongooseMoo/barn/ir"
 )
 
@@ -54,7 +55,83 @@ type FormattingError struct {
 func (e *FormattingError) Error() string { return e.Cause.Error() }
 func (e *FormattingError) Unwrap() error { return e.Cause }
 
-type mooFormatter struct{ err error }
+// FormatOptions are the arguments of Toast's unparser (verb_code's
+// fully-paren and indent arguments).
+type FormatOptions struct {
+	FullyParenthesized bool
+	// Unindented leaves out the two spaces per nesting level.
+	Unindented bool
+	// ElseIfArms are the IfStmts written as `elseif' arms (see ElseIfArms);
+	// any other IfStmt alone in an Else prints as `else' and a nested `if'.
+	// Nil means the program's source is not known, and every IfStmt alone in
+	// an Else prints as an `elseif' arm.
+	ElseIfArms map[*ir.IfStmt]bool
+}
+
+// ElseIfArms returns the IfStmts in program that source wrote as `elseif'
+// arms. The parser lowers an arm into an Else holding one IfStmt positioned
+// at the arm's `elseif' keyword, while `else' and a nested `if' gives the
+// same shape positioned at `if'.
+func ElseIfArms(source string, program *ir.Program) map[*ir.IfStmt]bool {
+	arms := make(map[*ir.IfStmt]bool)
+	var block func([]ir.Stmt)
+	block = func(stmts []ir.Stmt) {
+		for _, stmt := range stmts {
+			switch s := stmt.(type) {
+			case *ir.IfStmt:
+				if len(s.Else) == 1 {
+					if next, ok := s.Else[0].(*ir.IfStmt); ok {
+						at := next.Pos.Offset
+						if at >= 0 && at+6 <= len(source) && strings.EqualFold(source[at:at+6], "elseif") {
+							arms[next] = true
+						}
+					}
+				}
+				block(s.Body)
+				block(s.Else)
+			case *ir.WhileStmt:
+				block(s.Body)
+			case *ir.CollectionLoopStmt:
+				block(s.Body)
+			case *ir.RangeLoopStmt:
+				block(s.Body)
+			case *ir.ForkStmt:
+				block(s.Body)
+			case *ir.TryStmt:
+				block(s.Body)
+				for _, handler := range s.Handlers {
+					block(handler.Body)
+				}
+				if s.Finalizer != nil {
+					block(s.Finalizer.Body)
+				}
+			}
+		}
+	}
+	block(program.Statements)
+	return arms
+}
+
+// FormatMOOWith formats a program with the given verb_code() arguments.
+func FormatMOOWith(program *ir.Program, options FormatOptions) ([]string, error) {
+	if err := ir.Validate(program); err != nil {
+		return nil, err
+	}
+	return formatLines(program, &mooFormatter{options: options})
+}
+
+// FormatUncheckedWith formats a program whose producer has already checked
+// its shape, without ir.Validate. unparse_ast() uses it: a tree may nest up
+// to 1000 levels, deeper than the parser allows, and may hold scatters the
+// parser would reject, which Toast's unparser still prints.
+func FormatUncheckedWith(program *ir.Program, options FormatOptions) ([]string, error) {
+	return formatLines(program, &mooFormatter{options: options})
+}
+
+type mooFormatter struct {
+	err     error
+	options FormatOptions
+}
 
 func (f *mooFormatter) fail(pos ir.Position, cause error) string {
 	if f.err == nil {
@@ -64,14 +141,15 @@ func (f *mooFormatter) fail(pos ir.Position, cause error) string {
 }
 
 func formatMOOChecked(program *ir.Program, fullyParenthesized bool) ([]string, error) {
-	if err := ir.Validate(program); err != nil {
-		return nil, err
-	}
+	return FormatMOOWith(program, FormatOptions{FullyParenthesized: fullyParenthesized})
+}
+
+func formatLines(program *ir.Program, f *mooFormatter) ([]string, error) {
 	if len(program.Statements) == 0 {
 		return []string{}, nil
 	}
 
-	f := &mooFormatter{}
+	fullyParenthesized := f.options.FullyParenthesized
 	var lines []string
 	for _, stmt := range program.Statements {
 		line := f.stmt(stmt, 0, fullyParenthesized)
@@ -89,6 +167,9 @@ func formatMOOChecked(program *ir.Program, fullyParenthesized bool) ([]string, e
 // stmt converts a statement to source code
 func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) string {
 	indentStr := strings.Repeat("  ", indent)
+	if f.options.Unindented {
+		indentStr = ""
+	}
 
 	switch s := stmt.(type) {
 	case *ir.EmptyStmt:
@@ -111,7 +192,7 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 			if len(current.Else) == 1 {
-				if next, ok := current.Else[0].(*ir.IfStmt); ok {
+				if next, ok := current.Else[0].(*ir.IfStmt); ok && (f.options.ElseIfArms == nil || f.options.ElseIfArms[next]) {
 					sb.WriteString(indentStr + "elseif (" + f.expr(next.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 					current = next
 					continue
@@ -232,10 +313,8 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *ir.LiteralExpr:
-		// An integer followed by a property dot would lex as a float.
-		if e.Kind == ir.LiteralInt && parentPrecedence >= precedenceProperty {
-			return "(" + f.literal(e) + ")"
-		}
+		// Toast writes an integer base bare; property() separates it from a
+		// following dot so it does not lex as a float.
 		return f.literal(e)
 
 	case *ir.IdentifierExpr:
@@ -245,7 +324,10 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		op := f.unaryOp(e.Operator)
 		operand := f.expr(e.Operand, precedenceUnary, fullyParenthesized)
 		result := op + operand
-		if parentPrecedence > precedenceUnary || (fullyParenthesized && parentPrecedence != precedenceLowest) {
+		// Toast's parser folds minus into a number literal, and a literal is
+		// not bracketed by fully-paren mode, so neither is a negated number.
+		forced := fullyParenthesized && parentPrecedence != precedenceLowest && !isNegatedNumber(e)
+		if parentPrecedence > precedenceUnary || forced {
 			return "(" + result + ")"
 		}
 		return result
@@ -256,7 +338,8 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	case *ir.TernaryExpr:
 		prec := precedenceTernary
 		cond := f.expr(e.Condition, prec+1, fullyParenthesized)
-		then := f.expr(e.ThenExpr, prec+1, fullyParenthesized)
+		// The `|' delimits the consequent, so Toast prints it unbracketed.
+		then := f.expr(e.ThenExpr, precedenceLowest, fullyParenthesized)
 		els := f.expr(e.ElseExpr, prec+1, fullyParenthesized)
 		result := cond + " ? " + then + " | " + els
 		if prec < parentPrecedence {
@@ -290,6 +373,9 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.property(e, fullyParenthesized)
 
 	case *ir.VerbCallExpr:
+		if isSystemObject(e.Expr) && e.Verb != "" {
+			return "$" + f.name(e.Pos, e.Verb) + "(" + f.args(e.Args, fullyParenthesized) + ")"
+		}
 		base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
 		var verb string
 		if e.Verb != "" {
@@ -305,15 +391,17 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.name(e.Pos, e.Name) + "(" + args + ")"
 
 	case *ir.SpliceExpr:
-		// The parser lets @ capture a whole conditional expression.
-		result := "@" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		// The parser lets @ capture a whole expression, assignments included,
+		// and Toast prints the spliced expression unbracketed.
+		result := "@" + f.expr(e.Expr, precedenceLowest, fullyParenthesized)
 		if parentPrecedence > precedenceTernary {
 			return "(" + result + ")"
 		}
 		return result
 
 	case *ir.CatchExpr:
-		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		// Toast prints the caught expression unbracketed; `!' ends it.
+		result := "`" + f.expr(e.Expr, precedenceLowest, fullyParenthesized)
 		result += " ! " + f.codes(e.IsAny, e.Codes, fullyParenthesized)
 		if e.Default != nil {
 			result += " => " + f.expr(e.Default, precedenceLowest, fullyParenthesized)
@@ -323,7 +411,8 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	case *ir.AssignExpr:
 		prec := precedenceAssign
 		target := f.target(e.Target, fullyParenthesized)
-		value := f.expr(e.Value, prec, fullyParenthesized)
+		// Toast prints the assigned value unbracketed, fully-paren or not.
+		value := f.expr(e.Value, precedenceLowest, fullyParenthesized)
 		result := target + " = " + value
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -349,11 +438,30 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 			val := f.expr(pair.Value, precedenceLowest, fullyParenthesized)
 			pairs = append(pairs, key+" -> "+val)
 		}
+		// Toast's unparser gives a map no precedence, so every operand
+		// position brackets it.
+		if parentPrecedence != precedenceLowest {
+			return "([" + strings.Join(pairs, ", ") + "])"
+		}
 		return "[" + strings.Join(pairs, ", ") + "]"
 
 	default:
 		return f.fail(ir.Position{}, fmt.Errorf("unsupported expression %T", expr))
 	}
+}
+
+// isNegatedNumber reports whether e is minus applied to an integer or float
+// literal, which Toast's parser compiles as one negative literal.
+func isNegatedNumber(e *ir.UnaryExpr) bool {
+	lit, ok := e.Operand.(*ir.LiteralExpr)
+	return ok && e.Operator == ir.UnaryNegate && (lit.Kind == ir.LiteralInt || lit.Kind == ir.LiteralFloat)
+}
+
+// isSystemObject reports whether expr is the literal #0, which Toast spells
+// `$' before a property or verb name.
+func isSystemObject(expr ir.Expr) bool {
+	lit, ok := expr.(*ir.LiteralExpr)
+	return ok && lit.Kind == ir.LiteralObj && lit.ObjID == 0
 }
 
 // property handles property access with #0.prop → $prop conversion
@@ -368,6 +476,10 @@ func (f *mooFormatter) property(e *ir.PropertyExpr, fullyParenthesized bool) str
 
 	// Otherwise use obj.property syntax
 	base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
+	if lit, ok := e.Expr.(*ir.LiteralExpr); ok && lit.Kind == ir.LiteralInt {
+		// Digits followed by a dot would lex as a float (Toast unparse.cc).
+		base += " "
+	}
 	if e.Property != "" {
 		return base + "." + f.name(e.Pos, e.Property)
 	}
@@ -398,16 +510,10 @@ func (f *mooFormatter) binary(e *ir.BinaryExpr, parentPrecedence int, fullyParen
 
 // unaryOp converts a unary operator to its string representation
 func (f *mooFormatter) unaryOp(op ir.UnaryOperator) string {
-	switch op {
-	case ir.UnaryNegate:
-		return "-"
-	case ir.UnaryNot:
-		return "!"
-	case ir.UnaryBitwiseNot:
-		return "~"
-	default:
-		return f.fail(ir.Position{}, fmt.Errorf("unsupported unary operator %d", op))
+	if spelling, ok := UnaryOperatorSpelling(op); ok {
+		return spelling
 	}
+	return f.fail(ir.Position{}, fmt.Errorf("unsupported unary operator %d", op))
 }
 
 // target formats the sealed assignment target family.
@@ -416,11 +522,8 @@ func (f *mooFormatter) target(target ir.Target, fullyParenthesized bool) string 
 	case *ir.VariableTarget:
 		return canonicalIdentifierName(f.name(target.Pos, target.Name))
 	case *ir.PropertyTarget:
-		object := f.expr(target.Object, precedenceProperty, fullyParenthesized)
-		if target.Name != "" {
-			return object + "." + f.name(target.Pos, target.Name)
-		}
-		return object + ".(" + f.expr(target.NameExpr, precedenceLowest, fullyParenthesized) + ")"
+		// Toast prints an assigned property like any property, `$name' included.
+		return f.property(&ir.PropertyExpr{Pos: target.Pos, Expr: target.Object, Property: target.Name, PropertyExpr: target.NameExpr}, fullyParenthesized)
 	case *ir.IndexTarget:
 		return f.target(target.Collection, fullyParenthesized) + "[" + f.expr(target.Index, precedenceLowest, fullyParenthesized) + "]"
 	case *ir.RangeTarget:
@@ -468,11 +571,7 @@ func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
 			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))
 		}
-		formatted := strconv.FormatFloat(v.FloatValue, 'f', -1, 64)
-		if !strings.ContainsAny(formatted, ".eE") {
-			formatted += ".0"
-		}
-		return formatted
+		return floattext.Format(v.FloatValue)
 	case ir.LiteralString:
 		if strings.IndexByte(v.StringValue, 0) >= 0 {
 			return f.fail(v.Pos, ErrNULInSource)

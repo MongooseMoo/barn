@@ -79,6 +79,14 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 		features[name] = value
 	}
 	features["runtime.arch_bits"] = strconv.IntSize
+	// feature.ast: the Mongoose fork's syntax-tree builtins; conformance tests
+	// that need them declare `requires: features: [ast]`.
+	features["feature.ast"] = astBuiltinsPresent(input.Registry)
+	// Known differences from ToastStunt that Barn keeps on purpose; conformance
+	// cases for Toast's behaviour declare `skip_if: "feature.<name>"`.
+	for name := range KnownDifferences {
+		features["feature."+name] = true
+	}
 	features["platform.path_separator"] = string(os.PathSeparator)
 	features["platform.backslash_is_path_separator"] = os.PathSeparator == '\\'
 
@@ -97,6 +105,29 @@ func BuildManifest(input BuildInput) (Manifest, error) {
 		Features:          features,
 		SupportStatus:     "supported",
 	}, nil
+}
+
+// KnownDifferences names what Barn does differently from ToastStunt on
+// purpose, each a conformance feature every Barn manifest reports.
+var KnownDifferences = map[string]string{
+	// parser/format.go prints `^' before a dot as `(^)': Toast's `l[^.x]' is a
+	// syntax error on Toast and on Barn.
+	"bracketed_first_index_before_property": "verb_code prints l[(^).x], not l[^.x]",
+	// The formatter keeps the parsed program so formatted text reparses to the
+	// same IR (docs/parser-fuzzing.md); Toast folds `- -5' to `5'.
+	"unfolded_double_negation": "verb_code prints - -5 as --5, not 5",
+	// The parser does not accept the fork's waif property spelling.
+	"no_waif_colon_property": "the parser rejects x.:name",
+}
+
+// astBuiltinsPresent reports whether all four syntax-tree builtins are installed.
+func astBuiltinsPresent(registry *builtins.Registry) bool {
+	for _, name := range []string{"parse_ast", "verb_ast", "validate_ast", "unparse_ast"} {
+		if !registry.Has(name) {
+			return false
+		}
+	}
+	return true
 }
 
 func WriteManifest(path string, manifest Manifest) error {

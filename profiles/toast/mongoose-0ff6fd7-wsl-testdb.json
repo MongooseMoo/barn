@@ -13,6 +13,7 @@
   "features": {
     "option.OUTBOUND_NETWORK": true,
     "option.PROMOTE_NUMBERS": true,
+    "feature.ast": true,
     "runtime.arch_bits": 64
   },
   "support_status": "supported",
