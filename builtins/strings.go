@@ -58,41 +58,33 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 	// result's size is count(old) * len(new), which a caller can make quadratic
 	// in its inputs. Toast's bf_strsub stops the same way, at its stream limit.
 	ctx.Session.UpdateContextLimits(ctx.Context)
-	limit := ctx.MaxStringConcat
 
 	var result string
-	var withinLimit bool
+	var errCode types.ErrorCode
 	if caseSensitive {
-		result, withinLimit = replaceAllWithin(subj, oldStr, newStr, limit)
+		result, errCode = replaceAllWithin(ctx, subj, oldStr, newStr)
 	} else {
-		result, withinLimit = replaceAllCaseInsensitive(subj, oldStr, newStr, limit)
+		result, errCode = replaceAllCaseInsensitive(ctx, subj, oldStr, newStr)
 	}
-	if !withinLimit {
-		return types.Err(types.E_QUOTA)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewStr(result))
 }
 
-// overStringLimit reports whether a string of length bytes exceeds limit, the
-// predicate of task.Context.CheckStringLimit: the limit is inclusive, and a
-// limit of zero or less is no limit.
-func overStringLimit(length, limit int) bool {
-	return limit > 0 && length > limit
-}
-
 // replaceAllWithin is strings.ReplaceAll for a non-empty old, except that it
-// returns false, having allocated nothing, when the result would be longer
-// than limit bytes. It counts the matches once and then builds, the same work
-// strings.ReplaceAll does.
-func replaceAllWithin(s, old, new string, limit int) (string, bool) {
+// returns ctx.CheckStringLimit's error, having allocated nothing, when the
+// result would be over the string limit. It counts the matches once and then
+// builds, the same work strings.ReplaceAll does.
+func replaceAllWithin(ctx *Execution, s, old, new string) (string, types.ErrorCode) {
 	matches := strings.Count(s, old)
 	size := len(s) + matches*(len(new)-len(old))
-	if overStringLimit(size, limit) {
-		return "", false
+	if errCode := ctx.CheckStringLimit(size); errCode != types.E_NONE {
+		return "", errCode
 	}
 	if matches == 0 {
-		return s, true
+		return s, types.E_NONE
 	}
 
 	var result strings.Builder
@@ -105,7 +97,7 @@ func replaceAllWithin(s, old, new string, limit int) (string, bool) {
 		start = match + len(old)
 	}
 	result.WriteString(s[start:])
-	return result.String(), true
+	return result.String(), types.E_NONE
 }
 
 // builtinIndex finds the first occurrence of needle in haystack
@@ -458,13 +450,13 @@ func matchCharCase(original, replacement string) string {
 
 // replaceAllCaseInsensitive performs case-insensitive string replacement,
 // matching character by character and copying unmatched characters' raw bytes.
-// It returns false when the result would be longer than limit bytes, and stops
-// building at the replacement that would pass the limit.
-func replaceAllCaseInsensitive(s, old, new string, limit int) (string, bool) {
+// It returns ctx.CheckStringLimit's error when the result would be over the
+// string limit, and stops building at the replacement that would pass it.
+func replaceAllCaseInsensitive(ctx *Execution, s, old, new string) (string, types.ErrorCode) {
 	sv := types.CharViewOf(s)
 	ov := types.CharViewOf(old)
 	if ov.Len() == 0 {
-		return s, !overStringLimit(len(s), limit)
+		return s, ctx.CheckStringLimit(len(s))
 	}
 
 	var result strings.Builder
@@ -480,8 +472,8 @@ func replaceAllCaseInsensitive(s, old, new string, limit int) (string, bool) {
 				}
 			}
 			if match {
-				if overStringLimit(result.Len()+len(new), limit) {
-					return "", false
+				if errCode := ctx.CheckStringLimit(result.Len() + len(new)); errCode != types.E_NONE {
+					return "", errCode
 				}
 				result.WriteString(new)
 				i += ov.Len()
@@ -494,10 +486,10 @@ func replaceAllCaseInsensitive(s, old, new string, limit int) (string, bool) {
 
 	// Unmatched characters are not checked as they are copied: they add at
 	// most len(s) bytes.
-	if overStringLimit(result.Len(), limit) {
-		return "", false
+	if errCode := ctx.CheckStringLimit(result.Len()); errCode != types.E_NONE {
+		return "", errCode
 	}
-	return result.String(), true
+	return result.String(), types.E_NONE
 }
 
 // ============================================================================

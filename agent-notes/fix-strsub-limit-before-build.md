@@ -16,16 +16,15 @@ getting `E_QUOTA`.
 
 Done, committed locally on this branch. Not pushed, no PR.
 
-- `builtins/strings.go`: `builtinStrsub` reads the limit
-  (`UpdateContextLimits`, then `ctx.MaxStringConcat`) before building.
+- `builtins/strings.go`: `builtinStrsub` calls `UpdateContextLimits` before
+  building, and both helpers take the execution context and decide through
+  `ctx.CheckStringLimit` (`task/context.go`), the one copy of the predicate.
   - Case-sensitive: `replaceAllWithin` counts the matches, computes the result
     size, refuses before allocating if it is over the limit, and otherwise
     builds into a `strings.Builder` grown to the exact size.
-  - Case-insensitive: `replaceAllCaseInsensitive` takes the limit and refuses
-    at the replacement that would pass it; the final length is checked once
-    more for the copied characters.
-  - `overStringLimit` is the shared predicate (`limit > 0 && length > limit`),
-    the same one as `task.Context.CheckStringLimit`.
+  - Case-insensitive: `replaceAllCaseInsensitive` refuses at the replacement
+    that would pass the limit; the final length is checked once more for the
+    copied characters.
 - `builtins/strsub_limit_test.go` (new):
   - `TestStrsubOverLimitDoesNotBuildResult`: limit 4096, a 4,000,000-byte
     would-be result, at most 16 x limit bytes allocated per call. Before the
@@ -51,7 +50,21 @@ load ranged from 236.1 to 390.8 ns/op, so that benchmark's spread on this
 machine is wider than any before/after difference above. Allocations are
 identical.
 
+Second change (the helpers call `ctx.CheckStringLimit` instead of a local copy
+of its predicate), same command, load 61 to 62 % before and 69 to 77 % after;
+B/op and allocs/op unchanged (72, 2 and 1216, 2):
+
+| benchmark | local predicate ns/op | ctx.CheckStringLimit ns/op |
+|---|---|---|
+| BuiltinAdmission/strsub | 281.4 326.5 276.4 282.4 287.9 277.0 | 276.3 264.1 267.1 264.9 275.9 253.9 |
+| Strsub/case_sensitive | 3940 3315 3329 3420 3127 3253 | 3971 3192 2970 2986 3062 3007 |
+| Strsub/case_insensitive | 23170 23260 22968 24370 22601 22432 | 23008 22971 23330 24633 23396 25269 |
+
 ## Decisions and why
+
+- The helpers take the context rather than a `fits func(int) bool`. The method
+  call needs no closure and left allocations unchanged, so the closure form was
+  not built or measured.
 
 - Count first, then build, for the case-sensitive path. `strings.ReplaceAll`
   already counts the matches before building, so `replaceAllWithin` does the
