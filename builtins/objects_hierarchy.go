@@ -617,7 +617,9 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		default:
 			return types.Err(types.E_TYPE)
 		}
-		if start == types.ObjNothing {
+		// Toast rejects every negative start (objects.cc:1285), so the scan
+		// below never walks up from a large negative id.
+		if start < 0 {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -734,6 +736,17 @@ func builtinWaifStats(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(result)
 }
 
+// builtinWaifOwnerCount implements the Mongoose fork's waif_owner_count(OBJ):
+// the number of WAIFs owned by that object number. Anyone may ask about
+// themselves; asking about another object number needs a wizard.
+func builtinWaifOwnerCount(ctx *Execution, args []types.Value) types.Result {
+	owner := args[0].ID()
+	if owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	return types.Ok(types.NewInt(int64(ctx.Store.WaifCountByOwner(owner))))
+}
+
 func objectsHierarchyDescriptors() []Descriptor {
 	return []Descriptor{
 		function("parent", builtinParent, 1, 1, -1),
@@ -751,5 +764,6 @@ func objectsHierarchyDescriptors() []Descriptor {
 		function("recycled_objects", builtinRecycledObjects, 0, 0),
 		function("recreate", builtinRecreate, 2, 3, 1, 1, 1),
 		function("waif_stats", builtinWaifStats, 0, 0),
+		function("waif_owner_count", builtinWaifOwnerCount, 1, 1, 1).withCapability(config.BarnExtensions),
 	}
 }

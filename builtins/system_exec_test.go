@@ -33,6 +33,43 @@ func TestExecInputHelper(t *testing.T) {
 	}
 }
 
+func TestExecSleepHelper(t *testing.T) {
+	if os.Getenv("BARN_EXEC_SLEEP_HELPER") == "1" {
+		time.Sleep(31 * time.Second)
+		fmt.Print("done")
+		os.Exit(0)
+	}
+}
+
+// Toast's exec() has no time limit: the task resumes only when the child
+// exits or the task is killed (src/exec.cc exec_complete,
+// deal_with_child_exit). A child that outlives 30 seconds must still deliver
+// its exit code and output.
+func TestBuiltinExecWaitsForChildPastThirtySeconds(t *testing.T) {
+	program := installExecTestBinary(t)
+	ctx, taskValue := sqliteAsyncCtx()
+	ctx.BeforeIrreversibleEffect = func(string) bool { return false }
+	result := admitTestBuiltin("exec", ctx, []types.Value{
+		types.NewList([]types.Value{types.NewStr(program), types.NewStr("-test.run=^TestExecSleepHelper$")}),
+		types.NewStr(""),
+		types.NewList([]types.Value{types.NewStr("BARN_EXEC_SLEEP_HELPER=1")}),
+	})
+	if result.Flow != types.FlowSuspend {
+		t.Fatalf("exec flow = %v, want suspend", result.Flow)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for taskValue.GetState() == task.TaskSuspended && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := taskValue.GetState(); got != task.TaskQueued {
+		t.Fatalf("task state = %v, want queued after the process finished", got)
+	}
+	want := types.NewList([]types.Value{types.NewInt(0), types.NewStr("done"), types.NewStr("")})
+	if !taskValue.WakeValue.Equal(want) {
+		t.Fatalf("exec result = %v, want %v", taskValue.WakeValue, want)
+	}
+}
+
 func TestBuiltinExecPassesInputWithEnvironmentArgument(t *testing.T) {
 	program := installExecTestBinary(t)
 

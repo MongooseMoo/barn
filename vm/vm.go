@@ -1191,6 +1191,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		idx := vm.FetchByte()
 		vm.Push(vm.CurrentFrame().Program.Constants[idx])
 
+	case bytecode.OP_PUSH_WIDE:
+		idx := vm.ReadShort()
+		vm.Push(vm.CurrentFrame().Program.Constants[idx])
+
 	case bytecode.OP_POP:
 		vm.Pop()
 

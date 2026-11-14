@@ -265,6 +265,8 @@ var builtinLayout = []string{
 	"string_width",
 	"graphemes",
 	"tz_offset",
+	"validate_string_lines",
+	"waif_owner_count",
 }
 
 // Descriptors assembles the native catalog with owner-supplied functions such

@@ -458,12 +458,7 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 // time with default 5, as Toast's server_int_option does; Toast passes it to
 // set_timer as an unsigned seconds count (network.cc:1122).
 func outboundConnectTimeout(ctx *Execution) time.Duration {
-	seconds := int64(5)
-	if options, err := findPropertyForRead(ctx, 0, "server_options"); err == types.E_NONE && options.Value.Type() == types.TYPE_OBJ {
-		if prop, err := findPropertyForRead(ctx, options.Value.Obj(), "outbound_connect_timeout"); err == types.E_NONE && prop.Value.Type() == types.TYPE_INT {
-			seconds = int64(uint32(prop.Value.Int()))
-		}
-	}
+	seconds := uint32(serverIntOption(ctx, "outbound_connect_timeout", 5))
 	return time.Duration(seconds) * time.Second
 }
 

@@ -63,6 +63,8 @@ func main() {
 	flag.StringVar(&cfg.Ancestry, "ancestry", "", "Show full parent chain")
 	flag.StringVar(&cfg.GrepVerbs, "grep-verbs", "", "Print every verb source line matching a regular expression as #obj:verb:line: text")
 	flag.StringVar(&cfg.DumpPath, "dump", "", "Dump database, reload and verify it, then exit")
+	flag.BoolVar(&cfg.OfflineCheckpoint, "offline-checkpoint", false, "Write the database as a full checkpoint (-db path + .new, with its tasks, connections and WAIF sidecar) without running anything, then exit")
+	flag.BoolVar(&cfg.OmitSuspended, "omit-suspended", false, "With -offline-checkpoint, leave suspended and interrupted tasks out of the written file")
 	flag.BoolVar(&cfg.MemoryReport, "memory-report", false, "Load the database, collect garbage, print retained heap and property-slot counts, then exit")
 	flag.StringVar(&cfg.MemoryProfile, "memory-profile", "", "With -memory-report, also write a pprof heap profile to this path")
 	flag.IntVar(&cfg.CheckpointInterval, "checkpoint-interval", cfg.CheckpointInterval, "Checkpoint interval in seconds (0=disabled)")

@@ -8,7 +8,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
-	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
 	"github.com/MongooseMoo/barn/task"
@@ -64,10 +63,7 @@ func executeFuzzSource(t *testing.T, world sourceFuzzWorld, source string, mustC
 // State and compiler caches are private to this input, with no server.
 func compileFuzzSource(t *testing.T, source string) (*builtins.Registry, *bytecode.Program, []compiler.Diagnostic) {
 	t.Helper()
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := newSourceFuzzRegistry(t, t.Skipf)
 	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
 	return registry, program, diagnostics
 }
