@@ -22,6 +22,9 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
   verb_code does. Barn's set_verb_code stores the formatter's output, which
   turns `else` + nested `if` into `elseif`, so for a verb programmed under Barn
   verb_ast reports elseif arms where Toast reports the nested if.
+- validate_ast: done; 6 of 6 cases pass on Barn. `astBuilder` in `builtins/ast.go`
+  mirrors the fork's `build_*` checks, their order, paths and messages, and
+  builds an `ir.Program`; unparse_ast will print that program.
 - Shared pieces added (no behaviour change): `compiler.NativeVariableNames`,
   `parser.{Binary,Unary}Operator{Spelling,FromSpelling}`, `parser.IsIdentifier`,
   `types.TypeCode.ToastName` (moved from vm), `readableDescribedVerb` (verb_code's checks).
@@ -52,4 +55,6 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
 
 ## Next step
 
-validate_ast, then unparse_ast, committing each.
+unparse_ast: print the builder's program through `parser/format.go` with
+options that only unparse_ast turns on (asked team-lead whether to correct the
+formatter itself instead; see the work-10 report).
