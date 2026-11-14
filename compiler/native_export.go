@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
@@ -96,6 +97,9 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 			return frame, 0, fmt.Errorf("pending finally reason has no Toast form")
 		}
 	}
+	if site.ClearUnknown {
+		return frame, 0, fmt.Errorf("which variables Toast holds unbound at the call depends on the path into its block")
+	}
 
 	// What Barn holds, by the Toast origin it was computed from.
 	barn := importing.calls[node]
@@ -151,6 +155,11 @@ func (c *Compiler) ExportNativeFrame(frame task.VMFrameSnapshot, top bool) (task
 	exported.Program = bytecode.Program{Source: frame.Program.Source}
 	exported.Locals = nil
 	for _, name := range layout.VariableNames {
+		// A variable Toast's OP_PUSH_CLEAR has unbound is left unbound, as Toast
+		// holds it; Barn still holds its last value.
+		if slices.Contains(site.Cleared, name) {
+			continue
+		}
 		if value, ok := nativeVariable(frame, name); ok {
 			exported.Program.VarNames = append(exported.Program.VarNames, name)
 			exported.Locals = append(exported.Locals, value)

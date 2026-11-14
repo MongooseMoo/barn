@@ -2,6 +2,7 @@ package engine
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -265,6 +266,14 @@ func TestBarnSuspendedTaskShapesCheckpointAsToastFrames(t *testing.T) {
 					}
 				}
 				for slot, name := range before.Program.VarNames {
+					// A variable Toast holds unbound at the call (OP_PUSH_CLEAR)
+					// is not in the exported frame and comes back unbound.
+					if !slices.ContainsFunc(exported.Frames[index].Program.VarNames, func(kept string) bool { return strings.EqualFold(kept, name) }) {
+						if !frame.Locals[slot].IsUnbound() {
+							t.Fatalf("frame %d variable %s = %s, want unbound", index, name, frame.Locals[slot])
+						}
+						continue
+					}
 					if !frame.Locals[slot].Equal(before.Locals[slot]) {
 						t.Fatalf("frame %d variable %s = %s, want %s", index, name, frame.Locals[slot], before.Locals[slot])
 					}
@@ -363,6 +372,47 @@ func TestCheckpointKeepsBarnFormTaskBesideToastFormTasks(t *testing.T) {
 		if got, code := resumedStore.DirectTxn().PropertyValue(0, property); code != types.E_NONE || got.String() != want {
 			t.Fatalf("#0.%s = %s (%s), want %s", property, got, code, want)
 		}
+	}
+}
+
+// Toast compiles the last push of a variable before a store of it, or before
+// the end of the verb, in one basic block as OP_PUSH_CLEAR, which unbinds it
+// (code_gen.cc BYTECODE_REDUCE_REF). At the suspend below Toast holds `a`
+// unbound (its push into `b` is its last use) and `b` bound (pushed after the
+// suspend), so the exported frame names b and not a.
+func TestExportedFrameUnbindsVariablesToastPushCleared(t *testing.T) {
+	store := newToastExportStore(t, nil)
+	rt := newTestRuntimeWithBuiltins(t, store)
+	suspended := pauseBarnTask(t, rt, "a = {1};\nb = {a};\nsuspend(100);\n#0.log = b;")
+	rt.Stop()
+	if len(suspended) != 1 || len(suspended[0].VM.Frames) != 1 || suspended[0].VM.Frames[0].Native == nil {
+		t.Fatal("task was not exported in Toast's form")
+	}
+	frame := suspended[0].VM.Frames[0]
+	named := map[string]bool{}
+	for _, name := range frame.Program.VarNames {
+		named[strings.ToLower(name)] = true
+	}
+	if named["a"] || !named["b"] {
+		t.Fatalf("exported variables %v, want b without a", frame.Program.VarNames)
+	}
+}
+
+// A jump into the call's basic block between a cleared push and the call
+// makes the cleared set depend on the path; the task stays in Barn's form.
+func TestExportRefusesPathDependentPushClear(t *testing.T) {
+	store := newToastExportStore(t, nil)
+	rt := newTestRuntimeWithBuiltins(t, store)
+	// `n` is pushed (into m) and stored again in the while condition's block,
+	// whose loop top lies between: on the first pass the condition's call sees
+	// n cleared, on later passes bound.
+	suspended := pauseBarnTask(t, rt, "n = 1;\nm = n;\nwhile ((n = suspend(100)) == 0)\nendwhile\n#0.log = {m, n};")
+	rt.Stop()
+	if len(suspended) != 1 {
+		t.Fatalf("suspended = %d, want 1", len(suspended))
+	}
+	if suspended[0].VM.Frames[0].Native != nil {
+		t.Fatal("path-dependent frame was written in Toast's form")
 	}
 }
 

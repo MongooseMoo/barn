@@ -33,6 +33,19 @@ default, leaves such tasks out to make a file Toast can load.
   right results. The old Barn form fails Toast's load ("Bad PC for suspended task").
 - Real dump census (scratch, deleted): all 12 saved-frame tasks of the 2026-11-12
   Mongoose dump import and export back to Toast's own pc, error pc, stack, vector.
+- First CI run had two red required checks, both fixed:
+  - Conformance `startup_panic_live_waif_anon_roots`: the export kept variables
+    Toast had unbound with OP_PUSH_CLEAR, so `WAIF` (written first) took the
+    WAIF's `c` creation record and `state` got an `r`. Toast's own panic file
+    (managed probes) holds `WAIF` as type 6 (NONE). The layout now models Toast's
+    BYTECODE_REDUCE_REF pass (`nativeVector.clearedAt`) and the export leaves
+    those variables unbound; the test passes on Barn through the managed harness.
+  - Checkpoint durability campaign: `scripts/jepsen_checkpoint.py`
+    `invalidate_task_fingerprint` flips a Barn-form frame's program fingerprint;
+    the "invalid" task became Toast form, which has none. `invalid_body` now
+    suspends inside a finally clause, a shape Barn keeps in its own form. The
+    campaign's transport-fault recovery-failure lines come from the
+    transport-stall control, whose expected witness that is.
 
 ## Decisions and why
 
@@ -55,6 +68,15 @@ default, leaves such tasks out to make a file Toast can load.
   computed except codes, operands Barn no longer holds, stacks longer than
   Toast's max_stack, a program that is not the tables' compile.
 - The Barn-form frame writer stays: live tasks in those shapes use it.
+- Unbound variables: Toast splits a vector into blocks at label and fork
+  operands and, scanning each block backward, compiles the last push of a slot
+  (< 32) before a store of it or an ending op as OP_PUSH_CLEAR (try-body ops set
+  no bits; a verb call keeps the implicit variables). A slot is unbound at a call
+  when its last access in the call's block before the call was such a push. When
+  a label inside the block (a jump target) gives another answer, the frame is
+  refused and the task stays in Barn form rather than guessing the path.
+- The drop-policy check in the durability campaign needs a Barn-form task: only
+  Barn's form saves a program fingerprint; Toast's form saves source only.
 
 ## Surprises
 
@@ -72,7 +94,10 @@ default, leaves such tasks out to make a file Toast can load.
 
 ## Next step
 
-Push and let CI run the full suite (needs the lead / Q). Open: a durable managed
+Watch the PR's checks after the push with both fixes; then merge (coordinator).
+`invalidate_task_fingerprint` scans past the named task's section, so if the
+named task were ever Toast form it would flip a later Barn-form task's
+fingerprint; the finally-clause shape keeps it Barn form. Open: a durable managed
 Toast resume test in the repo; Toast loading a whole real Barn-written Mongoose
 checkpoint; the interrupted-task (read) writer path has no test of its own; wire
 `OmitBarnFrameTasks` into the offline checkpoint command on that branch.
