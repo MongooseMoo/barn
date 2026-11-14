@@ -2,6 +2,7 @@ package engine
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,55 @@ import (
 // barnCheckpointOfToastImport imports the native Toast checkpoint, whose root
 // frame is suspended inside Toast fork vector 0, writes the imported task as
 // a Barn checkpoint, and returns that checkpoint as the reader produced it.
+// Barn writes the task back in Toast's form, with the pc, operand stack,
+// variables and root vector Toast itself wrote.
 func barnCheckpointOfToastImport(t *testing.T) *dbformat.Database {
+	t.Helper()
+	database, reloaded := checkpointToastImport(t, func(rt *Runtime, _ int64) []task.Snapshot {
+		_, suspended := rt.TaskSnapshots()
+		return suspended
+	})
+	native := database.SuspendedTasks[0].Snapshot.VM
+	written := reloaded.SuspendedTasks[0].Snapshot.VM
+	if written.NativeRootVector != native.NativeRootVector || written.NativeFunctionID != 0 || len(written.Frames) != len(native.Frames) {
+		t.Fatalf("written VM vector/func/frames = %d/%d/%d, want %d/0/%d", written.NativeRootVector, written.NativeFunctionID, len(written.Frames), native.NativeRootVector, len(native.Frames))
+	}
+	for index, frame := range written.Frames {
+		want := native.Frames[index]
+		if frame.Native == nil || frame.Rebuild != nil {
+			t.Fatalf("frame %d was not written in Toast's form", index)
+		}
+		if frame.IP != want.IP || frame.Native.ErrorPC != want.Native.ErrorPC || len(frame.Stack) != len(want.Stack) {
+			t.Fatalf("frame %d pc/error pc/stack = %d/%d/%v, Toast wrote %d/%d/%v", index, frame.IP, frame.Native.ErrorPC, frame.Stack, want.IP, want.Native.ErrorPC, want.Stack)
+		}
+		for slot, value := range frame.Stack {
+			if !value.Equal(want.Stack[slot]) || frame.Native.OperandTypes[slot] != want.Native.OperandTypes[slot] {
+				t.Fatalf("frame %d stack slot %d = %s (type %d), Toast wrote %s (type %d)", index, slot, value, frame.Native.OperandTypes[slot], want.Stack[slot], want.Native.OperandTypes[slot])
+			}
+		}
+		// Every variable Toast wrote bound, Barn writes with the same value.
+		for slot, name := range want.Program.VarNames {
+			if want.Locals[slot].IsUnbound() || want.Locals[slot].IsNone() {
+				continue
+			}
+			found := false
+			for writtenSlot, writtenName := range frame.Program.VarNames {
+				if strings.EqualFold(name, writtenName) {
+					found = frame.Locals[writtenSlot].Equal(want.Locals[slot])
+				}
+			}
+			if !found {
+				t.Fatalf("frame %d variable %s is not written as Toast wrote it", index, name)
+			}
+		}
+	}
+	return reloaded
+}
+
+// checkpointToastImport imports the native Toast fixture task (not due),
+// writes the snapshots capture returns as a checkpoint, and returns the
+// fixture and the reloaded checkpoint.
+func checkpointToastImport(t *testing.T, capture func(rt *Runtime, id int64) []task.Snapshot) (*dbformat.Database, *dbformat.Database) {
 	t.Helper()
 	database := loadNativeImportFixture(t, "testdata/toast-suspended-call.db", "51158bee3d37e0b59225611e3a138dd274261e4c5993a8846f73fc74d229f0d8")
 	if got := database.SuspendedTasks[0].Snapshot.VM.NativeRootVector; got != 0 {
@@ -32,25 +81,25 @@ func barnCheckpointOfToastImport(t *testing.T) *dbformat.Database {
 	if err := rt.LoadSuspendedTasks(database.SuspendedTasks); err != nil {
 		t.Fatal(err)
 	}
-	queued, suspended := rt.TaskSnapshots()
+	if origin := rt.GetTask(saved.Snapshot.ID).PersistenceSnapshot().VM.Frames[0].Program.Origin; !origin.Native || origin.NativeVector != 0 || origin.Fork != 0 {
+		t.Fatalf("imported root frame origin = %+v, want Toast fork vector 0", origin)
+	}
+	suspended := capture(rt, saved.Snapshot.ID)
 	if len(suspended) != 1 {
 		t.Fatalf("suspended snapshots = %d, want 1", len(suspended))
 	}
-	if origin := suspended[0].VM.Frames[0].Program.Origin; !origin.Native || origin.NativeVector != 0 || origin.Fork != 0 {
-		t.Fatalf("imported root frame origin = %+v, want Toast fork vector 0", origin)
-	}
 	path := filepath.Join(t.TempDir(), "barn.db")
-	if err := dbformat.WriteCheckpoint(path, store, queued, suspended, nil); err != nil {
+	if err := dbformat.WriteCheckpoint(path, store, nil, suspended, nil); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := dbformat.LoadDatabase(path + ".new")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.SuspendedTasks) != 1 || reloaded.SuspendedTasks[0].Snapshot.VM.Frames[0].Rebuild == nil {
-		t.Fatal("Barn checkpoint lost the imported task or wrote its bytecode")
+	if len(reloaded.SuspendedTasks) != 1 {
+		t.Fatal("checkpoint lost the imported task")
 	}
-	return reloaded
+	return database, reloaded
 }
 
 // A Toast task suspended in a fork body, imported, then checkpointed by
@@ -121,7 +170,14 @@ func TestLoadSuspendedTaskWithNegativeStartTimeStaysIndefinite(t *testing.T) {
 // not what its source compiles to is dropped with an ERROR record and the
 // load goes on; any other restore failure still fails the load.
 func TestLoadSuspendedTasksDropsProgramMismatchOnly(t *testing.T) {
-	reloaded := barnCheckpointOfToastImport(t)
+	// Checkpoints written before Barn wrote Toast's form hold Barn frames
+	// that name their program by fingerprint; write one that way.
+	_, reloaded := checkpointToastImport(t, func(rt *Runtime, id int64) []task.Snapshot {
+		return []task.Snapshot{rt.GetTask(id).PersistenceSnapshot()}
+	})
+	if reloaded.SuspendedTasks[0].Snapshot.VM.Frames[0].Rebuild == nil {
+		t.Fatal("checkpoint of the Barn snapshot did not write a Barn frame")
+	}
 	store, err := reloaded.NewStoreFromDatabase()
 	if err != nil {
 		t.Fatal(err)
