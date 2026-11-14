@@ -19,9 +19,16 @@ is left out of the file and logged.
   the root vector and func_id 0; `bytecode.Program.ForkBody`;
   `barnImportLayout.forkDepths`; `compileNativeVector` also returns the whole
   layout; `lowerer.importSlotGap` shared by import and export.
-- Not done: Toast itself loading a Barn-written file (needs the managed Toast
-  build at the live commit); only the tests above were run, the rest of the
-  suite is for CI.
+- Toast proof, run by hand-written scratch tooling (not committed): a Barn
+  checkpoint of the public Test.db with two Barn-started suspended tasks (a fork
+  body while loop; verb frames with an operand, try/finally, catch expression),
+  loaded by the managed Toast build of the live fork commit through the managed
+  conformance harness: admission and the resume check passed. The same tasks
+  written in Barn's old form failed Toast's load with "Bad PC for suspended task".
+- Real dump census (scratch, not committed): all 12 tasks with saved frames on
+  the 2026-11-12 Mongoose dump import and export back to Toast's own pc, error
+  pc, operand stack and root vector.
+- Only the tests above were run; the rest of the suite is for CI.
 
 ## Decisions and why
 
@@ -58,5 +65,7 @@ is left out of the file and logged.
 
 ## Next step
 
-Run a Toast resume test on the managed Toast build at the live commit once it
-exists; then let CI run the full suite.
+Push and let CI run the full suite (needs the lead / Q). Open: make the Toast
+resume check a durable managed test; Toast loading a whole real Barn-written
+Mongoose checkpoint; the interrupted-task (read) writer path has no test of its
+own; decide whether the Barn-form frame writer, now reached only by tests, goes.
