@@ -617,7 +617,9 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		default:
 			return types.Err(types.E_TYPE)
 		}
-		if start == types.ObjNothing {
+		// Toast rejects every negative start (objects.cc:1285), so the scan
+		// below never walks up from a large negative id.
+		if start < 0 {
 			return types.Err(types.E_INVARG)
 		}
 	}
