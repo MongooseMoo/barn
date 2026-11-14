@@ -18,9 +18,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// move the shared file cursor, just like file_readline and file_seek.
 	// exec became ImplementationOwned: it crosses the boundary itself, after its
 	// argument, permission and path checks and just before starting the process.
-	// valid takes an optional STR second argument, the Mongoose fork's expected
-	// incarnation_id.
-	const expected = "0fe0e863237644e5e707da761e0390c78a6dca05f03b46ef628504c9cce07eea"
+	// Signature gained PromotedArgs; valid's is STR, the Mongoose fork's
+	// optional expected incarnation_id, admitted only under PROMOTE_NUMBERS.
+	const expected = "1f8ebea7b4e14c385335f2d209982022ab7b05413e63b828b0e33e8e01ddfae0"
 	type contract struct {
 		Name       string
 		Signature  *Signature

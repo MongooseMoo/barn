@@ -35,6 +35,24 @@ type Signature struct {
 	Alternatives     map[int][]int64
 	VariadicType     *int64
 	PlainArityError  bool
+	// PromotedArgs are optional trailing positions that the Mongoose fork of
+	// ToastStunt registers and stock ToastStunt does not. They are admitted,
+	// and reported by function_info, only under PROMOTE_NUMBERS, the option
+	// that is on exactly in the Mongoose fork profiles (profiles/barn/mongoose-*).
+	PromotedArgs []int64
+}
+
+// promoted returns the signature with PromotedArgs appended as optional
+// positions, or nil when it has none.
+func (s Signature) promoted() *Signature {
+	if len(s.PromotedArgs) == 0 {
+		return nil
+	}
+	p := cloneSignature(&s)
+	p.MaxArgs += int64(len(s.PromotedArgs))
+	p.ArgTypes = append(p.ArgTypes, s.PromotedArgs...)
+	p.PromotedArgs = nil
+	return &p
 }
 
 // Descriptor is the complete construction input for one builtin. Construction
@@ -68,6 +86,12 @@ func (d Descriptor) withLineSync() Descriptor { d.LineSync = true; return d }
 func (d Descriptor) plainArityError() Descriptor {
 	sig := cloneSignature(d.Signature)
 	sig.PlainArityError = true
+	d.Signature = &sig
+	return d
+}
+func (d Descriptor) promotedArgs(argTypes ...int64) Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.PromotedArgs = argTypes
 	d.Signature = &sig
 	return d
 }
@@ -125,6 +149,14 @@ func (d Descriptor) validate() error {
 	if s.VariadicType != nil && (s.MaxArgs != -1 || !validArgType(*s.VariadicType)) {
 		return bad("invalid variadic type")
 	}
+	if len(s.PromotedArgs) > 0 && s.MaxArgs == -1 {
+		return bad("promoted arguments on a variadic signature")
+	}
+	for _, typ := range s.PromotedArgs {
+		if !validArgType(typ) {
+			return bad("invalid promoted argument type")
+		}
+	}
 	return nil
 }
 
@@ -139,6 +171,7 @@ func validArgType(t int64) bool {
 func cloneSignature(s *Signature) Signature {
 	copy := *s
 	copy.ArgTypes = slices.Clone(s.ArgTypes)
+	copy.PromotedArgs = slices.Clone(s.PromotedArgs)
 	copy.Alternatives = make(map[int][]int64, len(s.Alternatives))
 	for i, alternatives := range s.Alternatives {
 		copy.Alternatives[i] = slices.Clone(alternatives)

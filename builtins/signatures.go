@@ -116,7 +116,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 		sort.Strings(names)
 		entries := make([]types.Value, 0, len(names))
 		for _, name := range names {
-			entries = append(entries, functionInfoEntry(name, r.entries[r.nameToID[name]].sig))
+			entries = append(entries, functionInfoEntry(name, *r.entries[r.nameToID[name]].signature(ctx)))
 		}
 		return types.Ok(types.NewList(entries))
 	}
@@ -129,7 +129,7 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 	if !found || r.entries[id].visibility == Hidden {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(functionInfoEntry(name, r.entries[id].sig))
+	return types.Ok(functionInfoEntry(name, *r.entries[id].signature(ctx)))
 }
 
 // debugCallFunction gates temporary call_function failure logging (shares the

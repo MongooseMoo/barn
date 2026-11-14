@@ -666,7 +666,9 @@ func builtinValid(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 
-	// Mongoose fork bf_valid (objects.cc): valid(object, expected) also
+	// Only under PROMOTE_NUMBERS does admission let a second argument through
+	// (Signature.PromotedArgs). Mongoose fork bf_valid (objects.cc):
+	// valid(object, expected) also
 	// requires the object's incarnation_id property, read with the ordinary
 	// read permission, to be a nonempty string equal to expected. A missing
 	// property does not match; an unreadable one raises E_PERM.
@@ -699,7 +701,9 @@ func objectsDescriptors() []Descriptor {
 	return []Descriptor{
 		function("create", builtinCreate, 1, 4, -1, -1, -1, -1),
 		function("recycle", builtinRecycle, 1, 1, -1),
-		function("valid", builtinValid, 1, 2, -1, int64(types.TYPE_STR)),
+		// Stock Toast registers valid(ANY); the Mongoose fork registers
+		// valid(ANY [, STR]) (objects.cc register_function("valid", 1, 2, ...)).
+		function("valid", builtinValid, 1, 1, -1).promotedArgs(int64(types.TYPE_STR)),
 		function("max_object", builtinMaxObject, 0, 0),
 	}
 }
