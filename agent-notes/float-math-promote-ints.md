@@ -28,12 +28,26 @@ Without the option, behaviour stays as it is. Nothing else.
   the fork's promotion commits, and its manifest is for the private Mongoose
   database, so no oracle pairing with Test.db exists.
 
+- Barn fix: `Signature.PromotedFloat` on the 23 math descriptors; admission
+  (`validateFunctionArgs`) and `function_info` treat their FLOAT positions as
+  numeric when `RuntimeOptions.PromoteNumbers` is on; the implementations read
+  arguments through `numberFloat`. Promote lane: test 6 passed, 2 skipped
+  (was 4 failed); strict lane unchanged at 3 passed, 5 skipped.
+
 ## Decisions and why
 
 - Fork registers these as TYPE_NUMERIC only under the option. Barn's registry
   is static, so the signature carries a flag and admission/function_info read
   `RuntimeOptions.PromoteNumbers` (same pattern as `OutboundNetwork` checks).
+- The promote lane ran without `--oracle-profile-manifest`: the profile gate
+  needs a PROMOTE_NUMBERS oracle manifest for Test.db, and none exists.
+
+## Surprises
+
+- The managed Mongoose Toast at 72e3c7f9 lacks the promotion commits.
 
 ## Next step
 
-See State.
+- Toast-first proof of the promote half needs a managed Mongoose Toast oracle
+  built from a ref containing `2a21a4e`, with a Test.db manifest. Not done.
+- Full Go test suite and full conformance suite were not run here; CI on a PR.
