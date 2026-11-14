@@ -196,7 +196,11 @@ func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) 
 	}
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
+		// Seed from every numbered object the dump writes a body for. An
+		// object flagged invalid but not recycled is still written in full
+		// (the snapshot loop below rewrites it too), so its references need
+		// plan entries like a valid object's.
+		if obj == nil || obj.recycled || obj.anonymous {
 			return true
 		}
 		// last_move is written with the object like a property value, so its
