@@ -329,8 +329,9 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.name(e.Pos, e.Name) + "(" + args + ")"
 
 	case *ir.SpliceExpr:
-		// The parser lets @ capture a whole conditional expression.
-		result := "@" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		// The parser lets @ capture a whole expression, assignments included,
+		// and Toast prints the spliced expression unbracketed.
+		result := "@" + f.expr(e.Expr, precedenceLowest, fullyParenthesized)
 		if parentPrecedence > precedenceTernary {
 			return "(" + result + ")"
 		}
