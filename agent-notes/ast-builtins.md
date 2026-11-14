@@ -13,9 +13,10 @@ Toast too. Reference: fork `src/ast_map.cc`, `src/unparse.cc`, `src/verbs.cc`,
 ## State
 
 - Tests: `tests/mongoose-conformance/builtins/{parse_ast,verb_ast,validate_ast,unparse_ast,verb_code_layout}.yaml`.
-  Expected values come from Toast: the AST files from the fork built at 0ff6fd7
-  (manifest `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`, now on master),
-  `verb_code_layout.yaml` from stock Toast (aecc51e), which gave identical text.
+  Expected values come from Toast: the AST files from the fork build that
+  `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` describes,
+  `verb_code_layout.yaml` from the stock oracle in
+  `profiles/toast/stock-wsl-testdb.json`, which gave identical text.
 - All four builtins in `builtins/ast.go`; unparse_ast prints through
   `parser.FormatUncheckedWith` (no ir.Validate: trees may nest 1000 deep).
 - Formatter commits, one per rule: indent argument; consequent/caught/assigned

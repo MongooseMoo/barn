@@ -3,7 +3,8 @@ description: >
   Mongoose ToastStunt fork builtin parse_ast(LIST code): the syntax tree of the
   compiled code as a list of statement maps. Each tree is compared through
   toliteral(), so node keys, their order and value types are all pinned.
-  Expected values were taken from the fork built at 0ff6fd7.
+  Expected values were taken from the fork build in
+  profiles/toast/mongoose-0ff6fd7-wsl-testdb.json.
 requires:
   features: [ast]
 tests:
@@ -70,7 +71,7 @@ tests:
           value: '{["type" -> "return", "value" -> ["items" -> {["object" -> ["name" -> "a", "type" -> "variable"], "property" -> ["type" -> "literal", "value" -> "b"], "type" -> "prop"], ["object" -> ["name" -> "a", "type" -> "variable"], "property" -> ["name" -> "b", "type" -> "variable"], "type" -> "prop"], ["object" -> ["type" -> "literal", "value" -> #0], "property" -> ["type" -> "literal", "value" -> "b"], "type" -> "prop"], ["object" -> ["name" -> "a", "type" -> "variable"], "property" -> ["type" -> "literal", "value" -> "c"], "type" -> "prop"], ["object" -> ["type" -> "literal", "value" -> #5], "property" -> ["type" -> "literal", "value" -> "d"], "type" -> "prop"]}, "type" -> "list"]]}'
 
   - name: waif_property_spelling
-    # Passes on the fork Toast (0ff6fd7). Barn's parser has no `x.:name'
+    # Passes on the fork Toast. Barn's parser has no `x.:name'
     # spelling, so Barn keeps this as a known difference from the fork.
     skip: "Known Barn difference: the parser does not accept the waif spelling x.:name"
     permission: programmer
