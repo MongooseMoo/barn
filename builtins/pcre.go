@@ -51,8 +51,12 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	out := make([]types.Value, 0)
+	maxLoops := pcreMatchMaxIterations(ctx)
 	m, merr := re.re.FindStringMatch(mapped)
-	for m != nil && merr == nil {
+	for loops := uint32(1); m != nil && merr == nil; loops++ {
+		if loops >= maxLoops {
+			return pcreTooManyIterations(loops)
+		}
 		entryPairs := make([][2]types.Value, 0, len(re.groups)+1)
 		entryPairs = append(entryPairs, [2]types.Value{
 			types.NewStr("0"),
@@ -85,6 +89,34 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewList(out))
+}
+
+// Toast's bf_pcre_match counts every pass of its match loop against
+// $server_options.pcre_match_max_iterations (pcre_moo.cc:198-202): default
+// DEFAULT_LOOPS, at least 100, at most 100000000. Toast assigns the option's
+// C int to an unsigned int, so a negative option wraps and takes the maximum.
+const (
+	pcreMatchDefaultLoops = 1000
+	pcreMatchMinLoops     = 100
+	pcreMatchMaxLoops     = 100000000
+)
+
+func pcreMatchMaxIterations(ctx *Execution) uint32 {
+	loops := uint32(serverIntOption(ctx, "pcre_match_max_iterations", pcreMatchDefaultLoops))
+	return min(max(loops, pcreMatchMinLoops), pcreMatchMaxLoops)
+}
+
+// pcreTooManyIterations is Toast's raise when a pass of the match loop finds a
+// match and the pass count has reached the limit (pcre_moo.cc:226-233). It
+// comes before that match is added, so limit-1 matches is the most a call
+// returns.
+func pcreTooManyIterations(loops uint32) types.Result {
+	message := "Too many iterations of matching loop: " + strconv.FormatUint(uint64(loops), 10)
+	return types.Result{
+		Flow:  types.FlowException,
+		Error: types.E_MAXREC,
+		Val:   types.NewList([]types.Value{types.NewErr(types.E_MAXREC), types.NewStr(message), types.NewInt(0)}),
+	}
 }
 
 // pcreByteOffsets maps regexp2's rune indices, which are MOO character

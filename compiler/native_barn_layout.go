@@ -148,6 +148,8 @@ func (s *barnImportLayout) flush(c *lowerer) {
 		value = barnImportValue{literal: types.NewInt(int64(bytecode.GetImmediateValue(op))), isLiteral: true}
 	case op == bytecode.OP_PUSH:
 		value = barnImportValue{literal: c.program.Constants[operands[0]], isLiteral: true}
+	case op == bytecode.OP_PUSH_WIDE:
+		value = barnImportValue{literal: c.program.Constants[binary.BigEndian.Uint16(operands)], isLiteral: true}
 	case op == bytecode.OP_PUSH_INT:
 		value = barnImportValue{literal: types.NewInt(int64(binary.BigEndian.Uint64(operands))), isLiteral: true}
 	case op == bytecode.OP_GET_VAR:

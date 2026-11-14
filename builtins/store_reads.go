@@ -162,6 +162,25 @@ func findPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstor
 	return readTxn(ctx).FindProperty(objID, name)
 }
 
+// serverIntOption reads $server_options.<name> at call time, as Toast's
+// server_int_option does (server.cc:1420-1428): the value when it is an
+// integer, truncated to a C int, otherwise defallt. An execution without a
+// store has no $server_options.
+func serverIntOption(ctx *Execution, name string, defallt int32) int32 {
+	if ctx == nil || readTxn(ctx) == nil {
+		return defallt
+	}
+	options, err := findPropertyForRead(ctx, 0, "server_options")
+	if err != types.E_NONE || options.Value.Type() != types.TYPE_OBJ {
+		return defallt
+	}
+	prop, err := findPropertyForRead(ctx, options.Value.Obj(), name)
+	if err != types.E_NONE || prop.Value.Type() != types.TYPE_INT {
+		return defallt
+	}
+	return int32(prop.Value.Int())
+}
+
 func localPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.PropertyView, bool, types.ErrorCode) {
 	return readTxn(ctx).LocalProperty(objID, name)
 }
