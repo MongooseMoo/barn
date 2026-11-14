@@ -23,7 +23,11 @@ Without the option, behaviour stays as it is. Nothing else.
 - Conformance candidate test
   `tests/mongoose-conformance/builtins/float_math_integer_promotion.yaml`:
   strict half passes on stock WSL Toast; promote half skips there.
-- Toast-first proof of the promote half is missing: the managed Mongoose
+- Toast-first proof of the promote half now exists: 5 passed on the fork built
+  at the live commit, through the managed harness (profile
+  `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`, added by the branch
+  `managed-toast-live-commit`). Pull request open. The rest of this item and
+  the Next step describe the state before that build: the managed Mongoose
   Toast (`profiles/toast/mongoose-wsl-mongoose.json`, ref 72e3c7f9) predates
   the fork's promotion commits, and its manifest is for the private Mongoose
   database, so no oracle pairing with Test.db exists.
