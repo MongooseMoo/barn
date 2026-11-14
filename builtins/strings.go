@@ -53,21 +53,51 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 		caseSensitive = args[3].Truthy()
 	}
 
-	var result string
-	if caseSensitive {
-		result = strings.ReplaceAll(subj, oldStr, newStr)
-	} else {
-		// Case-insensitive replacement
-		result = replaceAllCaseInsensitive(subj, oldStr, newStr)
-	}
-
-	// Check string length limit (update from load_server_options cache first)
+	// The limit is read (from the load_server_options cache) before the result
+	// is built, so a result over it is refused without being allocated: the
+	// result's size is count(old) * len(new), which a caller can make quadratic
+	// in its inputs. Toast's bf_strsub stops the same way, at its stream limit.
 	ctx.Session.UpdateContextLimits(ctx.Context)
-	if errCode := ctx.CheckStringLimit(len(result)); errCode != types.E_NONE {
+
+	var result string
+	var errCode types.ErrorCode
+	if caseSensitive {
+		result, errCode = replaceAllWithin(ctx, subj, oldStr, newStr)
+	} else {
+		result, errCode = replaceAllCaseInsensitive(ctx, subj, oldStr, newStr)
+	}
+	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewStr(result))
+}
+
+// replaceAllWithin is strings.ReplaceAll for a non-empty old, except that it
+// returns ctx.CheckStringLimit's error, having allocated nothing, when the
+// result would be over the string limit. It counts the matches once and then
+// builds, the same work strings.ReplaceAll does.
+func replaceAllWithin(ctx *Execution, s, old, new string) (string, types.ErrorCode) {
+	matches := strings.Count(s, old)
+	size := len(s) + matches*(len(new)-len(old))
+	if errCode := ctx.CheckStringLimit(size); errCode != types.E_NONE {
+		return "", errCode
+	}
+	if matches == 0 {
+		return s, types.E_NONE
+	}
+
+	var result strings.Builder
+	result.Grow(size)
+	start := 0
+	for range matches {
+		match := start + strings.Index(s[start:], old)
+		result.WriteString(s[start:match])
+		result.WriteString(new)
+		start = match + len(old)
+	}
+	result.WriteString(s[start:])
+	return result.String(), types.E_NONE
 }
 
 // builtinIndex finds the first occurrence of needle in haystack
@@ -420,11 +450,13 @@ func matchCharCase(original, replacement string) string {
 
 // replaceAllCaseInsensitive performs case-insensitive string replacement,
 // matching character by character and copying unmatched characters' raw bytes.
-func replaceAllCaseInsensitive(s, old, new string) string {
+// It returns ctx.CheckStringLimit's error when the result would be over the
+// string limit, and stops building at the replacement that would pass it.
+func replaceAllCaseInsensitive(ctx *Execution, s, old, new string) (string, types.ErrorCode) {
 	sv := types.CharViewOf(s)
 	ov := types.CharViewOf(old)
 	if ov.Len() == 0 {
-		return s
+		return s, ctx.CheckStringLimit(len(s))
 	}
 
 	var result strings.Builder
@@ -440,6 +472,9 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 				}
 			}
 			if match {
+				if errCode := ctx.CheckStringLimit(result.Len() + len(new)); errCode != types.E_NONE {
+					return "", errCode
+				}
 				result.WriteString(new)
 				i += ov.Len()
 				continue
@@ -449,7 +484,12 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 		i++
 	}
 
-	return result.String()
+	// Unmatched characters are not checked as they are copied: they add at
+	// most len(s) bytes.
+	if errCode := ctx.CheckStringLimit(result.Len()); errCode != types.E_NONE {
+		return "", errCode
+	}
+	return result.String(), types.E_NONE
 }
 
 // ============================================================================
