@@ -9,7 +9,7 @@ Nothing else: no configurable timeout.
 
 ## State
 
-Done on branch `exec-no-time-limit`, committed locally, not pushed.
+Done on branch `exec-no-time-limit`; pull request open.
 
 - `builtins/system.go`: the task path uses `context.WithCancel` (kill_task
   still cancels it) instead of a 30-second `context.WithTimeout`; the
@@ -43,4 +43,4 @@ Done on branch `exec-no-time-limit`, committed locally, not pushed.
 
 ## Next step
 
-Review, push and PR are for the owner to decide.
+CI on the pull request, including the Linux run this change has not had.
