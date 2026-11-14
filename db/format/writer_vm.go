@@ -140,7 +140,7 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 // its temporary and its pc. The reader reads it back as a native frame.
 func (w *Writer) writeNativeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
 	native := frame.Native
-	if len(native.OperandTypes) != len(frame.Stack) || len(frame.Locals) != len(frame.Program.VarNames) || native.Builtin != nil || frame.BuiltinPC != 0 {
+	if len(native.OperandTypes) != len(frame.Stack) || len(frame.Locals) != len(frame.Program.VarNames) || (native.Builtin != nil) != (frame.BuiltinPC != 0) {
 		return fmt.Errorf("native frame is incomplete")
 	}
 	if err := w.writeString(fmt.Sprintf("language version %d", native.LanguageVersion)); err != nil {
@@ -192,8 +192,38 @@ func (w *Writer) writeNativeVMFrame(frame task.VMFrameSnapshot, activation types
 	if err := w.writeValue(native.Temporary); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w.w, "%d 0 %d\n", frame.IP, native.ErrorPC)
-	return err
+	if _, err := fmt.Fprintf(w.w, "%d %d %d\n", frame.IP, frame.BuiltinPC, native.ErrorPC); err != nil {
+		return err
+	}
+	if native.Builtin == nil {
+		return nil
+	}
+	// A frame suspended inside a builtin: its name, then the state Toast's
+	// write_bi_func_data wrote, as readNativeBuiltin reads them back.
+	if err := w.writeString(native.Builtin.Name); err != nil {
+		return err
+	}
+	return w.writeNativeBuiltinData(native.Builtin)
+}
+
+// writeNativeBuiltinData writes the builtin state readNativeBuiltinFor
+// retained: one line for create, recreate, recycle and move, and for
+// call_function its line naming the inner builtin followed by that builtin's
+// own state. Other builtins wrote no state.
+func (w *Writer) writeNativeBuiltinData(saved *task.NativeBuiltinSnapshot) error {
+	switch saved.Name {
+	case "create", "recreate", "recycle", "move":
+		return w.writeString(saved.State)
+	case "call_function":
+		if saved.Inner == nil {
+			return fmt.Errorf("native call_function continuation lacks its inner builtin")
+		}
+		if err := w.writeString(saved.State); err != nil {
+			return err
+		}
+		return w.writeNativeBuiltinData(saved.Inner)
+	}
+	return nil
 }
 
 // orderedBoundLocalIndices keeps ordinary environment order while moving a
