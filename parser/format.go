@@ -377,6 +377,11 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 			val := f.expr(pair.Value, precedenceLowest, fullyParenthesized)
 			pairs = append(pairs, key+" -> "+val)
 		}
+		// Toast's unparser gives a map no precedence, so every operand
+		// position brackets it.
+		if parentPrecedence != precedenceLowest {
+			return "([" + strings.Join(pairs, ", ") + "])"
+		}
 		return "[" + strings.Join(pairs, ", ") + "]"
 
 	default:
