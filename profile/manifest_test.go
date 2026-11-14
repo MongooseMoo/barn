@@ -184,6 +184,15 @@ func TestCommittedToastOracleManifests(t *testing.T) {
 			configSHA256:   "6c855f6b1f2dd584ba949d42891018ca68eccd34bd75b7e2300428b9246724a9",
 			promoteNumbers: true,
 		},
+		{
+			file:           "mongoose-0ff6fd7-wsl-testdb.json",
+			profileID:      "toast-mongoose-0ff6fd7-wsl-testdb",
+			fixture:        "testdb",
+			databaseSHA256: "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+			implementation: "0ff6fd77659bd0ad001176dffdd007f854afa96b",
+			configSHA256:   "d9739c2df81aaae6d1749d2515e2cb0feb972439af25e473b2da391282052d6c",
+			promoteNumbers: true,
+		},
 	}
 
 	for _, test := range tests {

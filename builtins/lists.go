@@ -905,6 +905,22 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
+// builtinValidateStringLines implements the Mongoose fork's
+// validate_string_lines(LIST): 1 when every row is a string without LF or CR.
+// Rows are checked in order, so the first offending row decides: E_TYPE for a
+// non-string, E_INVARG for a line break.
+func builtinValidateStringLines(ctx *Execution, args []types.Value) types.Result {
+	for _, row := range args[0].Elements() {
+		if row.Type() != types.TYPE_STR {
+			return types.Err(types.E_TYPE)
+		}
+		if strings.ContainsAny(row.Str(), "\n\r") {
+			return types.Err(types.E_INVARG)
+		}
+	}
+	return types.Ok(types.NewInt(1))
+}
+
 func listsDescriptors() []Descriptor {
 	return []Descriptor{
 		function("listappend", builtinListappend, 2, 3, 4, -1, 0),
@@ -918,5 +934,6 @@ func listsDescriptors() []Descriptor {
 		function("reverse", builtinReverse, 1, 1, -1),
 		function("unique", builtinUnique, 1, 1, 4).plainArityError().hidden().withCapability(config.BarnExtensions),
 		function("slice", builtinSlice, 1, 3, 4, -1, -1),
+		function("validate_string_lines", builtinValidateStringLines, 1, 1, 4).withCapability(config.BarnExtensions),
 	}
 }
