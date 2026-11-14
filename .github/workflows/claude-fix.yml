@@ -390,12 +390,24 @@ jobs:
             echo "$other"
             exit 0
           fi
-          if gh api -X PUT "repos/$SUITE/pulls/$number/merge" -f merge_method=merge --silent; then
+          # Merge through auto-merge, which waits for the required checks. This token
+          # bypasses the suite's branch protection, so a direct merge landed #202
+          # before its 32-bit Toast run failed, and the suite's main went red.
+          if [ "$(gh api "repos/$SUITE/pulls/$number" --jq .mergeable_state)" = behind ]; then
+            gh api -X PUT "repos/$SUITE/pulls/$number/update-branch" --silent
+          fi
+          node=$(gh api "repos/$SUITE/pulls/$number" --jq .node_id)
+          if gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id="$node" --silent; then
+            echo "Conformance pull request #$number will merge when its required checks pass."
+            exit 0
+          fi
+          # Auto-merge refuses a pull request whose required checks have all passed.
+          # (clean, or unstable when only a check that is not required failed).
+          state=$(gh api "repos/$SUITE/pulls/$number" --jq .mergeable_state)
+          if [ "$state" = clean ] || [ "$state" = unstable ]; then
+            gh api -X PUT "repos/$SUITE/pulls/$number/merge" -f merge_method=merge --silent
             echo "Merged conformance pull request #$number."
             exit 0
           fi
-          # Not mergeable yet: bring it up to date and let it merge when its checks pass.
-          gh api -X PUT "repos/$SUITE/pulls/$number/update-branch" --silent || echo "Branch was already up to date."
-          node=$(gh api "repos/$SUITE/pulls/$number" --jq .node_id)
-          gh api graphql -f query='mutation($id: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { clientMutationId } }' -f id="$node"
-          echo "Conformance pull request #$number will merge when its required checks pass."
+          echo "::error::Conformance pull request #$number could not be set to merge."
+          exit 1

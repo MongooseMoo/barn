@@ -403,7 +403,10 @@ class BarnProcessTests(OwnerFixture, unittest.TestCase):
                                          profile_id="barn-linux-testdb-outbound-on")
             self.assertEqual(owner.command[owner.command.index("--profile-id") + 1], "barn-linux-testdb-outbound-on")
             self.assertEqual(owner.identity["profile_id"], "barn-linux-testdb-outbound-on")
-            self.assertEqual(owner.expected_features, {"option.OUTBOUND_NETWORK": True,
+            self.assertEqual(owner.expected_features, {"feature.bracketed_first_index_before_property": True,
+                                                       "feature.unfolded_double_negation": True,
+                                                       "feature.no_waif_colon_property": True,
+                                                       "option.OUTBOUND_NETWORK": True,
                                                        "builtin.open_network_connection": "present"})
             with self.assertRaisesRegex(RuntimeError, "unavailable"):  # config must be the registered one
                 barn.OwnedBarnServer(root / "barn", root / "Test.db", root, 17779,

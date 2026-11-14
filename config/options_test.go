@@ -13,6 +13,9 @@ func TestDefaultOptions(t *testing.T) {
 	if options.PromoteNumbers {
 		t.Fatal("default PROMOTE_NUMBERS should be disabled")
 	}
+	if options.ValidIncarnation {
+		t.Fatal("default VALID_INCARNATION should be disabled")
+	}
 }
 
 func TestAdmissionConfiguration(t *testing.T) {
@@ -72,7 +75,13 @@ func TestConflictCensusConfiguration(t *testing.T) {
 }
 
 func TestFeatureMap(t *testing.T) {
-	on := Options{OutboundNetwork: true, PromoteNumbers: true}.FeatureMap()
+	on := Options{OutboundNetwork: true, PromoteNumbers: true, ValidIncarnation: true}.FeatureMap()
+	if on[FeatureValidIncarnation] != true {
+		t.Fatalf("valid incarnation feature = %v, want true", on[FeatureValidIncarnation])
+	}
+	if got, present := (Options{}).FeatureMap()[FeatureValidIncarnation]; !present || got != false {
+		t.Fatalf("disabled valid incarnation feature = %v (present %v), want false", got, present)
+	}
 	if on[FeatureOutboundNetwork] != true {
 		t.Fatalf("enabled outbound feature = %v, want true", on[FeatureOutboundNetwork])
 	}
@@ -111,10 +120,13 @@ func TestFeatureNames(t *testing.T) {
 }
 
 func TestParseOptions(t *testing.T) {
-	text := "# comment\nOUTBOUND_NETWORK = 0\nPROMOTE_NUMBERS = 1\n"
+	text := "# comment\nOUTBOUND_NETWORK = 0\nPROMOTE_NUMBERS = 1\nVALID_INCARNATION = 1\n"
 	options, err := Parse(strings.NewReader(text), "test.conf")
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
+	}
+	if !options.ValidIncarnation {
+		t.Fatal("ValidIncarnation = false, want true")
 	}
 	if options.OutboundNetwork {
 		t.Fatal("OutboundNetwork = true, want false")

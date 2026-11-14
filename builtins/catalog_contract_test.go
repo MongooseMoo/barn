@@ -20,7 +20,9 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// argument, permission and path checks and just before starting the process.
 	// Signature gained PromotedFloat, set on the 22 float math builtins whose
 	// FLOAT positions admit INT under PROMOTE_NUMBERS.
-	const expected = "2beceba5ecca9d4eed7b733bf8f85d665b22da0b312bc5e639a86a2916f97e0e"
+	// Signature gained IncarnationArgs; valid's is STR, the Mongoose fork's
+	// optional expected incarnation_id, admitted only under VALID_INCARNATION.
+	const expected = "36032f1c0c88a7cedfce6ee57da82b666f12d881aa9f78d8cf8a015dd41fc5bb"
 	type contract struct {
 		Name       string
 		Signature  *Signature

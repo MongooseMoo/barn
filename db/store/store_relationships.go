@@ -92,6 +92,9 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 	s.reseedInheritedPropertiesLocked(obj, oldParents, ts)
 	stampObjectRelationship(obj, ts)
 	stampObjectProperties(obj, ts)
+	// A verb walk that scanned obj went on to these parents; its scan mark is
+	// what fails the walker's commit.
+	stampObjectVerbs(obj, ts)
 	for _, parentID := range obj.parents {
 		stampObjectRelationship(s.load(parentID), ts)
 	}

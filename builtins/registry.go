@@ -74,11 +74,14 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // (un-wrapped) function plus its argument signature so the dispatch path can
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
-	name       string
-	bfName     types.Value // "bf_" + name, the #0 wrapper verb of a protected call
-	id         int         // index in Registry.entries; keys protectedSet.byID
-	fn         BuiltinFunc // builtin plus replay-safety marker; validation stays inline
-	sig        Signature
+	name   string
+	bfName types.Value // "bf_" + name, the #0 wrapper verb of a protected call
+	id     int         // index in Registry.entries; keys protectedSet.byID
+	fn     BuiltinFunc // builtin plus replay-safety marker; validation stays inline
+	sig    Signature
+	// optionSig is sig.optionSignature(), used while sig.optionEnabled; nil
+	// when sig names no runtime option.
+	optionSig  *Signature
 	visibility Visibility
 	lineSync   bool
 	// protectedSite is the VM's call site for the bf_ wrapper, filled on the
@@ -144,11 +147,12 @@ func (r *Registry) install(d Descriptor) {
 	// Get()/Has()/call_function(), which invoke the returned fn directly. The
 	// hot CallByID/CallByName path uses entry.fn + inline validation instead, so
 	// it never pays for the closure indirection.
-	sig := cloneSignature(d.Signature)
-	entry.sig = sig
+	entry.sig = cloneSignature(d.Signature)
+	entry.optionSig = entry.sig.optionSignature()
 	stored := func(ctx *Execution, args []types.Value) types.Result {
-		if err := validateFunctionArgs(sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
-			return functionArgError(sig, args, err)
+		sig := entry.signature(ctx)
+		if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+			return functionArgError(*sig, args, err)
 		}
 		return invoke(ctx, args)
 	}
@@ -239,10 +243,20 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 			return redirect
 		}
 	}
-	if err := validateFunctionArgs(e.sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
-		return functionArgError(e.sig, args, err)
+	sig := e.signature(ctx)
+	if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+		return functionArgError(*sig, args, err)
 	}
 	return e.fn(ctx, args)
+}
+
+// signature is the signature e admits for a call by ctx: the option signature
+// while its runtime option is on, otherwise the registered one.
+func (e *builtinEntry) signature(ctx *Execution) *Signature {
+	if e.optionSig != nil && ctx != nil && e.sig.optionEnabled(ctx.RuntimeOptions) {
+		return e.optionSig
+	}
+	return &e.sig
 }
 
 // offersRedirect reports whether dispatch offers a call of e by ctx to

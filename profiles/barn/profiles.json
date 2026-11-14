@@ -49,6 +49,7 @@
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
         "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
       "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-on.conf --profile-id barn-linux-mongoose-outbound-on --profile-manifest {manifest}"
@@ -68,6 +69,7 @@
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
         "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
       "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-off.conf --profile-id barn-linux-mongoose-outbound-off --profile-manifest {manifest}"
@@ -121,6 +123,7 @@
         "option.OUTBOUND_NETWORK": true,
         "option.PROMOTE_NUMBERS": true,
         "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
       "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-on.conf --profile-id barn-windows-mongoose-outbound-on --profile-manifest {manifest}"
@@ -140,6 +143,7 @@
         "option.OUTBOUND_NETWORK": false,
         "option.PROMOTE_NUMBERS": true,
         "feature.ast": true,
+        "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
       "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-off.conf --profile-id barn-windows-mongoose-outbound-off --profile-manifest {manifest}"

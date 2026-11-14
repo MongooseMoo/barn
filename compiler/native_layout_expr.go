@@ -55,7 +55,7 @@ func (s *nativeVector) expr(expr ir.Expr) {
 		}
 		s.push(NativeValueOrigin{Kind: NativeExpression, Node: e})
 	case *ir.IdentifierExpr:
-		s.varOp(e.Name)
+		s.varOp(e.Name, nativeReducePush)
 		s.push(NativeValueOrigin{Kind: NativeExpression, Node: e})
 	case *ir.UnaryExpr:
 		s.expr(e.Operand)
@@ -147,6 +147,7 @@ func (s *nativeVector) expr(expr ir.Expr) {
 			s.expr(e.VerbExpr)
 		}
 		s.args(e, e.Args)
+		s.reduceOp(nativeReduceCallVerb, 0)
 		s.call(e, 3, 1)
 	case *ir.ListExpr:
 		s.args(e, e.Elements)
@@ -183,7 +184,9 @@ func (s *nativeVector) catch(e *ir.CatchExpr) {
 	s.emit(2)
 	s.push(NativeValueOrigin{Kind: NativeCatchMarker, Node: e, Aux: 1})
 	s.controls = append(s.controls, NativeControlOrigin{Kind: NativeCatch, Node: e, StackBase: base, HandlerPCs: []int{handler}})
+	s.tryDepth++
 	s.expr(e.Expr)
+	s.tryDepth--
 	s.controls = s.controls[:len(s.controls)-1]
 	s.emit(2)
 	s.labelRef(end)
@@ -205,7 +208,7 @@ func (s *nativeVector) target(t ir.Target, indexed bool) {
 	switch t := t.(type) {
 	case *ir.VariableTarget:
 		if indexed {
-			s.varOp(t.Name)
+			s.varOp(t.Name, nativeReducePush)
 			s.push(NativeValueOrigin{Kind: NativeExpression, Node: t})
 		}
 	case *ir.PropertyTarget:
@@ -271,7 +274,7 @@ func (s *nativeVector) assign(e *ir.AssignExpr) {
 			indexed = true
 			continue
 		case *ir.VariableTarget:
-			s.varOp(t.Name)
+			s.varOp(t.Name, nativeReducePut)
 		case *ir.PropertyTarget:
 			s.emit(1)
 			s.result(t, 3)
@@ -312,7 +315,7 @@ func (s *nativeVector) scatter(e *ir.AssignExpr, target *ir.DestructuringTarget)
 		if b, ok := binding.(*ir.OptionalBinding); ok && b.Default != nil {
 			s.bind(labels[i])
 			s.expr(b.Default)
-			s.varOp(b.Name)
+			s.varOp(b.Name, nativeReducePut)
 			s.emit(1)
 			s.pop(1)
 		}

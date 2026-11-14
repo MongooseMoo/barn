@@ -374,6 +374,9 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 	}
 	sc.inUse = true
 	sc.visited.reset()
+	// The walk starts from verbLoc's parents, so it depends on them as a walk
+	// through verbLoc does (ChangeParents moves the version a scan mark holds).
+	tx.markVerbScan(verbLoc, verbLocObj)
 	queue := append(sc.queue[:0], verbLocObj.parents...)
 	searchLower := strings.ToLower(verbName)
 

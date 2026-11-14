@@ -12,6 +12,12 @@ Toast too. Reference: fork `src/ast_map.cc`, `src/unparse.cc`, `src/verbs.cc`,
 
 ## State
 
+- 2026-11-14: CI failed `scripts/test_mongoose_barn_process.py`
+  `test_public_testdb_profile_comes_from_the_real_registry`, which pins the
+  stock profile's expected features and lacked the three known-difference
+  features. Updated; master merged in (profiles.json keeps both `feature.ast`
+  and master's `option.VALID_INCARNATION` in the Mongoose profiles).
+
 - Tests: `tests/mongoose-conformance/builtins/{parse_ast,verb_ast,validate_ast,unparse_ast,verb_code_layout}.yaml`.
   Expected values come from Toast: the AST files from the fork build that
   `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` describes,

@@ -464,6 +464,11 @@ func (s *Runtime) GetTask(taskID int64) *Task {
 // its tasks, and the WAIF numbers that follow them, in a different order. The
 // file order is also the run order of tasks due in the same second after a
 // load, in Toast (enqueue_waiting) and here (Enqueue's sequence).
+//
+// A task with saved VM state is returned with its frames in Toast's form, so
+// Toast can load the checkpoint and resume it. A task with a frame Toast
+// cannot hold keeps Barn's own frame form, so Barn still restores it, and is
+// logged: Toast cannot load a checkpoint that holds it.
 func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -477,6 +482,17 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 			continue
 		}
 		if snapshot.VM != nil {
+			exported, err := vm.ExportNativeSnapshot(snapshot.VM, snapshot.CallStack, s.registry.Compiler())
+			if err == nil {
+				snapshot.VM = exported
+			} else {
+				slog.Warn("Toast could not load this checkpoint: task kept in Barn's frame form",
+					slog.Int64("task_id", snapshot.ID),
+					slog.String("verb", snapshot.VerbName),
+					slog.Int64("verbloc", int64(snapshot.VerbLoc)),
+					slog.Int64("this", int64(snapshot.This)),
+					slog.String("reason", err.Error()))
+			}
 			suspended = append(suspended, snapshot)
 			continue
 		}

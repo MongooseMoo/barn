@@ -64,7 +64,10 @@ type Object struct {
 	// on propertyVersion, so hot value writes stop invalidating them.
 	// Invariant: stamped only when propertyVersion is stamped too.
 	propertyShapeVersion uint64
-	verbVersion          uint64
+	// verbVersion moves when this object's verb list changes and when its
+	// parents do (ChangeParents): a verb walk that scanned this object depends
+	// on both, and its scan mark holds this version.
+	verbVersion uint64
 }
 
 // ObjectView is a flat, read-only snapshot of an Object's scalar fields plus

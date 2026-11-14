@@ -21,6 +21,31 @@ type nativeRef struct {
 	at   int
 	kind nativeRefKind
 }
+
+// nativeReduceOp is one op Toast's BYTECODE_REDUCE_REF pass reads
+// (code_gen.cc stmt_to_code): a push or store of a variable in slot < 32,
+// an ending op (OP_RETURN, OP_RETURN0, OP_DONE) or OP_CALL_VERB, at its raw
+// byte position, and whether it lies inside a try body.
+type nativeReduceOp struct {
+	at   int
+	kind nativeReduceKind
+	slot int
+	try  bool
+}
+
+type nativeReduceKind uint8
+
+const (
+	nativeReducePush nativeReduceKind = iota
+	nativeReducePut
+	nativeReduceEnd
+	nativeReduceCallVerb
+)
+
+// nativeVRNames are the variables a verb call passes implicitly, which Toast
+// never clears before one (code_gen.cc NON_VR_VAR_MASK).
+var nativeVRNames = []string{"ARGSTR", "DOBJ", "DOBJSTR", "PREPSTR", "IOBJ", "IOBJSTR", "PLAYER"}
+
 type nativeLoop struct {
 	node                               ir.Node
 	value, index                       string
@@ -46,6 +71,8 @@ type nativeVector struct {
 	loops                            []nativeLoop
 	continuations                    []NativeContinuation
 	savedStack                       int
+	tryDepth                         int
+	reduceOps                        []nativeReduceOp
 	err                              error
 }
 
@@ -72,6 +99,7 @@ func NativeLayout(program *ir.Program, savedNames []string, languageVersion int)
 func (g *nativeGenerator) vector(block []ir.Stmt, vector int) (NativeVectorLayout, error) {
 	s := &nativeVector{global: g, savedStack: -1}
 	s.block(block)
+	s.reduceOp(nativeReduceEnd, 0)
 	s.emit(1) // OP_DONE
 	if s.err != nil {
 		return NativeVectorLayout{}, s.err
@@ -129,11 +157,100 @@ func (s *nativeVector) varRef(name string) {
 	s.maxVariable = max(s.maxVariable, slot)
 	s.global.variableRefs++
 }
-func (s *nativeVector) varOp(name string) {
+func (s *nativeVector) varOp(name string, kind nativeReduceKind) {
+	slot, ok := s.global.names.slots[canonicalIdentifier(name)]
+	if ok && slot < 32 {
+		s.reduceOp(kind, slot)
+	}
 	s.emit(1)
-	if s.global.names.slots[canonicalIdentifier(name)] >= 32 {
+	if slot >= 32 {
 		s.varRef(name)
 	}
+}
+
+// reduceOp records the op about to be emitted at the current raw position.
+func (s *nativeVector) reduceOp(kind nativeReduceKind, slot int) {
+	s.reduceOps = append(s.reduceOps, nativeReduceOp{at: s.rawSize, kind: kind, slot: slot, try: s.tryDepth > 0})
+}
+
+// clearedAt returns the variables Toast holds unbound at the call that ends
+// at raw position pc. Toast splits a vector into blocks at every label and
+// fork operand and, scanning each block backward, compiles the last push of a
+// slot before a store of it, or before an ending op, as OP_PUSH_CLEAR; ops in
+// a try body set no bits and a verb call keeps the implicit variables
+// (code_gen.cc stmt_to_code). A store binds the slot again, so a slot is
+// unbound at pc when, walking the call's block forward to pc, its last access
+// was a cleared push. A label inside the block before pc is a jump target
+// that skips the block's start; when walking from it gives another answer,
+// unknown is true. Earlier blocks leave no slot unbound: a cleared push is
+// followed in its own block by a store of the slot or an ending op.
+func (s *nativeVector) clearedAt(pc int) (cleared []string, unknown bool) {
+	last := pc - 1
+	lo, hi := 0, s.rawSize
+	for _, r := range s.refs {
+		if r.kind != nativeLabelRef && r.kind != nativeForkRef {
+			continue
+		}
+		if r.at <= last {
+			lo = max(lo, r.at)
+		} else {
+			hi = min(hi, r.at)
+		}
+	}
+	vr := ^uint32(0)
+	for _, name := range nativeVRNames {
+		if slot, ok := s.global.names.slots[name]; ok && slot < 32 {
+			vr &^= 1 << slot
+		}
+	}
+	clears := make(map[int]bool)
+	var bits uint32
+	for i := len(s.reduceOps) - 1; i >= 0; i-- {
+		op := s.reduceOps[i]
+		if op.at < lo || op.at >= hi {
+			continue
+		}
+		switch {
+		case op.kind == nativeReducePush:
+			if bits&(1<<op.slot) != 0 {
+				bits &^= 1 << op.slot
+				clears[op.at] = true
+			}
+		case op.try:
+		case op.kind == nativeReducePut:
+			bits |= 1 << op.slot
+		case op.kind == nativeReduceEnd:
+			bits = ^uint32(0)
+		case op.kind == nativeReduceCallVerb:
+			bits &= vr
+		}
+	}
+	walk := func(from int) uint32 {
+		var unbound uint32
+		for _, op := range s.reduceOps {
+			if op.at < from || op.at >= pc {
+				continue
+			}
+			if clears[op.at] {
+				unbound |= 1 << op.slot
+			} else if op.kind == nativeReducePut {
+				unbound &^= 1 << op.slot
+			}
+		}
+		return unbound
+	}
+	unbound := walk(lo)
+	for _, label := range s.labels {
+		if label > lo && label < pc && walk(label) != unbound {
+			return nil, true
+		}
+	}
+	for slot := range 32 {
+		if unbound&(1<<slot) != 0 {
+			cleared = append(cleared, s.global.names.names[slot])
+		}
+	}
+	return cleared, false
 }
 func (s *nativeVector) literal(key string) {
 	index, exists := s.global.literals[key]
@@ -199,6 +316,7 @@ func (s *nativeVector) finish(vector int) NativeVectorLayout {
 		return expand(s.labels[label], false)
 	}
 	for _, site := range s.continuations {
+		site.Cleared, site.ClearUnknown = s.clearedAt(site.PC)
 		site.Vector = vector
 		site.PC = expand(site.PC, true)
 		for i := range site.Stack {
