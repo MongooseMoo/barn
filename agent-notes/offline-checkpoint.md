@@ -18,7 +18,7 @@ compare with the original and to try loading into Toast.
   property, a queued fork, a task suspended holding a WAIF and one connection
   record; checks they survive, are absent with the omit option (suspended
   only), and that a second pass is byte-identical, sidecar included.
-- Not pushed; no PR (assignment forbids it).
+- Pull request open.
 
 ## Decisions and why
 
