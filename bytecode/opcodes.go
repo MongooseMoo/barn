@@ -90,8 +90,13 @@ const (
 	OP_FOR_LIST_LOAD                                       // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
 	OP_FOR_LIST_LOAD_KV                                    // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
 	OP_FOR_RANGE_NEXT                                      // Range-for increment+loopback [valueVar:byte, endVar:byte, loopOffset:short]: increment value (or lower end at the ceiling); IP -= loopOffset
-	OP_BREAK                                               // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
-	OP_CONTINUE                                            // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
+	// OP_PUSH_WIDE reuses the number of OP_BREAK, which no compiler emitted and
+	// the decoder rejected, because every other byte is taken. It is OP_PUSH
+	// for a constant index that does not fit a byte: the compiler emits it only
+	// for indices above 255, so programs with at most 256 constants keep the
+	// bytes that suspended tasks were saved against.
+	OP_PUSH_WIDE // Push constant from pool [index:short]
+	OP_CONTINUE  // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )
 
 // Exception Handling
@@ -275,7 +280,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_FOR_LIST_LOAD:         "FOR_LIST_LOAD",
 	OP_FOR_LIST_LOAD_KV:      "FOR_LIST_LOAD_KV",
 	OP_FOR_RANGE_NEXT:        "FOR_RANGE_NEXT",
-	OP_BREAK:                 "DEAD_BREAK",
+	OP_PUSH_WIDE:             "PUSH_WIDE",
 	OP_CONTINUE:              "DEAD_CONTINUE",
 	OP_TRY_EXCEPT:            "TRY_EXCEPT",
 	OP_END_EXCEPT:            "END_EXCEPT",
@@ -364,7 +369,7 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 8
 	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
 		OP_TRY_FINALLY, OP_END_FINALLY, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
-		OP_CALL_BUILTIN, OP_CALL_VERB,
+		OP_CALL_BUILTIN, OP_CALL_VERB, OP_PUSH_WIDE,
 		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return 2
 	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
