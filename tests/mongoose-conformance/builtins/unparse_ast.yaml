@@ -40,6 +40,9 @@ tests:
       - run: 'return toliteral(unparse_ast(verb_ast({obj}, "test")));'
         expect:
           value: '{"if (a)", "  x = 1 + 2 * 3;", "else", "  if (b)", "    return;", "  endif", "endif", "while w (1)", "  break w;", "endwhile"}'
+      - run: 'return toliteral({unparse_ast(verb_ast({obj}, "test"), 1), unparse_ast(verb_ast({obj}, "test"), 0, 0)});'
+        expect:
+          value: '{{"if (a)", "  x = 1 + (2 * 3);", "else", "  if (b)", "    return;", "  endif", "endif", "while w (1)", "  break w;", "endwhile"}, {"if (a)", "x = 1 + 2 * 3;", "else", "if (b)", "return;", "endif", "endif", "while w (1)", "break w;", "endwhile"}}'
     cleanup:
       - run: recycle({obj})
 
@@ -72,6 +75,17 @@ tests:
           return toliteral(unparse_ast(s));
         expect:
           value: '{"(1 + 2) * 3;", "1 - (1 + 2);", "(1 + 2).name;", "(-3)[1];", "-4;", "x = 1 + 2 ? y = 1 + 2 | (a ? b | c);"}'
+
+  - name: operand_spellings
+    permission: programmer
+    steps:
+      - run: |
+          code = {"x = [\"a\" -> 1][\"a\"];", "y = `z = 1 ! ANY => w = 2';", "l = {@(a = b), @(c ? d | e)};", "m = l[(^).x];", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = -x ^ 2;", "r = (-x) ^ 2;", "s = 2 ^ -x;", "t = a in {b} == c;", "u = ([1 -> 2]);"};
+          tree = parse_ast(code);
+          five = ["type" -> "expr", "expr" -> ["type" -> "prop", "object" -> ["type" -> "literal", "value" -> 5], "property" -> ["type" -> "literal", "value" -> "x"]]];
+          return toliteral({unparse_ast(tree), unparse_ast(tree, 1), unparse_ast({five})});
+        expect:
+          value: '{{"x = ([\"a\" -> 1])[\"a\"];", "y = `z = 1 ! ANY => w = 2'';", "l = {@a = b, @c ? d | e};", "m = l[^.x];", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = -x ^ 2;", "r = -x ^ 2;", "s = 2 ^ -x;", "t = a in {b} == c;", "u = [1 -> 2];"}, {"x = ([\"a\" -> 1])[\"a\"];", "y = `z = 1 ! ANY => w = 2'';", "l = {@a = b, @c ? d | e};", "m = l[^.x];", "n = a ? b = 1 | c;", "$p = 1;", "#0.(\"if\") = 2;", "o = 5:v(-5.0, #-1);", "q = (-x) ^ 2;", "r = (-x) ^ 2;", "s = 2 ^ (-x);", "t = (a in {b}) == c;", "u = [1 -> 2];"}, {"5 .x;"}}'
 
   - name: property_and_verb_names_that_are_not_identifiers
     permission: programmer

@@ -120,6 +120,14 @@ func FormatMOOWith(program *ir.Program, options FormatOptions) ([]string, error)
 	return formatLines(program, &mooFormatter{options: options})
 }
 
+// FormatUncheckedWith formats a program whose producer has already checked
+// its shape, without ir.Validate. unparse_ast() uses it: a tree may nest up
+// to 1000 levels, deeper than the parser allows, and may hold scatters the
+// parser would reject, which Toast's unparser still prints.
+func FormatUncheckedWith(program *ir.Program, options FormatOptions) ([]string, error) {
+	return formatLines(program, &mooFormatter{options: options})
+}
+
 type mooFormatter struct {
 	err     error
 	options FormatOptions

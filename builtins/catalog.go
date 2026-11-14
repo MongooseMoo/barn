@@ -268,6 +268,7 @@ var builtinLayout = []string{
 	"parse_ast",
 	"verb_ast",
 	"validate_ast",
+	"unparse_ast",
 }
 
 // Descriptors assembles the native catalog with owner-supplied functions such

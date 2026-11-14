@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/MongooseMoo/barn/compiler"
@@ -845,10 +846,22 @@ func (b *astBuilder) literal(node types.Value) ir.Expr {
 	switch value.Type() {
 	case types.TYPE_STR:
 		return &ir.LiteralExpr{Kind: ir.LiteralString, StringValue: value.Str()}
+	// In the program a negative number is minus applied to its magnitude, as
+	// the parser writes it; the formatter prints that as Toast prints the
+	// folded literal. (The most negative integer is its own magnitude, which
+	// the formatter spells unsigned, so it still prints with one minus.)
 	case types.TYPE_INT:
-		return &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: value.Int()}
+		n := value.Int()
+		if n < 0 {
+			return &ir.UnaryExpr{Operator: ir.UnaryNegate, Operand: &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: -n}}
+		}
+		return &ir.LiteralExpr{Kind: ir.LiteralInt, IntValue: n}
 	case types.TYPE_FLOAT:
-		return &ir.LiteralExpr{Kind: ir.LiteralFloat, FloatValue: value.Float()}
+		f := value.Float()
+		if math.Signbit(f) {
+			return &ir.UnaryExpr{Operator: ir.UnaryNegate, Operand: &ir.LiteralExpr{Kind: ir.LiteralFloat, FloatValue: -f}}
+		}
+		return &ir.LiteralExpr{Kind: ir.LiteralFloat, FloatValue: f}
 	case types.TYPE_OBJ:
 		return &ir.LiteralExpr{Kind: ir.LiteralObj, ObjID: int64(value.Obj())}
 	case types.TYPE_ERR:
@@ -1472,6 +1485,30 @@ func builtinValidateAST(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
+// builtinUnparseAST: unparse_ast(LIST ast [, fully-paren [, indent]]) -> LIST,
+// the code for a tree, laid out as verb_code() lays out code. A malformed tree
+// raises E_INVARG with a message saying where, and 0 as the value.
+func builtinUnparseAST(ctx *Execution, args []types.Value) types.Result {
+	b := newASTBuilder(ctx.Registry)
+	program, ok := b.program(args[0])
+	if !ok {
+		return astRaise(b.message(), types.NewInt(0))
+	}
+	lines, err := parser.FormatUncheckedWith(program, parser.FormatOptions{
+		FullyParenthesized: len(args) >= 2 && args[1].Truthy(),
+		Unindented:         len(args) >= 3 && !args[2].Truthy(),
+		ElseIfArms:         b.elseIfArms,
+	})
+	if err != nil {
+		return astRaise(err.Error(), types.NewInt(0))
+	}
+	code := make([]types.Value, len(lines))
+	for i, line := range lines {
+		code[i] = types.NewStr(line)
+	}
+	return types.Ok(types.NewList(code))
+}
+
 // builtinVerbAST: verb_ast(object, verb-desc) -> LIST, the tree of the verb's
 // code, with verb_code()'s argument checks and errors.
 func builtinVerbAST(ctx *Execution, args []types.Value) types.Result {
@@ -1487,5 +1524,6 @@ func astDescriptors() []Descriptor {
 		function("parse_ast", builtinParseAST, 1, 1, 4),
 		function("verb_ast", builtinVerbAST, 2, 2, -1, -1),
 		function("validate_ast", builtinValidateAST, 1, 1, -1),
+		function("unparse_ast", builtinUnparseAST, 1, 3, 4, -1, -1),
 	}
 }
