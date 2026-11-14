@@ -6,12 +6,16 @@ const (
 	FeatureOutboundNetwork       = "option.OUTBOUND_NETWORK"
 	FeatureOpenNetworkConnection = "builtin.open_network_connection"
 	FeaturePromoteNumbers        = "option.PROMOTE_NUMBERS"
+	FeatureValidIncarnation      = "option.VALID_INCARNATION"
 )
 
 // Options holds Barn runtime options that affect Toast-compatible semantics.
 type Options struct {
 	OutboundNetwork bool
 	PromoteNumbers  bool
+	// ValidIncarnation admits valid(object, expected incarnation_id), the
+	// Mongoose ToastStunt fork's two-argument valid. Stock Toast takes one.
+	ValidIncarnation bool
 	// Zero selects the runtime default; these affect scheduling, not MOO semantics.
 	AdmissionLimit, AdmissionPrincipalLimit         int
 	AdmissionInputWeight, AdmissionBackgroundWeight int
@@ -51,8 +55,9 @@ func (o Options) SQLiteCacheSizeKiB() int {
 // DefaultOptions returns Barn's default runtime options for normal operation.
 func DefaultOptions() Options {
 	return Options{
-		OutboundNetwork: true,
-		PromoteNumbers:  false,
+		OutboundNetwork:  true,
+		PromoteNumbers:   false,
+		ValidIncarnation: false,
 	}
 }
 
@@ -83,8 +88,9 @@ func (o Options) Capabilities() Capabilities {
 // manifests and conformance metadata gates.
 func (o Options) FeatureMap() map[string]any {
 	return map[string]any{
-		FeatureOutboundNetwork: o.OutboundNetwork,
-		FeaturePromoteNumbers:  o.PromoteNumbers,
+		FeatureOutboundNetwork:  o.OutboundNetwork,
+		FeaturePromoteNumbers:   o.PromoteNumbers,
+		FeatureValidIncarnation: o.ValidIncarnation,
 	}
 }
 

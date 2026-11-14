@@ -6,14 +6,15 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// TestValidSignatureFollowsPromoteNumbers: stock Toast registers valid(ANY)
+// TestValidSignatureFollowsValidIncarnation: stock Toast registers valid(ANY)
 // (function_info {"valid", 1, 1, {-1}}; a second argument is E_ARGS with the
 // expected/got message). The Mongoose fork registers valid(ANY [, STR]); Barn
-// follows it only under PROMOTE_NUMBERS, the option on in the fork profiles.
-func TestValidSignatureFollowsPromoteNumbers(t *testing.T) {
+// follows it only under VALID_INCARNATION. PROMOTE_NUMBERS does not affect it.
+func TestValidSignatureFollowsValidIncarnation(t *testing.T) {
 	stock := newTestExecution()
+	stock.RuntimeOptions.PromoteNumbers = true
 	fork := newTestExecution()
-	fork.RuntimeOptions.PromoteNumbers = true
+	fork.RuntimeOptions.ValidIncarnation = true
 	obj := types.NewObj(types.ObjID(0))
 	name := types.NewStr("valid")
 

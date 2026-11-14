@@ -666,12 +666,12 @@ func builtinValid(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 
-	// Only under PROMOTE_NUMBERS does admission let a second argument through
-	// (Signature.PromotedArgs). Mongoose fork bf_valid (objects.cc):
-	// valid(object, expected) also
-	// requires the object's incarnation_id property, read with the ordinary
-	// read permission, to be a nonempty string equal to expected. A missing
-	// property does not match; an unreadable one raises E_PERM.
+	// Only under VALID_INCARNATION does admission let a second argument
+	// through (Signature.IncarnationArgs). Mongoose fork bf_valid (objects.cc):
+	// valid(object, expected) also requires the object's incarnation_id
+	// property, read with the ordinary read permission, to be a nonempty
+	// string equal to expected. A missing property does not match; an
+	// unreadable one raises E_PERM.
 	prop, errCode := readTxn(ctx).FindProperty(objID, "incarnation_id")
 	if errCode == types.E_PROPNF {
 		return types.Ok(types.NewInt(0))
@@ -703,7 +703,7 @@ func objectsDescriptors() []Descriptor {
 		function("recycle", builtinRecycle, 1, 1, -1),
 		// Stock Toast registers valid(ANY); the Mongoose fork registers
 		// valid(ANY [, STR]) (objects.cc register_function("valid", 1, 2, ...)).
-		function("valid", builtinValid, 1, 1, -1).promotedArgs(int64(types.TYPE_STR)),
+		function("valid", builtinValid, 1, 1, -1).incarnationArgs(int64(types.TYPE_STR)),
 		function("max_object", builtinMaxObject, 0, 0),
 	}
 }

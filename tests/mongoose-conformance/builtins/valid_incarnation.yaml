@@ -4,6 +4,7 @@ requires:
   builtins: [valid, create, recycle, add_property, add_verb, set_verb_code]
 tests:
   - name: bad_argument_types_raise_e_type
+    skip_if: "not option.VALID_INCARNATION"
     permission: wizard
     steps:
       - run: return valid(42);
@@ -14,6 +15,7 @@ tests:
           error: E_TYPE
 
   - name: inherited_identity_on_anonymous_object
+    skip_if: "not option.VALID_INCARNATION"
     permission: wizard
     steps:
       - run: |
@@ -29,6 +31,7 @@ tests:
           value: [1, 1, 0]
 
   - name: identity_is_exact_and_follows_the_property
+    skip_if: "not option.VALID_INCARNATION"
     permission: wizard
     steps:
       - run: |
@@ -43,6 +46,7 @@ tests:
           value: [[1, 1, 0], [0, 1], 0]
 
   - name: missing_empty_and_nonstring_identities_do_not_match
+    skip_if: "not option.VALID_INCARNATION"
     permission: wizard
     steps:
       - run: |
@@ -60,6 +64,7 @@ tests:
           value: [[1, 0], 0, 0]
 
   - name: unreadable_identity_raises_e_perm
+    skip_if: "not option.VALID_INCARNATION"
     permission: wizard
     steps:
       - run: |

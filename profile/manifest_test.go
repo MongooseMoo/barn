@@ -114,6 +114,9 @@ func TestBuildManifestIncludesChecksumsAndFeatures(t *testing.T) {
 	if manifest.Features[config.FeaturePromoteNumbers] != false {
 		t.Fatalf("PROMOTE_NUMBERS feature = %#v", manifest.Features[config.FeaturePromoteNumbers])
 	}
+	if manifest.Features[config.FeatureValidIncarnation] != false {
+		t.Fatalf("VALID_INCARNATION feature = %#v", manifest.Features[config.FeatureValidIncarnation])
+	}
 	if manifest.Features["runtime.arch_bits"] == nil {
 		t.Fatalf("missing runtime.arch_bits feature")
 	}

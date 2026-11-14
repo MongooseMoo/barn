@@ -79,11 +79,11 @@ type builtinEntry struct {
 	id     int         // index in Registry.entries; keys protectedSet.byID
 	fn     BuiltinFunc // builtin plus replay-safety marker; validation stays inline
 	sig    Signature
-	// promotedSig is sig with its PromotedArgs, used under PROMOTE_NUMBERS;
-	// nil when sig has none.
-	promotedSig *Signature
-	visibility  Visibility
-	lineSync    bool
+	// optionSig is sig.optionSignature(), used while sig.optionEnabled; nil
+	// when sig names no runtime option.
+	optionSig  *Signature
+	visibility Visibility
+	lineSync   bool
 	// protectedSite is the VM's call site for the bf_ wrapper, filled on the
 	// first redirected call (see Execution.PushProtectedVerb).
 	protectedSite atomic.Value
@@ -148,10 +148,10 @@ func (r *Registry) install(d Descriptor) {
 	// hot CallByID/CallByName path uses entry.fn + inline validation instead, so
 	// it never pays for the closure indirection.
 	entry.sig = cloneSignature(d.Signature)
-	entry.promotedSig = entry.sig.promoted()
+	entry.optionSig = entry.sig.optionSignature()
 	stored := func(ctx *Execution, args []types.Value) types.Result {
 		sig := entry.signature(ctx)
-		if err := validateFunctionArgs(*sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
+		if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
 			return functionArgError(*sig, args, err)
 		}
 		return invoke(ctx, args)
@@ -244,17 +244,17 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 		}
 	}
 	sig := e.signature(ctx)
-	if err := validateFunctionArgs(*sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
+	if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
 		return functionArgError(*sig, args, err)
 	}
 	return e.fn(ctx, args)
 }
 
-// signature is the signature e admits for a call by ctx: with its
-// PromotedArgs under PROMOTE_NUMBERS, otherwise the registered one.
+// signature is the signature e admits for a call by ctx: the option signature
+// while its runtime option is on, otherwise the registered one.
 func (e *builtinEntry) signature(ctx *Execution) *Signature {
-	if e.promotedSig != nil && ctx != nil && ctx.RuntimeOptions.PromoteNumbers {
-		return e.promotedSig
+	if e.optionSig != nil && ctx != nil && e.sig.optionEnabled(ctx.RuntimeOptions) {
+		return e.optionSig
 	}
 	return &e.sig
 }
