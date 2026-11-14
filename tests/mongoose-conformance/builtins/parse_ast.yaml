@@ -71,8 +71,7 @@ tests:
 
   - name: waif_property_spelling
     # Passes on the fork Toast (0ff6fd7). Barn's parser has no `x.:name'
-    # spelling, and no verb in the live database uses it (team-lead,
-    # 2026-11-14), so Barn keeps this as a known difference from the fork.
+    # spelling, so Barn keeps this as a known difference from the fork.
     skip: "Known Barn difference: the parser does not accept the waif spelling x.:name"
     permission: programmer
     steps:

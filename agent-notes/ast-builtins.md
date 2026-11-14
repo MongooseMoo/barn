@@ -4,57 +4,52 @@
 
 Add the Mongoose ToastStunt fork's four syntax-tree builtins to Barn with
 output identical to the fork (node shapes, key order through `toliteral`,
-errors, messages, permissions, `unparse_ast` text). Nothing else.
-Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
+errors, messages, permissions, `unparse_ast` text). Widened by team-lead and Q
+(2026-11-14): correct the one formatter (`parser/format.go`) to Toast's
+unparser, so `verb_code` and the text `set_verb_code` stores change toward
+Toast too. Reference: fork `src/ast_map.cc`, `src/unparse.cc`, `src/verbs.cc`,
 `docs/Features/ast.md`, `test/tests/test_ast.rb` at `mongoosemoo/mongoose`.
 
 ## State
 
-- Tests: `tests/mongoose-conformance/builtins/{parse_ast,verb_ast,validate_ast,unparse_ast}.yaml`,
-  58 cases. All pass on the fork Toast built at 0ff6fd7 (managed candidate lane,
-  manifest `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` from the
-  `managed-toast-live-commit` branch, used as both oracle and target).
-  Expected values were copied from that Toast's output.
-- parse_ast: done in `builtins/ast.go`; 29 of 30 parse_ast cases pass on Barn.
-  `waif_property_spelling` fails: Barn's parser rejects `a.:w` outright (see Surprises);
-  making it parse is a language change outside this task.
-- verb_ast: done; 5 of 5 cases pass on Barn. It parses the stored source like
-  verb_code does. Barn's set_verb_code stores the formatter's output, which
-  turns `else` + nested `if` into `elseif`, so for a verb programmed under Barn
-  verb_ast reports elseif arms where Toast reports the nested if.
-- validate_ast: done; 6 of 6 cases pass on Barn. `astBuilder` in `builtins/ast.go`
-  mirrors the fork's `build_*` checks, their order, paths and messages, and
-  builds an `ir.Program`; unparse_ast will print that program.
-- Shared pieces added (no behaviour change): `compiler.NativeVariableNames`,
-  `parser.{Binary,Unary}Operator{Spelling,FromSpelling}`, `parser.IsIdentifier`,
-  `types.TypeCode.ToastName` (moved from vm), `readableDescribedVerb` (verb_code's checks).
+- Tests: `tests/mongoose-conformance/builtins/{parse_ast,verb_ast,validate_ast,unparse_ast,verb_code_layout}.yaml`.
+  Expected values come from Toast: the AST files from the fork built at 0ff6fd7
+  (manifest `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`, now on master),
+  `verb_code_layout.yaml` from stock Toast (aecc51e), which gave identical text.
+- All four builtins in `builtins/ast.go`; unparse_ast prints through
+  `parser.FormatUncheckedWith` (no ir.Validate: trees may nest 1000 deep).
+- Formatter commits, one per rule: indent argument; consequent/caught/assigned
+  value unbracketed; splice operand unbracketed; `$name(...)`; `$name =`;
+  integer postfix base (`5 .x`); map operand bracketed; `%.15g` floats via
+  `internal/floattext` (shared with `types`); negated numbers not forced into
+  brackets in fully-paren mode; else + nested if (`parser.ElseIfArms`).
+- Left on purpose (evidence in the work-10 report): `(^)` before a dot (Toast's
+  own `l[^.x]` does not recompile), unsigned wrapped int literals, `- -5` not
+  folded (fuzz round-trip keeps the IR). `x.:name`: no parser change
+  (team-lead: no live verb uses it).
+- Branch merged with origin/master 8d195f07.
 
 ## Decisions and why
 
-- Share the existing parser and formatter: Barn's `verb_code` reparses stored
-  source and prints it with `parser.FormatMOO`; the builtins convert between
-  `ir.Program` and the map tree on top of that path. No second parser or unparser.
-- Compare trees through `toliteral()` in the tests so key order is pinned too.
-- `elseif` versus `else` + nested `if`: told apart from the source text at the
-  nested IfStmt's position (the parser records the `elseif` token position), so
-  no IR change was needed for code-to-tree.
-- Variable spellings come from `compiler.NativeVariableNames`, the existing
-  reproduction of Toast's name table (yacc reduction order, builtin spellings).
-- Errors: parse_ast compiles with the same compiler as set_verb_code and raises
-  its diagnostics; it does not apply set_verb_code's Barn-only missing-semicolon
-  retry (Toast has none).
+- One formatter, Toast's rules (team-lead and Q). FormatOptions carries only
+  call arguments (fully-paren, indent) and data about the program (which
+  IfStmts are elseif arms); nil arms means the source is unknown.
+- `elseif` versus `else` + nested `if`: read from the source at each lowered
+  IfStmt's position (the parser keeps the `elseif` keyword's position); the IR
+  stays normalized, as `parser/AGENTS.md` requires.
+- Variable spellings come from `compiler.NativeVariableNames`.
+- parse_ast compiles with the set_verb_code compiler and raises its
+  diagnostics, without set_verb_code's Barn-only missing-semicolon retry.
+- Float spelling lives in `internal/floattext` because `types` imports only the
+  standard library and `parser` may not import `types`.
 
 ## Surprises
 
-- Barn's IR lowers `elseif` into `Else: [IfStmt]`, so it cannot tell `elseif`
-  from `else` + nested `if`; the fork keeps them apart in both directions.
-- Barn's parser has no waif `x.:name` spelling; the fork compiles it as `x.(":name")`.
-- Barn's formatter spells floats with `FormatFloat('f', -1)`; Toast prints
-  `1e+20`, `1.23456789012346e+17` (15 significant digits).
-- Barn's formatter has no indent-off mode.
+- Toast's own `l[^.x]` (from `l[(^).x]`) is a syntax error on Toast.
+- The managed-toast worktree that held the fork manifest was removed after its
+  PR merged; the manifest is now `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`.
 
 ## Next step
 
-unparse_ast: print the builder's program through `parser/format.go` with
-options that only unparse_ast turns on (asked team-lead whether to correct the
-formatter itself instead; see the work-10 report).
+Final managed runs on both Toasts and Barn after the merge; mark the cases
+that cover deliberately kept Barn behaviour; report to team-lead.
