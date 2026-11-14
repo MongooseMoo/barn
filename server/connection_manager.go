@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"github.com/MongooseMoo/barn/builtins"
@@ -60,11 +61,13 @@ type ConnectionManager struct {
 	connectionEventHandler func(command.InputEvent)
 	listeners              map[listenerKey]*listenerRecord
 	setupConns             map[net.Conn]struct{}
-	outboundClients        map[int64]net.Conn
-	pendingDials           map[*pendingDial]struct{}
-	closing                bool
-	listenPort             int
-	connectTimeout         time.Duration
+	// outboundTLSRoots verifies outbound TLS servers; nil means the system
+	// roots. Tests set it to trust a generated certificate.
+	outboundTLSRoots *x509.CertPool
+	pendingDials     map[*pendingDial]struct{}
+	closing          bool
+	listenPort       int
+	connectTimeout   time.Duration
 }
 
 // NewConnectionManager creates a new connection manager
@@ -75,7 +78,6 @@ func NewConnectionManager(port int) *ConnectionManager {
 		playerConnHistory: make(map[types.ObjID][]*Connection),
 		listeners:         make(map[listenerKey]*listenerRecord),
 		setupConns:        make(map[net.Conn]struct{}),
-		outboundClients:   make(map[int64]net.Conn),
 		pendingDials:      make(map[*pendingDial]struct{}),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		listenPort:        port,
@@ -714,11 +716,24 @@ func (cm *ConnectionManager) addListener(spec listener.Spec, primary bool) (list
 		return cm.listenAndRegister(spec, primary, nil)
 	}
 	if spec.Protocol == listener.ProtocolTLS {
-		cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
-		if err != nil {
-			return listener.Descriptor{}, err
+		// Startup listeners still refuse a key pair that does not load. The
+		// files are read again at each handshake, as Toast reads them at each
+		// accept (network.cc network_accept_connection): a runtime listen()
+		// succeeds before they exist, a handshake fails while they are
+		// unreadable, and a replaced certificate is served to new connections.
+		if primary {
+			if _, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath); err != nil {
+				return listener.Descriptor{}, err
+			}
 		}
-		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+		certificatePath, keyPath := spec.TLSCertificatePath, spec.TLSKeyPath
+		tlsConfig := &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(certificatePath, keyPath)
+			if err != nil {
+				return nil, err
+			}
+			return &cert, nil
+		}}
 		return cm.listenAndRegister(spec, primary, tlsConfig)
 	}
 
@@ -800,22 +815,31 @@ func (cm *ConnectionManager) ExpireEarliestOutboundConnect(checkpointDue time.Ti
 	return true
 }
 
-func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, timeout time.Duration) (types.ObjID, error) {
-	existing := make(map[int64]struct{})
-	cm.mu.Lock()
-	for id := range cm.connections {
-		existing[id] = struct{}{}
+// OpenNetworkConnection opens an outbound connection, as Toast's
+// network_open_connection does, and returns its connection object. It
+// resolves the host in one address family, IPv4 or with IPv6 the IPv6 one
+// (getaddrinfo with AF_INET or AF_INET6), connects to the first address and,
+// with TLS, completes a client handshake within the same timeout. The
+// connection is its own Connection, separate from any connection a listener
+// of this server accepts for it. Its listener is the request's listener
+// object, else #0; only with a listener does it get an initial empty login
+// line (server.cc server_new_connection).
+//
+// TLS verifies the server certificate chain against the system roots and the
+// host name (Go's default). Toast verifies the chain only (options.h
+// VERIFY_TLS_PEERS; network.cc SSL_CTX_set_verify, SSL_set_tlsext_host_name,
+// no host check): a deliberate difference.
+func (cm *ConnectionManager) OpenNetworkConnection(request builtins.OutboundConnection) (types.ObjID, error) {
+	family, network := "ip4", "tcp4"
+	if request.IPv6 {
+		family, network = "ip6", "tcp6"
 	}
-	cm.mu.Unlock()
-
-	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	dialCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	dial := &pendingDial{deadline: time.Now().Add(timeout), cancel: cancel}
+	dialCtx, cancel := context.WithTimeout(context.Background(), request.Timeout)
+	dial := &pendingDial{deadline: time.Now().Add(request.Timeout), cancel: cancel}
 	cm.mu.Lock()
 	cm.pendingDials[dial] = struct{}{}
 	cm.mu.Unlock()
-	var dialer net.Dialer
-	client, err := dialer.DialContext(dialCtx, "tcp", addr)
+	socket, err := dialOutbound(dialCtx, family, network, request, cm.outboundTLSRoots)
 	cm.mu.Lock()
 	delete(cm.pendingDials, dial)
 	cm.mu.Unlock()
@@ -824,36 +848,66 @@ func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64, time
 		return types.ObjNothing, err
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		cm.mu.Lock()
-		var matchedID int64
-		for id, conn := range cm.connections {
-			if _, seen := existing[id]; seen || conn == nil {
-				continue
-			}
-			// The peer address observed by the accepted socket is the local
-			// address of this dialed socket. Matching those endpoints prevents
-			// an unrelated connection accepted during this window from being
-			// mistaken for the outbound connection.
-			if conn.RemoteAddr() == client.LocalAddr().String() {
-				matchedID = id
+	cm.mu.Lock()
+	if cm.closing {
+		cm.mu.Unlock()
+		_ = socket.Close()
+		return types.ObjNothing, fmt.Errorf("server shutting down")
+	}
+	connID := cm.nextConnID
+	cm.nextConnID++
+	conn := NewConnection(connID, NewTCPTransport(socket))
+	conn.outbound = true
+	if request.HasListener {
+		printMessages := false
+		for _, record := range cm.listeners {
+			if record.object == request.Listener {
+				printMessages = record.printMessages
 				break
 			}
 		}
-		if matchedID != 0 {
-			conn := cm.connections[matchedID]
-			conn.SetOutboundEndpoints(client.LocalAddr().String(), client.RemoteAddr().String())
-			cm.outboundClients[matchedID] = client
-			cm.mu.Unlock()
-			return types.ObjID(-matchedID), nil
-		}
-		cm.mu.Unlock()
-		time.Sleep(10 * time.Millisecond)
+		conn.listenerObject = request.Listener
+		conn.printMessages = printMessages
+	} else {
+		conn.noInitialInput = true
 	}
+	cm.connections[connID] = conn
+	cm.playerConns[types.ObjID(-connID)] = conn
+	cm.connectionWG.Add(1)
+	cm.mu.Unlock()
 
-	_ = client.Close()
-	return types.ObjNothing, fmt.Errorf("timed out waiting for outbound connection to register")
+	slog.Info("outbound connection", slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", connID))
+	go cm.handleConnection(conn)
+	return types.ObjID(-connID), nil
+}
+
+func dialOutbound(ctx context.Context, family, network string, request builtins.OutboundConnection, roots *x509.CertPool) (net.Conn, error) {
+	addresses, err := net.DefaultResolver.LookupIP(ctx, family, request.Host)
+	if err != nil {
+		detail := err.Error()
+		var dnsErr *net.DNSError
+		var addrErr *net.AddrError
+		if errors.As(err, &dnsErr) {
+			detail = dnsErr.Err
+		} else if errors.As(err, &addrErr) {
+			detail = addrErr.Err
+		}
+		return nil, &builtins.HostLookupError{Detail: detail, Err: err}
+	}
+	var dialer net.Dialer
+	socket, err := dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].String(), fmt.Sprintf("%d", request.Port)))
+	if err != nil || !request.TLS {
+		return socket, err
+	}
+	tlsSocket := tls.Client(socket, &tls.Config{ServerName: request.Host, RootCAs: roots})
+	if err := tlsSocket.HandshakeContext(ctx); err != nil {
+		_ = socket.Close()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &builtins.TLSHandshakeError{Detail: err.Error(), Err: err}
+	}
+	return tlsSocket, nil
 }
 
 func (cm *ConnectionManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
@@ -894,16 +948,6 @@ func (cm *ConnectionManager) ConnectionNameLookup(player types.ObjID, rewrite bo
 		conn.SetResolvedName(resolved)
 	}
 	return resolved, nil
-}
-
-func (cm *ConnectionManager) detachOutboundClient(connID int64) {
-	cm.mu.Lock()
-	client := cm.outboundClients[connID]
-	delete(cm.outboundClients, connID)
-	cm.mu.Unlock()
-	if client != nil {
-		_ = client.Close()
-	}
 }
 
 func parseListenerPort(addr net.Addr) (int64, bool, error) {

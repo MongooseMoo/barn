@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -253,6 +254,11 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 		Object:   args[0].Obj(),
 		Port:     port,
 	}
+	// Toast (server.cc bf_listen) looks option keys up without regard to case
+	// and reads "TLS", "certificate" and "key" in that order; a non-string
+	// path leaves its message, the key's last.
+	useTLS := false
+	pathMessage := ""
 	if len(args) >= 3 {
 		if args[2].Type() != types.TYPE_MAP {
 			return types.Err(types.E_TYPE)
@@ -261,7 +267,9 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 			if pair[0].Type() != types.TYPE_STR {
 				continue
 			}
-			switch pair[0].Str() {
+			switch strings.ToLower(pair[0].Str()) {
+			case "tls":
+				useTLS = pair[1].Truthy()
 			case "print-messages":
 				spec.PrintMessages = pair[1].Truthy()
 			case "ipv6":
@@ -286,15 +294,35 @@ func builtinListen(ctx *Execution, args []types.Value) types.Result {
 				spec.Path = pair[1].Str()
 			case "certificate":
 				if pair[1].Type() != types.TYPE_STR {
-					return types.Err(types.E_TYPE)
+					if pathMessage == "" {
+						pathMessage = "Certificate path should be a string"
+					}
+					continue
 				}
 				spec.TLSCertificatePath = pair[1].Str()
 			case "key":
 				if pair[1].Type() != types.TYPE_STR {
-					return types.Err(types.E_TYPE)
+					pathMessage = "Private key path should be a string"
+					continue
 				}
 				spec.TLSKeyPath = pair[1].Str()
 			}
+		}
+	}
+	if pathMessage != "" {
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr(pathMessage), types.NewInt(0)}),
+		}
+	}
+	if spec.Protocol == listener.ProtocolTCP {
+		if useTLS {
+			spec.Protocol = listener.ProtocolTLS
+		} else {
+			// Toast uses certificate and key only on a TLS listener.
+			spec.TLSCertificatePath = ""
+			spec.TLSKeyPath = ""
 		}
 	}
 
@@ -346,6 +374,38 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if port <= 0 || port > 65535 {
 		return types.Err(types.E_INVARG)
 	}
+	request := OutboundConnection{Host: args[0].Str(), Port: port}
+	// Toast (server.cc bf_open_network_connection) reads the option keys
+	// without regard to case, before it checks that outbound connections are
+	// enabled. "tls_verify" is read there but never used, so it is not read
+	// here.
+	if len(args) == 3 {
+		var listenerValue types.Value
+		for _, pair := range args[2].Pairs() {
+			if pair[0].Type() != types.TYPE_STR {
+				continue
+			}
+			switch strings.ToLower(pair[0].Str()) {
+			case "tls":
+				request.TLS = pair[1].Truthy()
+			case "ipv6":
+				request.IPv6 = pair[1].Truthy()
+			case "listener":
+				listenerValue = pair[1]
+				request.HasListener = true
+			}
+		}
+		if request.HasListener {
+			if listenerValue.Type() != types.TYPE_OBJ {
+				return types.Result{
+					Flow:  types.FlowException,
+					Error: types.E_TYPE,
+					Val:   types.NewList([]types.Value{types.NewErr(types.E_TYPE), types.NewStr("listener should be an object"), listenerValue}),
+				}
+			}
+			request.Listener = listenerValue.Obj()
+		}
+	}
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
@@ -353,7 +413,28 @@ func builtinOpenNetworkConnection(ctx *Execution, args []types.Value) types.Resu
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	conn, err := cm.OpenNetworkConnection(args[0].Str(), port, outboundConnectTimeout(ctx))
+	request.Timeout = outboundConnectTimeout(ctx)
+	conn, err := cm.OpenNetworkConnection(request)
+	var handshakeErr *TLSHandshakeError
+	if errors.As(err, &handshakeErr) {
+		// network.cc open_connection: make_raise_pack(E_INVARG,
+		// "TLS connection failed", tls_error_msg).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("TLS connection failed"), types.NewStr(handshakeErr.Detail)}),
+		}
+	}
+	var lookupErr *HostLookupError
+	if errors.As(err, &lookupErr) {
+		// network.cc open_connection: make_raise_pack(E_INVARG,
+		// "getaddrinfo error", gai_strerror(rv)).
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_INVARG,
+			Val:   types.NewList([]types.Value{types.NewErr(types.E_INVARG), types.NewStr("getaddrinfo error"), types.NewStr(lookupErr.Detail)}),
+		}
+	}
 	if err != nil {
 		// network.cc network_open_connection: make_raise_pack(E_INVARG,
 		// "Connection failure", strerror(errno)).

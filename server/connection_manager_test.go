@@ -3,12 +3,17 @@ package server
 import (
 	"bufio"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"github.com/MongooseMoo/barn/builtins"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
 	listenercfg "github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -848,46 +853,315 @@ func TestExpireEarliestOutboundConnectFiresOnlyTimerBeforeCheckpoint(t *testing.
 	}
 }
 
-func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+// Toast network.cc open_connection resolves the host with AF_INET, or AF_INET6
+// with the ipv6 option, and fails in getaddrinfo when the host has no address
+// in that family.
+func TestOpenNetworkConnectionResolvesOneAddressFamily(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	for _, tc := range []struct {
+		host string
+		ipv6 bool
+	}{
+		{"::1", false},
+		{"127.0.0.1", true},
+	} {
+		_, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: tc.host, Port: 1, Timeout: time.Second, IPv6: tc.ipv6})
+		var lookupErr *builtins.HostLookupError
+		if !errors.As(err, &lookupErr) {
+			t.Errorf("OpenNetworkConnection(%q, ipv6=%v) error = %v, want a lookup error", tc.host, tc.ipv6, err)
+		}
+	}
+}
+
+// outboundPeer is a loopback server that is not a ConnectionManager listener:
+// the "other host" an outbound connection reaches.
+type outboundPeer struct {
+	addr     *net.TCPAddr
+	accepted chan net.Conn
+}
+
+func startOutboundPeer(t *testing.T, wrap func(net.Listener) net.Listener) *outboundPeer {
+	t.Helper()
+	socket, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer listener.Close()
-
-	cm := NewConnectionManager(7777)
-	accepted := make(chan *Connection, 1)
+	if wrap != nil {
+		socket = wrap(socket)
+	}
+	t.Cleanup(func() { _ = socket.Close() })
+	peer := &outboundPeer{addr: socket.Addr().(*net.TCPAddr), accepted: make(chan net.Conn, 1)}
 	go func() {
-		socket, acceptErr := listener.Accept()
-		if acceptErr != nil {
+		conn, err := socket.Accept()
+		if err != nil {
 			return
 		}
-		// Publish an unrelated connection first, reproducing the race where
-		// the lowest newly allocated connection ID belongs to another player.
-		cm.NewConnectionFromTransport(newRecordingTransport("innocent-player"))
-		accepted <- cm.NewConnectionFromTransport(NewTCPTransport(socket))
+		if tlsConn, ok := conn.(*tls.Conn); ok {
+			// A TLS server conn handshakes on first use; drive it now so the
+			// client's handshake can finish (or fail) without waiting for I/O.
+			_ = tlsConn.Handshake()
+		}
+		peer.accepted <- conn
 	}()
+	return peer
+}
 
-	addr := listener.Addr().(*net.TCPAddr)
-	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port), 5*time.Second)
+func (p *outboundPeer) accept(t *testing.T) net.Conn {
+	t.Helper()
+	select {
+	case conn := <-p.accepted:
+		t.Cleanup(func() { _ = conn.Close() })
+		return conn
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer accepted nothing")
+		return nil
+	}
+}
+
+// managerWithHandler records each connection the manager hands to its
+// connection handler and reads its first line.
+func managerWithHandler(t *testing.T) (*ConnectionManager, chan *Connection, chan string) {
+	t.Helper()
+	cm := NewConnectionManager(7777)
+	handled := make(chan *Connection, 1)
+	lines := make(chan string, 1)
+	cm.setConnectionHandler(func(conn *Connection) {
+		handled <- conn
+		line, err := conn.ReadLine()
+		if err == nil {
+			lines <- line
+		}
+		<-conn.ctx.Done()
+	})
+	t.Cleanup(func() {
+		cm.mu.Lock()
+		conns := make([]*Connection, 0, len(cm.connections))
+		for _, conn := range cm.connections {
+			conns = append(conns, conn)
+		}
+		cm.mu.Unlock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+		cm.connectionWG.Wait()
+	})
+	return cm, handled, lines
+}
+
+func handledConnection(t *testing.T, handled chan *Connection) *Connection {
+	t.Helper()
+	select {
+	case conn := <-handled:
+		return conn
+	case <-time.After(5 * time.Second):
+		t.Fatal("outbound connection never reached the connection handler")
+		return nil
+	}
+}
+
+// Toast network_open_connection makes the dialled socket its own connection,
+// with listener #0, no initial login line and no listen address; a connection
+// to any host works, not only to this server's own listeners.
+func TestOpenNetworkConnectionMakesTheDialledSocketItsOwnConnection(t *testing.T) {
+	peer := startOutboundPeer(t, nil)
+	cm, handled, lines := managerWithHandler(t)
+
+	handle, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: "127.0.0.1", Port: int64(peer.addr.Port), Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatalf("OpenNetworkConnection: %v", err)
 	}
-	dialed := <-accepted
-	defer cm.detachOutboundClient(dialed.ID)
+	remote := peer.accept(t)
+	conn := handledConnection(t, handled)
+	if handle != types.ObjID(-conn.ID) {
+		t.Fatalf("handle = %d, want the dialled connection %d", handle, -conn.ID)
+	}
+	if !conn.IsOutbound() || !conn.noInitialInput || conn.ListenerObject() != 0 {
+		t.Fatalf("outbound=%v noInitialInput=%v listener=%d, want outbound, no initial input, #0", conn.IsOutbound(), conn.noInitialInput, conn.ListenerObject())
+	}
+	if conn.RemoteAddr() != peer.addr.String() {
+		t.Fatalf("remote address = %q, want peer %q", conn.RemoteAddr(), peer.addr.String())
+	}
+	if got := cm.GetConnection(handle); got != conn {
+		t.Fatalf("GetConnection(%d) = %v, want the dialled connection", handle, got)
+	}
 
-	if want := types.ObjID(-dialed.ID); handle != want {
-		t.Fatalf("outbound handle = %d, want matched connection %d", handle, want)
+	if err := conn.Send("to the peer"); err != nil {
+		t.Fatalf("send: %v", err)
 	}
-	if !dialed.IsOutbound() {
-		t.Fatal("matched connection was not marked outbound")
+	_ = remote.SetReadDeadline(time.Now().Add(5 * time.Second))
+	got, err := bufio.NewReader(remote).ReadString('\n')
+	if err != nil || strings.TrimRight(got, "\r\n") != "to the peer" {
+		t.Fatalf("peer read %q, %v; want the sent line", got, err)
 	}
-	innocent := cm.connections[dialed.ID-1]
-	if innocent == nil {
-		t.Fatal("unrelated connection was not published")
+	if _, err := remote.Write([]byte("from the peer\r\n")); err != nil {
+		t.Fatalf("peer write: %v", err)
 	}
-	if innocent.IsOutbound() {
-		t.Fatal("unrelated connection was marked outbound")
+	select {
+	case line := <-lines:
+		if line != "from the peer" {
+			t.Fatalf("connection read %q, want %q", line, "from the peer")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection read nothing from the peer")
+	}
+}
+
+// Toast queues no initial login line for an outbound connection without a
+// listener object, and a line from the remote end goes to #0's
+// do_login_command (server.cc server_new_connection, server_receive_line).
+// Nor does such a connection time out waiting for login (main loop skips
+// h->outbound): a one-second connect_timeout does not close it.
+func TestOutboundConnectionWithoutListenerGetsNoInitialLineAndNoTimeout(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagProgrammer|dbstore.FlagWizard)
+	options := addTestObject(t, store, 3, 0)
+	txn := store.DirectTxn()
+	if code := txn.DefineProperty(system, "got", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); code != types.E_NONE {
+		t.Fatal(code)
+	}
+	if code := txn.DefineProperty(system, "server_options", dbstore.NewProperty(types.NewObj(options), 2, dbstore.PropRead, false, true)); code != types.E_NONE {
+		t.Fatal(code)
+	}
+	if code := txn.DefineProperty(options, "connect_timeout", dbstore.NewProperty(types.NewInt(1), 2, dbstore.PropRead, false, true)); code != types.E_NONE {
+		t.Fatal(code)
+	}
+	addTestVerb(store, system, "do_login_command", "#0.got = {@#0.got, argstr};", "return 0;")
+
+	rt := engine.NewRuntime(store)
+	input := NewInputProcessor(store, rt)
+	cm := NewConnectionManager(0)
+	input.SetConnectionManager(cm)
+	input.Start()
+	defer input.Stop()
+	defer rt.Stop()
+
+	peer := startOutboundPeer(t, nil)
+	handle, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: "127.0.0.1", Port: int64(peer.addr.Port), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("OpenNetworkConnection: %v", err)
+	}
+	remote := peer.accept(t)
+	defer func() {
+		if conn, ok := cm.GetConnection(handle).(*Connection); ok {
+			_ = conn.Close()
+		}
+	}()
+
+	got := func() types.Value {
+		value, code := store.DirectTxn().PropertyValue(system, "got")
+		if code != types.E_NONE {
+			t.Fatalf("read #0.got: %s", code)
+		}
+		return value
+	}
+	time.Sleep(2500 * time.Millisecond)
+	if value := got(); value.Len() != 0 {
+		t.Fatalf("do_login_command calls before any input = %s, want none", value.String())
+	}
+	if cm.GetConnection(handle) == nil {
+		t.Fatal("outbound connection was closed by connect_timeout")
+	}
+
+	if _, err := remote.Write([]byte("hello from the peer\r\n")); err != nil {
+		t.Fatalf("peer write: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if value := got(); value.Len() == 1 {
+			if value.Get(1).Str() != "hello from the peer" {
+				t.Fatalf("do_login_command argstr = %s, want the peer's line", value.String())
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("do_login_command calls = %s, want the peer's line", got().String())
+}
+
+// With the listener option the connection's listener is that object and it
+// gets the initial empty login line (Toast server_new_connection); its print
+// messages come from a listen()ing listener of that object, else off.
+func TestOpenNetworkConnectionListenerOption(t *testing.T) {
+	peer := startOutboundPeer(t, nil)
+	cm, handled, _ := managerWithHandler(t)
+
+	_, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: "127.0.0.1", Port: int64(peer.addr.Port), Timeout: 5 * time.Second, HasListener: true, Listener: 42})
+	if err != nil {
+		t.Fatalf("OpenNetworkConnection: %v", err)
+	}
+	peer.accept(t)
+	conn := handledConnection(t, handled)
+	if conn.ListenerObject() != 42 || conn.noInitialInput || conn.PrintMessages() {
+		t.Fatalf("listener=%d noInitialInput=%v printMessages=%v, want #42 with initial input and no messages", conn.ListenerObject(), conn.noInitialInput, conn.PrintMessages())
+	}
+}
+
+func tlsPeer(t *testing.T, cert tls.Certificate) *outboundPeer {
+	return startOutboundPeer(t, func(socket net.Listener) net.Listener {
+		return tls.NewListener(socket, &tls.Config{Certificates: []tls.Certificate{cert}})
+	})
+}
+
+func trustOnly(cert testCertificate) *x509.CertPool {
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(cert.CertificatePEM)
+	return pool
+}
+
+// The tls option makes a TLS client of the outbound connection; lines then
+// travel inside TLS.
+func TestOpenNetworkConnectionTLSHandshakeAndLine(t *testing.T) {
+	cert := selfSignedCertificate(t)
+	peer := tlsPeer(t, cert.Certificate)
+	cm, handled, _ := managerWithHandler(t)
+	cm.outboundTLSRoots = trustOnly(cert)
+
+	if _, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: "127.0.0.1", Port: int64(peer.addr.Port), Timeout: 5 * time.Second, TLS: true}); err != nil {
+		t.Fatalf("OpenNetworkConnection with TLS: %v", err)
+	}
+	remote := peer.accept(t)
+	conn := handledConnection(t, handled)
+	if err := conn.Send("over tls"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	_ = remote.SetReadDeadline(time.Now().Add(5 * time.Second))
+	got, err := bufio.NewReader(remote).ReadString('\n')
+	if err != nil || strings.TrimRight(got, "\r\n") != "over tls" {
+		t.Fatalf("TLS peer read %q, %v; want the sent line", got, err)
+	}
+}
+
+// Barn verifies the chain and the host name (Go's default); Toast verifies
+// the chain only. An untrusted chain or a certificate for another name fails
+// with *builtins.TLSHandshakeError and opens no connection.
+func TestOpenNetworkConnectionTLSVerifiesChainAndHostName(t *testing.T) {
+	cert := selfSignedCertificate(t)
+	other := certificateForNames(t, "other.example")
+	for _, tc := range []struct {
+		name  string
+		serve tls.Certificate
+		roots *x509.CertPool
+	}{
+		{"untrusted chain", cert.Certificate, nil},
+		{"wrong host name", other.Certificate, trustOnly(other)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			peer := tlsPeer(t, tc.serve)
+			cm, _, _ := managerWithHandler(t)
+			cm.outboundTLSRoots = tc.roots
+			_, err := cm.OpenNetworkConnection(builtins.OutboundConnection{Host: "127.0.0.1", Port: int64(peer.addr.Port), Timeout: 5 * time.Second, TLS: true})
+			var handshakeErr *builtins.TLSHandshakeError
+			if !errors.As(err, &handshakeErr) {
+				t.Fatalf("error = %v, want a TLS handshake error", err)
+			}
+			cm.mu.Lock()
+			count := len(cm.connections)
+			cm.mu.Unlock()
+			if count != 0 {
+				t.Fatalf("%d connections registered after a failed handshake", count)
+			}
+		})
 	}
 }
 

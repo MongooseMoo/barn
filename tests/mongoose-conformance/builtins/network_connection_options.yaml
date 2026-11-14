@@ -1,0 +1,142 @@
+name: network_connection_options
+description: >
+  listen() TLS option keys (tls in any case, certificate, key) and
+  open_network_connection() address-family and verification options, exercised
+  on loopback only.
+requires:
+  builtins: [listen, listeners, unlisten, open_network_connection, boot_player, connected_players]
+
+tests:
+  - name: listen_tls_key_in_any_case_makes_a_tls_listener
+    description: >
+      The tls key is matched without regard to case. Certificate and key paths
+      are read when a connection is accepted, so listen() succeeds before any
+      file is opened.
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: lower_port
+      - allocate_port:
+          capture: upper_port
+      - run: |
+          listen(#0, {lower_port}, ["tls" -> 1, "certificate" -> "no-such-certificate.pem", "key" -> "no-such-key.pem"]);
+          listen(#0, {upper_port}, ["TLS" -> 1, "Certificate" -> "no-such-certificate.pem", "KEY" -> "no-such-key.pem"]);
+          return {listeners({lower_port})[1]["TLS"], listeners({upper_port})[1]["TLS"]};
+        expect:
+          value: [1, 1]
+    cleanup:
+      - run: |
+          for p in ({{lower_port}, {upper_port}})
+            try
+              unlisten(p);
+            except (ANY)
+            endtry
+          endfor
+          return 1;
+        as: wizard
+
+  - name: listen_certificate_and_key_without_tls_are_ignored
+    description: Certificate and key paths given without tls leave a plain listener.
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: listener_port
+      - run: |
+          listen(#0, {listener_port}, ["certificate" -> "no-such-certificate.pem", "key" -> "no-such-key.pem"]);
+          return listeners({listener_port})[1]["TLS"];
+        expect:
+          value: 0
+    cleanup:
+      - run: |
+          try
+            unlisten({listener_port});
+          except (ANY)
+          endtry
+          return 1;
+        as: wizard
+
+  - name: listen_non_string_certificate_or_key_is_invarg_with_message
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: listener_port
+      - run: |
+          result = {};
+          for options in ({["tls" -> 1, "certificate" -> 1, "key" -> "k.pem"], ["tls" -> 1, "certificate" -> "c.pem", "key" -> {}]})
+            try
+              listen(#0, {listener_port}, options);
+              result = {@result, "listening"};
+              unlisten({listener_port});
+            except e (ANY)
+              result = {@result, {toliteral(e[1]), e[2]}};
+            endtry
+          endfor
+          return result;
+        expect:
+          value: [["E_INVARG", "Certificate path should be a string"], ["E_INVARG", "Private key path should be a string"]]
+    cleanup:
+      - run: |
+          try
+            unlisten({listener_port});
+          except (ANY)
+          endtry
+          return 1;
+        as: wizard
+
+  - name: open_network_connection_without_ipv6_resolves_ipv4_only
+    description: An IPv6 numeric host is not resolvable without the ipv6 option.
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: unused_port
+      - run: |
+          try
+            open_network_connection("::1", {unused_port});
+            return "connected";
+          except e (ANY)
+            return {toliteral(e[1]), e[2]};
+          endtry
+        expect:
+          value: ["E_INVARG", "getaddrinfo error"]
+
+  - name: open_network_connection_ipv6_option_resolves_ipv6_only
+    description: An IPv4 numeric host is not resolvable with the ipv6 option.
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: unused_port
+      - run: |
+          try
+            open_network_connection("127.0.0.1", {unused_port}, ["IPv6" -> 1]);
+            return "connected";
+          except e (ANY)
+            return {toliteral(e[1]), e[2]};
+          endtry
+        expect:
+          value: ["E_INVARG", "getaddrinfo error"]
+
+  - name: open_network_connection_tls_verify_alone_opens_plain_tcp
+    description: tls_verify without tls does not request TLS; the plain loopback connection opens.
+    skip_if: "not option.OUTBOUND_NETWORK"
+    permission: wizard
+    steps:
+      - allocate_port:
+          capture: listener_port
+      - run: |
+          listen(#0, {listener_port}, ["print-messages" -> 0]);
+          conn = open_network_connection("127.0.0.1", {listener_port}, ["tls_verify" -> 1]);
+          ok = typeof(conn) == OBJ && (conn in connected_players(1)) > 0;
+          boot_player(conn);
+          return ok;
+        expect:
+          value: 1
+    cleanup:
+      - run: |
+          try
+            unlisten({listener_port});
+          except (ANY)
+          endtry
+          return 1;
+        as: wizard

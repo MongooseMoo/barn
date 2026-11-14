@@ -43,9 +43,12 @@ type Connection struct {
 	listenerPortSet bool
 	loggedIn        bool
 	printMessages   bool
-	outbound        bool
-	outboundSource  string
-	outboundDest    string
+	// outbound marks a connection opened by open_network_connection(). It has
+	// no connect timeout (Toast server.cc main loop skips h->outbound).
+	outbound bool
+	// noInitialInput: an outbound connection without a listener object gets no
+	// initial empty login line (Toast server_new_connection).
+	noInitialInput bool
 	// loginTaskID is the engine task ID of an in-flight login-hook task for
 	// this (not-yet-logged-in) connection, or 0 if none. Used to (a) avoid
 	// spawning a parallel do_login_command while one is already running/reading
@@ -398,28 +401,8 @@ func (c *Connection) PrintMessages() bool {
 	return c.printMessages
 }
 
-func (c *Connection) SetOutboundEndpoints(source, destination string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.outbound = true
-	c.outboundSource = source
-	c.outboundDest = destination
-}
-
+// IsOutbound reports a connection opened by open_network_connection(). It is
+// set before the connection is published and never changes.
 func (c *Connection) IsOutbound() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	return c.outbound
-}
-
-func (c *Connection) OutboundSourceAddr() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.outboundSource
-}
-
-func (c *Connection) OutboundDestinationAddr() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.outboundDest
 }
