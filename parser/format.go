@@ -398,16 +398,10 @@ func (f *mooFormatter) binary(e *ir.BinaryExpr, parentPrecedence int, fullyParen
 
 // unaryOp converts a unary operator to its string representation
 func (f *mooFormatter) unaryOp(op ir.UnaryOperator) string {
-	switch op {
-	case ir.UnaryNegate:
-		return "-"
-	case ir.UnaryNot:
-		return "!"
-	case ir.UnaryBitwiseNot:
-		return "~"
-	default:
-		return f.fail(ir.Position{}, fmt.Errorf("unsupported unary operator %d", op))
+	if spelling, ok := UnaryOperatorSpelling(op); ok {
+		return spelling
 	}
+	return f.fail(ir.Position{}, fmt.Errorf("unsupported unary operator %d", op))
 }
 
 // target formats the sealed assignment target family.

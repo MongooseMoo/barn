@@ -45,6 +45,17 @@ func makeNativeNames(program *ir.Program, version int) (*nativeNames, error) {
 	return n, nil
 }
 
+// NativeVariableNames is the variable-name table Toast's compiler would give the
+// program: its builtin variables first, then each source variable in reduction
+// order, spelled the first way the parser met it.
+func NativeVariableNames(program *ir.Program, version int) ([]string, error) {
+	n, err := makeNativeNames(program, version)
+	if err != nil {
+		return nil, err
+	}
+	return n.names, nil
+}
+
 func (n *nativeNames) add(name string) {
 	if name == "" {
 		return

@@ -15,7 +15,12 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
   manifest `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json` from the
   `managed-toast-live-commit` branch, used as both oracle and target).
   Expected values were copied from that Toast's output.
-- Barn implementation: not started at this point.
+- parse_ast: done in `builtins/ast.go`; 29 of 30 parse_ast cases pass on Barn.
+  `waif_property_spelling` fails: Barn's parser rejects `a.:w` outright (see Surprises);
+  making it parse is a language change outside this task.
+- Shared pieces added (no behaviour change): `compiler.NativeVariableNames`,
+  `parser.{Binary,Unary}Operator{Spelling,FromSpelling}`, `parser.IsIdentifier`,
+  `types.TypeCode.ToastName` (moved from vm), `readableDescribedVerb` (verb_code's checks).
 
 ## Decisions and why
 
@@ -23,6 +28,14 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
   source and prints it with `parser.FormatMOO`; the builtins convert between
   `ir.Program` and the map tree on top of that path. No second parser or unparser.
 - Compare trees through `toliteral()` in the tests so key order is pinned too.
+- `elseif` versus `else` + nested `if`: told apart from the source text at the
+  nested IfStmt's position (the parser records the `elseif` token position), so
+  no IR change was needed for code-to-tree.
+- Variable spellings come from `compiler.NativeVariableNames`, the existing
+  reproduction of Toast's name table (yacc reduction order, builtin spellings).
+- Errors: parse_ast compiles with the same compiler as set_verb_code and raises
+  its diagnostics; it does not apply set_verb_code's Barn-only missing-semicolon
+  retry (Toast has none).
 
 ## Surprises
 
@@ -35,4 +48,4 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
 
 ## Next step
 
-Implement parse_ast, then verb_ast, validate_ast, unparse_ast, committing each.
+verb_ast, then validate_ast, then unparse_ast, committing each.

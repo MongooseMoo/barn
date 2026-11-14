@@ -1,6 +1,10 @@
 package parser
 
-import "github.com/MongooseMoo/barn/ir"
+import (
+	"strings"
+
+	"github.com/MongooseMoo/barn/ir"
+)
 
 // TokenType represents different types of lexical tokens
 type TokenType int
@@ -270,6 +274,24 @@ var keywords = map[string]TokenType{
 	"endtry":   TOKEN_ENDTRY,
 	"any":      TOKEN_ANY,
 	"in":       TOKEN_IN,
+}
+
+// IsIdentifier reports whether name can be written as a MOO variable, property
+// or verb name: an ASCII letter or underscore, then ASCII letters, digits and
+// underscores, and not a keyword or error name in any letter case (Toast
+// ok_identifier with its case-insensitive keyword table).
+func IsIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		letter := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	return LookupKeyword(strings.ToLower(name)) == TOKEN_IDENTIFIER && !isErrorName(strings.ToUpper(name))
 }
 
 // LookupKeyword checks if an identifier is a keyword
