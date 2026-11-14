@@ -9,7 +9,7 @@ fixes every checkpoint. Nothing else.
 
 ## State
 
-Done locally on branch `checkpoint-task-order`, not pushed, no PR.
+Done on branch `checkpoint-task-order`; pull request open.
 
 - `engine/checkpoint_task_order_test.go`: 8 queued, 8 suspended, 8 interrupted
   tasks, each holding its own WAIF, all WAIFs also listed in `#0.kept`; five
