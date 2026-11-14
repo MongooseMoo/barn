@@ -52,6 +52,9 @@ type barnImportLayout struct {
 	locals      map[int]barnImportValue
 	localOwners map[int]ir.Node
 	calls       map[ir.Node]barnImportCall
+	// forkDepths holds, per fork statement in code order, the operands the
+	// enclosing code holds while its body runs; a forked task starts without them.
+	forkDepths  []int
 	handlers    []barnImportHandler
 	pending     int
 	pendingNode ir.Node
@@ -63,6 +66,12 @@ func newBarnImportLayout() *barnImportLayout {
 		locals: make(map[int]barnImportValue), localOwners: make(map[int]ir.Node),
 		calls: make(map[ir.Node]barnImportCall), pending: -1,
 	}
+}
+
+// importSlotGap is how far the slot numbers the import layout records for
+// compiler temporaries sit above the compacted slots of the compiled program.
+func (c *lowerer) importSlotGap(compiled *bytecode.Program) int {
+	return 256 - len(c.internalVariables) - len(compiled.VarNames)
 }
 
 func (s *barnImportLayout) currentNode() ir.Node {
@@ -81,6 +90,11 @@ func (s *barnImportLayout) enter(c *lowerer, node ir.Node) func() {
 	s.flush(c)
 	entry := append([]barnImportValue(nil), s.stack...)
 	entryHandlers := append([]barnImportHandler(nil), s.handlers...)
+	if _, fork := node.(*ir.ForkStmt); fork {
+		// The fork instruction consumes the delay it is given, so its body
+		// starts at the statement's entry depth.
+		s.forkDepths = append(s.forkDepths, len(entry))
+	}
 	s.nodes = append(s.nodes, barnImportNode{node: node, stack: entry, handlers: entryHandlers})
 	return func() {
 		s.flush(c)

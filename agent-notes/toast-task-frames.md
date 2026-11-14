@@ -12,8 +12,16 @@ is left out of the file and logged.
 
 - Tests first: `engine/toast_task_export_test.go` (Barn-started tasks in seven
   frame shapes, plus a refused for-loop shape) and the Toast-fixture round trip in
-  `engine/rebuild_load_test.go`. Red before the change.
-- Implementation: in progress.
+  `engine/rebuild_load_test.go`. Red before the change, green after.
+- Implemented: `compiler/native_export.go` `ExportNativeFrame`;
+  `vm.ExportNativeSnapshot`; `Runtime.TaskSnapshots` exports or leaves out and
+  logs; the writer writes native frames in Toast's form and the VM header with
+  the root vector and func_id 0; `bytecode.Program.ForkBody`;
+  `barnImportLayout.forkDepths`; `compileNativeVector` also returns the whole
+  layout; `lowerer.importSlotGap` shared by import and export.
+- Not done: Toast itself loading a Barn-written file (needs the managed Toast
+  build at the live commit); only the tests above were run, the rest of the
+  suite is for CI.
 
 ## Decisions and why
 
@@ -39,6 +47,16 @@ is left out of the file and logged.
 - 11 of the 12 real tasks on the 2026-11-12 dump have frame 0 in Toast fork vector 0;
   Barn wrote root vector -1 for every task.
 
+- Toast's error pc is the start of the call instruction (pc-2 after a builtin
+  call, pc-1 after a verb call), not the pc; the fixture showed it.
+- Barn's import keeps only variables the frame's own vector names, so a Toast
+  fork frame loses parent variables its body never uses; the export cannot
+  write them back. Pre-existing, logged by the fixture test.
+- Barn no longer writes its own frame form for live tasks; the Barn-form writer
+  is now reached only by tests (the reader still reads old Barn checkpoints).
+  Whether to delete it is a decision for Q.
+
 ## Next step
 
-Implement the export, writer form and `TaskSnapshots` change; run the tests above.
+Run a Toast resume test on the managed Toast build at the live commit once it
+exists; then let CI run the full suite.

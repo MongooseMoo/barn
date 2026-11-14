@@ -237,6 +237,33 @@ func convertNativeSnapshot(snapshot *task.VMSnapshot, store *dbstore.Store, sess
 	return converted, nil
 }
 
+// ExportNativeSnapshot is convertNativeSnapshot's inverse: it returns snapshot
+// with every frame as Toast holds it at the same call, so Toast can load and
+// resume it, or an error when any frame has no Toast form. Programmers are
+// the activations' (callStack), which Toast stores beside each frame.
+func ExportNativeSnapshot(snapshot *task.VMSnapshot, callStack []types.ActivationFrame, compile *compiler.Compiler) (*task.VMSnapshot, error) {
+	if snapshot == nil || len(snapshot.Frames) == 0 {
+		return nil, fmt.Errorf("empty VM snapshot")
+	}
+	exported := &task.VMSnapshot{MaxStackDepth: snapshot.MaxStackDepth, Frames: make([]task.VMFrameSnapshot, len(snapshot.Frames))}
+	for index, saved := range snapshot.Frames {
+		frame, vector, err := compile.ExportNativeFrame(saved, index == len(snapshot.Frames)-1)
+		if err != nil {
+			return nil, fmt.Errorf("frame %d (#%d:%s): %w", index, saved.VerbLoc, saved.Verb, err)
+		}
+		if index == 0 {
+			exported.NativeRootVector = vector
+		} else if vector != -1 {
+			return nil, fmt.Errorf("frame %d (#%d:%s) is not in its program's main vector", index, saved.VerbLoc, saved.Verb)
+		}
+		if index < len(callStack) {
+			frame.Native.Programmer = callStack[index].Programmer
+		}
+		exported.Frames[index] = frame
+	}
+	return exported, nil
+}
+
 // ProgramMismatchError refuses a saved task one of whose frames ran a program
 // that compiling the frame's saved source does not produce today.
 type ProgramMismatchError struct {

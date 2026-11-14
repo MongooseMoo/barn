@@ -135,7 +135,7 @@ func (w *Writer) writeInterruptedTasks() error {
 			return fmt.Errorf("write interrupted task-local value: %w", err)
 		}
 		machine := interrupted.VM
-		if _, err := fmt.Fprintf(w.w, "%d -1 0 %d\n", len(machine.Frames)-1, machine.MaxStackDepth); err != nil {
+		if err := w.writeVMHeader(machine, 0); err != nil {
 			return err
 		}
 		for i, frame := range machine.Frames {

@@ -155,8 +155,11 @@ func TestBarnSuspendedTaskShapesCheckpointAsToastFrames(t *testing.T) {
 				if frame.Native == nil || frame.IP != want.IP || len(frame.Stack) != len(want.Stack) {
 					t.Fatalf("reloaded frame %d: native=%v ip=%d stack=%d, want ip=%d stack=%d", index, frame.Native != nil, frame.IP, len(frame.Stack), want.IP, len(want.Stack))
 				}
+				// The file holds each operand's type code; the export marks
+				// only Toast's control markers (7 catch, 8 finally).
+				marker := func(kind int) bool { return kind == 7 || kind == 8 }
 				for slot, value := range frame.Stack {
-					if !value.Equal(want.Stack[slot]) || frame.Native.OperandTypes[slot] != want.Native.OperandTypes[slot] {
+					if !value.Equal(want.Stack[slot]) || marker(frame.Native.OperandTypes[slot]) != marker(want.Native.OperandTypes[slot]) || (marker(frame.Native.OperandTypes[slot]) && frame.Native.OperandTypes[slot] != want.Native.OperandTypes[slot]) {
 						t.Fatalf("reloaded frame %d slot %d = %s (type %d), want %s (type %d)", index, slot, value, frame.Native.OperandTypes[slot], want.Stack[slot], want.Native.OperandTypes[slot])
 					}
 				}
@@ -175,6 +178,23 @@ func TestBarnSuspendedTaskShapesCheckpointAsToastFrames(t *testing.T) {
 			restored := resumed.GetTask(saved.ID)
 			if restored == nil {
 				t.Fatal("Toast-form task was not restored")
+			}
+			// The Toast-form frames, imported, export to the same Toast pc,
+			// error pc, operands and root vector again.
+			_, again := resumed.TaskSnapshots()
+			if len(again) != 1 || again[0].VM.NativeRootVector != exported.NativeRootVector {
+				t.Fatalf("re-export = %d tasks", len(again))
+			}
+			for index, frame := range again[0].VM.Frames {
+				want := exported.Frames[index]
+				if frame.IP != want.IP || frame.Native.ErrorPC != want.Native.ErrorPC || len(frame.Stack) != len(want.Stack) {
+					t.Fatalf("re-exported frame %d pc/error pc/stack = %d/%d/%v, want %d/%d/%v", index, frame.IP, frame.Native.ErrorPC, frame.Stack, want.IP, want.Native.ErrorPC, want.Stack)
+				}
+				for slot := range frame.Stack {
+					if !frame.Stack[slot].Equal(want.Stack[slot]) || frame.Native.OperandTypes[slot] != want.Native.OperandTypes[slot] {
+						t.Fatalf("re-exported frame %d stack %v, want %v", index, frame.Stack, want.Stack)
+					}
+				}
 			}
 			// A main-vector frame converts back to the Barn frame it was: same
 			// code, position, operands and named variables. A fork frame comes

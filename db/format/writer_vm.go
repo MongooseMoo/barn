@@ -39,7 +39,7 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	if snapshot.State == task.TaskQueued {
 		ready = 1
 	}
-	if _, err := fmt.Fprintf(w.w, "%d -1 %d %d\n", len(machine.Frames)-1, ready, machine.MaxStackDepth); err != nil {
+	if err := w.writeVMHeader(machine, ready); err != nil {
 		return err
 	}
 	for i, frame := range machine.Frames {
@@ -65,7 +65,23 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	return nil
 }
 
+// writeVMHeader writes "top vector func_id max_stack". A VM in Toast's form
+// carries its root vector and Toast's func_id 0 (execute.cc: "shouldn't need
+// func_id"), which Barn's import also requires; a Barn VM writes main vector
+// -1 and its ready flag.
+func (w *Writer) writeVMHeader(machine *task.VMSnapshot, ready int) error {
+	vector := -1
+	if machine.Frames[0].Native != nil {
+		vector, ready = machine.NativeRootVector, 0
+	}
+	_, err := fmt.Fprintf(w.w, "%d %d %d %d\n", len(machine.Frames)-1, vector, ready, machine.MaxStackDepth)
+	return err
+}
+
 func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
+	if frame.Native != nil {
+		return w.writeNativeVMFrame(frame, activation)
+	}
 	for _, reason := range frame.PendingReasons {
 		if !reason.Error.ValidExceptionReason() {
 			return fmt.Errorf("invalid pending error reason")
@@ -116,6 +132,67 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 		return err
 	}
 	_, err := fmt.Fprintf(w.w, "%d 0 %d\n", frame.IP, frame.IP)
+	return err
+}
+
+// writeNativeVMFrame writes a frame in Toast's form, as Toast's write_activ
+// does (execute.cc): its variables, its operand stack with Toast's type codes,
+// its temporary and its pc. The reader reads it back as a native frame.
+func (w *Writer) writeNativeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
+	native := frame.Native
+	if len(native.OperandTypes) != len(frame.Stack) || len(frame.Locals) != len(frame.Program.VarNames) || native.Builtin != nil || frame.BuiltinPC != 0 {
+		return fmt.Errorf("native frame is incomplete")
+	}
+	if err := w.writeString(fmt.Sprintf("language version %d", native.LanguageVersion)); err != nil {
+		return err
+	}
+	for _, line := range frame.Program.Source {
+		if err := w.writeString(line); err != nil {
+			return err
+		}
+	}
+	if err := w.writeString("."); err != nil {
+		return err
+	}
+	if err := w.writeString(fmt.Sprintf("%d variables", len(frame.Program.VarNames))); err != nil {
+		return err
+	}
+	for index, name := range frame.Program.VarNames {
+		if err := w.writeString(name); err != nil {
+			return err
+		}
+		if err := w.writeValue(frame.Locals[index]); err != nil {
+			return err
+		}
+	}
+	if err := w.writeString(fmt.Sprintf("%d rt_stack slots in use", len(frame.Stack))); err != nil {
+		return err
+	}
+	for index, value := range frame.Stack {
+		if kind := native.OperandTypes[index]; kind == TypeCatch || kind == TypeFinally {
+			// A control marker: Toast's type code, then its integer.
+			if value.Type() != types.TYPE_INT {
+				return fmt.Errorf("native control marker %d is not an integer", index)
+			}
+			if err := w.writeInt(kind); err != nil {
+				return err
+			}
+			if err := w.writeInt64(value.Int()); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := w.writeValue(value); err != nil {
+			return err
+		}
+	}
+	if err := w.writeVMActivationAsPI(frame, activation); err != nil {
+		return err
+	}
+	if err := w.writeValue(native.Temporary); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w.w, "%d 0 %d\n", frame.IP, native.ErrorPC)
 	return err
 }
 

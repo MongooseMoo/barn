@@ -28,7 +28,7 @@ const (
 func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.Program, error) {
 	var program *bytecode.Program
 	if origin.Native {
-		compiled, _, _, err := c.compileNativeVector(source, origin.LanguageVersion, origin.NativeVector, nil)
+		compiled, _, _, _, err := c.compileNativeVector(source, origin.LanguageVersion, origin.NativeVector, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -52,15 +52,15 @@ func (c *Compiler) Rebuild(source []string, origin bytecode.Origin) (*bytecode.P
 
 // compileNativeVector lowers one vector of Toast-compiled source. Importing,
 // when not nil, observes the lowering to map Toast continuation state; it
-// never changes the code emitted.
-func (c *Compiler) compileNativeVector(source []string, languageVersion, vector int, importing *barnImportLayout) (*bytecode.Program, *NativeVectorLayout, *lowerer, error) {
+// never changes the code emitted. It also returns the whole source's layout.
+func (c *Compiler) compileNativeVector(source []string, languageVersion, vector int, importing *barnImportLayout) (*bytecode.Program, *NativeProgramLayout, *NativeVectorLayout, *lowerer, error) {
 	program, err := parser.NewParser(strings.Join(source, "\n")).ParseProgram()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("parse native saved source: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("parse native saved source: %w", err)
 	}
 	layout, err := NativeLayout(program, nil, languageVersion)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	var selected *NativeVectorLayout
 	for index := range layout.Vectors {
@@ -70,24 +70,24 @@ func (c *Compiler) compileNativeVector(source []string, languageVersion, vector 
 		}
 	}
 	if selected == nil {
-		return nil, nil, nil, fmt.Errorf("native root vector %d does not exist", vector)
+		return nil, nil, nil, nil, fmt.Errorf("native root vector %d does not exist", vector)
 	}
 	lower := newLowerer(c.builtinIDs)
 	lower.importLayout = importing
 	compiled, err := lower.compileProgram(&ir.Program{Statements: selected.Body})
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("compile native continuation: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("compile native continuation: %w", err)
 	}
 	if importing != nil {
 		importing.flush(lower)
 		if importing.err != nil {
-			return nil, nil, nil, importing.err
+			return nil, nil, nil, nil, importing.err
 		}
 	}
 	compiled.Source = append([]string(nil), source...)
 	compiled.BuiltinLayout = c.layout
 	compiled.Origin = bytecode.Origin{Native: true, NativeVector: vector, LanguageVersion: languageVersion}
-	return compiled, selected, lower, nil
+	return compiled, layout, selected, lower, nil
 }
 
 // ConvertNativeFrame compiles a saved native program and translates existing
@@ -99,7 +99,7 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 	if saved.BuiltinPC != 0 || saved.Native.Builtin != nil {
 		return saved, 0, fmt.Errorf("native builtin continuation requires conversion")
 	}
-	compiled, selected, lower, err := c.compileNativeVector(saved.Program.Source, saved.Native.LanguageVersion, vector, newBarnImportLayout())
+	compiled, _, selected, lower, err := c.compileNativeVector(saved.Program.Source, saved.Native.LanguageVersion, vector, newBarnImportLayout())
 	if err != nil {
 		return saved, 0, err
 	}
@@ -234,7 +234,7 @@ func (c *Compiler) ConvertNativeFrame(saved task.VMFrameSnapshot, vector int, to
 			}
 		}
 	}
-	gap := 256 - len(lower.internalVariables) - len(compiled.VarNames)
+	gap := lower.importSlotGap(compiled)
 	for slot, value := range barn.Locals {
 		resolved, err := resolve(value)
 		if err != nil {

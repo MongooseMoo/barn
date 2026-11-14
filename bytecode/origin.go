@@ -29,9 +29,19 @@ type Origin struct {
 // ExtractFork extracts fork body index (one-based, code order) of p, or nil
 // when p has no such body.
 func (p *Program) ExtractFork(index int) *Program {
+	start, length, ok := p.ForkBody(index)
+	if !ok {
+		return nil
+	}
+	return p.ExtractForkBody(start, length)
+}
+
+// ForkBody reports where fork body index (one-based, code order) of p starts
+// and how many bytes it has.
+func (p *Program) ForkBody(index int) (start, length int, ok bool) {
 	_, instructions, err := decodeInstructions(p.Code)
 	if err != nil || index < 1 {
-		return nil
+		return 0, 0, false
 	}
 	for _, instruction := range instructions {
 		if !isForkInstruction(instruction.op) {
@@ -39,10 +49,10 @@ func (p *Program) ExtractFork(index int) *Program {
 		}
 		if index--; index == 0 {
 			_, length := forkOperands(instruction)
-			return p.ExtractForkBody(instruction.next, length)
+			return instruction.next, length, true
 		}
 	}
-	return nil
+	return 0, 0, false
 }
 
 // forkIndexAt returns the code-order position, counted from 1 within p, of

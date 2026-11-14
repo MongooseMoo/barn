@@ -456,6 +456,9 @@ func (s *Runtime) GetTask(taskID int64) *Task {
 }
 
 // TaskSnapshots returns immutable task snapshots for checkpoint serialization.
+// A task with saved VM state is returned with its frames in Toast's form, so
+// Toast can load the checkpoint and resume it; a task with a frame Toast
+// cannot hold is left out and logged.
 func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -466,6 +469,17 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 			continue
 		}
 		if snapshot.VM != nil {
+			exported, err := vm.ExportNativeSnapshot(snapshot.VM, snapshot.CallStack, s.registry.Compiler())
+			if err != nil {
+				slog.Warn("checkpoint leaves out a task Toast could not resume",
+					slog.Int64("task_id", snapshot.ID),
+					slog.String("verb", snapshot.VerbName),
+					slog.Int64("verbloc", int64(snapshot.VerbLoc)),
+					slog.Int64("this", int64(snapshot.This)),
+					slog.Any("err", err))
+				continue
+			}
+			snapshot.VM = exported
 			suspended = append(suspended, snapshot)
 			continue
 		}
