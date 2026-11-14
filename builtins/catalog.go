@@ -266,6 +266,7 @@ var builtinLayout = []string{
 	"graphemes",
 	"tz_offset",
 	"parse_ast",
+	"verb_ast",
 }
 
 // Descriptors assembles the native catalog with owner-supplied functions such

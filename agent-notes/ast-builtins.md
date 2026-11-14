@@ -18,6 +18,10 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
 - parse_ast: done in `builtins/ast.go`; 29 of 30 parse_ast cases pass on Barn.
   `waif_property_spelling` fails: Barn's parser rejects `a.:w` outright (see Surprises);
   making it parse is a language change outside this task.
+- verb_ast: done; 5 of 5 cases pass on Barn. It parses the stored source like
+  verb_code does. Barn's set_verb_code stores the formatter's output, which
+  turns `else` + nested `if` into `elseif`, so for a verb programmed under Barn
+  verb_ast reports elseif arms where Toast reports the nested if.
 - Shared pieces added (no behaviour change): `compiler.NativeVariableNames`,
   `parser.{Binary,Unary}Operator{Spelling,FromSpelling}`, `parser.IsIdentifier`,
   `types.TypeCode.ToastName` (moved from vm), `readableDescribedVerb` (verb_code's checks).
@@ -48,4 +52,4 @@ Reference: fork `src/ast_map.cc`, `src/verbs.cc` (`bf_verb_ast`),
 
 ## Next step
 
-verb_ast, then validate_ast, then unparse_ast, committing each.
+validate_ast, then unparse_ast, committing each.

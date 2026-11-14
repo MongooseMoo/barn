@@ -604,8 +604,19 @@ func builtinParseAST(ctx *Execution, args []types.Value) types.Result {
 	return sourceAST(lines)
 }
 
+// builtinVerbAST: verb_ast(object, verb-desc) -> LIST, the tree of the verb's
+// code, with verb_code()'s argument checks and errors.
+func builtinVerbAST(ctx *Execution, args []types.Value) types.Result {
+	verb, errCode := readableDescribedVerb(ctx, args[0], args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	return sourceAST(verb.Code)
+}
+
 func astDescriptors() []Descriptor {
 	return []Descriptor{
 		function("parse_ast", builtinParseAST, 1, 1, 4),
+		function("verb_ast", builtinVerbAST, 2, 2, -1, -1),
 	}
 }
