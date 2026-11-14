@@ -1,0 +1,80 @@
+name: valid_incarnation
+description: valid(object, expected) also requires a readable, nonempty, exactly equal incarnation_id string.
+requires:
+  builtins: [valid, create, recycle, add_property, add_verb, set_verb_code]
+tests:
+  - name: bad_argument_types_raise_e_type
+    permission: wizard
+    steps:
+      - run: return valid(42);
+        expect:
+          error: E_TYPE
+      - run: return valid(player, 42);
+        expect:
+          error: E_TYPE
+
+  - name: inherited_identity_on_anonymous_object
+    permission: wizard
+    steps:
+      - run: |
+          parent = create($nothing);
+          add_property(parent, "incarnation_id", "inherited-epoch", {player, "r"});
+          try
+            a = create(parent, player, 1);
+            return {valid(a), valid(a, "inherited-epoch"), valid(a, "other-epoch")};
+          finally
+            recycle(parent);
+          endtry
+        expect:
+          value: [1, 1, 0]
+
+  - name: identity_is_exact_and_follows_the_property
+    permission: wizard
+    steps:
+      - run: |
+          actor = create($nothing);
+          add_property(actor, "incarnation_id", "epoch-a", {player, "r"});
+          first = {valid(actor), valid(actor, "epoch-a"), valid(actor, "epoch-A")};
+          actor.incarnation_id = "epoch-b";
+          second = {valid(actor, "epoch-a"), valid(actor, "epoch-b")};
+          recycle(actor);
+          return {first, second, valid(actor, "epoch-b")};
+        expect:
+          value: [[1, 1, 0], [0, 1], 0]
+
+  - name: missing_empty_and_nonstring_identities_do_not_match
+    permission: wizard
+    steps:
+      - run: |
+          actor = create($nothing);
+          try
+            missing = {valid(actor), valid(actor, "")};
+            add_property(actor, "incarnation_id", "", {player, "r"});
+            empty = valid(actor, "");
+            actor.incarnation_id = 0;
+            return {missing, empty, valid(actor, "epoch")};
+          finally
+            recycle(actor);
+          endtry
+        expect:
+          value: [[1, 0], 0, 0]
+
+  - name: unreadable_identity_raises_e_perm
+    permission: wizard
+    steps:
+      - run: |
+          actor = create($nothing);
+          other = create($nothing);
+          other.programmer = 1;
+          other.owner = other;
+          add_property(actor, "incarnation_id", "private-epoch", {player, ""});
+          add_verb(actor, {other, "xd", "probe"}, {"this", "none", "this"});
+          set_verb_code(actor, "probe", {"return {valid(this), `valid(this, \"private-epoch\") ! E_PERM => -1'};"});
+          try
+            return {valid(actor, "private-epoch"), actor:probe()};
+          finally
+            recycle(actor);
+            recycle(other);
+          endtry
+        expect:
+          value: [1, [1, -1]]
