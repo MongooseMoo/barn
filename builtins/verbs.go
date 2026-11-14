@@ -254,6 +254,7 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 			FullyParenthesized: len(args) >= 3 && args[2].Truthy(),
 			Unindented:         len(args) >= 4 && !args[3].Truthy(),
 			ElseIfArms:         parser.ElseIfArms(source, program),
+			ToastFloats:        true,
 		})
 	}
 

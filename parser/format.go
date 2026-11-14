@@ -66,6 +66,11 @@ type FormatOptions struct {
 	// Nil means the program's source is not known, and every IfStmt alone in
 	// an Else prints as an `elseif' arm.
 	ElseIfArms map[*ir.IfStmt]bool
+	// ToastFloats spells every float literal as Toast's unparser prints it,
+	// printf "%.15g", which can lose precision. verb_code() and unparse_ast()
+	// display code this way. Without it a float is spelled exactly, so
+	// source that is parsed again (stored verb code) keeps its values.
+	ToastFloats bool
 }
 
 // ElseIfArms returns the IfStmts in program that source wrote as `elseif'
@@ -571,7 +576,20 @@ func (f *mooFormatter) literal(v *ir.LiteralExpr) string {
 		if math.IsInf(v.FloatValue, 0) || math.IsNaN(v.FloatValue) {
 			return f.fail(v.Pos, fmt.Errorf("nonfinite float has no MOO literal spelling"))
 		}
-		return floattext.Format(v.FloatValue)
+		spelled := floattext.Format(v.FloatValue)
+		if f.options.ToastFloats {
+			return spelled
+		}
+		// Toast's 15 significant digits can name a different float; source
+		// that is parsed again needs the exact value.
+		if parsed, err := strconv.ParseFloat(spelled, 64); err == nil && parsed == v.FloatValue {
+			return spelled
+		}
+		spelled = strconv.FormatFloat(v.FloatValue, 'g', -1, 64)
+		if !strings.ContainsAny(spelled, ".eE") {
+			spelled += ".0"
+		}
+		return spelled
 	case ir.LiteralString:
 		if strings.IndexByte(v.StringValue, 0) >= 0 {
 			return f.fail(v.Pos, ErrNULInSource)
