@@ -42,6 +42,18 @@ class InvalidateTests(unittest.TestCase):
         self.assertEqual(after[line - 1], "0" + FINGERPRINT[1:])
         self.assertGreater(line - 1, before.index("1794383217 507 0"))
 
+    def test_refuses_a_toast_form_task_without_touching_a_later_task(self):
+        # Task 507 is in Toast's frame form (no fingerprint); task 943 after it
+        # is in Barn's form. The search must stop at 943's header and raise,
+        # never flip 943's fingerprint.
+        toast_form = "\n".join(["1794383217 507 0", "0", "10", "0", "0 0 0 5", "language version 17",
+                                "suspend(100);", ".", "1 variables", "x", "0", "1", "0 rt_stack slots in use",
+                                "-111", "1", "0", "0", "0", "0 0 6", "7 1 0"])
+        text = "\n".join(["0 queued tasks", "2 suspended tasks", toast_form, task_section(943),
+                          "0 interrupted tasks", ""])
+        with self.assertRaises(ValueError):
+            jc.invalidate_task_fingerprint(text, 507)
+
     def test_refuses_a_missing_task_or_section(self):
         with self.assertRaises(ValueError):
             jc.invalidate_task_fingerprint(FIXTURE_TASKS, 999)

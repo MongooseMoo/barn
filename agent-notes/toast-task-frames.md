@@ -94,10 +94,13 @@ default, leaves such tasks out to make a file Toast can load.
 
 ## Next step
 
-Watch the PR's checks after the push with both fixes; then merge (coordinator).
-`invalidate_task_fingerprint` scans past the named task's section, so if the
-named task were ever Toast form it would flip a later Barn-form task's
-fingerprint; the finally-clause shape keeps it Barn form. Open: a durable managed
+Watch the PR's checks after the push; then merge (coordinator).
+`invalidate_task_fingerprint` now searches only the named task's own section
+(up to the next task header, three integers with a start time within a day of
+the task's, or "N interrupted tasks") and raises if that task has no
+fingerprint, so a Toast-form task in a mixed checkpoint never makes it flip a
+later Barn-form task's fingerprint (test in
+`scripts/test_jepsen_task_effects.py`). Open: a durable managed
 Toast resume test in the repo; Toast loading a whole real Barn-written Mongoose
 checkpoint; the interrupted-task (read) writer path has no test of its own; wire
 `OmitBarnFrameTasks` into the offline checkpoint command on that branch.
