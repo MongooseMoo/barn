@@ -23,9 +23,11 @@ func (s *nativeVector) stmt(stmt ir.Stmt) {
 	case *ir.ReturnStmt:
 		if n.Value != nil {
 			s.expr(n.Value)
+			s.reduceOp(nativeReduceEnd, 0)
 			s.emit(1)
 			s.pop(1)
 		} else {
+			s.reduceOp(nativeReduceEnd, 0)
 			s.emit(1)
 		}
 	case *ir.IfStmt:
@@ -189,7 +191,9 @@ func (s *nativeVector) except(n *ir.TryStmt) {
 	s.emit(3)
 	s.push(NativeValueOrigin{Kind: NativeCatchMarker, Node: n, Aux: len(n.Handlers)})
 	s.controls = append(s.controls, NativeControlOrigin{Kind: NativeExcept, Node: n, StackBase: base, HandlerPCs: append([]int(nil), labels...)})
+	s.tryDepth++
 	s.block(n.Body)
+	s.tryDepth--
 	s.controls = s.controls[:len(s.controls)-1]
 	s.emit(2)
 	s.labelRef(end)
@@ -198,7 +202,7 @@ func (s *nativeVector) except(n *ir.TryStmt) {
 		s.bind(labels[i])
 		s.push(NativeValueOrigin{Kind: NativeExpression, Node: n, Aux: i})
 		if h.Variable != "" {
-			s.varOp(h.Variable)
+			s.varOp(h.Variable, nativeReducePut)
 		}
 		s.emit(1)
 		s.pop(1)
@@ -219,7 +223,9 @@ func (s *nativeVector) finally(n *ir.TryStmt) {
 	s.labelRef(handler)
 	s.push(NativeValueOrigin{Kind: NativeFinallyMarker, Node: n, LabelPC: handler})
 	s.controls = append(s.controls, NativeControlOrigin{Kind: NativeFinallyBody, Node: n, StackBase: base, HandlerPCs: []int{handler}})
+	s.tryDepth++
 	s.block(n.Body)
+	s.tryDepth--
 	s.controls = s.controls[:len(s.controls)-1]
 	s.emit(2)
 	s.pop(1)

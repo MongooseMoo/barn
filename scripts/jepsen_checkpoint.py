@@ -898,7 +898,10 @@ TASK_VERBS = {
     "edit_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"edit\", \"old\", v});"]),
     "cancel_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"cancel\", \"ran\", v});"]),
     # The task whose saved program the harness invalidates once (invalidate_task_fingerprint).
-    "invalid_body": ("p", [f"v = suspend({HOLD_SECONDS});", "this:record(args[1], {\"invalid\", v});"]),
+    # It suspends inside a finally clause, which Toast's frame form cannot hold, so
+    # Barn writes it in its own form, the only form with a program fingerprint.
+    "invalid_body": ("p", ["try", "  v = 0;", "finally", f"  v = suspend({HOLD_SECONDS});",
+                           "  this:record(args[1], {\"invalid\", v});", "endtry"]),
     "recycle_body": ("p", ["h = args[2];", f"v = suspend({HOLD_SECONDS});",
                            "this:record(args[1], {\"recycle\", valid(h), typeof(h), h == args[2], v});"]),
     "effect_body": ("wizard", [f"v = suspend({HOLD_SECONDS});",
@@ -1010,27 +1013,49 @@ def invalidate_task_fingerprint(text, tid):
     """Flip one hex digit of suspended task tid's first saved program fingerprint.
 
     In a Barn-written checkpoint the task section starts with the line
-    "<start> <tid> <wake value...>" after "N suspended tasks", and each saved
+    "<start> <tid> <wake value...>" after "N suspended tasks". A task Toast's
+    frame form can hold is written in that form, which saves only source and
+    has no fingerprint; tid must be a task Barn writes in its own form
+    (invalid_body suspends in a finally clause for that). There each saved
     frame's program identity list ends with its 64-hex-digit fingerprint,
     which precedes that frame's builtin-layout hex (db/format/writer_vm.go
-    programIdentityValue). The first 64-hex line after the header is
-    therefore the first frame's fingerprint. Barn's loader recompiles the
-    frame's source, finds the fingerprint different and drops only that task
-    (engine/task_load.go LoadSuspendedTasks). Returns (new text, line number).
+    programIdentityValue). The first 64-hex line in tid's own section is
+    therefore the first frame's fingerprint. The section ends at the next
+    task's header or "N interrupted tasks"; one checkpoint may mix both
+    forms, so a Toast-form tid raises rather than flipping a later task's
+    fingerprint. Barn's loader recompiles the frame's source, finds the
+    fingerprint different and drops only that task (engine/task_load.go
+    LoadSuspendedTasks). Returns (new text, line number).
+
+    A task header is exactly three integers, the first a start time in Unix
+    seconds (writeSuspendedTask); a later line is taken as the next header
+    when its first integer is within a day of tid's start time.
     """
     lines = text.split("\n")
     start = next((index for index, line in enumerate(lines) if line.endswith(" suspended tasks")), None)
     if start is None:
         raise ValueError("checkpoint has no suspended tasks section")
+
+    def header_fields(line):
+        fields = line.split()
+        if len(fields) == 3 and all(field.lstrip("-").isdigit() for field in fields):
+            return int(fields[0]), int(fields[1])
+        return None
+
     header = next((index for index in range(start + 1, len(lines))
-                   if len(lines[index].split()) >= 2 and lines[index].split()[1] == str(tid)
-                   and lines[index].split()[0].lstrip("-").isdigit()), None)
+                   if (fields := header_fields(lines[index])) is not None and fields[1] == tid), None)
     if header is None:
         raise ValueError(f"suspended task {tid} is not in the checkpoint")
-    target = next((index for index in range(header + 1, len(lines))
+    started = header_fields(lines[header])[0]
+    end = next((index for index in range(header + 1, len(lines))
+                if lines[index].endswith(" interrupted tasks")
+                or ((fields := header_fields(lines[index])) is not None and fields[1] != tid
+                    and abs(fields[0] - started) <= 86400)), len(lines))
+    target = next((index for index in range(header + 1, end)
                    if len(lines[index]) == 64 and all(c in "0123456789abcdef" for c in lines[index])), None)
     if target is None:
-        raise ValueError(f"suspended task {tid} has no saved program fingerprint")
+        raise ValueError(f"suspended task {tid} has no saved program fingerprint in its own section "
+                         "(it is in Toast's frame form)")
     line = lines[target]
     lines[target] = ("1" if line[0] == "0" else "0") + line[1:]
     return "\n".join(lines), target + 1

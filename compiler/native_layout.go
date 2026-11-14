@@ -55,6 +55,11 @@ type NativeContinuation struct {
 	PC       int
 	Stack    []NativeValueOrigin
 	Controls []NativeControlOrigin
+	// Cleared names the variables Toast holds unbound at this call, because
+	// an OP_PUSH_CLEAR in the call's block unbound them (nativeVector.clearedAt).
+	// ClearUnknown is set when that depends on the path into the block.
+	Cleared      []string
+	ClearUnknown bool
 }
 
 type NativeVectorLayout struct {

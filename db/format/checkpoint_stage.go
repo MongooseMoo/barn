@@ -3,6 +3,7 @@ package format
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/MongooseMoo/barn/db/store"
@@ -28,7 +29,19 @@ type Checkpoint struct {
 	publicationAttempted bool
 	publishStarted       bool
 	closed               bool
+	// toastLoadable leaves Barn-frame tasks out at Capture (OmitBarnFrameTasks).
+	toastLoadable bool
+	omitted       []int64
 }
+
+// OmitBarnFrameTasks makes Capture leave out every task whose frames are in
+// Barn's own form, so ToastStunt can load the file. Each is logged and listed
+// by Omitted. Off unless called before Capture; Barn's live checkpoints keep
+// every task.
+func (c *Checkpoint) OmitBarnFrameTasks() { c.toastLoadable = true }
+
+// Omitted lists the tasks OmitBarnFrameTasks left out of this checkpoint.
+func (c *Checkpoint) Omitted() []int64 { return append([]int64(nil), c.omitted...) }
 
 // BeginCheckpoint recovers and reserves the ordinary checkpoint output.
 func BeginCheckpoint(path string) (*Checkpoint, error) {
@@ -67,6 +80,21 @@ func (c *Checkpoint) Capture(objectStore *store.Store, queuedTasks, suspendedTas
 	c.captureStarted = true
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
+	}
+	if c.toastLoadable {
+		kept := make([]task.Snapshot, 0, len(suspendedTasks))
+		for _, suspended := range suspendedTasks {
+			if suspended.VM != nil && len(suspended.VM.Frames) != 0 && suspended.VM.Frames[0].Native == nil {
+				slog.Warn("checkpoint for Toast leaves out a task in Barn's frame form",
+					slog.Int64("task_id", suspended.ID),
+					slog.String("verb", suspended.VerbName),
+					slog.Int64("verbloc", int64(suspended.VerbLoc)))
+				c.omitted = append(c.omitted, suspended.ID)
+				continue
+			}
+			kept = append(kept, suspended)
+		}
+		suspendedTasks = kept
 	}
 	snapshot := snapshotWithTaskRoots(objectStore, queuedTasks, suspendedTasks)
 	writer := NewWriter(c.file, snapshot)
