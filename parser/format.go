@@ -255,10 +255,8 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *ir.LiteralExpr:
-		// An integer followed by a property dot would lex as a float.
-		if e.Kind == ir.LiteralInt && parentPrecedence >= precedenceProperty {
-			return "(" + f.literal(e) + ")"
-		}
+		// Toast writes an integer base bare; property() separates it from a
+		// following dot so it does not lex as a float.
 		return f.literal(e)
 
 	case *ir.IdentifierExpr:
@@ -405,6 +403,10 @@ func (f *mooFormatter) property(e *ir.PropertyExpr, fullyParenthesized bool) str
 
 	// Otherwise use obj.property syntax
 	base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
+	if lit, ok := e.Expr.(*ir.LiteralExpr); ok && lit.Kind == ir.LiteralInt {
+		// Digits followed by a dot would lex as a float (Toast unparse.cc).
+		base += " "
+	}
 	if e.Property != "" {
 		return base + "." + f.name(e.Pos, e.Property)
 	}
