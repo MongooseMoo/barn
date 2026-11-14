@@ -167,9 +167,9 @@ tests:
       - run: recycle({obj})
 
   - name: double_negated_number_literal
-    # Passes on Toast. Barn prints `--5': its formatter keeps the program it
+    # Barn prints `--5' (known difference): its formatter keeps the program it
     # parsed, so formatted text reparses to the same IR (docs/parser-fuzzing.md).
-    skip: "Known Barn difference: - -5 is printed as --5, not folded to 5"
+    skip_if: "feature.unfolded_double_negation"
     permission: programmer
     steps:
       - run: create($nothing)
@@ -202,9 +202,9 @@ tests:
       - run: recycle({obj})
 
   - name: first_index_before_property
-    # Passes on Toast, but Toast's text `l[^.x]' is a syntax error on Toast
-    # and on Barn (see old_barn_spellings_compile), so Barn keeps `l[(^).x]'.
-    skip: "Known Barn difference: ^ before a dot is printed as (^) so the text recompiles"
+    # Toast's text `l[^.x]' is a syntax error on Toast and on Barn (see
+    # old_barn_spellings_compile), so Barn keeps `l[(^).x]' (known difference).
+    skip_if: "feature.bracketed_first_index_before_property"
     permission: programmer
     steps:
       - run: create($nothing)
@@ -239,10 +239,10 @@ tests:
       - run: recycle({obj})
 
   - name: old_barn_spellings_left_on_purpose
-    # Passes on Toast: the old Barn forms compile and Toast reprints them.
-    # Barn still prints these the old way (see double_negated_number_literal
-    # and first_index_before_property).
-    skip: "Known Barn difference: --5 and (^) before a dot keep Barn's spelling"
+    # The old Barn forms compile on Toast and Toast reprints them; Barn still
+    # prints these the old way (see double_negated_number_literal and
+    # first_index_before_property).
+    skip_if: "feature.unfolded_double_negation or feature.bracketed_first_index_before_property"
     permission: programmer
     steps:
       - run: create($nothing)
