@@ -267,7 +267,10 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		op := f.unaryOp(e.Operator)
 		operand := f.expr(e.Operand, precedenceUnary, fullyParenthesized)
 		result := op + operand
-		if parentPrecedence > precedenceUnary || (fullyParenthesized && parentPrecedence != precedenceLowest) {
+		// Toast's parser folds minus into a number literal, and a literal is
+		// not bracketed by fully-paren mode, so neither is a negated number.
+		forced := fullyParenthesized && parentPrecedence != precedenceLowest && !isNegatedNumber(e)
+		if parentPrecedence > precedenceUnary || forced {
 			return "(" + result + ")"
 		}
 		return result
@@ -388,6 +391,13 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	default:
 		return f.fail(ir.Position{}, fmt.Errorf("unsupported expression %T", expr))
 	}
+}
+
+// isNegatedNumber reports whether e is minus applied to an integer or float
+// literal, which Toast's parser compiles as one negative literal.
+func isNegatedNumber(e *ir.UnaryExpr) bool {
+	lit, ok := e.Operand.(*ir.LiteralExpr)
+	return ok && e.Operator == ir.UnaryNegate && (lit.Kind == ir.LiteralInt || lit.Kind == ir.LiteralFloat)
 }
 
 // isSystemObject reports whether expr is the literal #0, which Toast spells
