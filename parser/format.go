@@ -447,11 +447,8 @@ func (f *mooFormatter) target(target ir.Target, fullyParenthesized bool) string 
 	case *ir.VariableTarget:
 		return canonicalIdentifierName(f.name(target.Pos, target.Name))
 	case *ir.PropertyTarget:
-		object := f.expr(target.Object, precedenceProperty, fullyParenthesized)
-		if target.Name != "" {
-			return object + "." + f.name(target.Pos, target.Name)
-		}
-		return object + ".(" + f.expr(target.NameExpr, precedenceLowest, fullyParenthesized) + ")"
+		// Toast prints an assigned property like any property, `$name' included.
+		return f.property(&ir.PropertyExpr{Pos: target.Pos, Expr: target.Object, Property: target.Name, PropertyExpr: target.NameExpr}, fullyParenthesized)
 	case *ir.IndexTarget:
 		return f.target(target.Collection, fullyParenthesized) + "[" + f.expr(target.Index, precedenceLowest, fullyParenthesized) + "]"
 	case *ir.RangeTarget:
