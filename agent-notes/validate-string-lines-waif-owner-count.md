@@ -15,7 +15,12 @@ verb editor save path) and `waif_owner_count(OBJ)`. Nothing else.
   `db/store/store_lifecycle.go` (`Store.WaifCountByOwner`).
 - Managed candidate lane on Barn: before the change 19 skipped ("Requires
   builtin"), after it 20 passed (19 + admission).
-- Not pushed, no PR.
+- Toast first: `validate_string_lines` 11 of 11 and `waif_owner_count` 8 of 8
+  passed on the fork built at the live commit, through the managed harness
+  (profile `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`, added by the
+  branch `managed-toast-live-commit`). What this note says below about no
+  managed Toast having the builtins describes the state before that build.
+- Pull request open.
 
 ## Decisions and why
 
