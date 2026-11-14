@@ -279,7 +279,8 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	case *ir.TernaryExpr:
 		prec := precedenceTernary
 		cond := f.expr(e.Condition, prec+1, fullyParenthesized)
-		then := f.expr(e.ThenExpr, prec+1, fullyParenthesized)
+		// The `|' delimits the consequent, so Toast prints it unbracketed.
+		then := f.expr(e.ThenExpr, precedenceLowest, fullyParenthesized)
 		els := f.expr(e.ElseExpr, prec+1, fullyParenthesized)
 		result := cond + " ? " + then + " | " + els
 		if prec < parentPrecedence {
@@ -336,7 +337,8 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return result
 
 	case *ir.CatchExpr:
-		result := "`" + f.expr(e.Expr, precedenceTernary, fullyParenthesized)
+		// Toast prints the caught expression unbracketed; `!' ends it.
+		result := "`" + f.expr(e.Expr, precedenceLowest, fullyParenthesized)
 		result += " ! " + f.codes(e.IsAny, e.Codes, fullyParenthesized)
 		if e.Default != nil {
 			result += " => " + f.expr(e.Default, precedenceLowest, fullyParenthesized)
@@ -346,7 +348,8 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	case *ir.AssignExpr:
 		prec := precedenceAssign
 		target := f.target(e.Target, fullyParenthesized)
-		value := f.expr(e.Value, prec, fullyParenthesized)
+		// Toast prints the assigned value unbracketed, fully-paren or not.
+		value := f.expr(e.Value, precedenceLowest, fullyParenthesized)
 		result := target + " = " + value
 		if prec < parentPrecedence {
 			return "(" + result + ")"
