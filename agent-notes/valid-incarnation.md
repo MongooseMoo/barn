@@ -8,6 +8,8 @@ Barn's `valid` accepts and honours the Mongoose ToastStunt fork's second argumen
 - `builtins/objects.go`: `valid` is 1-2 args, second must be STR; after a true one-argument result it reads `incarnation_id` with `FindProperty` (ancestors, clear values), returns 0 when missing, E_PERM when unreadable (wizard, property owner, or `r`), 1 only for a nonempty exactly equal STR.
 - `builtins/catalog_contract_test.go`: historical catalog hash updated for the new signature.
 - Managed candidate lane: unchanged Barn 5 failed (E_ARGS), changed Barn 6 passed (5 + admission).
+- Toast first: 5 of 5 passed on the fork built at the live commit, through the managed harness (profile `profiles/toast/mongoose-0ff6fd7-wsl-testdb.json`, added by the branch `managed-toast-live-commit`). What this note says below about no managed Toast having the feature describes the state before that build.
+- Pull request open.
 
 ## Decisions and why
 - No new per-object state and no database format change: the fork keeps incarnation as an ordinary property (`src/objects.cc` bf_valid; `git grep incarnation` in its `src/` finds only that and the connection close fact in `server.cc`).
