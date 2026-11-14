@@ -183,7 +183,6 @@ ToastStunt implements various resource limits for exec():
 
 | Limit | Description |
 |-------|-------------|
-| Timeout | Maximum execution time before termination |
 | Output size | Maximum stdout/stderr buffer size |
 | Concurrent processes | Maximum simultaneous exec() operations (EXEC_MAX_PROCESSES) |
 

@@ -24,5 +24,11 @@ Barn's `valid` accepts and honours the Mongoose ToastStunt fork's second argumen
 ## Surprises
 - The original two-argument signature also changed the stock arity message for `valid()`: `functionArgError` only formats "(expected N; got M)" when MinArgs == MaxArgs.
 
+## Open decision: gate choice, pending Q
+The gate for valid's two-argument form is waiting on Q's choice between:
+1. `PROMOTE_NUMBERS`, as built: no new mechanism, on exactly in the fork profiles, but the option takes on a second meaning.
+2. A new runtime option named for the Mongoose fork profile, set in `profiles/barn/mongoose-*.conf`: accurate, but it is a new option.
+Evidence: the fork registers `register_function("valid", 1, 2, bf_valid, TYPE_ANY, TYPE_STR)` unconditionally (`src/objects.cc:1398` at 0ff6fd7), not under `PROMOTE_NUMBERS` (a separate `#define`, `src/include/options.h:502`). `BarnExtensions` is ruled out because it is on in the stock CI profile.
+
 ## Next step
-None for this PR beyond green checks and merge. Separately, if more fork-only behaviour that is not number promotion needs a gate, an option that names the fork profile would be more accurate than `PROMOTE_NUMBERS`; that is a decision for Q.
+Green checks on the PR, then Q's gate decision above. If Q picks option 2, replace the `PromoteNumbers` read in `builtinEntry.signature` (`builtins/registry.go`) with the new option and set it in the mongoose confs.

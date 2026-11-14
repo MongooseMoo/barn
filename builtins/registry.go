@@ -151,7 +151,7 @@ func (r *Registry) install(d Descriptor) {
 	entry.promotedSig = entry.sig.promoted()
 	stored := func(ctx *Execution, args []types.Value) types.Result {
 		sig := entry.signature(ctx)
-		if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+		if err := validateFunctionArgs(*sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
 			return functionArgError(*sig, args, err)
 		}
 		return invoke(ctx, args)
@@ -244,7 +244,7 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 		}
 	}
 	sig := e.signature(ctx)
-	if err := validateFunctionArgs(*sig, args); err != types.E_NONE {
+	if err := validateFunctionArgs(*sig, args, ctx != nil && ctx.RuntimeOptions.PromoteNumbers); err != types.E_NONE {
 		return functionArgError(*sig, args, err)
 	}
 	return e.fn(ctx, args)

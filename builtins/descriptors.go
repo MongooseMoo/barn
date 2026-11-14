@@ -35,6 +35,10 @@ type Signature struct {
 	Alternatives     map[int][]int64
 	VariadicType     *int64
 	PlainArityError  bool
+	// PromotedFloat: under PROMOTE_NUMBERS each FLOAT position admits INT and
+	// function_info reports it numeric, as the Mongoose fork registers these
+	// math builtins TYPE_NUMERIC (numbers.cc register_numbers).
+	PromotedFloat bool
 	// PromotedArgs are optional trailing positions that the Mongoose fork of
 	// ToastStunt registers and stock ToastStunt does not. They are admitted,
 	// and reported by function_info, only under PROMOTE_NUMBERS, the option
@@ -92,6 +96,12 @@ func (d Descriptor) plainArityError() Descriptor {
 func (d Descriptor) promotedArgs(argTypes ...int64) Descriptor {
 	sig := cloneSignature(d.Signature)
 	sig.PromotedArgs = argTypes
+	d.Signature = &sig
+	return d
+}
+func (d Descriptor) promotedFloat() Descriptor {
+	sig := cloneSignature(d.Signature)
+	sig.PromotedFloat = true
 	d.Signature = &sig
 	return d
 }

@@ -18,9 +18,11 @@ func TestNativeCatalogPreservesHistoricalContract(t *testing.T) {
 	// move the shared file cursor, just like file_readline and file_seek.
 	// exec became ImplementationOwned: it crosses the boundary itself, after its
 	// argument, permission and path checks and just before starting the process.
+	// Signature gained PromotedFloat, set on the 22 float math builtins whose
+	// FLOAT positions admit INT under PROMOTE_NUMBERS.
 	// Signature gained PromotedArgs; valid's is STR, the Mongoose fork's
 	// optional expected incarnation_id, admitted only under PROMOTE_NUMBERS.
-	const expected = "1f8ebea7b4e14c385335f2d209982022ab7b05413e63b828b0e33e8e01ddfae0"
+	const expected = "c5f86188e2d4ba7537a0c71e975ce415cecbe03c1e6094de55ee83d6c27d7202"
 	type contract struct {
 		Name       string
 		Signature  *Signature

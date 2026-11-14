@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"runtime"
 	"slices"
 	"sync"
@@ -229,11 +230,27 @@ func (s *Runtime) Registry() *builtins.Registry { return s.registry }
 // can wire process capabilities and manage session state.
 func (s *Runtime) Session() *builtins.Session { return s.session }
 
+// maxTaskID is the largest task id a checkpoint may hold. Toast reads every
+// saved task id with "%d" into a C int (tasks.cc read_task_queue) and draws its
+// own ids from lrand48 (new_task_id), so its ids are 1..2^31-1.
+const maxTaskID = math.MaxInt32
+
 // newTaskID allocates the next task id. Every task in the server is born here,
-// which makes it the one place worth counting them.
+// which makes it the one place worth counting them. The counter starts above
+// the highest loaded id (task_load.go), wraps to 1 after maxTaskID, and skips
+// ids the catalog still holds, such as a loaded queued or suspended task.
 func (s *Runtime) newTaskID() int64 {
 	metrics.TasksStarted.Add(1)
-	return atomic.AddInt64(&s.nextTaskID, 1)
+	for {
+		id := atomic.AddInt64(&s.nextTaskID, 1)
+		if id > maxTaskID {
+			atomic.CompareAndSwapInt64(&s.nextTaskID, id, 0)
+			continue
+		}
+		if s.taskManager.GetTask(id) == nil {
+			return id
+		}
+	}
 }
 
 // TaskSummary identifies an unfinished task in diagnostic logs.
