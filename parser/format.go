@@ -61,6 +61,55 @@ type FormatOptions struct {
 	FullyParenthesized bool
 	// Unindented leaves out the two spaces per nesting level.
 	Unindented bool
+	// ElseIfArms are the IfStmts written as `elseif' arms (see ElseIfArms);
+	// any other IfStmt alone in an Else prints as `else' and a nested `if'.
+	// Nil means the program's source is not known, and every IfStmt alone in
+	// an Else prints as an `elseif' arm.
+	ElseIfArms map[*ir.IfStmt]bool
+}
+
+// ElseIfArms returns the IfStmts in program that source wrote as `elseif'
+// arms. The parser lowers an arm into an Else holding one IfStmt positioned
+// at the arm's `elseif' keyword, while `else' and a nested `if' gives the
+// same shape positioned at `if'.
+func ElseIfArms(source string, program *ir.Program) map[*ir.IfStmt]bool {
+	arms := make(map[*ir.IfStmt]bool)
+	var block func([]ir.Stmt)
+	block = func(stmts []ir.Stmt) {
+		for _, stmt := range stmts {
+			switch s := stmt.(type) {
+			case *ir.IfStmt:
+				if len(s.Else) == 1 {
+					if next, ok := s.Else[0].(*ir.IfStmt); ok {
+						at := next.Pos.Offset
+						if at >= 0 && at+6 <= len(source) && strings.EqualFold(source[at:at+6], "elseif") {
+							arms[next] = true
+						}
+					}
+				}
+				block(s.Body)
+				block(s.Else)
+			case *ir.WhileStmt:
+				block(s.Body)
+			case *ir.CollectionLoopStmt:
+				block(s.Body)
+			case *ir.RangeLoopStmt:
+				block(s.Body)
+			case *ir.ForkStmt:
+				block(s.Body)
+			case *ir.TryStmt:
+				block(s.Body)
+				for _, handler := range s.Handlers {
+					block(handler.Body)
+				}
+				if s.Finalizer != nil {
+					block(s.Finalizer.Body)
+				}
+			}
+		}
+	}
+	block(program.Statements)
+	return arms
 }
 
 // FormatMOOWith formats a program with the given verb_code() arguments.
@@ -135,7 +184,7 @@ func (f *mooFormatter) stmt(stmt ir.Stmt, indent int, fullyParenthesized bool) s
 				sb.WriteString(f.stmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 			if len(current.Else) == 1 {
-				if next, ok := current.Else[0].(*ir.IfStmt); ok {
+				if next, ok := current.Else[0].(*ir.IfStmt); ok && (f.options.ElseIfArms == nil || f.options.ElseIfArms[next]) {
 					sb.WriteString(indentStr + "elseif (" + f.expr(next.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 					current = next
 					continue

@@ -248,10 +248,12 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// Toast reconstructs canonical source from the parsed verb program. Preserve
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
-	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
+	source := strings.Join(sourceLines, "\n")
+	if program, err := parser.NewParser(source).ParseProgram(); err == nil {
 		sourceLines, _ = parser.FormatMOOWith(program, parser.FormatOptions{
 			FullyParenthesized: len(args) >= 3 && args[2].Truthy(),
 			Unindented:         len(args) >= 4 && !args[3].Truthy(),
+			ElseIfArms:         parser.ElseIfArms(source, program),
 		})
 	}
 
@@ -629,8 +631,9 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	storedLines := lines
-	if program, err := parser.NewParser(strings.Join(compileLines, "\n")).ParseProgram(); err == nil {
-		storedLines = parser.FormatMOO(program)
+	compileSource := strings.Join(compileLines, "\n")
+	if program, err := parser.NewParser(compileSource).ParseProgram(); err == nil {
+		storedLines, _ = parser.FormatMOOWith(program, parser.FormatOptions{ElseIfArms: parser.ElseIfArms(compileSource, program)})
 		for index := range storedLines {
 			storedLines[index] = strings.TrimLeft(storedLines[index], " \t")
 		}
