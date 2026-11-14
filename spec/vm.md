@@ -79,8 +79,8 @@ not enforce immutability.
 Instructions use a one-byte opcode plus the operands read by the corresponding
 compiler and VM cases; operands are not governed by one universal 1/2/4-byte
 schema. Immediate integers from -10 through 143 occupy opcode values directly.
-`OP_BREAK`, `OP_CONTINUE`, `OP_CATCH`, and `OP_RAISE` remain named dead opcodes
-and are not emitted by the current compiler.
+`OP_CONTINUE` and `OP_CATCH` remain named dead opcodes and are not emitted by
+the current compiler.
 
 Do not duplicate the opcode enum in this document. The earlier hand-maintained
 tables were stale: current loops use `OP_LOOP`, fused range/list operations, and

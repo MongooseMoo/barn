@@ -249,7 +249,7 @@ func InstructionStackEffect(op OpCode, operand []byte) (pops, pushes int, err er
 		return int(argc)
 	}
 	switch op {
-	case OP_PUSH, OP_PUSH_INT, OP_GET_VAR:
+	case OP_PUSH, OP_PUSH_WIDE, OP_PUSH_INT, OP_GET_VAR:
 		return 0, 1, nil
 	case OP_POP, OP_SET_VAR, OP_SET_LOCAL, OP_JUMP_IF_FALSE, OP_JUMP_IF_FALSE_WIDE,
 		OP_JUMP_IF_TRUE, OP_JUMP_IF_TRUE_WIDE, OP_SCATTER, OP_RETURN,
@@ -347,7 +347,7 @@ func decodeInstructions(code []byte) (map[int]bool, []decodedInstruction, error)
 		if op.String() == "UNKNOWN" {
 			return nil, nil, fmt.Errorf("unknown opcode %d at byte %d", op, ip)
 		}
-		if op == OP_BREAK || op == OP_CONTINUE || op == OP_CATCH {
+		if op == OP_CONTINUE || op == OP_CATCH {
 			return nil, nil, fmt.Errorf("dead opcode %s at byte %d", op, ip)
 		}
 		ip++
@@ -443,7 +443,7 @@ func verifyInstruction(program *Program, instruction decodedInstruction, boundar
 		if operand[0] != 0xff {
 			return constant(int(operand[0]))
 		}
-	case OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+	case OP_PUSH_WIDE, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
 		OP_GET_PROP_KEYED, OP_INDEX_KEYED, OP_GET_PROP_KEYBASE, OP_SET_PROP_KEYED:
 		return constant(int(binary.BigEndian.Uint16(operand)))
 	case OP_MAPHASKEY_KEYED:

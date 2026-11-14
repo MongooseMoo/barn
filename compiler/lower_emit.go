@@ -84,17 +84,28 @@ func (c *lowerer) patchWide(offset, value int) {
 	c.program.Code[offset+3] = byte(uint32(value))
 }
 
-// emitConstant adds a constant and emits bytecode.OP_PUSH.
+// emitConstant adds a constant and pushes it, using the wide form for
+// indices that do not fit a byte.
 // If the constant pool overflows, c.err is set by addConstant.
 func (c *lowerer) emitConstant(v types.Value) {
 	idx := c.addConstant(v)
+	if idx > 0xff {
+		c.emit(bytecode.OP_PUSH_WIDE)
+		c.emitShort(uint16(idx))
+		return
+	}
 	c.emit(bytecode.OP_PUSH)
 	c.emitByte(byte(idx))
 }
 
+// maxConstants is the constant pool's capacity: the widest constant operand
+// is a 16-bit index. ToastStunt widens literal references to four bytes
+// (code_gen.cc ref_size) and so has no such limit.
+const maxConstants = 1 << 16
+
 // addConstant adds a value to the constant pool (with deduplication).
-// If the constant pool exceeds 255 entries, sets c.err and returns 0
-// as a safe fallback index.
+// If the constant pool is full, sets c.err and returns 0 as a safe fallback
+// index.
 func (c *lowerer) addConstant(v types.Value) int {
 	// Check if constant already exists
 	key := bytecode.ConstantKey(v)
@@ -104,9 +115,9 @@ func (c *lowerer) addConstant(v types.Value) int {
 
 	// Check overflow before adding
 	idx := len(c.program.Constants)
-	if idx > 255 {
+	if idx >= maxConstants {
 		if c.err == nil {
-			c.err = fmt.Errorf("too many constants (max 255)")
+			c.err = fmt.Errorf("too many constants (max %d)", maxConstants)
 		}
 		return 0 // safe fallback; c.err will be checked at Compile boundary
 	}

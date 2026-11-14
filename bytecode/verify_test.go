@@ -26,7 +26,7 @@ func TestVerifyProgramRejectsMalformedBytecode(t *testing.T) {
 		{"finally handler before its try", Program{Code: []byte{byte(OP_RETURN_NONE), byte(OP_TRY_FINALLY_WIDE), 0, 0, 0, 0, byte(OP_RETURN_NONE)}}, "does not follow"},
 		{"except handler at its own try", Program{Code: []byte{byte(OP_TRY_EXCEPT), 1, 0, 0, 0, 0, byte(OP_RETURN_NONE)}}, "does not follow"},
 		{"falls off end", Program{Code: []byte{byte(OP_POP)}}, "terminal"},
-		{"dead opcode", Program{Code: []byte{byte(OP_BREAK), byte(OP_RETURN_NONE)}}, "dead opcode"},
+		{"dead opcode", Program{Code: []byte{byte(OP_CONTINUE), byte(OP_RETURN_NONE)}}, "dead opcode"},
 		{"fewer locals than names", Program{Code: []byte{byte(OP_RETURN_NONE)}, VarNames: []string{"x"}, NumLocals: 0}, "invalid local metadata"},
 		{"more locals than addressable", Program{Code: []byte{byte(OP_RETURN_NONE)}, VarNames: []string{"x"}, NumLocals: MaxLocals + 1}, "invalid local metadata"},
 	}
