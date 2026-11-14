@@ -214,25 +214,37 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	tx := readTxn(ctx)
-	oldParents, errCode := tx.Parents(objVal.ID())
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
-	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-	adoptIDs = append(adoptIDs, newParents...)
-	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
+	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+// changeParentsLive reparents objID in the live store and brings the task's
+// transaction up to the facets that change moved: the relationships of objID
+// and of its old and new parents, objID's verb-scan version (a verb walk
+// through objID depends on its parents, so the store moves it), and the
+// inherited property slots of objID's subtree.
+func changeParentsLive(ctx *Execution, objID types.ObjID, newParents []types.ObjID) types.ErrorCode {
+	tx := readTxn(ctx)
+	oldParents, errCode := tx.Parents(objID)
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	if errCode := ctx.Store.ChangeParents(objID, newParents); errCode != types.E_NONE {
+		return errCode
+	}
+	markLiveStoreMutated(ctx)
+	adoptIDs := append([]types.ObjID{objID}, oldParents...)
+	adoptIDs = append(adoptIDs, newParents...)
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return errCode
+	}
+	if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return errCode
+	}
+	return tx.ReseedInheritedProperties(objID, oldParents)
 }
 
 // builtinChparents implements chparents(object, parents_list)
@@ -345,20 +357,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	oldParents, errCode := tx.Parents(objVal.ID())
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
-	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-	adoptIDs = append(adoptIDs, newParents...)
-	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if errCode := tx.ReseedInheritedProperties(objVal.ID(), oldParents); errCode != types.E_NONE {
+	if errCode := changeParentsLive(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 

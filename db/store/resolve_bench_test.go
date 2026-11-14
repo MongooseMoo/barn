@@ -79,6 +79,24 @@ func BenchmarkTxnHasAncestor(b *testing.B) {
 	}
 }
 
+// BenchmarkTxnFindParentVerb is pass() from the leaf's verb: the walk starts at
+// the leaf's parent and has no memo.
+func BenchmarkTxnFindParentVerb(b *testing.B) {
+	const depth = 6
+	s := benchChainStore(b, depth, 8)
+	leaf := types.ObjID(depth - 1)
+	tx := s.BeginSnapshot(0)
+	defer tx.Release()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := tx.FindParentVerb(leaf, "target"); err != nil {
+			b.Fatalf("FindParentVerb: %v", err)
+		}
+	}
+}
+
 func BenchmarkTxnFindVerbMissing(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
