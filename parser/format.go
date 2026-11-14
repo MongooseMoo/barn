@@ -314,6 +314,9 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 		return f.property(e, fullyParenthesized)
 
 	case *ir.VerbCallExpr:
+		if isSystemObject(e.Expr) && e.Verb != "" {
+			return "$" + f.name(e.Pos, e.Verb) + "(" + f.args(e.Args, fullyParenthesized) + ")"
+		}
 		base := f.expr(e.Expr, precedenceProperty, fullyParenthesized)
 		var verb string
 		if e.Verb != "" {
@@ -381,6 +384,13 @@ func (f *mooFormatter) expr(expr ir.Expr, parentPrecedence int, fullyParenthesiz
 	default:
 		return f.fail(ir.Position{}, fmt.Errorf("unsupported expression %T", expr))
 	}
+}
+
+// isSystemObject reports whether expr is the literal #0, which Toast spells
+// `$' before a property or verb name.
+func isSystemObject(expr ir.Expr) bool {
+	lit, ok := expr.(*ir.LiteralExpr)
+	return ok && lit.Kind == ir.LiteralObj && lit.ObjID == 0
 }
 
 // property handles property access with #0.prop → $prop conversion
