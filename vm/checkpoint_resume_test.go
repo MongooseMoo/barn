@@ -9,7 +9,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/fuzzseed"
@@ -98,10 +97,7 @@ type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store, queued
 // with the suspended parent and reconstructed from the loaded code/environment.
 func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc, ticks int64, wizard bool) (difference, skip string) {
 	t.Helper()
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, Descriptors())
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := newSourceFuzzRegistry(t, t.Skipf)
 	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
 	if len(diagnostics) != 0 {
 		t.Fatalf("program does not compile: %v\nsource:\n%s", diagnostics, source)
@@ -176,16 +172,19 @@ func newCheckpointResumeStore(t testing.TB) *dbstore.Store {
 }
 
 // persistentStateObserver reads, as a wizard, everything a generated program
-// can change in the database: each valid object's builtin properties, parent
-// and defined properties.
+// can change in the database except property values: each valid object's
+// builtin properties, parent, defined properties and verbs. It returns that
+// and the {object, name} of every property.
 var persistentStateObserver = []string{
 	"r = {};",
+	"slots = {};",
 	"for i in [0..toint(max_object())]",
 	"  o = toobj(i);",
 	"  if (valid(o))",
 	"    v = {o, o.name, o.owner, o.location, o.contents, parent(o), o.wizard, o.programmer, o.r, o.w, o.f};",
 	"    for p in (properties(o))",
-	"      v = {@v, p, o.(p), property_info(o, p)};",
+	"      v = {@v, p, property_info(o, p)};",
+	"      slots = {@slots, {o, p}};",
 	"    endfor",
 	"    for verb in (verbs(o))",
 	"      v = {@v, verb, verb_info(o, verb), verb_args(o, verb), verb_code(o, verb)};",
@@ -193,18 +192,38 @@ var persistentStateObserver = []string{
 	"    r = {@r, v};",
 	"  endif",
 	"endfor",
-	"return r;",
+	"return {r, slots};",
 }
 
+// persistentPropertyReader returns the value of property args[2] of args[1].
+var persistentPropertyReader = []string{"return args[1].(args[2]);"}
+
+// observePersistentState returns the observer's description of the database
+// followed by each property's value. The values are the only part a program
+// can make large, and each is read by itself and collected here: a MOO list
+// of them is E_QUOTA once together they pass max_list_value_bytes, which is
+// no difference between two runs.
 func observePersistentState(t *testing.T, store *dbstore.Store, session *builtins.Session) types.Value {
 	t.Helper()
-	program, diagnostics := session.Registry().Compiler().CompileMOO(persistentStateObserver)
+	described := runPersistentStateObserver(t, store, session, persistentStateObserver, nil)
+	state := []types.Value{described.Get(1)}
+	for _, slot := range described.Get(2).Elements() {
+		state = append(state, runPersistentStateObserver(t, store, session, persistentPropertyReader, slot.Elements()))
+	}
+	return types.NewList(state)
+}
+
+// runPersistentStateObserver runs lines as a wizard with args and returns
+// what they return.
+func runPersistentStateObserver(t *testing.T, store *dbstore.Store, session *builtins.Session, lines []string, args []types.Value) types.Value {
+	t.Helper()
+	program, diagnostics := session.Registry().Compiler().CompileMOO(lines)
 	if len(diagnostics) != 0 {
 		t.Fatalf("observer does not compile: %v", diagnostics)
 	}
 	machine := newSourceFuzzVM(store, session, 1, defaultTickLimit)
 	machine.Context.IsWizard = true
-	result := machine.Run(program)
+	result := machine.RunWithVerbContext(program, types.ObjNothing, machine.Context.Player, types.ObjNothing, "", types.ObjNothing, args)
 	if result.Flow != types.FlowReturn {
 		t.Fatalf("observer ended with flow %v error %v: %v", result.Flow, result.Error, result.Val)
 	}
@@ -373,13 +392,23 @@ func TestCheckpointResumeSkipsOversizedCheckpoint(t *testing.T) {
 		"  endfork",
 		"endfor",
 		"suspend();",
-		"return length(s);",
+		// No builtin is called with s, so the call bound of
+		// newSourceFuzzRegistry does not skip the case first.
+		"return s == y;",
 	}, "\n")
 	var run *testing.T
+	reached := false
+	checkpoint := func(t *testing.T, machine *VM, store *dbstore.Store, queued []sourceFuzzFork) (*VM, *dbstore.Store, []sourceFuzzFork) {
+		reached = true
+		return checkpointSuspendedVM(t, machine, store, queued)
+	}
 	t.Run("case", func(t *testing.T) {
 		run = t
-		checkpointResumeDifference(t, source, checkpointSuspendedVM, sourceFuzzTicks, false)
+		checkpointResumeDifference(t, source, checkpoint, sourceFuzzTicks, false)
 	})
+	if !reached {
+		t.Fatal("the case ended before its checkpoint")
+	}
 	if !run.Skipped() {
 		t.Fatalf("a checkpoint over the %d-byte budget was written and reloaded, not skipped", checkpointValueBudget)
 	}
