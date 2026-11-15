@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +128,53 @@ func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 	}
 	if got.ID != 517 {
 		t.Errorf("task id = %d, want 517", got.ID)
+	}
+}
+
+// Issue #849: a frame's or forked task's raw source can hold a line starting
+// with "." (eval("x\n.y = 1;") compiles to x.y = 1). Written verbatim, the
+// reader took ".\r" (and Toast's reader any line starting with ".") for the
+// program terminator and failed on the rest. Such lines come back indented.
+func TestSourceLinesStartingWithDotSurviveRoundTrip(t *testing.T) {
+	source := []string{"xi\r", "", ".\r", "oDUn = 1;", ".", ".y = 2;", " .", "return xi;"}
+	want := []string{"xi", "", " .", "oDUn = 1;", " .", " .y = 2;", " .", "return xi;"}
+
+	var frame bytes.Buffer
+	w := NewWriter(&frame, store.Snapshot{})
+	var snapshot task.VMFrameSnapshot
+	snapshot.Program.Source = source
+	if err := w.writeVMFrame(snapshot, types.ActivationFrame{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	database := &Database{Version: 17}
+	read, _, err := database.readVMFrame(bufio.NewReader(bytes.NewReader(frame.Bytes())))
+	if err != nil {
+		t.Fatalf("readVMFrame: %v", err)
+	}
+	if !slices.Equal(read.Program.Source, want) {
+		t.Fatalf("frame source = %q, want %q", read.Program.Source, want)
+	}
+
+	var dump bytes.Buffer
+	writer := NewWriter(&dump, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots([]task.Snapshot{{
+		ID: 7, Owner: 2, Programmer: 2, VerbLoc: 0, VerbName: "fork", This: 0,
+		CallStack: []types.ActivationFrame{{This: 0, ThisValue: types.NewObj(0), Player: 2, Programmer: 2, Verb: "fork", StoredVerb: "fork"}},
+		Fork:      &task.ForkSnapshot{FirstLine: 1, Variables: map[string]types.Value{}, SourceLines: source},
+	}}, nil)
+	if err := writer.writeQueuedTasks(); err != nil {
+		t.Fatalf("writeQueuedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.readQueuedTasks(bufio.NewReader(bytes.NewReader(dump.Bytes()))); err != nil {
+		t.Fatalf("readQueuedTasks: %v", err)
+	}
+	if len(database.QueuedTasks) != 1 || !slices.Equal(database.QueuedTasks[0].Code, want) {
+		t.Fatalf("queued tasks = %+v, want one with source %q", database.QueuedTasks, want)
 	}
 }

@@ -94,7 +94,7 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.Activ
 		return err
 	}
 	for _, line := range frame.Program.Source {
-		if err := w.writeString(line); err != nil {
+		if err := w.writeSourceLine(line); err != nil {
 			return err
 		}
 	}
@@ -147,7 +147,7 @@ func (w *Writer) writeNativeVMFrame(frame task.VMFrameSnapshot, activation types
 		return err
 	}
 	for _, line := range frame.Program.Source {
-		if err := w.writeString(line); err != nil {
+		if err := w.writeSourceLine(line); err != nil {
 			return err
 		}
 	}

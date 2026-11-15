@@ -1,0 +1,6 @@
+go test fuzz v1
+string("xi\r\n\n.\r\noDUn  = {1, 2};{1, 2}; for y in (x){df2};{1,};{1, \n y};;endfor return x;")
+int(-208)
+byte('\u0085')
+int(-408)
+byte('n')
