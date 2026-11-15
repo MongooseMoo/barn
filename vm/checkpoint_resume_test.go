@@ -97,7 +97,7 @@ type checkpointFunc func(t *testing.T, machine *VM, store *dbstore.Store, queued
 // with the suspended parent and reconstructed from the loaded code/environment.
 func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpointFunc, ticks int64, wizard bool) (difference, skip string) {
 	t.Helper()
-	registry := newSourceFuzzRegistry(t, t.Skipf)
+	registry := newCheckpointResumeRegistry(t)
 	program, diagnostics := registry.Compiler().CompileMOO(strings.Split(source, "\n"))
 	if len(diagnostics) != 0 {
 		t.Fatalf("program does not compile: %v\nsource:\n%s", diagnostics, source)
@@ -131,6 +131,78 @@ func checkpointResumeDifference(t *testing.T, source string, checkpoint checkpoi
 		differences = append(differences, fmt.Sprintf("persistent state: uninterrupted %s, checkpointed %s", plainState, resumedState))
 	}
 	return strings.Join(differences, "; "), ""
+}
+
+// newCheckpointResumeRegistry is newSourceFuzzRegistry, except that a call
+// whose result unrepeatableCall names as differing between two runs of the
+// same program skips the case in place of the builtin. Such a result differs
+// between the uninterrupted and the checkpointed run with or without the
+// checkpoint, so it is no evidence about the checkpoint.
+func newCheckpointResumeRegistry(t *testing.T) *builtins.Registry {
+	t.Helper()
+	descriptors := boundedSourceFuzzDescriptors(t.Skipf)
+	for i := range descriptors {
+		name, call := descriptors[i].Name, descriptors[i].Implementation
+		descriptors[i].Implementation = func(ctx *builtins.Execution, args []types.Value) types.Result {
+			if reason := unrepeatableCall(name, len(args)); reason != "" {
+				t.Skipf("%s() %s, so two runs of the program need not agree; the call was not made, so the case has no result to check", name, reason)
+			}
+			return call(ctx, args)
+		}
+	}
+	return newRegistryOrFatal(t, descriptors)
+}
+
+// unrepeatableCall returns why a call of the named builtin with argc
+// arguments can return a different value each time a program runs, or "" if
+// its result depends only on the program and the database. A non-wizard's
+// call of a wizard-only builtin is E_PERM in both runs, but the world-history
+// lane runs as a wizard, so those are named too.
+func unrepeatableCall(name string, argc int) string {
+	switch name {
+	case "time", "ftime", "seconds_left":
+		return "reads the clock"
+	case "ctime":
+		if argc == 0 {
+			return "reads the clock"
+		}
+	case "random", "frandom", "random_bytes":
+		return "draws random numbers"
+	case "crypt":
+		if argc == 1 {
+			return "draws a random salt"
+		}
+	case "queued_tasks":
+		return "reports each queued task's start time"
+	case "usage":
+		return "measures the process"
+	case "waif_stats":
+		return "counts WAIFs the Go collector has not yet removed"
+	case "verb_cache_stats":
+		return "measures the verb cache, which a checkpoint reload empties"
+	}
+	return ""
+}
+
+// Issue #847: a generated program returned ftime() after a suspend, and the
+// two runs' clock readings were reported as a checkpoint difference. A call
+// that reads the clock or draws random numbers now skips the case.
+func TestCheckpointResumeSkipsUnrepeatableCall(t *testing.T) {
+	for _, call := range []string{"ftime()", "time()", "ctime()", "random()", "frandom(1.0, 2.0)", "random_bytes(4)", "crypt(\"a\")", "seconds_left()"} {
+		var run *testing.T
+		t.Run(call, func(t *testing.T) {
+			run = t
+			difference, skip := checkpointResumeDifference(t, "suspend();\nreturn "+call+";", checkpointSuspendedVM, sourceFuzzTicks, false)
+			t.Errorf("the case was not skipped: difference %q, skip %q", difference, skip)
+		})
+		if !run.Skipped() {
+			t.Errorf("%s: a case calling it was checked, not skipped", call)
+		}
+	}
+	difference, skip := checkpointResumeDifference(t, "suspend();\nreturn {ctime(0), crypt(\"a\", \"ab\")};", checkpointSuspendedVM, sourceFuzzTicks, false)
+	if difference != "" || skip != "" {
+		t.Fatalf("repeatable calls: difference %q, skip %q; want neither", difference, skip)
+	}
 }
 
 // runCheckpointResumeCase runs program on a fresh copy of the property's

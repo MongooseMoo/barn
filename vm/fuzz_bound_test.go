@@ -32,6 +32,23 @@ const sourceFuzzCallBytes = 16 << 10
 // the world, which programs could see, and would not bound slice.
 func newSourceFuzzRegistry(tb testing.TB, skipf func(format string, args ...any)) *builtins.Registry {
 	tb.Helper()
+	return newRegistryOrFatal(tb, boundedSourceFuzzDescriptors(skipf))
+}
+
+// newRegistryOrFatal returns a registry of the core capabilities' builtins
+// from descriptors.
+func newRegistryOrFatal(tb testing.TB, descriptors []builtins.Descriptor) *builtins.Registry {
+	tb.Helper()
+	registry, err := builtins.NewRegistryFromDescriptors(config.Core, descriptors)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return registry
+}
+
+// boundedSourceFuzzDescriptors returns the VM's descriptors with each
+// implementation wrapped in newSourceFuzzRegistry's argument bound.
+func boundedSourceFuzzDescriptors(skipf func(format string, args ...any)) []builtins.Descriptor {
 	descriptors := Descriptors()
 	for i := range descriptors {
 		name, call := descriptors[i].Name, descriptors[i].Implementation
@@ -46,11 +63,7 @@ func newSourceFuzzRegistry(tb testing.TB, skipf func(format string, args ...any)
 			return call(ctx, args)
 		}
 	}
-	registry, err := builtins.NewRegistryFromDescriptors(config.Core, descriptors)
-	if err != nil {
-		tb.Fatal(err)
-	}
-	return registry
+	return descriptors
 }
 
 // oversizedCallAllocation is the most a case cut at an oversized builtin call
