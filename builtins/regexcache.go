@@ -78,7 +78,11 @@ func cachedPCREPattern(pattern string, caseSensitive bool) (*pcrePattern, error)
 	if !caseSensitive {
 		opts |= regexp2.IgnoreCase
 	}
-	re, err := regexp2.Compile(pattern, opts)
+	err := checkPCRELookbehinds(pattern)
+	var re *regexp2.Regexp
+	if err == nil {
+		re, err = regexp2.Compile(pattern, opts)
+	}
 	if err == nil {
 		re.MatchTimeout = pcreMatchTimeout
 		entry = regexpCacheEntry{pcre: &pcrePattern{re: re, groups: pcreCaptureGroups(pattern)}}
