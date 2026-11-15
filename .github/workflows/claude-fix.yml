@@ -268,7 +268,17 @@ jobs:
         run: |
           set -euo pipefail
           head_now=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
-          armed=$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.auto_merge != null')
+          # master has a merge queue. The repairing run waits for the checks, so
+          # the PR is clean when Claude arms it, and GitHub then puts it straight
+          # into the queue: no auto-merge request exists and .auto_merge is null.
+          # #831, #840 and #850 were queued that way and merged, while this step,
+          # reading only .auto_merge, failed each run as "not armed".
+          state_query='query($id: ID!) { node(id: $id) { ... on PullRequest { state isInMergeQueue autoMergeRequest { enabledAt } } } }'
+          pr_info=$(gh api graphql -f query="$state_query" -f id="$NODE" \
+            --jq '.data.node | "\(.state) \(.isInMergeQueue) \(.autoMergeRequest != null)"')
+          read -r pr_state in_queue auto_merge <<< "$pr_info"
+          armed=false
+          if [ "$auto_merge" = true ] || [ "$in_queue" = true ] || [ "$pr_state" = MERGED ]; then armed=true; fi
 
           reasons="$RUNNER_TEMP/not-queued.md"
           : > "$reasons"
@@ -292,21 +302,34 @@ jobs:
           [ -z "$failed" ] || echo "These checks failed on $head_now: $failed." >> "$reasons"
           [ "$pending" -eq 0 ] || echo "$pending checks were still running on $head_now after 30 minutes." >> "$reasons"
 
+          # A queued PR has no auto-merge request to disable; it leaves the queue
+          # only by dequeuePullRequest. A merged one cannot be undone.
           disarm() {
-            gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE"
+            if [ "$pr_state" = MERGED ]; then
+              echo "::error::Pull request #$PR merged although a check does not allow it."
+              return 1
+            fi
+            if [ "$in_queue" = true ]; then
+              gh api graphql -f query='mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { clientMutationId } }' -f id="$NODE"
+            fi
+            if [ "$auto_merge" = true ]; then
+              gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE"
+            fi
           }
 
           if [ -s "$reasons" ]; then
             cat "$reasons"
-            if [ "$armed" = true ]; then disarm; fi
             printf '{"labels":["needs-decision"]}' | gh api -X POST "repos/$GH_REPO/issues/$PR/labels" --input - --silent
             gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F "body=@$reasons" --silent
+            if [ "$armed" = true ]; then disarm; fi
             echo "::notice::Pull request #$PR is not queued; it has the needs-decision label and the reasons."
           elif [ "$armed" != true ]; then
             echo "::error::Pull request #$PR passed every check but its merge was not armed."
             exit 1
+          elif [ "$pr_state" = MERGED ]; then
+            echo "Pull request #$PR has merged."
           else
-            echo "Pull request #$PR will merge when its required checks pass."
+            echo "Pull request #$PR is in the merge queue or will enter it when its required checks pass."
           fi
 
   conformance:
