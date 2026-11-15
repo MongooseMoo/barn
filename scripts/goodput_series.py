@@ -32,7 +32,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conformance_suite_alarm import api  # noqa: E402
+from conformance_suite_alarm import api, investigate  # noqa: E402
 
 RESULT = re.compile(r"players=(\d+) goodput=(\d+)/s failed=(\d+) uncaught=(\d+) .*? p50=(\S+) p99=(\S+) ")
 LOAD_AFTER = re.compile(r"^load_after=([0-9.]+)$", re.MULTILINE)  # appended by the workflow
@@ -202,7 +202,9 @@ def main():
     if api(f"repos/{args.repo}/issues?state=open&labels={LABEL}&per_page=1"):
         print("An alarm issue is already open; not opening another.")
     else:
-        print("Opened", api(f"repos/{args.repo}/issues", post=issue(reasons, args.repo, args.open_issue))["html_url"])
+        opened = api(f"repos/{args.repo}/issues", post=issue(reasons, args.repo, args.open_issue))
+        print("Opened", opened["html_url"])
+        investigate(args.repo, opened["number"])
     return 0
 
 
