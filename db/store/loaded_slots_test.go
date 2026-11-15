@@ -81,9 +81,9 @@ func TestSetLoadedSlotsKeepsItsOwnCopy(t *testing.T) {
 	}
 }
 
-// A repeated name is supplied by its last slot, whichever of the two slots is
-// a placeholder.
-func TestTableFromLayoutRepeatedNameTakesTheLastSlot(t *testing.T) {
+// A repeated name is supplied by its first slot, whichever of the two slots is
+// a placeholder, as Toast's db_find_property takes the first matching slot.
+func TestTableFromLayoutRepeatedNameTakesTheFirstSlot(t *testing.T) {
 	set := Property{value: types.NewInt(7), owner: 2, perms: PropRead, defined: true}
 	other := Property{value: types.NewInt(8), owner: 2, perms: PropRead}
 	names := []string{"colour", "size", "Colour"}
@@ -92,8 +92,8 @@ func TestTableFromLayoutRepeatedNameTakesTheLastSlot(t *testing.T) {
 		slots   []Property
 		private int
 	}{
-		{"set then placeholder", []Property{set, other, placeholder(3, PropWrite)}, 1},
-		{"placeholder then set", []Property{placeholder(3, PropWrite), other, set}, 2},
+		{"set then placeholder", []Property{set, other, placeholder(3, PropWrite)}, 2},
+		{"placeholder then set", []Property{placeholder(3, PropWrite), other, set}, 1},
 		{"set then set", []Property{set, other, {value: types.NewInt(9), owner: 3, perms: PropWrite}}, 2},
 		{"placeholder then placeholder", []Property{placeholder(2, PropRead), other, placeholder(3, PropWrite)}, 1},
 	}
@@ -103,7 +103,7 @@ func TestTableFromLayoutRepeatedNameTakesTheLastSlot(t *testing.T) {
 
 			table := pool.tableFromLayout(pool.Layout(names), loadedSlots(tc.slots))
 
-			requireTableMatches(t, table, map[string]Property{"colour": tc.slots[2], "size": tc.slots[1]}, tc.name)
+			requireTableMatches(t, table, map[string]Property{"colour": tc.slots[0], "size": tc.slots[1]}, tc.name)
 			if got := table.privateCount(); got != tc.private {
 				t.Fatalf("%d private slots, want %d", got, tc.private)
 			}
@@ -112,10 +112,10 @@ func TestTableFromLayoutRepeatedNameTakesTheLastSlot(t *testing.T) {
 					t.Fatalf("set is not sorted by base index: %d before %d", table.s.set[i-1].idx, table.s.set[i].idx)
 				}
 			}
-			// The base takes the last slot's owner and perms too.
+			// The base takes the first slot's owner and perms too.
 			colour := table.s.base.shape.index["colour"]
-			if got := table.s.base.slot(colour); got.owner != tc.slots[2].owner || got.perms != tc.slots[2].perms {
-				t.Fatalf("base colour has owner %d and perms %d, want the last slot's %d and %d", got.owner, got.perms, tc.slots[2].owner, tc.slots[2].perms)
+			if got := table.s.base.slot(colour); got.owner != tc.slots[0].owner || got.perms != tc.slots[0].perms {
+				t.Fatalf("base colour has owner %d and perms %d, want the first slot's %d and %d", got.owner, got.perms, tc.slots[0].owner, tc.slots[0].perms)
 			}
 		})
 	}

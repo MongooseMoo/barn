@@ -40,13 +40,16 @@ func loadedSlots(slots []Property) *LoadedSlots {
 	return loaded
 }
 
-// tableByName is the table the loader used to build: every slot stored under
-// its name in position order, a later slot replacing an earlier one of the
-// same name.
+// tableByName is the table a loader builds slot by slot: every slot stored
+// under its name in position order, the first slot of a name supplying it, as
+// Toast's db_find_property resolves a repeated name to its first slot.
 func tableByName(names []string, slots []Property) map[string]Property {
 	want := make(map[string]Property, len(names))
 	for i, name := range names {
-		want[propertyNameKey(name)] = slots[i]
+		key := propertyNameKey(name)
+		if _, ok := want[key]; !ok {
+			want[key] = slots[i]
+		}
 	}
 	return want
 }
@@ -101,7 +104,7 @@ func TestTableFromLayoutSharesWithTablesSharedFromMaps(t *testing.T) {
 	}
 }
 
-func TestLayoutLastSlotOfARepeatedNameWins(t *testing.T) {
+func TestLayoutFirstSlotOfARepeatedNameWins(t *testing.T) {
 	pool := newPropSharePool()
 	names := []string{"colour", "size", "Colour"}
 	slots := []Property{
@@ -116,8 +119,8 @@ func TestLayoutLastSlotOfARepeatedNameWins(t *testing.T) {
 	if layout.Slots() != 3 || table.count() != 2 {
 		t.Fatalf("layout covers %d slots and the table holds %d, want 3 and 2", layout.Slots(), table.count())
 	}
-	if prop, ok := table.lookup("colour"); !ok || !sameProperty(prop, slots[2]) {
-		t.Fatalf("colour = %+v, %v, want the last slot of that name", prop, ok)
+	if prop, ok := table.lookup("colour"); !ok || !sameProperty(prop, slots[0]) {
+		t.Fatalf("colour = %+v, %v, want the first slot of that name", prop, ok)
 	}
 }
 

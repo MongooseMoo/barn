@@ -386,7 +386,10 @@ func NewPropSharePool() *PropSharePool { return newPropSharePool() }
 type SlotLayout struct {
 	shape *propShape
 	// from[i] is the position of the slot that supplies shape key i. When
-	// several positions carry one name, the last of them supplies it.
+	// several positions carry one name, the first of them supplies it: Toast's
+	// db_find_property takes the first slot whose name matches, and a
+	// checkpoint (Store.snapshotPropertyNamesLocked) writes each name once, at
+	// its first position.
 	from []int32
 	// slots is the number of positions the layout was made for.
 	slots int
@@ -415,7 +418,7 @@ func (p *propSharePool) Layout(names []string) *SlotLayout {
 	keys := make([]string, 0, len(order))
 	from := make([]int32, 0, len(order))
 	for i, entry := range order {
-		if i+1 < len(order) && order[i+1].key == entry.key {
+		if i > 0 && order[i-1].key == entry.key {
 			continue
 		}
 		keys = append(keys, entry.key)
@@ -445,7 +448,7 @@ func (p *propSharePool) setFromSlots(layout *SlotLayout, slots *LoadedSlots) []s
 	if len(stored) == 0 {
 		return nil
 	}
-	// supplies[j] is the base index stored[j] supplies, or -1 when a later
+	// supplies[j] is the base index stored[j] supplies, or -1 when an earlier
 	// slot of the same name supplies it instead.
 	supplies := slices.Grow(p.supplies[:0], len(stored))[:len(stored)]
 	p.supplies = supplies
