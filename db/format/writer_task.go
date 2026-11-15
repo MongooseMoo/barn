@@ -81,7 +81,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 
 	// Code: source lines
 	for _, line := range t.Fork.SourceLines {
-		if err := w.writeString(line); err != nil {
+		if err := w.writeSourceLine(line); err != nil {
 			return err
 		}
 	}

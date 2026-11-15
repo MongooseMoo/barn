@@ -112,7 +112,9 @@ func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read queued task source: %w", err)
 		}
-		if strings.TrimSpace(line) == "." {
+		// readLine trims the line ending; an indented "." is a source line
+		// (writeSourceLine), not the terminator.
+		if line == "." {
 			break
 		}
 		task.Code = append(task.Code, line)

@@ -8,6 +8,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"io"
 	"strconv"
+	"strings"
 )
 
 // Type codes for MOO database format v17
@@ -150,6 +151,19 @@ func (w *Writer) writeString(s string) error {
 		return err
 	}
 	return w.w.WriteByte('\n')
+}
+
+// writeSourceLine writes one line of a frame's or forked task's raw source,
+// which precedes a "." terminator. Toast's reader ends a program at any line
+// starting with "." (db_io.cc my_getc) and Barn's at a line that is "." once
+// its trailing CR is trimmed, so a source line such as ".y = 1;" or ".\r"
+// would end the program early. Leading whitespace compiles the same, so such
+// a line is written indented.
+func (w *Writer) writeSourceLine(line string) error {
+	if strings.HasPrefix(line, ".") {
+		line = " " + line
+	}
+	return w.writeString(line)
 }
 
 // writeObjID writes an object ID followed by newline
