@@ -12,8 +12,8 @@ Three series are watched: commands/s at 16 players (lower is worse), p99 latency
 16 players and p50 latency for one player (higher is worse). A change is reported
 when the newest 3 to 10 points differ from the 8 to 20 before them by at least 10%
 in the worse direction and a one-sided rank test puts that at less than 1 in 100
-by chance. These limits were chosen before any series existed; no real series has
-tested them yet.
+by chance, and the commit differs on the two sides of the split. Points from before
+the newest closed goodput-alarm issue was closed are left out.
 
 An alarm only reports. `check --open-issue` opens one issue labelled goodput-alarm
 (none while one is already open); nothing is stopped or switched off.
@@ -32,7 +32,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conformance_suite_alarm import api  # noqa: E402
+from conformance_suite_alarm import api, last_closed, when  # noqa: E402
 
 RESULT = re.compile(r"players=(\d+) goodput=(\d+)/s failed=(\d+) uncaught=(\d+) .*? p50=(\S+) p99=(\S+) ")
 LOAD_AFTER = re.compile(r"^load_after=([0-9.]+)$", re.MULTILINE)  # appended by the workflow
@@ -101,10 +101,14 @@ def chance(before, after):
     return sum(1 for total in sums if total >= seen) / len(sums)
 
 
-def change(values, worse):
+def change(values, worse, commits=None):
     """The newest points that are lastingly worse than the points before them, or None.
 
     Of the splits that qualify, the one least likely by chance is where the change is.
+    With commits (one per value), a split only counts where the commit differs on its
+    two sides: the scheduled runs measure an unchanged commit again, and a shift
+    between two points of one commit is the machine, not the code (issue #829 named
+    cf2f49f483e4...cf2f49f483e4 as its change).
     Returns (points after the change, median before, median after, shift as a fraction).
     """
     found, least = None, CHANCE
@@ -113,6 +117,8 @@ def change(values, worse):
         after = values[len(values) - after_count:]
         if len(before) < BEFORE[0]:
             break
+        if commits and commits[-after_count - 1] == commits[-after_count]:
+            continue
         was, now = statistics.median(before), statistics.median(after)
         shift = (now - was) / was
         if shift * worse < SHIFT:
@@ -129,7 +135,7 @@ def findings(points):
     reasons = []
     for title, level, field, worse, unit in WATCHED:
         series = [(p["commit"], p["levels"][level][field]) for p in points if level in p["levels"]]
-        hit = change([value for _, value in series], worse)
+        hit = change([value for _, value in series], worse, [commit for commit, _ in series])
         if hit:
             after_count, was, now, shift = hit
             last_good, first_bad = series[-after_count - 1][0], series[-after_count][0]
@@ -158,6 +164,15 @@ def past_points(repo):
                 archive = zipfile.ZipFile(io.BytesIO(api(f"repos/{repo}/actions/artifacts/{artifact['id']}/zip", raw=True)))
                 points.append(json.loads(archive.read("point.json")))
     return sorted(points, key=lambda p: p["measured_at"])
+
+
+def after_close(points, closed):
+    """Points measured after the newest alarm issue was closed (all of them when none was).
+
+    Closing the issue says its change is fixed or explained; the series starts again
+    there, so the comparison needs BEFORE[0] new points before it can report again.
+    """
+    return [p for p in points if closed is None or when(p["measured_at"]) > closed]
 
 
 def main():
@@ -191,6 +206,10 @@ def main():
         points.append(json.loads(args.newest.read_text(encoding="utf-8")))
     # A different database gives different numbers; compare only points on the newest one.
     points = [p for p in points if points and p["fixture"] == points[-1]["fixture"]]
+    closed = last_closed(args.repo, LABEL)
+    points = after_close(points, closed)
+    if closed:
+        print(f"comparing only points after the last alarm issue was closed at {closed:%Y-%m-%dT%H:%M:%SZ}")
     print(f"{len(points)} points on the newest fixture")
     for title, level, field, _, unit in WATCHED:
         print(f"{title} ({unit.strip()}): {[round(p['levels'][level][field], 2) for p in points if level in p['levels']]}")

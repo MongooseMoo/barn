@@ -3,7 +3,10 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from goodput_series import LOAD_AFTER, change, findings, issue, milliseconds, point, run_results  # noqa: E402
+import datetime  # noqa: E402
+
+from goodput_series import (LOAD_AFTER, after_close, change, findings, issue, milliseconds, point,  # noqa: E402
+                            run_results)
 
 # The line engine/mongoose_real_bench_test.go logs per player level, inside go test -v output.
 OUTPUT = """=== RUN   TestMongooseRealWorkload
@@ -98,6 +101,26 @@ class FindingsTests(unittest.TestCase):
         self.assertEqual(len(reasons), 1)
         self.assertIn("Commands per second at 16 players moved -25%", reasons[0])
         self.assertIn(f"{11:012x}...{12:012x}", reasons[0])
+
+    def test_a_shift_between_points_of_one_commit_is_not_a_change(self):
+        # Issue #829: the newest points were scheduled re-runs of the commit before them.
+        series = points(NOISY + [600, 570, 669])
+        for p in series[-4:]:
+            p["commit"] = "cf2f49f483e4" + "0" * 28
+        self.assertEqual(findings(series), [])
+
+    def test_a_split_where_the_commit_changes_still_counts(self):
+        commits = [f"c{index}" for index in range(len(NOISY) + 3)]
+        self.assertEqual(change(NOISY + [600, 570, 669], -1, commits)[0], 3)
+        commits[-4] = commits[-3]
+        self.assertIsNone(change(NOISY + [600, 570, 669], -1, commits))
+
+    def test_points_before_a_closed_alarm_are_left_out(self):
+        series = points(NOISY)
+        closed = datetime.datetime(2026, 11, 12, 5, 30, tzinfo=datetime.timezone.utc)
+        self.assertEqual([p["measured_at"] for p in after_close(series, closed)][0], "2026-11-12T06:00:00Z")
+        self.assertEqual(len(after_close(series, closed)), len(NOISY) - 6)
+        self.assertEqual(after_close(series, None), series)
 
     def test_steady_series_finds_nothing(self):
         self.assertEqual(findings(points(NOISY)), [])

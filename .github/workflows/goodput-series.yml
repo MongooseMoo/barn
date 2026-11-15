@@ -97,7 +97,13 @@ jobs:
 
       # The harness runs from the checkout's engine directory and copies the
       # sound catalog into the checkout's files/ directory.
+      # The load is checked again before every run, not only before the first: on
+      # 2026-11-14 a point was taken at load 6.44 and its runs then shared the CPUs
+      # with jobs that started meanwhile (load 9.5 to 14.4 after them), and that
+      # point helped open the false alarm #829. A run that cannot start idle ends
+      # the step without a point.
       - name: Run the harness
+        id: harness
         if: steps.idle.outputs.load
         working-directory: engine
         env:
@@ -110,7 +116,20 @@ jobs:
           set -uo pipefail
           export BARN_MONGOOSE_DB="$RUNNER_TEMP/goodput/mongoose.db"
           export BARN_MONGOOSE_SOUND_DB="$RUNNER_TEMP/goodput/sound.sqlite"
+          idle() {
+            for _ in $(seq $((IDLE_WAIT_MINUTES * 2))); do
+              load=$(cut -d' ' -f1 /proc/loadavg)
+              awk -v load="$load" -v limit="$IDLE_LOAD" 'BEGIN { exit !(load < limit) }' && return 0
+              sleep 30
+            done
+            return 1
+          }
           for run in $(seq "$RUNS"); do
+            if [ "$run" -gt 1 ] && ! idle; then
+              echo "::notice::Load average stayed at or above $IDLE_LOAD for $IDLE_WAIT_MINUTES minutes before run $run (now $load); no point taken."
+              exit 0
+            fi
+            echo "run $run: load $(cut -d' ' -f1 /proc/loadavg) before it"
             out="$RUNNER_TEMP/goodput/run-$run.txt"
             started=$(date +%s)
             # The step's shell is `bash -e`: a failing command outside a
@@ -128,9 +147,10 @@ jobs:
               exit 1
             fi
           done
+          echo "complete=true" >> "$GITHUB_OUTPUT"
 
       - name: Make the point
-        if: steps.idle.outputs.load
+        if: steps.harness.outputs.complete
         run: |
           set -euo pipefail
           python3 scripts/goodput_series.py point --commit "$(git rev-parse HEAD)" \
@@ -146,7 +166,7 @@ jobs:
       # A pull request's point is not part of the series: its artifact is
       # named apart, and the comparison reads runs on master only.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.idle.outputs.load
+        if: steps.harness.outputs.complete
         with:
           name: ${{ github.event_name == 'pull_request' && 'goodput-point-pull-request' || 'goodput-point' }}
           path: ${{ runner.temp }}/goodput/point.json
