@@ -1,0 +1,59 @@
+# Barn vs Toast fuzz differential
+
+- outcome: divergence; partial coverage: True
+- programs loaded: 35601; eligible: 6881; completed comparisons: 6390
+- results: {"aborted on both": 1, "aborted on toast": 2, "divergence": 1139, "match": 5251, "unknown": 488}
+- record errors: []
+- recovered Barn panics: []
+- timed out (harness killed the engine): {"toast": ["F00032", "F00149", "F00245", "F00519", "F00801", "F00810", "F00842", "F01292", "F01548", "F02534", "F02553", "F02558", "F02611", "F02617", "F02622", "F02652", "F02657", "F02674", "F02676", "F02707", "F02713", "F02734", "F02776", "F02790", "F02806", "F02829", "F02833", "F02843", "F02844", "F02906", "F02924", "F02927", "F02932", "F02980", "F03005", "F03143", "F03148", "F03157", "F03184", "F03196", "F03219", "F03280", "F03293", "F03318", "F03328", "F03380", "F03398", "F03432", "F03444", "F03464", "F03493", "F03513", "F03519", "F03524", "F03603", "F03634", "F03692", "F03705", "F03728", "F03766", "F03780", "F03811", "F03818", "F03834", "F03870", "F03874", "F03881", "F03909", "F03912", "F03926", "F03942", "F03974", "F04042", "F04044", "F04078", "F04089", "F04135", "F04162", "F04182", "F04228", "F04267", "F04362", "F04364", "F04376", "F04385", "F04430", "F04431", "F04440", "F04512", "F04517", "F04612", "F04624", "F04771", "F04817", "F04851", "F04923", "F04968", "F05005", "F05020", "F05066", "F05099", "F05100", "F05143", "F05206", "F05212", "F05258", "F05266", "F05348", "F05668", "F06862"], "barn": ["F02907", "F03125"]}
+- excluded: {"ctime(): clock": 93, "deferred comparison": 1, "fork": 857, "frandom(): randomness": 3, "ftime(): clock": 25, "kill_task(): task identity": 8, "load_server_options(): process effect": 80, "longer than one emergency-mode line": 124, "non-ASCII or control character": 27113, "object_bytes(): engine memory": 17, "queue_info(): task identity": 12, "queued_tasks(): task identity": 10, "random(): randomness": 18, "random_bytes(): randomness": 3, "resume(): task identity": 22, "salt(): randomness": 1, "seconds_left(): tick budget": 16, "server_version(): engine identity": 3, "suspend(): scheduler": 99, "task_id(): task identity": 74, "task_stack(): task identity": 6, "ticks_left(): tick budget": 118, "time(): clock": 2, "usage(): engine memory": 12, "value_bytes(): engine memory": 3}
+- bounds: fg_ticks 30000, fg_seconds 2; harness 10s per input, 20 inputs per process; db `/opt/actions-runner-4/_work/barn/barn/Test_conf.db`
+- toast binary: `/opt/actions-runner-4/_work/barn/barn/toaststunt/build/moo` sha256 `fe12ce61e32fb0897dd1bb02161cc9c6c04d8fca92799d5f0a4cc3940359f7fd` version `ToastStunt version 2.7.3_5`
+
+## divergence (1139)
+
+### F00036 `057a80b7a76c042f5595433bb6c99aa4c02880bfe275677ab749245b8e3b63a0`
+
+- lane: `.fuzz/retained/vm/FuzzSourceExecution/inputs`
+
+```moo
+{a,} = {1}; return rest;
+```
+
+- toast: `compile 0`
+- barn: `raised E_VARNF`
+
+### F00095 `0f547a279c0d14e7c4e407aad95be9576d03d736976d23bb3b1eb45c14bc151a`
+
+- lane: `.fuzz/retained/vm/FuzzSourceExecution/inputs`
+
+```moo
+try return 1 / e; except ereturn  (ANY) 0; finally 1; endtry
+```
+
+- toast: `compile 0`
+- barn: `value 0`
+
+### F02528 `0103b533acb6e9cff0fdcf3452958c0415f02254d776e9d878644502b246a746`
+
+- lane: `.fuzz/retained/vm/FuzzStructuredSourceExecution/inputs`
+- choices (hex): `8e4031301b7a7a7a7a0010010f80b44a4a4a7a8e00fac03a292b3ae731300909090909f9fe626a6a6a6a6a0425a5`
+
+```moo
+n = 64;
+f = 2.25;
+s = "$    a";
+l = {10, 1, "%"};
+m = ["\\\\\\  " -> 0, 9223372036854775807 -> "%b\""];
+o = #2;
+for acc z in [s:foo(3):look():(n)()..n]
+endfor
+n;
+n;
+n;
+n;
+n;
+```
+
+- toast: `compile 0`
+- barn: `raised E_TYPE`

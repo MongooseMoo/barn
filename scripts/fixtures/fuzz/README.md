@@ -24,6 +24,12 @@ signals without a recorded crash; `sys_posix.go:106-137` explains crash signals.
 The hang wording alone does not prove a timeout. These logs show no ordinary
 failed-check case, so that path uses an explicit synthetic test.
 
+`toast-differential-43737913398-excerpt.txt` is lines 1-11, 144-167 and
+383-406 of `report.md` from run 43737913398's `fuzz-failure-ToastDifferential`
+artifact, unchanged: the summary, the divergence heading with its first two
+entries, and the first structured entry (with its choice bytes). The full
+report is 2.2 MB.
+
 The reporter reads existing committed corpus inputs where available; it does not
 copy them here. Missing input files remain explicit in its JSON.
 

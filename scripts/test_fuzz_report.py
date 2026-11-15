@@ -167,6 +167,31 @@ class FuzzReportTests(unittest.TestCase):
         self.assertEqual(report(log.split("## divergence")[0], "./scripts", "ToastDifferential",
                                 "commit")["kind"], "infrastructure")
 
+    def test_real_differential_divergence_with_lane_lines(self):
+        # Lines 1-11, 144-167 and 383-406 of report.md from run 43737913398's
+        # fuzz-failure-ToastDifferential artifact. Since structured inputs
+        # joined the differential, each entry names its lane (and choice bytes)
+        # before the program; the reporter took this for an infrastructure
+        # failure whose first error was "- barn: `Error: E_MAXREC`" (#811).
+        log = (FIXTURES / "toast-differential-43737913398-excerpt.txt").read_text()
+        result = report(log, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "divergence")
+        self.assertEqual(result["first_error"],
+                         "## divergence (1139)\n- toast: `compile 0`\n- barn: `raised E_VARNF`\n"
+                         "- toast binary: `/opt/actions-runner-4/_work/barn/barn/toaststunt/build/moo` sha256 "
+                         "`fe12ce61e32fb0897dd1bb02161cc9c6c04d8fca92799d5f0a4cc3940359f7fd` "
+                         "version `ToastStunt version 2.7.3_5`")
+        self.assertEqual(result["input_path"], "057a80b7a76c042f5595433bb6c99aa4c02880bfe275677ab749245b8e3b63a0")
+        self.assertEqual(result["input_text"], "{a,} = {1}; return rest;")
+        # A structured entry, with its choice bytes, is read the same way.
+        structured = log.split("### F00036")[0] + "### F02528" + log.split("### F02528")[1]
+        result = report(structured, "./scripts", "ToastDifferential", "commit")
+        self.assertEqual(result["kind"], "divergence")
+        self.assertEqual(result["input_path"], "0103b533acb6e9cff0fdcf3452958c0415f02254d776e9d878644502b246a746")
+        self.assertTrue(result["input_text"].startswith("n = 64;\n"))
+        self.assertTrue(result["input_text"].endswith("\nn;"))
+        self.assertIn("- barn: `raised E_TYPE`", result["first_error"])
+
     def test_saved_crash_signal_is_a_finding(self):
         # Synthetic: installed Go 1.27.1 src/internal/fuzz/worker.go:186
         # formats "fuzzing process hung or terminated unexpectedly: %v".

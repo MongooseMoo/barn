@@ -49,8 +49,10 @@ def report(log, package, target, commit, campaign_outcome="failure"):
     check = re.search(r"^\s*(\S+\.go:\d+): .+$", text, re.M)
     saved = re.search(r"Failing input written to (testdata/fuzz/[^\s]+)", text)
     setup = re.search(r"^.*\[(?:build|setup) failed\].*$", text, re.M)
-    # scripts/fuzz_differential.py's report: the first diverging program.
-    divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n```moo\n(.*?)\n```\n\n"
+    # scripts/fuzz_differential.py's report: the first diverging program. Its
+    # entry names the corpus lane, and for a structured input the choice
+    # bytes, as "- " lines before the program.
+    divergence = re.search(r"^(## divergence \(\d+\))\n\n### \S+ `([^`]+)`\n\n(?:- [^\n]*\n)*\n?```moo\n(.*?)\n```\n\n"
                            r"(- toast: [^\n]*)\n(- barn: [^\n]*)", text, re.M | re.S)
     # A count mismatch prevents source attribution, but the differential
     # producer still preserves explicit recovered Barn panics as JSON.
