@@ -96,6 +96,16 @@ def api(path, raw=False, post=None):
     return out if raw else json.loads(out)
 
 
+def investigate(repo, number):
+    """Start alarm-investigate.yml on a newly opened alarm issue.
+
+    An issue opened with GITHUB_TOKEN starts no `issues` workflows; workflow_dispatch
+    is exempt, as for the fuzz repairs (scripts/fuzz_report.py).
+    """
+    api(f"repos/{repo}/actions/workflows/alarm-investigate.yml/dispatches", raw=True,
+        post={"ref": "master", "inputs": {"issue_number": str(number)}})
+
+
 def last_closed(repo, label):
     """When the newest closed issue with this label was closed, or None.
 
@@ -171,7 +181,9 @@ def main():
     if api(f"repos/{args.repo}/issues?state=open&labels={LABEL}&per_page=1"):
         print("An alarm issue is already open; not opening another.")
     else:
-        print("Opened", api(f"repos/{args.repo}/issues", post=issue(reasons, args.open_issue))["html_url"])
+        opened = api(f"repos/{args.repo}/issues", post=issue(reasons, args.open_issue))
+        print("Opened", opened["html_url"])
+        investigate(args.repo, opened["number"])
     return 0
 
 

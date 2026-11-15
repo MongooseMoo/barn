@@ -4,8 +4,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import datetime  # noqa: E402
+from unittest import mock  # noqa: E402
 
-from conformance_suite_alarm import WEEK, issue, spread, step_seconds, test_count, verdict, weeks  # noqa: E402
+import conformance_suite_alarm  # noqa: E402
+from conformance_suite_alarm import (WEEK, investigate, issue, spread, step_seconds, test_count,  # noqa: E402
+                                     verdict, weeks)
 
 NOW = datetime.datetime(2026, 11, 15, 21, 0, tzinfo=datetime.timezone.utc)
 
@@ -88,6 +91,12 @@ class SampleTests(unittest.TestCase):
         self.assertIn("13790 tests", made["body"])
         self.assertIn("https://example.test/run/1", made["body"])
         self.assertIn("Nothing has been stopped", made["body"])
+
+    def test_investigate_dispatches_the_investigation_on_master(self):
+        with mock.patch.object(conformance_suite_alarm, "api") as api:
+            investigate("MongooseMoo/barn", 829)
+        api.assert_called_once_with("repos/MongooseMoo/barn/actions/workflows/alarm-investigate.yml/dispatches",
+                                    raw=True, post={"ref": "master", "inputs": {"issue_number": "829"}})
 
     def test_spread_keeps_both_ends(self):
         self.assertEqual(spread(list(range(100)), 12)[0], 0)
