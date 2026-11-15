@@ -3,10 +3,14 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import datetime  # noqa: E402
 from unittest import mock  # noqa: E402
 
 import conformance_suite_alarm  # noqa: E402
-from conformance_suite_alarm import investigate, issue, spread, step_seconds, test_count, verdict  # noqa: E402
+from conformance_suite_alarm import (WEEK, investigate, issue, spread, step_seconds, test_count,  # noqa: E402
+                                     verdict, weeks)
+
+NOW = datetime.datetime(2026, 11, 15, 21, 0, tzinfo=datetime.timezone.utc)
 
 # The spread CI measured on 2026-11-11: 662-724 s around 680.
 STEADY = [662, 670, 675, 680, 683, 690, 701, 724]
@@ -48,6 +52,22 @@ class VerdictTests(unittest.TestCase):
     def test_missing_counts_give_no_count_verdict(self):
         self.assertEqual(verdict(STEADY, STEADY, None, 13804), [])
         self.assertEqual(verdict(STEADY, STEADY, 13804, None), [])
+
+
+class WeekTests(unittest.TestCase):
+    def test_without_a_closed_alarm_the_weeks_are_whole(self):
+        self.assertEqual(weeks(NOW, None), [(NOW - WEEK, NOW), (NOW - 2 * WEEK, NOW - WEEK)])
+
+    def test_a_close_inside_the_week_before_trims_it(self):
+        closed = NOW - WEEK - datetime.timedelta(days=2)
+        self.assertEqual(weeks(NOW, closed), [(NOW - WEEK, NOW), (closed, NOW - WEEK)])
+
+    def test_a_close_inside_the_newest_week_leaves_the_week_before_empty(self):
+        # Closing #828 on 2026-11-15: no run-time verdict until a full week has passed.
+        closed = NOW - datetime.timedelta(hours=1)
+        (recent_start, recent_end), (earlier_start, earlier_end) = weeks(NOW, closed)
+        self.assertEqual((recent_start, recent_end), (closed, NOW))
+        self.assertGreaterEqual(earlier_start, earlier_end)
 
 
 class SampleTests(unittest.TestCase):

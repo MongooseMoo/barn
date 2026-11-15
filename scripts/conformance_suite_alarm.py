@@ -8,6 +8,11 @@ slower; it does not see smaller engine slowdowns or anything about many players.
 Samples are merge queue runs of ci.yml, the runs whose tree lands on master: the
 seconds its "Run conformance suite" step took, and for the two newest the number of
 tests in conformance-results.xml. The newest week is compared with the week before.
+Runs from before the newest closed alarm issue was closed are left out: closing the
+issue says its change is explained, so a lasting step (such as the harness change of
+2026-11-12 that halved the suite's time) is reported once, not again for two weeks.
+For a week after a close there is therefore no run-time verdict; the test count is
+still checked.
 
 An alarm only reports. With --open-issue it opens one issue labelled
 conformance-suite-alarm (none while one is already open) and exits 0; nothing is
@@ -101,6 +106,24 @@ def investigate(repo, number):
         post={"ref": "master", "inputs": {"issue_number": str(number)}})
 
 
+def last_closed(repo, label):
+    """When the newest closed issue with this label was closed, or None.
+
+    Closing an alarm issue says its change is explained, so the comparison starts
+    again from that moment instead of re-reporting the same change.
+    """
+    closed = [issue["closed_at"] for issue in
+              api(f"repos/{repo}/issues?state=closed&labels={label}&per_page=100")
+              if issue.get("closed_at")]
+    return max(map(when, closed)) if closed else None
+
+
+def weeks(now, closed):
+    """(start, end) of the newest week and the week before, neither starting before closed."""
+    spans = ((now - WEEK, now), (now - 2 * WEEK, now - WEEK))
+    return [(max(start, closed) if closed else start, end) for start, end in spans]
+
+
 def merged_runs(repo, since, until):
     """Successful merge queue runs of ci.yml created in [since, until), oldest first."""
     window = f"{since:%Y-%m-%dT%H:%M:%SZ}..{until:%Y-%m-%dT%H:%M:%SZ}"
@@ -130,15 +153,19 @@ def main():
     args = parser.parse_args()
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    weeks = []
-    for start, end in ((now - WEEK, now), (now - 2 * WEEK, now - WEEK)):
+    closed = last_closed(args.repo, LABEL)
+    if closed:
+        print(f"comparing only runs after the last alarm issue was closed at {closed:%Y-%m-%dT%H:%M:%SZ}")
+    sampled = []
+    for start, end in weeks(now, closed):
         timed = []
-        for run in spread(merged_runs(args.repo, start, end), PER_WEEK):
+        runs = merged_runs(args.repo, start, end) if start < end else []
+        for run in spread(runs, PER_WEEK):
             seconds = step_seconds(api(f"repos/{args.repo}/actions/runs/{run['id']}/jobs?per_page=100")["jobs"])
             if seconds is not None:  # the suite is skipped when the same tree already passed
                 timed.append((run["id"], seconds))
-        weeks.append(timed)
-    recent, earlier = weeks
+        sampled.append(timed)
+    recent, earlier = sampled
     print(f"newest week: {[round(s) for _, s in recent]}")
     print(f"week before: {[round(s) for _, s in earlier]}")
 
