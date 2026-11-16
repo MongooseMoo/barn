@@ -521,8 +521,13 @@ func (g *generator) typedArgument(typ int64, depth int) ir.Expr {
 		}
 		return g.floatLiteral()
 	case -3:
-		if choice := g.choose(4); choice < 2 {
-			return &ir.LiteralExpr{Kind: ir.LiteralBool, BoolValue: choice == 1}
+		// The parser reads true and false as variables, never as
+		// ir.LiteralBool, so the generator spells them the same way.
+		switch g.choose(4) {
+		case 0:
+			return &ir.IdentifierExpr{Name: "false"}
+		case 1:
+			return &ir.IdentifierExpr{Name: "true"}
 		}
 		return g.intLiteral()
 	}
