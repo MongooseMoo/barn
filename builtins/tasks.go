@@ -16,20 +16,16 @@ import (
 // Returns list of currently queued tasks
 // Each entry: {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
 func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
-	includeVariables := false
+	var includeVariables, countMode, ok bool
 	if len(args) >= 1 {
-		if args[0].Type() != types.TYPE_INT {
+		if includeVariables, ok = flagArg(args[0]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		includeVariables = args[0].Truthy()
 	}
-
-	countMode := false
 	if len(args) == 2 {
-		if args[1].Type() != types.TYPE_INT {
+		if countMode, ok = flagArg(args[1]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		countMode = args[1].Truthy()
 	}
 
 	mgr := taskManagerOf(ctx)
@@ -705,10 +701,11 @@ func builtinThreadPool(ctx *Execution, args []types.Value) types.Result {
 
 func builtinSetThreadMode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 1 {
-		if args[0].Type() != types.TYPE_INT {
+		mode, ok := flagArg(args[0])
+		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		ctx.ThreadMode = args[0].Truthy()
+		ctx.ThreadMode = mode
 		return types.Ok(types.NewInt(0))
 	}
 	if ctx.ThreadMode {
@@ -719,13 +716,13 @@ func builtinSetThreadMode(ctx *Execution, args []types.Value) types.Result {
 
 func tasksDescriptors() []Descriptor {
 	return []Descriptor{
-		function("set_thread_mode", builtinSetThreadMode, 0, 1, 0),
+		function("set_thread_mode", builtinSetThreadMode, 0, 1, argFlag),
 		function("task_perms", builtinTaskPerms, 0, 0),
 		function("queue_info", builtinQueueInfo, 0, 1, 1),
 		function("finished_tasks", builtinFinishedTasks, 0, 0).plainArityError().withCapability(config.BarnExtensions),
 		function("thread_pool", builtinThreadPool, 2, 3, 2, 2, 0),
 		function("threads", builtinThreads, 0, 0),
-		function("queued_tasks", builtinQueuedTasks, 0, 2, 0, 0),
+		function("queued_tasks", builtinQueuedTasks, 0, 2, argFlag, argFlag),
 		function("kill_task", builtinKillTask, 1, 1, 0),
 		function("task_stack", builtinTaskStack, 1, 3, 0, -1, -1).withLineSync(),
 		function("suspend", builtinSuspend, 0, 1, -2),

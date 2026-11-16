@@ -479,10 +479,10 @@ func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 
 	caseSensitive := false
 	if len(args) == 2 {
-		if args[1].Type() != types.TYPE_INT {
+		var ok bool
+		if caseSensitive, ok = flagArg(args[1]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = args[1].Int() != 0
 	}
 
 	matchingIDs := store.ObjectIDsByNameSubstring(needleStr, caseSensitive)
@@ -515,10 +515,10 @@ func builtinLocations(ctx *Execution, args []types.Value) types.Result {
 		hasBase = true
 	}
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if checkParent, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		checkParent = args[2].Int() != 0
 	}
 
 	out := make([]types.Value, 0)
@@ -753,11 +753,11 @@ func objectsHierarchyDescriptors() []Descriptor {
 		function("children", builtinChildren, 1, 1, -1),
 		function("ancestors", builtinAncestors, 1, 2, -1, -1),
 		function("descendants", builtinDescendants, 1, 2, -1, -1),
-		function("isa", builtinIsa, 2, 3, -1, -1, 0),
+		function("isa", builtinIsa, 2, 3, -1, -1, argFlag),
 		function("chparent", builtinChparent, 2, 2, -1, 1),
 		function("chparents", builtinChparents, 2, 2, -1, 4),
-		function("locate_by_name", builtinLocateByName, 1, 2, 2, 0),
-		function("locations", builtinLocations, 1, 3, 1, 1, 0),
+		function("locate_by_name", builtinLocateByName, 1, 2, 2, argFlag),
+		function("locations", builtinLocations, 1, 3, 1, 1, argFlag),
 		function("owned_objects", builtinOwnedObjects, 1, 1, 1),
 		{Name: "next_recycled_object", Implementation: builtinNextRecycledObject, Signature: &Signature{MinArgs: 0, MaxArgs: 1, ArgTypes: []int64{1}, Alternatives: map[int][]int64{0: {0}}}, Visibility: Public, Effect: Transactional, Capability: config.Core},
 		function("recycled_objects", builtinRecycledObjects, 0, 0),

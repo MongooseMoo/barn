@@ -117,10 +117,10 @@ func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
 
 	caseSensitive := false
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_INT {
+		var ok bool
+		if caseSensitive, ok = flagArg(args[2]); !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = args[2].Int() != 0
 	}
 
 	_, found := m.GetWithCase(key, caseSensitive)
@@ -160,7 +160,7 @@ func mapsDescriptors() []Descriptor {
 		function("mapkeys", builtinMapkeys, 1, 1, 10),
 		function("mapvalues", builtinMapvalues, 1, -1, 10),
 		function("mapdelete", builtinMapdelete, 2, 2, 10, -1),
-		function("maphaskey", builtinMaphaskey, 2, 3, 10, -1, 0),
+		function("maphaskey", builtinMaphaskey, 2, 3, 10, -1, argFlag),
 		function("mapmerge", builtinMapmerge, 2, 2, 10, 10).plainArityError().hidden().withCapability(config.BarnExtensions),
 	}
 }

@@ -478,7 +478,8 @@ func (g *generator) builtinCall(shapes []builtinShape, depth int) *ir.BuiltinCal
 }
 
 // argumentType is the type the signature admits at position i: -1 for any
-// value and -2 for a number, as in builtins.Signature.
+// value, -2 for a number and -3 for a flag (INT or BOOL), as in
+// builtins.Signature.
 func (g *generator) argumentType(sig *builtins.Signature, i int) int64 {
 	if i >= len(sig.ArgTypes) {
 		if sig.VariadicType != nil {
@@ -519,6 +520,11 @@ func (g *generator) typedArgument(typ int64, depth int) ir.Expr {
 			return g.intLiteral()
 		}
 		return g.floatLiteral()
+	case -3:
+		if choice := g.choose(4); choice < 2 {
+			return &ir.LiteralExpr{Kind: ir.LiteralBool, BoolValue: choice == 1}
+		}
+		return g.intLiteral()
 	}
 	return g.expr(depth)
 }

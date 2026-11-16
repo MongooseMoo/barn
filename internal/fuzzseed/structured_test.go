@@ -47,6 +47,20 @@ func TestStructuredBuiltinsOmitSideEffects(t *testing.T) {
 	}
 }
 
+// A flag position (-3, INT or BOOL) gets an INT or BOOL literal unless the
+// first choice takes the any-expression escape.
+func TestStructuredFlagArgumentIsIntOrBoolLiteral(t *testing.T) {
+	for first := 1; first < 4; first++ {
+		for second := 0; second < 256; second++ {
+			g := &generator{choices: []byte{byte(first), byte(second), byte(second)}, budget: maxNodes, scope: initializedVariables}
+			literal, ok := g.typedArgument(-3, 0).(*ir.LiteralExpr)
+			if !ok || literal.Kind != ir.LiteralInt && literal.Kind != ir.LiteralBool {
+				t.Fatalf("typedArgument(-3) with choices %d, %d = %#v, want an INT or BOOL literal", first, second, literal)
+			}
+		}
+	}
+}
+
 // Most builtin calls should pass argument admission so they reach the
 // builtin's body rather than stopping at E_ARGS or E_TYPE.
 func TestStructuredBuiltinCallsMostlyFitTheirSignature(t *testing.T) {
@@ -77,7 +91,7 @@ func fitsSignature(sig *builtins.Signature, args []ir.Expr) bool {
 		return false
 	}
 	literalTypes := map[ir.LiteralKind]int64{
-		ir.LiteralInt: 0, ir.LiteralObj: 1, ir.LiteralString: 2, ir.LiteralErr: 3, ir.LiteralFloat: 9,
+		ir.LiteralInt: 0, ir.LiteralObj: 1, ir.LiteralString: 2, ir.LiteralErr: 3, ir.LiteralFloat: 9, ir.LiteralBool: 14,
 	}
 	for i, arg := range args {
 		if _, splice := arg.(*ir.SpliceExpr); splice {
@@ -88,7 +102,7 @@ func fitsSignature(sig *builtins.Signature, args []ir.Expr) bool {
 			continue
 		}
 		got, want := literalTypes[literal.Kind], sig.ArgTypes[i]
-		if want >= 0 && got != want || want == -2 && got != 0 && got != 9 {
+		if want >= 0 && got != want || want == -2 && got != 0 && got != 9 || want == -3 && got != 0 && got != 14 {
 			return false
 		}
 	}
