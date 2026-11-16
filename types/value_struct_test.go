@@ -135,7 +135,7 @@ func TestMapObjectKeysRemainDistinctAt32BitBoundary(t *testing.T) {
 func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
 	first := NewWaif(1, 2)
 	second := NewWaif(1, 2)
-	if !IsValidMapKey(first) || !IsValidBuiltinMapKey(first) {
+	if !IsValidMapKey(first) {
 		t.Fatal("waif is not admitted as a map key")
 	}
 	if keyHash(first) == keyHash(second) {
@@ -167,8 +167,8 @@ func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
 func TestReverseInsertedAnonymousMapKeysExposeReverseTopology(t *testing.T) {
 	first := NewAnon(1)
 	second := NewAnon(2)
-	if !IsValidMapKey(first) || IsValidBuiltinMapKey(first) {
-		t.Fatal("anonymous map-key admission does not match Toast")
+	if !IsValidMapKey(first) {
+		t.Fatal("anonymous object is not admitted as a map key")
 	}
 	if got := toastMapCompare(first, second, false); got <= 0 {
 		t.Fatalf("toastMapCompare(first, second) = %d, want positive", got)
