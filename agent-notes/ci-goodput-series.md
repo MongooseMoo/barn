@@ -45,8 +45,18 @@ agent-notes/automatic-machine.md in the main checkout.
   alarm comes after the merge, once three points show the change.
 - The harness's output is never printed or uploaded: the dump holds real
   players' data and this repository's Actions logs are public. Only the
-  result line's numbers leave the runner. A failed run therefore says only
-  that it failed.
+  result line's numbers leave the runner. A failed run shows the test's
+  verdict, its exit status, and the harness's own count lines
+  ("N commands failed; measurement is invalid", "N commands left without
+  terminal flush acknowledgement; measurement is invalid"), which hold only a
+  number.
+- 2026-11-16: until then a failed run showed nothing at all. The step's shell
+  is `bash -e`, so the harness's non-zero exit ended the script on the test
+  command, before the verdict, the "run N: exit" line and the error message
+  (branch run 43563381089; master push runs 43563868939, 43783017866,
+  43805536924). The script now takes the status with `|| status=$?`.
+  Why master's harness fails some runs is still unknown; the next failed run
+  will show which count line it was.
 - A new dump makes a new series: points carry the fixture's checksum and
   only points on the newest fixture are compared (barn-d6: per-command
   allocations rose from about 34k to 43-45k between two dumps).
