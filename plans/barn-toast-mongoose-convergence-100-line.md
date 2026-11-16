@@ -7,7 +7,7 @@
 - `C:/Users/Q/code/barn` owns implementation, profiles, diagnostics, and deployment verification.
 - `C:/Users/Q/code/moo-conformance-tests` owns generic behavioral truth.
 - `C:/Users/Q/code/mongoose` supplies the real workload but never conformance fixtures or credentials.
-- Stock behavior authority is `/root/src/toaststunt/build-release/moo` at commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`.
+- Stock behavior authority is `/root/src/toaststunt/build-release/moo` at commit `03af4fa2b53b418999f03566b646ee42bc7ea647`.
 - Mongoose behavior authority is `/root/src/toaststunt-mongoose/build-release/moo` at commit `72e3c7f96ce7a41fdeba793aef8818dc4408072e`.
 - Use WSL Toast only; never substitute a Windows Toast binary.
 - Direct Toast observation precedes conformance reduction whenever a concrete theory exists.

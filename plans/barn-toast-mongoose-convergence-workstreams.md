@@ -37,7 +37,8 @@ explicit execution milestone.
 For ordinary Toast behavior, use:
 
 - `/root/src/toaststunt/build-release/moo`
-- stock Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`
+- stock Toast commit `03af4fa2b53b418999f03566b646ee42bc7ea647` (ToastStunt
+  2.8.0_7, the first with `+` on lists bounded by max_list_value_bytes)
 
 For Mongoose `PROMOTE_NUMBERS` behavior, use the pinned WSL Mongoose build:
 
