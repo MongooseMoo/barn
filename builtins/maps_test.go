@@ -116,6 +116,67 @@ func TestMultiKeyMapdeleteRaisesMissingKeyDetail(t *testing.T) {
 	}
 }
 
+// Toast ff990b8: mapdelete() and maphaskey() accept anonymous object keys.
+func TestMapKeyBuiltinsAcceptAnonymousKeys(t *testing.T) {
+	ctx := newTestExecution()
+	first := types.NewAnon(1)
+	second := types.NewAnon(2)
+	absent := types.NewAnon(3)
+	mapping := types.NewMap([][2]types.Value{
+		{first, types.NewInt(1)},
+		{second, types.NewInt(2)},
+	})
+
+	for _, test := range []struct {
+		key  types.Value
+		want int64
+	}{
+		{key: first, want: 1},
+		{key: absent, want: 0},
+	} {
+		result := admitTestBuiltin("maphaskey", ctx, []types.Value{mapping, test.key})
+		if result.IsError() || result.Val.Int() != test.want {
+			t.Fatalf("maphaskey(%v) = %+v, want %d", test.key, result, test.want)
+		}
+	}
+
+	single := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, first})
+	if single.IsError() || single.Val.Len() != 1 {
+		t.Fatalf("mapdelete(first) = %+v, want one-entry map", single)
+	}
+	if _, found := single.Val.MapGet(second); !found {
+		t.Fatalf("mapdelete(first) = %v, want second kept", single.Val)
+	}
+
+	multi := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, types.NewList([]types.Value{first, second})})
+	if multi.IsError() || multi.Val.Len() != 0 {
+		t.Fatalf("mapdelete({first, second}) = %+v, want empty map", multi)
+	}
+
+	missing := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, absent})
+	if missing.Error != types.E_RANGE {
+		t.Fatalf("mapdelete(absent) = %+v, want E_RANGE", missing)
+	}
+}
+
+func TestMultiKeyMapdeleteRaisesMissingAnonymousKeyDetail(t *testing.T) {
+	ctx := newTestExecution()
+	present := types.NewAnon(1)
+	absent := types.NewAnon(2)
+	mapping := types.NewMap([][2]types.Value{{present, types.NewInt(1)}})
+
+	result := admitTestBuiltin("mapdelete", ctx, []types.Value{mapping, types.NewList([]types.Value{present, absent})})
+	if result.Flow != types.FlowException || result.Error != types.E_RANGE || result.Val.Len() != 3 {
+		t.Fatalf("mapdelete result = %+v, want E_RANGE raise payload", result)
+	}
+	if got := result.Val.Get(2); got.Type() != types.TYPE_STR || got.Str() != "Key *anonymous* not found in map" {
+		t.Fatalf("exception message = %v, want Toast unparse of the anonymous key", got)
+	}
+	if got := result.Val.Get(3); !got.Equal(absent) {
+		t.Fatalf("exception detail = %v, want the missing anonymous key", got)
+	}
+}
+
 func TestMapdeleteUsesPendingMapValueByteLimit(t *testing.T) {
 	mapping := types.NewMap([][2]types.Value{
 		{types.NewInt(1), types.NewStr("one")},

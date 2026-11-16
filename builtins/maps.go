@@ -60,13 +60,13 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 		keyList := keyOrList
 		result := m
 		for _, key := range keyList.Elements() {
-			if !types.IsValidBuiltinMapKey(key) {
+			if !types.IsValidMapKey(key) {
 				return types.Err(types.E_TYPE)
 			}
 			if _, found := result.MapGet(key); !found {
 				exceptionList := types.NewList([]types.Value{
 					types.NewErr(types.E_RANGE),
-					types.NewStr("Key " + key.String() + " not found in map"),
+					types.NewStr("Key " + publicLiteral(key) + " not found in map"),
 					key,
 				})
 				return types.Result{
@@ -84,7 +84,7 @@ func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	key := keyOrList
-	if !types.IsValidBuiltinMapKey(key) {
+	if !types.IsValidMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -110,8 +110,8 @@ func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
 
 	key := args[1]
 
-	// Map keys must be scalar types (not list/map/waif).
-	if !types.IsValidBuiltinMapKey(key) {
+	// Lists and maps are E_TYPE; anonymous objects and waifs are valid keys.
+	if !types.IsValidMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 

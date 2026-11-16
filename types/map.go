@@ -900,14 +900,9 @@ func (v Value) KeyPosition(key Value) int64 {
 	return 0
 }
 
-// IsValidMapKey reports whether a value type is valid as a map key.
+// IsValidMapKey reports whether a value type is valid as a map key, both in
+// the VM and as the key argument to mapdelete() and maphaskey().
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
 	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_WAIF || t == TYPE_BOOL
-}
-
-// IsValidBuiltinMapKey reports whether a value is valid as a key argument to map
-// builtins. Anonymous object keys are rejected (E_TYPE).
-func IsValidBuiltinMapKey(v Value) bool {
-	return IsValidMapKey(v) && v.Type() != TYPE_ANON
 }
