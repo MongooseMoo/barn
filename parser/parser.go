@@ -824,9 +824,9 @@ func (p *Parser) parseListExpr() (ir.Expr, error) {
 	for p.current.Type == TOKEN_COMMA {
 		p.nextToken() // skip ','
 
-		// Check for trailing comma
+		// MOO's grammar has no trailing comma: `{1,}` is a syntax error.
 		if p.current.Type == TOKEN_RBRACE {
-			break
+			return nil, fmt.Errorf("unexpected '}' after ',' in list expression")
 		}
 
 		elem, err := p.parseArgument()
@@ -880,9 +880,9 @@ func (p *Parser) parseMapExpr() (*ir.MapExpr, error) {
 	for p.current.Type == TOKEN_COMMA {
 		p.nextToken() // skip ','
 
-		// Check for trailing comma
+		// MOO's grammar has no trailing comma: `[1 -> 2,]` is a syntax error.
 		if p.current.Type == TOKEN_RBRACKET {
-			break
+			return nil, fmt.Errorf("unexpected ']' after ',' in map expression")
 		}
 
 		key, err := p.ParseExpression(PREC_LOWEST)
