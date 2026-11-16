@@ -257,6 +257,28 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+// Toast 2.8.1 (6505a7f, execute.cc OP_ADD) raises E_QUOTA when the list +
+// result's value_bytes exceeds max_list_value_bytes; a result of exactly the
+// limit is allowed, unlike the builtins' exclusive check.
+func TestListAddUsesInclusiveListValueByteLimit(t *testing.T) {
+	size := types.ValueBytes(types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)}))
+	for _, source := range []string{`x = {1}; return x + {2};`, `x = {1}; return x + 2;`} {
+		for _, limit := range []int{size - 1, size} {
+			ctx := task.NewContext()
+			ctx.PendingEffects = []task.PendingEffect{{
+				Kind:          task.PendingEffectServerOptions,
+				ServerOptions: &task.PendingServerOptions{MaxListValueBytes: limit},
+			}}
+			result := runBytecodeProgram(t, source, nil, ctx)
+			if limit < size {
+				requireError(t, result, types.E_QUOTA)
+			} else if result.Flow != types.FlowReturn || result.Val.String() != `{1, 2}` {
+				t.Fatalf("%s with byte limit %d = %+v, want {1, 2}", source, limit, result)
+			}
+		}
+	}
+}
+
 // OP_LIST_RANGE remains executable in persisted bytecode, although MOO source
 // has no list-range production. Exercise the opcode without invalid source.
 func runListRangeBytecode(start, end int64, ctx *task.Context) types.Result {
