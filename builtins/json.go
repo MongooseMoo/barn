@@ -195,18 +195,18 @@ func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	jsonStr := strVal.Str()
-	// Toast's yajl decodes escapes differently from Go: \b, \f, \n, \r and
-	// every \uXXXX below U+0080 become MOO binary escape text ("~0A", "~41"),
-	// \t becomes a tab, and higher \uXXXX escapes become UTF-8 bytes. Tag the
-	// escapes that become binary escape text while the JSON escape boundaries
-	// are still visible. The tag is selected after a preliminary decode so
-	// legitimate JSON text can never collide with it.
+	// Go decodes the short control escapes and their equivalent Unicode escapes
+	// identically. Toast does not: \b, \f, \n, and \r become MOO binary escape
+	// text, while \t and all \uXXXX escapes become their actual UTF-8 bytes.
+	// Tag only the four short escapes while the JSON escape boundaries are still
+	// visible. The tag is selected after a preliminary decode so legitimate JSON
+	// text can never collide with it.
 	var preliminary interface{}
 	if err := json.NewDecoder(strings.NewReader(jsonStr)).Decode(&preliminary); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	controlTag := unusedJSONControlTag(preliminary)
-	jsonStr = tagJSONBinaryEscapes(jsonStr, controlTag)
+	jsonStr = tagJSONShortControlEscapes(jsonStr, controlTag)
 
 	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
 	// This matches ToastStunt behavior where parse_json("12abc") returns 12
@@ -393,10 +393,7 @@ func jsonValueContains(v interface{}, needle string) bool {
 	return false
 }
 
-// tagJSONBinaryEscapes replaces each JSON string escape that Toast decodes to
-// MOO binary escape text with the marker tag, the escape letter, and that
-// three-byte text, which encodeParsedJSONString later turns back into the text.
-func tagJSONBinaryEscapes(s, tag string) string {
+func tagJSONShortControlEscapes(s, tag string) string {
 	var result strings.Builder
 	inString := false
 	for i := 0; i < len(s); i++ {
@@ -407,11 +404,11 @@ func tagJSONBinaryEscapes(s, tag string) string {
 		}
 		if inString && s[i] == '\\' && i+1 < len(s) {
 			next := s[i+1]
-			if replacement, width, ok := jsonBinaryEscape(s[i+1:]); ok {
+			if replacement, ok := jsonShortControls[next]; ok {
 				result.WriteString(tag)
 				result.WriteByte(next)
 				result.WriteString(replacement)
-				i += width
+				i++
 				continue
 			}
 			result.WriteByte(s[i])
@@ -422,46 +419,6 @@ func tagJSONBinaryEscapes(s, tag string) string {
 		result.WriteByte(s[i])
 	}
 	return result.String()
-}
-
-// jsonBinaryEscape returns the MOO binary escape text Toast's yajl decodes
-// the escape after a backslash to, and the escape's width after the
-// backslash: the short controls \b \f \n \r, and \uXXXX below U+0080.
-func jsonBinaryEscape(escape string) (string, int, bool) {
-	if replacement, ok := jsonShortControls[escape[0]]; ok {
-		return replacement, 1, true
-	}
-	if escape[0] != 'u' || len(escape) < 5 {
-		return "", 0, false
-	}
-	codepoint := 0
-	for _, c := range []byte(escape[1:5]) {
-		digit, ok := hexDigit(c)
-		if !ok {
-			return "", 0, false
-		}
-		codepoint = codepoint<<4 | digit
-	}
-	if codepoint >= 0x80 {
-		return "", 0, false
-	}
-	return fmt.Sprintf("~%02X", codepoint), 5, true
-}
-
-// jsonTaggedReplacement validates the binary escape text that follows a
-// marker's escape letter and returns it.
-func jsonTaggedReplacement(control byte, text string) (string, bool) {
-	if len(text) < 3 {
-		return "", false
-	}
-	replacement := text[:3]
-	if control == 'u' {
-		_, hi := hexDigit(replacement[1])
-		_, lo := hexDigit(replacement[2])
-		return replacement, replacement[0] == '~' && hi && lo
-	}
-	want, ok := jsonShortControls[control]
-	return want, ok && replacement == want
 }
 
 func encodeParsedJSONString(s string) string {
@@ -481,27 +438,28 @@ func encodeParsedJSONString(s string) string {
 			s = suffix
 			continue
 		}
-		replacement, ok := jsonTaggedReplacement(suffix[dash+1], suffix[dash+2:])
-		if !ok {
+		control := suffix[dash+1]
+		replacement, ok := jsonShortControls[control]
+		markerLen := len(jsonControlTagBase) + dash + 2 + len(replacement)
+		if !ok || markerLen > len(s) || s[markerLen-len(replacement):markerLen] != replacement {
 			result.WriteString(jsonControlTagBase)
 			s = suffix
 			continue
 		}
 		result.WriteString(replacement)
-		s = s[len(jsonControlTagBase)+dash+2+len(replacement):]
+		s = s[markerLen:]
 	}
 	return result.String()
 }
 
-// encodeJSONDecodedBytes writes decoded JSON text as a MOO string, spelling
-// control and non-ASCII bytes as binary escapes. A tilde stays a tilde, as in
-// Toast.
 func encodeJSONDecodedBytes(s string) string {
 	var result strings.Builder
 	for _, b := range []byte(s) {
 		switch {
 		case b == '\t':
 			result.WriteByte(b)
+		case b == '~':
+			result.WriteString("~7E")
 		case b < 32 || b > 126:
 			fmt.Fprintf(&result, "~%02X", b)
 		default:
