@@ -229,11 +229,10 @@ func (c *roundTripComparison) value(a, b types.Value) bool {
 		return true
 	case types.TYPE_MAP:
 		// The writer emits Pairs() (tree order) and the reader inserts the
-		// pairs in that order. Keys of a type without a total order (BOOL,
-		// ANON, WAIF) therefore reverse on every dump, as in Toast
-		// (conformance server/map_dump_persistence), so the reload is expected
-		// in the order of a's pairs reinserted, still compared positionally.
-		ap, bp := types.NewMap(a.Pairs()).Pairs(), b.Pairs()
+		// pairs in that order, so b's insertion order is a's tree order.
+		// b's own tree order can differ: WAIF and anonymous-object keys are
+		// ordered by identity, which a reload may assign afresh.
+		ap, bp := a.Pairs(), b.PairsInInsertionOrder()
 		if len(ap) != len(bp) {
 			return false
 		}

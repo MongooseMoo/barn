@@ -132,87 +132,74 @@ func TestMapObjectKeysRemainDistinctAt32BitBoundary(t *testing.T) {
 	}
 }
 
-func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
-	first := NewWaif(1, 2)
-	second := NewWaif(1, 2)
-	if !IsValidMapKey(first) || !IsValidBuiltinMapKey(first) {
+func TestWaifMapKeyOrderIsIndependentOfInsertionOrder(t *testing.T) {
+	keys := make([]Value, 8)
+	for i := range keys {
+		keys[i] = NewWaif(1, 2)
+	}
+	if !IsValidMapKey(keys[0]) || !IsValidBuiltinMapKey(keys[0]) {
 		t.Fatal("waif is not admitted as a map key")
 	}
-	if keyHash(first) == keyHash(second) {
-		t.Fatalf("distinct waifs have the same key hash %v", keyHash(first))
+	if keyHash(keys[0]) == keyHash(keys[1]) {
+		t.Fatalf("distinct waifs have the same key hash %v", keyHash(keys[0]))
 	}
-
-	firstFirst := NewMap([][2]Value{
-		{first, NewInt(1)},
-		{second, NewInt(2)},
-	})
-	secondFirst := NewMap([][2]Value{
-		{second, NewInt(2)},
-		{first, NewInt(1)},
-	})
-
-	assertWaifKeys(t, firstFirst.Keys(), second, first)
-	assertWaifKeys(t, secondFirst.Keys(), first, second)
-	if got := firstFirst.String(); got != "[<waif #1> -> 2, <waif #1> -> 1]" {
-		t.Fatalf("first-first literal = %q, want reverse topology", got)
-	}
-	if got := secondFirst.String(); got != "[<waif #1> -> 1, <waif #1> -> 2]" {
-		t.Fatalf("second-first literal = %q, want reverse topology", got)
-	}
-	if firstFirst.Equal(secondFirst) {
-		t.Fatal("maps with different waif-key topology compare equal")
-	}
+	assertIdentityKeyOrderIsTotal(t, keys)
 }
 
-func TestReverseInsertedAnonymousMapKeysExposeReverseTopology(t *testing.T) {
-	first := NewAnon(1)
-	second := NewAnon(2)
-	if !IsValidMapKey(first) || IsValidBuiltinMapKey(first) {
+func TestAnonymousMapKeyOrderIsIndependentOfInsertionOrder(t *testing.T) {
+	keys := make([]Value, 8)
+	for i := range keys {
+		keys[i] = NewAnon(ObjID(i + 1))
+	}
+	if !IsValidMapKey(keys[0]) || IsValidBuiltinMapKey(keys[0]) {
 		t.Fatal("anonymous map-key admission does not match Toast")
 	}
-	if got := toastMapCompare(first, second, false); got <= 0 {
-		t.Fatalf("toastMapCompare(first, second) = %d, want positive", got)
-	}
-	if got := toastMapCompare(second, first, false); got <= 0 {
-		t.Fatalf("toastMapCompare(second, first) = %d, want positive", got)
-	}
-
-	firstFirst := NewMap([][2]Value{
-		{first, NewInt(1)},
-		{second, NewInt(2)},
-	})
-	secondFirst := NewMap([][2]Value{
-		{second, NewInt(2)},
-		{first, NewInt(1)},
-	})
-
-	assertAnonymousKeys(t, firstFirst.Keys(), second, first)
-	assertAnonymousKeys(t, secondFirst.Keys(), first, second)
-	if firstFirst.Equal(secondFirst) {
-		t.Fatal("maps with different anonymous-key topology compare equal")
-	}
+	assertIdentityKeyOrderIsTotal(t, keys)
 }
 
-func assertAnonymousKeys(t *testing.T, got []Value, want ...Value) {
+// assertIdentityKeyOrderIsTotal checks Toast 2.8's compare() contract for
+// waif and anonymous-object keys (c0966e5): distinct keys order one way
+// round, so the map's key order, literal and equality do not depend on the
+// order the keys were inserted in, and the tree lookup finds every key.
+func assertIdentityKeyOrderIsTotal(t *testing.T, keys []Value) {
 	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("key count = %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i].Type() != TYPE_ANON || got[i].ID() != want[i].ID() {
-			t.Fatalf("key %d = %v, want anonymous id %d", i+1, got[i], want[i].ID())
+	for i, a := range keys {
+		for j, b := range keys {
+			ab, ba := toastMapCompare(a, b, false), toastMapCompare(b, a, false)
+			if (i == j) != (ab == 0) || (ab < 0) != (ba > 0) {
+				t.Fatalf("toastMapCompare(keys[%d], keys[%d]) = %d, reverse %d: not a total order", i, j, ab, ba)
+			}
 		}
 	}
-}
 
-func assertWaifKeys(t *testing.T, got []Value, want ...Value) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("key count = %d, want %d", len(got), len(want))
+	forward := make([][2]Value, len(keys))
+	reverse := make([][2]Value, len(keys))
+	for i, key := range keys {
+		forward[i] = [2]Value{key, NewInt(int64(i))}
+		reverse[len(keys)-1-i] = forward[i]
 	}
-	for i := range want {
-		if got[i].Type() != TYPE_WAIF || got[i].WaifIdentity() != want[i].WaifIdentity() {
-			t.Fatalf("key %d has identity %s, want %s", i+1, got[i].WaifIdentity(), want[i].WaifIdentity())
+	forwardMap, reverseMap := NewMap(forward), NewMap(reverse)
+
+	forwardKeys, reverseKeys := forwardMap.Keys(), reverseMap.Keys()
+	if len(forwardKeys) != len(keys) || len(reverseKeys) != len(keys) {
+		t.Fatalf("key counts = %d, %d; want %d", len(forwardKeys), len(reverseKeys), len(keys))
+	}
+	for i := range forwardKeys {
+		if !forwardKeys[i].Equal(reverseKeys[i]) {
+			t.Fatalf("key %d differs between insertion orders", i+1)
+		}
+		if i > 0 && toastMapCompare(forwardKeys[i-1], forwardKeys[i], false) >= 0 {
+			t.Fatalf("keys %d and %d are out of order", i, i+1)
+		}
+	}
+	if !forwardMap.Equal(reverseMap) {
+		t.Fatal("maps with the same identity-key pairs compare unequal")
+	}
+	for i, key := range keys {
+		for _, m := range []Value{forwardMap, reverseMap} {
+			if got, ok := m.GetWithCase(key, true); !ok || got.Int() != int64(i) {
+				t.Fatalf("GetWithCase(keys[%d]) = %v, %v; want %d, true", i, got, ok, i)
+			}
 		}
 	}
 }

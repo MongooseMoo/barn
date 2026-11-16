@@ -98,18 +98,25 @@ func TestCompareRoundTripStoresWriterReader(t *testing.T) {
 	}
 }
 
-// Keys of a type without a total order reverse on every dump, as in Toast
-// (conformance server/map_dump_persistence). The comparator expects exactly that
-// order: the reload passes, and the unreversed original order does not.
-func TestCompareRoundTripStoresBoolKeyedMapReversal(t *testing.T) {
+// Toast 2.8 orders bool keys false < true, so a bool-keyed map keeps its key
+// order across a dump. WAIF keys are ordered by identity, and a portable reload
+// gives every WAIF a fresh identity, so a WAIF-keyed map may come back in a
+// different key order (as Toast's, ordered by address, may); the comparator
+// still pairs each reloaded entry with the one written for it.
+func TestCompareRoundTripStoresIdentityAndBoolKeyedMaps(t *testing.T) {
 	original := store.NewStore()
 	root := store.NewObjectBuilder(0)
 	root.SetName("Root")
 	root.SetLocation(types.ObjNothing)
-	root.SetPropOrder([]string{"m"})
-	root.SetPropDefsCount(1)
-	m := types.NewEmptyMap().MapSet(types.NewBool(false), types.NewStr("false")).MapSet(types.NewBool(true), types.NewStr("true"))
-	root.SetProperty("m", store.NewProperty(m, 0, 1, false, true))
+	root.SetPropOrder([]string{"bools", "waifs"})
+	root.SetPropDefsCount(2)
+	bools := types.NewEmptyMap().MapSet(types.NewBool(true), types.NewStr("true")).MapSet(types.NewBool(false), types.NewStr("false"))
+	waifs := types.NewEmptyMap()
+	for i := range 12 {
+		waifs = waifs.MapSet(types.NewWaif(0, 0), types.NewInt(int64(i)))
+	}
+	root.SetProperty("bools", store.NewProperty(bools, 0, 1, false, true))
+	root.SetProperty("waifs", store.NewProperty(waifs, 0, 1, false, true))
 	if err := original.Add(root.Build()); err != nil {
 		t.Fatal(err)
 	}
@@ -117,16 +124,19 @@ func TestCompareRoundTripStoresBoolKeyedMapReversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := original.Snapshot().Objects[0].Properties["m"].Value
-	after := reloaded.Snapshot().Objects[0].Properties["m"].Value
-	if before.Pairs()[0][0].Bool() == after.Pairs()[0][0].Bool() {
-		t.Fatalf("dump did not reverse bool keys: %v -> %v", before, after)
+	after := reloaded.Snapshot().Objects[0].Properties["bools"].Value
+	if got := after.String(); got != `[false -> "false", true -> "true"]` {
+		t.Fatalf("reloaded bool-keyed map = %s, want false before true", got)
 	}
 	if err := CompareRoundTripStores(original, reloaded); err != nil {
 		t.Fatal(err)
 	}
-	if err := CompareRoundTripStores(original, original); err == nil {
-		t.Fatal("unreversed bool-keyed map accepted as a reload")
+	second, err := dumpAndReload(reloaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CompareRoundTripStores(reloaded, second); err != nil {
+		t.Fatal(err)
 	}
 }
 
