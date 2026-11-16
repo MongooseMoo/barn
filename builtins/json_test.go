@@ -56,6 +56,20 @@ func TestGenerateJsonModeAndBinaryEscapes(t *testing.T) {
 	}
 }
 
+// Distinct MOO keys can share a JSON member name; generate_json writes both,
+// as Toast does, even though parse_json rejects such a document.
+func TestGenerateJsonWritesRepeatedMemberNames(t *testing.T) {
+	ctx := newTestExecution()
+	value := types.NewMap([][2]types.Value{
+		{types.NewInt(1), types.NewStr("number")},
+		{types.NewStr("1"), types.NewStr("string")},
+	})
+	res := admitTestBuiltin("generate_json", ctx, []types.Value{value})
+	if want := `{"1":"number","1":"string"}`; !res.IsNormal() || res.Val.Str() != want {
+		t.Fatalf("generate_json = flow %v error %v value %v, want %s", res.Flow, res.Error, res.Val, want)
+	}
+}
+
 func TestParseJsonNullMapsToENone(t *testing.T) {
 	ctx := newTestExecution()
 
@@ -176,6 +190,9 @@ func TestParseJsonToastEscapeSemantics(t *testing.T) {
 		{name: "carriage return short escape", json: `"a\rb"`, want: "a~0Db"},
 		{name: "surrogate pair", json: `"\uD83D\uDE00"`, want: "~F0~9F~98~80"},
 		{name: "private use character", json: `"\uE000"`, want: "~EE~80~80"},
+		// The v1 decoder's internal escape marker began with this text and
+		// decoded such a string to "~0A"; it is ordinary text.
+		{name: "old escape marker text", json: `"\uE000barn-json-control-0-n~0A"`, want: "~EE~80~80barn-json-control-0-n~7E0A"},
 	}
 
 	ctx := newTestExecution()
