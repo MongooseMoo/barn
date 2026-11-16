@@ -9,6 +9,7 @@ import (
 
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/internal/buildinfo"
 	"github.com/MongooseMoo/barn/internal/dbtool"
 )
 
@@ -184,7 +185,7 @@ func TestDBFlagLoadsDatabaseAndNeverWritesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out, errOut := runMoo(t, "", "-db", path, "-e", `$from_file = "changed"; return $from_file;`)
+	code, out, errOut := runMoo(t, "", "--db", path, "-e", `$from_file = "changed"; return $from_file;`)
 	if code != 0 || out != "=> \"changed\"\n" {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
@@ -203,7 +204,7 @@ func TestDBFlagLoadsDatabaseAndNeverWritesIt(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("the database directory holds %d entries after the run, want only the database", len(entries))
 	}
-	if code, out, _ := runMoo(t, "", "-db", path, "-e", "$from_file"); code != 0 || out != "=> \"yes\"\n" {
+	if code, out, _ := runMoo(t, "", "--db", path, "-e", "$from_file"); code != 0 || out != "=> \"yes\"\n" {
 		t.Fatalf("second run: exit %d, stdout %q; want the value on disk", code, out)
 	}
 }
@@ -216,9 +217,21 @@ func TestWithoutDBFlagTheDatabaseIsTheMinimalOne(t *testing.T) {
 }
 
 func TestUnloadableDatabaseFails(t *testing.T) {
-	code, out, errOut := runMoo(t, "", "-db", filepath.Join(t.TempDir(), "absent.db"), "-e", "1")
+	code, out, errOut := runMoo(t, "", "--db", filepath.Join(t.TempDir(), "absent.db"), "-e", "1")
 	if code == 0 || out != "" || errOut == "" {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want a failure reported on stderr", code, out, errOut)
+	}
+}
+
+func TestLongEvalFlagAndVersion(t *testing.T) {
+	if code, out, errOut := runMoo(t, "", "--eval", "1 + 2"); code != 0 || out != "=> 3\n" {
+		t.Fatalf("--eval: exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	want := buildinfo.Current().Line("moo") + "\n"
+	for _, flag := range []string{"--version", "-V"} {
+		if code, out, _ := runMoo(t, "", flag); code != 0 || out != want {
+			t.Fatalf("%s: exit %d, stdout %q, want %q", flag, code, out, want)
+		}
 	}
 }
 
@@ -228,6 +241,8 @@ func TestUsageErrors(t *testing.T) {
 		{"-e", "1", path},
 		{path, path},
 		{"-nonsense"},
+		{"-db", path}, // single-dash long flags are gone
+		{"-v", "-q", "-e", "1"},
 	} {
 		code, out, errOut := runMoo(t, "", args...)
 		if code != 2 || out != "" || errOut == "" {

@@ -1,9 +1,12 @@
+// moo_client sends commands to a MOO server and prints the raw output.
+//
+//	moo_client -p 7777 -c 'connect wizard' -c 'look'
+//	moo_client --file commands.txt --event-log events.jsonl
 package main
 
 import (
 	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -11,9 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-type arrayFlags []string
+	"github.com/spf13/cobra"
+
+	"github.com/MongooseMoo/barn/internal/cli"
+)
 
 type clientEvent struct {
 	Event        string `json:"event"`
@@ -71,47 +76,57 @@ func startMaxDuration(conn net.Conn, duration time.Duration, events *eventLog) *
 	})
 }
 
-func (a *arrayFlags) String() string {
-	return strings.Join(*a, ", ")
-}
-
-func (a *arrayFlags) Set(value string) error {
-	*a = append(*a, value)
-	return nil
-}
-
 func main() {
-	var commands arrayFlags
-	var port int
-	var host string
-	var file string
-	var timeout int
-	var bannerWait int
-	var interCmd int
-	var eventLogPath string
-	var maxDuration int
-	var promptLogin, stopAfterLogin bool
-	var loginReady string
+	os.Exit(cli.Execute(newRootCommand(), os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	flag.Var(&commands, "cmd", "Command to send (can be specified multiple times)")
-	flag.IntVar(&port, "port", 7777, "MOO server port")
-	flag.StringVar(&host, "host", "localhost", "MOO server host")
-	flag.StringVar(&file, "file", "", "File containing commands (one per line)")
-	flag.IntVar(&timeout, "timeout", 3, "Seconds of idle silence before exiting")
-	flag.IntVar(&bannerWait, "banner-wait", 0, "Milliseconds to wait for the connect banner before sending the first command")
-	flag.IntVar(&interCmd, "inter-cmd", 300, "Milliseconds to wait between commands")
-	flag.StringVar(&eventLogPath, "event-log", "", "Write timestamped client events as JSONL without command text")
-	flag.IntVar(&maxDuration, "max-duration", 0, "Maximum connection duration in seconds (0 waits for idle timeout)")
-	flag.BoolVar(&promptLogin, "login-prompts", false, "Respond to account prompts instead of fixed login delays")
-	flag.BoolVar(&stopAfterLogin, "stop-after-login", false, "Close after the welcome marker; failed hooks retain the receive timeout")
-	flag.StringVar(&loginReady, "login-ready", "MESSAGE OF THE DAY:", "Marker indicating completion of the welcome hook")
-	flag.Parse()
+// clientOptions are what the flags of one invocation set.
+type clientOptions struct {
+	commands                    []string
+	port                        int
+	host, file                  string
+	timeout, bannerWait         int
+	interCmd, maxDuration       int
+	eventLogPath, loginReady    string
+	promptLogin, stopAfterLogin bool
+}
+
+func newRootCommand() *cobra.Command {
+	var o clientOptions
+	root := cli.NewRoot("moo_client", "Send commands to a MOO server and print what comes back")
+	root.Long = `Connect to a MOO server, send each command, and print the raw output until the
+connection has been idle for --timeout seconds. Progress goes to stderr, server
+output to stdout.`
+	root.Example = `  moo_client -p 7777 -c 'connect wizard' -c 'look'
+  moo_client --host mud.example --file commands.txt --event-log events.jsonl`
+	root.Args = cobra.NoArgs
+	flags := root.Flags()
+	flags.StringArrayVarP(&o.commands, "cmd", "c", nil, "`Command` to send, repeatable")
+	flags.IntVarP(&o.port, "port", "p", 7777, "MOO server `port`")
+	flags.StringVar(&o.host, "host", "localhost", "MOO server `host`")
+	flags.StringVarP(&o.file, "file", "f", "", "`File` of commands, one per line (blank lines and # comments skipped)")
+	flags.IntVar(&o.timeout, "timeout", 3, "`Seconds` of idle silence before exiting")
+	flags.IntVar(&o.bannerWait, "banner-wait", 0, "`Milliseconds` to wait for the connect banner before sending the first command")
+	flags.IntVar(&o.interCmd, "inter-cmd", 300, "`Milliseconds` to wait between commands")
+	flags.StringVar(&o.eventLogPath, "event-log", "", "Write timestamped client events as JSONL, without command text, to this `file`")
+	flags.IntVar(&o.maxDuration, "max-duration", 0, "Maximum connection duration in `seconds` (0 waits for idle timeout)")
+	flags.BoolVar(&o.promptLogin, "login-prompts", false, "Respond to account prompts instead of fixed login delays")
+	flags.BoolVar(&o.stopAfterLogin, "stop-after-login", false, "Close after the welcome marker; failed hooks retain the receive timeout")
+	flags.StringVar(&o.loginReady, "login-ready", "MESSAGE OF THE DAY:", "`Marker` indicating completion of the welcome hook")
+	root.RunE = cli.RunE(func(*cobra.Command, []string) error { return runClient(o) })
+	return root
+}
+
+func runClient(o clientOptions) error {
+	commands, port, host, file := o.commands, o.port, o.host, o.file
+	timeout, bannerWait, interCmd, maxDuration := o.timeout, o.bannerWait, o.interCmd, o.maxDuration
+	promptLogin, stopAfterLogin, loginReady := o.promptLogin, o.stopAfterLogin, o.loginReady
 
 	started := time.Now()
-	events, err := newEventLog(eventLogPath, started)
+	events, err := newEventLog(o.eventLogPath, started)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error opening event log: %v\n", err)
-		os.Exit(1)
+		return cli.Exit(1)
 	}
 	defer func() { _ = events.close() }()
 
@@ -120,7 +135,7 @@ func main() {
 		fileCommands, err := loadCommandsFromFile(file)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading commands file: %v\n", err)
-			os.Exit(1)
+			return cli.Exit(1)
 		}
 		commands = append(commands, fileCommands...)
 	}
@@ -134,7 +149,7 @@ func main() {
 	if err != nil {
 		events.record(clientEvent{Event: "connect_error"}, time.Now())
 		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
-		os.Exit(1)
+		return cli.Exit(1)
 	}
 	defer func() { _ = conn.Close() }()
 	if maxDuration > 0 {
@@ -197,9 +212,9 @@ func main() {
 	fmt.Fprintf(os.Stderr, "Done.\n")
 	if loginErr != nil {
 		fmt.Fprintf(os.Stderr, "Login probe failed: %v\n", loginErr)
-		_ = events.close()
-		os.Exit(1)
+		return cli.Exit(1)
 	}
+	return nil
 }
 
 func loadCommandsFromFile(filename string) ([]string, error) {

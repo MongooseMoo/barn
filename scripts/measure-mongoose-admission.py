@@ -124,11 +124,11 @@ def trial(args, label, binary, limit, repeat):
     env = dict(os.environ, GOMAXPROCS=str(limit))
     env.pop("MONGOOSE_USERNAME", None)
     env.pop("MONGOOSE_PASSWORD", None)
-    command = [str(binary), "-db", "mongoose.db.new", "-promote-numbers",
-               "-port", str(args.port), "-debug-addr", f"127.0.0.1:{args.debug_port}",
-               "-checkpoint-interval", "0", "-log-level", "debug", "-log-dir", "logs"]
+    command = [str(binary), "serve", "--db", "mongoose.db.new", "--promote-numbers",
+               "--port", str(args.port), "--debug-addr", f"127.0.0.1:{args.debug_port}",
+               "--checkpoint-interval", "0", "--log-level", "debug", "--log-dir", "logs"]
     if label == "new":
-        command += ["-config", "admission.conf"]
+        command += ["--config", "admission.conf"]
     result = dict(label=label, limit=limit, repeat=repeat, binary_sha256=digest(binary),
                   database_sha256=digest(args.database), commands=[], login_attempts=[])
     result["admission_limit"] = admission_limit if label == "new" else None

@@ -126,6 +126,7 @@ function Get-ToastProcessSample {
 try {
     if ($Engine -eq "Barn") {
         $arguments = @(
+            "serve",
             "--db", $runDatabase,
             "--listen", "tcp://127.0.0.1:$Port",
             "--checkpoint-interval", "0",
@@ -160,14 +161,14 @@ try {
     $loadToListenMS = [int64]((Get-Date) - $serverStartedAt).TotalMilliseconds
 
     $clientArguments = @(
-        "-host", $hostName,
-        "-port", $Port,
-        "-file", $commandsPath,
-        "-banner-wait", "3000",
-        "-inter-cmd", "2500",
-        "-timeout", "15",
-        "-max-duration", "40",
-        "-event-log", $eventPath
+        "--host", $hostName,
+        "--port", $Port,
+        "--file", $commandsPath,
+        "--banner-wait", "3000",
+        "--inter-cmd", "2500",
+        "--timeout", "15",
+        "--max-duration", "40",
+        "--event-log", $eventPath
     )
     $clientStartedAt = Get-Date
     $clientProcess = Start-Process -FilePath $ClientExecutable -ArgumentList $clientArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $transcriptPath -RedirectStandardError $clientErrorPath

@@ -6,7 +6,7 @@ connection events report connection/player IDs. Argument values, return values,
 notification text, input lines, and remote addresses are omitted.
 
 ```bash
-./bin/barn --db game.db --port 7777 --trace 2> trace.log
+./bin/barn serve --db game.db --port 7777 --trace 2> trace.log
 ```
 
 Tracing is disabled by default. There is no raw-payload trace mode.
@@ -21,8 +21,8 @@ are ignored. Nonempty patterns select call, return, and exception events only;
 notifications and connection lifecycle events remain visible.
 
 ```bash
-./bin/barn --db game.db --trace --trace-filter "look,@describe"
-./bin/barn --db game.db --trace --trace-filter "do_*,user_*,get_*"
+./bin/barn serve --db game.db --trace --trace-filter "look,@describe"
+./bin/barn serve --db game.db --trace --trace-filter "do_*,user_*,get_*"
 ```
 
 `*` matches a sequence, `?` matches one character, and `[a-g]` matches a range.

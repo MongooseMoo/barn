@@ -15,7 +15,7 @@
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-on.conf --profile-id barn-linux-testdb-outbound-on --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-on.conf --profile-id barn-linux-testdb-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-testdb-outbound-off",
@@ -32,7 +32,7 @@
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-off.conf --profile-id barn-linux-testdb-outbound-off --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/outbound-off.conf --profile-id barn-linux-testdb-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-mongoose-outbound-on",
@@ -52,7 +52,7 @@
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-on.conf --profile-id barn-linux-mongoose-outbound-on --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-on.conf --profile-id barn-linux-mongoose-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-linux-mongoose-outbound-off",
@@ -72,7 +72,7 @@
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": "./bin/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-off.conf --profile-id barn-linux-mongoose-outbound-off --profile-manifest {manifest}"
+      "command_template": "./bin/barn serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles/barn/mongoose-outbound-off.conf --profile-id barn-linux-mongoose-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-testdb-outbound-on",
@@ -89,7 +89,7 @@
         "option.OUTBOUND_NETWORK": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-testdb-outbound-off",
@@ -106,7 +106,7 @@
         "option.OUTBOUND_NETWORK": false,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-off.conf --profile-id barn-windows-testdb-outbound-off --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\outbound-off.conf --profile-id barn-windows-testdb-outbound-off --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-mongoose-outbound-on",
@@ -126,7 +126,7 @@
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-on.conf --profile-id barn-windows-mongoose-outbound-on --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-on.conf --profile-id barn-windows-mongoose-outbound-on --profile-manifest {manifest}"
     },
     {
       "profile_id": "barn-windows-mongoose-outbound-off",
@@ -146,7 +146,7 @@
         "option.VALID_INCARNATION": true,
         "builtin.open_network_connection": "present"
       },
-      "command_template": ".\\bin\\barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-off.conf --profile-id barn-windows-mongoose-outbound-off --profile-manifest {manifest}"
+      "command_template": ".\\bin\\barn.exe serve --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config profiles\\barn\\mongoose-outbound-off.conf --profile-id barn-windows-mongoose-outbound-off --profile-manifest {manifest}"
     }
   ]
 }

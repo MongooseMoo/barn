@@ -21,7 +21,7 @@ go build -o "$repo/.tmp/conformance/barn" ./cmd/barn
 
 uv run --project "$suite" --frozen moo-conformance \
   -m 'admission or conformance' \
-  --server-command="$repo/.tmp/conformance/barn --db {db} --listen tcp://127.0.0.1:{port} --config=$repo/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+  --server-command="$repo/.tmp/conformance/barn serve --db {db} --listen tcp://127.0.0.1:{port} --config=$repo/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
   --server-db="$suite/src/moo_conformance/_db/Test.db" \
   --server-db-dir="$suite/src/moo_conformance/_db/startup" \
   --moo-host=127.0.0.1 \

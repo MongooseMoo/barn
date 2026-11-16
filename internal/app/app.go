@@ -83,14 +83,14 @@ func BuildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]li
 		return listener.DefaultSpecs(port), nil
 	}
 	if portProvided {
-		return nil, fmt.Errorf("cannot combine -port with -listen")
+		return nil, fmt.Errorf("cannot combine --port with --listen")
 	}
 
 	listenerSpecs := make([]listener.Spec, 0, len(listenFlags))
 	for _, raw := range listenFlags {
 		spec, err := listener.ParseSpec(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid -listen value: %w", err)
+			return nil, fmt.Errorf("invalid --listen value: %w", err)
 		}
 		listenerSpecs = append(listenerSpecs, spec)
 	}
@@ -248,14 +248,8 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.DumpPath != "" {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
 	}
-	if cfg.OmitSuspended && !cfg.OfflineCheckpoint {
-		return errors.New("--omit-suspended requires --offline-checkpoint")
-	}
 	if cfg.OfflineCheckpoint {
 		return dbtool.WriteOfflineCheckpoint(out, cfg.DatabasePath, options, cfg.OmitSuspended)
-	}
-	if cfg.MemoryProfile != "" && !cfg.MemoryReport {
-		return errors.New("--memory-profile requires --memory-report")
 	}
 	if cfg.MemoryReport {
 		return dbtool.MemoryReport(out, cfg.DatabasePath, cfg.MemoryProfile)
@@ -266,7 +260,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 			return err
 		}
 		// As the server does after loading: return what the load allocated
-		// and no longer needs, so -eval 'memory_usage()' reports what a
+		// and no longer needs, so barn eval 'memory_usage()' reports what a
 		// started server holds.
 		debug.FreeOSMemory()
 		// Inspection helpers retain the established textual contracts.

@@ -480,7 +480,7 @@ This grammar should parse all valid MOO code in the conformance test suite. Vali
 ```bash
 # Run parser tests
 go build -o barn.exe ./cmd/barn/
-uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}" -k moocode_parsing
+uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe serve --db {db} --port {port}" -k moocode_parsing
 ```
 
 All 62 parsing tests must pass.

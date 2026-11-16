@@ -37,13 +37,13 @@ if ($Profile -in @('MOO','Both')) {
     $code = $LASTEXITCODE
     if ($code -ne 0) { throw "MOO task profile report failed: $code" }
 }
-& go run ./cmd/barn_logs -dir "$run/barn/logs" -level warn -n 20 2>&1 | Tee-Object "$prefix-logs.txt"
+& go run ./cmd/barn_logs --dir "$run/barn/logs" --level warn -n 20 2>&1 | Tee-Object "$prefix-logs.txt"
 $code = $LASTEXITCODE
 # barn_logs returns 1 when it finds errors; retain that evidence rather than
 # treating a workload finding as a failed capture.
 Write-Output "barn_logs_exit=$code"
 if ($code -gt 1) { throw "Log capture failed: $code" }
-& go run ./cmd/barn_logs -dir "$run/barn/logs" -runtime 2>&1 | Tee-Object "$prefix-runtime.txt"
+& go run ./cmd/barn_logs --dir "$run/barn/logs" --runtime 2>&1 | Tee-Object "$prefix-runtime.txt"
 $code = $LASTEXITCODE
 if ($code -gt 1) { throw "Runtime summary failed: $code" }
 Invoke-WebRequest "$DebugUrl/debug/vars" -OutFile "$prefix-vars-after.json" -TimeoutSec 10

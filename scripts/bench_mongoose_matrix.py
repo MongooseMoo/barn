@@ -189,7 +189,7 @@ def run_world(args, lane, index, root):
     else:
         env["GOMAXPROCS"] = lane.rsplit("-g", 1)[1]
         binary = args.barn_candidate if lane.startswith("barn-candidate-") else args.barn
-        command = [str(binary), "--db", "input.db", "--listen", f"tcp://127.0.0.1:{args.port}",
+        command = [str(binary), "serve", "--db", "input.db", "--listen", f"tcp://127.0.0.1:{args.port}",
                    "--promote-numbers", "--checkpoint-interval", "0", "--debug-addr", "127.0.0.1:0",
                    "--log-dir", "logs"]
     record = {"lane": lane, "round": index, "command": command,
