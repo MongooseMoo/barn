@@ -439,6 +439,7 @@ if [ "$1" = version ]; then echo "go version go1.27.1 linux/amd64"; exit 0; fi
 n=$(( $(cat "$WORK/attempts" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$WORK/attempts"
 echo "attempt $n" >> "$WORK/sequence"
 echo "$*" >> "$WORK/arguments"
+echo "$TMPDIR $GOTMPDIR $([ -d "$TMPDIR" ] && echo exists)" >> "$WORK/tempdirs"
 [ -n "${GITHUB_TOKEN:-}" ] && echo "token reached go test" >> "$WORK/sequence"
 if [ "$n" = 1 ]; then
   mkdir -p vm/testdata/fuzz/FuzzT
@@ -569,6 +570,21 @@ echo "fuzz: elapsed: 1s, execs: 10 (10/sec), new interesting: 0 (total: 1)"
             self.assertTrue(240 < fuzztime <= 300, line)
             self.assertIn(f"-timeout={fuzztime + 600}s", line)
             self.assertIn(" -parallel=4 ", line)
+
+    def test_test_temp_files_are_on_tmpfs_and_builds_on_disk(self):
+        # Checkpoint fsyncs on the guest's disk held an input past Go's 60 s
+        # per-input limit (#801); the job's tmpfs directory is removed at its end.
+        (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
+        self.failing = {("POST", "/issues")}
+        self.run_step(self.campaign)
+        temp = self.env["RUNNER_TEMP"]
+        for line in (self.work / "tempdirs").read_text().splitlines():
+            self.assertEqual(line, f"/dev/shm/barn-fuzz-1-FuzzT {temp}/go-tmp exists")
+        workflow = (ROOT / ".github/workflows/fuzz.yml").read_text()
+        result = self.run_step(step_script(workflow, "Remove this job's disposable build cache"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Through bash: on Windows, Python's /dev/shm is not Git Bash's.
+        self.assertEqual(self.run_step("test ! -e /dev/shm/barn-fuzz-1-FuzzT").returncode, 0)
 
     def test_failed_report_is_visible_and_retried_when_the_job_ends(self):
         (self.work / "record").write_bytes(b'go test fuzz v1\nstring("x")\n')
