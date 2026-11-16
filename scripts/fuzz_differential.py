@@ -27,7 +27,8 @@ because tick accounting is not claimed to be Toast-exact.  An input the
 harness killed (TIMED_OUT) counts as aborted on that engine and is also
 listed under ``timeouts`` per engine; one whose engine died of a SIGKILL the
 harness did not send (KILLED, the memory limit) is listed under ``killed``
-instead.  A recovered Barn panic is always a
+instead, and one Toast panicked on (CRASHED) under ``crashed``.  A recovered
+Barn panic is always a
 divergence.
 
 Exit status: 0 positive completed coverage with no divergence or unknown outcome,
@@ -79,7 +80,15 @@ TIMED_OUT = "** timed out: the harness killed the engine **"
 # at the listener's 12 GiB MemoryMax (2026-11-14: Barn at 12.1 GB anon-rss on
 # `while n (l + E_NACC + n + n) endwhile`, whose list doubles each pass).
 KILLED = "** killed: by a signal the harness did not send (memory limit) **"
-ABORTED = ("=> *Aborted*", TIMED_OUT, KILLED)
+# Toast's panic() dumps the database and calls abort(), so the lane shell
+# exits 134 with "*** PANIC:" in its log (run 43806699303: "Caught signal 11"
+# on `while o (`url_encode("a ") ! ANY'[2147483648..n + n] ? n | n)
+# endwhile`). The pinned Toast is the oracle and is not ours to fix, so the
+# probe after its last record is recorded and the chunk restarts without it.
+TOAST_PANIC_EXIT = 134
+TOAST_PANIC = "*** PANIC:"
+CRASHED = "** crashed: Toast panicked and aborted **"
+ABORTED = ("=> *Aborted*", TIMED_OUT, KILLED, CRASHED)
 
 DEFERRED_COMPARISONS = {
     "b594964e16a6b933676a449a39e87c920aa0d86ae1682bca0100ea546b9e0fbd",
@@ -290,7 +299,8 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
                 startup: int = STARTUP_SECONDS, chunk: int = CHUNK) -> tuple[list, list[str], list[int]]:
     """Run lines (the preamble, then one probe per line) through one engine in
     bounded processes. Returns its record per line (TIMED_OUT for a probe the
-    harness killed, KILLED for one that died of a SIGKILL from elsewhere),
+    harness killed, KILLED for one that died of a SIGKILL from elsewhere,
+    CRASHED for one Toast panicked on),
     record errors, and the indexes of the timed-out lines.
     Every process's transcript is appended to <lane>_raw.txt."""
     records: list = [None] * len(lines)
@@ -312,7 +322,9 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
             with transcript.open("a", encoding="utf-8") as f:
                 f.write(f"--- process: {span} without {sorted(stuck)}, bound {bound}s, exit {proc.returncode} ---\n"
                         f"{proc.stdout}\n--- STDERR ---\n{proc.stderr}\n")
-            killed = proc.returncode in TIMEOUT_EXITS
+            crashed = (lane == "toast" and proc.returncode == TOAST_PANIC_EXIT
+                       and TOAST_PANIC in proc.stdout + proc.stderr)
+            killed = crashed or proc.returncode in TIMEOUT_EXITS
             if proc.returncode != 0 and not killed:
                 raise RuntimeError(f"{lane} exited {proc.returncode}; see {transcript}")
             got = results(proc.stdout)
@@ -331,10 +343,12 @@ def run_bounded(lane: str, run, lines: list[str], out: Path, probe_timeout: int 
                 if done != len(run_ids):
                     errors.append(f"{lane}: {done} result records for {len(run_ids)} {span}; see {transcript}")
                 break
-            # Killed: the probe after the last record never finished.
+            # Killed or crashed: the probe after the last record never finished.
             hung = run_ids[done]
             stuck.add(hung)
-            if records[hung] is None and getattr(proc, "outside_kill", False):
+            if records[hung] is None and crashed:
+                records[hung] = CRASHED
+            elif records[hung] is None and getattr(proc, "outside_kill", False):
                 records[hung] = KILLED
             elif records[hung] is None:
                 records[hung] = TIMED_OUT
@@ -437,7 +451,7 @@ def main() -> int:
     for lane, lines in lane_inputs.items():
         write_inputs(args.out / f"{lane}_in.txt", lines, lane)
     run = engine_runner(args.db, barn_bin, args.toast, args.out, args.probe_timeout)
-    records, record_errors, timeouts, killed = {}, [], {}, {}
+    records, record_errors, timeouts, killed, crashed = {}, [], {}, {}, {}
     for lane in ("toast", "barn"):
         records[lane], errors, timed_out = run_bounded(lane, run, lane_inputs[lane], args.out, args.probe_timeout)
         # Without one record per input the positions mean nothing.
@@ -446,6 +460,7 @@ def main() -> int:
         record_errors += errors
         timeouts[lane] = [keyed[i - 1][0] for i in timed_out]
         killed[lane] = [keyed[i - 1][0] for i in range(1, len(records[lane])) if records[lane][i] == KILLED]
+        crashed[lane] = [keyed[i - 1][0] for i in range(1, len(records[lane])) if records[lane][i] == CRASHED]
 
     rows = []
     completed = 0
@@ -491,7 +506,7 @@ def main() -> int:
         "unknown_pairs": counts.get("unknown", 0),
         "partial": completed != len(programs),
         "counts": counts, "record_errors": record_errors, "recovered_panics": recovered_panics,
-        "timeouts": timeouts, "killed": killed, "lanes": corpus_lanes,
+        "timeouts": timeouts, "killed": killed, "crashed": crashed, "lanes": corpus_lanes,
     }
     report = [
         "# Barn vs Toast fuzz differential", "",
@@ -502,6 +517,7 @@ def main() -> int:
         f"- recovered Barn panics: {json.dumps(recovered_panics)}",
         f"- timed out (harness killed the engine): {json.dumps(timeouts)}",
         f"- killed by a signal the harness did not send (memory limit): {json.dumps(killed)}",
+        f"- crashed (the engine panicked and aborted): {json.dumps(crashed)}",
         f"- excluded: {json.dumps(excluded, sort_keys=True)}",
         f"- bounds: fg_ticks {FG_TICKS}, fg_seconds {FG_SECONDS}; harness {args.probe_timeout}s per input, "
         f"{CHUNK} inputs per process; db `{args.db}`",
@@ -521,6 +537,11 @@ def main() -> int:
         if keys:
             report += [f"## killed on {lane} ({len(keys)})", "",
                        f"The engine died of a SIGKILL the harness did not send; partial transcript in `{lane}_raw.txt`.",
+                       "", *(f"- {key}" for key in keys), ""]
+    for lane, keys in crashed.items():
+        if keys:
+            report += [f"## crashed on {lane} ({len(keys)})", "",
+                       f"The engine panicked and aborted on this input; its log is in `{lane}_raw.txt`.",
                        "", *(f"- {key}" for key in keys), ""]
     for kind in ("divergence", "aborted on barn", "aborted on toast", "aborted on both", "unknown"):
         listed = [r for r in rows if r["kind"] == kind]
