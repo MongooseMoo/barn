@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import bench_differ
 from bench_differ import REPO
-from fuzz_differential import (TIMED_OUT, decode_corpus_file, engine_runner, exclusion, load_programs, main,
+from fuzz_differential import (KILLED, TIMED_OUT, decode_corpus_file, engine_runner, exclusion, load_programs, main,
                                outcome, probe, render_choices, results, run_bounded)
 
 # Real records copied byte for byte from Go's fuzz cache of the structured
@@ -140,6 +140,19 @@ class BoundedRunTests(unittest.TestCase):
         self.assertEqual(records, ["=> 0", TIMED_OUT, value("F00002"), TIMED_OUT])
         self.assertEqual((errors, timed_out), ([], [1, 3]))
 
+    def test_probe_killed_outside_the_harness_is_not_a_timeout(self):
+        # engine_runner marks exit 137 with no harness kill, before the bound.
+        def engine(lane, lines, bound):
+            if any("F00002" in line for line in lines):
+                return SimpleNamespace(returncode=137, stdout=f"=> 0\n{value('F00001')}\n", stderr="",
+                                       outside_kill=True)
+            return FakeEngine({"barn": ["=> 0", value("F00001"), None, value("F00003")]})(lane, lines, bound)
+        with tempfile.TemporaryDirectory() as directory:
+            records, errors, timed_out = run_bounded("barn", engine, self.lines(3), Path(directory),
+                                                     probe_timeout=1, startup=1, chunk=20)
+        self.assertEqual(records, ["=> 0", value("F00001"), KILLED, value("F00003")])
+        self.assertEqual((errors, timed_out), ([], []))
+
     def test_record_count_mismatch_is_an_error(self):
         engine = lambda lane, lines, bound: SimpleNamespace(returncode=0, stdout="=> 0\n", stderr="")  # noqa: E731
         with tempfile.TemporaryDirectory() as directory:
@@ -163,6 +176,7 @@ class BoundedRunTests(unittest.TestCase):
                         "  case \"$line\" in\n"
                         "    quit) echo 'Bye.'; exit 0 ;;\n"
                         "    *HANG*) while :; do sleep 1; done ;;\n"
+                        "    *OOM*) kill -KILL $$ ;;\n"
                         "    *) echo \"=> $line\" ;;\n"
                         "  esac\n"
                         "done\n", encoding="utf-8", newline="\n")
@@ -181,6 +195,20 @@ class BoundedRunTests(unittest.TestCase):
                                                      chunk=20)
         self.assertEqual(records, ["=> ;;preamble", "=> ;;one", TIMED_OUT, "=> ;;three"])
         self.assertEqual((errors, timed_out), ([], [2]))
+
+    def test_real_shell_engine_killed_by_another_sender_is_killed_not_timed_out(self):
+        # As the OOM killer does: the engine dies of SIGKILL well within its bound.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            db, toast = self.fake_toast(out)
+            lines = [";;preamble", ";;one", ";;OOM", ";;three"]
+            run = engine_runner(db, out / "barn", toast, out, probe_timeout=60, startup=60)
+            records, errors, timed_out = run_bounded("toast", run, lines, out, probe_timeout=60, startup=60,
+                                                     chunk=20)
+            transcript = Path(directory, "toast_raw.txt").read_text(encoding="utf-8")
+        self.assertEqual(records, ["=> ;;preamble", "=> ;;one", KILLED, "=> ;;three"])
+        self.assertEqual((errors, timed_out), ([], []))
+        self.assertIn("exit 137", transcript)
 
     def test_real_shell_kills_a_stalled_engine_after_probe_timeout(self):
         # The whole-process bound is 30 + 1 * 4 seconds; the hung probe must
