@@ -54,7 +54,9 @@ func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 	}
 }
 
-func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
+// Toast 2.8 orders false < true in compare(), so every key of this mixed map
+// is reachable (conformance boolean_and_equal_integer_mixed_map_reachability).
+func TestMaphaskeyReachesEveryMixedBooleanIntegerKey(t *testing.T) {
 	ctx := newTestExecution()
 	mapping := types.NewEmptyMap()
 	mapping = mapping.MapSet(types.NewBool(true), types.NewStr("boolean one"))
@@ -67,7 +69,7 @@ func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
 		key  types.Value
 		want int64
 	}{
-		{name: "true", key: types.NewBool(true), want: 0},
+		{name: "true", key: types.NewBool(true), want: 1},
 		{name: "one", key: types.NewInt(1), want: 1},
 		{name: "false", key: types.NewBool(false), want: 1},
 		{name: "zero", key: types.NewInt(0), want: 1},

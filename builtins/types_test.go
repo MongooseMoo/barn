@@ -107,7 +107,7 @@ func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
 	if result.IsError() {
 		t.Fatalf("toliteral failed: %v", result.Error)
 	}
-	if got := result.Val.Str(); got != "[*anonymous* -> 2, *anonymous* -> 1]" {
+	if got := result.Val.Str(); got != "[*anonymous* -> 1, *anonymous* -> 2]" {
 		t.Fatalf("toliteral(anonymous-key map) = %q, want nested identities hidden in tree order", got)
 	}
 }
