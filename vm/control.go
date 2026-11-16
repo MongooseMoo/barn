@@ -58,6 +58,24 @@ func NewForkVM(store *dbstore.Store, session *builtins.Session, taskID int64, fo
 	return childVM
 }
 
+// forkDelaySeconds validates a fork statement's delay: E_TYPE unless it is a
+// number, E_INVARG when it is negative.
+func forkDelaySeconds(delay types.Value) (float64, error) {
+	switch delay.Type() {
+	case types.TYPE_INT:
+		if delay.Int() < 0 {
+			return 0, newMooError(types.E_INVARG, "fork delay must be non-negative")
+		}
+		return float64(delay.Int()), nil
+	case types.TYPE_FLOAT:
+		if delay.Float() < 0 {
+			return 0, newMooError(types.E_INVARG, "fork delay must be non-negative")
+		}
+		return delay.Float(), nil
+	}
+	return 0, newMooError(types.E_TYPE, "fork delay must be numeric")
+}
+
 // executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
 // Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short> (legacy) or
@@ -82,23 +100,16 @@ func (vm *VM) executeFork(wide, wideLocal bool) error {
 	}
 	bodyLen := vm.readControlFlowOperand(wide)
 
-	// Pop and validate the delay value
-	delay := vm.Pop()
-
-	var delaySeconds float64
-	switch delay.Type() {
-	case types.TYPE_INT:
-		if delay.Int() < 0 {
-			return newMooError(types.E_INVARG, "fork delay must be non-negative")
+	delaySeconds, err := forkDelaySeconds(vm.Pop())
+	if err != nil {
+		// Toast reports a rejected delay with RAISE_TYPE_MISMATCH or
+		// RAISE_ERROR, which push nothing in a verb without the d flag: the
+		// fork statement is skipped and execution continues after its body.
+		if frame := vm.CurrentFrame(); frame != nil && !frame.VerbDebug {
+			frame.IP += bodyLen
+			return nil
 		}
-		delaySeconds = float64(delay.Int())
-	case types.TYPE_FLOAT:
-		if delay.Float() < 0 {
-			return newMooError(types.E_INVARG, "fork delay must be non-negative")
-		}
-		delaySeconds = delay.Float()
-	default:
-		return newMooError(types.E_TYPE, "fork delay must be numeric")
+		return err
 	}
 
 	// Resolve variable name from index

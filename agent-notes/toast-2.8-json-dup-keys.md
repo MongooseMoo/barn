@@ -1,5 +1,25 @@
 # toast-2.8-json-dup-keys
 
+## Integration state: November 16
+
+Q authorized the non-WASM merge plan. This existing PR now preserves the
+original heads of #865, #866, #867 and #869 through ordinary merges, plus
+current master including #872. The map-key test conflict retains total-order
+assertions and shared IsValidMapKey admission.
+
+The previously unpublished extended-opcode changes are integrated: every
+charged opcode tests the budget, persisted prefix operands still decode
+their retired flag bit, and invalid non-debug fork delays skip the fork body.
+The fork-delay regression installs its active frame through PrepareVerbFrame.
+Keep the original tick regression identity and CI selector; #217 preserves
+durable identities while changing their expectations.
+
+The focused managed Toast run and the full paired candidate run have not yet
+returned verdicts. Publish these edits to the existing #870 PR, preserve all
+five required checks, and fix findings before the suite/Barn cutover.
+The JSON-only verification narrative below is historical component evidence,
+not verification of the combined implementation.
+
 ## Goal
 
 Match stock ToastStunt 2.8's `parse_json()` duplicate-key behaviour

@@ -32,8 +32,8 @@ func TestPushWideVerifiesAgainstTheWholePool(t *testing.T) {
 	if !program.IsInstructionBoundary(0) || program.IsInstructionBoundary(1) || program.IsInstructionBoundary(2) || !program.IsInstructionBoundary(3) {
 		t.Fatal("PUSH_WIDE does not occupy exactly its opcode and two operand bytes")
 	}
-	if checked, unchecked := InstructionTicks(OP_PUSH_WIDE, program.Code, 0); checked != 0 || unchecked != 0 {
-		t.Fatalf("PUSH_WIDE ticks = %d checked, %d unchecked; want none, like PUSH", checked, unchecked)
+	if ticks := InstructionTicks(OP_PUSH_WIDE, program.Code, 0); ticks != 0 {
+		t.Fatalf("PUSH_WIDE ticks = %d; want none, like PUSH", ticks)
 	}
 	if disassembly := strings.Join(Disassemble(program), "\n"); !strings.Contains(disassembly, "PUSH_WIDE") {
 		t.Fatalf("Disassemble() omitted PUSH_WIDE:\n%s", disassembly)

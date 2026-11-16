@@ -419,13 +419,12 @@ var fastKinds = func() (t [256]uint8) {
 	return t
 }()
 
-// Tick accounting mirrors ToastStunt's run loop (execute.cc): an ordinary
-// ticking opcode decrements the budget and aborts the task, without running,
-// when the budget reaches zero; an extended opcode at or above EOP_CATCH
-// decrements it without that test. bytecode.InstructionTicks says what each
-// instruction charges. The task context's TicksRemaining mirror is refreshed
-// before every generic-path instruction (builtins read it) and on exit, not
-// per tick.
+// Tick accounting mirrors ToastStunt's run loop (execute.cc): a ticking
+// opcode, ordinary or (since 2.8, fdfa9ae) extended at or above EOP_CATCH,
+// decrements the budget and aborts the task, without running, when the budget
+// reaches zero. bytecode.InstructionTicks says what each instruction charges.
+// The task context's TicksRemaining mirror is refreshed before every
+// generic-path instruction (builtins read it) and on exit, not per tick.
 
 type tickOutcome uint8
 
@@ -439,15 +438,12 @@ const (
 // precedes the seconds test, as in Toast. Clock reads are amortized: the
 // seconds budget is consulted whenever the count crosses a multiple of 1024,
 // which also bounds a non-yielding loop on either dispatch path.
-func (vm *VM) chargeTicks(checked, unchecked int64) tickOutcome {
+func (vm *VM) chargeTicks(ticks int64) tickOutcome {
 	before := vm.Ticks
-	if checked != 0 {
-		vm.Ticks += checked
-		if vm.Ticks >= vm.TickLimit {
-			return ticksExhausted
-		}
+	vm.Ticks += ticks
+	if vm.Ticks >= vm.TickLimit {
+		return ticksExhausted
 	}
-	vm.Ticks += unchecked
 	if vm.Ticks>>10 != before>>10 && vm.tickCheckpoint() {
 		return secondsExhausted
 	}
@@ -461,17 +457,6 @@ func (vm *VM) chargeTicks(checked, unchecked int64) tickOutcome {
 func (vm *VM) fastTick() bool {
 	t := vm.Ticks + 1
 	if t >= vm.TickLimit || t&1023 == 0 {
-		return false
-	}
-	vm.Ticks = t
-	return true
-}
-
-// fastTickUnchecked is fastTick for an extended-opcode tick, which never
-// exhausts the budget by itself.
-func (vm *VM) fastTickUnchecked() bool {
-	t := vm.Ticks + 1
-	if t&1023 == 0 {
 		return false
 	}
 	vm.Ticks = t
@@ -919,13 +904,7 @@ func (vm *VM) executeLoop() types.Result {
 			case fkForRangeCheck, fkForListCheck:
 				a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
 				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
-					ticked := false
-					if fastKinds[op] == fkForRangeCheck {
-						ticked = vm.fastTick()
-					} else {
-						ticked = vm.fastTickUnchecked()
-					}
-					if ticked {
+					if vm.fastTick() {
 						next := ip + 7
 						if a.Int() > b.Int() {
 							next += wideOperand(code, ip+3)
@@ -953,22 +932,18 @@ func (vm *VM) executeLoop() types.Result {
 		// write the local ip back first (see IP WRITE-BACK above). An OP_TICKS
 		// prefix replaces the next instruction's default charge.
 		cur.IP = ip + 1
-		var checked, unchecked int64
+		var ticks int64
 		if op == bytecode.OP_TICKS {
-			if t := code[ip+1]; t&bytecode.TicksUnchecked != 0 {
-				unchecked = int64(t &^ bytecode.TicksUnchecked)
-			} else {
-				checked = int64(t)
-			}
+			ticks = bytecode.PrefixTicks(code[ip+1])
 			op = bytecode.OpCode(code[ip+2])
 			cur.IP = ip + 3
 		} else if kind := bytecode.TickKind(op); kind != bytecode.TickDynamic {
-			checked, unchecked = bytecode.StaticTicks(kind)
+			ticks = bytecode.StaticTicks(kind)
 		} else {
-			checked, unchecked = bytecode.DynamicTicks(op, code, ip)
+			ticks = bytecode.DynamicTicks(op, code, ip)
 		}
-		if checked|unchecked != 0 {
-			switch vm.chargeTicks(checked, unchecked) {
+		if ticks != 0 {
+			switch vm.chargeTicks(ticks) {
 			case ticksExhausted:
 				goto tickLimit
 			case secondsExhausted:
@@ -1065,9 +1040,8 @@ func (vm *VM) executeLoop() types.Result {
 
 		// Ticks a builtin charged for nested verb work can exhaust the budget
 		// after an instruction runs; that only matters at an instruction that
-		// tests the budget. (An extended opcode's unchecked tick may leave it
-		// exhausted; the next checked tick aborts, as in Toast.)
-		if checked != 0 && vm.Ticks >= vm.TickLimit {
+		// tests the budget.
+		if ticks != 0 && vm.Ticks >= vm.TickLimit {
 			goto tickLimit
 		}
 		continue
@@ -1158,19 +1132,15 @@ func (vm *VM) Step() error {
 	op := bytecode.OpCode(code[ip])
 	frame.IP++
 
-	var checked, unchecked int64
+	var ticks int64
 	if op == bytecode.OP_TICKS {
-		if t := code[ip+1]; t&bytecode.TicksUnchecked != 0 {
-			unchecked = int64(t &^ bytecode.TicksUnchecked)
-		} else {
-			checked = int64(t)
-		}
+		ticks = bytecode.PrefixTicks(code[ip+1])
 		op = bytecode.OpCode(code[ip+2])
 		frame.IP = ip + 3
 	} else {
-		checked, unchecked = bytecode.InstructionTicks(op, code, ip)
+		ticks = bytecode.InstructionTicks(op, code, ip)
 	}
-	vm.chargeTicks(checked, unchecked)
+	vm.chargeTicks(ticks)
 	vm.syncContextTicks()
 
 	return vm.Execute(op)
@@ -1645,7 +1615,7 @@ restartUnwind:
 				// does not store when it aborts the task.
 				if handler.VarIndex >= 0 {
 					if handler.VarIndex < len(frame.Program.VarNames) {
-						vm.handlerTick = vm.chargeTicks(1, 0)
+						vm.handlerTick = vm.chargeTicks(1)
 					}
 					if vm.handlerTick == ticksOK {
 						frame.Locals[handler.VarIndex] = exceptionValue

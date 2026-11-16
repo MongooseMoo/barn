@@ -170,8 +170,9 @@ func TestUnfinishedIndexFollowsEveryStateChange(t *testing.T) {
 // runs. PendingReadier keeps holding the task that forked it until the slice
 // ends, so a scheduling scan must still be handed the killed task: dropping it
 // at the state change let a parent that forked and yielded resume before the
-// hook's writes (tick_exhaustion_extended_opcode_does_not_test_the_budget read
-// the probe one write early).
+// hook's writes (the pre-ToastStunt-2.8 conformance test
+// tick_exhaustion_extended_opcode_does_not_test_the_budget read the probe one
+// write early).
 func TestUnfinishedKeepsFinishedTaskUntilItsSliceEnds(t *testing.T) {
 	for _, final := range []task.TaskState{task.TaskKilled, task.TaskCompleted} {
 		manager := NewTaskManager()

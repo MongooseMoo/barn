@@ -86,14 +86,14 @@ func verifyLoopsTick(code []byte, instructions []decodedInstruction, heights []i
 	// so, where control can go next.
 	freeEdges := func(ip int) (bool, []flowEdge) {
 		instruction := instructions[index[ip]]
-		var checked, unchecked int64
+		var ticks int64
 		if instruction.op == OP_TICKS {
-			checked = int64(instruction.operands[0] &^ TicksUnchecked)
+			ticks = PrefixTicks(instruction.operands[0])
 			instruction = instructions[index[instruction.next]]
 		} else {
-			checked, unchecked = InstructionTicks(instruction.op, code, instruction.ip)
+			ticks = InstructionTicks(instruction.op, code, instruction.ip)
 		}
-		if checked|unchecked != 0 {
+		if ticks != 0 {
 			return false, nil
 		}
 		return true, successors(instruction, 0, 0)
